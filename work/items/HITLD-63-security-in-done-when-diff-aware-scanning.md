@@ -2,10 +2,11 @@
 id: HITLD-63
 title: "Security in done when: diff-aware scanning against a baseline, triage records, accepted risk with expiry"
 kind: work
-status: Planned
+status: In progress
 created: 2026-11-14
 project: HITLD-15
 milestone: first-release
+claimed: D-63
 ---
 
 ## Why
