@@ -304,13 +304,13 @@ test('tracker front matter is validated by its kind', () => {
   ]);
 });
 
-test('a public judgement carries what, basis and who; the time is optional', () => {
+test('a public judgement carries what, basis and who; the time is not public', () => {
   const signal = /** @type {any} */ (examples.signal);
   const judgement = signal.judgements[0];
   const check = (/** @type {any} */ j) =>
     registry.validateEntity('signal', { ...signal, judgements: [j] });
   assert.deepEqual(check(judgement), []);
-  assert.deepEqual(check({ ...judgement, at: '2026-11-14' }), []);
+  assert.ok(check({ ...judgement, at: '2026-11-14' }).length, 'the time is private');
   assert.ok(check({ what: judgement.what, basis: judgement.basis }).length, 'who is required');
   assert.ok(check({ ...judgement, confidence: 0.7 }).length, 'private fields are not public');
 });

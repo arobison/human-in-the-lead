@@ -77,11 +77,7 @@
       "properties": {
         "what": { "$ref": "#/$defs/text" },
         "basis": { "enum": ["gut-check", "considered"] },
-        "by": { "$ref": "#/$defs/person" },
-        "at": {
-          "description": "Accepted for files written before the time moved to the private store. Not required, and new records leave it out.",
-          "$ref": "#/$defs/timestamp"
-        }
+        "by": { "$ref": "#/$defs/person" }
       },
       "required": ["what", "basis", "by"],
       "additionalProperties": false

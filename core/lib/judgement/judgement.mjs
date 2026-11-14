@@ -12,7 +12,7 @@
 
 /**
  * @typedef {import('../policy/policy.mjs').Policy} Policy
- * @typedef {{ what: string, basis: 'gut-check' | 'considered', by: string, at?: string }} Judgement
+ * @typedef {{ what: string, basis: 'gut-check' | 'considered', by: string }} Judgement
  * @typedef {{ ref: string, verdict: 'contradicts' | 'supports' | 'inconclusive', summary: string, judgement?: number }} Evidence
  *   judgement: the index of the judgement it bears on; omitted, it bears on every one.
  *
@@ -98,7 +98,7 @@ export function conflictQuestion({ subject, judgement, evidence, recommend, why,
     title: `Evidence contradicts a judgement on ${subject}`,
     question: `Does the evidence change your ${judgement.basis} judgement on ${subject}: "${judgement.what}"?`,
     context:
-      `${judgement.at ? `On ${judgement.at} the` : 'The'} judgement was recorded as a ${judgement.basis}. Evidence that contradicts it: ${refs}. ` +
+      `The judgement was recorded as a ${judgement.basis}. Evidence that contradicts it: ${refs}. ` +
       'Until you answer, the estimate is held without your judgement, and nothing has been revised.',
     options: [
       {
