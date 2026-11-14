@@ -31,9 +31,4 @@ export const commands = [
     summary: 'Upgrade data files to the current schema versions',
     piece: 'major',
   },
-  {
-    name: 'config migrate',
-    summary: 'Move settings out of policy.json into the person and machine files',
-    piece: 'settings-hold',
-  },
 ];

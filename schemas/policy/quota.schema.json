@@ -5,28 +5,28 @@
   "type": "object",
   "properties": {
     "owner_reserve": {
-      "description": "The share of each limit kept for the owner's own interactive use, unless a limit sets its own reserve (design part 22, Q11).",
+      "description": "The share of each limit kept for the owner's own interactive use, unless a limit sets its own reserve (design part 22, Q11). Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it, and after that only a larger reserve has effect.",
       "type": "number",
       "minimum": 0,
       "maximum": 1,
       "default": 0.25
     },
     "economize_at": {
-      "description": "Below this headroom: prefer cheaper models and tiers where sizing allows, and lower concurrency.",
+      "description": "Below this headroom: prefer cheaper models and tiers where sizing allows, and lower concurrency. Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it, and after that only an earlier threshold has effect.",
       "type": "number",
       "minimum": 0,
       "maximum": 1,
       "default": 0.4
     },
     "critical_at": {
-      "description": "Below this headroom: dispatch only critical-path items.",
+      "description": "Below this headroom: dispatch only critical-path items. Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it, and after that only an earlier threshold has effect.",
       "type": "number",
       "minimum": 0,
       "maximum": 1,
       "default": 0.15
     },
     "notify_at": {
-      "description": "Shares of a limit used at which a line goes into the digest.",
+      "description": "Shares of a limit used at which a line goes into the digest. Moved to the person file (design part 13.4); shares set here are added to the person's, with a warning until the person file sets its own.",
       "type": "array",
       "items": {
         "type": "number",
@@ -37,7 +37,7 @@
       "default": [0.5, 0.75, 0.9]
     },
     "limits": {
-      "description": "The declared limits. A project's list replaces the default list as a whole. The defaults are the two Claude subscription windows, read from status-line snapshots.",
+      "description": "The declared limits. A project's list replaces the default list as a whole. The defaults are the two Claude subscription windows, read from status-line snapshots. Limits other than run budgets (window: run) moved to the person file (design part 13.4); here they still load, with a warning, and a limit with the same id as a person limit only tightens it.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/limit"
@@ -68,7 +68,7 @@
       ]
     },
     "forecast_hours": {
-      "description": "How many recent hours the burn rate is smoothed over.",
+      "description": "How many recent hours the burn rate is smoothed over. Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it.",
       "type": "number",
       "exclusiveMinimum": 0,
       "default": 2

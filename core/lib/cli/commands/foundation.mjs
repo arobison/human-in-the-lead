@@ -1,6 +1,7 @@
 // Commands the foundation builds.
 
 import { loadPolicy } from '../../policy/policy.mjs';
+import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { NAME, VERSION } from '../../version.mjs';
 
@@ -48,11 +49,16 @@ export const commands = [
         path: /** @type {string | undefined} */ (input.policy),
         cwd: ctx.cwd,
       });
+      // Keys that moved to the person or machine file still load, with a warning (design 13.4).
+      const warnings = result.policy
+        ? loadEffectivePolicy({ env: ctx.env, policyResult: result }).warnings.map((w) => w.message)
+        : [];
       return {
         ok: result.errors.length === 0,
         path: result.path,
         hash: result.hash,
         errors: result.errors,
+        ...(warnings.length ? { warnings } : {}),
         ...(input.effective && result.policy ? { policy: result.policy } : {}),
       };
     },
