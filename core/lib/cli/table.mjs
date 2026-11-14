@@ -13,6 +13,7 @@ import { commands as rights } from './commands/rights.mjs';
 import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
+import { commands as config } from './commands/config.mjs';
 import { commands as later } from './commands/later.mjs';
 
 /**
@@ -67,6 +68,7 @@ export const COMMANDS = Object.freeze([
   ...quota,
   ...evals,
   ...orchestrator,
+  ...config,
   ...later,
 ]);
 

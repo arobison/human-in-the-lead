@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
+import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
@@ -106,10 +107,16 @@ function project(ctx) {
       errors: loaded.errors,
     });
   }
-  const policy = loaded.policy;
-  const store = openStore(privateStorePath(policy.project.id, { env: ctx.env, repoRoot }));
+  const store = openStore(privateStorePath(loaded.policy.project.id, { env: ctx.env, repoRoot }));
   const state = loadState(store).state;
-  return { repoRoot, policy, store, state };
+  // The person's and machine's settings layered over the project's (design part 13.4).
+  const layered = loadEffectivePolicy({ env: ctx.env, policyResult: loaded, run: state?.scope });
+  if (!layered.policy || !layered.settings) {
+    throw new Refusal('settings', 'a settings file is invalid; run hitld config explain', {
+      errors: layered.errors,
+    });
+  }
+  return { repoRoot, policy: layered.policy, cap: layered.settings.cap, store, state };
 }
 
 /**
@@ -181,7 +188,7 @@ function plan(p, ctx) {
     queue: q.queue,
     sizes: q.sizes,
     running,
-    cap: p.state?.scope?.concurrency_cap ?? p.policy.execution.concurrency.value,
+    cap: p.cap,
     capabilities: CAPABILITIES,
     gate: (item) =>
       dispatchGate(

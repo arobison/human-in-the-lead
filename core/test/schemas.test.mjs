@@ -16,6 +16,32 @@ const examples = {
       seven_day: { used_percentage: 17, resets_at: 1794900000 },
     },
   },
+  // Part 13.4: the person file, with a declared limit and a share between projects.
+  person: {
+    schema_version: 1,
+    executors_max: 4,
+    quota: {
+      owner_reserve: 0.3,
+      limits: [
+        {
+          id: 'api-monthly',
+          unit: 'usd',
+          window: 'monthly_utc',
+          limit: 50,
+          source: 'declared',
+          hard: true,
+        },
+      ],
+    },
+    projects: { 'example-project': { share: 2 } },
+  },
+  // Part 13.4: the machine file.
+  machine: {
+    schema_version: 1,
+    role: 'workstation',
+    executors_max: 2,
+    env: { port_range: { min: 4100, max: 4199 }, secret_provider: 'keychain' },
+  },
   tracker: {
     schema_version: 1,
     work_dir: 'work',

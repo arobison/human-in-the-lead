@@ -1,0 +1,41 @@
+{
+  "$id": "machine",
+  "title": "Machine settings",
+  "description": "The machine file (design part 13.4): what this machine lets hitld use, kept beside the machine-wide registry at $XDG_DATA_HOME/human-in-the-lead/_machine/machine.json (~/.local/share/human-in-the-lead/_machine/machine.json when XDG_DATA_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps and the port range take the strictest layer; a project may narrow them, never widen them. Internal: never committed or synced.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "role": {
+      "description": "What kind of machine this is; the role sets the defaults for shares and load checks (design part 13.4, machine roles).",
+      "enum": ["dedicated", "workstation", "cloud_vm", "ci"]
+    },
+    "executors_max": {
+      "description": "The most executors on this machine, from every project. The effective cap is the smallest of this, the person's executors_max, the project's execution.concurrency and the run's cap.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "env": {
+      "description": "What the environment resource manager uses on this machine (design part 13.2). These were policy.json's env keys.",
+      "type": "object",
+      "properties": {
+        "port_range": {
+          "description": "Dev-server ports are leased from this inclusive range. A project may narrow it; the effective range is the overlap.",
+          "$ref": "policy/env#/properties/port_range"
+        },
+        "worktree_root": {
+          "description": "An absolute directory that holds the worktrees, one subdirectory per holder. A project may name a subdirectory under it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "secret_provider": {
+          "description": "Where secret values are read from: keychain, env, or auto (the keychain, then the environment). A project may narrow auto to keychain or env, never widen it.",
+          "$ref": "policy/env#/properties/secret_provider"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["schema_version"],
+  "additionalProperties": false
+}
