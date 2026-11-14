@@ -50,8 +50,8 @@ export const PIECES = Object.freeze({
   g: 'piece (g), the eval runner',
   h: 'piece (h), the orchestrator, the Claude Code adapter, the merge queue and packaging',
   signal: 'the milestone One signal end to end',
-  'first-release':
-    'the first release (the tracker read API, HITLD-18; the settings files, HITLD-37)',
+  'settings-hold': "the milestone Settings hold: two projects share the person's limits",
+  'first-release': 'the milestone First release',
   measures: 'the milestone Full measure set',
   controllers: 'the milestone Controllers',
   'kb-upkeep': 'the milestone Knowledge base upkeep',

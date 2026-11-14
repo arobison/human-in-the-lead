@@ -39,6 +39,6 @@ export const commands = [
   {
     name: 'config migrate',
     summary: 'Move settings out of policy.json into the person and machine files',
-    piece: 'first-release',
+    piece: 'settings-hold',
   },
 ];

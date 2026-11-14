@@ -27,7 +27,7 @@ test('hitld --help lists every command and who builds the unbuilt ones', async (
   assert.equal(code, EXIT.ok);
   for (const c of COMMANDS) assert.ok(out.includes(`  ${c.name} `), c.name);
   assert.match(out, /\[signal\] the milestone One signal end to end/);
-  assert.match(out, /\[first-release\] the first release/);
+  assert.match(out, /\[first-release\] the milestone First release/);
   assert.ok(!/v0/.test(out));
   assert.deepEqual((await run([])).out, out);
 });
