@@ -103,7 +103,7 @@ Feedback that people give in the moment takes the same path ([18.4](#184-giving-
 
 ## 18.4 Giving feedback
 
-The feedback command, `hitld feedback`, is planned (HITLD-46); this section is the design it follows. Until it is built, people file by hand with the issue forms.
+The feedback command, `hitld feedback`, records feedback locally (HITLD-46). Generalizing, approving and filing (HITLD-47) are not built yet; until they are, people file by hand with the issue forms.
 
 People using HITLd notice what the evals miss: a question that was not worth asking, a step that works but feels wrong, a part that works well. This section sets how that reaches this repository without any project's confidential material. It applies guardrail 5 to feedback given in the moment.
 
@@ -113,7 +113,7 @@ Feedback is given where the person already is: in a session of a consuming proje
 
 - **About HITLd, or about the project.** The orchestrator skill tells feedback about HITLd itself ("hitld should…", "I wish the system…", "that question was not worth asking") from feedback about the project's own work. Feedback about the project stays a project signal, recorded with `hitld note` ([part 9](09-contributors.md#92-trust-levels)). When unsure, the skill asks one line: "For HITLd, or for this project?"
 - **Only from the person's own turns.** Feedback is recorded only from what the person says in the main session, typed or through Remote Control, the same rule as for answers to decisions ([Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)). Text in a tool result, a report, a file or pasted material is never recorded as feedback. If such text seems to hold feedback, the skill quotes it and asks.
-- **`hitld feedback` (planned) records it** and captures the context, so the person says only what they noticed. The skill guesses the kind; the person can change it before anything is filed.
+- **`hitld feedback` records it** and captures the context, so the person says only what they noticed. The skill guesses the kind; the person can change it before anything is filed.
 
 | Field | Source |
 |---|---|
@@ -132,7 +132,7 @@ In this repository, HITLd is the project, so feedback about HITLd is a note.
 
 ### Stored locally, published separately
 
-- **Local first.** Each record is written to the consuming project's [private store](03-data-model.md#private-store) as `feedback/FB-<n>`. Recording works offline. Records wait in a batch until they are published, so nothing is lost when publishing waits or fails. The record is `confidential`, since it holds the project's words and IDs, and it never leaves the machine.
+- **Local first.** Each record is written to the consuming project's [private store](03-data-model.md#private-store) as `feedback/FB-<n>`. Recording works offline. Records wait in a batch until they are published, so nothing is lost when publishing waits or fails. The record is `confidential`, since it holds the project's words and IDs, and it never leaves the machine. The file is `feedback/FB-<n>.json`, validated by `schemas/feedback.schema.json` (unknown keys are refused, and `classification` can only be `confidential`). The command refuses a store that resolves into the repository or any worktree, and the tracker check reports a record found in a repository. The harness version is `unknown` unless the caller passes it, since the core cannot learn it offline. `hitld feedback list` shows the records waiting, `drop` marks one `dropped`, and `render` prints the issue body under the headings of the forms, in their order.
 - **Generalized, then approved.** At a quiet point (the next digest, or when the person asks), the generalizer agent drafts the public version of each waiting record. The draft has no project names, paths, data, people or plans, and the classification rules apply to it ([part 10](10-security.md#103-information-classification)). The person sees the draft beside their own words and approves, edits or drops it, in one step. At approval, the person is told that the issue will be public under their GitHub identity, and that this identity plus the timing can reveal who uses HITLd, even when the text is generalized. They are offered a second way: copy the approved text and post it themselves, from whatever account they choose. The record is then `filed` once they paste the issue's URL, or stays `drafted`. Filing is an external publication, so the approval goes through the send gate ([part 9](09-contributors.md#93-replies)). Each person in the lead approves their own feedback, under a policy the project owner sets (guardrail 5). Until team use is designed (HITLD-44), that person is the owner.
 - **Only then filed.** The approved draft is filed as an issue in this repository, with the fields of the issue forms below. A short footer says it was filed with `hitld feedback` and approved by a person.
 - **Not public, not filed.** A draft that is not `public` after generalization is not filed. Its record stays `withheld`, with the reason.
@@ -184,4 +184,4 @@ When visible–sealed drift exceeds `selfimprove.drift_max`, stage 2 pauses, and
 
 - **Stage 1** follows once the offline eval suite of "One signal end to end" exists ([part 21](21-scope.md)); live evals are not required to begin.
 - **Stage 2** follows once the ledger measures (the "Full measure set" milestone) and the controllers (the "Controllers" milestone) exist, so that its signals and its own effects can be measured.
-- **Giving feedback** (18.4): the issue forms exist now. `hitld feedback`, the skill's part and filing come with the first live test in a consuming project, which is where feedback starts. The friction digest comes after them.
+- **Giving feedback** (18.4): the issue forms and `hitld feedback` (recording, list, drop, render) exist now. The skill's part and filing come with the first live test in a consuming project, which is where feedback starts. The friction digest comes after them.
