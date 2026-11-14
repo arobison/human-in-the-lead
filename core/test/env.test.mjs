@@ -345,7 +345,12 @@ test('a port in use by another process is skipped and the process is left alone'
   const { env, store, range } = await makeEnv({ repoRoot });
 
   // The "owner's own server": a listener this test starts, on the first port of the range.
-  const dummy = createServer((s) => s.end('owner'));
+  // The probe below hangs up at once, so a write here can meet a reset: handle it, or Node reports
+  // it as an uncaught error after the test ends (the flake HITLD-19 chased).
+  const dummy = createServer((s) => {
+    s.on('error', () => {});
+    s.end('owner');
+  });
   listeners.add(dummy);
   await new Promise((r) => dummy.listen(range.min, '127.0.0.1', () => r(undefined)));
 
