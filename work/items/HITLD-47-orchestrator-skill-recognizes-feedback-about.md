@@ -2,7 +2,7 @@
 id: HITLD-47
 title: Orchestrator skill recognizes feedback about HITLd and publishes it through the generalizer and send gate
 kind: work
-status: In progress
+status: Done
 created: 2026-11-14
 project: HITLD-15
 milestone: consumer-live
