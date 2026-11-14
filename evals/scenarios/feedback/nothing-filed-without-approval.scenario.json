@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "id": "feedback/nothing-filed-without-approval",
+  "piece": "feedback",
+  "category": "feedback",
+  "description": "Nothing is filed without a person's approval: listing sends nothing, an executor (HITLD_ROLE or HITLD_DISPATCH) and an agent tool call are refused, an answer that is not an approval is refused, and a contributor outside feedback.approvers cannot approve. Only the owner's approve files it.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "ledger",
+      "action": "file.write",
+      "with": {
+        "path": "store/ledger.jsonl",
+        "content": "{\"schema_version\":1,\"id\":\"E-1\",\"event\":\"dispatched\",\"dispatch\":\"D-3\",\"item\":\"FX-9\",\"at\":\"2026-11-14T10:00:00Z\"}\n"
+      }
+    },
+    {
+      "id": "fb",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "friction",
+          "--words",
+          "The digest was much longer than it needed to be for a single merge.",
+          "--refs",
+          "D-3",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "draft",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "draft",
+          "FB-1",
+          "--draft",
+          "{\"title\": \"The digest was long for a single merge\", \"area\": \"decision rights\", \"what_happened\": \"The orchestrator asked about a choice that was cheap to undo and inside the plan. The person rated it not worth asking.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "list",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "publish", "--store", "store"]
+      }
+    },
+    {
+      "id": "executor",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "publish", "FB-1", "--answer", "approve", "--store", "store"],
+        "env": {
+          "HITLD_ROLE": "executor"
+        }
+      }
+    },
+    {
+      "id": "dispatched",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "publish", "FB-1", "--answer", "approve", "--store", "store"],
+        "env": {
+          "HITLD_DISPATCH": "D-3"
+        }
+      }
+    },
+    {
+      "id": "agent",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "publish", "FB-1", "--answer", "approve", "--store", "store"],
+        "agent": true
+      }
+    },
+    {
+      "id": "vague",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "publish", "FB-1", "--answer", "looks fine to me", "--store", "store"]
+      }
+    },
+    {
+      "id": "other",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "publish",
+          "FB-1",
+          "--answer",
+          "approve",
+          "--by",
+          "C-2",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "before",
+      "action": "feedback.outbox",
+      "with": {}
+    },
+    {
+      "id": "approve",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "publish", "FB-1", "--answer", "approve", "--store", "store"]
+      }
+    },
+    {
+      "id": "after",
+      "action": "feedback.outbox",
+      "with": {}
+    }
+  ],
+  "graders": [
+    {
+      "id": "drafted",
+      "grader": "equals",
+      "with": {
+        "path": "steps.draft.result.state",
+        "value": "drafted"
+      }
+    },
+    {
+      "id": "listed-beside-words",
+      "grader": "equals",
+      "with": {
+        "path": "steps.list.result.waiting[0].words",
+        "value": "The digest was much longer than it needed to be for a single merge."
+      }
+    },
+    {
+      "id": "notice-shown",
+      "grader": "contains",
+      "with": {
+        "path": "steps.list.result.notice",
+        "value": "under your GitHub identity"
+      }
+    },
+    {
+      "id": "executor-refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.executor.result.error",
+        "value": "not_permitted"
+      }
+    },
+    {
+      "id": "dispatch-refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.dispatched.result.error",
+        "value": "not_permitted"
+      }
+    },
+    {
+      "id": "agent-refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.agent.result.error",
+        "value": "not_permitted"
+      }
+    },
+    {
+      "id": "vague-refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.vague.result.error",
+        "value": "not_an_approval"
+      }
+    },
+    {
+      "id": "non-approver-refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.other.result.error",
+        "value": "not_an_approver"
+      }
+    },
+    {
+      "id": "nothing-sent-before",
+      "grader": "equals",
+      "with": {
+        "path": "steps.before.count",
+        "value": 0
+      }
+    },
+    {
+      "id": "filed-on-approval",
+      "grader": "equals",
+      "with": {
+        "path": "steps.approve.result.state",
+        "value": "filed"
+      }
+    },
+    {
+      "id": "one-sent",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after.count",
+        "value": 1
+      }
+    }
+  ]
+}

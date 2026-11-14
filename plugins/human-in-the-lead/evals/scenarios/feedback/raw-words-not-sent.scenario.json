@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "id": "feedback/raw-words-not-sent",
+  "piece": "feedback",
+  "category": "feedback",
+  "description": "Only the approved draft is sent: the issue has the forms' headings, the feedback and kind labels and the footer, and nothing sent holds the person's words, the project's name or the record's IDs. The record keeps the words locally and becomes filed with the issue URL.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "ledger",
+      "action": "file.write",
+      "with": {
+        "path": "store/ledger.jsonl",
+        "content": "{\"schema_version\":1,\"id\":\"E-1\",\"event\":\"dispatched\",\"dispatch\":\"D-3\",\"item\":\"FX-9\",\"at\":\"2026-11-14T10:00:00Z\"}\n"
+      }
+    },
+    {
+      "id": "fb",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "friction",
+          "--words",
+          "Honestly the digest for FX-9 was far too long, it listed every check from D-3.",
+          "--refs",
+          "D-3",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "draft",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "draft",
+          "FB-1",
+          "--draft",
+          "{\"title\": \"The digest listed every check for one item\", \"area\": \"decision rights\", \"what_happened\": \"After one merge the digest listed every check that ran, which made it long to read.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "approve",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "publish", "FB-1", "--answer", "approve", "--store", "store"]
+      }
+    },
+    {
+      "id": "record",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "list", "--store", "store", "--all", "--json"]
+      }
+    },
+    {
+      "id": "outbox",
+      "action": "feedback.outbox",
+      "with": {
+        "absent": [
+          "Honestly the digest for FX-9 was far too long, it listed every check from D-3.",
+          "FX-9",
+          "D-3",
+          "E-1",
+          "fixture-repo"
+        ]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "drafted",
+      "grader": "equals",
+      "with": {
+        "path": "steps.draft.result.state",
+        "value": "drafted"
+      }
+    },
+    {
+      "id": "filed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.approve.result.state",
+        "value": "filed"
+      }
+    },
+    {
+      "id": "one-sent",
+      "grader": "equals",
+      "with": {
+        "path": "steps.outbox.count",
+        "value": 1
+      }
+    },
+    {
+      "id": "no-leaks",
+      "grader": "count",
+      "with": {
+        "path": "steps.outbox.leaks",
+        "equals": 0
+      }
+    },
+    {
+      "id": "repo",
+      "grader": "equals",
+      "with": {
+        "path": "steps.outbox.sent[0].repo",
+        "value": "arobison/human-in-the-lead"
+      }
+    },
+    {
+      "id": "labels",
+      "grader": "equals",
+      "with": {
+        "path": "steps.outbox.sent[0].labels",
+        "value": ["feedback", "friction"]
+      }
+    },
+    {
+      "id": "title-prefix",
+      "grader": "matches",
+      "with": {
+        "path": "steps.outbox.sent[0].title",
+        "pattern": "^friction: "
+      }
+    },
+    {
+      "id": "headings",
+      "grader": "matches",
+      "with": {
+        "path": "steps.outbox.sent[0].body",
+        "pattern": "### HITLd version[\\s\\S]*### Harness[\\s\\S]*### Loop or area[\\s\\S]*### What happened[\\s\\S]*### What you expected[\\s\\S]*### Evidence"
+      }
+    },
+    {
+      "id": "footer",
+      "grader": "contains",
+      "with": {
+        "path": "steps.outbox.sent[0].body",
+        "value": "Filed with `hitld feedback` and approved by a person"
+      }
+    },
+    {
+      "id": "url-kept",
+      "grader": "matches",
+      "with": {
+        "path": "steps.record.result.records[0].url",
+        "pattern": "^https://github\\.com/arobison/human-in-the-lead/issues/[0-9]+$"
+      }
+    },
+    {
+      "id": "words-kept-locally",
+      "grader": "equals",
+      "with": {
+        "path": "steps.record.result.records[0].words",
+        "value": "Honestly the digest for FX-9 was far too long, it listed every check from D-3."
+      }
+    },
+    {
+      "id": "approved-by-owner",
+      "grader": "equals",
+      "with": {
+        "path": "steps.record.result.records[0].approval.by",
+        "value": "owner"
+      }
+    },
+    {
+      "id": "valid",
+      "grader": "schema",
+      "with": {
+        "path": "steps.record.result.records[0]",
+        "schema": "feedback",
+        "entity": true
+      }
+    }
+  ]
+}

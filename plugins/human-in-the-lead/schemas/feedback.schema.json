@@ -1,7 +1,7 @@
 {
   "$id": "feedback",
   "title": "Feedback record",
-  "description": "One piece of feedback about HITLd, recorded by `hitld feedback` in the consuming project's private store as feedback/FB-<n> (design part 18.4). It holds the person's own words and the project's IDs, so it is confidential and is refused anywhere but the private store. Publishing it is a separate, approved step. A filed record carries the issue's URL in `url`; a withheld one carries the reason in `reason`.",
+  "description": "One piece of feedback about HITLd, recorded by `hitld feedback` in the consuming project's private store as feedback/FB-<n> (design part 18.4). It holds the person's own words and the project's IDs, so it is confidential and is refused anywhere but the private store. Publishing it is a separate, approved step. A filed record carries the issue's URL in `url` and the person's approval in `approval`; a withheld one carries the reason in `reason`. Only the generalized `draft` is ever published.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
@@ -55,6 +55,40 @@
     "reason": {
       "description": "Why the record was withheld. Only for withheld.",
       "$ref": "common#/$defs/text"
+    },
+    "draft": {
+      "description": "The generalizer's public version of the record, as checked by `hitld feedback draft`. Only the draft's text is ever published. Present for drafted and filed records, and for a withheld one whose draft was caught.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "area": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "what_happened": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "expected": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "evidence": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "classification": {
+          "description": "The generalizer's classification of the draft. Only a public draft is filed.",
+          "$ref": "common#/$defs/classification"
+        },
+        "drafted_at": { "$ref": "common#/$defs/timestamp" }
+      },
+      "required": ["title", "what_happened", "classification", "drafted_at"],
+      "additionalProperties": false
+    },
+    "approval": {
+      "description": "The person's approval, made by the send gate from their answer in the main session. Present for a filed record, and for a drafted one approved to post by hand.",
+      "type": "object",
+      "properties": {
+        "by": { "$ref": "common#/$defs/person" },
+        "at": { "$ref": "common#/$defs/timestamp" },
+        "via": { "const": "main-session" },
+        "mode": { "enum": ["approve", "edit", "by-hand"] },
+        "answer": {
+          "description": "The person's answer, as given.",
+          "$ref": "common#/$defs/text"
+        }
+      },
+      "required": ["by", "at", "via", "mode", "answer"],
+      "additionalProperties": false
     },
     "classification": { "const": "confidential" }
   },

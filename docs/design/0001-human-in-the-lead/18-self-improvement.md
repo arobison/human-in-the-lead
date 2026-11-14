@@ -103,7 +103,7 @@ Feedback that people give in the moment takes the same path ([18.4](#184-giving-
 
 ## 18.4 Giving feedback
 
-The feedback command, `hitld feedback`, records feedback locally (HITLD-46). Generalizing, approving and filing (HITLD-47) are not built yet; until they are, people file by hand with the issue forms.
+The feedback command, `hitld feedback`, records feedback locally (HITLD-46). The orchestrator skill's part, the generalizer agent and `hitld feedback route`, `draft` and `publish` generalize, approve and file it (HITLD-47). Approval is the send gate's first use: an approved publication only a person's answer at the command line in the primary checkout can make, refused to executors, by an approver in policy `feedback.approvers` (default the owner). Filing uses the GitHub command line (`gh issue create`) with the person's own sign-in.
 
 People using HITLd notice what the evals miss: a question that was not worth asking, a step that works but feels wrong, a part that works well. This section sets how that reaches this repository without any project's confidential material. It applies guardrail 5 to feedback given in the moment.
 
@@ -184,4 +184,4 @@ When visible–sealed drift exceeds `selfimprove.drift_max`, stage 2 pauses, and
 
 - **Stage 1** follows once the offline eval suite of "One signal end to end" exists ([part 21](21-scope.md)); live evals are not required to begin.
 - **Stage 2** follows once the ledger measures (the "Full measure set" milestone) and the controllers (the "Controllers" milestone) exist, so that its signals and its own effects can be measured.
-- **Giving feedback** (18.4): the issue forms and `hitld feedback` (recording, list, drop, render) exist now. The skill's part and filing come with the first live test in a consuming project, which is where feedback starts. The friction digest comes after them.
+- **Giving feedback** (18.4): the issue forms, `hitld feedback` (recording, list, drop, render), the skill's part, the generalizer and filing exist now. The first live test in a consuming project is where feedback starts. The friction digest comes after them.
