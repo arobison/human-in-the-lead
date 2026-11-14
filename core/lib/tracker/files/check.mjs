@@ -5,6 +5,7 @@
 // which this must agree with (design part 16.7).
 
 import { existsSync } from 'node:fs';
+import { judge } from '../../guard/classification.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
 import {
@@ -26,8 +27,6 @@ import { idNumber, patterns } from './tree.mjs';
  * @typedef {import('./config.mjs').Layout} Layout
  * @typedef {import('./tree.mjs').Entry} Entry
  */
-
-const CLASSIFICATION_RANK = ['public', 'internal', 'confidential', 'secret'];
 
 /**
  * Validate loaded entries. Returns a list of problem strings.
@@ -172,9 +171,14 @@ export function checkItems(items, layout, { root, onMain = false } = {}) {
   }
   for (const cycle of findCycles(g)) problems.push(`cycle: ${cycle.join(' → ')}`);
 
-  // Beyond the reference check: the entity schemas and the classification ceiling, for
-  // files the format checks above had nothing to say about.
-  const ceiling = CLASSIFICATION_RANK.indexOf(layout.classificationCeiling);
+  // Beyond the reference check: the entity schemas and the commit guard's classification rule
+  // (core/lib/guard/classification.mjs), for files the format checks above had nothing to say
+  // about.
+  const rules = {
+    ceiling: layout.classificationCeiling,
+    defaultClassification: layout.defaultClassification,
+    privatePaths: layout.privatePaths ?? [],
+  };
   for (const it of items) {
     if (!it.data || flagged.has(it)) continue;
     const entity = toEntity(it.data, layout);
@@ -183,11 +187,10 @@ export function checkItems(items, layout, { root, onMain = false } = {}) {
     for (const f of layout.fields) delete model[f.name];
     const errors = schemas().validateTrackerEntity(model);
     if (errors.length) say(it, `schema: ${formatErrors(errors).split('\n').join('; ')}`);
-    else if (CLASSIFICATION_RANK.indexOf(String(entity.classification)) > ceiling) {
-      say(
-        it,
-        `classification "${entity.classification}" is above the repository's ceiling "${layout.classificationCeiling}"`,
-      );
+    else {
+      const declared = it.data.classification;
+      const refused = judge(it.path, declared === undefined ? [] : [String(declared)], rules);
+      if (refused) say(it, refused.message);
     }
   }
   return problems;

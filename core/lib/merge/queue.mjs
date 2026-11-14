@@ -5,7 +5,8 @@
 //   2. rebase    each onto the tip of the batch under construction, in a worktree of the queue's
 //                own (the main checkout is the orchestrator's); a conflict confined to generated
 //                files takes the batch's version, any other conflict goes back to the executor
-//   3. fast      the fast checks on the rebased branch; a failure goes back to the executor
+//   3. fast      the classification guard on each of the branch's commits (design part 10.3),
+//                then the fast checks on the rebased branch; a failure goes back to the executor
 //   4. batch     after batch_max branches: regenerate generated files and the tracker views, commit
 //                them, then the full suite once
 //   5. failure   rerun on the same commit; a pass is a flake candidate: recorded, nothing blamed,
@@ -22,6 +23,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { matchesAny } from '../precedent/glob.mjs';
+import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
 
 /**
  * @typedef {object} Entry a verified branch waiting to merge
@@ -39,10 +41,12 @@ import { matchesAny } from '../precedent/glob.mjs';
  * @property {{ globs: string[], regenerate?: string }[]} generated
  * @property {number} flakeReruns
  * @property {string[]} [setup] commands run once in the queue's fresh worktree (env.worktree_setup)
+ * @property {import('../guard/classification.mjs').Rules} [classification] the commit guard's
+ *   rules, from main's policy and tracker.json; the strictest (ceiling public) when not given
  *
  * @typedef {(command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string }} Exec
  *
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'fast_check' | 'suite' | 'missing' | 'needs_rejected',
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'fast_check' | 'suite' | 'missing' | 'needs_rejected',
  *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string }} Rejected
  * @typedef {{ commit: string, command: string, output: string }} Flake
  */
@@ -125,7 +129,7 @@ export async function runMergeQueue(r) {
     bisection_runs: 0,
     batches: 0,
     main: { before: '', after: '' },
-    /** @type {{ kind: 'main_red' | 'regeneration_red' | 'main_moved', message: string, output?: string } | null} */
+    /** @type {{ kind: 'main_red' | 'regeneration_red' | 'main_moved' | 'classification', message: string, output?: string } | null} */
     incident: null,
     /** A batch that failed and then passed on a rerun: not merged, nothing blamed, the owner decides.
      * @type {{ kind: 'flake_candidate', commit: string, items: string[], message: string } | null} */
@@ -243,6 +247,21 @@ export async function runMergeQueue(r) {
           rejectedNow.add(e.item);
           continue;
         }
+        // The commit guard's rule, on every commit the branch brings. Not a policy fast check, so
+        // it runs whatever merge.fast_checks says, and a hook skipped with --no-verify gains nothing.
+        const guard = checkCommits(dir, tip, rb.sha, s.classification ?? STRICT);
+        if (guard.refused.length) {
+          result.rejected.push({
+            item: e.item,
+            branch: e.branch,
+            reason: 'classification',
+            files: [...new Set(guard.refused.map((x) => x.path))],
+            output: problemLines(guard.refused).join('\n'),
+            dispatch: e.dispatch,
+          });
+          rejectedNow.add(e.item);
+          continue;
+        }
         const changed = git(dir, ['diff', '--name-only', tip, rb.sha]).out.replace(/\n/g, ' ');
         /** @type {{ cmd: string, output: string } | null} */
         let failed = null;
@@ -294,7 +313,19 @@ export async function runMergeQueue(r) {
           '-m',
           `merge queue: regenerate generated files and views (${batch.map((b) => b.item).join(', ')})`,
         ]);
+        const before = tip;
         tip = gitOk(dir, ['rev-parse', 'HEAD']);
+        // The queue's own commit skips hooks too, so the rule runs on it directly: a generator
+        // must not put anything above the ceiling on main either.
+        const regenerated = checkCommits(dir, before, tip, s.classification ?? STRICT);
+        if (regenerated.refused.length) {
+          result.incident = {
+            kind: 'classification',
+            message: `regenerating files for the batch (${batch.map((b) => b.item).join(', ')}) wrote files above the classification ceiling; nothing merged`,
+            output: problemLines(regenerated.refused).join('\n'),
+          };
+          break;
+        }
       }
 
       result.batches++;
