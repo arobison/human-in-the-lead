@@ -20,6 +20,8 @@
  * @property {Id} [needs] entities that need this ID
  * @property {Id} [parent]
  * @property {string} [text] case-insensitive, in the title and body
+ * @property {Record<string, unknown>} [fields] declared project fields to match: a list field
+ *   matches when it holds the value, any other field when it equals it
  * @property {boolean} [ready] derived: Planned, every need Done, not claimed (design part 3.2)
  * @property {boolean} [blocked] derived: Planned or Proposed with a need not Done
  * @property {boolean} [claimed] derived: a live branch has a claim for it

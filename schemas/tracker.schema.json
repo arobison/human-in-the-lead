@@ -70,6 +70,12 @@
       "uniqueItems": true,
       "default": []
     },
+    "fields": {
+      "description": "Project-specific fields beyond the reference format and optional_keys. Each is declared with a name, a type, whether it holds a list, and a description. A declared field is validated against its type, kept when the tool rewrites a file, returned by the read API (hitld work show and query with --json) and usable in queries (--field). Names that the format already uses, and keys that tools run as code, are refused. Declared fields are strings in the file and typed on read.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/field" },
+      "default": []
+    },
     "default_classification": {
       "description": "The classification of an item whose file does not say (the reference format has no such key). The check refuses an item above the repository's classification ceiling, so the default must not exceed it.",
       "$ref": "common#/$defs/classification",
@@ -79,6 +85,41 @@
   "required": ["schema_version"],
   "additionalProperties": false,
   "$defs": {
+    "field": {
+      "description": "One declared project field.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The front-matter key: lower case, digits and underscores, starting with a letter. Unique among declared fields, and not a key the format uses.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,39}$"
+        },
+        "type": {
+          "description": "string, integer (whole numbers), number or boolean (true or false). In a list, each member has this type.",
+          "enum": ["string", "integer", "number", "boolean"]
+        },
+        "list": {
+          "description": "True when the field holds a list of values of its type.",
+          "type": "boolean",
+          "default": false
+        },
+        "values": {
+          "description": "For a string field: the values it may take. Omitted means any text.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "description": {
+          "description": "What the field is for, in one sentence.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "required": ["name", "type", "description"],
+      "additionalProperties": false
+    },
     "path": {
       "description": "A relative path of plain segments: no leading slash, no \"..\", no backslash.",
       "type": "string",

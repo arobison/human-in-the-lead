@@ -2,7 +2,7 @@
 id: HITLD-18
 title: "Tracker read API: versioned JSON output and declared extension fields"
 kind: work
-status: In progress
+status: Done
 created: 2026-11-14
 project: HITLD-15
 milestone: first-release

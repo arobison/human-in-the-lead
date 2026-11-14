@@ -839,6 +839,7 @@ test('every command this piece owns is built', async () => {
       'work claim',
       'work release',
       'work close',
+      'work migrate',
       'work claims',
       'work check',
       'work views',
