@@ -2,9 +2,10 @@
 id: HITLD-61
 title: "CLI and schemas follow the design review: command names, milestone tags, public judgement fields"
 kind: work
-status: Planned
+status: In progress
 created: 2026-11-14
 project: HITLD-15
+claimed: D-61
 ---
 
 ## Why
