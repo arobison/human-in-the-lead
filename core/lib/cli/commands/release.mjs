@@ -57,7 +57,7 @@ export const commands = [
     name: 'release propose',
     summary:
       'Propose a release: the interface delta since the last full release, the bump it proposes, draft notes, missing changelog lines and unmet gates',
-    piece: 'v0',
+    piece: 'first-release',
     output: PROPOSAL_FIELDS,
     args: [
       preArg,
@@ -83,7 +83,7 @@ export const commands = [
     name: 'release make',
     summary:
       "Make a release: write the release record and an annotated tag on main, never pushing (the owner's, from the main session)",
-    piece: 'v0',
+    piece: 'first-release',
     mcp: false,
     args: [
       {

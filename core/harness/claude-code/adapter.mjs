@@ -80,7 +80,7 @@ export function createClaudeCodeAdapter(options = {}) {
 
   /** @param {string} text @param {string} urgency */
   const message = async (text, urgency) => {
-    // v0: interrupts and pages go to the main session at once (quiet hours hold all but pages,
+    // One signal end to end: interrupts and pages go to the main session at once (quiet hours hold all but pages,
     // which only a sev-1 sends); digest items wait for a merge-batch boundary or the owner's next message.
     if (urgency === 'digest' || (urgency === 'interrupt' && options.quietHours?.())) {
       held.push({ text, urgency });

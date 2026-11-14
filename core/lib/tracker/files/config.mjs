@@ -31,6 +31,7 @@ import { reservedFieldNames } from './format.mjs';
  * @property {DeclaredField[]} fields project fields declared in tracker.json
  * @property {string} defaultClassification
  * @property {string} classificationCeiling policy.project.classification_ceiling
+ * @property {string[]} privatePaths policy.project.private_paths: globs never public (design part 10.3)
  * @property {{ name: string, from: number, to: number | null }[]} blocks reserved ID blocks
  */
 
@@ -223,6 +224,7 @@ export function resolveLayout(config, policy) {
     fields: config.fields ?? [],
     defaultClassification: config.default_classification,
     classificationCeiling: policy.project.classification_ceiling ?? 'public',
+    privatePaths: policy.project.private_paths ?? [],
     blocks,
   };
 }

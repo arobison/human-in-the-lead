@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { checkHolder, worktreeRoot } from './config.mjs';
 import { git, gitOk } from './git.mjs';
+import { findOutsideLinks, unlinkOutsideLinks } from './links.mjs';
 import { logEvent, readRegistry, updateRegistry } from './registry.mjs';
 
 /**
@@ -167,12 +168,23 @@ export async function runSetup(ctx, request) {
       break;
     }
   }
+  // Flag links that point out of the worktree, so the owner sees what cleanup will meet.
+  try {
+    result.links_out = findOutsideLinks(lease.path);
+  } catch {
+    result.links_out = [];
+  }
   await updateRegistry(ctx.store, (registry) => {
     const l = registry.worktrees[holder];
     if (!l) return;
     l.setup = result;
     l.status = result.ok ? 'ready' : 'setup_failed';
-    logEvent(ctx.store, 'worktree_setup', { holder, ok: result.ok, steps: result.steps.length });
+    logEvent(ctx.store, 'worktree_setup', {
+      holder,
+      ok: result.ok,
+      steps: result.steps.length,
+      links_out: result.links_out?.map((x) => x.path) ?? [],
+    });
   });
   return result;
 }
@@ -209,16 +221,32 @@ async function saveUncommitted(lease) {
  * Remove a worktree from disk, saving uncommitted work to its branch first. Returns what happened.
  * @param {WorktreeLease} lease
  * @param {boolean} deleteIfMerged
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam] tests fake a mount point
  */
-async function removeFromDisk(lease, deleteIfMerged) {
+export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
   const gone = !existsSync(lease.path);
-  /** @type {{ saved: boolean, branch_deleted: boolean, branch: string }} */
-  const out = { saved: false, branch_deleted: false, branch: lease.branch };
+  /** @type {{ saved: boolean, branch_deleted: boolean, branch: string, links_unlinked: string[] }} */
+  const out = { saved: false, branch_deleted: false, branch: lease.branch, links_unlinked: [] };
   if (!gone) {
     const saved = await saveUncommitted(lease);
     out.saved = saved.saved;
     out.branch = saved.branch;
-    await git(['worktree', 'remove', lease.path], lease.repo_root);
+    // Unlink every link that points outside the worktree first, so nothing below can reach a
+    // target (design 13.2). Uncommitted work is already saved, so --force only lets git remove
+    // what the unlinking changed (a tracked link) and the ignored files in the tree.
+    const links = unlinkOutsideLinks(lease.path, seam.lstat ? { lstat: seam.lstat } : undefined);
+    if (links.mounts.length) {
+      throw new Error(
+        `not removing ${lease.path}: ${links.mounts.join(', ')} is a mount point (another device)`,
+      );
+    }
+    if (links.declined.length) {
+      throw new Error(
+        `not removing ${lease.path}: could not safely unlink ${links.declined.map((l) => l.path).join(', ')}`,
+      );
+    }
+    out.links_unlinked = links.unlinked.map((l) => l.path);
+    await git(['worktree', 'remove', '--force', lease.path], lease.repo_root);
   } else {
     await git(['worktree', 'prune'], lease.repo_root);
   }
@@ -252,7 +280,8 @@ export async function releaseWorktree(ctx, request) {
   }
   return updateRegistry(ctx.store, async (registry) => {
     const lease = registry.worktrees[holder];
-    if (!lease) return { released: false, kept: false, removed: [], pruned: [] };
+    if (!lease)
+      return { released: false, kept: false, removed: [], pruned: [], links_unlinked: [] };
     /** @type {string[]} */
     const pruned = [];
     if (request.outcome === 'failed' && !lease.adopted) {
@@ -272,7 +301,7 @@ export async function releaseWorktree(ctx, request) {
       }
       const kept = !pruned.includes(holder);
       logEvent(ctx.store, 'worktree_released', { holder, outcome: 'failed', kept });
-      return { released: true, kept, path: lease.path, removed: [], pruned };
+      return { released: true, kept, path: lease.path, removed: [], pruned, links_unlinked: [] };
     }
     /** @type {Awaited<ReturnType<typeof removeFromDisk>> | null} */
     let removed = null;
@@ -285,6 +314,7 @@ export async function releaseWorktree(ctx, request) {
       path: lease.path,
       removed: removed ? [lease.path] : [],
       saved_uncommitted: removed?.saved ?? false,
+      links_unlinked: removed?.links_unlinked ?? [],
       branch: removed?.branch ?? lease.branch,
       branch_deleted: removed?.branch_deleted ?? false,
       pruned,

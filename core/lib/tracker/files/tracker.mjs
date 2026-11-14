@@ -20,6 +20,7 @@ import {
   releaseClaim,
 } from './claims.mjs';
 import { checkItems, findCollisions } from './check.mjs';
+import { checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
 import {
   createExclusive,
@@ -608,6 +609,15 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         ...checkReleases(releases(), layout, (id) => g.get(id)?.data),
         ...pendingMigrationProblems(root, layout),
       ];
+      // The commit guard's rule over the whole tree; item files give the same line as above.
+      const tree = checkTree(root, {
+        ceiling: layout.classificationCeiling,
+        defaultClassification: layout.defaultClassification,
+        privatePaths: layout.privatePaths,
+      });
+      for (const line of problemLines(tree.refused)) {
+        if (!problems.includes(line)) problems.push(line);
+      }
       if (branches) {
         const placed = loadPlaces(root, layout, listPlaces(root, layout, { remotes: true }));
         for (const c of findCollisions(placed, layout)) {

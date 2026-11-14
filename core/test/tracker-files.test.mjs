@@ -432,7 +432,7 @@ test('nothing above the repository’s classification ceiling', () => {
   };
   const problems = problemsFor(files, { optional_keys: ['classification'] });
   assert.deepEqual(problems, [
-    'work/items/W-7-secretive.md: classification "confidential" is above the repository\'s ceiling "public"',
+    'work/items/W-7-secretive.md: classification "confidential" in its front matter is above the repository\'s ceiling "public"',
   ]);
 });
 

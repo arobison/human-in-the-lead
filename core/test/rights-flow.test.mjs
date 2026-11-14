@@ -1,4 +1,4 @@
-// v0's check 2, offline, with a stand-in tracker (design part 21): a call that is the owner's under
+// Check 2 of One signal end to end, offline, with a stand-in tracker (design part 21): a call that is the owner's under
 // a rule becomes a decision item; the answer, with its generalization confirmed, becomes precedent;
 // a later matching question is resolved by that precedent without asking, and appears in the
 // digest list; an overrule narrows it.

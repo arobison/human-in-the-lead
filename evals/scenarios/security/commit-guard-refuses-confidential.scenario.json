@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "id": "security/commit-guard-refuses-confidential",
+  "piece": "security",
+  "category": "leak-blocking",
+  "description": "Check 5 of One signal end to end: in a public repository, a commit adding a confidential file is refused by the pre-commit hook hitld install writes, naming the file and the rule; the same file committed with --no-verify is refused at merge in owner mode and in queue mode, main does not move, and hitld work check names it.",
+  "mode": "offline",
+  "steps": [{ "id": "guard", "action": "security.commit-guard", "with": {} }],
+  "graders": [
+    {
+      "id": "hook-installed",
+      "grader": "equals",
+      "with": { "path": "steps.guard.hook", "value": "installed" }
+    },
+    {
+      "id": "hook-refuses",
+      "grader": "equals",
+      "with": { "path": "steps.guard.hook_refused", "value": true }
+    },
+    {
+      "id": "hook-names-file",
+      "grader": "equals",
+      "with": { "path": "steps.guard.hook_names_file", "value": true }
+    },
+    {
+      "id": "hook-names-rule",
+      "grader": "equals",
+      "with": { "path": "steps.guard.hook_names_rule", "value": true }
+    },
+    {
+      "id": "owner-mode-refuses",
+      "grader": "equals",
+      "with": {
+        "path": "steps.guard.owner",
+        "value": [{ "item": "W-1", "reason": "classification", "files": ["notes/partner-plan.md"] }]
+      }
+    },
+    {
+      "id": "queue-mode-refuses",
+      "grader": "equals",
+      "with": {
+        "path": "steps.guard.queue",
+        "value": [{ "item": "W-1", "reason": "classification", "files": ["notes/partner-plan.md"] }]
+      }
+    },
+    {
+      "id": "nothing-merged",
+      "grader": "count",
+      "with": { "path": "steps.guard.merged", "equals": 0 }
+    },
+    {
+      "id": "main-unmoved",
+      "grader": "equals",
+      "with": { "path": "steps.guard.main_moved", "value": false }
+    },
+    {
+      "id": "work-check-fails",
+      "grader": "equals",
+      "with": { "path": "steps.guard.work_check_ok", "value": false }
+    },
+    {
+      "id": "work-check-names-file",
+      "grader": "matches",
+      "with": {
+        "path": "steps.guard.work_check_problems[*]",
+        "pattern": "^notes/partner-plan\\.md: classification \"confidential\" in its front matter is above the repository's ceiling \"public\"$",
+        "mode": "any"
+      }
+    }
+  ]
+}

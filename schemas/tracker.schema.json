@@ -9,7 +9,7 @@
       "$ref": "common#/$defs/schemaVersion"
     },
     "backend": {
-      "description": "Which backend holds the tracker. Only the files backend exists in v0.",
+      "description": "Which backend holds the tracker. Only the files backend exists in One signal end to end.",
       "enum": ["files"],
       "default": "files"
     },

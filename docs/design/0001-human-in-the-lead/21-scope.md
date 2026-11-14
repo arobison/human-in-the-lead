@@ -6,7 +6,7 @@ Milestones are defined by what they deliver and what they depend on. There are n
 
 The milestone and the version line are different things. Version numbers (v0.y.z, then 1.0) name releases, and a release can be cut at any green merge. "One signal end to end" names a future state; several releases may ship before it is reached.
 
-<a id="211-v0-the-smallest-end-to-end-slice-worth-using"></a>
+<a id="211-one-signal-end-to-end"></a>
 
 ## 21.1 One signal end to end: the smallest slice worth using
 
@@ -14,7 +14,7 @@ This milestone is reached when one signal can travel the whole path (arrive, be 
 
 This is bootstrap **stage 0** ([part 18](18-self-improvement.md#181-bootstrap-stages)): the milestone is built by hand, through ordinary sessions the owner directs.
 
-<a id="what-v0-contains"></a>
+<a id="what-one-signal-end-to-end-contains"></a>
 
 ### What it contains
 
@@ -35,14 +35,14 @@ This is bootstrap **stage 0** ([part 18](18-self-improvement.md#181-bootstrap-st
 | **Verification** | A minimal acceptance author that writes checks from the item's spec before or alongside the executor, without seeing the implementation; items are dispatched only when their "done when" is an executable check that exists before the executor starts (a reproduced test, or one the acceptance author wrote) | Property, metamorphic and differential templates; mutation testing; the `Brief`, `Plugin-Version` and `Evidence` trailers (this milestone carries `Work-Item`, `Dispatch`, `Agent-Role`, `Agent-Model` and `Agent-Effort`); reliability metrics |
 | **Adversarial-testing loop** | An invariant registry for one area; the adversary agent; every break committed as a failing regression test with a fix item; adversarial passes on every change in that area | Allocation by yield |
 | **Eval suite** | The suite in [part 17](17-evals.md#178-the-suite-for-one-signal-end-to-end): scenario format, fixtures, graders, `hitld eval --offline` and `--live`, the Claude Code runner via `claude plugin eval` for skill scenarios and the end-to-end runner (neither yet built), results with version and model recorded, the regression gate, and the Copilot cloud agent profile against the fake adapter | Controller and replay scenarios (with Controllers, and with Replay and recalibration); other harnesses' runs |
-| **Security baseline** (required by intake, which reads untrusted text) | Least-privilege agent definitions; the `PreToolUse` guard (built for Bash only: no push, no moving main, the `hitld` allowlist for executors, no decision commands, no eval accept; write paths, dependency gate, secret paths and network allowlist still to come); the commit guard (secret scan, classification check for public repositories; planned, HITLD-51, before the first release); security in "done when": diff-aware scanning against a baseline, triage verdicts and accepted risk with expiry (planned, HITLD-63, before the first release), with an independent security review for sensitive paths and threat-model notes (HITLD-34) ([10.5](10-security.md#105-security-in-done-when)); the quarantine pattern; the reproducer's sandbox | OS sandboxing of external PR tests (no external PRs are tested automatically in this milestone) |
+| **Security baseline** (required by intake, which reads untrusted text) | Least-privilege agent definitions; the `PreToolUse` guard (built for Bash only: no push, no moving main, the `hitld` allowlist for executors, no decision commands, no eval accept; write paths, dependency gate, secret paths and network allowlist still to come); the commit guard (the classification check is built, HITLD-51: the pre-commit hook `hitld install` writes, the same rule at merge in either mode, and `hitld work check` over the whole tree; the secret scan is still to come); security in "done when": diff-aware scanning against a baseline, triage verdicts and accepted risk with expiry (planned, HITLD-63, before the first release), with an independent security review for sensitive paths and threat-model notes (HITLD-34) ([10.5](10-security.md#105-security-in-done-when)); the quarantine pattern; the reproducer's sandbox | OS sandboxing of external PR tests (no external PRs are tested automatically in this milestone) |
 | **Trust-calibration data** | Reversals of system decisions, one-tap "worth asking?" ratings on answers, and precedent overrules recorded per area from the first run; judgements recorded on signals (`what`, `basis`, `by` in public); the judgement record's `confidence`, `expected` and `evidence_at_time`, in the private store ([Q22](22-open-questions.md#q22-do-the-new-judgement-record-fields-join-one-signal-end-to-end-affects-its-record-scoring-waits-for-people-in-the-lead)) | Autonomy proposals (Trust calibration); outcome matching and scores (People in the lead) |
 | **Reporting and limits (minimal)** | Ledger usage; quotas declared in `policy.json` with the owner's reserve; opt-in status-line snapshots of the window percentages where available; the opt-in status-line readout ([12.1.1](12-reporting-and-limits.md#1211-the-status-line-planned)); a forecast per quota; the reserve rule enforced at dispatch; `hitld report` writing a static HTML report and a text digest ([part 12](12-reporting-and-limits.md#127-the-minimal-version)) | Explorable dashboards; controller replay; vendor API readers; per-audience reports |
 | **Notification** | Remote Control through the main session: interrupts for critical-path and idle-slot questions; digests at merge-batch boundaries and when the owner writes; quiet hours as holds | Scheduled digests; other channels |
 | **Private store** | A directory outside the repository: git text files for what syncs, SQLite for machine-local state and a rebuildable index ([part 3](03-data-model.md#private-store)); `hitld store export`, `import` and `sync` (planned) | Other backends |
 | **Knowledge base** | The structure, front matter, the generated index and the `kb` tool's `search`, `index`, `stale`, `links` and `check` (not yet built) | Gardening loop, contradiction pass, hybrid retriever |
 
-<a id="v0-alpha-usable-in-a-consuming-project"></a>
+<a id="usable-in-a-consuming-project"></a>
 
 ### Usable in a consuming project
 
@@ -59,7 +59,7 @@ This milestone is narrower than "One signal end to end": the point at which a co
 - Packaging: the plugin and the marketplace, installable from a local checkout.
 - Offline evals for each piece above, so the next change is gated.
 
-<a id="v0-is-done-when"></a>
+<a id="one-signal-end-to-end-is-done-when"></a>
 
 ### Done when
 
@@ -69,7 +69,7 @@ All of these run on **synthetic fixture repositories** from the eval suite, not 
 2. **A question routes correctly.** During that run, an executor meets a call that is the owner's by a rights rule; it becomes a decision item, other work continues, the owner answers through the main session, and the answer becomes a confirmed precedent. A second, matching question in a later dispatch is resolved by that precedent without asking, and appears in the digest.
 3. **Restart.** The orchestrator session is killed mid-run; a fresh session resumes from the run-state file with no lost or duplicated dispatch, including when the kill falls between a ledger append and a checkpoint (the kill-and-resume eval).
 4. **Injection is contained.** Every injection scenario in the suite passes: no agent acts on instructions in signals, the triager's output passes schema validation, and attempts are flagged.
-5. **Leaks are blocked.** A commit adding a `confidential` file to a public repository is refused by the commit guard.
+5. **Leaks are blocked.** A commit adding a `confidential` file to a public repository is refused by the commit guard. *Built (HITLD-51): the offline scenario `security/commit-guard-refuses-confidential` shows the hook refusing the commit, the merge refusing the same file committed with `--no-verify` in owner and queue mode, and `hitld work check` naming it.*
 6. **The eval suite gates.** `hitld eval --offline` passes in CI; `hitld eval --live` has a recorded baseline for the first release tag on Claude Code with its model and settings; a deliberately degraded skill fails the regression gate; the Copilot cloud agent profile passes against the fake adapter.
 7. **Existing tracker, read-only.** `hitld work check` and `hitld work views` run against an existing in-repo tracker in the reference format with its key and paths configured, and agree with that tracker's own scripts' output.
 8. **Environment.** Three executors run at once with dev servers: each gets its own worktree with setup run and its own port; a server the owner started on a port in the range is left untouched; the GPU lock serializes the two items that need it; a secret given to a script never appears in any report or log.

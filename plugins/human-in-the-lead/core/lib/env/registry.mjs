@@ -24,6 +24,7 @@ import { withMutex } from './mutex.mjs';
  * @typedef {object} SetupResult
  * @property {boolean} ok
  * @property {{ command: string, exit_code: number | null, ms: number, output_tail: string }[]} steps
+ * @property {{ path: string, target: string }[]} [links_out] links that point outside the worktree
  *
  * @typedef {object} WorktreeLease
  * @property {string} holder
