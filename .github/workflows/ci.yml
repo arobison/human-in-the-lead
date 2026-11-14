@@ -23,3 +23,32 @@ jobs:
       - run: npm run check
       - name: Offline evals
         run: node core/bin/hitld.mjs eval --offline
+
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Exempt: merge commits (main merged into a pull request branch, or a merge made by the
+      # merge button). Every other commit is checked. Pull request: a person's commit carries
+      # their own Signed-off-by; an agent commit (an Agent-Role or Dispatch trailer) is accepted
+      # without one. Main: each pushed commit carries a person's Signed-off-by, which is the
+      # approver's sign-off on the squash commit.
+      - name: DCO check (pull request)
+        if: github.event_name == 'pull_request'
+        run: >-
+          node core/bin/dco-check.mjs --mode pr
+          --from "$BASE_SHA" --to "$HEAD_SHA"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: DCO check (main)
+        if: github.event_name == 'push'
+        run: >-
+          node core/bin/dco-check.mjs --mode main
+          --from "$BEFORE_SHA" --to "$AFTER_SHA"
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
