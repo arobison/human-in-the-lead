@@ -1,4 +1,4 @@
-// SEAM: live eval runs (design part 17.5). Not built in v0-alpha.
+// SEAM: live eval runs (design part 17.5). Not built yet.
 //
 // `hitld eval --live` will run the scenarios that need a model, against a named harness, model and
 // effort, `k` times each (default 3), and report pass@k, pass^k and the standard deviation. Its
@@ -29,7 +29,7 @@
 export class LiveNotBuilt extends Error {
   constructor() {
     super(
-      'hitld eval --live is not built yet: it follows v0-alpha (see core/lib/eval/live.mjs for the plan). Use --offline.',
+      'hitld eval --live is not built yet: it comes after "Usable in a consuming project" (see core/lib/eval/live.mjs for the plan). Use --offline.',
     );
   }
 }

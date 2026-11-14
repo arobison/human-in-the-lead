@@ -839,6 +839,7 @@ test('every command this piece owns is built', async () => {
       'work claim',
       'work release',
       'work close',
+      'work migrate',
       'work claims',
       'work check',
       'work views',
@@ -1026,4 +1027,15 @@ test('a plan path that leaves the repository is never probed', () => {
   assert.deepEqual(open(root).check().problems, [
     "work/projects/W-2-the-project.md: plan ../../../etc/passwd doesn't exist",
   ]);
+});
+
+test('the check refuses a feedback record in the repository (design 18.4: private store only)', () => {
+  const root = makeRepo({ files: { 'notes/feedback/FB-1.json': '{}' } });
+  const problems = open(root).check().problems;
+  assert.ok(
+    problems.some((/** @type {string} */ p) =>
+      /^notes\/feedback\/FB-1\.json: a feedback record is confidential/.test(p),
+    ),
+    problems.join('\n'),
+  );
 });

@@ -77,5 +77,5 @@ export const MATRIX = Object.freeze([
   },
 ]);
 
-/** Model classes in policy.tiers, as Claude Code names models (until the model catalog, K1). */
+/** Model classes in policy.tiers, as Claude Code names models (until the milestone Model catalog). */
 export const MODEL_CLASSES = Object.freeze({ small: 'sonnet', large: 'opus' });
