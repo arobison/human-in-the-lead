@@ -5,7 +5,6 @@ kind: decision
 status: Done
 created: 2026-11-14
 project: HITLD-15
-milestone: safe-to-publish
 decided-by: owner
 ---
 

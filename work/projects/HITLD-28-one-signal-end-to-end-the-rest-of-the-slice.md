@@ -6,7 +6,6 @@ status: Planned
 created: 2026-11-14
 initiative: HITLD-1
 lead: owner
-milestones: [end-to-end, injection-contained, evals-gate, load-aware]
 ---
 
 ## Summary

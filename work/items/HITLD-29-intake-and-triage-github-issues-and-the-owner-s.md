@@ -5,7 +5,6 @@ kind: work
 status: Planned
 created: 2026-11-14
 project: HITLD-28
-milestone: end-to-end
 ---
 
 ## Why

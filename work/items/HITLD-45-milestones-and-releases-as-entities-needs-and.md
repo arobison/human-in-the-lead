@@ -5,7 +5,6 @@ kind: work
 status: In progress
 created: 2026-11-14
 project: HITLD-15
-milestone: first-release
 needs: [HITLD-18]
 claimed: claude-executor
 ---
