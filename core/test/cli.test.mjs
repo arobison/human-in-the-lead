@@ -155,6 +155,9 @@ test('every command in design part 16.2 is in the table', () => {
     'config migrate',
     'mcp',
     'install',
+    'store export',
+    'store import',
+    'store sync',
   ]) {
     assert.ok(findCommand(name.split(' ')), name);
   }

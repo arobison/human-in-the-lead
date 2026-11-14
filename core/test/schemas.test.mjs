@@ -6,6 +6,26 @@ const registry = schemas();
 
 /** A valid example of every stand-alone data file, from the design where it gives one. */
 const examples = {
+  // Part 10.5: a recorded triage verdict, in the private store.
+  'security-records': {
+    schema_version: 1,
+    kind: 'verdicts',
+    classification: 'confidential',
+    entries: [
+      {
+        key: '0123456789ab',
+        tool: 'Example Scanner',
+        rule: 'example/path-traversal',
+        path: 'src/files.js',
+        line: 12,
+        fingerprint: '0123456789abcdef',
+        at: '2026-11-14T12:00:00Z',
+        verdict: 'false-positive',
+        reason: 'the path passes the name pattern and containment before the read',
+        item: 'W-7',
+      },
+    ],
+  },
   // Design part 18.4: a feedback record, as `hitld feedback` writes it to the private store.
   feedback: {
     schema_version: 1,

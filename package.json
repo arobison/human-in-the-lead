@@ -21,7 +21,7 @@
     "SECURITY.md"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "test": "node --test \"core/test/**/*.test.mjs\"",
