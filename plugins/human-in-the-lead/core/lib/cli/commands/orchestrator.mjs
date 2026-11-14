@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
+import { loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
@@ -20,7 +20,7 @@ import { Run, handOver } from '../../run/run.mjs';
 import { reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { openEnv } from '../../env/manager.mjs';
-import { primaryCheckoutOf } from '../../env/primary.mjs';
+import { ownerCheckoutOf } from '../../env/primary.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
 import { parseReport } from '../../contract/report.mjs';
@@ -95,12 +95,7 @@ async function guarded(fn) {
 function project(ctx) {
   // The primary checkout, even from inside a linked worktree: policy, tracker and main are the
   // owner's there, never an executor's copy (as piece (c) does for env exec).
-  let repoRoot = findRepoRoot(ctx.cwd);
-  try {
-    repoRoot = primaryCheckoutOf(ctx.cwd);
-  } catch {
-    // not a git repository with a primary checkout: refused below if findRepoRoot found none
-  }
+  const repoRoot = ownerCheckoutOf(ctx.cwd);
   if (!repoRoot) throw new Refusal('not_a_repository', `${ctx.cwd} is not in a git repository`);
   const loaded = loadPolicy({ cwd: repoRoot });
   if (!loaded.policy) {

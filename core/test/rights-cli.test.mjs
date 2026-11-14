@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXIT, main } from '../lib/cli/main.mjs';
@@ -9,6 +9,7 @@ import { COMMANDS, findCommand, toolName } from '../lib/cli/table.mjs';
 import { inputSchema, parseArgs } from '../lib/cli/args.mjs';
 import { makeCommands } from '../lib/cli/commands/rights.mjs';
 import { makeProject } from './helpers/project.mjs';
+import { git, item, makeConsumer } from './orchestrator-fixture.mjs';
 
 const question = {
   title: 'Add left-pad?',
@@ -114,26 +115,101 @@ test('without a policy.json the commands say so', async () => {
   assert.equal(r.error, 'policy');
 });
 
-test(
-  'without the files tracker backend, commands that need one say so',
-  {
-    skip:
-      existsSync(new URL('../lib/tracker/files/index.mjs', import.meta.url)) &&
-      'piece (a) is merged',
-  },
-  async () => {
-    const project = makeProject();
-    let out = '';
-    const code = await main(['rights', 'ask', '--question', JSON.stringify(question)], {
-      out: (t) => (out += t),
-      err: () => {},
-      cwd: project.root,
-      env: project.env,
-    });
-    assert.equal(code, EXIT.failed);
-    assert.match(JSON.parse(out).message, /files tracker backend \(piece \(a\)/);
-  },
-);
+test('rights ask and rights answer write the files tracker of the primary checkout', async () => {
+  const c = makeConsumer({
+    files: {
+      'work/initiatives/W-6-tools.md': item(
+        { id: 'W-6', title: 'Tools', kind: 'initiative', status: 'Planned', lead: 'owner' },
+        '\n## Goal\n\n',
+      ),
+      'work/projects/W-7-dependencies.md': item(
+        {
+          id: 'W-7',
+          title: 'Dependencies',
+          kind: 'project',
+          status: 'Planned',
+          initiative: 'W-6',
+          lead: 'owner',
+        },
+        '\n## Summary\n\n',
+      ),
+    },
+  });
+  const filed = { ...question, parent: 'W-7' };
+  const asked = await c.hitld(['rights', 'ask', '--question', JSON.stringify(filed)]);
+  assert.equal(asked.exit, EXIT.ok, JSON.stringify(asked.result));
+  assert.equal(asked.result.outcome, 'asked');
+  const id = asked.result.decision;
+  const open = await c.hitld(['work', 'show', id, '--json']);
+  assert.equal(open.result.entity.state, 'Planned');
+  assert.equal(open.result.entity.parent, 'W-7');
+  assert.equal(open.result.entity.answer, undefined);
+  // The question, options and offer are the body's, for the decider to read.
+  assert.match(open.result.entity.body, /## Question\n\nMay we add left-pad/);
+  assert.match(open.result.entity.body, /- A\. Add it: one small MIT dependency/);
+  assert.match(open.result.entity.body, /Future cases like this \(new dependencies/);
+
+  // From a linked worktree, an executor's place, neither command runs.
+  const wt = join(c.base, 'wt');
+  git(c.root, 'worktree', 'add', '-q', '-b', 'exec-branch', wt);
+  for (const argv of [
+    ['rights', 'ask', '--question', JSON.stringify(filed)],
+    ['rights', 'answer', id, '--answer', 'A'],
+  ]) {
+    const refused = await c.hitld(argv, { cwd: wt });
+    assert.equal(refused.result.error, 'not_permitted', argv[1]);
+  }
+
+  const answered = await c.hitld(['rights', 'answer', id, '--answer', 'A yes']);
+  assert.equal(answered.exit, EXIT.ok, JSON.stringify(answered.result));
+  assert.equal(answered.result.precedent.id, 'P-1');
+  const done = (await c.hitld(['work', 'show', id, '--json'])).result;
+  assert.equal(done.api_version, 1);
+  const { body: _, path: __, version: ___, ...fields } = done.entity;
+  assert.equal(fields.state, 'Done');
+  assert.equal(fields.answer, 'A. Add it: one small MIT dependency');
+  assert.match(fields.answered_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(fields.answered_via, 'main-session');
+  assert.equal(fields.answered_by, 'owner');
+  assert.equal(fields.precedent, 'P-1');
+  assert.equal(fields.resolved_by_precedent, undefined);
+  const again = await c.hitld(['rights', 'answer', id, '--answer', 'B']);
+  assert.equal(again.result.error, 'not_open');
+
+  // A like question is resolved by the precedent: Done at once, citing it, answered by nobody.
+  const like = { ...filed, title: 'Add right-pad?', precedent_offer: undefined };
+  const resolved = await c.hitld(['rights', 'ask', '--question', JSON.stringify(like)]);
+  assert.equal(resolved.result.outcome, 'precedent', JSON.stringify(resolved.result));
+  const applied = (await c.hitld(['work', 'show', resolved.result.decision, '--json'])).result;
+  assert.equal(applied.entity.state, 'Done');
+  assert.equal(applied.entity.resolved_by_precedent, 'P-1');
+  assert.equal(applied.entity.answered_via, 'precedent');
+  assert.equal(applied.entity.answered_by, undefined);
+  const digest = await c.hitld(['rights', 'digest']);
+  assert.deepEqual(
+    digest.result.applications.map((/** @type {any} */ a) => a.decision),
+    [resolved.result.decision],
+  );
+  const query = await c.hitld(['work', 'query', '--kind', 'decision', '--json']);
+  assert.equal(query.result.entities.length, 2);
+
+  // The files the commands wrote pass the check (W-1 to W-3 of the fixture have no project).
+  const check = await c.hitld(['work', 'check']);
+  const mine = (check.result.problems ?? []).filter((/** @type {string} */ p) =>
+    /W-(8|9)-/.test(p),
+  );
+  assert.deepEqual(mine, []);
+
+  // What the files cannot hold truthfully is refused, never written.
+  const internal = { ...filed, title: 'Internal?', classification: 'internal' };
+  const refused = await c.hitld(['rights', 'ask', '--question', JSON.stringify(internal)]);
+  assert.equal(refused.result.error, 'not_created');
+  assert.match(refused.result.message, /classified internal cannot be written/);
+  const orphan = { ...question, title: 'Orphan?', precedent_offer: undefined, tags: ['x'] };
+  const noParent = await c.hitld(['rights', 'ask', '--question', JSON.stringify(orphan)]);
+  assert.equal(noParent.result.error, 'not_created');
+  assert.match(noParent.result.message, /the question's parent names the project/);
+});
 
 test('the commands carry a question through to a precedent, a digest and an overrule', async () => {
   const { project, run } = setup();
@@ -225,10 +301,11 @@ test("the parser accepts the commands' options", () => {
   );
 });
 
-test('an executor cannot answer, overrule, reverse, rate or trust a decision (Q21)', async () => {
+test('an executor cannot ask, answer, overrule, reverse, rate or trust a decision (Q21)', async () => {
   const cmds = makeCommands({ openTracker: () => /** @type {any} */ (null) });
   const nowhere = mkdtempSync(join(tmpdir(), 'hitld-exec-'));
   for (const name of [
+    'rights ask',
     'rights answer',
     'rights overrule',
     'rights reverse',

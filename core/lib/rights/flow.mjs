@@ -12,8 +12,14 @@
 // record, never from the decision item. Identity is an open decision for the owner (part 22, Q21).
 //
 // A decision item is created Planned when asked and set Done with its answer. One resolved by a
-// precedent is created Done, with `resolved_by_precedent` set: the applications of a precedent are
-// the decisions that cite it (design part 3.2: derived, never counted by hand).
+// precedent is created Planned and set Done at once, with `resolved_by_precedent` set: the
+// applications of a precedent are the decisions that cite it (design part 3.2: derived, never
+// counted by hand). Creating it Planned first keeps to the lifecycle every backend enforces.
+//
+// A backend need not hand back every field of a decision. The files backend keeps the question,
+// options and offer in the body, as text, and returns only the front-matter keys. So the options
+// are also kept in the private store's ask record, and an answer is read against them there when
+// the item does not carry them.
 
 import { canonicalJson } from '../policy/policy.mjs';
 import { schemas } from '../schema/registry.mjs';
@@ -58,8 +64,10 @@ const OPEN_STATES = ['Proposed', 'Planned'];
  * The authority a question was asked under, recorded in the private store when it was asked. A
  * precedent made from its answer takes its authority from this record and from nothing on the
  * decision item, whose fields anyone with tracker access can edit: who may decide, the area, the
- * rule basis, the classification, and the offer the decider was shown.
- * @typedef {{ deciders: string[], area: string | null, basis: string | null, classification: string, offer: Record<string, any> | null }} AskedRecord
+ * rule basis, the classification, and the offer the decider was shown. The record also keeps the
+ * options and the recommendation, which an answer such as "A" is read against.
+ * @typedef {{ deciders: string[], area: string | null, basis: string | null, classification: string, offer: Record<string, any> | null }} Authority
+ * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any> }} AskedRecord
  */
 
 /** @param {string} id */
@@ -73,7 +81,7 @@ const splitDeciders = (text) =>
     .filter(Boolean)
     .sort();
 
-/** What the decision item says now, in the shape of the record. @param {Record<string, any>} e @returns {AskedRecord} */
+/** What the decision item says now, in the shape of the record. @param {Record<string, any>} e @returns {Authority} */
 const currentAuthority = (e) => ({
   deciders: splitDeciders(String(e.decider ?? '')),
   area: e.area ?? null,
@@ -81,6 +89,31 @@ const currentAuthority = (e) => ({
   classification: e.classification,
   offer: e.precedent_offer ?? null,
 });
+
+/** Each part of the authority, and the decision item's field that shows it. */
+const AUTHORITY_FIELDS = /** @type {const} */ ([
+  ['deciders', 'decider'],
+  ['area', 'area'],
+  ['basis', 'rights_basis'],
+  ['classification', 'classification'],
+  ['offer', 'precedent_offer'],
+]);
+
+/**
+ * Whether the decision item shows an authority other than the one recorded at ask time. Only the
+ * fields the item carries are compared: a backend that keeps no rule basis or offer on the item
+ * (the files backend keeps them in the body) has nothing there to change, and the precedent takes
+ * them from the record either way.
+ * @param {Record<string, any>} entity @param {AskedRecord} asked
+ */
+function authorityChanged(entity, asked) {
+  const now = currentAuthority(entity);
+  return AUTHORITY_FIELDS.some(
+    ([part, field]) =>
+      entity[field] !== undefined &&
+      canonicalJson(now[part]) !== canonicalJson(asked[part] ?? null),
+  );
+}
 
 /** @param {Deps} deps */
 const nowOf = (deps) => (deps.now ?? (() => new Date().toISOString()))();
@@ -90,12 +123,13 @@ const fail = (error, message, more = {}) => ({ ok: false, error, message, ...mor
 
 /**
  * The tracker's version of an entity, for optimistic concurrency. The interface returns a version
- * from writes but offers no read of it; a backend that carries one on the entity as `_version`
- * (not data: never validated or written) lets callers use it. Without one, no expectation is set.
+ * from writes but offers no read of it; a backend that carries one on the entity as `_version` or
+ * `version` (the files backend's blob hash; not data: never validated or written) lets callers use
+ * it. Without one, no expectation is set.
  * @param {Record<string, any>} entity
  * @returns {string}
  */
-const versionOf = (entity) => /** @type {string} */ (entity._version);
+const versionOf = (entity) => /** @type {string} */ (entity._version ?? entity.version);
 
 /** @param {string[]} areas */
 const areaLabel = (areas) =>
@@ -111,6 +145,23 @@ function invalidDraft(deps, draft) {
     id: `${deps.policy.project.key}-1`,
   });
   return errors.length ? formatErrors(errors) : null;
+}
+
+/**
+ * Create the decision item. A refusal by the tracker (no project to file it under, a
+ * classification its files cannot hold) is returned as a failure that says what to change.
+ * @param {Deps} deps @param {Record<string, any>} draft @returns {string | Failure} the ID
+ */
+function create(deps, draft) {
+  try {
+    return deps.tracker.create(draft);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    return fail(
+      'not_created',
+      `the tracker refused the decision item: ${why}${draft.parent ? '' : "; the question's parent names the project to file it under"}`,
+    );
+  }
 }
 
 /**
@@ -201,14 +252,22 @@ export function askQuestion(deps, raw, options = {}) {
       ...(route.basis ? { rights_basis: route.basis } : {}),
       ...(question.reversibility ? { reversibility: question.reversibility } : {}),
       ...(question.opened_from ? { opened_from: question.opened_from } : {}),
+      ...(question.parent ? { parent: question.parent } : {}),
+    };
+    /** @type {Record<string, any>} */
+    const answered = {
       answer: cites ? `Resolved by precedent ${p.id}: ${p.rule}` : `Resolved by precedent ${p.id}`,
       answered_at: at,
       answered_via: 'precedent',
       resolved_by_precedent: p.id,
     };
-    const problem = invalidDraft(deps, draft);
+    const problem = invalidDraft(deps, { ...draft, ...answered });
     if (problem) return fail('invalid_decision', problem);
-    const id = deps.tracker.create(draft);
+    const made = create(deps, { ...draft, state: 'Planned' });
+    if (typeof made !== 'string') return made;
+    const id = made;
+    deps.tracker.update(id, answered, versionOf(deps.tracker.get(id)));
+    deps.tracker.transition(id, 'Done', `resolved by precedent ${p.id}`, {});
     recordTrustEvent(
       deps.store,
       {
@@ -227,7 +286,7 @@ export function askQuestion(deps, raw, options = {}) {
       outcome: 'precedent',
       decision: id,
       precedent: p.id,
-      answer: draft.answer,
+      answer: answered.answer,
       route,
     };
   }
@@ -276,11 +335,20 @@ export function askQuestion(deps, raw, options = {}) {
       ? { default_if_unanswered: question.default_if_unanswered }
       : {}),
     ...(question.opened_from ? { opened_from: question.opened_from } : {}),
+    ...(question.parent ? { parent: question.parent } : {}),
   };
   const problem = invalidDraft(deps, draft);
   if (problem) return fail('invalid_decision', problem);
-  const id = deps.tracker.create(draft);
-  deps.store.write(askedKey(id), canonicalJson(currentAuthority(draft)) + '\n');
+  const made = create(deps, draft);
+  if (typeof made !== 'string') return made;
+  const id = made;
+  /** @type {AskedRecord} */
+  const record = {
+    ...currentAuthority(draft),
+    options: draft.options,
+    recommendation: draft.recommendation,
+  };
+  deps.store.write(askedKey(id), canonicalJson(record) + '\n');
   for (const blocked of question.blocks ?? []) deps.tracker.link(blocked, 'needs', id);
   recordTrustEvent(
     deps.store,
@@ -353,19 +421,26 @@ export function answerDecision(deps, input) {
   /** @type {AskedRecord | null} */
   const asked = recorded ? JSON.parse(recorded) : null;
   const deciders = asked ? asked.deciders : splitDeciders(String(entity.decider ?? ''));
-  const changed = asked && canonicalJson(currentAuthority(entity)) !== canonicalJson(asked);
+  const changed = asked !== null && authorityChanged(entity, asked);
+  // The options an answer such as "A" names: the item's own, or, where the backend keeps them as
+  // text (the files backend), the ones recorded at ask time.
+  const question = {
+    ...entity,
+    options: entity.options ?? asked?.options,
+    recommendation: entity.recommendation ?? asked?.recommendation,
+  };
   if (input.by && input.by !== 'owner' && !deciders.includes(input.by)) {
     return fail(
       'not_a_decider',
       `${input.by} is not among the deciders of ${input.decision} (${deciders.join(', ')})`,
     );
   }
-  const parsed = parseAnswer(input.answer, entity);
+  const parsed = parseAnswer(input.answer, question);
   const at = nowOf(deps);
   const answerText =
     parsed.option === null
       ? parsed.text
-      : describeOption(entity.options[parsed.option], parsed.option);
+      : describeOption(question.options[parsed.option], parsed.option);
   /** @type {'yes' | 'narrowed' | 'just-this-one' | 'none-given'} */
   let generalization = parsed.generalization ?? 'none-given';
   const narrow =
@@ -432,10 +507,13 @@ export function answerDecision(deps, input) {
     answer: answerText,
     answered_at: at,
     answered_via: input.via ?? 'main-session',
+    // Answers come only from the owner's own turns (Q21); an area owner's ID, once signed answers
+    // exist, is checked against the deciders above.
+    answered_by: input.by ?? 'owner',
     ...(parsed.rationale && parsed.option !== null ? { rationale: parsed.rationale } : {}),
     ...(precedent ? { precedent: precedent.id } : {}),
   };
-  const area = entity.area ?? UNASSIGNED;
+  const area = entity.area ?? asked?.area ?? UNASSIGNED;
   deps.tracker.update(input.decision, patch, versionOf(entity));
   deps.tracker.transition(
     input.decision,
@@ -454,7 +532,9 @@ export function answerDecision(deps, input) {
       area,
       subject: input.decision,
       ...(entity.decider ? { decider: entity.decider } : {}),
-      ...(entity.rights_basis ? { basis: entity.rights_basis } : {}),
+      ...((entity.rights_basis ?? asked?.basis)
+        ? { basis: entity.rights_basis ?? asked?.basis }
+        : {}),
       generalization,
       ...(input.agrees_with?.length ? { agrees_with: input.agrees_with } : {}),
     },

@@ -21,7 +21,7 @@ import {
 } from './claims.mjs';
 import { checkItems, findCollisions } from './check.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
-import { checkTree, problemLines } from '../../guard/classification.mjs';
+import { LEVELS, checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
 import {
   createExclusive,
@@ -120,6 +120,55 @@ const BODY = /** @type {Record<string, string>} */ ({
   capability: '\n## Notes\n\n\n',
   learning: '\n## Notes\n\n\n',
 });
+
+/** The letter of the option at index i: A, B, ... @param {number} i */
+const letter = (i) => String.fromCharCode(65 + i);
+
+/**
+ * A decision's body from the model's question fields (design part 3.2, Decision), in the sections
+ * of the reference skeleton. The format has no front-matter key for these: the question, the
+ * context, the options, the recommendation, the precedent offer, the rule basis and the
+ * reversibility are text for the decider to read, so they live in the body. The answer is
+ * recorded in the front matter.
+ * @param {Record<string, any>} d @returns {string}
+ */
+function decisionBody(d) {
+  const out = ['', '## Question', ''];
+  if (d.question) out.push(String(d.question), '');
+  if (d.context) out.push(String(d.context), '');
+  const facts = [
+    ...(d.rights_basis ? [`Rule basis: ${d.rights_basis}.`] : []),
+    ...(d.reversibility ? [`Reversibility: ${d.reversibility}.`] : []),
+  ];
+  if (facts.length) out.push(facts.join(' '), '');
+  out.push('## Options and recommendation', '');
+  const options = Array.isArray(d.options) ? d.options : [];
+  for (const [i, o] of options.entries()) {
+    const extra = [
+      ...(o.cost ? [`cost: ${o.cost}`] : []),
+      ...(o.reversible === false ? ['hard to undo'] : []),
+    ];
+    out.push(
+      `- ${letter(i)}. ${o.label}: ${o.what_happens}${extra.length ? ` (${extra.join('; ')})` : ''}`,
+    );
+  }
+  if (options.length) out.push('');
+  if (d.recommendation) {
+    out.push(`Recommended: ${d.recommendation.option}. ${d.recommendation.why}`, '');
+  }
+  if (d.default_if_unanswered) {
+    const u = d.default_if_unanswered;
+    out.push(`If unanswered by ${u.deadline}: ${u.option}.`, '');
+  }
+  if (d.precedent_offer) {
+    out.push(
+      `Future cases like this (${d.precedent_offer.summary}): treat the same way? ${d.precedent_offer.rule}`,
+      '',
+    );
+  }
+  out.push('## Answer', '', 'Recorded in the front matter once answered.', '');
+  return out.join('\n');
+}
 
 /** Today as YYYY-MM-DD in local time. */
 const today = () => new Date().toLocaleDateString('sv');
@@ -519,6 +568,22 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       if (kind === 'initiative' && draft.parent) throw new Error('an initiative has no parent');
       if (kind === 'external' && !draft.party)
         throw new Error('an external item needs party (who we wait on)');
+      // Without a classification key, every file is the default classification. A draft more
+      // restricted than that (or of no known level) would be published below its level, so it is
+      // refused, never written.
+      if (
+        draft.classification !== undefined &&
+        !layout.optionalKeys.includes('classification') &&
+        !(
+          LEVELS.includes(String(draft.classification)) &&
+          LEVELS.indexOf(String(draft.classification)) <=
+            LEVELS.indexOf(layout.defaultClassification)
+        )
+      ) {
+        throw new Error(
+          `this tracker's files are all ${layout.defaultClassification} (tracker.json has no classification in optional_keys), so an item classified ${String(draft.classification)} cannot be written here`,
+        );
+      }
       /** @type {Record<string, unknown>} */
       const fields = {
         title: String(draft.title).trim(),
@@ -553,7 +618,12 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
           `this tracker's file format has no key for ${unsupported.join(', ')} on a ${kind}`,
         );
       }
-      const body = typeof draft.body === 'string' ? draft.body : BODY[kind];
+      const body =
+        typeof draft.body === 'string'
+          ? draft.body
+          : kind === 'decision' && draft.question
+            ? decisionBody(draft)
+            : BODY[kind];
       const slug = slugify(String(draft.title));
       const folder = layout.folders[FOLDER_GROUP[/** @type {keyof typeof FOLDER_GROUP} */ (kind)]];
       const before = checkItems(read(), layout, { root });
