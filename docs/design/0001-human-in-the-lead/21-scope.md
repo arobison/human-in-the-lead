@@ -6,7 +6,7 @@ Milestones are defined by what they deliver and what they depend on. There are n
 
 The milestone and the version line are different things. Version numbers (v0.y.z, then 1.0) name releases, and a release can be cut at any green merge. "One signal end to end" names a future state; several releases may ship before it is reached.
 
-<a id="211-v0-the-smallest-end-to-end-slice-worth-using"></a>
+<a id="211-one-signal-end-to-end"></a>
 
 ## 21.1 One signal end to end: the smallest slice worth using
 
@@ -14,7 +14,7 @@ This milestone is reached when one signal can travel the whole path (arrive, be 
 
 This is bootstrap **stage 0** ([part 18](18-self-improvement.md#181-bootstrap-stages)): the milestone is built by hand, through ordinary sessions the owner directs.
 
-<a id="what-v0-contains"></a>
+<a id="what-one-signal-end-to-end-contains"></a>
 
 ### What it contains
 
@@ -42,7 +42,7 @@ This is bootstrap **stage 0** ([part 18](18-self-improvement.md#181-bootstrap-st
 | **Private store** | A directory outside the repository: git text files for what syncs, SQLite for machine-local state and a rebuildable index ([part 3](03-data-model.md#private-store)); `hitld store export`, `import` and `sync` (planned) | Other backends |
 | **Knowledge base** | The structure, front matter, the generated index and the `kb` tool's `search`, `index`, `stale`, `links` and `check` (not yet built) | Gardening loop, contradiction pass, hybrid retriever |
 
-<a id="v0-alpha-usable-in-a-consuming-project"></a>
+<a id="usable-in-a-consuming-project"></a>
 
 ### Usable in a consuming project
 
@@ -59,7 +59,7 @@ This milestone is narrower than "One signal end to end": the point at which a co
 - Packaging: the plugin and the marketplace, installable from a local checkout.
 - Offline evals for each piece above, so the next change is gated.
 
-<a id="v0-is-done-when"></a>
+<a id="one-signal-end-to-end-is-done-when"></a>
 
 ### Done when
 

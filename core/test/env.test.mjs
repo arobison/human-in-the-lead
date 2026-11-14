@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { openStore } from '../lib/store/store.mjs';
-import { openEnv } from '../lib/env/manager.mjs';
+import { machineRootFor, openEnv } from '../lib/env/manager.mjs';
 import { isAlive, sleep } from '../lib/env/proc.mjs';
 import { findOutsideLinks, scanWorktree, unlinkLink } from '../lib/env/links.mjs';
 import { removeFromDisk } from '../lib/env/worktree.mjs';
@@ -84,14 +84,31 @@ function makeRepo() {
   return root;
 }
 
-/** A free port range of the given size, found by asking the OS for a start. @param {number} size */
-async function freeRange(size) {
-  const server = createServer();
-  await new Promise((r) => server.listen(0, '127.0.0.1', () => r(undefined)));
-  const start = /** @type {import('node:net').AddressInfo} */ (server.address()).port;
-  await new Promise((r) => server.close(() => r(undefined)));
-  const min = Math.min(start, 65000 - size);
-  return { min: Math.max(1024, min), max: Math.max(1024, min) + size - 1 };
+/** Whether a test bind on the port succeeds. @param {number} port */
+const canBind = (port) =>
+  new Promise((resolve) => {
+    const s = createServer();
+    s.once('error', () => resolve(false));
+    s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)));
+  });
+
+let rangeCounter = 0;
+/**
+ * A port range of the given size in which every port is free now. It sits below the operating
+ * system's ephemeral range (outgoing connections of other suites take ports from that range, and
+ * they would land inside a range found there), and each test gets its own, by process and counter.
+ * `from` forces the first candidate, so a test can aim at a port it holds.
+ * @param {number} size @param {number} [from]
+ */
+async function freeRange(size, from) {
+  let min = from ?? 12000 + ((process.pid * 37 + ++rangeCounter * 101) % 18000);
+  for (let tries = 0; tries < 200; tries++, min += size) {
+    if (from === undefined && min + size > 30000) min = 12000;
+    let free = true;
+    for (let p = min; p < min + size && free; p++) free = await canBind(p);
+    if (free) return { min, max: min + size - 1 };
+  }
+  throw new Error('no free port range found');
 }
 
 /**
@@ -108,17 +125,22 @@ async function makeEnv(o) {
   assert.deepEqual(errors, []);
   const store = openStore(dir('store'));
   repoOf.set(store.root, o.repoRoot);
+  // Each environment has its own machine directory: the default beside the stores is shared by
+  // every test in this file, and a lock taken in one would show in the next.
+  const machineRoot = o.machineRoot ?? dir('machine');
+  assert.notEqual(machineRoot, machineRootFor(store.root), 'the shared machine directory');
   const base = openEnv({
     repoRoot: o.repoRoot,
     store,
     policy: /** @type {any} */ (policy),
     env: o.callerEnv ?? { ...process.env },
-    machineRoot: o.machineRoot ?? dir('machine'),
+    machineRoot,
     secretReader: o.read,
   });
   return {
     store,
     range,
+    machineRoot,
     // The caller is inside the dispatch's worktree unless a test says otherwise.
     env: {
       ...base,
@@ -349,13 +371,26 @@ test('a port in use by another process is skipped and the process is left alone'
   const { env, store, range } = await makeEnv({ repoRoot });
 
   // The "owner's own server": a listener this test starts, on the first port of the range.
-  const dummy = createServer((s) => s.end('owner'));
+  // The probe below hangs up at once, so a write here can meet a reset: handle it, or Node reports
+  // it as an uncaught error after the test ends (the flake HITLD-19 chased).
+  const dummy = createServer((s) => {
+    s.on('error', () => {});
+    s.end('owner');
+  });
   listeners.add(dummy);
   await new Promise((r) => dummy.listen(range.min, '127.0.0.1', () => r(undefined)));
+  // A second listener on the next port: another suite's traffic can do this under load, so the
+  // test holds it itself and expects it skipped too, rather than hoping nothing else binds there.
+  const second = createServer((s) => {
+    s.on('error', () => {});
+    s.end();
+  });
+  listeners.add(second);
+  await new Promise((r) => second.listen(range.min + 1, '127.0.0.1', () => r(undefined)));
 
   const lease = await env.leasePort({ holder: 'D-1' });
-  assert.notEqual(lease.lease.port, range.min);
-  assert.deepEqual(lease.skipped, [range.min]);
+  assert.equal(lease.lease.port, range.min + 2);
+  assert.deepEqual(lease.skipped, [range.min, range.min + 1]);
   assert.ok(!(String(range.min) in env.registry().ports));
 
   // Even an entry that names the owner's process as a "server" is never stopped: a process that
@@ -381,6 +416,34 @@ test('a port in use by another process is skipped and the process is left alone'
 
   owner.kill('SIGKILL');
   dummy.close();
+  second.close();
+});
+
+test('freeRange skips a range with a busy port (the old helper handed it out)', async () => {
+  const busy = createServer();
+  listeners.add(busy);
+  await new Promise((r) => busy.listen(0, '127.0.0.1', () => r(undefined)));
+  const port = /** @type {import('node:net').AddressInfo} */ (busy.address()).port;
+  const range = await freeRange(5, port - 1);
+  assert.ok(range.min > port || range.max < port, `range ${range.min}-${range.max} holds ${port}`);
+  for (let p = range.min; p <= range.max; p++) assert.ok(await canBind(p), `port ${p} is free`);
+  busy.close();
+});
+
+test('every environment gets its own machine directory, never the shared one', async () => {
+  const repoRoot = makeRepo();
+  const a = await makeEnv({ repoRoot });
+  const b = await makeEnv({ repoRoot });
+  assert.ok((await a.env.acquireLock({ resource: 'gpu', holder: 'D-1' })).acquired);
+  // a shared lock directory would make this fail
+  assert.ok((await b.env.acquireLock({ resource: 'gpu', holder: 'D-2' })).acquired);
+  assert.notEqual(a.machineRoot, b.machineRoot);
+  for (const x of [a, b]) {
+    assert.notEqual(x.machineRoot, machineRootFor(x.store.root));
+    assert.ok(!existsSync(machineRootFor(x.store.root)), 'the shared directory is never created');
+  }
+  a.env.releaseLock({ resource: 'gpu', holder: 'D-1' });
+  b.env.releaseLock({ resource: 'gpu', holder: 'D-2' });
 });
 
 test('a server the manager started is stopped on release, and only that one', async () => {

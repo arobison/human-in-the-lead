@@ -4,7 +4,7 @@
 
 Four pieces of machinery keep a long run healthy without the owner's attention: the orchestrator's state lives outside its context (13.1), the environment executors run in is created, shared and cleaned up safely (13.2), recurring work happens without anyone prompting it (13.3), and settings come from the layer that owns them: the person, the machine, the project or the run (13.4). All but the scheduler are in "One signal end to end" ([part 21](21-scope.md)).
 
-<a id="131-orchestrator-continuity-v0"></a>
+<a id="131-orchestrator-continuity"></a>
 
 ## 13.1 Orchestrator continuity
 

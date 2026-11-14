@@ -1,4 +1,4 @@
-// The tracker adapter interface (design part 3.3). The files backend (piece (a) of v0-alpha,
+// The tracker adapter interface (design part 3.3). The files backend (piece (a) of "Usable in a consuming project",
 // under core/lib/tracker/files/) is the reference implementation; other pieces code against
 // these types so they can be built in parallel with it.
 //

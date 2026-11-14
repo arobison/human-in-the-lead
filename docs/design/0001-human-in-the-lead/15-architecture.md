@@ -111,7 +111,7 @@ The orchestrator reads the capability set and adapts. Nothing in the core assume
 | Model or effort selection | Tiers map onto what the harness offers; the ledger records what actually ran |
 | Usage reporting | The ledger records `usage: unknown`; cost metrics exclude those dispatches and say so |
 
-<a id="154-the-claude-code-adapter-v0"></a>
+<a id="154-the-claude-code-adapter"></a>
 
 ## 15.4 The Claude Code adapter
 
