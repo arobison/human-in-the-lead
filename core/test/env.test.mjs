@@ -4,22 +4,26 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer, connect } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { openStore } from '../lib/store/store.mjs';
-import { openEnv } from '../lib/env/manager.mjs';
+import { machineRootFor, openEnv } from '../lib/env/manager.mjs';
 import { isAlive, sleep } from '../lib/env/proc.mjs';
+import { findOutsideLinks, scanWorktree, unlinkLink } from '../lib/env/links.mjs';
+import { removeFromDisk } from '../lib/env/worktree.mjs';
 import { withMutex } from '../lib/env/mutex.mjs';
 import { createRedactor, splitCommand } from '../lib/env/secrets.mjs';
 import { hostname } from 'node:os';
@@ -80,14 +84,31 @@ function makeRepo() {
   return root;
 }
 
-/** A free port range of the given size, found by asking the OS for a start. @param {number} size */
-async function freeRange(size) {
-  const server = createServer();
-  await new Promise((r) => server.listen(0, '127.0.0.1', () => r(undefined)));
-  const start = /** @type {import('node:net').AddressInfo} */ (server.address()).port;
-  await new Promise((r) => server.close(() => r(undefined)));
-  const min = Math.min(start, 65000 - size);
-  return { min: Math.max(1024, min), max: Math.max(1024, min) + size - 1 };
+/** Whether a test bind on the port succeeds. @param {number} port */
+const canBind = (port) =>
+  new Promise((resolve) => {
+    const s = createServer();
+    s.once('error', () => resolve(false));
+    s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)));
+  });
+
+let rangeCounter = 0;
+/**
+ * A port range of the given size in which every port is free now. It sits below the operating
+ * system's ephemeral range (outgoing connections of other suites take ports from that range, and
+ * they would land inside a range found there), and each test gets its own, by process and counter.
+ * `from` forces the first candidate, so a test can aim at a port it holds.
+ * @param {number} size @param {number} [from]
+ */
+async function freeRange(size, from) {
+  let min = from ?? 12000 + ((process.pid * 37 + ++rangeCounter * 101) % 18000);
+  for (let tries = 0; tries < 200; tries++, min += size) {
+    if (from === undefined && min + size > 30000) min = 12000;
+    let free = true;
+    for (let p = min; p < min + size && free; p++) free = await canBind(p);
+    if (free) return { min, max: min + size - 1 };
+  }
+  throw new Error('no free port range found');
 }
 
 /**
@@ -104,17 +125,22 @@ async function makeEnv(o) {
   assert.deepEqual(errors, []);
   const store = openStore(dir('store'));
   repoOf.set(store.root, o.repoRoot);
+  // Each environment has its own machine directory: the default beside the stores is shared by
+  // every test in this file, and a lock taken in one would show in the next.
+  const machineRoot = o.machineRoot ?? dir('machine');
+  assert.notEqual(machineRoot, machineRootFor(store.root), 'the shared machine directory');
   const base = openEnv({
     repoRoot: o.repoRoot,
     store,
     policy: /** @type {any} */ (policy),
     env: o.callerEnv ?? { ...process.env },
-    machineRoot: o.machineRoot ?? dir('machine'),
+    machineRoot,
     secretReader: o.read,
   });
   return {
     store,
     range,
+    machineRoot,
     // The caller is inside the dispatch's worktree unless a test says otherwise.
     env: {
       ...base,
@@ -353,10 +379,18 @@ test('a port in use by another process is skipped and the process is left alone'
   });
   listeners.add(dummy);
   await new Promise((r) => dummy.listen(range.min, '127.0.0.1', () => r(undefined)));
+  // A second listener on the next port: another suite's traffic can do this under load, so the
+  // test holds it itself and expects it skipped too, rather than hoping nothing else binds there.
+  const second = createServer((s) => {
+    s.on('error', () => {});
+    s.end();
+  });
+  listeners.add(second);
+  await new Promise((r) => second.listen(range.min + 1, '127.0.0.1', () => r(undefined)));
 
   const lease = await env.leasePort({ holder: 'D-1' });
-  assert.notEqual(lease.lease.port, range.min);
-  assert.deepEqual(lease.skipped, [range.min]);
+  assert.equal(lease.lease.port, range.min + 2);
+  assert.deepEqual(lease.skipped, [range.min, range.min + 1]);
   assert.ok(!(String(range.min) in env.registry().ports));
 
   // Even an entry that names the owner's process as a "server" is never stopped: a process that
@@ -382,6 +416,34 @@ test('a port in use by another process is skipped and the process is left alone'
 
   owner.kill('SIGKILL');
   dummy.close();
+  second.close();
+});
+
+test('freeRange skips a range with a busy port (the old helper handed it out)', async () => {
+  const busy = createServer();
+  listeners.add(busy);
+  await new Promise((r) => busy.listen(0, '127.0.0.1', () => r(undefined)));
+  const port = /** @type {import('node:net').AddressInfo} */ (busy.address()).port;
+  const range = await freeRange(5, port - 1);
+  assert.ok(range.min > port || range.max < port, `range ${range.min}-${range.max} holds ${port}`);
+  for (let p = range.min; p <= range.max; p++) assert.ok(await canBind(p), `port ${p} is free`);
+  busy.close();
+});
+
+test('every environment gets its own machine directory, never the shared one', async () => {
+  const repoRoot = makeRepo();
+  const a = await makeEnv({ repoRoot });
+  const b = await makeEnv({ repoRoot });
+  assert.ok((await a.env.acquireLock({ resource: 'gpu', holder: 'D-1' })).acquired);
+  // a shared lock directory would make this fail
+  assert.ok((await b.env.acquireLock({ resource: 'gpu', holder: 'D-2' })).acquired);
+  assert.notEqual(a.machineRoot, b.machineRoot);
+  for (const x of [a, b]) {
+    assert.notEqual(x.machineRoot, machineRootFor(x.store.root));
+    assert.ok(!existsSync(machineRootFor(x.store.root)), 'the shared directory is never created');
+  }
+  a.env.releaseLock({ resource: 'gpu', holder: 'D-1' });
+  b.env.releaseLock({ resource: 'gpu', holder: 'D-2' });
 });
 
 test('a server the manager started is stopped on release, and only that one', async () => {
@@ -1234,4 +1296,146 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   const after = await hitld(['env', 'status']);
   assert.deepEqual([after.json.worktrees, after.json.ports], [[], []]);
   assert.equal(after.json.locks.find((/** @type {any} */ l) => l.resource === 'gpu').held_by, null);
+});
+
+// HITLD-58: cleanup never follows a link (design 13.2, "Links in cleanup").
+
+/** Another checkout with a dependency directory that must survive any cleanup. */
+function makeOtherCheckout() {
+  const other = makeRepo();
+  mkdirSync(join(other, 'node_modules', 'pkg'), { recursive: true });
+  writeFileSync(join(other, 'node_modules', 'pkg', 'index.js'), 'module.exports = 1;\n');
+  writeFileSync(join(other, 'keep.txt'), 'keep\n');
+  return other;
+}
+
+/** @param {string} other */
+const otherIntact = (other) =>
+  readFileSync(join(other, 'node_modules', 'pkg', 'index.js'), 'utf8') ===
+    'module.exports = 1;\n' &&
+  readFileSync(join(other, 'keep.txt'), 'utf8') === 'keep\n' &&
+  existsSync(join(other, '.git'));
+
+test('a dependency directory linked from another checkout is flagged at setup and survives cleanup', async () => {
+  const repoRoot = makeRepo();
+  const other = makeOtherCheckout();
+  const { env } = await makeEnv({
+    repoRoot,
+    env: { worktree_setup: [`ln -s '${join(other, 'node_modules')}' node_modules`] },
+  });
+  const { lease } = await env.createWorktree({ holder: 'D-1', itemId: 'W-1' });
+  const setup = await env.runSetup({ holder: 'D-1' });
+  assert.equal(setup.ok, true);
+  assert.deepEqual(setup.links_out, [
+    { path: 'node_modules', target: join(other, 'node_modules') },
+  ]);
+  assert.deepEqual(env.registry().worktrees['D-1'].setup?.links_out, setup.links_out);
+
+  const r = await env.releaseWorktree({ holder: 'D-1', outcome: 'abandoned' });
+  assert.deepEqual(r.links_unlinked, ['node_modules']);
+  assert.ok(!existsSync(lease.path));
+  assert.ok(otherIntact(other), 'the other checkout is untouched');
+});
+
+test('cleanup leaves the target of a nested, dangling or file link alone, and keeps inside links', async () => {
+  const repoRoot = makeRepo();
+  const other = makeOtherCheckout();
+  const { env } = await makeEnv({ repoRoot });
+  const { lease } = await env.createWorktree({ holder: 'D-2', itemId: 'W-2' });
+  const wt = lease.path;
+  mkdirSync(join(wt, 'packages', 'app', 'deep'), { recursive: true });
+  symlinkSync(
+    join(other, 'node_modules'),
+    join(wt, 'packages', 'app', 'deep', 'node_modules'),
+    'dir',
+  );
+  symlinkSync(join(other, 'keep.txt'), join(wt, 'packages', 'keep-link.txt'));
+  symlinkSync(join(other, 'missing'), join(wt, 'dangling'));
+  // a relative link that climbs out of the worktree, and a link to a directory inside it
+  symlinkSync(wt + '/..', join(wt, 'packages', 'app', 'up'), 'dir');
+  symlinkSync(join(wt, 'packages'), join(wt, 'inside'), 'dir');
+  const r = await env.releaseWorktree({ holder: 'D-2', outcome: 'abandoned' });
+  assert.deepEqual(r.links_unlinked.sort(), [
+    'dangling',
+    'packages/app/deep/node_modules',
+    'packages/app/up',
+    'packages/keep-link.txt',
+  ]);
+  assert.ok(!existsSync(wt));
+  assert.ok(otherIntact(other));
+  assert.ok(existsSync(dirname(wt)), 'a link that climbed out did not take the parent directory');
+});
+
+test('a worktree path that is itself a link is refused, not cleaned through', async () => {
+  const repoRoot = makeRepo();
+  const other = makeOtherCheckout();
+  const { env } = await makeEnv({ repoRoot });
+  const { lease } = await env.createWorktree({ holder: 'D-3', itemId: 'W-3' });
+  // the worktree directory is swapped for a link to another checkout
+  const moved = `${lease.path}.moved`;
+  renameSync(lease.path, moved);
+  symlinkSync(other, lease.path, 'dir');
+  await assert.rejects(env.releaseWorktree({ holder: 'D-3', outcome: 'abandoned' }));
+  assert.ok(otherIntact(other));
+  rmSync(lease.path);
+  renameSync(moved, lease.path);
+  await env.releaseWorktree({ holder: 'D-3', outcome: 'abandoned' });
+});
+
+test('a directory swapped for a link after the walk is not acted on', () => {
+  const other = makeOtherCheckout();
+  mkdirSync(join(other, 'dir-a'));
+  symlinkSync(join(other, 'nowhere'), join(other, 'dir-a', 'victim'));
+  const wt = realpathSync(dir('swap'));
+  mkdirSync(join(wt, 'sub'));
+  symlinkSync(join(other, 'nowhere'), join(wt, 'sub', 'victim'));
+  assert.deepEqual(
+    findOutsideLinks(wt).map((l) => l.path),
+    ['sub/victim'],
+  );
+  // after the walk, "sub" becomes a link into a directory holding a link of the same name
+  renameSync(join(wt, 'sub'), join(wt, 'sub.moved'));
+  symlinkSync(join(other, 'dir-a'), join(wt, 'sub'), 'dir');
+  assert.equal(unlinkLink(wt, 'sub/victim'), false);
+  assert.ok(lstatSync(join(other, 'dir-a', 'victim')).isSymbolicLink(), 'the other link stays');
+  // a fresh walk sees the swapped directory as a link and does not read through it
+  assert.deepEqual(
+    findOutsideLinks(wt).map((l) => l.path),
+    ['sub', 'sub.moved/victim'],
+  );
+  // an entry that stopped being a link is not removed
+  rmSync(join(wt, 'sub'));
+  renameSync(join(wt, 'sub.moved'), join(wt, 'sub'));
+  rmSync(join(wt, 'sub', 'victim'));
+  writeFileSync(join(wt, 'sub', 'victim'), 'now a file\n');
+  assert.equal(unlinkLink(wt, 'sub/victim'), false);
+  assert.equal(readFileSync(join(wt, 'sub', 'victim'), 'utf8'), 'now a file\n');
+  assert.ok(otherIntact(other));
+});
+
+test('a directory on another device is a mount point: not descended, and the worktree is not removed', async () => {
+  const repoRoot = makeRepo();
+  const other = makeOtherCheckout();
+  const { env } = await makeEnv({ repoRoot });
+  const { lease } = await env.createWorktree({ holder: 'D-4', itemId: 'W-4' });
+  mkdirSync(join(lease.path, 'mnt'));
+  writeFileSync(join(lease.path, 'mnt', 'data.txt'), 'mounted\n');
+  symlinkSync(join(other, 'node_modules'), join(lease.path, 'mnt', 'link'), 'dir');
+  // fake the device: "mnt" reports a different dev than the rest, without mounting anything
+  const mnt = join(lease.path, 'mnt');
+  /** @param {string} p */
+  const lstat = (p) => {
+    const st = lstatSync(p);
+    return p === mnt
+      ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { dev: st.dev + 1 })
+      : st;
+  };
+  const scan = scanWorktree(lease.path, { lstat });
+  assert.deepEqual(scan.mounts, ['mnt']);
+  assert.deepEqual(scan.links, [], 'the mount is not descended into');
+  await assert.rejects(removeFromDisk(lease, false, { lstat }), /mnt is a mount point/);
+  assert.ok(existsSync(join(mnt, 'data.txt')));
+  assert.ok(lstatSync(join(mnt, 'link')).isSymbolicLink(), 'nothing was unlinked');
+  assert.ok(otherIntact(other));
+  await env.releaseWorktree({ holder: 'D-4', outcome: 'abandoned' });
 });

@@ -1,6 +1,6 @@
 # The eval suite
 
-Scenarios, fixtures, graders and the runner ([design part 17](../docs/design/0001-human-in-the-lead/17-evals.md)). This is the guide for the pieces of v0-alpha ([design part 21](../docs/design/0001-human-in-the-lead/21-scope.md)): each adds offline scenarios for what it builds, and `hitld eval --offline` is their gate.
+Scenarios, fixtures, graders and the runner ([design part 17](../docs/design/0001-human-in-the-lead/17-evals.md)). This is the guide for the pieces of "Usable in a consuming project" ([design part 21](../docs/design/0001-human-in-the-lead/21-scope.md)): each adds offline scenarios for what it builds, and `hitld eval --offline` is their gate.
 
 ```bash
 node core/bin/hitld.mjs eval --offline                       # everything
@@ -20,7 +20,7 @@ The command prints JSON and exits 0 only when every scenario passes and the gate
 | `schemas/eval-scenario.schema.json`, `schemas/eval-result.schema.json` | The scenario and result formats |
 | `schemas/policy/eval.schema.json` | The gate's thresholds: category floors and tolerances |
 
-`<piece>` is the area name, matching your command file in `core/lib/cli/commands/`: `foundation`, `tracker`, `ledger`, `env`, `contract`, `rights`, `quota`, `eval`, `orchestrator`. Make the directory when you add your first scenario. A consuming project adds its own scenarios under its own `evals/`, in the same format; `hitld eval` runs both.
+`<piece>` is the area name, matching your command file in `core/lib/cli/commands/`: `foundation`, `tracker`, `ledger`, `env`, `contract`, `rights`, `quota`, `eval`, `orchestrator`, `security`. Make the directory when you add your first scenario. A consuming project adds its own scenarios under its own `evals/`, in the same format; `hitld eval` runs both.
 
 ## A scenario
 

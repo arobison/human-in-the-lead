@@ -1,6 +1,6 @@
 // The flake quarantine (design part 14.4): a test run that failed and then passed on the same
 // commit is not blamed on a branch. It is recorded here, in the private store; the flaky-test
-// sweep (milestone O1) confirms or clears it and files an item.
+// sweep (the milestone Scheduler) confirms or clears it and files an item.
 
 export const FLAKES_KEY = 'merge/flakes.jsonl';
 

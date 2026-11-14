@@ -1,4 +1,4 @@
-// The tracker adapter interface (design part 3.3). The files backend (piece (a) of v0-alpha,
+// The tracker adapter interface (design part 3.3). The files backend (piece (a) of "Usable in a consuming project",
 // under core/lib/tracker/files/) is the reference implementation; other pieces code against
 // these types so they can be built in parallel with it.
 //
@@ -20,6 +20,8 @@
  * @property {Id} [needs] entities that need this ID
  * @property {Id} [parent]
  * @property {string} [text] case-insensitive, in the title and body
+ * @property {Record<string, unknown>} [fields] declared project fields to match: a list field
+ *   matches when it holds the value, any other field when it equals it
  * @property {boolean} [ready] derived: Planned, every need Done, not claimed (design part 3.2)
  * @property {boolean} [blocked] derived: Planned or Proposed with a need not Done
  * @property {boolean} [claimed] derived: a live branch has a claim for it

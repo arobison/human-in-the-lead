@@ -1,9 +1,9 @@
 // Trust-calibration data (design parts 2.15 and 21): the facts counted per area from the first run,
-// so the record exists when autonomy proposals arrive (milestone T1). Recording is all this does.
+// so the record exists when autonomy proposals arrive (the milestone Trust calibration). Recording is all this does.
 // Nothing here changes who decides what; the system never grants itself autonomy (design part 4.6).
 //
 // Events are appended to trust/events.jsonl in the private store. The counts a rate needs from
-// elsewhere, such as how many logged calls the orchestrator made, come from the ledger in T1;
+// elsewhere, such as how many logged calls the orchestrator made, come from the ledger in Trust calibration;
 // a rate that would need them is not computed here.
 
 import { schemas } from '../schema/registry.mjs';
