@@ -6,6 +6,20 @@ const registry = schemas();
 
 /** A valid example of every stand-alone data file, from the design where it gives one. */
 const examples = {
+  // Design part 18.4: a feedback record, as `hitld feedback` writes it to the private store.
+  feedback: {
+    schema_version: 1,
+    id: 'FB-1',
+    kind: 'friction',
+    words: 'That question was not worth asking.',
+    created_at: '2026-11-14T12:00:00Z',
+    version: '0.1.0',
+    harness: { name: 'claude-code', version: 'unknown' },
+    area: 'decision rights',
+    refs: ['W-3'],
+    state: 'local',
+    classification: 'confidential',
+  },
   // Part 12.5: a Claude Code status line snapshot, as the status-line command writes it.
   'usage-snapshot': {
     schema_version: 1,
@@ -15,6 +29,32 @@ const examples = {
       five_hour: { used_percentage: 42, resets_at: 1794668400 },
       seven_day: { used_percentage: 17, resets_at: 1794900000 },
     },
+  },
+  // Part 13.4: the person file, with a declared limit and a share between projects.
+  person: {
+    schema_version: 1,
+    executors_max: 4,
+    quota: {
+      owner_reserve: 0.3,
+      limits: [
+        {
+          id: 'api-monthly',
+          unit: 'usd',
+          window: 'monthly_utc',
+          limit: 50,
+          source: 'declared',
+          hard: true,
+        },
+      ],
+    },
+    projects: { 'example-project': { share: 2 } },
+  },
+  // Part 13.4: the machine file.
+  machine: {
+    schema_version: 1,
+    role: 'workstation',
+    executors_max: 2,
+    env: { port_range: { min: 4100, max: 4199 }, secret_provider: 'keychain' },
   },
   tracker: {
     schema_version: 1,

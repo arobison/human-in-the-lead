@@ -30,7 +30,7 @@ node core/bin/hitld.mjs --help
 You do not need a problem to file feedback; something that worked well is useful too.
 
 - **Issue forms.** Open an issue and pick a form: bug, friction, idea or design comment, worked well, or experience report. Blank issues are off. Leave out anything confidential.
-- **`hitld feedback`** (planned) records feedback about HITLd from inside a consuming project's session, stored locally until a generalized version is approved and filed with the same fields as the forms.
+- **`hitld feedback`** records feedback about HITLd from inside a consuming project's session, with its context, in that project's private store (`hitld feedback list`, `drop` and `render` work on the records). Filing a generalized version, with the same fields as the forms, comes later (HITLD-47).
 
 Details: [design 18.4](docs/design/0001-human-in-the-lead/18-self-improvement.md#184-giving-feedback).
 

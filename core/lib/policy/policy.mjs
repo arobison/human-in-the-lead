@@ -25,7 +25,8 @@ import { schemas } from '../schema/registry.mjs';
  * @typedef {import('../schema/validate.mjs').Schema} Schema
  * @typedef {import('../schema/registry.mjs').SchemaRegistry} SchemaRegistry
  * @typedef {Record<string, any>} Policy
- * @typedef {{ path: string | null, policy: Policy | null, errors: ValidationError[], hash: string | null }} PolicyResult
+ * @typedef {{ path: string | null, policy: Policy | null, errors: ValidationError[], hash: string | null, raw?: Record<string, any> }} PolicyResult
+ *   raw: the file as written, before the defaults, when it loaded
  */
 
 /** Where a consuming project keeps its policy, relative to the repository root. */
@@ -163,22 +164,34 @@ export function findPolicyFile(cwd) {
   }
 }
 
-/** @param {string} message */
-const refuse = (message) => ({
-  error: `${message}; policy sets decision rights, so it is not read`,
-});
-
 /**
- * Read a policy file only if it can be trusted. The file is opened once, without following a
- * symbolic link, and the checks and the read use that one descriptor, so the file cannot be
- * swapped between them. It must be a regular file owned by the current user and writable by
- * nobody else; its real path must lie inside `root`; and every directory from it up to `root`
- * must be owned by the current user or root and writable by nobody else.
+ * Read a policy file only if it can be trusted (see readTrustedFile).
  * @param {string} path
  * @param {string} root the repository root, or outside a repository the directory searched
  * @returns {{ text: string } | { error: string }}
  */
 export function readTrustedPolicy(path, root) {
+  return readTrustedFile(path, root, {
+    why: 'policy sets decision rights',
+    rootName: 'the repository root',
+  });
+}
+
+/**
+ * Read a file that sets rights, caps or limits only if it can be trusted. The file is opened
+ * once, without following a symbolic link, and the checks and the read use that one descriptor, so
+ * the file cannot be swapped between them. It must be a regular file owned by the current user and
+ * writable by nobody else; its real path must lie inside `root`; and every directory from it up to
+ * `root` must be owned by the current user or root and writable by nobody else.
+ * @param {string} path
+ * @param {string} root the directory the file must stay inside; directories are checked up to it
+ * @param {{ why: string, rootName?: string, uid?: number }} options why: what the file sets, for
+ *   refusals; rootName: how to name `root` in them; uid is for tests
+ * @returns {{ text: string, real: string } | { error: string }}
+ */
+export function readTrustedFile(path, root, options) {
+  /** @param {string} message */
+  const refuse = (message) => ({ error: `${message}; ${options.why}, so it is not read` });
   try {
     if (lstatSync(path).isSymbolicLink()) return refuse('is a symbolic link');
   } catch (e) {
@@ -196,7 +209,7 @@ export function readTrustedPolicy(path, root) {
   try {
     const st = fstatSync(fd);
     if (!st.isFile()) return refuse('is not a regular file');
-    const uid = currentUid();
+    const uid = options.uid ?? currentUid();
     if (POSIX) {
       const problem = ownershipProblem(st, uid);
       if (problem) return refuse(`is ${problem}`);
@@ -205,7 +218,8 @@ export function readTrustedPolicy(path, root) {
     const realRoot = realpathSync(root);
     const rel = relative(realRoot, real);
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
-      return refuse(`resolves to ${real}, outside the repository root ${realRoot}`);
+      const where = options.rootName ? `${options.rootName} ${realRoot}` : realRoot;
+      return refuse(`resolves to ${real}, outside ${where}`);
     }
     const now = statSync(real);
     if (now.ino !== st.ino || now.dev !== st.dev) return refuse('changed while it was being read');
@@ -216,7 +230,7 @@ export function readTrustedPolicy(path, root) {
         if (dir === realRoot || dirname(dir) === dir) break;
       }
     }
-    return { text: readFileSync(fd, 'utf8') };
+    return { text: readFileSync(fd, 'utf8'), real };
   } finally {
     closeSync(fd);
   }
@@ -264,7 +278,13 @@ export function loadPolicy(options = {}) {
     };
   }
   const { policy, errors } = resolvePolicy(raw, registry);
-  return { path, policy, errors, hash: policy ? policyHash(policy) : null };
+  return {
+    path,
+    policy,
+    errors,
+    hash: policy ? policyHash(policy) : null,
+    ...(policy ? { raw: /** @type {Record<string, any>} */ (raw) } : {}),
+  };
 }
 
 /**

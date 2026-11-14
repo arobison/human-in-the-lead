@@ -33,7 +33,12 @@ export function makeConsumer(options = {}) {
   const root = buildConsumer(join(base, 'repo'), options);
   const data = join(base, 'data');
   /** @type {NodeJS.ProcessEnv} */
-  const env = { XDG_DATA_HOME: data, HITLD_SESSION: 'test-session', PATH: process.env.PATH };
+  const env = {
+    XDG_DATA_HOME: data,
+    XDG_CONFIG_HOME: join(base, 'config'),
+    HITLD_SESSION: 'test-session',
+    PATH: process.env.PATH,
+  };
   /**
    * Run a hitld command in the repository.
    * @param {string[]} argv @param {{ cwd?: string, env?: NodeJS.ProcessEnv }} [o]
