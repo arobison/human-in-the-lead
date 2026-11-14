@@ -17,6 +17,8 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadPolicy } from '../../policy/policy.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
+import { apiResponse, fieldFilter } from '../../tracker/files/api.mjs';
+import { MIGRATIONS } from '../../tracker/files/migrations/index.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} CommandContext
@@ -24,7 +26,7 @@ import { openTracker } from '../../tracker/files/tracker.mjs';
  */
 
 /** @type {ArgSpec[]} */
-const where = [
+export const where = [
   {
     name: 'repo',
     type: 'string',
@@ -43,7 +45,7 @@ const where = [
  * @param {Record<string, unknown>} input @param {CommandContext} ctx
  * @param {{ readOnly?: boolean }} [options] readOnly: the command changes nothing in the repository
  */
-function open(input, ctx, { readOnly = false } = {}) {
+export function open(input, ctx, { readOnly = false } = {}) {
   const repo = input.repo ? resolve(ctx.cwd, String(input.repo)) : ctx.cwd;
   const configDir = input.config ? resolve(ctx.cwd, String(input.config)) : undefined;
   if (configDir && !readOnly) {
@@ -99,6 +101,14 @@ function inside(dir, path) {
 const idOf = (input) => String(input.id);
 
 /** @type {ArgSpec} */
+const jsonArg = {
+  name: 'json',
+  type: 'boolean',
+  description:
+    'Print the versioned read API response: api_version, the entities and the declared fields. Read the tracker through this, never through the files. Removing or retyping a field raises api_version; adding a field does not',
+};
+
+/** @type {ArgSpec} */
 const idArg = {
   name: 'id',
   type: 'string',
@@ -118,21 +128,32 @@ export const commands = [
       {
         name: 'kind',
         type: 'string',
-        description: 'work (default), decision, external, project or initiative',
+        description:
+          'work (default), decision, external, project, initiative, or a milestone: capability or learning',
       },
       {
         name: 'parent',
         type: 'string',
-        description: 'The project ID (for an item) or the initiative ID (for a project)',
+        description:
+          'The project ID (for an item), the initiative ID (for a project), or either (for a milestone)',
       },
-      { name: 'state', type: 'string', description: 'Planned (default) or Proposed' },
-      { name: 'needs', type: 'string', description: 'Comma-separated IDs that must be Done first' },
-      { name: 'priority', type: 'string', description: 'urgent, high, medium or low' },
-      { name: 'milestone', type: 'string', description: "One of the project's milestones" },
       {
-        name: 'milestones',
+        name: 'state',
         type: 'string',
-        description: "A project's milestones, comma-separated",
+        description:
+          'Planned (default) or Proposed (the default for a milestone, which the owner commits)',
+      },
+      {
+        name: 'needs',
+        type: 'string',
+        description:
+          'Comma-separated IDs that must be Done first (items and milestones). A milestone links each constraint to a clause in its file',
+      },
+      {
+        name: 'outcome',
+        type: 'string',
+        description:
+          "A milestone's outcome: one sentence, the state for users or the question answered",
       },
       { name: 'decider', type: 'string', description: 'Who decides a decision (default owner)' },
       { name: 'party', type: 'string', description: 'Who an external item waits on' },
@@ -162,9 +183,7 @@ export const commands = [
         parent: input.parent,
         state: input.state,
         needs: csv(input.needs),
-        priority: input.priority,
-        milestone: input.milestone,
-        milestones: csv(input.milestones),
+        outcome: input.outcome,
         decider: input.decider,
         party: input.party,
         lead: input.lead,
@@ -175,22 +194,28 @@ export const commands = [
   },
   {
     name: 'work show',
-    summary: 'Show one tracker entity',
+    summary:
+      'Show one tracker entity: an item, project, initiative or milestone, or a release record by its tag',
     piece: 'a',
-    args: [idArg, ...where],
+    output: ['ok', 'api_version', 'entity', 'declared_fields'],
+    args: [idArg, jsonArg, ...where],
     run(input, ctx) {
-      return { ok: true, entity: open(input, ctx, { readOnly: true }).get(idOf(input)) };
+      const t = open(input, ctx, { readOnly: true });
+      const entity = t.get(idOf(input));
+      return input.json ? apiResponse(t.layout(), { entity }) : { ok: true, entity };
     },
   },
   {
     name: 'work query',
     summary: 'Query tracker entities by kind, state, area, needs, parent or text',
     piece: 'a',
+    output: ['ok', 'api_version', 'count', 'entities', 'declared_fields'],
     args: [
       {
         name: 'kind',
         type: 'string',
-        description: 'work, decision, external, project or initiative',
+        description:
+          'work, decision, external, project, initiative, capability, learning or release (release records, found by their tag)',
       },
       {
         name: 'state',
@@ -204,7 +229,15 @@ export const commands = [
       { name: 'ready', type: 'boolean', description: 'Only items that are ready to start' },
       { name: 'blocked', type: 'boolean', description: 'Only items waiting on an open need' },
       { name: 'claimed', type: 'boolean', description: 'Only items a branch has claimed' },
+      {
+        name: 'field',
+        type: 'string',
+        repeatable: true,
+        description:
+          'A declared project field to match, name=value (a list field matches when it holds the value). Repeat to match several',
+      },
       { name: 'bodies', type: 'boolean', description: 'Include each body (left out by default)' },
+      jsonArg,
       ...where,
     ],
     run(input, ctx) {
@@ -215,9 +248,12 @@ export const commands = [
         if (typeof input[k] === 'string') filter[k] = input[k];
       }
       for (const k of ['ready', 'blocked', 'claimed']) if (input[k]) filter[k] = true;
+      if (input.field) filter.fields = fieldFilter(input.field);
       const found = t.query(filter);
       const entities = input.bodies ? found : found.map(({ body: _, ...rest }) => rest);
-      return { ok: true, count: entities.length, entities };
+      return input.json
+        ? apiResponse(t.layout(), { count: entities.length, entities })
+        : { ok: true, count: entities.length, entities };
     },
   },
   {
@@ -278,6 +314,43 @@ export const commands = [
       const t = open(input, ctx);
       const done = t.close(idOf(input), { commit: !input['no-commit'] });
       return { ok: true, id: idOf(input), ...done };
+    },
+  },
+  {
+    name: 'work migrate',
+    summary:
+      'Apply the tracker format migrations to every file (idempotent; --dry-run shows the diff)',
+    piece: 'a',
+    args: [
+      {
+        name: 'dry-run',
+        type: 'boolean',
+        description: 'Show what would change, as a diff, and write nothing',
+      },
+      { name: 'only', type: 'string', description: 'Run only the migration with this name' },
+      {
+        name: 'no-commit',
+        type: 'boolean',
+        description: 'Write the files but do not commit them',
+      },
+      ...where,
+    ],
+    run(input, ctx) {
+      const dryRun = Boolean(input['dry-run']);
+      const t = open(input, ctx, { readOnly: dryRun });
+      const done = t.migrate({
+        dryRun,
+        only: typeof input.only === 'string' ? input.only : undefined,
+        commit: !input['no-commit'],
+      });
+      return {
+        ok: true,
+        ...done,
+        registered: MIGRATIONS.map((m) => m.name),
+        summary: done.changed
+          ? `${done.changed} file(s) ${dryRun ? 'would change' : 'migrated'}`
+          : 'nothing to migrate',
+      };
     },
   },
   {
@@ -342,7 +415,7 @@ export const commands = [
         name: 'view',
         type: 'string',
         description:
-          'Print one view as text instead of writing files: ready, blocked, decisions, projects, initiatives, critical-path, lists, items-graph or projects-graph',
+          'Print one view as text instead of writing files: ready, blocked, decisions, projects, initiatives, critical-path, milestones, unreleased, lists, items-graph or projects-graph',
       },
       {
         name: 'who',

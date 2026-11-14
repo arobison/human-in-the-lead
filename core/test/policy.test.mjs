@@ -79,7 +79,10 @@ test("defaults: the owner's gut checks start high", () => {
 });
 
 test('defaults: the project has no default ID or key', () => {
-  assert.deepEqual(policyDefaults().project, { classification_ceiling: 'public' });
+  assert.deepEqual(policyDefaults().project, {
+    classification_ceiling: 'public',
+    private_paths: [],
+  });
 });
 
 test('every default is documented beside it', () => {

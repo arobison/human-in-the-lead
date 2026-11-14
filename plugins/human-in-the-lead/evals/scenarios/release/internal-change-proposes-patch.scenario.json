@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "release/internal-change-proposes-patch",
+  "piece": "release",
+  "category": "release",
+  "description": "A change that leaves the public interface as it was, however large inside, has an empty interface delta and proposes a patch release.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "propose",
+      "action": "release.propose-bump",
+      "with": {
+        "base_version": "0.3.0",
+        "before": {
+          "schemas": {
+            "item": { "version": 1, "fields": { "id": { "type": "string", "required": true } } }
+          },
+          "report": ["item", "status"],
+          "trailers": ["Work-Item"],
+          "contract": "same",
+          "read_api": 1
+        },
+        "after": {
+          "schemas": {
+            "item": { "version": 1, "fields": { "id": { "type": "string", "required": true } } }
+          },
+          "report": ["item", "status"],
+          "trailers": ["Work-Item"],
+          "contract": "same",
+          "read_api": 1
+        }
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "no-delta",
+      "grader": "count",
+      "with": { "path": "steps.propose.interface_delta", "equals": 0 }
+    },
+    {
+      "id": "patch",
+      "grader": "equals",
+      "with": { "path": "steps.propose.bump", "value": "patch" }
+    },
+    {
+      "id": "version",
+      "grader": "equals",
+      "with": { "path": "steps.propose.version", "value": "0.3.1" }
+    }
+  ]
+}

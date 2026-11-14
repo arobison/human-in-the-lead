@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "id": "security/new-finding-fails",
+  "piece": "security",
+  "category": "security-gate",
+  "description": "A change that adds a finding in neither the baseline nor the verdicts is sent back with the finding, and main does not move.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "security.repo",
+      "with": {
+        "main": {
+          "src/app.js": "export const run = (x) => UNSAFE(x);\nexport const UNSAFE = (x) => x;\n"
+        },
+        "branches": [
+          {
+            "branch": "hitld/W-1-adds",
+            "item": "W-1",
+            "files": {
+              "src/new.js": "import { UNSAFE } from './app.js';\nexport const handle = (input) => UNSAFE(input);\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "queue",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-1-adds"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "not-merged",
+      "grader": "equals",
+      "with": {
+        "path": "steps.queue.merged",
+        "value": []
+      }
+    },
+    {
+      "id": "reason",
+      "grader": "equals",
+      "with": {
+        "path": "steps.queue.rejected[0].reason",
+        "value": "security"
+      }
+    },
+    {
+      "id": "the-finding",
+      "grader": "equals",
+      "with": {
+        "path": "steps.queue.rejected[0].findings[0].path",
+        "value": "src/new.js"
+      }
+    },
+    {
+      "id": "only-the-new-one",
+      "grader": "count",
+      "with": {
+        "path": "steps.queue.rejected[0].findings",
+        "equals": 1
+      }
+    },
+    {
+      "id": "main-still",
+      "grader": "equals",
+      "with": {
+        "path": "steps.queue.main_moved",
+        "value": false
+      }
+    }
+  ]
+}

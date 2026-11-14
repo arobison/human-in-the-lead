@@ -2,7 +2,8 @@
 // The build step that makes the Claude Code plugin self-contained (design part 16.1). Installed
 // plugins are copied to a cache and cannot reach files outside their directory, so the plugin gets
 // its own copy of core/ (without tests), schemas/, templates/ and evals/, the skills from skills/
-// with Claude Code front matter added, and the executor agents generated from the tier defaults.
+// with Claude Code front matter added, the agents from agents/ with the same, and the executor
+// agents generated from the tier defaults.
 //
 //   node core/lib/packaging/build.mjs          write the plugin
 //   node core/lib/packaging/build.mjs --check  only say what is out of date (exit 1 if anything)
@@ -38,6 +39,16 @@ const SKILL_EXTRAS = /** @type {Record<string, Record<string, string>>} */ ({
   execute: { 'user-invocable': 'false' },
 });
 
+/**
+ * Claude Code front matter added to each agent from agents/. The generalizer works only on what its
+ * prompt holds: Read is the narrowest tool list that is not empty. The subagent documentation
+ * (https://code.claude.com/docs/en/sub-agents.md, read 2026-11-14) documents no form for no tools:
+ * an absent list inherits every tool, and a list where nothing resolves fails to launch.
+ */
+const AGENT_EXTRAS = /** @type {Record<string, Record<string, string>>} */ ({
+  generalizer: { tools: 'Read', model: 'inherit' },
+});
+
 /** @param {string} dir @returns {string[]} files under dir, relative to it */
 function walk(dir) {
   if (!existsSync(dir)) return [];
@@ -54,7 +65,7 @@ function walk(dir) {
 /** Add front matter keys after the existing ones. @param {string} text @param {Record<string, string>} extra */
 function withFrontMatter(text, extra) {
   const m = /^---\n([\s\S]*?)\n---\n/.exec(text);
-  if (!m) throw new Error('a skill must start with front matter');
+  if (!m) throw new Error('a skill or agent must start with front matter');
   const lines = Object.entries(extra).map(([k, v]) => `${k}: ${v}`);
   return `---\n${m[1]}\n${lines.join('\n')}\n---\n${text.slice(m[0].length)}`;
 }
@@ -99,6 +110,11 @@ export function expectedFiles() {
       join('skills', name, 'SKILL.md'),
       withFrontMatter(readFileSync(src, 'utf8'), SKILL_EXTRAS[name] ?? {}),
     );
+  }
+  for (const name of readdirSync(join(REPO, 'agents')).sort()) {
+    if (!name.endsWith('.md')) continue;
+    const text = readFileSync(join(REPO, 'agents', name), 'utf8');
+    files.set(join('agents', name), withFrontMatter(text, AGENT_EXTRAS[name.slice(0, -3)] ?? {}));
   }
   files.set(join('agents', 'executor-tier1.md'), agent(1));
   files.set(join('agents', 'executor-tier2.md'), agent(2));

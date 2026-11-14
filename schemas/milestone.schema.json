@@ -1,0 +1,131 @@
+{
+  "$id": "milestone",
+  "title": "Milestone",
+  "description": "A checkable future state with its own done-when clauses (design part 3.2, Milestones and releases). Kind capability (users can do something new) or learning (a question gets answered). Named by its outcome, never numbered. In the files backend each list entry is one line of text (see the format notes on each field); this schema covers the entity as the read API returns it. Derived fields (error, check_due, scope, tokens_spent, cost_of_delay_rate, to_shape) are never stored.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "common#/$defs/schemaVersion"
+    },
+    "id": {
+      "$ref": "common#/$defs/id"
+    },
+    "kind": {
+      "enum": ["capability", "learning"]
+    },
+    "title": {
+      "$ref": "common#/$defs/text"
+    },
+    "parent": {
+      "description": "A project or an initiative.",
+      "$ref": "common#/$defs/id"
+    },
+    "state": {
+      "description": "Proposed, Planned, Done or Dropped. A milestone is never In progress: items are claimed, milestones are not.",
+      "enum": ["Proposed", "Planned", "Done", "Dropped"]
+    },
+    "owner": {
+      "description": "The human accountable, if not the project owner.",
+      "$ref": "common#/$defs/person"
+    },
+    "classification": {
+      "$ref": "common#/$defs/classification"
+    },
+    "opened_from": {
+      "description": "Signal, opportunity or decision IDs this was opened from.",
+      "$ref": "common#/$defs/ids"
+    },
+    "outcome": {
+      "description": "One sentence: the state for users, or the question answered.",
+      "$ref": "common#/$defs/text"
+    },
+    "done_when": {
+      "description": "Clauses, each with a short ID. Stored as \"c1: <text>\".",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/$defs/clauseId" },
+          "text": { "$ref": "common#/$defs/text" }
+        },
+        "required": ["id", "text"],
+        "additionalProperties": false
+      }
+    },
+    "needs": {
+      "description": "Constraints: items or milestones without which a clause cannot be true, each linked to that clause. Stored as \"<ID> c1\", or \"<ID> c?\" for a constraint still to be linked to a clause at shaping.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "common#/$defs/id" },
+          "clause": {
+            "description": "The clause it is linked to; null while it is still to be linked at shaping.",
+            "anyOf": [{ "$ref": "#/$defs/clauseId" }, { "type": "null" }]
+          }
+        },
+        "required": ["id", "clause"],
+        "additionalProperties": false
+      }
+    },
+    "serves": {
+      "description": "Contributions: items that add to the outcome. Stored as \"<ID> value=<points> confidence=<0 to 1>\". Points are compared within one milestone, never across milestones.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "common#/$defs/id" },
+          "value": { "enum": [1, 2, 3, 5, 8, 13] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "required": ["id", "value", "confidence"],
+        "additionalProperties": false
+      }
+    },
+    "appetite_tokens": {
+      "description": "What the milestone is worth, in tokens.",
+      "$ref": "common#/$defs/tokens"
+    },
+    "deadline": {
+      "description": "An external date and its source, never an internal estimate. Stored as \"<YYYY-MM-DD> <source>\".",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "source": { "$ref": "common#/$defs/text" }
+      },
+      "required": ["date", "source"],
+      "additionalProperties": false
+    },
+    "check": {
+      "description": "The independent check that the outcome holds. Stored as \"<kind> <target>\": demo and a script, integration-test and a test path, or study and a study ID.",
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["demo", "integration-test", "study"] },
+        "target": { "$ref": "common#/$defs/text" }
+      },
+      "required": ["kind", "target"],
+      "additionalProperties": false
+    },
+    "check_results": {
+      "description": "Each recorded run of the check, oldest first. Stored as \"<pass | fail | verdict> <YYYY-MM-DD> <role>: <evidence>\". Only a pass (a verdict, for a learning milestone) by a role other than the items' authors moves the milestone to Done.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "result": { "enum": ["pass", "fail", "verdict"] },
+          "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+          "role": { "$ref": "common#/$defs/name" },
+          "evidence": { "$ref": "common#/$defs/text" }
+        },
+        "required": ["result", "date", "role", "evidence"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["schema_version", "id", "kind", "title", "state", "classification"],
+  "additionalProperties": false,
+  "$defs": {
+    "clauseId": { "type": "string", "pattern": "^c[1-9][0-9]*$" }
+  }
+}

@@ -5,7 +5,6 @@ kind: work
 status: Planned
 created: 2026-11-14
 project: HITLD-28
-milestone: load-aware
 needs: [HITLD-41, HITLD-38]
 ---
 

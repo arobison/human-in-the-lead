@@ -6,7 +6,6 @@ status: Planned
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-52]
-milestone: evals-gate
 ---
 
 ## Why

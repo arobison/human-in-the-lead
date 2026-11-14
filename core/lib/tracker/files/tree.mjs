@@ -26,11 +26,16 @@ import { insidePath, isRegularFile, readNoFollow } from './safe.mjs';
  *   a worktree's working copy (path) or a ref (ref); where is the label shown to people
  */
 
-/** The three folders, in the order files are read. @param {Layout} layout */
+/**
+ * The folders of ID-named files, in the order files are read: initiatives, projects, items and
+ * milestones. Release records (named by their tag) are read on their own (releases.mjs).
+ * @param {Layout} layout
+ */
 export const folderNames = (layout) => [
   layout.folders.initiative,
   layout.folders.project,
   layout.folders.item,
+  layout.folders.milestone,
 ];
 
 /**

@@ -24,6 +24,8 @@ export const TRACKER_KINDS = Object.freeze({
   external: 'item',
   decision: 'decision',
   opportunity: 'opportunity',
+  capability: 'milestone',
+  learning: 'milestone',
 });
 
 /** @param {unknown} v */

@@ -72,7 +72,7 @@ test('front matter: a hostile key stays data and never touches the prototype', (
 });
 
 test('front matter: what is written reads back, and the fixed key order holds', () => {
-  const layout = { optionalKeys: [] };
+  const layout = { optionalKeys: [], fields: [] };
   const data = {
     status: 'Planned',
     title: 'Has: a colon, and a "quote"',
@@ -126,6 +126,8 @@ test('tracker.json: every setting has a default, and a missing file is the refer
     initiative: 'initiatives',
     project: 'projects',
     item: 'items',
+    milestone: 'milestones',
+    release: 'releases',
   });
   assert.equal(config?.main_branch, 'main');
   assert.deepEqual(config?.bundle_refs, ['refs/bundles/']);
@@ -332,7 +334,7 @@ test('the check names what is wrong, in the reference check’s words', () => {
     'work/items/W-8-bad.md: "foo" isn\'t an allowed key for a work',
     'work/items/W-8-bad.md: "needs" must be a list',
     'work/items/W-8-bad.md: status "Wip" isn\'t one of Proposed, Planned, In progress, Done, Dropped',
-    'work/items/W-8-bad.md: priority "huge" isn\'t one of urgent, high, medium, low',
+    'work/items/W-8-bad.md: "priority" is retired: order is derived (design part 2.4, Q30); run hitld work migrate',
     'work/items/W-8-bad.md: created "13-11-2026" isn\'t YYYY-MM-DD',
     "work/items/W-9-x.md: file name doesn't start with its id W-10",
     "work/items/W-11-Bad_Slug.md: file name isn't W-<n>-<slug>.md (lower-case slug)",
@@ -350,7 +352,8 @@ test('the check names what is wrong, in the reference check’s words', () => {
   for (const e of [
     'W-18: in both work/items/W-18-a.md and work/items/W-18-again.md',
     'work/items/W-17-ext.md: project W-4 is a work, not a project',
-    'work/items/W-17-ext.md: needs W-1, a initiative; needs name items only',
+    'work/items/W-17-ext.md: needs W-1, a initiative; needs name items and milestones only',
+    'work/items/W-17-ext.md: "milestone" is retired: milestones are their own files now (design part 3.2); run hitld work migrate',
     "work/items/W-17-ext.md: needs W-99, which doesn't exist",
     'work/items/W-17-ext.md: needs itself',
     "work/projects/W-20-p.md: plan docs/missing.md doesn't exist",
@@ -429,7 +432,7 @@ test('nothing above the repository’s classification ceiling', () => {
   };
   const problems = problemsFor(files, { optional_keys: ['classification'] });
   assert.deepEqual(problems, [
-    'work/items/W-7-secretive.md: classification "confidential" is above the repository\'s ceiling "public"',
+    'work/items/W-7-secretive.md: classification "confidential" in its front matter is above the repository\'s ceiling "public"',
   ]);
 });
 
@@ -537,7 +540,19 @@ test('views: ready, blocked, decisions, projects and initiatives over the fixtur
 });
 
 test('views: the lists carry milestones, links and each status', () => {
-  const root = makeRepo({ commit: false });
+  const root = makeRepo({
+    commit: false,
+    files: {
+      'work/milestones/W-7-alpha.md': itemText({
+        id: 'W-7',
+        title: 'Alpha',
+        kind: 'capability',
+        status: 'Planned',
+        project: 'W-2',
+        needs: ['W-4 c?'],
+      }),
+    },
+  });
   const g = buildGraph(loadWorkTree(root, layoutOf(root)));
   const lists = renderLists(g, { linkBase: './' });
   assert.match(
@@ -546,7 +561,7 @@ test('views: the lists carry milestones, links and each status', () => {
   );
   assert.match(
     lists,
-    /Milestone: alpha\n\n- \[ \] \[W-4\]\(\.\/items\/W-4-second-step\.md\) Second step\. Needs W-3\./,
+    /Milestone: Alpha \(\[W-7\]\(\.\/milestones\/W-7-alpha\.md\), Planned\)\n\n- \[ \] \[W-4\]\(\.\/items\/W-4-second-step\.md\) Second step\. Needs W-3\./,
   );
   assert.match(lists, /No milestone\n\n- \[x\] \[W-3\].* First step\. Done\./);
   assert.match(lists, /decision: Which way\?\. Needs nothing\. Decided by owner\./);

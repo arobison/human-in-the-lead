@@ -6,22 +6,32 @@ import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTrustedPolicy } from '../../policy/policy.mjs';
 import { schemas } from '../../schema/registry.mjs';
+import { reservedFieldNames } from './format.mjs';
 
 /**
  * @typedef {import('../../schema/validate.mjs').ValidationError} ValidationError
- * @typedef {'initiative' | 'project' | 'work' | 'decision' | 'external'} Kind
+ * @typedef {'initiative' | 'project' | 'work' | 'decision' | 'external' | 'capability' | 'learning'} Kind
+ *
+ * @typedef {object} DeclaredField a project field declared in tracker.json `fields`
+ * @property {string} name
+ * @property {'string' | 'integer' | 'number' | 'boolean'} type
+ * @property {boolean} [list]
+ * @property {string[]} [values]
+ * @property {string} description
  *
  * @typedef {object} Layout everything the backend needs to find and read item files
  * @property {string} key the ID key, from policy.json project.key
  * @property {string} workDir relative to the repository root, with "/" separators
- * @property {{ initiative: string, project: string, item: string }} folders
+ * @property {{ initiative: string, project: string, item: string, milestone: string, release: string }} folders
  * @property {string} viewsDir relative to workDir
  * @property {string | undefined} listsReadme relative to workDir
  * @property {string} mainBranch
  * @property {string[]} bundleRefs
  * @property {string[]} optionalKeys
+ * @property {DeclaredField[]} fields project fields declared in tracker.json
  * @property {string} defaultClassification
  * @property {string} classificationCeiling policy.project.classification_ceiling
+ * @property {string[]} privatePaths policy.project.private_paths: globs never public (design part 10.3)
  * @property {{ name: string, from: number, to: number | null }[]} blocks reserved ID blocks
  */
 
@@ -107,7 +117,39 @@ export function loadTrackerConfig({ repoRoot, configDir }) {
   };
   if (!Object.hasOwn(raw, 'schema_version')) delete merged.schema_version;
   const errors = schemas().validateEntity('tracker', merged);
+  if (!errors.length) errors.push(...fieldDeclarationErrors(merged));
   return errors.length ? { path, config: null, errors } : { path, config: merged, errors };
+}
+
+/**
+ * Problems with the declared fields that the schema cannot say: a name used twice, a name the
+ * format already uses, values on a field that is not text.
+ * @param {Record<string, any>} config validated tracker.json
+ * @returns {ValidationError[]}
+ */
+function fieldDeclarationErrors(config) {
+  /** @type {ValidationError[]} */
+  const errors = [];
+  const optional = schemas().get('tracker').properties.optional_keys.items.enum;
+  const reserved = reservedFieldNames(optional);
+  const seen = new Set();
+  for (const [i, f] of (config.fields ?? []).entries()) {
+    const path = `fields[${i}]`;
+    if (reserved.has(f.name)) {
+      errors.push({
+        path: `${path}.name`,
+        message: `"${f.name}" is a key the format already uses`,
+      });
+    }
+    if (seen.has(f.name)) {
+      errors.push({ path: `${path}.name`, message: `"${f.name}" is declared twice` });
+    }
+    seen.add(f.name);
+    if (f.values && f.type !== 'string') {
+      errors.push({ path: `${path}.values`, message: 'only a string field has values' });
+    }
+  }
+  return errors;
 }
 
 /**
@@ -179,8 +221,10 @@ export function resolveLayout(config, policy) {
     mainBranch: config.main_branch,
     bundleRefs: config.bundle_refs,
     optionalKeys: config.optional_keys,
+    fields: config.fields ?? [],
     defaultClassification: config.default_classification,
     classificationCeiling: policy.project.classification_ceiling ?? 'public',
+    privatePaths: policy.project.private_paths ?? [],
     blocks,
   };
 }

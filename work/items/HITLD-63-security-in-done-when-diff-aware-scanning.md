@@ -2,10 +2,10 @@
 id: HITLD-63
 title: "Security in done when: diff-aware scanning against a baseline, triage records, accepted risk with expiry"
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
-milestone: first-release
+claimed: D-63
 ---
 
 ## Why
@@ -24,7 +24,7 @@ Design 10.5, 6.2 and 14.2: a change is not done while it adds a security finding
 | tracker/files/tracker.mjs claims | False positive: claims read from refs through git ls-tree | None |
 | eval/offline.mjs → fixtures read | False positive: `from` is pattern-checked and contained; links refused | None |
 
-The scanner still lists these until verdicts are recorded in the baseline this item builds.
+The scanner still lists these until verdicts are recorded in the baseline this item builds. Verdicts are keyed by a fingerprint of a scan's findings and live in the owner's private store, so they are not recorded from this branch: once a scanner is declared in `merge.scanners`, `hitld security baseline` on main takes these findings into the baseline, and `hitld security verdict` records each row against its key.
 
 ## Done when
 

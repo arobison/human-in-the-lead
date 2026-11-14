@@ -4,7 +4,7 @@
 
 Four pieces of machinery keep a long run healthy without the owner's attention: the orchestrator's state lives outside its context (13.1), the environment executors run in is created, shared and cleaned up safely (13.2), recurring work happens without anyone prompting it (13.3), and settings come from the layer that owns them: the person, the machine, the project or the run (13.4). All but the scheduler are in "One signal end to end" ([part 21](21-scope.md)).
 
-<a id="131-orchestrator-continuity-v0"></a>
+<a id="131-orchestrator-continuity"></a>
 
 ## 13.1 Orchestrator continuity
 
@@ -53,7 +53,7 @@ A fresh orchestrator session runs `hitld run resume`, which:
 3. reconciles `in_flight` with reality: claim branches that exist, completions that arrived while no orchestrator was running, executors that died. A dispatch with neither a live executor nor a report is marked abandoned and its item released, unless its worktree has commits, in which case it is offered to a new executor as a follow-up;
 4. prints a short hand-over summary (generated from the run state, not from anyone's memory) and continues.
 
-**On another machine**, the private store's text history arrives through `hitld store sync`, an encrypted bundle exchanged the same way as the code ([part 3](03-data-model.md#private-store), planned). The run state is rebuilt from it, and the ledger index is rebuilt locally. Executors still running on the first machine cannot be adopted remotely: they stay `in_flight` with their host named, and their reports arrive with the next bundle. If the first machine is gone, the owner decides whether to abandon them.
+**On another machine**, the private store's text history arrives through `hitld store sync`, an encrypted bundle exchanged the same way as the code ([part 3](03-data-model.md#private-store)). The run state is rebuilt from it, and the ledger index is rebuilt locally. Executors still running on the first machine cannot be adopted remotely: they stay `in_flight` with their host named, and their reports arrive with the next bundle. If the first machine is gone, the owner decides whether to abandon them.
 
 **Context hygiene.** The orchestrator keeps its own context small on purpose: it reads the run-state summary, reports in their fixed shape, and script output, never diffs or logs. When its context passes `orchestrator.context_handoff`, it checkpoints and hands over to a fresh session (with the owner's standing permission, Q10).
 
@@ -200,7 +200,7 @@ A cloud, CI or ephemeral session is a machine with its own profile, detected whe
 
 ### Across projects
 
-Machine-wide state lives in the machine registry, `_machine/` beside the project stores, not in any project's store. The registry is a SQLite file (Node's built-in module): transactional, local to the machine, and never synced or exported ([part 3](03-data-model.md#private-store)). It holds:
+Machine-wide state lives in the machine registry, `_machine/` beside the project stores, not in any project's store. The registry is a JSON file (`registry.json`) changed under the environment manager's mutex and written by temporary file and rename, so concurrent projects never corrupt it; it is local to the machine and never synced or exported. A later item may move it to SQLite (Node's built-in module) ([part 3](03-data-model.md#private-store)). It holds:
 
 | State | Why it is machine-wide |
 |---|---|

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "id": "release/additive-schema-proposes-minor",
+  "piece": "release",
+  "category": "release",
+  "description": "A schema that gains an optional field is an additive change, and an additive delta proposes a minor release, not flagged breaking.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "propose",
+      "action": "release.propose-bump",
+      "with": {
+        "base_version": "0.3.0",
+        "before": {
+          "schemas": {
+            "item": { "version": 1, "fields": { "id": { "type": "string", "required": true } } }
+          }
+        },
+        "after": {
+          "schemas": {
+            "item": {
+              "version": 1,
+              "fields": {
+                "id": { "type": "string", "required": true },
+                "changelog": { "type": "string", "required": false }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "one-additive-change",
+      "grader": "count",
+      "with": { "path": "steps.propose.interface_delta", "equals": 1 }
+    },
+    {
+      "id": "marked-additive",
+      "grader": "equals",
+      "with": { "path": "steps.propose.interface_delta[0].impact", "value": "additive" }
+    },
+    {
+      "id": "minor",
+      "grader": "equals",
+      "with": { "path": "steps.propose.bump", "value": "minor" }
+    },
+    {
+      "id": "version",
+      "grader": "equals",
+      "with": { "path": "steps.propose.version", "value": "0.4.0" }
+    },
+    {
+      "id": "not-breaking",
+      "grader": "equals",
+      "with": { "path": "steps.propose.breaking", "value": false }
+    }
+  ]
+}

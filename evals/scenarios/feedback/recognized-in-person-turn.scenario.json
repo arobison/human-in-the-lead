@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "id": "feedback/recognized-in-person-turn",
+  "piece": "feedback",
+  "category": "feedback",
+  "description": "Feedback about HITLd in the person's own turn is recognized: the route says record it with a guessed kind, and hitld feedback keeps the person's words verbatim.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "ledger",
+      "action": "file.write",
+      "with": {
+        "path": "store/ledger.jsonl",
+        "content": "{\"schema_version\":1,\"id\":\"E-1\",\"event\":\"dispatched\",\"dispatch\":\"D-3\",\"item\":\"FX-9\",\"at\":\"2026-11-14T10:00:00Z\"}\n"
+      }
+    },
+    {
+      "id": "route",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "route",
+          "--from",
+          "turn",
+          "--words",
+          "hitld should not ask me which test runner to use."
+        ]
+      }
+    },
+    {
+      "id": "worth",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "route",
+          "--from",
+          "turn",
+          "--words",
+          "That question was not worth asking."
+        ]
+      }
+    },
+    {
+      "id": "fb",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "idea",
+          "--words",
+          "hitld should not ask me which test runner to use.",
+          "--refs",
+          "D-3",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "list",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "list", "--store", "store", "--json"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "record",
+      "grader": "equals",
+      "with": {
+        "path": "steps.route.result.action",
+        "value": "record"
+      }
+    },
+    {
+      "id": "about-hitld",
+      "grader": "equals",
+      "with": {
+        "path": "steps.route.result.about",
+        "value": "hitld"
+      }
+    },
+    {
+      "id": "kind-guessed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.route.result.kind",
+        "value": "idea"
+      }
+    },
+    {
+      "id": "not-worth-asking-is-friction",
+      "grader": "equals",
+      "with": {
+        "path": "steps.worth.result.kind",
+        "value": "friction"
+      }
+    },
+    {
+      "id": "recorded",
+      "grader": "equals",
+      "with": {
+        "path": "steps.fb.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "words-verbatim",
+      "grader": "equals",
+      "with": {
+        "path": "steps.list.result.records[0].words",
+        "value": "hitld should not ask me which test runner to use."
+      }
+    },
+    {
+      "id": "local",
+      "grader": "equals",
+      "with": {
+        "path": "steps.list.result.records[0].state",
+        "value": "local"
+      }
+    }
+  ]
+}

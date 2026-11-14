@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { policyDefaults } from '../lib/policy/policy.mjs';
 import { dispatchGate } from '../lib/quota/gate.mjs';
@@ -254,6 +254,18 @@ test('the merge queue lock is per repository; other locks stay machine-wide', as
   if (first.acquired) first.handle.release();
   if (other.acquired) other.handle.release();
   if (gpu.acquired) gpu.handle.release();
+});
+
+test('the registry lives beside the stores, never inside one, so no export reaches it', () => {
+  const store = openStore(privateStorePath('alpha', { env: { XDG_DATA_HOME: tmp } }));
+  const root = machineRootFor(store.root);
+  recordSnapshot(root, 'default', {
+    schema_version: 1,
+    at: '2026-11-14T12:00:00.000Z',
+    source: 'claude-code-statusline',
+  });
+  assert.ok(!root.startsWith(store.root + sep), 'not under the project store');
+  assert.deepEqual(store.list(), [], 'the store holds none of it');
 });
 
 // --- Check 11: two fixture projects on one machine -----------------------------------------------

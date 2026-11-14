@@ -1,10 +1,12 @@
 // The command table (design part 16.2): one entry per `hitld` command, the single source for the
 // command line, its help, and later the MCP server's tools (design part 15.1).
 //
-// Each piece of v0-alpha owns one file under commands/, so pieces built in parallel never edit the
-// same file. A command without `run` answers "not yet built" and names the piece that builds it.
+// Each piece of "Usable in a consuming project" owns one file under commands/, so pieces built in
+// parallel never edit the same file. A command without `run` answers "not yet built" and names the
+// piece or milestone that builds it, by outcome name.
 
 import { commands as foundation } from './commands/foundation.mjs';
+import { commands as guard } from './commands/guard.mjs';
 import { commands as tracker } from './commands/tracker.mjs';
 import { commands as ledger } from './commands/ledger.mjs';
 import { commands as env } from './commands/env.mjs';
@@ -13,7 +15,11 @@ import { commands as rights } from './commands/rights.mjs';
 import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
+import { commands as release } from './commands/release.mjs';
+import { commands as store } from './commands/store.mjs';
+import { commands as security } from './commands/security.mjs';
 import { commands as config } from './commands/config.mjs';
+import { commands as feedback } from './commands/feedback.mjs';
 import { commands as later } from './commands/later.mjs';
 
 /**
@@ -35,10 +41,12 @@ import { commands as later } from './commands/later.mjs';
  * @property {keyof typeof PIECES} piece who builds it
  * @property {ArgSpec[]} [args]
  * @property {boolean} [mcp] false for commands that make no sense as an MCP tool; default true
+ * @property {string[]} [output] the top-level fields of the JSON it prints, where it declares them;
+ *   part of the public interface, so the release interface delta compares them (core/lib/release)
  * @property {(input: Record<string, unknown>, ctx: CommandContext) => CommandResult | Promise<CommandResult>} [run]
  */
 
-/** Who builds what. Letters are the v0-alpha pieces (design part 21). */
+/** Who builds what. Letters are the pieces of "Usable in a consuming project"; the other tags are milestones, named by outcome (design part 21). */
 export const PIECES = Object.freeze({
   foundation: 'the foundation',
   a: 'piece (a), the files tracker backend',
@@ -49,11 +57,16 @@ export const PIECES = Object.freeze({
   f: 'piece (f), quotas and the reserve rule',
   g: 'piece (g), the eval runner',
   h: 'piece (h), the orchestrator, the Claude Code adapter, the merge queue and packaging',
-  v0: 'the rest of v0, after v0-alpha',
-  M1: 'milestone M1 (measures)',
-  M2: 'milestone M2 (controllers)',
-  M4: 'milestone M4 (knowledge base upkeep)',
-  C1: 'milestone C1 (the Copilot adapter)',
+  feedback: 'feedback about HITLd',
+  signal: 'the milestone One signal end to end',
+  'settings-hold': "the milestone Settings hold: two projects share the person's limits",
+  'first-release': 'the milestone First release',
+  'consumer-live':
+    'the milestone Consumer live: a real consuming project runs its work through HITLd',
+  measures: 'the milestone Full measure set',
+  controllers: 'the milestone Controllers',
+  'kb-upkeep': 'the milestone Knowledge base upkeep',
+  copilot: 'the milestone Copilot adapter',
   major: 'the first release with a breaking schema change',
 });
 
@@ -64,11 +77,16 @@ export const COMMANDS = Object.freeze([
   ...ledger,
   ...env,
   ...contract,
+  ...guard,
   ...rights,
   ...quota,
   ...evals,
   ...orchestrator,
+  ...release,
+  ...store,
+  ...security,
   ...config,
+  ...feedback,
   ...later,
 ]);
 

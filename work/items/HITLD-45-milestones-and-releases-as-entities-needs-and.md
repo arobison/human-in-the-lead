@@ -2,11 +2,11 @@
 id: HITLD-45
 title: "Milestones and releases as entities: needs and serves, independent checks, release records and `hitld release propose`"
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
-milestone: first-release
 needs: [HITLD-18]
+claimed: claude-executor
 ---
 
 ## Why

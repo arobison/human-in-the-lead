@@ -1,0 +1,72 @@
+{
+  "$id": "release",
+  "title": "Release record",
+  "description": "The record of what reached users, written by `hitld release make` when the owner makes a release (design part 3.2, Milestones and releases): one file per release, work/releases/<tag>.md, named by its tag. The body holds the notes. In the files backend each interface_delta entry is one line of text, \"<impact> <area>: <what>\"; this schema covers the entity as the read API returns it.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "common#/$defs/schemaVersion"
+    },
+    "id": {
+      "description": "The tag: v and the version, such as v0.4.0 or v0.4.0-rc.1.",
+      "$ref": "#/$defs/tag"
+    },
+    "version": {
+      "description": "A semantic version. A pre-release version carries a hyphen and identifiers, such as 0.4.0-rc.1.",
+      "$ref": "#/$defs/version"
+    },
+    "previous": {
+      "description": "The last full release before this one, which the interface delta and the bump are measured from. Absent for the first release. A pre-release is never the base of a bump.",
+      "$ref": "#/$defs/tag"
+    },
+    "bump": {
+      "description": "From the interface delta alone: major for a breaking change (minor while the version is 0.y.z, with a breaking entry in the delta), minor for an additive change, patch otherwise.",
+      "enum": ["major", "minor", "patch"]
+    },
+    "interface_delta": {
+      "description": "The changes to the public interface since previous that justify the bump (design part 16.5).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "impact": { "enum": ["breaking", "additive", "fix"] },
+          "area": {
+            "enum": ["schemas", "cli", "contract", "report", "trailers", "read-api", "adapters"]
+          },
+          "what": { "$ref": "common#/$defs/text" }
+        },
+        "required": ["impact", "area", "what"],
+        "additionalProperties": false
+      }
+    },
+    "decision": {
+      "description": "The decision or the precedent under which it was made: a tracker ID, a precedent ID, or owner when the owner made it directly in the main session.",
+      "type": "string",
+      "pattern": "^(owner|[A-Z][A-Z0-9]*-[1-9][0-9]*)$"
+    },
+    "items": {
+      "description": "Items closed since previous, written into the record when it is made so readers need no git.",
+      "$ref": "common#/$defs/ids"
+    },
+    "milestones": {
+      "description": "Milestones whose check had passed on the released code, written into the record when it is made.",
+      "$ref": "common#/$defs/ids"
+    },
+    "classification": {
+      "$ref": "common#/$defs/classification"
+    }
+  },
+  "required": ["schema_version", "id", "version", "bump", "decision", "classification"],
+  "additionalProperties": false,
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    }
+  }
+}
