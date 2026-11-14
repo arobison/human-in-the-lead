@@ -64,6 +64,7 @@ export function scanWorktree(worktree, seam = {}) {
     } finally {
       handle.closeSync();
     }
+    names.sort(); // the listing order depends on the file system; reports should not
     for (const name of names) {
       if (!rel && name === '.git') continue; // a worktree's .git is git's own
       const childRel = rel ? `${rel}/${name}` : name;
