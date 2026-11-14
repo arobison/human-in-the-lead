@@ -163,7 +163,10 @@ export const actions = {
     input: { type: 'object', properties: {}, additionalProperties: false },
     run: (_input, ctx) => {
       const root = buildConsumer(join(ctx.sandbox, 'consumer'));
-      const env = { XDG_DATA_HOME: join(ctx.sandbox, 'data') };
+      const env = {
+        XDG_DATA_HOME: join(ctx.sandbox, 'data'),
+        XDG_CONFIG_HOME: join(ctx.sandbox, 'config'),
+      };
       const now = Math.floor(Date.now() / 1000);
       const status = recordStatusLine(
         JSON.stringify({
@@ -201,6 +204,7 @@ export const actions = {
         cwd: join(ctx.sandbox, 'consumer'),
         env: {
           XDG_DATA_HOME: join(ctx.sandbox, 'data'),
+          XDG_CONFIG_HOME: join(ctx.sandbox, 'config'),
           HITLD_SESSION: input.session ?? 'first',
           PATH: process.env.PATH,
         },
