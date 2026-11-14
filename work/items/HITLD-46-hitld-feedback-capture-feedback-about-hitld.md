@@ -2,7 +2,7 @@
 id: HITLD-46
 title: "`hitld feedback`: capture feedback about HITLd with context, stored locally"
 kind: work
-status: In progress
+status: Done
 created: 2026-11-14
 project: HITLD-15
 milestone: consumer-live
