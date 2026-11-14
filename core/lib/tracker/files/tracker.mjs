@@ -17,6 +17,7 @@ import {
   releaseClaim,
 } from './claims.mjs';
 import { checkItems, findCollisions } from './check.mjs';
+import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
 import {
@@ -441,6 +442,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         ...checkItems(items, layout, { root, onMain }),
         ...pendingMigrationProblems(root, layout),
       ];
+      problems.push(...feedbackRecordsIn(root).map(feedbackProblem));
       // The commit guard's rule over the whole tree; item files give the same line as above.
       const tree = checkTree(root, {
         ceiling: layout.classificationCeiling,
