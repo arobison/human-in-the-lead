@@ -4,7 +4,7 @@ The project is not ready for outside code contributions until the milestone "One
 
 ## Setup
 
-Node.js 22 or later. No build step: the core is plain JavaScript (ES modules) with JSDoc types.
+Node.js 22.13 or later (for the built-in `node:sqlite`). No build step: the core is plain JavaScript (ES modules) with JSDoc types.
 
 ```bash
 npm ci                 # dev dependencies only: TypeScript (type checking), Prettier, Node types

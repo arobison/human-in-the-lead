@@ -2,7 +2,7 @@
 name: execute
 description: Carry out one dispatched work item as a human-in-the-lead executor, following the executor contract in AGENTS.md. Use when a brief says "You are implementing <ID> as dispatch D-<n>".
 license: Apache-2.0
-compatibility: Needs the hitld command line (Node 22 or later).
+compatibility: Needs the hitld command line (Node 22.13 or later).
 metadata:
   version: 0.0.0
   piece: h

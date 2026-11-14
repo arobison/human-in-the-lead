@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "security/baseline-on-first-scan",
+  "piece": "security",
+  "category": "security-gate",
+  "description": "An existing codebase with a finding gets a baseline from the first scan of main, and a clean change merges: old findings never block.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "security.repo",
+      "with": {
+        "main": {
+          "src/app.js": "export const run = (x) => UNSAFE(x);\nexport const UNSAFE = (x) => x;\n"
+        },
+        "branches": [
+          {
+            "branch": "hitld/W-1-clean",
+            "item": "W-1",
+            "files": {
+              "src/two.js": "export const two = 2;\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "queue",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-1-clean"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "merged",
+      "grader": "equals",
+      "with": {
+        "path": "steps.queue.merged",
+        "value": ["W-1"]
+      }
+    },
+    {
+      "id": "none-rejected",
+      "grader": "count",
+      "with": {
+        "path": "steps.queue.rejected",
+        "equals": 0
+      }
+    },
+    {
+      "id": "baseline-created",
+      "grader": "equals",
+      "with": {
+        "path": "steps.queue.baseline.created",
+        "value": true
+      }
+    },
+    {
+      "id": "baseline-holds-it",
+      "grader": "equals",
+      "with": {
+        "path": "steps.queue.baseline.size",
+        "value": 1
+      }
+    }
+  ]
+}

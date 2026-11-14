@@ -68,7 +68,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld work migrate` (planned) | Upgrade the tracker files to the current tracker format ([3.4](03-data-model.md#file-format)) |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
-| `hitld store export / import / sync` (planned) | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
+| `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
 | `hitld release` (planned) | Tag and publish a release after its gate |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
