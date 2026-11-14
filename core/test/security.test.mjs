@@ -156,6 +156,11 @@ const finding = (key, tool = 'tool', version = '1.0.0') => ({
   level: 'error',
 });
 const T1 = { tool: 'tool', version: '1.0.0' };
+/** An answered decision, W-9, in a stand-in tracker. */
+const ANSWERED = {
+  decision: 'W-9',
+  tracker: { get: () => ({ id: 'W-9', kind: 'decision', state: 'Done', answer: 'B' }) },
+};
 
 test('records: the first scan makes the baseline; a new tool version extends it; nothing else adds', () => {
   const store = openStore(tmp());
@@ -218,6 +223,7 @@ test('records: classify lets through baseline, by-design, false-positive and acc
     key: '444444444444',
     expires: '2030-02-01',
     reason: 'planned',
+    ...ANSWERED,
     now: () => now,
   });
   const all = ['000000000000', ...pending].map((k) => finding(k));
@@ -261,16 +267,45 @@ test('records: a verdict needs a known finding and its evidence; an accepted ris
     /must be one of/,
   );
   const now = () => new Date('2030-01-01T00:00:00Z');
-  assert.throws(
-    () => acceptRisk(store, { key: 'abcdefabcdef', expires: '2029-12-31', reason: 'x', now }),
-    /future/,
-  );
-  assert.throws(
-    () => acceptRisk(store, { key: 'abcdefabcdef', expires: 'soon', reason: 'x', now }),
-    /YYYY-MM-DD/,
-  );
-  const a = acceptRisk(store, { key: 'abcdefabcdef', expires: '2030-06-01', reason: 'x', now });
+  const base = { key: 'abcdefabcdef', reason: 'x', now, ...ANSWERED };
+  assert.throws(() => acceptRisk(store, { ...base, expires: '2029-12-31' }), /future/);
+  assert.throws(() => acceptRisk(store, { ...base, expires: 'soon' }), /YYYY-MM-DD/);
+  const a = acceptRisk(store, { ...base, expires: '2030-06-01' });
   assert.equal(a.by, 'owner');
+  assert.equal(a.decision, 'W-9');
+});
+
+test('records: accepting a risk needs an answered decision item, read through the tracker', () => {
+  const store = openStore(tmp());
+  recordPending(store, [finding('abcdefabcdef')]);
+  const now = () => new Date('2030-01-01T00:00:00Z');
+  /** @param {Record<string, unknown> | null} entity */
+  const tracker = (entity) => ({
+    /** @param {string} id */
+    get: (id) => {
+      if (!entity || id !== entity.id) throw new Error(`${id} is not in the tracker`);
+      return entity;
+    },
+  });
+  const base = { key: 'abcdefabcdef', expires: '2030-06-01', reason: 'x', decision: 'W-9', now };
+  for (const [entity, why] of /** @type {[Record<string, unknown> | null, RegExp][]} */ ([
+    [null, /not in the tracker/],
+    [{ id: 'W-9', kind: 'work', state: 'Done' }, /not a decision/],
+    [{ id: 'W-9', kind: 'decision', state: 'Planned' }, /not answered/],
+    [{ id: 'W-9', kind: 'decision', state: 'Dropped' }, /not answered/],
+    [{ id: 'W-9', kind: 'decision', state: 'Done', answer: '' }, /not answered/],
+    [
+      { id: 'W-9', kind: 'decision', state: 'Done', answer: 'A', resolved_by_precedent: 'P-1' },
+      /resolved by a precedent/,
+    ],
+  ])) {
+    assert.throws(() => acceptRisk(store, { ...base, tracker: tracker(entity) }), why);
+  }
+  assert.throws(
+    () => acceptRisk(store, { ...base, decision: 'soon', tracker: tracker(null) }),
+    /cites the decision item/,
+  );
+  assert.equal(readRecords(store).accepted.length, 0);
 });
 
 test('records: a damaged file stops everything, rather than being read as empty', () => {
@@ -421,7 +456,18 @@ test('gate: a scanner that writes no SARIF sends the branch back; nothing merges
 test('commands: the merge scans with the primary checkout policy, never the branch; executors are refused', async () => {
   const base = tmp();
   const scanner = writeFixtureScanner(join(base, 'scanner.mjs'));
+  const decisionItem = (/** @type {string} */ id, /** @type {Record<string, string>} */ more) =>
+    item(
+      { id, title: 'Accept a security finding as a risk', kind: 'decision', ...more },
+      '\n## Question\n\nAccept the finding as a risk, or fix it now?\n',
+    );
   const c = makeConsumer({
+    files: {
+      'work/items/W-4-accept-a-risk.md': decisionItem('W-4', { status: 'Planned' }),
+      'work/items/W-5-accept-a-risk.md': decisionItem('W-5', {
+        status: 'Done',
+      }),
+    },
     policy: {
       merge: { mode: 'queue', full_suite: ["node --test 'test/*.test.js'"], scanners: [scanner] },
     },
@@ -472,7 +518,18 @@ test('commands: the merge scans with the primary checkout policy, never the bran
 
   for (const env of [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-1' }]) {
     const accept = await c.hitld(
-      ['security', 'accept', '--finding', key, '--expires', '2999-01-01', '--reason', 'x'],
+      [
+        'security',
+        'accept',
+        '--finding',
+        key,
+        '--expires',
+        '2999-01-01',
+        '--reason',
+        'x',
+        '--decision',
+        'W-1',
+      ],
       { env: { ...c.env, ...env } },
     );
     assert.equal(accept.result.error, 'not_permitted');
@@ -500,6 +557,35 @@ test('commands: the merge scans with the primary checkout policy, never the bran
   const again = await c.hitld(['security', 'baseline']);
   assert.equal(again.exit, 0, JSON.stringify(again.result));
   assert.equal(again.result.scanners[0].added, 0, 'the tool version is already in the baseline');
+
+  // Accepting a risk cites a decision item the owner answered, read through the tracker.
+  /** @param {string} decision */
+  const accept = (decision) =>
+    c.hitld([
+      'security',
+      'accept',
+      '--finding',
+      key,
+      '--expires',
+      '2999-01-01',
+      '--reason',
+      'the fix waits for the parser rewrite',
+      '--decision',
+      decision,
+    ]);
+  const missing = await accept('W-99');
+  assert.equal(missing.result.error, 'decision');
+  assert.match(missing.result.message, /W-99 is not in the tracker/);
+  const work = await accept('W-2');
+  assert.match(work.result.message, /W-2 is a work item, not a decision/);
+  const open = await accept('W-4');
+  assert.equal(open.result.error, 'decision');
+  assert.match(open.result.message, /W-4 is Planned and not answered/);
+  const decision = 'W-5';
+  const ok = await accept(decision);
+  assert.equal(ok.exit, 0, JSON.stringify(ok.result));
+  assert.equal(ok.result.accepted.decision, decision);
+  assert.equal(ok.result.accepted.by, 'owner');
 });
 
 const GUARD = fileURLToPath(new URL('../harness/claude-code/hooks/guard.mjs', import.meta.url));

@@ -13,9 +13,11 @@ import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { primaryCheckoutOf } from '../../env/primary.mjs';
 import { runScanner } from '../../security/scan.mjs';
+import { openTracker } from '../../tracker/files/tracker.mjs';
 import {
   VERDICTS,
   acceptRisk,
+  decisionProblem,
   expiredRiskQuestion,
   expiredRisks,
   extendBaseline,
@@ -260,21 +262,35 @@ export const commands = [
       {
         name: 'decision',
         type: 'string',
-        description: 'The decision item the owner answered, if any',
+        required: true,
+        description:
+          'The decision item the owner answered to accept it (hitld rights ask, then rights answer); it must be Done with an answer',
       },
     ],
     run: notForExecutors('security accept', "the owner's decision", (input, ctx) => {
       const p = project(ctx);
       if (p.failure) return p.failure;
-      const decision = /** @type {string | undefined} */ (input.decision);
-      if (decision !== undefined && !/^[A-Z][A-Z0-9]*-[1-9][0-9]*$/.test(decision)) {
+      const decision = String(input.decision);
+      if (!/^[A-Z][A-Z0-9]*-[1-9][0-9]*$/.test(decision)) {
         return fail('usage', '--decision must be a decision ID, such as W-40');
       }
+      // The tracker of the primary checkout, where the owner's answer was recorded.
+      const tracker = openTracker({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
+      /** @type {Record<string, unknown> | null} */
+      let entity = null;
+      try {
+        entity = tracker.get(decision);
+      } catch {
+        entity = null;
+      }
+      const problem = decisionProblem(decision, entity);
+      if (problem) return fail('decision', `${problem}; nothing was recorded`);
       const entry = acceptRisk(p.store, {
         key: String(input.finding),
         expires: String(input.expires),
         reason: String(input.reason),
         decision,
+        tracker,
       });
       return { ok: true, classification: 'confidential', accepted: entry };
     }),

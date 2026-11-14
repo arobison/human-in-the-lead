@@ -158,27 +158,52 @@ export const actions = {
 
   'security.accept': {
     description:
-      "Record the owner's acceptance of the pending finding at a path as a risk until an expiry, as of now. Returns { key, expires }.",
+      "Record the owner's acceptance of the pending finding at a path as a risk until an expiry, as of now, citing a decision item. The tracker is a stand-in holding only that decision, as given (id, kind, state, answer). A refusal is data. Returns { accepted, key, expires, decision } or { accepted: false, refusal }.",
     input: {
       type: 'object',
       properties: {
         path: { type: 'string', minLength: 1 },
         expires: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
         reason: { type: 'string', minLength: 1 },
+        decision: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', pattern: '^[A-Z][A-Z0-9]*-[1-9][0-9]*$' },
+            kind: { type: 'string' },
+            state: { type: 'string' },
+            answer: { type: 'string' },
+          },
+          required: ['id', 'kind', 'state'],
+          additionalProperties: false,
+        },
         now: NOW,
       },
-      required: ['path', 'expires', 'reason'],
+      required: ['path', 'expires', 'reason', 'decision'],
       additionalProperties: false,
     },
     run: (input, ctx) => {
       const found = pendingAt(ctx.sandbox, input.path);
-      const a = acceptRisk(openStore(securityPaths(ctx.sandbox).store), {
-        key: found.key,
-        expires: input.expires,
-        reason: input.reason,
-        now: clock(input.now),
-      });
-      return { key: a.key, expires: a.expires };
+      const d = /** @type {Record<string, unknown>} */ (input.decision);
+      const tracker = {
+        /** @param {string} id */
+        get: (id) => {
+          if (id !== d.id) throw new Error(`${id} is not in the tracker`);
+          return d;
+        },
+      };
+      try {
+        const a = acceptRisk(openStore(securityPaths(ctx.sandbox).store), {
+          key: found.key,
+          expires: input.expires,
+          reason: input.reason,
+          decision: String(d.id),
+          tracker,
+          now: clock(input.now),
+        });
+        return { accepted: true, key: a.key, expires: a.expires, decision: a.decision };
+      } catch (e) {
+        return { accepted: false, refusal: /** @type {Error} */ (e).message };
+      }
     },
   },
 

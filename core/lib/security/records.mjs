@@ -283,10 +283,32 @@ export function recordVerdict(store, v) {
 }
 
 /**
- * Record the owner's acceptance of a real finding as a risk, until an expiry. The caller has
- * checked that this is the owner's own decision (see the security commands).
+ * Why a tracker entity does not show the owner's answered decision, or null if it does: it must
+ * exist, be a decision, and be Done, which for a decision means answered (design part 3.2). One
+ * resolved by a precedent does not count, because accepting a real finding as a risk always needs
+ * a human (design 10.4). An answer, where the backend stores one, must not be empty.
+ * @param {string} id @param {Record<string, unknown> | null} entity
+ * @returns {string | null}
+ */
+export function decisionProblem(id, entity) {
+  if (!entity) return `${id} is not in the tracker`;
+  if (entity.kind !== 'decision') return `${id} is a ${String(entity.kind)} item, not a decision`;
+  if (entity.state !== 'Done' || entity.answer === '') {
+    return `${id} is ${String(entity.state)} and not answered: the owner answers it first (hitld rights answer)`;
+  }
+  if (entity.resolved_by_precedent) {
+    return `${id} was resolved by a precedent; accepting a real risk is always the owner's own answer`;
+  }
+  return null;
+}
+
+/**
+ * Record the owner's acceptance of a real finding as a risk, until an expiry. It must cite the
+ * decision item the owner answered, read through the tracker; the caller has also checked that
+ * this is not an executor (see the security commands).
  * @param {PrivateStore} store
- * @param {{ key: string, expires: string, reason: string, decision?: string, now?: () => Date }} a
+ * @param {{ key: string, expires: string, reason: string, decision: string,
+ *   tracker: { get: (id: string) => Record<string, unknown> }, now?: () => Date }} a
  * @returns {Entry}
  */
 export function acceptRisk(store, a) {
@@ -296,6 +318,18 @@ export function acceptRisk(store, a) {
   }
   if (Date.parse(a.expires) <= now.getTime()) throw new Error('the expiry must be in the future');
   if (!a.reason?.trim()) throw new Error("an accepted risk needs the owner's reason");
+  if (typeof a.decision !== 'string' || !/^[A-Z][A-Z0-9]*-[1-9][0-9]*$/.test(a.decision)) {
+    throw new Error('an accepted risk cites the decision item the owner answered, such as W-40');
+  }
+  /** @type {Record<string, unknown> | null} */
+  let entity = null;
+  try {
+    entity = a.tracker.get(a.decision);
+  } catch {
+    entity = null;
+  }
+  const problem = decisionProblem(a.decision, entity);
+  if (problem) throw new Error(problem);
   const r = readRecords(store);
   const found = findingByKey(r, a.key);
   if (!found)
@@ -306,7 +340,7 @@ export function acceptRisk(store, a) {
     at: now.toISOString(),
     expires: a.expires,
     reason: a.reason.trim(),
-    ...(a.decision ? { decision: a.decision } : {}),
+    decision: a.decision,
     by: 'owner',
   };
   writeFile(store, 'accepted-risks', [...r.accepted.filter((e) => e.key !== a.key), entry]);
@@ -337,7 +371,7 @@ export function expiredRiskQuestion(risk) {
       },
       {
         label: 'B',
-        what_happens: `Accept it for another period: hitld security accept --finding ${risk.key} --expires <date>`,
+        what_happens: `Accept it for another period: hitld security accept --finding ${risk.key} --expires <date> --decision <this decision>`,
         reversible: true,
       },
     ],

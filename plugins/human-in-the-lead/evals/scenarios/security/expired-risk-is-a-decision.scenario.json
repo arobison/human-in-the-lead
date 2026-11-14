@@ -3,7 +3,7 @@
   "id": "security/expired-risk-is-a-decision",
   "piece": "security",
   "category": "security-gate",
-  "description": "A real finding the owner accepted merges until its expiry; past the expiry it becomes a decision for the owner, without blocking unrelated changes.",
+  "description": "Accepting a real finding needs an answered decision item. A finding the owner accepted merges until its expiry; past the expiry it becomes a decision for the owner, without blocking unrelated changes.",
   "mode": "offline",
   "fixture": {
     "generator": "repo",
@@ -44,12 +44,33 @@
       }
     },
     {
+      "id": "unanswered",
+      "action": "security.accept",
+      "with": {
+        "path": "src/new.js",
+        "expires": "2030-03-01",
+        "reason": "fix planned with the parser rewrite",
+        "decision": {
+          "id": "W-9",
+          "kind": "decision",
+          "state": "Planned"
+        },
+        "now": "2030-01-01T00:00:00Z"
+      }
+    },
+    {
       "id": "accept",
       "action": "security.accept",
       "with": {
         "path": "src/new.js",
         "expires": "2030-03-01",
         "reason": "fix planned with the parser rewrite",
+        "decision": {
+          "id": "W-9",
+          "kind": "decision",
+          "state": "Done",
+          "answer": "B"
+        },
         "now": "2030-01-01T00:00:00Z"
       }
     },
@@ -84,6 +105,30 @@
       "with": {
         "path": "steps.first.rejected[0].reason",
         "value": "security"
+      }
+    },
+    {
+      "id": "unanswered-refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.unanswered.accepted",
+        "value": false
+      }
+    },
+    {
+      "id": "refusal-says-why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.unanswered.refusal",
+        "pattern": "not answered"
+      }
+    },
+    {
+      "id": "cites-the-decision",
+      "grader": "equals",
+      "with": {
+        "path": "steps.accept.decision",
+        "value": "W-9"
       }
     },
     {
