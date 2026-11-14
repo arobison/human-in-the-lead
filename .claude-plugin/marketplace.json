@@ -1,0 +1,14 @@
+{
+  "name": "human-in-the-lead",
+  "owner": {
+    "name": "human-in-the-lead maintainers"
+  },
+  "description": "The human-in-the-lead plugin, served from this repository.",
+  "plugins": [
+    {
+      "name": "human-in-the-lead",
+      "source": "./plugins/human-in-the-lead",
+      "description": "Agents do the work; people set the direction and make the calls."
+    }
+  ]
+}

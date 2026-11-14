@@ -1,0 +1,31 @@
+{
+  "$id": "harness-capabilities",
+  "title": "Harness capabilities",
+  "description": "What a harness adapter supports (design part 15.3). The orchestrator reads it and degrades where a capability is missing.",
+  "type": "object",
+  "properties": {
+    "parallelSubagents": { "type": "boolean" },
+    "persistentSessions": { "type": "boolean" },
+    "worktrees": { "type": "boolean" },
+    "backgroundCompletion": { "type": "boolean" },
+    "remoteHumanChannel": { "type": "boolean" },
+    "hooks": { "enum": ["full", "subset", "none"] },
+    "modelSelection": { "type": "boolean" },
+    "effortSelection": { "type": "boolean" },
+    "usageReporting": { "enum": ["tokens", "requests", "none"] },
+    "maxClassification": { "$ref": "common#/$defs/classification" }
+  },
+  "required": [
+    "parallelSubagents",
+    "persistentSessions",
+    "worktrees",
+    "backgroundCompletion",
+    "remoteHumanChannel",
+    "hooks",
+    "modelSelection",
+    "effortSelection",
+    "usageReporting",
+    "maxClassification"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,72 @@
+// The brief (design part 5.2): short because it points rather than restates. It never contains the
+// item's text, the design's text, background the knowledge base holds, or a description of the
+// codebase: those cost tokens on every dispatch and drift from their sources.
+
+import { planRef } from './item.mjs';
+
+/**
+ * @typedef {import('./item.mjs').Item} Item
+ * @typedef {import('./sizing.mjs').Sizing} Sizing
+ */
+
+/**
+ * The environment an executor's hitld commands carry: its dispatch (the env manager reads its role
+ * from the dispatch record), its project, and its role, which keeps tracker writes that only the
+ * orchestrator may make (ID allocation) away from it.
+ * @param {string} dispatch @param {string} projectId
+ * @returns {Record<string, string>}
+ */
+export const executorEnv = (dispatch, projectId) => ({
+  HITLD_DISPATCH: dispatch,
+  HITLD_PROJECT: projectId,
+  HITLD_ROLE: 'executor',
+});
+
+/** @param {Record<string, string>} env */
+export const envPrefix = (env) =>
+  Object.entries(env)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ');
+
+/**
+ * @param {{ item: Item, sizing: Sizing, dispatch: string, branch: string, policy: Record<string, any>,
+ *   isolation: 'worktree' | 'none', worktree?: string | null }} r
+ * @returns {string}
+ */
+export function renderBrief({ item, sizing, dispatch, branch, policy, isolation, worktree }) {
+  const prefix = envPrefix(executorEnv(dispatch, String(policy.project?.id ?? '')));
+  const id = String(item.id);
+  const file = typeof item.path === 'string' ? item.path : `the item file for ${id}`;
+  const plan = planRef(item);
+  const planLine =
+    plan.kind === 'pointer'
+      ? `Read ${file} and the plan it points to (${plan.ref}).`
+      : plan.kind === 'section'
+        ? `Read ${file}, including its Plan section.`
+        : `Read ${file}. It has no plan yet: settle the approach first and list it under calls.`;
+  const kb = sizing.areas.flatMap((a) => policy.dispatch?.brief_kb?.[a] ?? []);
+  const touches = /** @type {string[]} */ (item.touches ?? []);
+  const serial = /** @type {string[]} */ (item.serial ?? []);
+  const reportAt = Math.round(sizing.estimate_tokens * (policy.dispatch?.report_at ?? 1.5));
+  const k = (/** @type {number} */ n) => `${Math.round(n / 1000)}k`;
+  const setup =
+    isolation === 'worktree'
+      ? `First, in your worktree: ${prefix} hitld env setup --holder ${dispatch} --adopt "$PWD", then name your branch: git branch -m ${branch}.`
+      : `Your worktree is ${worktree ?? 'prepared for you'}, on branch ${branch}.`;
+  return [
+    `You are implementing ${id} as dispatch ${dispatch}. ${planLine}`,
+    '',
+    `Done when: the item's "Done when" section. That is the exit; stop when it holds.`,
+    '',
+    ...(kb.length ? [`Knowledge base: ${kb.join(', ')}.`] : []),
+    `Touches: ${touches.join(', ') || 'not listed; keep the change small'}. Record why if you go outside.`,
+    `Serial: ${serial.join(', ') || 'none'}. Budget: ~${k(sizing.estimate_tokens)} tokens; report at ${k(reportAt)} even if unfinished.`,
+    '',
+    setup,
+    `Prefix every hitld command with ${prefix}`,
+    '',
+    'Follow the executor contract in AGENTS.md and the execute skill: claim first, close in the same',
+    'change, measure through the benchmark tool, report in the fixed shape.',
+    '',
+  ].join('\n');
+}

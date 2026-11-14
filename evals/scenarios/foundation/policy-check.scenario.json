@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "id": "foundation/policy-check",
+  "piece": "foundation",
+  "category": "policy",
+  "description": "hitld check policy accepts a project's policy, and refuses a value beyond its bound and a misspelled key, naming each.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": { "language": "javascript" } },
+  "steps": [
+    { "id": "valid", "action": "cli", "with": { "argv": ["check", "policy"] } },
+    {
+      "id": "set-over-bound",
+      "action": "file.set-json",
+      "with": {
+        "path": ".human-in-the-lead/policy.json",
+        "key_path": ["execution", "concurrency", "value"],
+        "value": 9
+      }
+    },
+    { "id": "over-bound", "action": "cli", "with": { "argv": ["check", "policy"] } },
+    {
+      "id": "set-back",
+      "action": "file.set-json",
+      "with": {
+        "path": ".human-in-the-lead/policy.json",
+        "key_path": ["execution", "concurrency", "value"],
+        "value": 3
+      }
+    },
+    {
+      "id": "set-misspelled",
+      "action": "file.set-json",
+      "with": {
+        "path": ".human-in-the-lead/policy.json",
+        "key_path": ["quota", "owner_resrve"],
+        "value": 0.3
+      }
+    },
+    { "id": "misspelled", "action": "cli", "with": { "argv": ["check", "policy"] } }
+  ],
+  "graders": [
+    {
+      "id": "valid-policy-ok",
+      "grader": "equals",
+      "with": { "path": "steps.valid.result.ok", "value": true }
+    },
+    {
+      "id": "valid-policy-exit",
+      "grader": "equals",
+      "with": { "path": "steps.valid.exit", "value": 0 }
+    },
+    {
+      "id": "valid-policy-hash",
+      "grader": "matches",
+      "with": { "path": "steps.valid.result.hash", "pattern": "^[0-9a-f]{64}$" }
+    },
+    {
+      "id": "over-bound-refused",
+      "grader": "equals",
+      "with": { "path": "steps.over-bound.result.ok", "value": false }
+    },
+    {
+      "id": "over-bound-exit",
+      "grader": "equals",
+      "with": { "path": "steps.over-bound.exit", "value": 1 }
+    },
+    {
+      "id": "over-bound-names-the-setting",
+      "grader": "matches",
+      "with": {
+        "path": "steps.over-bound.result.errors[*].path",
+        "pattern": "^execution\\.concurrency$"
+      }
+    },
+    {
+      "id": "over-bound-says-why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.over-bound.result.errors[*].message",
+        "pattern": "above its bound max 6"
+      }
+    },
+    {
+      "id": "misspelled-refused",
+      "grader": "equals",
+      "with": { "path": "steps.misspelled.result.ok", "value": false }
+    },
+    {
+      "id": "misspelled-suggests",
+      "grader": "matches",
+      "with": {
+        "path": "steps.misspelled.result.errors[*].message",
+        "pattern": "did you mean \"owner_reserve\""
+      }
+    }
+  ]
+}

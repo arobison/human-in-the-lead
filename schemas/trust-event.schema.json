@@ -1,0 +1,64 @@
+{
+  "$id": "trust-event",
+  "title": "Trust-calibration event",
+  "description": "One line of trust/events.jsonl in the private store: a fact the trust-calibration loop counts per area (design part 2.15). Append-only. The data is collected from the first run; nothing acts on it until milestone T1, and nothing here changes anyone's autonomy.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "kind": {
+      "description": "asked: a question went to a decider. answered: it was answered. worth-asking: the decider rated whether it was worth asking. application: a precedent resolved a question. overrule: the owner reversed an application. reversal: the owner reversed a call the system made without a precedent. precedent-created, precedent-narrowed, precedent-retired: the precedent's life.",
+      "enum": [
+        "asked",
+        "answered",
+        "worth-asking",
+        "application",
+        "overrule",
+        "reversal",
+        "precedent-created",
+        "precedent-narrowed",
+        "precedent-retired"
+      ]
+    },
+    "at": { "$ref": "common#/$defs/timestamp" },
+    "area": {
+      "description": "The area it belongs to; \"unassigned\" when none applied.",
+      "$ref": "common#/$defs/name"
+    },
+    "subject": {
+      "description": "The decision item, or what was reversed.",
+      "$ref": "common#/$defs/text"
+    },
+    "decider": { "$ref": "common#/$defs/text" },
+    "basis": { "$ref": "common#/$defs/rightsBasis" },
+    "precedent": { "$ref": "common#/$defs/precedentId" },
+    "candidates": {
+      "description": "asked: the precedents that were candidates when the question was sent.",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/precedentId" },
+      "uniqueItems": true
+    },
+    "agrees_with": {
+      "description": "answered: the candidate precedents the answer is consistent with.",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/precedentId" },
+      "uniqueItems": true
+    },
+    "generalization": {
+      "description": "answered: what the decider said to the precedent offer.",
+      "enum": ["yes", "narrowed", "just-this-one", "none-given"]
+    },
+    "facts": {
+      "description": "asked and application: the question's structured attributes, kept so an overrule can narrow the precedent to cases like it.",
+      "$ref": "precedent#/properties/conditions"
+    },
+    "worth": { "description": "worth-asking: the rating.", "type": "boolean" },
+    "what": {
+      "description": "reversal: the kind of call reversed.",
+      "enum": ["logged-call", "triage-route", "controller-move", "other"]
+    },
+    "note": { "$ref": "common#/$defs/text" }
+  },
+  "required": ["schema_version", "kind", "at", "area", "subject"],
+  "additionalProperties": false
+}

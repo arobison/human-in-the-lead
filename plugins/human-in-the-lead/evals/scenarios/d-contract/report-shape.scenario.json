@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "id": "d-contract/report-shape",
+  "piece": "d-contract",
+  "category": "contract",
+  "description": "The report parser accepts the fixed shape with status and calls, and names a missing field and a call not marked reversible.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": { "language": "javascript" } },
+  "steps": [
+    {
+      "id": "good",
+      "action": "report.parse",
+      "with": {
+        "text": "item: W-214\nstatus: partial\ncommit: 3f9c2a1 (branch hitld/W-214-cache)\nevidence:\n  - npm test: 14 passed\nruns: none\ndeviations: none\ncalls:\n  - kept the old cache directory name (reversible)\nquestions: none\n"
+      }
+    },
+    {
+      "id": "bad",
+      "action": "report.parse",
+      "with": {
+        "text": "item: W-214\nstatus: done\ncommit: 3f9c2a1\nevidence:\n  - npm test: 14 passed\nruns: none\ncalls:\n  - renamed the public export\nquestions: none\n"
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "good-no-errors",
+      "grader": "count",
+      "with": { "path": "steps.good.errors", "equals": 0 }
+    },
+    {
+      "id": "good-status",
+      "grader": "equals",
+      "with": { "path": "steps.good.report.status", "value": "partial" }
+    },
+    {
+      "id": "good-call",
+      "grader": "equals",
+      "with": { "path": "steps.good.report.calls[0].reversible", "value": true }
+    },
+    {
+      "id": "bad-no-report",
+      "grader": "equals",
+      "with": { "path": "steps.bad.report", "value": null }
+    },
+    {
+      "id": "bad-names-field",
+      "grader": "matches",
+      "with": { "path": "steps.bad.errors[*]", "pattern": "deviations is missing" }
+    },
+    {
+      "id": "bad-names-call",
+      "grader": "matches",
+      "with": { "path": "steps.bad.errors[*]", "pattern": "not marked \\(reversible\\)" }
+    }
+  ]
+}

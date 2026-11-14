@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+// PreToolUse on Bash: executors never push, never move main, and never run the orchestrator's
+// commands. The system never pushes on its
+// own (design part 5.3); main moves only through the merge queue (part 14.1).
+
+import { isExecutor, readHookInput } from './input.mjs';
+
+const input = readHookInput();
+const command = String(input.tool_input?.command ?? '');
+// Quotes and backslashes removed, so `"hitld" ri'ght's answer` reads as what the shell runs. This
+// guard reads text, not a parsed shell command: variable expansion and the like can still hide a
+// word from it. The command line's own refusal (core/lib/cli/commands/rights.mjs) is the second
+// line, and signed answers (design part 22, Q21) the strong one.
+const unquoted = command.replace(/['"\\]/g, '');
+/** The hitld subcommands an executor may run (claim, close, read, check, its own leases). */
+const EXECUTOR_HITLD =
+  /^\s+(work\s+(claim|close|show|query|check|claims)|check\s+(contract|policy)|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|--help|--version)\b/;
+/** What follows each call of hitld in a command. @param {string} text */
+const hitldCalls = (text) =>
+  [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
+/** @type {string | null} */
+let why = null;
+if (isExecutor(input, process.env)) {
+  if (/\bgit\b[^\n;&|]*\bpush\b/.test(command)) why = 'executors never push; the owner pushes';
+  else if (/\bgit\b[^\n;&|]*\bupdate-ref\b[^\n;&|]*\brefs\/heads\/main\b/.test(command)) {
+    why = 'only the merge queue moves main';
+  } else if (
+    /\bhitld(\.mjs)?\s+(merge|dispatch|run|handover|install|ledger\s+append)\b/.test(command)
+  ) {
+    why = "that is the orchestrator's command, not an executor's";
+  } else if (/\beval\s+accept\b/.test(unquoted) || /--accept-baseline\b/.test(unquoted)) {
+    why = "accepting an eval baseline is the owner's decision; put it in your report";
+  } else if (/\brights\b[\s\S]*\b(answer|overrule|reverse|rate|trust)\b/.test(unquoted)) {
+    why =
+      "decisions are the owner's, answered through the main session; put the question in your report";
+  } else if (hitldCalls(unquoted).some((rest) => !EXECUTOR_HITLD.test(rest))) {
+    why = 'executors run only the hitld commands for claiming, closing, reading and checking';
+  }
+}
+if (why) {
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: `human-in-the-lead: ${why}`,
+      },
+    }) + '\n',
+  );
+}

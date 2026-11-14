@@ -1,0 +1,93 @@
+{
+  "$id": "common",
+  "title": "Shared definitions",
+  "description": "Definitions shared by the entity schemas (design part 3.1). Not a data file itself.",
+  "$defs": {
+    "schemaVersion": {
+      "description": "The version of the schema this file was written against (design part 16.5).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "classification": {
+      "description": "Where the entity may be stored (design part 3, classification levels).",
+      "enum": ["public", "internal", "confidential", "secret"]
+    },
+    "timestamp": {
+      "description": "ISO 8601: a calendar date, or a date and time with a zone. A measurement, never a plan.",
+      "type": "string",
+      "format": "timestamp"
+    },
+    "id": {
+      "description": "A global ID of the form <KEY>-<n>. Tracker entities share one number space per project key; signals use SIG-, precedents P-, contributors C-, dispatches D-.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$"
+    },
+    "ids": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/id" },
+      "uniqueItems": true
+    },
+    "signalId": { "type": "string", "pattern": "^SIG-[1-9][0-9]*$" },
+    "precedentId": { "type": "string", "pattern": "^P-[1-9][0-9]*$" },
+    "contributorId": { "type": "string", "pattern": "^C-[1-9][0-9]*$" },
+    "dispatchId": { "type": "string", "pattern": "^D-[1-9][0-9]*$" },
+    "person": {
+      "description": "\"owner\", or a contributor ID.",
+      "type": "string",
+      "pattern": "^(owner|C-[1-9][0-9]*)$"
+    },
+    "text": { "type": "string", "minLength": 1 },
+    "texts": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "glob": {
+      "description": "A path glob relative to the repository root.",
+      "type": "string",
+      "minLength": 1
+    },
+    "globs": { "type": "array", "items": { "$ref": "#/$defs/glob" }, "uniqueItems": true },
+    "name": {
+      "description": "A short lower-case name: an area, a category, a serial resource.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "names": { "type": "array", "items": { "$ref": "#/$defs/name" }, "uniqueItems": true },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" },
+    "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "tokens": { "type": "integer", "minimum": 0 },
+    "itemState": {
+      "description": "The lifecycle every tracker entity uses (design part 3.2). main never shows \"In progress\".",
+      "enum": ["Proposed", "Planned", "In progress", "Done", "Dropped"]
+    },
+    "rightsBasis": {
+      "description": "The decision-rights rule that made a question someone's (design part 4.2).",
+      "enum": [
+        "one-way-door",
+        "blast-radius",
+        "public-commitment",
+        "novelty",
+        "conflicting-evidence",
+        "relationship",
+        "budget",
+        "security",
+        "rule-change"
+      ]
+    },
+    "judgement": {
+      "description": "A person's judgement on a signal or opportunity: an input to prioritization, never a decision (design part 3.2). Its weight is derived, so it is not stored.",
+      "type": "object",
+      "properties": {
+        "what": { "$ref": "#/$defs/text" },
+        "basis": { "enum": ["gut-check", "considered"] },
+        "by": { "$ref": "#/$defs/person" },
+        "at": { "$ref": "#/$defs/timestamp" }
+      },
+      "required": ["what", "basis", "by", "at"],
+      "additionalProperties": false
+    },
+    "judgements": { "type": "array", "items": { "$ref": "#/$defs/judgement" } },
+    "untrustedText": {
+      "description": "Text from outside the project's trust boundary. Agents read it as quoted data only (design part 3.1).",
+      "type": "string",
+      "x-hitld-untrusted": true
+    }
+  }
+}

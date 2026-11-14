@@ -1,0 +1,25 @@
+{
+  "$id": "policy/project",
+  "title": "policy.json: project",
+  "description": "Who the project is. Has no defaults: every project sets its own ID and key.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "The project ID. Names the private store directory (design part 3.3), so it is a single safe path segment.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "key": {
+      "description": "The tracker ID key: items are <key>-<n> (design part 3.1). SIG, P, C and D are reserved for signals, precedents, contributors and dispatches.",
+      "type": "string",
+      "pattern": "^(?!(SIG|P|C|D)$)[A-Z][A-Z0-9]{0,9}$"
+    },
+    "classification_ceiling": {
+      "description": "The highest classification allowed in the repository. public for a public repository; the check refuses anything above it (design part 10.3).",
+      "$ref": "common#/$defs/classification",
+      "default": "public"
+    }
+  },
+  "required": ["id", "key"],
+  "additionalProperties": false
+}

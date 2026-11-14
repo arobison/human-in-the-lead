@@ -1,0 +1,29 @@
+{
+  "$id": "policy/precedent",
+  "title": "policy.json: precedent",
+  "description": "How precedent is kept healthy (design parts 4.3 and 4.6). Changing any of it is a rule change: the owner's decision.",
+  "type": "object",
+  "properties": {
+    "overrule_max": {
+      "description": "The largest share of a precedent's applications the owner may overrule before the precedent is put to the owner for review.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.2
+    },
+    "review_min_applications": {
+      "description": "Applications a precedent needs before its overrule share counts, so one overrule of one application does not read as 100%.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 3
+    },
+    "not_for_bases": {
+      "description": "Rule bases a precedent can never resolve: the owner decides each one afresh. Rule changes are here because a precedent that settled them would be the system granting itself autonomy (design parts 4.4 and 4.6).",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/rightsBasis" },
+      "uniqueItems": true,
+      "default": ["rule-change"]
+    }
+  },
+  "additionalProperties": false
+}

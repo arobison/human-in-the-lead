@@ -1,0 +1,84 @@
+{
+  "$id": "signal",
+  "title": "Signal",
+  "description": "Anything that arrived: a bug report, a feature request, an idea, a failing test (design part 3.2). Created by intake, updated by triage. In the files backend the body is the file's text below the front matter.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "id": { "$ref": "common#/$defs/signalId" },
+    "source": {
+      "description": "Intake adapter ID and channel, for example github-issues:owner/repo.",
+      "$ref": "common#/$defs/text"
+    },
+    "external_ref": {
+      "description": "The source's own reference: a URL or message ID.",
+      "$ref": "common#/$defs/text"
+    },
+    "author": {
+      "description": "Contributor ID if known; otherwise the source's handle.",
+      "$ref": "common#/$defs/text"
+    },
+    "received_at": { "$ref": "common#/$defs/timestamp" },
+    "body": {
+      "description": "Verbatim, stored where its classification allows.",
+      "$ref": "common#/$defs/untrustedText"
+    },
+    "summary": {
+      "description": "One or two sentences written by the quarantined normalizer.",
+      "$ref": "common#/$defs/text"
+    },
+    "kind": {
+      "enum": [
+        "bug",
+        "feature",
+        "idea",
+        "question",
+        "incident",
+        "research",
+        "test-failure",
+        "burst",
+        "friction",
+        "worked-well"
+      ]
+    },
+    "area": { "$ref": "common#/$defs/name" },
+    "severity": { "$ref": "common#/$defs/text" },
+    "reach": { "$ref": "common#/$defs/text" },
+    "duplicate_of": { "$ref": "common#/$defs/id" },
+    "route": {
+      "description": "Set by triage: auto-fix, backlog, owner, reply, or \"closed: <reason>\". Null until triaged.",
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^(auto-fix|backlog|owner|reply|closed: .+)$" }
+      ]
+    },
+    "links": {
+      "description": "Items, opportunities and decisions created from it.",
+      "$ref": "common#/$defs/ids"
+    },
+    "provenance": {
+      "description": "Ordered transforms: who or what touched it and how, with dispatch IDs.",
+      "$ref": "common#/$defs/texts"
+    },
+    "judgements": { "$ref": "common#/$defs/judgements" },
+    "design_refs": {
+      "description": "Design sections that already cover the signal, or relate to it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "covers": { "$ref": "common#/$defs/text" },
+          "related": { "$ref": "common#/$defs/text" }
+        },
+        "minProperties": 1,
+        "maxProperties": 1,
+        "additionalProperties": false
+      }
+    },
+    "state": { "enum": ["new", "triaged", "closed"] },
+    "classification": { "$ref": "common#/$defs/classification" }
+  },
+  "required": ["schema_version", "id", "source", "received_at", "kind", "state", "classification"],
+  "additionalProperties": false
+}

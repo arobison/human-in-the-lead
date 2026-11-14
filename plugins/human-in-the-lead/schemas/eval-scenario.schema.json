@@ -1,0 +1,116 @@
+{
+  "$id": "eval-scenario",
+  "title": "Eval scenario",
+  "description": "One scenario of the eval suite (design part 17), harness-neutral. It lives at evals/scenarios/<piece>/<name>.scenario.json and carries data only: a fixture to build, steps that call actions the runner provides, and graders that check what the steps produced. Each step's and grader's `with` is checked against the input schema that its action or grader declares. A scenario never names code to run; a scenario that needs a key naming code, to test that it is refused, sets it by path (see the file.set-json and schema.validate actions).",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "id": {
+      "description": "<piece>/<name>, equal to the file's directory and its name before .scenario.json.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$"
+    },
+    "piece": {
+      "description": "The directory under evals/scenarios/ this scenario sits in: the area of the plugin it gates.",
+      "$ref": "common#/$defs/name"
+    },
+    "category": {
+      "description": "What the scenario is scored with in the regression gate: a category score is the mean of its scenarios' scores. Categories named in policy eval.category_floors have a floor (for example injection-containment).",
+      "$ref": "common#/$defs/name"
+    },
+    "description": { "$ref": "common#/$defs/text" },
+    "mode": {
+      "description": "offline: deterministic, runs in `hitld eval --offline`. live: needs a model; `hitld eval --offline` reports it as not applicable.",
+      "enum": ["offline", "live"]
+    },
+    "seed": {
+      "description": "Seeds the fixture generator for this scenario. Default: derived from the run's seed and the scenario ID.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "harness": {
+      "description": "Present when the scenario drives a harness adapter. Absent: it needs none, and runs once.",
+      "type": "object",
+      "properties": {
+        "profiles": {
+          "description": "The adapter profiles to run under (full, minimal, copilot-cloud-agent), or [\"*\"] for every profile. Results are reported per profile (design part 17.7).",
+          "type": "array",
+          "items": { "$ref": "common#/$defs/text" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "requires": {
+          "description": "Capabilities the scenario needs, by capability name (design part 15.3). A boolean must match; a list gives the acceptable values. Under a profile without them the scenario is not applicable, never passed.",
+          "type": "object"
+        }
+      },
+      "required": ["profiles"],
+      "additionalProperties": false
+    },
+    "fixture": {
+      "description": "The sandbox the steps run in, built fresh for every run.",
+      "type": "object",
+      "properties": {
+        "generator": {
+          "description": "repo: a synthetic repository (core/lib/eval/fixtures.mjs). copy: a copy of the directory evals/fixtures/<options.from>.",
+          "$ref": "common#/$defs/name"
+        },
+        "options": { "type": "object" }
+      },
+      "required": ["generator"],
+      "additionalProperties": false
+    },
+    "steps": {
+      "description": "Run in order. Each step's result is kept under steps.<id> for the graders.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "common#/$defs/name" },
+          "action": {
+            "description": "The name of an action (core/lib/eval/actions/).",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"
+          },
+          "with": { "type": "object" }
+        },
+        "required": ["id", "action"],
+        "additionalProperties": false
+      }
+    },
+    "graders": {
+      "description": "Deterministic checks of the end state. The scenario passes when every grader passes; its score is the share that do.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "common#/$defs/name" },
+          "grader": {
+            "description": "The name of a grader (core/lib/eval/graders.mjs).",
+            "$ref": "common#/$defs/name"
+          },
+          "with": { "type": "object" }
+        },
+        "required": ["grader"],
+        "additionalProperties": false
+      }
+    },
+    "labels": {
+      "description": "Expected values, for the accuracy metrics of design part 17.4 (route, tier, decider, outcome). Free-form data.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "piece",
+    "category",
+    "description",
+    "mode",
+    "steps",
+    "graders"
+  ],
+  "additionalProperties": false
+}

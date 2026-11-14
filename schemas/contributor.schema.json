@@ -1,0 +1,41 @@
+{
+  "$id": "contributor",
+  "title": "Contributor",
+  "description": "A person who interacts with the project (design parts 3.2 and 9). Credit is derived, never stored.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "id": { "$ref": "common#/$defs/contributorId" },
+    "identities": {
+      "description": "Handles per source. Emails are stored hashed unless the contributor has a reason to be contacted by email.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": { "$ref": "common#/$defs/text" },
+          "handle": { "$ref": "common#/$defs/text" }
+        },
+        "required": ["source", "handle"],
+        "additionalProperties": false
+      }
+    },
+    "trust_level": { "enum": ["T0", "T1", "T2", "T3", "T4"] },
+    "areas": { "$ref": "common#/$defs/names" },
+    "legal": {
+      "type": "object",
+      "properties": {
+        "dco_seen": { "type": "boolean" },
+        "cla": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "notes": {
+      "description": "Relationship notes. Confidential: private store only.",
+      "$ref": "common#/$defs/text"
+    },
+    "classification": { "$ref": "common#/$defs/classification" }
+  },
+  "required": ["schema_version", "id", "identities", "trust_level", "classification"],
+  "additionalProperties": false
+}

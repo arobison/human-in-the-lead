@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "h-orchestrator/merge-owner-waits",
+  "piece": "h-orchestrator",
+  "category": "merge-queue",
+  "description": "In owner mode, with no branch named by the owner, nothing merges and main does not move.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": {} },
+  "steps": [{ "id": "queue", "action": "orchestrator.merge", "with": { "owner": true } }],
+  "graders": [
+    {
+      "id": "nothing-merged",
+      "grader": "count",
+      "with": { "path": "steps.queue.merged", "equals": 0 }
+    },
+    {
+      "id": "main-not-moved",
+      "grader": "equals",
+      "with": { "path": "steps.queue.main_moved", "value": false }
+    },
+    {
+      "id": "all-wait",
+      "grader": "equals",
+      "with": { "path": "steps.queue.waiting", "value": 4 }
+    }
+  ]
+}

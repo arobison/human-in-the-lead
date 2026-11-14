@@ -1,0 +1,24 @@
+{
+  "$id": "policy/ids",
+  "title": "policy.json: ids",
+  "description": "Tracker ID allocation (design part 3.4, ID allocation). Only the orchestrator allocates IDs, on the main branch. A second machine allocates from a reserved block so items created on either machine merge without renumbering.",
+  "type": "object",
+  "properties": {
+    "blocks": {
+      "description": "Reserved number blocks for other machines, for example { \"name\": \"second-machine\", \"from\": 100000 }. The machine's own block is chosen by the HITLD_ID_BLOCK environment variable or the --block option of `hitld work new`; with neither it allocates from the base range, which is every number below the lowest reserved block. Blocks never overlap, and an open-ended block (no \"to\") must be the highest. `hitld work check` fails on overlapping blocks, and on any two files that share a number.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "$ref": "common#/$defs/name" },
+          "from": { "type": "integer", "minimum": 2 },
+          "to": { "type": "integer", "minimum": 2 }
+        },
+        "required": ["name", "from"],
+        "additionalProperties": false
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}

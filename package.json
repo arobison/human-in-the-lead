@@ -1,0 +1,39 @@
+{
+  "name": "human-in-the-lead",
+  "version": "0.0.0",
+  "description": "Agents do the work; people set the direction and make the calls.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "hitld": "core/bin/hitld.mjs"
+  },
+  "files": [
+    "core/bin/",
+    "core/lib/",
+    "core/harness/",
+    "schemas/",
+    "templates/",
+    "evals/",
+    "skills/",
+    ".claude-plugin/",
+    "plugins/",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"core/test/**/*.test.mjs\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run format:check && npm test",
+    "build": "node core/lib/packaging/build.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3"
+  }
+}

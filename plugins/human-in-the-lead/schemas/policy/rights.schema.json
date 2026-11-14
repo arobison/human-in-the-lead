@@ -1,0 +1,88 @@
+{
+  "$id": "policy/rights",
+  "title": "policy.json: rights",
+  "description": "Decision rights as data (design parts 4.2, 4.4 and 4.5). Changing any of it is a rule change: the owner's decision.",
+  "type": "object",
+  "properties": {
+    "agent_spend_max": {
+      "description": "Tokens an agent may commit beyond an approved appetite before the question becomes the owner's (the budget rule).",
+      "$ref": "common#/$defs/tokens",
+      "default": 100000
+    },
+    "rules": {
+      "description": "Per rule basis: the default decider, and the conditions under which the owner decides instead of an area owner.",
+      "type": "object",
+      "properties": {
+        "one-way-door": {
+          "description": "Undoing it later is expensive or impossible.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "owner" }
+        },
+        "blast-radius": {
+          "description": "It changes more than one area, behaviour users rely on, or the build and release pipeline.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "area-owner", "owner_when": ["cross-area"] }
+        },
+        "public-commitment": {
+          "description": "It creates or changes something outsiders will depend on: API, naming, file formats, licensing, security posture.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "owner" }
+        },
+        "novelty": {
+          "description": "No precedent matches, and the principles do not settle it.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "area-owner", "owner_when": ["direction"] }
+        },
+        "conflicting-evidence": {
+          "description": "Studies, measurements or credible sources disagree, and the choice depends on which is right.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "area-owner", "owner_when": ["cross-area"] }
+        },
+        "relationship": {
+          "description": "Someone outside will read it as coming from the owner or the project, and it is sensitive.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "owner" }
+        },
+        "budget": {
+          "description": "It commits more than agent_spend_max tokens beyond an approved appetite, or bets a new appetite.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "owner" }
+        },
+        "security": {
+          "description": "It adds a dependency, widens a privilege, changes a trust boundary, handles a vulnerability report, or touches secrets.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "owner" }
+        },
+        "rule-change": {
+          "description": "It changes policy bounds, decision rights, a skill, an invariant, or the executor contract.",
+          "$ref": "#/$defs/rule",
+          "default": { "decider": "owner" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "areas": {
+      "description": "The area map. An area owner decides a question only if its basis is in the area's may_decide; otherwise, and where an area has no owners, the owner decides.",
+      "type": "array",
+      "items": { "$ref": "area" },
+      "default": []
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "properties": {
+        "decider": { "enum": ["owner", "area-owner"] },
+        "owner_when": {
+          "description": "cross-area: the question spans more than one area. direction: it touches strategy, principles or non-goals.",
+          "type": "array",
+          "items": { "enum": ["cross-area", "direction"] },
+          "uniqueItems": true
+        }
+      },
+      "required": ["decider"],
+      "additionalProperties": false
+    }
+  }
+}

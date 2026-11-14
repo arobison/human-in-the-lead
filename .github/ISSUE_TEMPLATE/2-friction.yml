@@ -1,0 +1,66 @@
+name: 'Friction'
+description: 'HITLd works, but something about it feels wrong.'
+title: 'friction: '
+labels: [feedback, friction]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us about something that works but feels wrong: a question not worth asking, a step that is hard to follow, a message that is hard to read.
+
+        Everything you write here is public. Leave out the names of private projects, and their paths, data, people and plans.
+  - type: input
+    id: version
+    attributes:
+      label: HITLd version
+      description: 'The plugin version or release tag, for example v0.1.0. `hitld --version` prints it.'
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      description: 'The agent harness HITLd ran in. If it is not listed, pick Other and name it under what happened.'
+      options:
+        - Claude Code
+        - GitHub Copilot
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: area
+    attributes:
+      label: Loop or area
+      description: 'The loop, command or part of HITLd concerned.'
+      placeholder: 'triage, the merge queue, hitld dispatch plan'
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 'What happened'
+      description: 'What you were doing and what felt wrong.'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 'What you expected'
+      description: 'What would have felt right.'
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 'Evidence'
+      description: 'Command output, the question or message you saw, or ledger entries, with anything private removed.'
+    validations:
+      required: false
+  - type: checkboxes
+    id: confidential
+    attributes:
+      label: No confidential material
+      options:
+        - label: 'This issue holds no confidential material from any project or person.'
+          required: true

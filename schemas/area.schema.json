@@ -1,0 +1,30 @@
+{
+  "$id": "area",
+  "title": "Area",
+  "description": "A part of the project with an owner (design part 3.2). Areas live in policy.json under rights.areas, so they carry no schema_version of their own. Reliability is derived and the review rate is controller-set; neither is stored here.",
+  "type": "object",
+  "properties": {
+    "name": { "$ref": "common#/$defs/name" },
+    "paths": { "$ref": "common#/$defs/globs" },
+    "topics": { "$ref": "common#/$defs/names" },
+    "owners": {
+      "description": "Human contributor IDs.",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/contributorId" },
+      "uniqueItems": true
+    },
+    "invariants": {
+      "description": "A pointer into the knowledge base.",
+      "$ref": "common#/$defs/text"
+    },
+    "may_decide": {
+      "description": "The rule bases this area's owners may decide (design part 4.5). Anything not listed stays with the owner.",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/rightsBasis" },
+      "uniqueItems": true
+    },
+    "classification": { "$ref": "common#/$defs/classification" }
+  },
+  "required": ["name", "paths"],
+  "additionalProperties": false
+}

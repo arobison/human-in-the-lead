@@ -1,0 +1,158 @@
+{
+  "$id": "ledger-entry",
+  "title": "Ledger entry",
+  "description": "One line of ledger.jsonl in the private store (design parts 5.4 and 13.1). Append-only: corrections are new events that reference the old one. The ledger is internal as a whole, so lines carry no classification. Events: the ten of part 5.4, plus run-started and lease-taken for orchestrator continuity (part 13.1). dispatched is recorded before the harness is called; claimed is recorded when the harness has accepted the dispatch, and carries its handle.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "common#/$defs/schemaVersion"
+    },
+    "id": {
+      "description": "Unique per event, so applying an event is idempotent.",
+      "$ref": "common#/$defs/text"
+    },
+    "event": {
+      "enum": [
+        "dispatched",
+        "claimed",
+        "question",
+        "answered",
+        "reported",
+        "verified",
+        "merged",
+        "reverted",
+        "released",
+        "abandoned",
+        "run-started",
+        "lease-taken"
+      ]
+    },
+    "run": {
+      "description": "The run this event belongs to; on run-started, the new run's ID.",
+      "$ref": "common#/$defs/text"
+    },
+    "dispatch": {
+      "$ref": "common#/$defs/dispatchId"
+    },
+    "item": {
+      "$ref": "common#/$defs/id"
+    },
+    "tier": {
+      "$ref": "common#/$defs/tier"
+    },
+    "model": {
+      "$ref": "common#/$defs/text"
+    },
+    "effort": {
+      "$ref": "common#/$defs/text"
+    },
+    "role": {
+      "description": "executor, acceptance, adversary, reviewer, triager, and so on.",
+      "$ref": "common#/$defs/name"
+    },
+    "worktree": {
+      "$ref": "common#/$defs/text"
+    },
+    "branch": {
+      "$ref": "common#/$defs/text"
+    },
+    "brief_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "skill_versions": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "$ref": "common#/$defs/text"
+        },
+        "skills": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "common#/$defs/text"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "at": {
+      "$ref": "common#/$defs/timestamp"
+    },
+    "outcome": {
+      "description": "For reported: done, partial or blocked. For verified: pass or fail.",
+      "enum": ["done", "partial", "blocked", "pass", "fail"]
+    },
+    "defects": {
+      "description": "For a failed verification: the defect count.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "tokens": {
+      "description": "From the completion notice; null when the harness does not report usage.",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "tool_calls": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "tokens_before_first_edit": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "estimate_tokens": {
+      "$ref": "common#/$defs/tokens"
+    },
+    "commit": {
+      "$ref": "common#/$defs/commit"
+    },
+    "corrects": {
+      "description": "The ID of an earlier event this one corrects.",
+      "$ref": "common#/$defs/text"
+    },
+    "notes": {
+      "description": "Short. Never untrusted text.",
+      "$ref": "common#/$defs/text"
+    },
+    "session": {
+      "description": "The orchestrator session: on run-started and lease-taken, the session that now holds the lease.",
+      "$ref": "common#/$defs/text"
+    },
+    "host": {
+      "description": "The machine the executor runs on (dispatched, claimed), or the orchestrator's machine (run-started, lease-taken).",
+      "$ref": "common#/$defs/text"
+    },
+    "harness": {
+      "description": "The harness adapter ID, on claimed.",
+      "$ref": "common#/$defs/text"
+    },
+    "handle": {
+      "description": "The harness's own reference for the dispatch (an agent ID, a process ID, a task URL), on claimed.",
+      "$ref": "common#/$defs/text"
+    },
+    "serial_resources": {
+      "description": "Serial resources the dispatch holds (design part 13.2), on dispatched.",
+      "$ref": "common#/$defs/names"
+    },
+    "decision": {
+      "description": "The decision item a question or answer is about.",
+      "$ref": "common#/$defs/id"
+    },
+    "policy_hash": {
+      "description": "On run-started: the hash of the effective policy.json the run started with.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scope": {
+      "description": "On run-started: what the run covers.",
+      "$ref": "run-state#/$defs/scope"
+    }
+  },
+  "required": ["schema_version", "id", "event", "at"],
+  "additionalProperties": false
+}

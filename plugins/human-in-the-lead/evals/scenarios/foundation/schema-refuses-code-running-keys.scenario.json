@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "id": "foundation/schema-refuses-code-running-keys",
+  "piece": "foundation",
+  "category": "security",
+  "description": "Data files never run code: a key that names code (a command, a script, a lifecycle hook) is refused in a tracker item and in policy.json, with a message that says why, while the same data without it is valid. The keys are set by path because a scenario file is data and cannot hold such a key itself.",
+  "mode": "offline",
+  "fixture": { "generator": "repo" },
+  "steps": [
+    {
+      "id": "item-clean",
+      "action": "schema.validate",
+      "with": {
+        "schema": "item",
+        "entity": true,
+        "data": {
+          "schema_version": 1,
+          "id": "FX-1",
+          "kind": "work",
+          "title": "A work item",
+          "state": "Proposed",
+          "classification": "public"
+        }
+      }
+    },
+    {
+      "id": "item-lifecycle-key",
+      "action": "schema.validate",
+      "with": {
+        "schema": "item",
+        "entity": true,
+        "data": {
+          "schema_version": 1,
+          "id": "FX-1",
+          "kind": "work",
+          "title": "A work item",
+          "state": "Proposed",
+          "classification": "public"
+        },
+        "set": [{ "key_path": ["on_merge"], "value": "deploy.sh" }]
+      }
+    },
+    {
+      "id": "item-command-key",
+      "action": "schema.validate",
+      "with": {
+        "schema": "item",
+        "entity": true,
+        "data": {
+          "schema_version": 1,
+          "id": "FX-1",
+          "kind": "work",
+          "title": "A work item",
+          "state": "Proposed",
+          "classification": "public"
+        },
+        "set": [{ "key_path": ["command"], "value": "echo hello" }]
+      }
+    },
+    {
+      "id": "free-form-nested-key",
+      "action": "schema.validate",
+      "with": {
+        "schema": "run",
+        "entity": true,
+        "data": {
+          "schema_version": 1,
+          "id": "R-1",
+          "commit": "abcdef1",
+          "classification": "public",
+          "configuration": { "steps": [{ "name": "build" }] }
+        },
+        "set": [
+          { "key_path": ["configuration", "steps", "0", "post_build"], "value": "make install" }
+        ]
+      }
+    },
+    {
+      "id": "set-policy-key",
+      "action": "file.set-json",
+      "with": {
+        "path": ".human-in-the-lead/policy.json",
+        "key_path": ["project", "post_merge"],
+        "value": "rm -rf build"
+      }
+    },
+    { "id": "policy", "action": "cli", "with": { "argv": ["check", "policy"] } }
+  ],
+  "graders": [
+    {
+      "id": "clean-item-valid",
+      "grader": "equals",
+      "with": { "path": "steps.item-clean.valid", "value": true }
+    },
+    {
+      "id": "lifecycle-key-refused",
+      "grader": "equals",
+      "with": { "path": "steps.item-lifecycle-key.valid", "value": false }
+    },
+    {
+      "id": "lifecycle-key-named",
+      "grader": "equals",
+      "with": { "path": "steps.item-lifecycle-key.errors[*].path", "value": ["on_merge"] }
+    },
+    {
+      "id": "lifecycle-key-says-why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.item-lifecycle-key.errors[*].message",
+        "pattern": "names code to run"
+      }
+    },
+    {
+      "id": "command-key-refused",
+      "grader": "equals",
+      "with": { "path": "steps.item-command-key.valid", "value": false }
+    },
+    {
+      "id": "command-key-says-why",
+      "grader": "matches",
+      "with": { "path": "steps.item-command-key.errors[*].message", "pattern": "names code to run" }
+    },
+    {
+      "id": "nested-key-refused-with-its-path",
+      "grader": "equals",
+      "with": {
+        "path": "steps.free-form-nested-key.errors[*].path",
+        "value": ["configuration.steps[0].post_build"]
+      }
+    },
+    {
+      "id": "policy-refused",
+      "grader": "equals",
+      "with": { "path": "steps.policy.result.ok", "value": false }
+    },
+    {
+      "id": "policy-exit",
+      "grader": "equals",
+      "with": { "path": "steps.policy.exit", "value": 1 }
+    },
+    {
+      "id": "policy-names-the-key",
+      "grader": "equals",
+      "with": { "path": "steps.policy.result.errors[*].path", "value": ["project.post_merge"] }
+    },
+    {
+      "id": "policy-says-why",
+      "grader": "matches",
+      "with": { "path": "steps.policy.result.errors[*].message", "pattern": "names code to run" }
+    }
+  ]
+}

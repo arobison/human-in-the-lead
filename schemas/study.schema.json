@@ -1,0 +1,34 @@
+{
+  "$id": "study",
+  "title": "Study",
+  "description": "A question with a hypothesis, the runs that count as evidence, and a verdict (design part 3.2). Product studies stay in the project's benchmark tool and are only cited; this schema is for process studies in the private store and for summaries the evidence source returns.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "id": { "$ref": "common#/$defs/text" },
+    "question": { "$ref": "common#/$defs/text" },
+    "hypothesis": { "$ref": "common#/$defs/text" },
+    "method": { "$ref": "common#/$defs/text" },
+    "runs": { "description": "Run IDs that count as evidence.", "$ref": "common#/$defs/texts" },
+    "verdict": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "answer": { "$ref": "common#/$defs/text" },
+            "cites": { "$ref": "common#/$defs/texts" },
+            "establishes": { "$ref": "common#/$defs/text" },
+            "does_not_establish": { "$ref": "common#/$defs/text" }
+          },
+          "required": ["answer", "cites"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "classification": { "$ref": "common#/$defs/classification" }
+  },
+  "required": ["schema_version", "id", "question", "classification"],
+  "additionalProperties": false
+}

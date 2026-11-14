@@ -1,0 +1,22 @@
+{
+  "$id": "policy/run",
+  "title": "policy.json: run",
+  "description": "Orchestrator continuity (design part 13.1).",
+  "type": "object",
+  "properties": {
+    "checkpoints_kept": {
+      "description": "How many of the latest run-state checkpoints are kept, so a bad one can be rolled back.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 5
+    },
+    "lease_expiry": {
+      "description": "Seconds after which an orchestrator's lease on the run may be taken over without the owner's say-so. A session renews it at every checkpoint, so it should be longer than the longest stretch between checkpoints.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 1800
+    }
+  },
+  "additionalProperties": false
+}

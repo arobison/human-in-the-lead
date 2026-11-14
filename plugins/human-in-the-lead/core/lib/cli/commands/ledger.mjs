@@ -1,0 +1,428 @@
+// Piece (b): the ledger and orchestrator continuity (design parts 5.4 and 13.1).
+
+import { hostname } from 'node:os';
+import { findRepoRoot, loadPolicy, policyDefaults } from '../../policy/policy.mjs';
+import { openStore, privateStorePath } from '../../store/store.mjs';
+import { LedgerError, appendEvent, correctsValidly, readLedger } from '../../ledger/ledger.mjs';
+import { inflight } from '../../ledger/inflight.mjs';
+import { summary } from '../../ledger/summary.mjs';
+import { LeaseError } from '../../run/lease.mjs';
+import { Run, handOver, rebuildRun, resumeRun, startRun } from '../../run/run.mjs';
+import { gitReality } from '../../run/reality.mjs';
+import { loadState } from '../../run/checkpoint.mjs';
+import { recordPrimaryCheckout } from '../../env/primary.mjs';
+
+/** @type {import('../args.mjs').ArgSpec} */
+const STORE = {
+  name: 'store',
+  type: 'string',
+  description:
+    "The private store directory. Default: the project's, from policy.json (project.id) under $XDG_DATA_HOME/human-in-the-lead",
+};
+/** @type {import('../args.mjs').ArgSpec} */
+const SESSION = {
+  name: 'session',
+  type: 'string',
+  description:
+    "This orchestrator session's ID, the same on every call of the session. Default: $HITLD_SESSION",
+};
+/** @type {import('../args.mjs').ArgSpec} */
+const HOST = {
+  name: 'host',
+  type: 'string',
+  description: "The machine this session runs on. Default: this machine's host name",
+};
+
+/**
+ * The store and the settings that come from policy.
+ * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+ */
+function setup(input, ctx) {
+  const loaded = loadPolicy({ cwd: ctx.cwd });
+  const policy = loaded.policy ?? policyDefaults();
+  /** @type {string} */
+  let root;
+  if (typeof input.store === 'string') {
+    root = input.store;
+  } else {
+    if (!loaded.policy) {
+      const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
+      throw new Error(
+        `cannot find the private store without a valid policy.json (${why}); or pass --store`,
+      );
+    }
+    root = privateStorePath(loaded.policy.project.id, {
+      env: ctx.env,
+      repoRoot: findRepoRoot(ctx.cwd) ?? undefined,
+    });
+  }
+  return {
+    store: openStore(root),
+    hash: loaded.hash,
+    projectId: loaded.policy?.project.id ?? null,
+    concurrency: policy.execution?.concurrency?.value,
+    kept: policy.run?.checkpoints_kept,
+    expirySeconds: policy.run?.lease_expiry,
+    cwd: ctx.cwd,
+  };
+}
+
+/** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
+function who(input, ctx) {
+  const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
+  if (!session) throw new Error('a session ID is needed: pass --session or set HITLD_SESSION');
+  return { session, host: /** @type {string | undefined} */ (input.host) ?? hostname() };
+}
+
+/**
+ * @param {() => import('../table.mjs').CommandResult | Promise<import('../table.mjs').CommandResult>} fn
+ */
+async function guarded(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof LeaseError) {
+      return { ok: false, error: `lease_${e.code}`, message: e.message, holder: e.holder };
+    }
+    if (e instanceof LedgerError)
+      return { ok: false, error: 'invalid_event', message: e.message, errors: e.errors };
+    throw e;
+  }
+}
+
+/**
+ * The only events raw append may write: about decisions and about work already reported. Every
+ * dispatch lifecycle event (dispatched, claimed, reported, abandoned, released) and the run and
+ * lease events belong to the run module alone, since they decide what is live and who may act.
+ */
+/** @type {Record<string, string[]>} */
+const RAW_APPEND_FIELDS = {
+  question: ['decision', 'dispatch', 'notes'],
+  answered: ['decision', 'notes'],
+  verified: [
+    'item',
+    'outcome',
+    'defects',
+    'dispatch',
+    'branch',
+    'commit',
+    'role',
+    'notes',
+    'corrects',
+  ],
+  merged: ['item', 'dispatch', 'branch', 'commit', 'notes', 'corrects'],
+  reverted: ['item', 'dispatch', 'commit', 'notes', 'corrects'],
+};
+const RAW_APPEND_EVENTS = Object.keys(RAW_APPEND_FIELDS);
+/** Fields the system sets: a caller's are dropped, not refused. */
+const SYSTEM_FIELDS = ['id', 'run', 'at', 'schema_version'];
+
+/** @type {import('../table.mjs').Command[]} */
+export const commands = [
+  {
+    name: 'ledger append',
+    summary:
+      'Append a question, answered, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
+    piece: 'b',
+    args: [
+      {
+        name: 'event',
+        type: 'string',
+        positional: true,
+        required: true,
+        description:
+          'The event as JSON. event and any required fields; id, schema_version and at are filled in. Fields: schemas/ledger-entry.schema.json',
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        let event;
+        try {
+          event = JSON.parse(String(input.event));
+        } catch (e) {
+          return {
+            ok: false,
+            error: 'usage',
+            message: `the event is not JSON: ${/** @type {Error} */ (e).message}`,
+          };
+        }
+        if (typeof event !== 'object' || event === null || Array.isArray(event)) {
+          return { ok: false, error: 'usage', message: 'the event must be a JSON object' };
+        }
+        if (!RAW_APPEND_EVENTS.includes(event.event)) {
+          return {
+            ok: false,
+            error: 'forbidden_event',
+            message: `raw append writes only ${RAW_APPEND_EVENTS.join(', ')} events, not ${JSON.stringify(event.event)}; dispatch, report, abandon, release, run and lease events are written only by the run module`,
+          };
+        }
+        const s = setup(input, ctx);
+        const loaded = loadState(s.store);
+        if (!loaded.state) {
+          throw new Error(
+            `no run state (${loaded.problems.join('; ')}); start a run with hitld run start`,
+          );
+        }
+        // Run.record refuses a session that does not hold the lease, then appends and checkpoints.
+        const run = new Run(
+          s.store,
+          { ...who(input, ctx), kept: s.kept, expirySeconds: s.expirySeconds },
+          loaded.state,
+        );
+        // The ID, run and time are the system's, never the caller's.
+        const fields = Object.fromEntries(
+          Object.entries(event).filter(([k]) => !SYSTEM_FIELDS.includes(k)),
+        );
+        const allowed = ['event', ...RAW_APPEND_FIELDS[event.event]];
+        const unknown = Object.keys(fields).filter((k) => !allowed.includes(k));
+        if (unknown.length) {
+          return {
+            ok: false,
+            error: 'forbidden_field',
+            message: `a ${event.event} event may carry only ${allowed.join(', ')}; not ${unknown.join(', ')}`,
+          };
+        }
+        if (fields.corrects !== undefined) {
+          // A correction may only rewrite an event of its own kind about the same item or dispatch,
+          // and that kind must be one raw append could have written.
+          const target = readLedger(s.store).events.find((e) => e.id === fields.corrects);
+          if (
+            !target ||
+            !RAW_APPEND_EVENTS.includes(target.event) ||
+            !correctsValidly(target, /** @type {any} */ (fields))
+          ) {
+            return {
+              ok: false,
+              error: 'forbidden_correction',
+              message: `corrects ${JSON.stringify(fields.corrects)}, which is ${target ? `a ${target.event} event about ${target.item ?? target.dispatch ?? 'something else'}` : 'not in the ledger'}; a correction must name an earlier ${fields.event} event with the same item or dispatch`,
+            };
+          }
+        }
+        const { event: written, appended } = run.record(fields);
+        return { ok: true, appended, event: written };
+      }),
+  },
+  {
+    name: 'ledger tail',
+    summary: 'Show the latest ledger events',
+    piece: 'b',
+    args: [{ name: 'limit', type: 'integer', description: 'How many events (default 10)' }, STORE],
+    run: (input, ctx) => {
+      const { store } = setup(input, ctx);
+      const { events, problems } = readLedger(store);
+      const n = Math.max(1, /** @type {number | undefined} */ (input.limit) ?? 10);
+      return {
+        ok: true,
+        total: events.length,
+        events: events.slice(-n),
+        ledger_problems: problems,
+      };
+    },
+  },
+  {
+    name: 'ledger inflight',
+    summary: 'Dispatches without a terminal event, for restart',
+    piece: 'b',
+    args: [STORE],
+    run: (input, ctx) => {
+      const { store } = setup(input, ctx);
+      const { events, problems } = readLedger(store);
+      return { ok: true, in_flight: inflight(events), ledger_problems: problems };
+    },
+  },
+  {
+    name: 'ledger summary',
+    summary: 'The run report: tokens per accepted item, first-pass yield, waste, decision latency',
+    piece: 'b',
+    args: [STORE],
+    run: (input, ctx) => ({ ok: true, ...summary(setup(input, ctx).store) }),
+  },
+  {
+    name: 'run start',
+    summary: 'Start a run: record it in the ledger, write the first checkpoint and hold the lease',
+    piece: 'b',
+    args: [
+      { name: 'id', type: 'string', description: 'The run ID. Default: <date>-<n>' },
+      {
+        name: 'scope',
+        type: 'string',
+        description:
+          'What the run covers, as JSON: items, milestones, token_budget, concurrency_cap, stop_when. concurrency_cap defaults to policy execution.concurrency',
+      },
+      {
+        name: 'replace',
+        type: 'boolean',
+        description:
+          'Start even though the last run still holds a fresh lease or has work in flight',
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const s = setup(input, ctx);
+        /** @type {Record<string, unknown>} */
+        let scope = {};
+        if (typeof input.scope === 'string') {
+          try {
+            scope = JSON.parse(input.scope);
+          } catch (e) {
+            return {
+              ok: false,
+              error: 'usage',
+              message: `--scope is not JSON: ${/** @type {Error} */ (e).message}`,
+            };
+          }
+        }
+        if (scope.concurrency_cap === undefined && s.concurrency !== undefined) {
+          scope.concurrency_cap = s.concurrency;
+        }
+        const run = startRun(s.store, {
+          ...who(input, ctx),
+          id: /** @type {string | undefined} */ (input.id),
+          scope,
+          policyHash: s.hash,
+          replace: input.replace === true,
+          kept: s.kept,
+          expirySeconds: s.expirySeconds,
+        });
+        // Where the owner's primary checkout is, for `hitld env exec` to load policy from (part 13.2).
+        // Only after the run has started, so a refused start records nothing. A failure does not stop the run: without a record `env exec` refuses every task, which
+        // is the safe outcome. It is reported so the owner sees why.
+        /** @type {Record<string, unknown>} */
+        let primary = { recorded: false, error: 'no policy.json, so no project to record it for' };
+        if (s.projectId) {
+          try {
+            primary = {
+              ...recordPrimaryCheckout(s.store, { projectId: s.projectId, cwd: ctx.cwd }),
+            };
+          } catch (e) {
+            primary = { recorded: false, error: /** @type {Error} */ (e).message };
+          }
+        }
+        return {
+          ok: true,
+          run: run.state.run,
+          checkpoint: run.state.checkpoint.number,
+          primary_checkout: primary,
+          handover: handOver(run.state, readLedger(s.store).events),
+        };
+      }),
+  },
+  {
+    name: 'run checkpoint',
+    summary:
+      'A clean point with nothing new to record: absorb the ledger into the run state and renew the lease',
+    piece: 'b',
+    args: [SESSION, HOST, STORE],
+    run: (input, ctx) =>
+      guarded(() => {
+        const s = setup(input, ctx);
+        const loaded = loadState(s.store);
+        if (!loaded.state)
+          throw new Error(`no run state (${loaded.problems.join('; ')}); run hitld run rebuild`);
+        const run = new Run(
+          s.store,
+          { ...who(input, ctx), kept: s.kept, expirySeconds: s.expirySeconds },
+          loaded.state,
+        );
+        const state = run.checkpoint();
+        return {
+          ok: true,
+          checkpoint: state.checkpoint.number,
+          ledger_position: state.ledger_position,
+        };
+      }),
+  },
+  {
+    name: 'run resume',
+    summary: 'Take the lease, reconcile in-flight work and print the hand-over summary',
+    piece: 'b',
+    args: [
+      {
+        name: 'live',
+        type: 'string',
+        description:
+          'Comma-separated dispatch IDs the harness still shows running (or "none"). Without it nothing is called dead and nothing is abandoned: in-flight work is listed as unverified',
+      },
+      {
+        name: 'force',
+        type: 'boolean',
+        description:
+          'Take the lease although it has not expired (the owner says so, for example when moving machines)',
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(async () => {
+        const s = setup(input, ctx);
+        const live =
+          typeof input.live === 'string'
+            ? input.live
+                .split(',')
+                .map((x) => x.trim())
+                .filter((x) => x && x !== 'none')
+            : null;
+        const reality = gitReality({ cwd: s.cwd });
+        if (live) reality.live = () => live;
+        const r = await resumeRun(s.store, {
+          ...who(input, ctx),
+          force: input.force === true,
+          kept: s.kept,
+          expirySeconds: s.expirySeconds,
+          reality,
+        });
+        return {
+          ok: true,
+          took_over: r.tookOver,
+          recovered_from: r.recoveredFrom,
+          problems: r.problems,
+          reported: r.reported,
+          adopted: r.adopted,
+          abandoned: r.abandoned,
+          release_claims: r.released_items,
+          follow_up: r.follow_up,
+          foreign: r.foreign,
+          unverified: r.unverified,
+          handover: handOver(r.run.state, readLedger(s.store).events),
+        };
+      }),
+  },
+  {
+    name: 'run rebuild',
+    summary: 'Rebuild the run-state file from the ledger, claim branches and the tracker',
+    piece: 'b',
+    args: [
+      {
+        name: 'branch_prefix',
+        type: 'string',
+        description: 'The claim-branch prefix to cross-check (default "hitld")',
+      },
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const s = setup(input, ctx);
+        const r = rebuildRun(s.store, {
+          kept: s.kept,
+          reality: gitReality({ cwd: s.cwd }),
+          branchPrefix: /** @type {string | undefined} */ (input.branch_prefix),
+        });
+        return {
+          ok: true,
+          checkpoint: r.state.checkpoint.number,
+          ledger_events: r.ledger_events,
+          ledger_problems: r.ledger_problems,
+          previous: r.previous,
+          branches: r.branches,
+          handover: handOver(r.state, readLedger(s.store).events),
+        };
+      }),
+  },
+];

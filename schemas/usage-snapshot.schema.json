@@ -1,0 +1,62 @@
+{
+  "$id": "usage-snapshot",
+  "title": "Usage snapshot",
+  "description": "One line of usage/snapshots.jsonl in the private store (design part 12.5): a measured reading of one or more account limits at a moment. Piece (h)'s status-line command writes the rate_limits form from the Claude Code status line input; other readers (a daily Copilot figure) write readings. Internal: never leaves the machine by default.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "at": { "description": "When the reading was taken.", "$ref": "common#/$defs/timestamp" },
+    "source": {
+      "description": "What produced it, such as claude-code-statusline.",
+      "$ref": "common#/$defs/name"
+    },
+    "session": {
+      "description": "The harness session that fed it, if any.",
+      "$ref": "common#/$defs/text"
+    },
+    "rate_limits": {
+      "description": "The Claude Code status line's rate_limits, as given: five_hour feeds a rolling_5h limit, seven_day a weekly one.",
+      "type": "object",
+      "properties": {
+        "five_hour": { "$ref": "#/$defs/window" },
+        "seven_day": { "$ref": "#/$defs/window" }
+      },
+      "additionalProperties": false
+    },
+    "readings": {
+      "description": "Readings for limits by ID, in the limit's own unit.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "description": "A limit's ID in policy quota.limits.",
+            "$ref": "common#/$defs/name"
+          },
+          "used": { "type": "number", "minimum": 0 },
+          "resets_at": { "$ref": "#/$defs/resetsAt" }
+        },
+        "required": ["limit", "used"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["schema_version", "at", "source"],
+  "additionalProperties": false,
+  "$defs": {
+    "resetsAt": {
+      "description": "When the window resets: Unix seconds (as the status line gives it) or a timestamp.",
+      "anyOf": [{ "type": "integer", "minimum": 0 }, { "$ref": "common#/$defs/timestamp" }]
+    },
+    "window": {
+      "type": "object",
+      "properties": {
+        "used_percentage": { "type": "number", "minimum": 0, "maximum": 100 },
+        "resets_at": { "$ref": "#/$defs/resetsAt" }
+      },
+      "required": ["used_percentage"],
+      "additionalProperties": false
+    }
+  }
+}

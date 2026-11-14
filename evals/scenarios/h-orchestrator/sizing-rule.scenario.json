@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "id": "h-orchestrator/sizing-rule",
+  "piece": "h-orchestrator",
+  "category": "sizing",
+  "description": "Ready items size into tiers 0 to 3 by the rule of design part 5.1: tracker edits inline, mechanical work at tier 1, work inside a plan at tier 2, no plan at tier 3, up one for blast radius, and the owner's tier_hint wins.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": {} },
+  "steps": [
+    {
+      "id": "size",
+      "action": "orchestrator.size",
+      "with": {
+        "policy": {
+          "rights": {
+            "areas": [
+              { "name": "ui", "paths": ["src/ui/**"] },
+              { "name": "core", "paths": ["src/core/**"] }
+            ]
+          }
+        },
+        "items": [
+          {
+            "id": "W-1",
+            "kind": "work",
+            "state": "Planned",
+            "classification": "public",
+            "touches": ["work/items/W-9-x.md"],
+            "body": "\n## Done when\n\nThe item says so.\n\n## Plan\n\nEdit the item file.\n"
+          },
+          {
+            "id": "W-2",
+            "kind": "work",
+            "state": "Planned",
+            "classification": "public",
+            "touches": ["src/core/parse.js"],
+            "body": "\n## Done when\n\n`npm test -- parse` passes.\n\n## Plan\n\nChange `src/core/parse.js` to trim input.\n"
+          },
+          {
+            "id": "W-3",
+            "kind": "work",
+            "state": "Planned",
+            "classification": "public",
+            "touches": ["src/core/**"],
+            "body": "\n## Done when\n\nCache hits are measured.\n\n## Plan\n\nSee [the design](docs/design/cache.md#keys).\n"
+          },
+          {
+            "id": "W-4",
+            "kind": "work",
+            "state": "Planned",
+            "classification": "public",
+            "touches": ["src/core/**"],
+            "body": "\n## Done when\n\nSomething better exists.\n"
+          },
+          {
+            "id": "W-5",
+            "kind": "work",
+            "state": "Planned",
+            "classification": "public",
+            "touches": ["src/ui/button.js", "src/core/theme.js"],
+            "body": "\n## Done when\n\n`npm test` passes.\n\n## Plan\n\nChange `src/ui/button.js` and `src/core/theme.js`.\n"
+          },
+          {
+            "id": "W-6",
+            "kind": "work",
+            "state": "Planned",
+            "classification": "public",
+            "tier_hint": 3,
+            "touches": ["src/core/parse.js"],
+            "body": "\n## Done when\n\n`npm test` passes.\n\n## Plan\n\nChange `src/core/parse.js`.\n"
+          }
+        ]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "inline",
+      "grader": "equals",
+      "with": { "path": "steps.size.sizes.W-1.tier", "value": 0 }
+    },
+    {
+      "id": "mechanical",
+      "grader": "equals",
+      "with": { "path": "steps.size.sizes.W-2.tier", "value": 1 }
+    },
+    {
+      "id": "in-plan",
+      "grader": "equals",
+      "with": { "path": "steps.size.sizes.W-3.tier", "value": 2 }
+    },
+    {
+      "id": "no-plan",
+      "grader": "equals",
+      "with": { "path": "steps.size.sizes.W-4.tier", "value": 3 }
+    },
+    {
+      "id": "blast-radius",
+      "grader": "equals",
+      "with": { "path": "steps.size.sizes.W-5.tier", "value": 2 }
+    },
+    {
+      "id": "blast-radius-says-why",
+      "grader": "matches",
+      "with": { "path": "steps.size.sizes.W-5.reasons[*]", "pattern": "spans areas core, ui" }
+    },
+    {
+      "id": "owner-hint",
+      "grader": "equals",
+      "with": { "path": "steps.size.sizes.W-6.tier", "value": 3 }
+    },
+    {
+      "id": "estimate-from-default",
+      "grader": "equals",
+      "with": { "path": "steps.size.sizes.W-2.estimate_tokens", "value": 60000 }
+    }
+  ]
+}

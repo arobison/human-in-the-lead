@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "foundation/dispatch-above-classification-limit",
+  "piece": "foundation",
+  "category": "portability",
+  "description": "Nothing above a harness's classification limit is dispatched to it: a secret item is refused under every profile, and the refusal is not a completion. A public item is accepted by all.",
+  "mode": "offline",
+  "harness": { "profiles": ["*"] },
+  "steps": [
+    {
+      "id": "public-item",
+      "action": "adapter.dispatch",
+      "with": { "dispatch": "D-1", "item": "FX-1", "classification": "public", "tokens": 1200 }
+    },
+    {
+      "id": "secret-item",
+      "action": "adapter.dispatch",
+      "with": { "dispatch": "D-2", "item": "FX-2", "classification": "secret" }
+    }
+  ],
+  "graders": [
+    {
+      "id": "public-accepted",
+      "grader": "equals",
+      "with": { "path": "steps.public-item.accepted", "value": true }
+    },
+    {
+      "id": "secret-refused",
+      "grader": "equals",
+      "with": { "path": "steps.secret-item.accepted", "value": false }
+    },
+    {
+      "id": "secret-refusal-says-why",
+      "grader": "matches",
+      "with": { "path": "steps.secret-item.refusal", "pattern": "above this harness's" }
+    },
+    {
+      "id": "secret-never-completes",
+      "grader": "equals",
+      "with": { "path": "steps.secret-item.completion", "value": null }
+    }
+  ]
+}

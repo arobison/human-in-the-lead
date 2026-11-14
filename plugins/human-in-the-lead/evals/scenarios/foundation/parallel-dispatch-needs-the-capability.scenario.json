@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "foundation/parallel-dispatch-needs-the-capability",
+  "piece": "foundation",
+  "category": "portability",
+  "description": "Two dispatches in flight at once need parallelSubagents. Where a harness lacks it (minimal, the Copilot cloud agent) the scenario is not applicable, and is reported so, never as passed.",
+  "mode": "offline",
+  "harness": { "profiles": ["*"], "requires": { "parallelSubagents": true } },
+  "steps": [
+    {
+      "id": "first",
+      "action": "adapter.dispatch",
+      "with": { "dispatch": "D-1", "item": "FX-1", "complete": false }
+    },
+    {
+      "id": "second",
+      "action": "adapter.dispatch",
+      "with": { "dispatch": "D-2", "item": "FX-2", "tokens": 800 }
+    }
+  ],
+  "graders": [
+    {
+      "id": "first-accepted",
+      "grader": "equals",
+      "with": { "path": "steps.first.accepted", "value": true }
+    },
+    {
+      "id": "second-accepted",
+      "grader": "equals",
+      "with": { "path": "steps.second.accepted", "value": true }
+    },
+    {
+      "id": "two-dispatches",
+      "grader": "adapter_calls",
+      "with": { "method": "dispatch", "equals": 2 }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "$id": "policy/execution",
+  "title": "policy.json: execution",
+  "description": "Dispatch limits (design part 5.2).",
+  "type": "object",
+  "properties": {
+    "concurrency": {
+      "description": "The most executors running at once. A controller may move value inside min and max (milestone M2); in v0 it stays at value.",
+      "$ref": "#/$defs/bounded",
+      "default": { "value": 3, "min": 1, "max": 6 }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "bounded": {
+      "description": "A tunable setting with the owner's bounds (design part 11.2). Moving it outside its bounds, or changing a bound, is a rule change.",
+      "type": "object",
+      "properties": {
+        "value": { "type": "integer", "minimum": 1 },
+        "min": { "type": "integer", "minimum": 1 },
+        "max": { "type": "integer", "minimum": 1 },
+        "controller": {
+          "description": "The controller allowed to move value, if any.",
+          "$ref": "common#/$defs/name"
+        }
+      },
+      "required": ["value", "min", "max"],
+      "additionalProperties": false,
+      "x-hitld-bounded": true
+    }
+  }
+}

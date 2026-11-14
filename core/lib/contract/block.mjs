@@ -1,0 +1,167 @@
+// The executor contract block in a consuming project's AGENTS.md (design parts 5.2 and 15.2):
+// render it from the template, find it between its markers, say how it differs from the current
+// one, and write it without touching any text outside the markers.
+
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { VERSION } from '../version.mjs';
+
+export const TEMPLATE_PATH = fileURLToPath(
+  new URL('../../../templates/AGENTS.contract.md', import.meta.url),
+);
+
+const BEGIN = /^<!-- hitld:contract begin v(\S+) -->[ \t]*$/;
+const END = /^<!-- hitld:contract end -->[ \t]*$/;
+
+/** The ID key shown in the block's example when the project's is not known. */
+export const DEFAULT_KEY = 'W';
+const KEY = /^[A-Z][A-Z0-9]{0,9}$/;
+
+/**
+ * The block for a plugin version and project key: markers included, one trailing newline.
+ * @param {string} [version]
+ * @param {string} [key] the project's ID key (policy.json project.key), shown in the example
+ */
+export function renderBlock(version = VERSION, key = DEFAULT_KEY) {
+  const k = KEY.test(key) ? key : DEFAULT_KEY;
+  return (
+    readFileSync(TEMPLATE_PATH, 'utf8')
+      .replaceAll('{{VERSION}}', version)
+      .replaceAll('{{KEY}}', k)
+      .trimEnd() + '\n'
+  );
+}
+
+/**
+ * Where the block is in a text.
+ * @typedef {{ state: 'missing' } | { state: 'malformed', problem: string }
+ *   | { state: 'found', version: string, start: number, end: number, body: string }} Found
+ * `start` and `end` are line indexes of the markers; `body` is the whole block, markers included.
+ * @param {string} text
+ * @returns {Found}
+ */
+export function findBlock(text) {
+  const lines = text.split('\n');
+  /** @type {number[]} */
+  const begins = [];
+  /** @type {number[]} */
+  const ends = [];
+  lines.forEach((l, i) => {
+    if (BEGIN.test(l)) begins.push(i);
+    else if (END.test(l)) ends.push(i);
+  });
+  if (!begins.length && !ends.length) return { state: 'missing' };
+  if (begins.length !== 1 || ends.length !== 1) {
+    return {
+      state: 'malformed',
+      problem: `expected one begin and one end marker, found ${begins.length} and ${ends.length}`,
+    };
+  }
+  const [start] = begins;
+  const [end] = ends;
+  if (end < start) return { state: 'malformed', problem: 'the end marker comes before the begin' };
+  const version = /** @type {RegExpExecArray} */ (BEGIN.exec(lines[start]))[1];
+  return {
+    state: 'found',
+    version,
+    start,
+    end,
+    body: lines.slice(start, end + 1).join('\n') + '\n',
+  };
+}
+
+/**
+ * Check a text's block against the plugin's.
+ * @param {string} text
+ * @param {string} [version]
+ * @param {string} [key]
+ * @returns {{ status: 'current' | 'missing' | 'outdated' | 'modified' | 'malformed', found?: string, expected: string, message: string, drift?: string[] }}
+ */
+export function compareBlock(text, version = VERSION, key = DEFAULT_KEY) {
+  const found = findBlock(text);
+  const fix = 'run hitld install';
+  if (found.state === 'missing') {
+    return { status: 'missing', expected: version, message: `no contract block; ${fix}` };
+  }
+  if (found.state === 'malformed') {
+    return {
+      status: 'malformed',
+      expected: version,
+      message: `${found.problem}; repair the markers by hand, then ${fix}`,
+    };
+  }
+  if (found.version !== version) {
+    return {
+      status: 'outdated',
+      found: found.version,
+      expected: version,
+      message: `the block is v${found.version}, the plugin is v${version}; ${fix}`,
+    };
+  }
+  const want = renderBlock(version, key);
+  if (found.body === want)
+    return { status: 'current', found: found.version, expected: version, message: 'current' };
+  const have = new Set(found.body.split('\n'));
+  const wanted = new Set(want.split('\n'));
+  const drift = [
+    ...want
+      .split('\n')
+      .filter((l) => l && !have.has(l))
+      .map((l) => `missing: ${l}`),
+    ...found.body
+      .split('\n')
+      .filter((l) => l && !wanted.has(l))
+      .map((l) => `changed or added: ${l}`),
+  ];
+  return {
+    status: 'modified',
+    found: found.version,
+    expected: version,
+    message: `the block was edited by hand (${drift.length} lines differ); ${fix} restores it`,
+    drift,
+  };
+}
+
+/**
+ * Write or update the block in `<dir>/AGENTS.md`. Text outside the markers is never changed: a
+ * missing block is appended after one blank line; a present one is replaced in place. A file with
+ * broken markers is refused.
+ * @param {string} dir
+ * @param {string} [version]
+ * @param {string} [key]
+ * @returns {{ ok: boolean, action: 'created' | 'added' | 'updated' | 'unchanged' | 'refused', path: string, message?: string }}
+ */
+export function installBlock(dir, version = VERSION, key = DEFAULT_KEY) {
+  const path = join(dir, 'AGENTS.md');
+  const block = renderBlock(version, key);
+  if (!existsSync(path)) {
+    writeFileSync(path, block);
+    return { ok: true, action: 'created', path };
+  }
+  const text = readFileSync(path, 'utf8');
+  const found = findBlock(text);
+  if (found.state === 'malformed') {
+    return { ok: false, action: 'refused', path, message: found.problem };
+  }
+  let next;
+  if (found.state === 'missing') {
+    next = text.trim() === '' ? block : text.replace(/\n*$/, '\n\n') + block;
+  } else {
+    const lines = text.split('\n');
+    next = [
+      ...lines.slice(0, found.start),
+      ...block.trimEnd().split('\n'),
+      ...lines.slice(found.end + 1),
+    ].join('\n');
+  }
+  if (next === text) return { ok: true, action: 'unchanged', path };
+  writeFileSync(path, next);
+  return { ok: true, action: found.state === 'missing' ? 'added' : 'updated', path };
+}
+
+/**
+ * Does a CLAUDE.md import AGENTS.md (a line `@AGENTS.md`)?
+ * @param {string} text
+ */
+export const importsAgents = (text) => /^\s*@AGENTS\.md\s*$/m.test(text);

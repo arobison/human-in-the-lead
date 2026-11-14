@@ -1,0 +1,137 @@
+{
+  "$id": "policy/quota",
+  "title": "policy.json: quota",
+  "description": "Account limits and the owner's reserve (design part 12.5). Autonomous work never spends the reserve. Headroom is the share of a window's limit above the reserve that remains unused.",
+  "type": "object",
+  "properties": {
+    "owner_reserve": {
+      "description": "The share of each limit kept for the owner's own interactive use, unless a limit sets its own reserve (design part 22, Q11).",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.25
+    },
+    "economize_at": {
+      "description": "Below this headroom: prefer cheaper models and tiers where sizing allows, and lower concurrency.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.4
+    },
+    "critical_at": {
+      "description": "Below this headroom: dispatch only critical-path items.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.15
+    },
+    "notify_at": {
+      "description": "Shares of a limit used at which a line goes into the digest.",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 1
+      },
+      "uniqueItems": true,
+      "default": [0.5, 0.75, 0.9]
+    },
+    "limits": {
+      "description": "The declared limits. A project's list replaces the default list as a whole. The defaults are the two Claude subscription windows, read from status-line snapshots.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/limit"
+      },
+      "default": [
+        {
+          "id": "claude-five-hour",
+          "unit": "plan_percent",
+          "window": "rolling_5h",
+          "limit": 100,
+          "scope": {
+            "harness": "claude-code"
+          },
+          "source": "measured",
+          "hard": false
+        },
+        {
+          "id": "claude-weekly",
+          "unit": "plan_percent",
+          "window": "weekly",
+          "limit": 100,
+          "scope": {
+            "harness": "claude-code"
+          },
+          "source": "measured",
+          "hard": false
+        }
+      ]
+    },
+    "forecast_hours": {
+      "description": "How many recent hours the burn rate is smoothed over.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 2
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "limit": {
+      "description": "One account limit (design part 12.5). Limits whose overrun costs money should be hard (design part 22, Q12). Confidence is derived from source and age, so it is not stored.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "common#/$defs/name"
+        },
+        "unit": {
+          "enum": ["tokens", "requests", "usd", "credits", "plan_percent"]
+        },
+        "window": {
+          "description": "rolling_5h, weekly, monthly_utc, run, or a custom period such as P14D.",
+          "type": "string",
+          "pattern": "^(rolling_5h|weekly|monthly_utc|run|P[0-9A-Z]+)$"
+        },
+        "limit": {
+          "description": "The amount per window, where known.",
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "scope": {
+          "description": "Which account, harness and models it covers.",
+          "type": "object",
+          "properties": {
+            "account": {
+              "$ref": "common#/$defs/text"
+            },
+            "harness": {
+              "$ref": "common#/$defs/name"
+            },
+            "models": {
+              "$ref": "common#/$defs/texts"
+            }
+          },
+          "additionalProperties": false
+        },
+        "source": {
+          "enum": ["measured", "estimated", "declared"]
+        },
+        "hard": {
+          "description": "Exceeding it needs the owner's yes first.",
+          "type": "boolean"
+        },
+        "reserve": {
+          "description": "Overrides owner_reserve for this limit.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "confidence": {
+          "description": "The owner's stated trust in a declared figure. The confidence the system computes from the reading's source and age never exceeds it.",
+          "enum": ["high", "medium", "low"]
+        }
+      },
+      "required": ["id", "unit", "window", "limit", "source", "hard"],
+      "additionalProperties": false
+    }
+  }
+}

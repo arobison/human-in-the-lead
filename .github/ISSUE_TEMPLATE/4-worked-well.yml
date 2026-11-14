@@ -1,0 +1,66 @@
+name: 'Worked well'
+description: 'Something in HITLd worked well. This tells us what not to break.'
+title: 'worked well: '
+labels: [feedback, worked-well]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us about something that worked well. Positive feedback tells maintainers what not to break, so it is as useful as a bug report.
+
+        Everything you write here is public. Leave out the names of private projects, and their paths, data, people and plans.
+  - type: input
+    id: version
+    attributes:
+      label: HITLd version
+      description: 'The plugin version or release tag, for example v0.1.0. `hitld --version` prints it.'
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      description: 'The agent harness HITLd ran in. If it is not listed, pick Other and name it under what happened.'
+      options:
+        - Claude Code
+        - GitHub Copilot
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: area
+    attributes:
+      label: Loop or area
+      description: 'The loop, command or part of HITLd concerned.'
+      placeholder: 'triage, the merge queue, hitld dispatch plan'
+    validations:
+      required: false
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 'What happened'
+      description: 'What worked well, and what you were doing at the time.'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 'What you expected'
+      description: 'What you expected before, if it surprised you.'
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 'Evidence'
+      description: 'Command output, a report or ledger entries, with anything private removed.'
+    validations:
+      required: false
+  - type: checkboxes
+    id: confidential
+    attributes:
+      label: No confidential material
+      options:
+        - label: 'This issue holds no confidential material from any project or person.'
+          required: true

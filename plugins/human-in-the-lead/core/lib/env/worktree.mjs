@@ -1,0 +1,293 @@
+// Worktrees (design part 13.2): cut from the tip of the base branch, set up as the project
+// declares, and cleaned up without ever losing uncommitted work.
+
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { checkHolder, worktreeRoot } from './config.mjs';
+import { git, gitOk } from './git.mjs';
+import { logEvent, readRegistry, updateRegistry } from './registry.mjs';
+
+/**
+ * @typedef {import('./registry.mjs').WorktreeLease} WorktreeLease
+ * @typedef {import('./registry.mjs').SetupResult} SetupResult
+ * @typedef {import('./config.mjs').EnvSettings} EnvSettings
+ * @typedef {object} WorktreeContext
+ * @property {import('../store/store.mjs').PrivateStore} store
+ * @property {string} repoRoot any directory inside the repository (or one of its worktrees)
+ * @property {EnvSettings} settings
+ */
+
+/** @param {string} s */
+const slugify = (s) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'work';
+
+/**
+ * Cut a worktree from the tip of `base` on a branch named <branch_prefix>/<ID>-<slug>. Asking again
+ * for a holder that already has one returns it.
+ * @param {WorktreeContext} ctx
+ * @param {{ holder: string, itemId: string, slug?: string, base?: string }} request
+ * @returns {Promise<{ lease: WorktreeLease, existing: boolean }>}
+ */
+export async function createWorktree(ctx, request) {
+  const holder = checkHolder(request.holder);
+  checkHolder(request.itemId);
+  const base = request.base ?? 'main';
+  const branch = `${ctx.settings.branchPrefix}/${request.itemId}-${slugify(request.slug ?? 'work')}`;
+  if (!(await gitOk(['check-ref-format', '--branch', branch], ctx.repoRoot))) {
+    throw new Error(`"${branch}" is not a valid branch name`);
+  }
+  const path = resolve(worktreeRoot(ctx.settings, ctx.repoRoot, ctx.store.root), holder);
+
+  return updateRegistry(ctx.store, async (registry) => {
+    const have = registry.worktrees[holder];
+    if (have) return { lease: have, existing: true };
+    if (existsSync(path)) throw new Error(`${path} already exists and is not leased to ${holder}`);
+    mkdirSync(dirname(path), { recursive: true });
+    const tip = (await git(['rev-parse', '--verify', `${base}^{commit}`], ctx.repoRoot)).trim();
+    await git(['worktree', 'add', '-b', branch, path, tip], ctx.repoRoot);
+    /** @type {WorktreeLease} */
+    const lease = {
+      holder,
+      path: realpathSync(path),
+      branch,
+      repo_root: realpathSync((await git(['rev-parse', '--show-toplevel'], ctx.repoRoot)).trim()),
+      base,
+      adopted: false,
+      status: 'ready',
+      created_at: new Date().toISOString(),
+    };
+    registry.worktrees[holder] = lease;
+    logEvent(ctx.store, 'worktree_created', { holder, branch, path: lease.path, base, tip });
+    return { lease, existing: false };
+  });
+}
+
+/**
+ * Take over a worktree the harness created (Claude Code's isolation: worktree). The manager runs
+ * setup in it and records it, but never removes it.
+ * @param {WorktreeContext} ctx
+ * @param {{ holder: string, path: string }} request
+ * @returns {Promise<{ lease: WorktreeLease, existing: boolean }>}
+ */
+export async function adoptWorktree(ctx, request) {
+  const holder = checkHolder(request.holder);
+  const path = realpathSync(resolve(ctx.repoRoot, request.path));
+  const top = realpathSync((await git(['rev-parse', '--show-toplevel'], path)).trim());
+  if (top !== path) throw new Error(`${path} is not the top of a git worktree`);
+  const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], path)).trim();
+  const common = resolve(path, (await git(['rev-parse', '--git-common-dir'], path)).trim());
+  return updateRegistry(ctx.store, (registry) => {
+    const have = registry.worktrees[holder];
+    if (have) return { lease: have, existing: true };
+    /** @type {WorktreeLease} */
+    const lease = {
+      holder,
+      path,
+      branch,
+      repo_root: dirname(realpathSync(common)),
+      base: 'main',
+      adopted: true,
+      status: 'ready',
+      created_at: new Date().toISOString(),
+    };
+    registry.worktrees[holder] = lease;
+    logEvent(ctx.store, 'worktree_adopted', { holder, branch, path });
+    return { lease, existing: false };
+  });
+}
+
+const TAIL = 2000;
+
+/**
+ * Run one setup command through the shell in a directory.
+ *
+ * Trust boundary (design parts 10 and 13.2): `command` is an entry of policy.json
+ * env.worktree_setup, a key marked x-hitld-executes. The owner declares it as a shell command and
+ * the manager runs it on purpose, so a shell is the declared contract. It reaches here only from a
+ * policy that came through loadPolicy's trusted read (owner, mode, no link, inside the repository
+ * root) in the primary checkout; runSetup takes no command from its caller.
+ * @param {string} command @param {string} cwd @param {NodeJS.ProcessEnv} env @param {number} timeoutMs
+ * @returns {Promise<{ exit_code: number | null, ms: number, output_tail: string }>}
+ */
+function runStep(command, cwd, env, timeoutMs) {
+  return new Promise((resolveStep) => {
+    const started = Date.now();
+    let out = '';
+    // Owner-declared shell command (env.worktree_setup, x-hitld-executes); see above.
+    const child = spawn(command, { cwd, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    /** @param {Buffer} d */
+    const take = (d) => {
+      out = (out + d.toString('utf8')).slice(-TAIL * 2);
+    };
+    child.stdout.on('data', take);
+    child.stderr.on('data', take);
+    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      resolveStep({ exit_code: null, ms: Date.now() - started, output_tail: e.message });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolveStep({ exit_code: code, ms: Date.now() - started, output_tail: out.slice(-TAIL) });
+    });
+  });
+}
+
+/**
+ * Run the project's declared setup in a holder's worktree and record the result. The first failing
+ * command stops it. Setup gets no secrets: it runs with the environment it is given, which the
+ * caller keeps free of them. The commands are policy's env.worktree_setup and nothing else: a
+ * request cannot name its own.
+ * @param {WorktreeContext} ctx
+ * @param {{ holder: string, env?: NodeJS.ProcessEnv, timeoutMs?: number }} request
+ * @returns {Promise<SetupResult>}
+ */
+export async function runSetup(ctx, request) {
+  const holder = checkHolder(request.holder);
+  const lease = readRegistry(ctx.store).worktrees[holder];
+  if (!lease) throw new Error(`${holder} has no worktree to set up`);
+  const commands = ctx.settings.worktreeSetup;
+  /** @type {SetupResult} */
+  const result = { ok: true, steps: [] };
+  for (const command of commands) {
+    const step = await runStep(
+      command,
+      lease.path,
+      request.env ?? process.env,
+      request.timeoutMs ?? 600_000,
+    );
+    result.steps.push({ command, ...step });
+    if (step.exit_code !== 0) {
+      result.ok = false;
+      break;
+    }
+  }
+  await updateRegistry(ctx.store, (registry) => {
+    const l = registry.worktrees[holder];
+    if (!l) return;
+    l.setup = result;
+    l.status = result.ok ? 'ready' : 'setup_failed';
+    logEvent(ctx.store, 'worktree_setup', { holder, ok: result.ok, steps: result.steps.length });
+  });
+  return result;
+}
+
+/**
+ * Commit uncommitted changes to the worktree's branch so removing it loses nothing.
+ * @param {WorktreeLease} lease
+ * @returns {Promise<{ saved: boolean, branch: string }>}
+ */
+async function saveUncommitted(lease) {
+  const status = await git(['status', '--porcelain'], lease.path);
+  if (!status.trim()) return { saved: false, branch: lease.branch };
+  let branch = lease.branch;
+  if (branch === 'HEAD') {
+    branch = `hitld-saved/${lease.holder}`;
+    await git(['switch', '-c', branch], lease.path);
+  }
+  await git(['add', '-A'], lease.path);
+  await git(
+    [
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--no-verify',
+      '-m',
+      `hitld: save uncommitted changes from ${lease.holder}'s worktree before removal`,
+    ],
+    lease.path,
+  );
+  return { saved: true, branch };
+}
+
+/**
+ * Remove a worktree from disk, saving uncommitted work to its branch first. Returns what happened.
+ * @param {WorktreeLease} lease
+ * @param {boolean} deleteIfMerged
+ */
+async function removeFromDisk(lease, deleteIfMerged) {
+  const gone = !existsSync(lease.path);
+  /** @type {{ saved: boolean, branch_deleted: boolean, branch: string }} */
+  const out = { saved: false, branch_deleted: false, branch: lease.branch };
+  if (!gone) {
+    const saved = await saveUncommitted(lease);
+    out.saved = saved.saved;
+    out.branch = saved.branch;
+    await git(['worktree', 'remove', lease.path], lease.repo_root);
+  } else {
+    await git(['worktree', 'prune'], lease.repo_root);
+  }
+  if (deleteIfMerged && out.branch !== 'HEAD') {
+    const merged = await gitOk(
+      ['merge-base', '--is-ancestor', out.branch, lease.base],
+      lease.repo_root,
+    );
+    if (merged) {
+      await git(['branch', '-D', out.branch], lease.repo_root);
+      out.branch_deleted = true;
+    }
+  }
+  return out;
+}
+
+/**
+ * Release a holder's worktree.
+ * - merged: remove it and delete its branch (it is merged into the base).
+ * - abandoned: remove it; the branch stays, since it holds unmerged work.
+ * - failed: keep it for inspection, and remove the oldest failed ones beyond
+ *   `failed_worktrees_kept`.
+ * A worktree adopted from the harness is released but never removed.
+ * @param {WorktreeContext} ctx
+ * @param {{ holder: string, outcome: 'merged' | 'abandoned' | 'failed' }} request
+ */
+export async function releaseWorktree(ctx, request) {
+  const holder = checkHolder(request.holder);
+  if (!['merged', 'abandoned', 'failed'].includes(request.outcome)) {
+    throw new Error(`outcome must be merged, abandoned or failed, not "${request.outcome}"`);
+  }
+  return updateRegistry(ctx.store, async (registry) => {
+    const lease = registry.worktrees[holder];
+    if (!lease) return { released: false, kept: false, removed: [], pruned: [] };
+    /** @type {string[]} */
+    const pruned = [];
+    if (request.outcome === 'failed' && !lease.adopted) {
+      lease.status = 'failed';
+      lease.failed_at = new Date().toISOString();
+      const failed = Object.values(registry.worktrees)
+        .filter((l) => l.status === 'failed' && !l.adopted)
+        .sort((a, b) => String(a.failed_at).localeCompare(String(b.failed_at)));
+      for (const old of failed.slice(
+        0,
+        Math.max(0, failed.length - ctx.settings.failedWorktreesKept),
+      )) {
+        await removeFromDisk(old, false);
+        delete registry.worktrees[old.holder];
+        pruned.push(old.holder);
+        logEvent(ctx.store, 'worktree_pruned', { holder: old.holder, path: old.path });
+      }
+      const kept = !pruned.includes(holder);
+      logEvent(ctx.store, 'worktree_released', { holder, outcome: 'failed', kept });
+      return { released: true, kept, path: lease.path, removed: [], pruned };
+    }
+    /** @type {Awaited<ReturnType<typeof removeFromDisk>> | null} */
+    let removed = null;
+    if (!lease.adopted) removed = await removeFromDisk(lease, request.outcome === 'merged');
+    delete registry.worktrees[holder];
+    logEvent(ctx.store, 'worktree_released', { holder, outcome: request.outcome, ...removed });
+    return {
+      released: true,
+      kept: lease.adopted,
+      path: lease.path,
+      removed: removed ? [lease.path] : [],
+      saved_uncommitted: removed?.saved ?? false,
+      branch: removed?.branch ?? lease.branch,
+      branch_deleted: removed?.branch_deleted ?? false,
+      pruned,
+    };
+  });
+}

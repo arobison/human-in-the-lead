@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "h-orchestrator/merge-owner-only",
+  "piece": "h-orchestrator",
+  "category": "merge-queue",
+  "description": "In owner mode only the branch the owner names merges: the other three keep waiting, and main moves to the tested commit once.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": {} },
+  "steps": [
+    {
+      "id": "queue",
+      "action": "orchestrator.merge",
+      "with": { "owner": true, "only": ["hitld/W-1-b"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "merged",
+      "grader": "equals",
+      "with": { "path": "steps.queue.merged", "value": ["W-1"] }
+    },
+    {
+      "id": "others-wait",
+      "grader": "equals",
+      "with": { "path": "steps.queue.waiting", "value": 3 }
+    },
+    {
+      "id": "none-rejected",
+      "grader": "count",
+      "with": { "path": "steps.queue.rejected", "equals": 0 }
+    }
+  ]
+}

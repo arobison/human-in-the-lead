@@ -1,0 +1,4 @@
+#!/bin/sh
+# The hitld command line, from this plugin's own copy of the core. The SessionStart hook puts this
+# directory on PATH for the session's shell commands.
+exec node "$(dirname "$0")/../core/bin/hitld.mjs" "$@"

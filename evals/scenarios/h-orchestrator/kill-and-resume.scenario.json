@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "h-orchestrator/kill-and-resume",
+  "piece": "h-orchestrator",
+  "category": "continuity",
+  "description": "Through the orchestrator skill's commands: a session killed after recording two dispatches (one before its harness call, one after) is resumed by a fresh session, which abandons the one that never started, adopts the live one, re-plans the abandoned item and never dispatches the live one twice; the killed session can no longer record.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": {} },
+  "steps": [
+    { "id": "consumer", "action": "orchestrator.consumer", "with": {} },
+    { "id": "start", "action": "orchestrator.cli", "with": { "argv": ["run", "start"] } },
+    { "id": "d1", "action": "orchestrator.cli", "with": { "argv": ["dispatch", "start", "W-1"] } },
+    { "id": "d2", "action": "orchestrator.cli", "with": { "argv": ["dispatch", "start", "W-2"] } },
+    {
+      "id": "resume",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "resume", "--live", "D-2", "--force"], "session": "second" }
+    },
+    {
+      "id": "plan",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "plan"], "session": "second" }
+    },
+    {
+      "id": "stale",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-1"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "snapshot",
+      "grader": "equals",
+      "with": { "path": "steps.consumer.snapshot", "value": true }
+    },
+    {
+      "id": "d1-recorded",
+      "grader": "equals",
+      "with": { "path": "steps.d1.result.dispatch", "value": "D-1" }
+    },
+    {
+      "id": "d1-agent-call",
+      "grader": "equals",
+      "with": { "path": "steps.d1.result.instruction.tool", "value": "Agent" }
+    },
+    {
+      "id": "abandoned",
+      "grader": "equals",
+      "with": { "path": "steps.resume.result.abandoned", "value": ["D-1"] }
+    },
+    {
+      "id": "adopted",
+      "grader": "equals",
+      "with": { "path": "steps.resume.result.adopted", "value": ["D-2"] }
+    },
+    {
+      "id": "replanned",
+      "grader": "matches",
+      "with": { "path": "steps.plan.result.start[*].item", "pattern": "^W-1$" }
+    },
+    {
+      "id": "not-twice",
+      "grader": "matches",
+      "with": { "path": "steps.plan.result.start[*].item", "pattern": "^W-1$", "mode": "all" }
+    },
+    {
+      "id": "old-session-refused",
+      "grader": "equals",
+      "with": { "path": "steps.stale.result.error", "value": "lease_lost" }
+    }
+  ]
+}

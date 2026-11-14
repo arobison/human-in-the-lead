@@ -1,0 +1,69 @@
+{
+  "$id": "audit-record",
+  "title": "Audit record",
+  "description": "One line of audit.jsonl in the private store: who or what decided a thing, on what evidence, under which rules (design part 3.2). Hash-chained; internal. Built in milestone A1.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "what": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "decision-answered",
+            "logged-call",
+            "precedent-applied",
+            "precedent-changed",
+            "controller-move",
+            "merge",
+            "release",
+            "classification-change",
+            "rule-change",
+            "quota-exceeded-approval"
+          ]
+        },
+        "subject": { "$ref": "common#/$defs/text" }
+      },
+      "required": ["kind", "subject"],
+      "additionalProperties": false
+    },
+    "who": {
+      "description": "A human (contributor ID and channel) or an agent (role, dispatch ID, harness, model).",
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["human", "agent"] },
+        "person": { "$ref": "common#/$defs/person" },
+        "channel": { "$ref": "common#/$defs/text" },
+        "role": { "$ref": "common#/$defs/name" },
+        "dispatch": { "$ref": "common#/$defs/dispatchId" },
+        "harness": { "$ref": "common#/$defs/text" },
+        "model": { "$ref": "common#/$defs/text" }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "evidence": {
+      "description": "Run, study, eval and test IDs; the decisions and precedents cited.",
+      "$ref": "common#/$defs/texts"
+    },
+    "rule_version": {
+      "type": "object",
+      "properties": {
+        "policy_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "rule": { "$ref": "common#/$defs/rightsBasis" },
+        "precedent": { "$ref": "common#/$defs/precedentId" },
+        "precedent_version": { "type": "integer", "minimum": 1 },
+        "plugin_version": { "$ref": "common#/$defs/text" }
+      },
+      "additionalProperties": false
+    },
+    "at": { "$ref": "common#/$defs/timestamp" },
+    "prev_hash": {
+      "description": "Hash of the previous line; null on the first line.",
+      "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[0-9a-f]{64}$" }]
+    }
+  },
+  "required": ["schema_version", "what", "who", "at", "prev_hash"],
+  "additionalProperties": false
+}

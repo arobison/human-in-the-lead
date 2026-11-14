@@ -1,0 +1,105 @@
+{
+  "$id": "tracker",
+  "title": "tracker.json",
+  "description": "The tracker backend choice and its paths, in .human-in-the-lead/tracker.json (design parts 3.4 and 16.6). Every setting has a default, so a project that keeps the reference layout needs only schema_version. A project with an existing tracker in another place maps onto the layout here by configuration, not migration (design part 16.7). The ID key is policy.json's project.key.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "common#/$defs/schemaVersion"
+    },
+    "backend": {
+      "description": "Which backend holds the tracker. Only the files backend exists in v0.",
+      "enum": ["files"],
+      "default": "files"
+    },
+    "work_dir": {
+      "description": "The directory that holds the item folders and the generated views, relative to the repository root. Never absolute, never with a \"..\" segment.",
+      "$ref": "#/$defs/path",
+      "default": "work"
+    },
+    "folders": {
+      "description": "The folder name under work_dir for each group of files. Initiatives and projects have their own; work, decision and external items share one, so an item that changes kind does not move.",
+      "type": "object",
+      "properties": {
+        "initiative": { "$ref": "#/$defs/folder", "default": "initiatives" },
+        "project": { "$ref": "#/$defs/folder", "default": "projects" },
+        "item": { "$ref": "#/$defs/folder", "default": "items" }
+      },
+      "additionalProperties": false
+    },
+    "views_dir": {
+      "description": "Where generated views are written, relative to work_dir. Only the merge queue regenerates and commits them, on the main branch.",
+      "$ref": "#/$defs/path",
+      "default": "views"
+    },
+    "lists_readme": {
+      "description": "A file under work_dir that holds the generated item lists between the markers <!-- work:lists:begin ... --> and <!-- work:lists:end -->. When set, `hitld work views` rewrites the text between them. Unset by default: the lists are written as a view file only. A relative path of plain segments, like work_dir.",
+      "$ref": "#/$defs/path"
+    },
+    "main_branch": {
+      "description": "The branch the orchestrator creates items on and where claims are released. Claims are read from every other branch.",
+      "$ref": "#/$defs/branch",
+      "default": "main"
+    },
+    "bundle_refs": {
+      "description": "Ref prefixes where bundles from another machine are fetched. Claim branches under them count as claims, so a second machine's claims show once its bundle is fetched (design part 3.2, Lifecycle).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/refPrefix" },
+      "uniqueItems": true,
+      "default": ["refs/bundles/"]
+    },
+    "optional_keys": {
+      "description": "Front-matter keys beyond the reference format that this project's items may carry. Empty by default: the reference format's check rejects every other key. Turning one on lets the check accept it and the tracker read and write it, typed as the item schema types it.",
+      "type": "array",
+      "items": {
+        "enum": [
+          "owner",
+          "area",
+          "category",
+          "classification",
+          "opened_from",
+          "touches",
+          "serial",
+          "estimate_tokens",
+          "tier_hint",
+          "changelog",
+          "credit"
+        ]
+      },
+      "uniqueItems": true,
+      "default": []
+    },
+    "default_classification": {
+      "description": "The classification of an item whose file does not say (the reference format has no such key). The check refuses an item above the repository's classification ceiling, so the default must not exceed it.",
+      "$ref": "common#/$defs/classification",
+      "default": "public"
+    }
+  },
+  "required": ["schema_version"],
+  "additionalProperties": false,
+  "$defs": {
+    "path": {
+      "description": "A relative path of plain segments: no leading slash, no \"..\", no backslash.",
+      "type": "string",
+      "pattern": "^(?!.*\\.\\.)[A-Za-z0-9._][A-Za-z0-9._/-]*$",
+      "maxLength": 200
+    },
+    "folder": {
+      "description": "One path segment.",
+      "type": "string",
+      "pattern": "^(?!\\.+$)[A-Za-z0-9._-]+$",
+      "maxLength": 100
+    },
+    "branch": {
+      "type": "string",
+      "pattern": "^(?!-)(?!.*\\.\\.)[A-Za-z0-9._/-]+$",
+      "maxLength": 200
+    },
+    "refPrefix": {
+      "type": "string",
+      "pattern": "^refs/(?!.*\\.\\.)[A-Za-z0-9._/-]+/$",
+      "maxLength": 200
+    }
+  }
+}

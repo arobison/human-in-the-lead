@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How feedback works
+    url: https://github.com/arobison/human-in-the-lead/blob/main/docs/design/0001-human-in-the-lead/18-self-improvement.md#184-giving-feedback
+    about: 'What happens to feedback, and how to give it from inside a session with hitld feedback.'
+  - name: Report a vulnerability
+    url: https://github.com/arobison/human-in-the-lead/security/advisories/new
+    about: 'Report security problems privately, never as a public issue.'

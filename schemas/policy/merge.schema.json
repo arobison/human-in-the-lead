@@ -1,0 +1,66 @@
+{
+  "$id": "policy/merge",
+  "title": "policy.json: merge",
+  "description": "The basic local merge queue (design part 14): main is fast-forwarded only to a commit that passed the full suite as part of its batch.",
+  "type": "object",
+  "properties": {
+    "mode": {
+      "description": "Who decides each merge. \"queue\": the orchestrator runs the queue whenever branches are waiting. \"owner\": finished branches wait for the owner, who names the ones to merge (hitld merge --only <branch>); the same rebase, fast checks, full suite and fast-forward then run. A new project starts in owner mode; the queue is opted into once the record supports it.",
+      "enum": ["queue", "owner"],
+      "default": "owner"
+    },
+    "main_branch": {
+      "description": "The integration branch. Only the merge queue moves it.",
+      "$ref": "common#/$defs/name",
+      "default": "main"
+    },
+    "batch_max": {
+      "description": "The most branches in one batch before the full suite runs. Smaller batches make bisection cheaper.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "default": 4
+    },
+    "fast_checks": {
+      "description": "Commands run on each rebased branch before it joins the batch: lint, type check, the item's acceptance checks, the tests nearest its touches. Each runs through the shell in the queue's worktree with HITLD_ITEM, HITLD_TOUCHES and HITLD_CHANGED set. A failure sends the branch back to its executor.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": [],
+      "x-hitld-executes": "each entry is run through the shell in the merge queue's worktree"
+    },
+    "full_suite": {
+      "description": "The full test suite, run once per batch on the combined result. With none, the queue refuses to move main, because it could not keep main green.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": [],
+      "x-hitld-executes": "each entry is run through the shell in the merge queue's worktree"
+    },
+    "generated": {
+      "description": "Generated files: never merged by hand. A rebase conflict confined to them takes the batch's version, and the regenerate command rebuilds them once per batch, before the full suite.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "globs": { "$ref": "common#/$defs/globs" },
+          "regenerate": {
+            "description": "The command that rebuilds them, run through the shell at the batch's root.",
+            "type": "string",
+            "minLength": 1,
+            "x-hitld-executes": "run through the shell in the merge queue's worktree"
+          }
+        },
+        "required": ["globs"],
+        "additionalProperties": false
+      },
+      "default": []
+    },
+    "flake_reruns": {
+      "description": "How many times a failing full suite is rerun on the same commit. A pass on a rerun does not merge: the batch is held, the failure is recorded as a flake candidate, and the owner decides (design 14.4 and 14.7).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "default": 1
+    }
+  },
+  "additionalProperties": false
+}

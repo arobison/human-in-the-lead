@@ -1,0 +1,174 @@
+{
+  "$id": "run-state",
+  "title": "Run state",
+  "description": "The orchestrator's working memory of one run: run-state.json at the root of the private store (design part 13.1). Derived, never authoritative: the ledger, the tracker, git branches and the decision items are the record, and hitld run rebuild reconstructs this file from them. ledger_position says which ledger events it has absorbed.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "run": {
+      "description": "Which run this is and what it started with.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "common#/$defs/text" },
+        "started_at": { "$ref": "common#/$defs/timestamp" },
+        "plugin_version": { "$ref": "common#/$defs/text" },
+        "policy_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "required": ["id", "started_at"],
+      "additionalProperties": false
+    },
+    "scope": { "$ref": "#/$defs/scope" },
+    "in_flight": {
+      "description": "Each dispatch without a terminal event (reported, abandoned or released).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/inFlight" }
+    },
+    "ledger_position": {
+      "description": "The ID of the last ledger event absorbed into this state; null before the first.",
+      "type": ["string", "null"]
+    },
+    "open_questions": {
+      "description": "Decisions asked and not answered.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "decision": { "$ref": "common#/$defs/id" },
+          "dispatch": { "$ref": "common#/$defs/dispatchId" },
+          "asked_at": { "$ref": "common#/$defs/timestamp" },
+          "held": {
+            "description": "Held for the next digest rather than sent at once.",
+            "type": "boolean"
+          }
+        },
+        "required": ["decision", "asked_at"],
+        "additionalProperties": false
+      }
+    },
+    "decisions_this_run": {
+      "description": "Answers received since the run started.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "decision": { "$ref": "common#/$defs/id" },
+          "answered_at": { "$ref": "common#/$defs/timestamp" }
+        },
+        "required": ["decision", "answered_at"],
+        "additionalProperties": false
+      }
+    },
+    "controllers": {
+      "description": "Each controller's current setting and last step (design part 11.4). Not in the ledger, so a rebuild leaves it empty until the controllers next run.",
+      "type": "object"
+    },
+    "quotas": {
+      "description": "The last usage snapshot and forecast (design part 12). Not in the ledger, so a rebuild leaves it null until the next snapshot.",
+      "type": ["object", "null"]
+    },
+    "merge_queue": {
+      "description": "Verified work waiting to merge, and the batch under test.",
+      "type": "object",
+      "properties": {
+        "waiting": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": { "$ref": "common#/$defs/id" },
+              "branch": { "type": ["string", "null"] }
+            },
+            "required": ["item"],
+            "additionalProperties": false
+          }
+        },
+        "batch": { "type": ["array", "null"], "items": { "$ref": "common#/$defs/text" } }
+      },
+      "required": ["waiting"],
+      "additionalProperties": false
+    },
+    "lease": {
+      "description": "Which orchestrator session holds the run.",
+      "type": "object",
+      "properties": {
+        "host": { "$ref": "common#/$defs/text" },
+        "session": { "$ref": "common#/$defs/text" },
+        "renewed_at": { "$ref": "common#/$defs/timestamp" }
+      },
+      "required": ["host", "session", "renewed_at"],
+      "additionalProperties": false
+    },
+    "checkpoint": {
+      "description": "This state's checkpoint number, and the hash of the previous checkpoint's state, so a rolled-back or edited history shows.",
+      "type": "object",
+      "properties": {
+        "number": { "type": "integer", "minimum": 0 },
+        "prev_hash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      },
+      "required": ["number", "prev_hash"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "run",
+    "scope",
+    "in_flight",
+    "ledger_position",
+    "open_questions",
+    "decisions_this_run",
+    "controllers",
+    "quotas",
+    "merge_queue",
+    "lease",
+    "checkpoint"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "scope": {
+      "description": "What a run covers: items or milestones, its token budget, its concurrency cap and its stopping condition.",
+      "type": "object",
+      "properties": {
+        "items": { "$ref": "common#/$defs/ids" },
+        "milestones": { "$ref": "common#/$defs/texts" },
+        "token_budget": { "type": ["integer", "null"], "minimum": 0 },
+        "concurrency_cap": { "type": "integer", "minimum": 1 },
+        "stop_when": { "$ref": "common#/$defs/text" }
+      },
+      "additionalProperties": false
+    },
+    "inFlight": {
+      "description": "One executor the orchestrator is waiting on.",
+      "type": "object",
+      "properties": {
+        "dispatch": { "$ref": "common#/$defs/dispatchId" },
+        "item": { "$ref": "common#/$defs/id" },
+        "role": { "$ref": "common#/$defs/name" },
+        "tier": { "$ref": "common#/$defs/tier" },
+        "harness": { "type": ["string", "null"] },
+        "handle": {
+          "description": "The harness's reference; null until the harness has accepted the dispatch.",
+          "type": ["string", "null"]
+        },
+        "host": { "type": ["string", "null"] },
+        "worktree": { "type": ["string", "null"] },
+        "branch": { "type": ["string", "null"] },
+        "serial_resources": { "$ref": "common#/$defs/names" },
+        "started_at": { "$ref": "common#/$defs/timestamp" }
+      },
+      "required": [
+        "dispatch",
+        "item",
+        "harness",
+        "handle",
+        "host",
+        "worktree",
+        "branch",
+        "serial_resources",
+        "started_at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

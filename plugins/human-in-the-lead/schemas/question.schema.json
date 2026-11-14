@@ -1,0 +1,66 @@
+{
+  "$id": "question",
+  "title": "Question",
+  "description": "The input of hitld rights: a call the holder is about to make, described by its attributes (design parts 4.2 and 4.4), and, when it goes to a decider, the parts of the stand-alone question. Not a stored file: it becomes a decision item, so it carries no schema_version.",
+  "type": "object",
+  "properties": {
+    "title": {
+      "description": "A short title for the decision item.",
+      "$ref": "common#/$defs/text"
+    },
+    "question": { "$ref": "decision#/properties/question" },
+    "context": { "$ref": "decision#/properties/context" },
+    "options": { "$ref": "decision#/properties/options" },
+    "recommendation": { "$ref": "decision#/properties/recommendation" },
+    "precedent_offer": { "$ref": "decision#/properties/precedent_offer" },
+    "default_if_unanswered": { "$ref": "decision#/properties/default_if_unanswered" },
+    "classification": {
+      "description": "Default: internal, so nothing the holder did not classify is published.",
+      "$ref": "common#/$defs/classification"
+    },
+    "areas": {
+      "description": "The areas the call touches. Added to: the areas whose paths match `paths`.",
+      "$ref": "common#/$defs/names"
+    },
+    "paths": {
+      "description": "Paths the call touches, matched against the areas' globs and a precedent's.",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/text" },
+      "uniqueItems": true
+    },
+    "item_kind": { "enum": ["work", "decision", "external"] },
+    "tags": { "$ref": "common#/$defs/names" },
+    "triggers": {
+      "description": "The rule bases the holder says hold, each with the reason in a sentence. Some rules are also checked here without the holder's say: a one-way door, spending beyond agent_spend_max, a call that spans areas.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "basis": { "$ref": "common#/$defs/rightsBasis" },
+          "reason": { "$ref": "common#/$defs/text" }
+        },
+        "required": ["basis", "reason"],
+        "additionalProperties": false
+      }
+    },
+    "direction": {
+      "description": "True when the call touches strategy, principles or non-goals (a rule's owner_when: direction).",
+      "type": "boolean"
+    },
+    "spend_tokens": {
+      "description": "Tokens the call commits beyond an approved appetite, compared with rights.agent_spend_max.",
+      "$ref": "common#/$defs/tokens"
+    },
+    "reversibility": { "$ref": "decision#/properties/reversibility" },
+    "addressed_to": {
+      "description": "A question put to one person, such as a judgement the evidence contradicts, goes to them whatever the rules say.",
+      "$ref": "common#/$defs/person"
+    },
+    "blocks": {
+      "description": "Items that cannot proceed until it is answered. They get a needs link.",
+      "$ref": "common#/$defs/ids"
+    },
+    "opened_from": { "$ref": "common#/$defs/ids" }
+  },
+  "additionalProperties": false
+}

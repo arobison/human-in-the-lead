@@ -1,0 +1,44 @@
+{
+  "$id": "policy/tiers",
+  "title": "policy.json: tiers",
+  "description": "Who executes each sizing tier, with which model class and effort (design part 5.1). Model classes name roles, not models; the harness adapter maps them (the model catalog, milestone K1, refines this).",
+  "type": "object",
+  "properties": {
+    "0": {
+      "description": "The orchestrator, inline: a handful of tool calls.",
+      "$ref": "#/$defs/tier",
+      "default": { "executor": "orchestrator", "model": "own", "effort": "own" }
+    },
+    "1": {
+      "description": "A background agent: mechanical, fully specified work.",
+      "$ref": "#/$defs/tier",
+      "default": { "executor": "background", "model": "small", "effort": "medium" }
+    },
+    "2": {
+      "description": "A background agent: implementation inside a known design.",
+      "$ref": "#/$defs/tier",
+      "default": { "executor": "background", "model": "small", "effort": "high" }
+    },
+    "3": {
+      "description": "Its own session: design-heavy, risky or long work, or work the owner reviews in person.",
+      "$ref": "#/$defs/tier",
+      "default": { "executor": "session", "model": "large", "effort": "high" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "tier": {
+      "type": "object",
+      "properties": {
+        "executor": { "enum": ["orchestrator", "background", "session"] },
+        "model": {
+          "description": "own (the orchestrator's), small or large.",
+          "enum": ["own", "small", "large"]
+        },
+        "effort": { "enum": ["own", "low", "medium", "high", "xhigh", "max"] }
+      },
+      "required": ["executor", "model", "effort"],
+      "additionalProperties": false
+    }
+  }
+}

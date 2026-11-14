@@ -1,0 +1,83 @@
+{
+  "$id": "precedent",
+  "title": "Precedent",
+  "description": "A rule generalized from answered decisions, confirmed by the decider (design parts 3.2 and 4.3). Derived counts (applications, overrules) are never stored.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "id": { "$ref": "common#/$defs/precedentId" },
+    "rule": {
+      "description": "\"When <conditions>, do <action>\", in plain language.",
+      "$ref": "common#/$defs/text"
+    },
+    "conditions": {
+      "description": "Structured where possible, matched by script; text holds what cannot be structured.",
+      "type": "object",
+      "properties": {
+        "areas": { "$ref": "common#/$defs/names" },
+        "item_kinds": {
+          "type": "array",
+          "items": { "enum": ["work", "decision", "external"] },
+          "uniqueItems": true
+        },
+        "rights_basis": {
+          "type": "array",
+          "items": { "$ref": "common#/$defs/rightsBasis" },
+          "uniqueItems": true
+        },
+        "paths": { "$ref": "common#/$defs/globs" },
+        "tags": { "$ref": "common#/$defs/names" },
+        "text": { "$ref": "common#/$defs/text" }
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    },
+    "exceptions": {
+      "description": "Cases explicitly not covered. Plain text needs a judgement to apply; an object with a structured \"when\" is matched by script, so a narrowing by overrule stays machine-checkable.",
+      "type": "array",
+      "items": { "anyOf": [{ "$ref": "common#/$defs/text" }, { "$ref": "#/$defs/exception" }] }
+    },
+    "sources": { "description": "The decisions it came from.", "$ref": "common#/$defs/ids" },
+    "scope": { "type": "string", "pattern": "^(project|area:[a-z0-9][a-z0-9._-]*)$" },
+    "decider": {
+      "description": "Who decided the decision it came from: \"owner\", or the area owners' contributor IDs, comma-separated. A precedent resolves only questions its decider could have decided (design parts 4.3 and 4.5). One without a decider resolves nothing.",
+      "$ref": "common#/$defs/text"
+    },
+    "state": { "enum": ["active", "narrowed", "retired"] },
+    "checked": {
+      "description": "When last confirmed still valid, and under which policy.",
+      "type": "object",
+      "properties": {
+        "at": { "$ref": "common#/$defs/timestamp" },
+        "policy_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "required": ["at"],
+      "additionalProperties": false
+    },
+    "classification": { "$ref": "common#/$defs/classification" }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "rule",
+    "conditions",
+    "sources",
+    "scope",
+    "state",
+    "classification"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "exception": {
+      "description": "A case the precedent does not cover: it does not apply to a question that meets every condition in \"when\".",
+      "type": "object",
+      "properties": {
+        "when": { "$ref": "#/properties/conditions" },
+        "why": { "$ref": "common#/$defs/text" }
+      },
+      "required": ["when"],
+      "additionalProperties": false
+    }
+  }
+}

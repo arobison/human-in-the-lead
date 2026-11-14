@@ -1,0 +1,225 @@
+{
+  "$id": "eval-result",
+  "title": "Eval result",
+  "description": "One eval run, written to the private store as eval/results/<id>.json (design part 17.5). It records what a later person or run needs to tell a real change from a different setup: the plugin version and commit, the schema versions, the harness profiles, the policy hash, the scenario set and the seed. A run is the baseline for the regression gate only when its settings match.",
+  "x-hitld-schema-version": 2,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "id": {
+      "description": "EV-<UTC date and time>-<first six hex digits of the settings hash>.",
+      "type": "string",
+      "pattern": "^EV-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$"
+    },
+    "at": { "$ref": "common#/$defs/timestamp" },
+    "mode": { "enum": ["offline", "live"] },
+    "plugin": {
+      "type": "object",
+      "properties": {
+        "name": { "$ref": "common#/$defs/text" },
+        "version": { "$ref": "common#/$defs/text" },
+        "commit": { "type": ["string", "null"] }
+      },
+      "required": ["name", "version", "commit"],
+      "additionalProperties": false
+    },
+    "schema_versions": {
+      "description": "The current schema_version of each data format, by schema ID.",
+      "type": "object",
+      "additionalProperties": { "$ref": "common#/$defs/schemaVersion" }
+    },
+    "harness": {
+      "description": "The adapter profiles the run drove. A live run adds the harness, model and effort per role.",
+      "type": "object",
+      "properties": {
+        "adapter": { "$ref": "common#/$defs/text" },
+        "profiles": { "type": "array", "items": { "$ref": "common#/$defs/text" } }
+      },
+      "required": ["adapter", "profiles"],
+      "additionalProperties": false
+    },
+    "policy_hash": {
+      "description": "The hash of the effective policy.json (design part 16.6).",
+      "type": ["string", "null"]
+    },
+    "policy_source": {
+      "description": "file: the project's policy.json. defaults: none was found, so the defaults with a stand-in project ID.",
+      "enum": ["file", "defaults"]
+    },
+    "settings": {
+      "description": "What must match for two runs to be comparable. settings_hash is taken over mode, seed and profiles.",
+      "type": "object",
+      "properties": {
+        "seed": { "type": "integer", "minimum": 0 },
+        "profiles": { "type": "array", "items": { "$ref": "common#/$defs/text" } },
+        "scenario_filter": { "type": ["string", "null"] },
+        "settings_hash": { "type": "string", "pattern": "^[0-9a-f]{12}$" }
+      },
+      "required": ["seed", "profiles", "scenario_filter", "settings_hash"],
+      "additionalProperties": false
+    },
+    "scenario_set": {
+      "description": "The version of the scenarios run: a hash of their content. It changes when a scenario, a grader setting or a label does.",
+      "type": "object",
+      "properties": {
+        "version": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
+        "count": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["version", "count"],
+      "additionalProperties": false
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "common#/$defs/text" },
+          "piece": { "$ref": "common#/$defs/text" },
+          "category": { "$ref": "common#/$defs/text" },
+          "profile": {
+            "description": "The adapter profile, or none for a scenario that drives no harness.",
+            "$ref": "common#/$defs/text"
+          },
+          "status": {
+            "description": "pass, fail (a grader failed), error (the scenario or the runner broke), or not_applicable (never counted as a pass).",
+            "enum": ["pass", "fail", "error", "not_applicable"]
+          },
+          "score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+          "reason": { "type": "string" },
+          "graders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "$ref": "common#/$defs/text" },
+                "grader": { "$ref": "common#/$defs/text" },
+                "passed": { "type": "boolean" },
+                "message": { "type": "string" },
+                "path": {
+                  "description": "The value the grader looked at, where it has one (added in version 2).",
+                  "type": "string"
+                },
+                "expected": {
+                  "description": "What the grader wanted, where it has one. Over 2,000 characters it is cut to a string and expected_truncated is true (added in version 2)."
+                },
+                "actual": {
+                  "description": "What the grader found, where it has one. Over 2,000 characters it is cut to a string and actual_truncated is true (added in version 2)."
+                },
+                "expected_truncated": { "const": true },
+                "actual_truncated": { "const": true }
+              },
+              "required": ["id", "grader", "passed", "message"],
+              "additionalProperties": false
+            }
+          },
+          "wall_ms": { "type": "integer", "minimum": 0 },
+          "tokens": { "type": ["integer", "null"], "minimum": 0 },
+          "transcript": {
+            "description": "The store key of the transcript, kept for every scenario that did not pass.",
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "piece",
+          "category",
+          "profile",
+          "status",
+          "score",
+          "graders",
+          "wall_ms",
+          "tokens",
+          "transcript"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "not_applicable": { "type": "integer", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "wall_ms": { "type": "integer", "minimum": 0 },
+        "categories": {
+          "description": "The mean score of each category's applicable scenarios.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "score": { "type": "number", "minimum": 0, "maximum": 1 },
+              "scenarios": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["score", "scenarios"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "total",
+        "passed",
+        "failed",
+        "errors",
+        "not_applicable",
+        "tokens",
+        "wall_ms",
+        "categories"
+      ],
+      "additionalProperties": false
+    },
+    "accepted": {
+      "description": "Present only on a baseline: who accepted this run as the baseline, and when (added in version 2). The stored run itself never has it.",
+      "type": "object",
+      "properties": {
+        "by": { "const": "owner" },
+        "at": { "$ref": "common#/$defs/timestamp" },
+        "run": { "type": "string", "pattern": "^EV-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$" }
+      },
+      "required": ["by", "at", "run"],
+      "additionalProperties": false
+    },
+    "gate": {
+      "description": "The regression gate's verdict against the baseline, when there was one.",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "baseline": { "type": ["string", "null"] },
+        "failures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": { "$ref": "common#/$defs/name" },
+              "subject": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "required": ["kind", "subject", "message"],
+            "additionalProperties": false
+          }
+        },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["ok", "baseline", "failures", "notes"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "at",
+    "mode",
+    "plugin",
+    "schema_versions",
+    "harness",
+    "policy_hash",
+    "policy_source",
+    "settings",
+    "scenario_set",
+    "scenarios",
+    "summary"
+  ],
+  "additionalProperties": false
+}

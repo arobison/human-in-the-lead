@@ -1,0 +1,91 @@
+{
+  "$id": "policy/dispatch",
+  "title": "policy.json: dispatch",
+  "description": "Sizing ready items into tiers, the brief, and the dispatch plan (design parts 5.1 and 5.2). The tiers themselves (executor, model class, effort) are in the tiers section.",
+  "type": "object",
+  "properties": {
+    "inline_globs": {
+      "description": "Paths the orchestrator edits itself (tier 0): an item whose touches all fall here, such as a tracker edit, is not dispatched.",
+      "$ref": "common#/$defs/globs",
+      "default": ["work/**"]
+    },
+    "sensitive_globs": {
+      "description": "Paths whose change raises an item one tier for blast radius: the build and release pipeline, dependency manifests, security-sensitive code, the project's own policy.",
+      "$ref": "common#/$defs/globs",
+      "default": [
+        ".github/**",
+        "**/package.json",
+        "**/package-lock.json",
+        "**/*.lock",
+        ".human-in-the-lead/**",
+        "**/security/**",
+        "**/auth/**"
+      ]
+    },
+    "in_person_areas": {
+      "description": "Areas whose output the owner reviews in person, such as UI: their items go to tier 3, their own session.",
+      "$ref": "common#/$defs/names",
+      "default": []
+    },
+    "tier1_max_touches": {
+      "description": "The most touches globs an item may list and still be tier 1 (mechanical, fully specified work).",
+      "type": "integer",
+      "minimum": 1,
+      "default": 3
+    },
+    "familiar_yield": {
+      "description": "Down one tier for familiar ground: the share of first-pass successes the lower tier must have had on this area and item kind.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.9
+    },
+    "familiar_min_samples": {
+      "description": "How many past dispatches at the lower tier, in the same area and kind, before familiar ground counts.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 5
+    },
+    "default_estimates": {
+      "description": "The token estimate per tier when no similar item has been done before. Replaced by the median of similar past items once there are some.",
+      "type": "object",
+      "properties": {
+        "1": { "$ref": "common#/$defs/tokens" },
+        "2": { "$ref": "common#/$defs/tokens" },
+        "3": { "$ref": "common#/$defs/tokens" }
+      },
+      "additionalProperties": false,
+      "default": { "1": 60000, "2": 150000, "3": 400000 }
+    },
+    "report_at": {
+      "description": "The brief asks the executor to report at this multiple of its token budget, even if unfinished.",
+      "type": "number",
+      "minimum": 1,
+      "default": 1.5
+    },
+    "overlap_serialize": {
+      "description": "Hold an item back while running items already cover at least this share of its touches globs. Below it, overlapping items run in parallel and the later one rebases.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.5
+    },
+    "tier3_mode": {
+      "description": "How a tier-3 item runs by default: headless (a background claude -p run in its own worktree; its exit is the completion notice) or interactive (a session the owner starts and steers).",
+      "enum": ["headless", "interactive"],
+      "default": "headless"
+    },
+    "headless_permission_mode": {
+      "description": "The permission mode a headless tier-3 run starts in. The project's own allow and deny rules still apply.",
+      "enum": ["default", "acceptEdits", "auto", "dontAsk"],
+      "default": "acceptEdits"
+    },
+    "brief_kb": {
+      "description": "Knowledge-base pages a brief points to, per area: page paths with an optional #section.",
+      "type": "object",
+      "additionalProperties": { "$ref": "common#/$defs/texts" },
+      "default": {}
+    }
+  },
+  "additionalProperties": false
+}
