@@ -13,9 +13,12 @@ import { execFileSync } from 'node:child_process';
 /** HITLd's repository, where feedback is filed. */
 export const FEEDBACK_REPO = 'arobison/human-in-the-lead';
 
+/** Escape every regular-expression metacharacter in a literal. @param {string} s */
+const escapeRegExp = (s) => s.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
+
 /** An issue URL in a repository. @param {string} repo */
 export const issueUrlPattern = (repo) =>
-  new RegExp(`^https://github\\.com/${repo.replace(/[.]/g, '\\.')}/issues/[1-9][0-9]*$`);
+  new RegExp(`^https://github\\.com/${escapeRegExp(repo)}/issues/[1-9][0-9]*$`);
 
 /**
  * The real filer: `gh issue create`. It runs with the caller's environment, so gh uses the

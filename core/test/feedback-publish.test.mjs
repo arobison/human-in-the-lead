@@ -450,3 +450,16 @@ test('title prefixes and labels match the issue forms', () => {
 test('policy feedback.approvers defaults to the owner', () => {
   assert.deepEqual(policyDefaults().feedback, { approvers: ['owner'] });
 });
+
+test('issueUrlPattern treats every character of the repository name literally', async () => {
+  const { issueUrlPattern } = await import('../lib/feedback/filer.mjs');
+  const re = issueUrlPattern('a.b/c\\d+e');
+  assert.ok(re.test('https://github.com/a.b/c\\d+e/issues/7'));
+  assert.ok(!re.test('https://github.com/aXb/c\\d+e/issues/7'), 'a dot is not a wildcard');
+  assert.ok(!re.test('https://github.com/a.b/cdde/issues/7'), 'a backslash and a plus are literal');
+  assert.ok(
+    issueUrlPattern('arobison/human-in-the-lead').test(
+      'https://github.com/arobison/human-in-the-lead/issues/12',
+    ),
+  );
+});
