@@ -200,7 +200,7 @@ A cloud, CI or ephemeral session is a machine with its own profile, detected whe
 
 ### Across projects
 
-Machine-wide state lives in the machine registry, `_machine/` beside the project stores, not in any project's store. The registry is a SQLite file (Node's built-in module): transactional, local to the machine, and never synced or exported ([part 3](03-data-model.md#private-store)). It holds:
+Machine-wide state lives in the machine registry, `_machine/` beside the project stores, not in any project's store. The registry is a JSON file (`registry.json`) changed under the environment manager's mutex and written by temporary file and rename, so concurrent projects never corrupt it; it is local to the machine and never synced or exported. A later item may move it to SQLite (Node's built-in module) ([part 3](03-data-model.md#private-store)). It holds:
 
 | State | Why it is machine-wide |
 |---|---|

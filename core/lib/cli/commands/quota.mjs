@@ -7,6 +7,8 @@ import { outputProblem, writeReportFiles } from '../../report-output.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { findRepoRoot } from '../../policy/policy.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
+import { machineRootFor } from '../../env/manager.mjs';
+import { readAccountSnapshots } from '../../registry/machine.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml } from '../../quota/report.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
@@ -40,7 +42,10 @@ function gather(ctx, input) {
   }
   const repoRoot = findRepoRoot(ctx.cwd) ?? undefined;
   const store = openStore(privateStorePath(loaded.policy.project.id, { env: ctx.env, repoRoot }));
-  const { snapshots, skipped } = readSnapshots(store);
+  // The project's own snapshots and every account's from the machine registry.
+  const own = readSnapshots(store);
+  const snapshots = [...own.snapshots, ...readAccountSnapshots(machineRootFor(store.root))];
+  const skipped = own.skipped;
   return {
     error: null,
     policy: loaded.policy,

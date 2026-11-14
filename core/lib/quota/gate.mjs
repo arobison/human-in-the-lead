@@ -28,9 +28,10 @@ const pct = (share) => `${Math.round(share * 1000) / 10}%`;
  * @param {import('./quota.mjs').QuotaState} s
  * @param {Record<string, any>} q policy.quota
  * @param {{ estimate_tokens?: number }} item
+ * @param {number} [share] this project's fraction of the headroom near the reserve, in (0, 1]
  * @returns {{ mode: typeof MODES[number], why: string } | null} null when there is no reading
  */
-function modeOf(s, q, item) {
+function modeOf(s, q, item, share = 1) {
   // Fail closed: a quota whose headroom, use or limit is missing or not a finite number cannot
   // be shown to have room, so it stops dispatch and says why.
   const num = (/** @type {unknown} */ n) => typeof n === 'number' && Number.isFinite(n);
@@ -40,10 +41,16 @@ function modeOf(s, q, item) {
       why: `${s.id}: its use, limit or headroom is unknown or not a number (${s.notes.at(-1) ?? 'no reading'}), so dispatch stops until it can be read`,
     };
   }
-  const headroom = /** @type {number} */ (s.headroom);
+  // Near the reserve (below the economize threshold) several projects compete for what is left, so
+  // each judges its own share of it (design 13.4, "Shares near the reserve"). Past the reserve the
+  // sign is unchanged, so a stop stays a stop. Above the threshold nobody is competing yet.
+  const whole = /** @type {number} */ (s.headroom);
+  const shared = share < 1 && whole < q.economize_at;
+  const headroom = shared ? whole * share : whole;
   const used = /** @type {number} */ (s.used);
   const limit = /** @type {number} */ (s.limit);
-  const left = `${s.id}: ${pct(headroom)} of its limit above the ${pct(s.reserve_share)} reserve (used ${show(s.unit, used)} of ${show(s.unit, limit)})`;
+  const mine = shared ? ` (this project's ${pct(share)} share of ${pct(whole)} left)` : '';
+  const left = `${s.id}: ${pct(headroom)}${mine} of its limit above the ${pct(s.reserve_share)} reserve (used ${show(s.unit, used)} of ${show(s.unit, limit)})`;
   const cost = Number.isFinite(item.estimate_tokens) ? item.estimate_tokens : 0;
   if (
     s.unit === 'tokens' &&
@@ -100,7 +107,7 @@ function forecastLine(s) {
  * @param {Record<string, any>} policy
  * @param {Record<string, any>[]} snapshots parsed usage snapshots
  * @param {{ id?: string, critical_path?: boolean, estimate_tokens?: number }} [item]
- * @param {{ now?: number, ledger?: Record<string, any>[], runStartedAt?: number | null }} [options]
+ * @param {{ now?: number, ledger?: Record<string, any>[], runStartedAt?: number | null, share?: number }} [options]
  * @returns {{
  *   mode: typeof MODES[number],
  *   allow: boolean,
@@ -127,7 +134,7 @@ export function dispatchGate(policy, snapshots, item = {}, options = {}) {
   /** @type {string[]} */
   const unread = [];
   for (const s of quotas) {
-    const m = modeOf(s, policy.quota, item);
+    const m = modeOf(s, policy.quota, item, options.share);
     if (m) judged.push({ s, ...m });
     else unread.push(s.id);
   }
