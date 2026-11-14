@@ -4,7 +4,7 @@
 // into shaping. It never settles a bet. Its weight comes from policy.json (`judgement.weights`),
 // per person and basis: the owner's gut checks start high, because the owner's experience is real
 // evidence. Calibration moves the weights with the record, slowly and with minimum samples; that is
-// milestone T1, so here the weight is the policy's starting weight.
+// the milestone Trust calibration, so here the weight is the policy's starting weight.
 //
 // When evidence contradicts a judgement, neither side wins silently. The judgement is held out of
 // the estimate, the conflict is returned, and conflictQuestion puts it to the person who made it,
@@ -12,7 +12,7 @@
 
 /**
  * @typedef {import('../policy/policy.mjs').Policy} Policy
- * @typedef {{ what: string, basis: 'gut-check' | 'considered', by: string, at: string }} Judgement
+ * @typedef {{ what: string, basis: 'gut-check' | 'considered', by: string, at?: string }} Judgement
  * @typedef {{ ref: string, verdict: 'contradicts' | 'supports' | 'inconclusive', summary: string, judgement?: number }} Evidence
  *   judgement: the index of the judgement it bears on; omitted, it bears on every one.
  *
@@ -98,7 +98,7 @@ export function conflictQuestion({ subject, judgement, evidence, recommend, why,
     title: `Evidence contradicts a judgement on ${subject}`,
     question: `Does the evidence change your ${judgement.basis} judgement on ${subject}: "${judgement.what}"?`,
     context:
-      `On ${judgement.at} the judgement was recorded as a ${judgement.basis}. Evidence that contradicts it: ${refs}. ` +
+      `${judgement.at ? `On ${judgement.at} the` : 'The'} judgement was recorded as a ${judgement.basis}. Evidence that contradicts it: ${refs}. ` +
       'Until you answer, the estimate is held without your judgement, and nothing has been revised.',
     options: [
       {
