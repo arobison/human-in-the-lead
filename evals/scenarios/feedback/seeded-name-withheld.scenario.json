@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "id": "feedback/seeded-name-withheld",
+  "piece": "feedback",
+  "category": "feedback",
+  "description": "A draft that holds a project name, a path or a person from the record's context is withheld with the reason, whatever the generalizer classified it, and is never filed even when approved.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "ledger",
+      "action": "file.write",
+      "with": {
+        "path": "store/ledger.jsonl",
+        "content": "{\"schema_version\":1,\"id\":\"E-1\",\"event\":\"dispatched\",\"dispatch\":\"D-3\",\"item\":\"FX-9\",\"at\":\"2026-11-14T10:00:00Z\"}\n"
+      }
+    },
+    {
+      "id": "a",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "friction",
+          "--words",
+          "hitld asked @casey-q twice about `src/billing/invoice.js` in fixture-repo.",
+          "--refs",
+          "D-3",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "friction",
+          "--words",
+          "hitld asked @casey-q twice about `src/billing/invoice.js` in fixture-repo.",
+          "--refs",
+          "D-3",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "c",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "friction",
+          "--words",
+          "hitld asked @casey-q twice about `src/billing/invoice.js` in fixture-repo.",
+          "--refs",
+          "D-3",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "d",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "friction",
+          "--words",
+          "hitld asked @casey-q twice about `src/billing/invoice.js` in fixture-repo.",
+          "--refs",
+          "D-3",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "name",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "draft",
+          "FB-1",
+          "--draft",
+          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"area\": \"decision rights\", \"what_happened\": \"The orchestrator in fixture-repo asked the same question twice.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "path",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "draft",
+          "FB-2",
+          "--draft",
+          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"area\": \"decision rights\", \"what_happened\": \"It asked twice about src/billing/invoice.js.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "person",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "draft",
+          "FB-3",
+          "--draft",
+          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"area\": \"decision rights\", \"what_happened\": \"It asked casey-q the same question twice.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "classed",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "draft",
+          "FB-4",
+          "--draft",
+          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"area\": \"decision rights\", \"what_happened\": \"The orchestrator asked about a choice that was cheap to undo and inside the plan. The person rated it not worth asking.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"internal\", \"reason\": \"describes the billing plans\"}",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "approve",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "publish", "FB-1", "--answer", "approve", "--store", "store"]
+      }
+    },
+    {
+      "id": "outbox",
+      "action": "feedback.outbox",
+      "with": {}
+    }
+  ],
+  "graders": [
+    {
+      "id": "name-withheld",
+      "grader": "equals",
+      "with": {
+        "path": "steps.name.result.state",
+        "value": "withheld"
+      }
+    },
+    {
+      "id": "name-reason",
+      "grader": "contains",
+      "with": {
+        "path": "steps.name.result.reasons[0]",
+        "value": "fixture-repo"
+      }
+    },
+    {
+      "id": "path-withheld",
+      "grader": "equals",
+      "with": {
+        "path": "steps.path.result.state",
+        "value": "withheld"
+      }
+    },
+    {
+      "id": "person-withheld",
+      "grader": "equals",
+      "with": {
+        "path": "steps.person.result.state",
+        "value": "withheld"
+      }
+    },
+    {
+      "id": "person-reason",
+      "grader": "matches",
+      "with": {
+        "path": "steps.person.result.reasons[*]",
+        "pattern": "casey-q"
+      }
+    },
+    {
+      "id": "not-public-withheld",
+      "grader": "equals",
+      "with": {
+        "path": "steps.classed.result.state",
+        "value": "withheld"
+      }
+    },
+    {
+      "id": "approval-refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.approve.result.error",
+        "value": "not_drafted"
+      }
+    },
+    {
+      "id": "nothing-filed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.outbox.count",
+        "value": 0
+      }
+    }
+  ]
+}

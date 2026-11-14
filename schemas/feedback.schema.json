@@ -1,0 +1,108 @@
+{
+  "$id": "feedback",
+  "title": "Feedback record",
+  "description": "One piece of feedback about HITLd, recorded by `hitld feedback` in the consuming project's private store as feedback/FB-<n> (design part 18.4). It holds the person's own words and the project's IDs, so it is confidential and is refused anywhere but the private store. Publishing it is a separate, approved step. A filed record carries the issue's URL in `url` and the person's approval in `approval`; a withheld one carries the reason in `reason`. Only the generalized `draft` is ever published.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "id": { "type": "string", "pattern": "^FB-[1-9][0-9]*$" },
+    "kind": { "enum": ["bug", "friction", "idea", "worked-well"] },
+    "words": {
+      "description": "The person's words, verbatim.",
+      "$ref": "common#/$defs/text"
+    },
+    "created_at": { "$ref": "common#/$defs/timestamp" },
+    "version": {
+      "description": "The HITLd plugin version.",
+      "$ref": "common#/$defs/text"
+    },
+    "harness": {
+      "description": "The harness and its version. A version the core cannot learn offline is the string \"unknown\".",
+      "type": "object",
+      "properties": {
+        "name": { "$ref": "common#/$defs/text" },
+        "version": { "$ref": "common#/$defs/text" }
+      },
+      "required": ["name", "version"],
+      "additionalProperties": false
+    },
+    "area": {
+      "description": "The loop or command concerned, from --area or taken from the refs.",
+      "$ref": "common#/$defs/text"
+    },
+    "refs": {
+      "description": "Dispatch, decision, item and ledger event IDs the feedback is about.",
+      "$ref": "common#/$defs/ids"
+    },
+    "what_happened": {
+      "description": "A short account drawn from the ledger entries for the refs. Absent when none were found.",
+      "$ref": "common#/$defs/text"
+    },
+    "expected": {
+      "description": "What the person expected, when they said it.",
+      "$ref": "common#/$defs/text"
+    },
+    "evidence": {
+      "description": "The ledger entries for the refs, one compact line each.",
+      "$ref": "common#/$defs/texts"
+    },
+    "state": { "enum": ["local", "drafted", "filed", "withheld", "dropped"] },
+    "url": {
+      "description": "The filed issue's URL. Only for filed.",
+      "$ref": "common#/$defs/text"
+    },
+    "reason": {
+      "description": "Why the record was withheld. Only for withheld.",
+      "$ref": "common#/$defs/text"
+    },
+    "draft": {
+      "description": "The generalizer's public version of the record, as checked by `hitld feedback draft`. Only the draft's text is ever published. Present for drafted and filed records, and for a withheld one whose draft was caught.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "area": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "what_happened": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "expected": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "evidence": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "classification": {
+          "description": "The generalizer's classification of the draft. Only a public draft is filed.",
+          "$ref": "common#/$defs/classification"
+        },
+        "drafted_at": { "$ref": "common#/$defs/timestamp" }
+      },
+      "required": ["title", "what_happened", "classification", "drafted_at"],
+      "additionalProperties": false
+    },
+    "approval": {
+      "description": "The person's approval, made by the send gate from their answer in the main session. Present for a filed record, and for a drafted one approved to post by hand.",
+      "type": "object",
+      "properties": {
+        "by": { "$ref": "common#/$defs/person" },
+        "at": { "$ref": "common#/$defs/timestamp" },
+        "via": { "const": "main-session" },
+        "mode": { "enum": ["approve", "edit", "by-hand"] },
+        "answer": {
+          "description": "The person's answer, as given.",
+          "$ref": "common#/$defs/text"
+        }
+      },
+      "required": ["by", "at", "via", "mode", "answer"],
+      "additionalProperties": false
+    },
+    "classification": { "const": "confidential" }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "kind",
+    "words",
+    "created_at",
+    "version",
+    "harness",
+    "refs",
+    "state",
+    "classification"
+  ],
+  "additionalProperties": false
+}

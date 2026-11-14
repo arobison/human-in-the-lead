@@ -14,7 +14,7 @@ export const commands = [
     name: 'machine detect',
     summary:
       'Probe this machine (cores, memory, GPUs, browsers, operating system, role) from local sources only and print a proposed profile; writes nothing unless --write',
-    piece: 'v0',
+    piece: 'settings-hold',
     args: [
       {
         name: 'write',

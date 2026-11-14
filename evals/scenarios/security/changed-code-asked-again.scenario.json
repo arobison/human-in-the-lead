@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "id": "security/changed-code-asked-again",
+  "piece": "security",
+  "category": "security-gate",
+  "description": "A verdict holds where the code is unchanged, even when it moves to other lines; when the code at that place changes, the finding is asked again.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "security.repo",
+      "with": {
+        "main": {
+          "src/app.js": "export const run = (x) => UNSAFE(x);\nexport const UNSAFE = (x) => x;\n"
+        },
+        "branches": [
+          {
+            "branch": "hitld/W-1-adds",
+            "item": "W-1",
+            "files": {
+              "src/new.js": "import { UNSAFE } from './app.js';\nexport const handle = (input) => UNSAFE(input);\n"
+            }
+          },
+          {
+            "branch": "hitld/W-2-moves",
+            "item": "W-2",
+            "from": "hitld/W-1-adds",
+            "files": {
+              "src/new.js": "// a comment\n// another\n// and another\nimport { UNSAFE } from './app.js';\nexport const handle = (input) => UNSAFE(input);\n"
+            }
+          },
+          {
+            "branch": "hitld/W-3-changes",
+            "item": "W-3",
+            "from": "hitld/W-1-adds",
+            "files": {
+              "src/new.js": "import { UNSAFE } from './app.js';\nexport const handle = (input) => UNSAFE(input.trim());\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "first",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-1-adds"]
+      }
+    },
+    {
+      "id": "verdict",
+      "action": "security.verdict",
+      "with": {
+        "path": "src/new.js",
+        "verdict": "by-design",
+        "reason": "the input is the caller's own value; no trust boundary is crossed at the sink"
+      }
+    },
+    {
+      "id": "merge-one",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-1-adds"]
+      }
+    },
+    {
+      "id": "later",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-2-moves", "hitld/W-3-changes"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "first-merged",
+      "grader": "equals",
+      "with": {
+        "path": "steps.merge-one.merged",
+        "value": ["W-1"]
+      }
+    },
+    {
+      "id": "moved-merges",
+      "grader": "equals",
+      "with": {
+        "path": "steps.later.merged",
+        "value": ["W-2"]
+      }
+    },
+    {
+      "id": "changed-asked",
+      "grader": "equals",
+      "with": {
+        "path": "steps.later.rejected[0].item",
+        "value": "W-3"
+      }
+    },
+    {
+      "id": "as-security",
+      "grader": "equals",
+      "with": {
+        "path": "steps.later.rejected[0].reason",
+        "value": "security"
+      }
+    },
+    {
+      "id": "one-finding",
+      "grader": "count",
+      "with": {
+        "path": "steps.later.rejected[0].findings",
+        "equals": 1
+      }
+    }
+  ]
+}

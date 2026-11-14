@@ -6,6 +6,11 @@
 //
 // The store is a small key-path file API (read, write, append, list) so it can later be backed by
 // something else. Keys are relative paths such as "ledger.jsonl" or "runs/R-3/run-state.json".
+//
+// Its text parts are also a git repository (<store>/.git, see git.mjs), committed when the store
+// is exported or imported. A SQLite index of the ledger sits beside them (index-db.mjs). The index
+// and the other machine-local files are listed in git.mjs (MACHINE_LOCAL) and never leave this
+// machine.
 
 import {
   appendFileSync,
@@ -94,10 +99,11 @@ export function openStore(root) {
     },
     list(prefix = '') {
       if (!existsSync(base)) return [];
+      // Dot paths at the top are the store's git repository and its .gitignore, not keys.
       return readdirSync(base, { recursive: true, withFileTypes: true })
         .filter((d) => d.isFile() && !d.name.endsWith('.tmp'))
         .map((d) => relative(base, join(d.parentPath, d.name)).split(sep).join('/'))
-        .filter((k) => k.startsWith(prefix))
+        .filter((k) => k.startsWith(prefix) && !k.startsWith('.'))
         .sort();
     },
   };

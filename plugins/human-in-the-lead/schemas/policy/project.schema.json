@@ -18,6 +18,17 @@
       "description": "The highest classification allowed in the repository. public for a public repository; the check refuses anything above it (design part 10.3).",
       "$ref": "common#/$defs/classification",
       "default": "public"
+    },
+    "private_paths": {
+      "description": "Path globs, relative to the repository root, whose files are never public, whatever their front matter says. The commit guard, the merge and hitld work check refuse them when the ceiling is public (design part 10.3, rule 3). * matches within a path segment, ** across segments.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?![/\\\\])(?!.*(^|/)\\.\\.(/|$))"
+      },
+      "uniqueItems": true,
+      "default": []
     }
   },
   "required": ["id", "key"],

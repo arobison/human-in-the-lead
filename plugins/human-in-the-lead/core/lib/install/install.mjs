@@ -7,13 +7,16 @@
 //                                   marketplace pinned to a checkout path (development, before
 //                                   tags), or the GitHub marketplace pinned to a ref
 //   .claude/settings.local.json     the status-line usage capture, so the quota gate has readings
+//   .git/hooks/pre-commit           the commit guard (design part 10.3): runs this hitld's
+//                                   `check classification --staged`; shared by every worktree
 //
 // Nothing outside the markers of AGENTS.md is changed, an existing policy.json is kept, and
-// existing settings are merged key by key.
+// existing settings are merged key by key. A pre-commit hook that is not hitld's is left alone,
+// and the result says what to add to it. Executors never run install.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { POLICY_PATH, findRepoRoot, loadPolicy } from '../policy/policy.mjs';
 import { importsAgents, installBlock } from '../contract/block.mjs';
@@ -22,6 +25,10 @@ export const MARKETPLACE = 'human-in-the-lead';
 export const PLUGIN = 'human-in-the-lead';
 const TEMPLATE = fileURLToPath(new URL('../../../templates/policy.json', import.meta.url));
 const STATUSLINE = fileURLToPath(new URL('../../bin/hitld-statusline.mjs', import.meta.url));
+const HITLD = fileURLToPath(new URL('../../bin/hitld.mjs', import.meta.url));
+
+/** The line that marks a pre-commit hook as hitld's own, so install may rewrite it. */
+export const HOOK_MARK = '# hitld:commit-guard';
 
 /** The checkout this code runs from: the nearest directory above it with a marketplace file. */
 export function ownCheckout() {
@@ -54,11 +61,98 @@ function writeJson(path, data) {
 const shq = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
 /**
+ * The pre-commit hook's text. It runs the hitld at `hitld` (the one that ran install) and nothing
+ * else: no command in it comes from the repository's data.
+ * @param {string} hitld an absolute path to hitld.mjs
+ */
+export function hookScript(hitld) {
+  return [
+    '#!/bin/sh',
+    `${HOOK_MARK} v1. Written by hitld install, which rewrites it; edit a copy under another name.`,
+    "# Refuses a commit that adds a file above the repository's classification ceiling (design",
+    '# part 10.3). The merge checks the same rule, so skipping this hook does not get a file to main.',
+    `HITLD=${shq(hitld)}`,
+    'if [ ! -f "$HITLD" ]; then',
+    '  echo "hitld commit guard: $HITLD is gone; run hitld install again to point this hook at the hitld you use" >&2',
+    '  exit 1',
+    'fi',
+    'exec node "$HITLD" check classification --staged',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Install the commit guard as the repository's pre-commit hook, in the hooks directory every
+ * worktree shares. A hook that is not hitld's, or a core.hooksPath the project set, is left alone.
+ * @param {string} root
+ * @returns {{ done: string, warning?: string }}
+ */
+function installHook(root) {
+  const line = `node ${shq(HITLD)} check classification --staged`;
+  const hooksPath = spawnSync('git', ['config', '--get', 'core.hooksPath'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  if (hooksPath.status === 0 && hooksPath.stdout.trim()) {
+    return {
+      done: 'not installed (core.hooksPath is set)',
+      warning: `core.hooksPath is ${hooksPath.stdout.trim()}, so hitld leaves hooks to that setup: have its pre-commit hook run ${line} and stop the commit when it fails`,
+    };
+  }
+  const common = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  if (common.status !== 0) {
+    return {
+      done: 'not installed',
+      warning: `cannot find the git directory: ${common.stderr.trim()}`,
+    };
+  }
+  const dir = common.stdout.trim();
+  const hook = join(isAbsolute(dir) ? dir : resolve(root, dir), 'hooks', 'pre-commit');
+  const text = hookScript(HITLD);
+  /** @type {import('node:fs').Stats | null} */
+  let st = null;
+  try {
+    st = lstatSync(hook);
+  } catch {
+    st = null;
+  }
+  if (st) {
+    const current = st.isFile() ? readFileSync(hook, 'utf8') : '';
+    if (!current.includes(HOOK_MARK)) {
+      return {
+        done: 'not installed (a pre-commit hook exists)',
+        warning: `${hook} exists and is not hitld's, so it is left as it is: add a line to it that runs ${line} and stops the commit when it fails`,
+      };
+    }
+    if (current === text) return { done: 'unchanged' };
+  }
+  mkdirSync(dirname(hook), { recursive: true });
+  // Trust boundary: the hook's text is fixed here, and the one path in it is this checkout's own
+  // hitld.mjs (from import.meta.url), shell-quoted; nothing comes from the repository or input.
+  writeFileSync(hook, text, st ? {} : { flag: 'wx' });
+  chmodSync(hook, 0o755);
+  return { done: st ? 'updated' : 'installed' };
+}
+
+/**
  * @param {Record<string, unknown>} input
  * @param {{ cwd: string, env: NodeJS.ProcessEnv }} ctx
  * @returns {{ ok: boolean } & Record<string, unknown>}
  */
 export function install(input, ctx) {
+  // install writes the project's settings and a git hook every worktree shares: never an
+  // executor's to run (the plugin's guard denies it too; this is the second line).
+  if (ctx.env.HITLD_ROLE === 'executor' || ctx.env.HITLD_DISPATCH) {
+    return {
+      ok: false,
+      error: 'not_permitted',
+      message:
+        'hitld install changes project settings and the git hooks every worktree shares; executors never run it (HITLD_ROLE=executor or HITLD_DISPATCH is set)',
+    };
+  }
   const root = findRepoRoot(ctx.cwd);
   if (!root)
     return {
@@ -191,6 +285,11 @@ export function install(input, ctx) {
       );
     }
   }
+
+  // The commit guard.
+  const hook = installHook(root);
+  done.commit_guard = hook.done;
+  if (hook.warning) warnings.push(hook.warning);
 
   const add =
     source.source === 'directory'

@@ -48,7 +48,7 @@ The command line refuses the same decision commands when `HITLD_ROLE=executor` o
 Still to come:
 
 - a `PreToolUse` guard for write paths outside the role's paths, edits to dependency manifests and lockfiles unless the item cites an answered dependency decision, reads of configured secret paths, and network commands outside the allowlist;
-- the commit guard (a git hook installed in each worktree): the secret scanner and the classification check on staged files;
+- the commit guard's secret scanner. Its classification check is built (HITLD-51): `hitld install` writes a pre-commit hook, shared by every worktree, that runs `hitld check classification --staged`. The hook can be skipped with `git commit --no-verify`, and hitld's own commits skip it, so the merge runs the same rule on every commit a branch brings, and on the queue's own commit, in either merge mode. That check is the one that enforces;
 - `SessionStart`: loads the role's contract and the policy, and refuses to start an executor outside a worktree.
 
 **Sandboxing.** Executors run with the harness's own sandbox enabled where one exists. Any tool run on untrusted input (tests of external PRs, fuzzers) must run with no network, no secrets, and no write outside its scratch area. The mechanism is each harness adapter's job, not this design's.
@@ -82,7 +82,7 @@ Four levels ([part 3](03-data-model.md#classification-levels)): `public`, `inter
 
 1. **High-water mark.** An artifact derived from others is classified at least as high as the highest of its inputs. A summary of a confidential research note is confidential.
 2. **Declassification is a decision.** Lowering an artifact's level (for example, publishing a research finding) is the owner's call, recorded as a decision.
-3. **Public repositories hold public artifacts only.** The commit guard and the tracker check script block any file whose front matter is above `public`, and any file whose path is listed as private in `policy.json`.
+3. **Public repositories hold public artifacts only.** The commit guard and the tracker check script block any file whose front matter is above `public`, and any file whose path is listed as private in `policy.json`. As built, the ceiling is `project.classification_ceiling` and the private paths are `project.private_paths` (globs); a file whose front matter has no `classification` takes `default_classification` from `tracker.json`. The refusal names the file and the rule.
 4. **Stubs for confidential tracker entities.** When a public item needs a confidential decision, the public repository holds at most a stub (ID, title "confidential decision", state), so `needs` still resolves; the content lives in the private store. Decided: a stub ([Q6](22-open-questions.md)).
 5. **Third-party services by level.** A notification channel or tracker backend declares the highest level it may carry. Above that, only a pointer is sent.
 6. **Agents carry the level.** An agent given a confidential input is marked as holding confidential data for the rest of its life: its writes are classified at that level, and it may not write to the public repository. (This is enforced by the orchestrator at dispatch: briefs that cite confidential material go to agents whose write path is the private store.)
@@ -101,7 +101,7 @@ Regardless of precedent, these always need a human:
 
 ## 10.5 Security in "done when"
 
-*Planned, before the first release (HITLD-63). The sensitive-path review and threat-model notes are HITLD-34.*
+*Built (HITLD-63): scanners are declared in `merge.scanners`, the baseline, verdicts and accepted risks live in the private store under `security/`, and `hitld security` shows and records them; accepting a risk cites an answered decision item. The sensitive-path review and threat-model notes are planned (HITLD-34).*
 
 A change is not done while it adds a security finding nobody has looked at. These rules make that checkable without blocking on old findings.
 

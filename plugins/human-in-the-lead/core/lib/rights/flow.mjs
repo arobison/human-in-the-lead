@@ -5,7 +5,7 @@
 // The tracker is reached only through the TrackerAdapter interface (core/lib/tracker/interface.mjs),
 // so this runs against the files backend or a stand-in.
 //
-// Limitation (v0-alpha): the caller is trusted as the local user. `by` on an answer is whatever the
+// Limitation (for now): the caller is trusted as the local user. `by` on an answer is whatever the
 // caller says; no principal is authenticated, so "an area owner answered this" is not verified. What
 // is enforced is authority by record: the route, area, basis, classification and offer are recorded
 // in the private store when a question is asked, and a precedent takes its authority from that

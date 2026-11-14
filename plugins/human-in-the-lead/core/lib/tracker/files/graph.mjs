@@ -2,6 +2,7 @@
 // blocked, open needs, progress. Derived values are computed here from the stored fields and
 // never written to a file.
 
+import { MILESTONE_KINDS, constraintIds, readMilestone } from './milestones.mjs';
 import { idNumber } from './tree.mjs';
 
 /**
@@ -15,9 +16,12 @@ import { idNumber } from './tree.mjs';
  * @property {Node[]} items work, decision and external entries
  * @property {Node[]} projects
  * @property {Node[]} initiatives
+ * @property {Node[]} milestones capability and learning entries
  * @property {(id: string) => Node | undefined} get
- * @property {(it: Node) => string[]} needs
+ * @property {(it: Node) => string[]} needs the IDs an item or a milestone needs (a milestone's
+ *   constraints)
  * @property {(it: Node) => boolean} isItem
+ * @property {(it: Node) => boolean} isMilestone
  * @property {(it: Node) => boolean} isOpen
  * @property {(it: Node) => string[]} openNeeds needs that are not Done
  * @property {(it: Node) => boolean} isReady Planned, every need Done
@@ -25,6 +29,9 @@ import { idNumber } from './tree.mjs';
  * @property {(projectId: string) => Node[]} itemsOf
  * @property {(initiativeId: string) => Node[]} projectsOf
  * @property {(id: string) => Node[]} dependents open items that need `id`
+ * @property {(containerId: string) => Node[]} milestonesOf milestones under a project or initiative
+ * @property {(id: string) => Node[]} constraintOf milestones whose needs name `id`
+ * @property {(id: string) => Node[]} contributesTo milestones whose serves name `id`
  */
 
 export const ITEM_KINDS = ['work', 'decision', 'external'];
@@ -64,21 +71,32 @@ export function buildGraph(entries) {
     items: [],
     projects: [],
     initiatives: [],
+    milestones: [],
     get: (id) => byId.get(id),
-    needs: (it) => list(it.data.needs),
+    needs: (it) =>
+      g.isMilestone(it) ? constraintIds(readMilestone(it.data)) : list(it.data.needs),
     isItem: (it) => ITEM_KINDS.includes(String(it.data.kind)),
+    isMilestone: (it) => MILESTONE_KINDS.includes(String(it.data.kind)),
     isOpen: (it) => !['Done', 'Dropped'].includes(String(it.data.status)),
-    openNeeds: (it) => list(it.data.needs).filter((id) => byId.get(id)?.data.status !== 'Done'),
+    openNeeds: (it) => g.needs(it).filter((id) => byId.get(id)?.data.status !== 'Done'),
     isReady: (it) => it.data.status === 'Planned' && g.openNeeds(it).length === 0,
     isBlocked: (it) =>
       ['Planned', 'Proposed'].includes(String(it.data.status)) && g.openNeeds(it).length > 0,
     itemsOf: (projectId) => g.items.filter((it) => it.data.project === projectId),
     projectsOf: (initiativeId) => g.projects.filter((p) => p.data.initiative === initiativeId),
     dependents: (id) => g.items.filter((it) => g.isOpen(it) && g.needs(it).includes(id)),
+    milestonesOf: (containerId) =>
+      g.milestones.filter(
+        (m) => m.data.project === containerId || m.data.initiative === containerId,
+      ),
+    constraintOf: (id) => g.milestones.filter((m) => g.needs(m).includes(id)),
+    contributesTo: (id) =>
+      g.milestones.filter((m) => readMilestone(m.data).contributions.some((c) => c.id === id)),
   };
   g.items = all.filter(g.isItem);
   g.projects = all.filter((it) => it.data.kind === 'project');
   g.initiatives = all.filter((it) => it.data.kind === 'initiative');
+  g.milestones = all.filter(g.isMilestone);
   return g;
 }
 
@@ -118,7 +136,8 @@ export function describeProgress(c) {
 }
 
 /**
- * Dependency cycles among items, each as the list of IDs around it.
+ * Dependency cycles among items and milestones (a milestone's constraints are its needs), each as
+ * the list of IDs around it.
  * @param {Graph} g
  * @returns {string[][]}
  */
@@ -140,7 +159,7 @@ export function findCycles(g) {
     stack.pop();
     state.set(id, 2);
   };
-  for (const it of g.items) {
+  for (const it of [...g.items, ...g.milestones]) {
     const id = String(it.data.id);
     if (!state.has(id)) visit(id);
   }

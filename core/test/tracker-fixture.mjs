@@ -63,7 +63,6 @@ export function makeRepo({ files = {}, commit = true } = {}) {
       status: 'Planned',
       initiative: 'W-1',
       lead: 'owner',
-      milestones: ['alpha', 'beta'],
     }),
     'work/items/W-3-first-step.md': itemText({
       id: 'W-3',
@@ -78,7 +77,6 @@ export function makeRepo({ files = {}, commit = true } = {}) {
       kind: 'work',
       status: 'Planned',
       project: 'W-2',
-      milestone: 'alpha',
       needs: ['W-3'],
     }),
     'work/items/W-5-third-step.md': itemText({

@@ -1,11 +1,11 @@
 ---
 id: HITLD-60
-title: "Private store as git text plus a local SQLite index, with hitld store export, import and sync"
+title: Private store as git text plus a local SQLite index, with hitld store export, import and sync
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
-milestone: consumer-live
+claimed: D-60
 ---
 
 ## Why

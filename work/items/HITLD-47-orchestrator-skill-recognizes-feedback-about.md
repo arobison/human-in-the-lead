@@ -1,12 +1,12 @@
 ---
 id: HITLD-47
-title: "Orchestrator skill recognizes feedback about HITLd and publishes it through the generalizer and send gate"
+title: Orchestrator skill recognizes feedback about HITLd and publishes it through the generalizer and send gate
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
-milestone: consumer-live
 needs: [HITLD-46]
+claimed: D-47
 ---
 
 ## Why

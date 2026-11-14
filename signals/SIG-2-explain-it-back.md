@@ -13,7 +13,6 @@ judgements:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner
-    at: 2026-11-14
 provenance:
   - recorded from the owner's conversation with the orchestrating session, 2026-11-14
 design_refs: []

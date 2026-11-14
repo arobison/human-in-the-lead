@@ -155,8 +155,8 @@ stateDiagram-v2
 | `stage` | From the ledger, for items `In progress`: `briefed`, `claimed`, `implementing`, `verifying`, `reporting`, `in review`, `merged` (the fleet view) |
 | `critical_path` | Whether the item is on the longest dependency chain (by estimate tokens) to a milestone that needs it |
 | `cost_of_delay_rate` | Inherited from the opportunity, plus the rates of everything that `needs` it, milestones included |
-| `constraint_of`, `contributes_to` | Planned: the milestones whose `needs` or `serves` name it. The milestone holds the edge; the item stores nothing |
-| `released_in` | Planned: the release whose record lists it ([Release](#release)) |
+| `constraint_of`, `contributes_to` | The milestones whose `needs` or `serves` name it. The milestone holds the edge; the item stores nothing |
+| `released_in` | The first full release whose record lists it ([Release](#release)); a pre-release does not set it |
 | `lead_time`, `blocked_time` | From git history of the item file and the ledger |
 
 ### Decision
@@ -182,7 +182,7 @@ An item of kind `decision`. It sits in the same tracker, uses the same lifecycle
 
 ### Milestones and releases
 
-*Accepted. Nothing in this section is built yet (HITLD-45). The first release waits for it ([Q33](22-open-questions.md#q33-does-the-first-release-wait-for-the-milestone-and-release-format-affects-hitld-24)).*
+*Accepted and built (HITLD-45): milestone files and release records in the files backend ([3.4](#file-format)), the migration from the old keys, `hitld release propose` and `hitld release make`. The first release waits for it ([Q33](22-open-questions.md#q33-does-the-first-release-wait-for-the-milestone-and-release-format-affects-hitld-24)). Not built yet: `tokens_spent` needs the ledger handed to the tracker, and `cost_of_delay_rate` stays null until a rate is known for a milestone; the milestone graph is HITLD-62.*
 
 A milestone is a future state worth reaching; a release is the record of what reached users. Together they replace the files backend's `milestone` key on items and `milestones` list on projects, and its `priority` key retires ([3.4](#file-format), [Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)).
 
@@ -208,6 +208,7 @@ A checkable future state with its own "done when" (principle 2 in [3.0](#30-prin
 | `scope` | derived | The contributions that fit the appetite, by value per token (below) |
 | `tokens_spent` | derived | From the ledger, over its constraints and contributions |
 | `cost_of_delay_rate` | derived | From the value of its outcome and its deadline profile; passed to every constraint |
+| `to_shape` | derived | What shaping still owes it: an outcome, clauses, a check, constraints not yet linked to a clause |
 
 **Constraints and contributions.** The split follows Kano ([20.4](20-prior-art.md#204-management)): must-be qualities are constraints; performance and delight qualities are contributions. There are no priority labels. A MoSCoW-style list becomes constraints (necessity) and contributions (scored value). Scoping is a knapsack, not a negotiation: the constraints' estimates come first, and the rest of the appetite fills with contributions in order of value × confidence per estimate token. If the constraints alone exceed the appetite, the milestone is too big: shaping splits it, or the owner raises the appetite.
 
@@ -242,7 +243,9 @@ A **release item** (the work item that makes a release) may `need` milestones. T
 
 **When to release.** `main` is always green ([part 14](14-integration.md)), so a release can be cut at any merge. The shipping loop decides when, by weighing the unreleased stock's cost of delay against the cost of a release ([2.7](02-loops.md#27-shipping)). There is no release train by default. A shorter delay from merge to release closes the outer loop through users sooner (principle 6).
 
-**`hitld release propose`** reads the interface delta since the last tag and proposes the bump from it alone (principle 10): a breaking change proposes major (minor while the version is 0.y.z, flagged as breaking), an additive change minor, fixes only patch. Internal change, however large, proposes patch at most. It drafts the notes, lists items that changed public surface without a changelog line, and lists unmet gates. **Minor and major releases are the owner's** (a one-way door, principle 9): `hitld release make` writes the record and the tag only from the owner's own turn, as decision answers are taken ([Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)), and never pushes. A patch release may follow a precedent the owner has confirmed ([2.7](02-loops.md#27-shipping)), because a patch never changes the interface. The record names the precedent in `decision`.
+**Pre-releases.** A version may carry a pre-release part (`0.1.0-rc.1`, tag `v0.1.0-rc.1`), made with `--pre rc`; each next one counts up (`rc.2`). A pre-release has its record and tag like any release, but it is never the base of a bump: `previous`, the interface delta, the bump and the items are measured from the last full release, so every pre-release of a version and the version itself carry the same bump. A pre-release does not set `released_in`.
+
+**`hitld release propose`** reads the interface delta since the last full release tag and proposes the bump from it alone (principle 10): a breaking change proposes major (minor while the version is 0.y.z, flagged as breaking), an additive change minor, fixes only patch. Internal change, however large, proposes patch at most. With no release tag yet, it says so, and the whole public interface counts as the initial surface: additive, measured from 0.0.0. It drafts the notes, lists items that changed public surface without a changelog line, and lists unmet gates. The surface it compares is read from each version's own files: the schemas, the command table (each command's arguments, and the top-level fields of its JSON where the command declares `output`), the report shape and trailers named in the contract template, the rest of the contract's wording, and the read API's `api_version`. **Minor and major releases are the owner's** (a one-way door, principle 9): `hitld release make` writes the record and the tag only from the owner's own turn, as decision answers are taken ([Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)), and never pushes. It makes the release on the main branch from a clean working tree, refuses a version below what the delta proposes, and with `--item` waits for that release item's gates. A patch release may follow a precedent the owner has confirmed ([2.7](02-loops.md#27-shipping)), because a patch never changes the interface. The record names the precedent in `decision`.
 
 ### Precedent
 
@@ -416,11 +419,19 @@ It holds two kinds of data (decided, [Q1](22-open-questions.md#q1-where-does-the
 - **Git text files** for what syncs between machines and keeps history: the ledger, decisions, precedents, signals, notes and judgement records. They are the truth.
 - **SQLite** (Node's built-in module, so no dependency) for what is local to one machine and needs transactions or fast queries: the machine registry (live executors, leases, locks, capacities, [13.4](13-operations.md#134-settings-in-four-layers)), and an index over the ledger for metrics. The index is a cache: deleting it loses nothing, and it is rebuilt from the text. This is the same pattern as the knowledge base ([part 8](08-knowledge-base.md#82-markdown-in-git-is-the-source-of-truth)). SQLite files are never synced, because two copies written on two machines cannot be merged.
 
-**Moving and syncing the store** (planned). Moving a store by hand would be error-prone, so the command line does it. Executors never run these commands.
+**Moving and syncing the store.** Moving a store by hand would be error-prone, so the command line does it. Executors never run these commands: they refuse when `HITLD_ROLE=executor` or `HITLD_DISPATCH` is set, or in a linked worktree.
 
 - **`hitld store export`** writes one file: a git bundle of the store's text history, plus a manifest (the project ID, the schema versions, and the head it was taken at). The file is encrypted, because the store holds confidential material: an authenticated cipher with a key derived from a passphrase, from Node's built-in crypto, so no dependency. SQLite files are never exported: the index is rebuilt, and the machine registry belongs to its machine.
 - **`hitld store import <file>`** verifies the bundle and the manifest. It refuses a different project, or a schema newer than this version knows. It fetches into the store, merging the append-only history; a conflict stops the import and says so. Then it rebuilds the index.
-- **`hitld store sync <file>`** does both directions, for regular exchange between machines, the same way code bundles move ([13.1](13-operations.md#resuming-on-any-machine)).
+- **`hitld store sync <file>`** does both directions, for regular exchange between machines, the same way code bundles move ([13.1](13-operations.md#resuming-on-any-machine)): it imports the file if it exists, then exports the merged store over it. A conflict stops it before the export.
+
+As built:
+
+- **The repository.** The store's text parts are a git repository at `<store>/.git`, committed when the store is exported or imported. Its `.gitignore` keeps the machine-local files out: the index (`index.sqlite*`), `run-state.json` and `run/` (rebuilt from the ledger), `primary-checkout.json`, `env/`, `usage/` and `rights/digest.json`. A bundle that carries one of them, a symbolic link or an unsafe path is refused. The machine registry (`_machine/`) is beside the project stores, outside every store's repository.
+- **Merging.** Per file: a side that did not change it takes the other side's. When both sides changed an append-only file (`.jsonl`), the lines merge: nothing the common history held may be gone, both sides' new lines are kept, ordered by time so either machine writes the same file, and two different lines with one `id` are a conflict. Any other file changed on both sides is a conflict. A conflict writes nothing and lists the paths.
+- **The file, format 1.** A header line of JSON (`file: "hitld-store-export"`, `format: 1`, the cipher, the scrypt parameters, a random salt and nonce), then the AES-256-GCM ciphertext and its tag. The header is authenticated as associated data, so a change to any byte refuses the file. The key comes from the passphrase through scrypt. Inside: the manifest (`project`, `schema_versions`, `head`, `branch`, `created_at`, `hitld_version`) and the git bundle. A format other than 1 is refused.
+- **The passphrase** comes from `HITLD_STORE_PASSPHRASE` or from an open file descriptor (`--passphrase-fd <n>`, `0` for standard input), never from an argument, which would land in shell history and process lists.
+- **git** runs with an argument list, pinned to the store (`GIT_DIR`), with the owner's global and system git config ignored and hooks off (`core.hooksPath=/dev/null`). A bundle is checked with `git bundle verify` and its head against the manifest before it is fetched, with `transfer.fsckObjects`. Nothing from a bundle runs.
 
 ## 3.4 The files backend (the reference)
 
@@ -436,15 +447,17 @@ work/
     W-2-config-parsing.md        # one file per project
   items/
     W-3-reject-unknown-keys.md   # one file per work item, decision or external item
-  milestones/                    # planned: one file per milestone
+  milestones/                    # one file per milestone
     W-4-config-errors-explained.md
-  releases/                      # planned: one record per release
+  releases/                      # one record per release, named by its tag
     v0.4.0.md
   views/                         # generated, never edited by hand
     ready.md
     blocked.md
     decisions.md                 # the decision backlog
     critical-path.md
+    milestones.md                # each open milestone: error, scope, check due, what shaping owes it
+    unreleased.md                # the merged-but-unreleased stock
     projects.md
     initiatives.md
     lists.md
@@ -458,31 +471,47 @@ signals/
 
 **Signals in the repository.** By default signals live in the private store ([part 10](10-security.md#103-information-classification)). A project may keep its **public** signals in the repository instead (`intake.public_signals_in_repo: true`), one file per signal with the fields above as front matter and the body as the text. This repository does, so its own intake is visible.
 
-The work directory, the five folder names, the views directory and the ID key are settings (`tracker.json` and `policy.json`), so a project with an existing tracker in a different place maps onto this layout by configuration, not migration.
+The work directory, the folder names, the views directory and the ID key are settings (`tracker.json` and `policy.json`), so a project with an existing tracker in a different place maps onto this layout by configuration, not migration.
 
 ### Who owns the format
 
-The plugin owns the file format; a project that uses it depends on the format, never the other way round. Three rules keep the project free to change its own side without touching the plugin. Only the first is fully built.
+The plugin owns the file format; a project that uses it depends on the format, never the other way round. Three rules keep the project free to change its own side without touching the plugin.
 
 - **Writes go through the plugin** (`hitld work new`, `claim`, `close` and others), so the lifecycle, claim and validation rules always apply. A project's own tracker scripts become thin wrappers over `hitld` or are retired ([part 16.7](16-packaging.md#167-adopting-an-existing-in-repo-tracker)). A `hitld work patch` command for editing fields is planned.
-- **Reads go through a versioned JSON read API** (planned, HITLD-18): `hitld work query --json` and `hitld work show --json`, with an `api_version` in every response. Anything else that reads the tracker (a board, custom views, reports) would read this output, never the files, so a change to the files that keeps the API stable breaks no reader.
-- **Extension by declaration.** Today `optional_keys` in `tracker.json` turns on a fixed list of extra keys. Planned (HITLD-18): project-specific fields declared in `tracker.json` with a name, a type, list or scalar, and a description, validated, preserved through every write, returned in the read API and usable in queries.
+- **Reads go through a versioned JSON read API**: `hitld work query --json` and `hitld work show --json` carry an `api_version` in every response, with the entities and the declared fields (`declared_fields`: name, type, list, description). Anything else that reads the tracker (a board, custom views, reports) reads this output, never the files, so a change to the files that keeps the API stable breaks no reader. Without `--json` the commands print the same JSON without the version promise. **The rule for `api_version`:** it starts at 1; removing, renaming or retyping a field raises it; adding a field does not, so readers ignore fields they do not know. The version is `API_VERSION` in `core/lib/tracker/files/api.mjs`.
+- **Extension by declaration.** `optional_keys` in `tracker.json` turns on a fixed list of extra keys. For a project's own fields, `tracker.json` also takes `fields`: each has a `name`, a `type` (`string`, `integer`, `number` or `boolean`), `list` (true for a list of that type), optional `values` (the allowed texts of a string field) and a `description`. A declared field is validated against its type by `hitld work check` and by every write, kept when the tool rewrites a file, returned typed in the read API and matched in queries (`hitld work query --field name=value`; a list field matches when it holds the value). A name the format already uses, or a key that names code to run, is refused. The file holds the value as text; the read API types it. An undeclared key is still an error.
 
-Structural changes (a new state, a new kind, different claim or readiness rules) are plugin changes: a schema version bump with a migration. `hitld work migrate` (tracker files) and a conformance suite in the eval suite that checks every backend against the tracker interface are planned (HITLD-18). Other backends (a hosted tracker) are adapters behind the same interface.
+Structural changes (a new state, a new kind, different claim or readiness rules) are plugin changes: a schema version bump with a migration. `hitld work migrate` applies the migrations to the tracker's files. A migration is a registered, named step: a function from the files to the changes that bring them to the new format, which returns no changes for a file already in it, so a second run does nothing. `--dry-run` prints each file's diff and writes nothing; a real run checks the result, writes it and commits it as one commit (`--no-commit` leaves the files in the working tree); `--only <name>` runs one step; only the orchestrator runs it. When a registered migration still has work, `hitld work check` names the files. The registered migrations are `milestone-entities` (each project's `milestones` list and each item's `milestone` key become milestone files, with those items as constraints marked `c?` for shaping to link to clauses) and `retire-priority` (removes `priority`, [Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)). A step that creates a file takes its number above every ID in the tracker and every number another branch, worktree or bundle ref of the clone already holds. A conformance suite (`core/lib/tracker/conformance.mjs`) checks any backend against the tracker interface through the interface alone, with declared fields: a backend that drops, retypes or refuses a declared field fails. The files backend runs it in the test suite; another backend (a hosted tracker, an adapter behind the same interface) runs the same module.
 
 ### File format
 
 Markdown with YAML front matter. The front matter is **data only**: the schema lists every allowed key, and the check script rejects unknown keys. No key is ever executed. Some trackers support fields or hooks that run commands when an item changes; this format excludes executable keys by schema ([part 10](10-security.md)), and the check refuses keys such as `hooks`, `script` and `run` by name.
 
-The model's entity fields and the stored keys differ in name. The files backend stores `status` (the model's `state`), `project` (an item's `parent`), `initiative` (a project's `parent`), `decided-by` (a decision's `decider`) and `claimed`. It also stores `priority`, `milestone` and `created`, which the model does not list. `milestone` (on items) and `milestones` (a project's list of names) are as built; the planned milestone entity replaces both, and `hitld work migrate` (the tracker format migration) will turn each named milestone into a milestone file ([Milestones and releases](#milestones-and-releases)). The same migration drops `priority` ([Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)): order is derived, and an owner's direct reorder is a recorded decision. These keys are always allowed:
+The model's entity fields and the stored keys differ in name. The files backend stores `status` (the model's `state`), `project` (an item's parent; a milestone's when it sits under a project), `initiative` (a project's parent; a milestone's when it sits under an initiative), `decided-by` (a decision's `decider`) and `claimed`. It also stores `created`, which the model does not list. The keys `milestone` (on items), `milestones` (a project's list of names) and `priority` are retired: milestones are their own files, and order is derived, with an owner's direct reorder a recorded decision ([Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)). The check names a retired key and points to `hitld work migrate`. These keys are always allowed:
 
 | Kinds | Keys |
 |---|---|
-| work, decision, external | `id`, `title`, `kind`, `status`, `priority`, `created`, `project`, `milestone`, `needs`, `claimed`, `reason`; decisions add `decided-by`, external items add `party` |
-| project | the common keys plus `initiative`, `lead`, `plan`, `milestones`, `reason` |
+| work, decision, external | `id`, `title`, `kind`, `status`, `created`, `project`, `needs`, `claimed`, `reason`; decisions add `decided-by`, external items add `party`. An item's `needs` may name items and milestones |
+| project | the common keys plus `initiative`, `lead`, `plan`, `reason` |
 | initiative | the common keys plus `lead`, `reason` |
+| capability, learning (milestones) | the common keys plus `project` or `initiative` (one), `outcome`, `done_when`, `needs`, `serves`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
+| release record (`releases/<tag>.md`) | `id`, `version`, `previous`, `bump`, `interface_delta`, `decision`, `items`, `milestones`, `classification`; the body holds the notes |
 
-The other fields of [3.2](#initiative-project-item) (`owner`, `area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_hint`, `changelog`, `credit`) are off until `optional_keys` in `tracker.json` lists them. An item with no `classification` key takes `default_classification`.
+The front matter holds strings and lists of strings only, so each structured milestone entry is one line of text in a fixed form, and the read API returns it typed:
+
+| Key | One entry |
+|---|---|
+| `done_when` | `c1: <text>` |
+| `needs` | `<ID> c1` (a constraint linked to clause `c1`), or `<ID> c?` (to be linked at shaping) |
+| `serves` | `<ID> value=<1, 2, 3, 5, 8 or 13> confidence=<0 to 1>` |
+| `check` | `<demo, integration-test or study> <target>` |
+| `check_results` | `<pass, fail or verdict> <YYYY-MM-DD> <role>: <evidence>`, oldest first |
+| `deadline` | `<YYYY-MM-DD> <source>` |
+| `interface_delta` (release) | `<breaking, additive or fix> <area>: <what>`, where the area is `schemas`, `cli`, `contract`, `report`, `trailers`, `read-api` or `adapters` |
+
+A milestone is `Done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone, when a `verdict` is recorded by such a role. The check and the tracker refuse anything else.
+
+Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#initiative-project-item) (`owner`, `area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_hint`, `changelog`, `credit`) are off until `optional_keys` in `tracker.json` lists them. An item with no `classification` key takes `default_classification`.
 
 ```markdown
 ---
@@ -491,7 +520,6 @@ kind: work
 title: Reject unknown keys in the config file
 project: W-201
 status: Planned
-priority: medium
 created: 2026-03-02
 needs: [W-209, W-213]
 ---
@@ -542,8 +570,9 @@ Once milestones are entities, the views include `milestones.md`: a mermaid graph
 The check script verifies, on every merge batch:
 
 - every file matches the schema for its kind, with no unknown keys;
-- every reference (`parent`, `needs`, `opened_from`, `precedent`) resolves;
-- no dependency cycles;
+- every reference (`parent`, `needs`, `serves`, `opened_from`, `precedent`, and a release record's `previous`, `items` and `milestones`) resolves;
+- every milestone constraint names a clause that exists (or `c?`), every contribution has a value and a confidence, and a `Done` milestone has its passing check;
+- no dependency cycles, through items and milestones;
 - no entity above `public` classification in a public repository;
 - no item on `main` is `In progress` (a claim committed directly to `main` is an error);
 - claim branches and open ledger dispatches match, or the mismatch is flagged as orphaned;

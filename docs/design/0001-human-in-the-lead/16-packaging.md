@@ -25,6 +25,8 @@ human-in-the-lead/
   schemas/                        # versioned JSON Schemas
   skills/                         # layer 2: SKILL.md sources with portable front matter only
     orchestrate/ execute/         # built; the rest of the design's skills are planned
+  agents/                         # agent definitions beyond the executors (the generalizer),
+                                  # portable front matter only; the build adds the harness's
   templates/                      # AGENTS.contract.md, policy.json and the item, decision and
                                   # report templates
   evals/                          # the eval suite (part 17): scenarios, graders, runner
@@ -45,9 +47,10 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 
 | Command | Does |
 |---|---|
-| `hitld work new / show / query / claim / release / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches |
+| `hitld work new / show / query / claim / release / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
+| `hitld work migrate [--dry-run]` | Apply the tracker format migrations to every file; idempotent; the dry run prints the diff. Registered: `milestone-entities`, `retire-priority` |
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
-| `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, initiatives, lists, a dependency diagram) |
+| `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, initiatives, critical path, milestones, unreleased, lists, dependency diagrams) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
 | `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection |
@@ -61,14 +64,15 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld config explain / write` | Each effective setting and the layer it came from; write the person or machine file after validating it ([part 13](13-operations.md#134-settings-in-four-layers)) |
 | `hitld machine detect` (planned) | Probe this machine and propose a machine profile for the person to confirm |
 | `hitld check contract / policy` | `AGENTS.md` contract present and current, and imported by `CLAUDE.md` if one exists; `policy.json` valid within bounds |
+| `hitld check classification [--staged]` | The commit guard: no file above the repository's classification ceiling, in the next commit or the whole tree ([10.3](10-security.md#103-information-classification)) |
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
-| `hitld work migrate` (planned) | Upgrade the tracker files to the current tracker format ([3.4](03-data-model.md#file-format)) |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
-| `hitld store export / import / sync` (planned) | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
-| `hitld release` (planned) | Tag and publish a release after its gate |
-| `hitld feedback` (planned, HITLD-46) | Capture feedback about the plugin ([part 18](18-self-improvement.md#184-giving-feedback)) |
+| `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
+| `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its basis, draft notes, items that changed public surface without a changelog line, unmet gates ([3.2](03-data-model.md#release)) |
+| `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
+| `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
-| `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, and the opt-in status-line capture (`--statusline`) |
+| `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
 Built as well: `run`, `env`, `handover`, `rights ask / answer`, `quota`, `report`, `eval accept` and `merge --only`. `hitld --help` lists every built command; this table is the design, not the list.

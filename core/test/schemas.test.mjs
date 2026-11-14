@@ -6,7 +6,41 @@ const registry = schemas();
 
 /** A valid example of every stand-alone data file, from the design where it gives one. */
 const examples = {
-  // Part 12.5: a Claude Code status line snapshot, as piece (h)'s status-line command writes it.
+  // Part 10.5: a recorded triage verdict, in the private store.
+  'security-records': {
+    schema_version: 1,
+    kind: 'verdicts',
+    classification: 'confidential',
+    entries: [
+      {
+        key: '0123456789ab',
+        tool: 'Example Scanner',
+        rule: 'example/path-traversal',
+        path: 'src/files.js',
+        line: 12,
+        fingerprint: '0123456789abcdef',
+        at: '2026-11-14T12:00:00Z',
+        verdict: 'false-positive',
+        reason: 'the path passes the name pattern and containment before the read',
+        item: 'W-7',
+      },
+    ],
+  },
+  // Design part 18.4: a feedback record, as `hitld feedback` writes it to the private store.
+  feedback: {
+    schema_version: 1,
+    id: 'FB-1',
+    kind: 'friction',
+    words: 'That question was not worth asking.',
+    created_at: '2026-11-14T12:00:00Z',
+    version: '0.1.0',
+    harness: { name: 'claude-code', version: 'unknown' },
+    area: 'decision rights',
+    refs: ['W-3'],
+    state: 'local',
+    classification: 'confidential',
+  },
+  // Part 12.5: a Claude Code status line snapshot, as the status-line command writes it.
   'usage-snapshot': {
     schema_version: 1,
     at: '2026-11-14T12:00:00Z',
@@ -56,9 +90,55 @@ const examples = {
   tracker: {
     schema_version: 1,
     work_dir: 'work',
-    folders: { initiative: 'initiatives', project: 'projects', item: 'items' },
+    folders: {
+      initiative: 'initiatives',
+      project: 'projects',
+      item: 'items',
+      milestone: 'milestones',
+      release: 'releases',
+    },
     main_branch: 'main',
     optional_keys: ['touches', 'estimate_tokens'],
+  },
+  // Design part 3.2, Milestones and releases.
+  milestone: {
+    schema_version: 1,
+    id: 'W-230',
+    kind: 'capability',
+    title: 'Config errors explained',
+    parent: 'W-201',
+    state: 'Planned',
+    classification: 'public',
+    outcome: 'A user with a bad config file sees which key is wrong and why.',
+    done_when: [{ id: 'c1', text: 'An unknown key exits with status 2 and names the key.' }],
+    needs: [
+      { id: 'W-214', clause: 'c1' },
+      { id: 'W-215', clause: null },
+    ],
+    serves: [{ id: 'W-216', value: 3, confidence: 0.7 }],
+    appetite_tokens: 600000,
+    deadline: { date: '2027-03-01', source: 'the conference demo' },
+    check: { kind: 'integration-test', target: 'test/config/errors.test.ts' },
+    check_results: [
+      {
+        result: 'pass',
+        date: '2026-12-01',
+        role: 'acceptance-author',
+        evidence: 'run 41 at 3f9c2a1',
+      },
+    ],
+  },
+  release: {
+    schema_version: 1,
+    id: 'v0.4.0-rc.1',
+    version: '0.4.0-rc.1',
+    previous: 'v0.3.2',
+    bump: 'minor',
+    interface_delta: [{ impact: 'additive', area: 'schemas', what: 'item gains changelog' }],
+    decision: 'owner',
+    items: ['W-214'],
+    milestones: ['W-230'],
+    classification: 'public',
   },
   // Design part 3.4, the file format example.
   item: {
@@ -94,7 +174,6 @@ const examples = {
         what: 'fits the strategy and is plausibly valuable',
         basis: 'gut-check',
         by: 'owner',
-        at: '2026-11-14',
       },
     ],
     provenance: ['recorded from the owner conversation, 2026-11-14'],
@@ -333,13 +412,26 @@ test('tracker front matter is validated by its kind', () => {
   const errors = registry.validateTrackerEntity({ ...examples.item, kind: 'task' });
   assert.equal(errors[0].path, 'kind');
   assert.deepEqual(Object.keys(TRACKER_KINDS).sort(), [
+    'capability',
     'decision',
     'external',
     'initiative',
+    'learning',
     'opportunity',
     'project',
     'work',
   ]);
+});
+
+test('a public judgement carries what, basis and who; the time is not public', () => {
+  const signal = /** @type {any} */ (examples.signal);
+  const judgement = signal.judgements[0];
+  const check = (/** @type {any} */ j) =>
+    registry.validateEntity('signal', { ...signal, judgements: [j] });
+  assert.deepEqual(check(judgement), []);
+  assert.ok(check({ ...judgement, at: '2026-11-14' }).length, 'the time is private');
+  assert.ok(check({ what: judgement.what, basis: judgement.basis }).length, 'who is required');
+  assert.ok(check({ ...judgement, confidence: 0.7 }).length, 'private fields are not public');
 });
 
 test('item states are the five of the reference format', () => {

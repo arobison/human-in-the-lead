@@ -73,7 +73,7 @@ export const commands = [
     name: 'config explain',
     summary:
       'Each effective setting, the layer it came from (person, machine, project, run or default), and any looser value it overrode',
-    piece: 'v0',
+    piece: 'settings-hold',
     args: [
       {
         name: 'json',
@@ -129,7 +129,7 @@ export const commands = [
     name: 'config write',
     summary:
       'Validate and write the person or machine settings file; refused for executors (HITLD_ROLE=executor or HITLD_DISPATCH set)',
-    piece: 'v0',
+    piece: 'settings-hold',
     args: [
       {
         name: 'kind',
@@ -187,7 +187,7 @@ export const commands = [
     name: 'config migrate',
     summary:
       'Propose person and machine files from the settings that moved out of policy.json; with --yes, write them and remove the keys from policy.json',
-    piece: 'v0',
+    piece: 'settings-hold',
     args: [
       {
         name: 'yes',

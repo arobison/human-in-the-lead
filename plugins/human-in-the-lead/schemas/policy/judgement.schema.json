@@ -1,7 +1,7 @@
 {
   "$id": "policy/judgement",
   "title": "policy.json: judgement",
-  "description": "Starting weights for recorded judgements (design part 3.2, Judgement). Calibration moves them with the record (milestone T1).",
+  "description": "Starting weights for recorded judgements (design part 3.2, Judgement). Calibration moves them with the record (the milestone Trust calibration).",
   "type": "object",
   "properties": {
     "weights": {

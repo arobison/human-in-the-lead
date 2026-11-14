@@ -1,9 +1,10 @@
 // The views over the item graph (design part 3.4, "Generated views"): ready, blocked, the
-// decision backlog, projects, initiatives, the item lists, the dependency diagrams and the
-// critical path. Each returns text. The first five and the lists are the reference views
-// byte for byte (design part 16.7); the critical path is new.
+// decision backlog, projects, initiatives, the item lists, the dependency diagrams, the critical
+// path, the milestones (each with its error and scope) and the merged-but-unreleased stock. Each
+// returns text. The first five are the reference views byte for byte (design part 16.7).
 
-import { ITEM_KINDS, describeProgress, list, progress } from './graph.mjs';
+import { ITEM_KINDS, describeProgress, progress } from './graph.mjs';
+import { readMilestone } from './milestones.mjs';
 
 /**
  * @typedef {import('./graph.mjs').Graph} Graph
@@ -214,17 +215,19 @@ export function renderLists(g, { linkBase = '' } = {}) {
       `${pid}, ${p.data.status}, led by ${p.data.lead}: ${describeProgress(progress(g, items))}.${plan}`,
       '',
     );
-    const milestones = list(p.data.milestones);
+    // Each item shows under the first of the project's milestones that names it as a constraint.
+    const milestones = g.milestonesOf(String(p.data.id));
+    const placed = new Set();
     /** @type {[string, Node[]][]} */
-    const groups = milestones.length
-      ? [
-          ...milestones.map(
-            (/** @type {string} */ m) =>
-              /** @type {[string, Node[]]} */ ([m, items.filter((it) => it.data.milestone === m)]),
-          ),
-          ['', items.filter((it) => !milestones.includes(String(it.data.milestone)))],
-        ]
-      : [['', items]];
+    const groups = [];
+    for (const m of milestones) {
+      const needs = g.needs(m);
+      const its = items.filter((it) => needs.includes(String(it.data.id)) && !placed.has(it));
+      its.forEach((it) => placed.add(it));
+      const mid = linkBase ? `[${m.data.id}](${linkBase}${m.folder}/${m.file})` : m.data.id;
+      groups.push([`${m.data.title} (${mid}, ${m.data.status})`, its]);
+    }
+    groups.push(['', items.filter((it) => !placed.has(it))]);
     for (const [m, its] of groups) {
       if (!its.length) continue;
       if (m) out.push(`Milestone: ${m}`, '');
@@ -258,6 +261,75 @@ export function replaceBetweenMarkers(text, generated) {
   const b = text.indexOf(LIST_END);
   if (a < 0 || b < a) throw new Error("the work:lists markers aren't in the file");
   return `${text.slice(0, a)}${LIST_BEGIN}\n\n${generated}\n${text.slice(b)}`;
+}
+
+// --- Milestones and releases -----------------------------------------------
+
+/**
+ * Each open milestone: its outcome, its error (the unmet clauses), whether its check is due, its
+ * scope and what shaping still owes it; then the closed ones, one line each.
+ * @param {Graph} g
+ * @param {(m: Node) => import('./milestones.mjs').MilestoneDerived} derived
+ */
+export function viewMilestones(g, derived) {
+  /** @type {string[]} */
+  const out = [];
+  const open = g.milestones.filter(g.isOpen);
+  for (const m of open) {
+    const d = derived(m);
+    const data = readMilestone(m.data);
+    const parent = String(m.data.project ?? m.data.initiative);
+    if (out.length) out.push('');
+    out.push(
+      `${m.data.id} ${m.data.title} [${m.data.status}], ${m.data.kind}, under ${parent} ${titleOf(g, parent)}`,
+    );
+    if (data.outcome) out.push(`  outcome: ${data.outcome}`);
+    const ids = g.needs(m);
+    const done = ids.filter((id) => g.get(id)?.data.status === 'Done').length;
+    out.push(`  constraints: ${done} of ${ids.length} done`);
+    if (d.check_due) out.push('  check due: every constraint is done; the check has not passed');
+    for (const e of d.error) {
+      const what = e.clause ? `${e.clause} ${e.text}` : 'not linked to a clause yet';
+      const why = [
+        ...(e.open.length ? [`open: ${e.open.join(', ')}`] : []),
+        ...(e.checked ? [] : ['check not passed']),
+      ];
+      out.push(`  error: ${what} (${why.join('; ')})`);
+    }
+    const s = d.scope;
+    if (data.contributions.length || s.appetite_tokens !== null) {
+      const parts = [
+        `appetite ${s.appetite_tokens ?? 'not set'}`,
+        `constraints ${s.constraint_tokens} tokens`,
+        `in scope: ${s.fits.join(', ') || 'none'}`,
+      ];
+      if (s.cut.length) parts.push(`cut: ${s.cut.join(', ')}`);
+      if (s.unsized.length) parts.push(`not sized: ${s.unsized.join(', ')}`);
+      if (s.too_big) parts.push('too big: the constraints alone exceed the appetite');
+      out.push(`  scope: ${parts.join('; ')}`);
+    }
+    if (d.to_shape.length) out.push(`  to shape: ${d.to_shape.join('; ')}`);
+  }
+  const closed = g.milestones.filter((m) => !g.isOpen(m));
+  if (closed.length) {
+    if (out.length) out.push('');
+    for (const m of closed) out.push(`${m.data.id} ${m.data.title} [${m.data.status}]`);
+  }
+  out.push('', `${open.length} open milestone(s)`);
+  return `${out.join('\n').replace(/^\n+/, '')}\n`;
+}
+
+/**
+ * The merged-but-unreleased stock: Done work items that no full release lists yet, by project.
+ * @param {Graph} g @param {Map<string, string>} released item ID to the release that shipped it
+ */
+export function viewUnreleased(g, released) {
+  const stock = g.items.filter(
+    (it) =>
+      it.data.kind === 'work' && it.data.status === 'Done' && !released.has(String(it.data.id)),
+  );
+  const lines = grouped(g, stock, (it) => `${it.data.id}  ${it.data.title}`);
+  return `${[...lines, '', `${stock.length} merged item(s) not in a release`].join('\n')}\n`;
 }
 
 // --- Diagrams --------------------------------------------------------------

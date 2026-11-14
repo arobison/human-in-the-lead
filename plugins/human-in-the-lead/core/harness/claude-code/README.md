@@ -1,6 +1,6 @@
 # The Claude Code harness adapter
 
-Implements `HarnessAdapter` from `../interface.mjs` for Claude Code ([design part 15.4](../../../docs/design/0001-human-in-the-lead/15-architecture.md#154-the-claude-code-adapter-v0)).
+Implements `HarnessAdapter` from `../interface.mjs` for Claude Code ([design part 15.4](../../../docs/design/0001-human-in-the-lead/15-architecture.md#154-the-claude-code-adapter)).
 
 Claude Code's tools (Agent, SendMessage, background Bash, messages in the main session) can be called only by the model in the main session, never from Node. So the adapter is a contract: for each operation it produces the exact tool call (`instructions.mjs`), the orchestrator skill (`skills/orchestrate/SKILL.md`) makes it, and `hitld` records what came back:
 

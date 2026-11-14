@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// PreToolUse on Bash: executors never push, never move main, and never run the orchestrator's
-// commands. The system never pushes on its
+// PreToolUse on Bash: executors never push, never move main, never run the orchestrator's
+// commands, and never touch the security baseline, verdicts or accepted risks (design 10.5).
+// The system never pushes on its
 // own (design part 5.3); main moves only through the merge queue (part 14.1).
 
 import { isExecutor, readHookInput } from './input.mjs';
@@ -30,9 +31,20 @@ if (isExecutor(input, process.env)) {
     why = "that is the orchestrator's command, not an executor's";
   } else if (/\beval\s+accept\b/.test(unquoted) || /--accept-baseline\b/.test(unquoted)) {
     why = "accepting an eval baseline is the owner's decision; put it in your report";
+  } else if (/\bsecurity\s+accept\b/.test(unquoted)) {
+    why =
+      "accepting a security finding as a risk is the owner's decision; propose a verdict in your report";
+  } else if (
+    /\bsecurity\s+(verdict|baseline|status)\b/.test(unquoted) ||
+    /\bsecurity\/(baseline|verdicts|accepted-risks|pending)\.json\b/.test(unquoted)
+  ) {
+    why =
+      "the security baseline and verdicts are not an executor's to read or write; propose a verdict in your report";
   } else if (/\brights\b[\s\S]*\b(answer|overrule|reverse|rate|trust)\b/.test(unquoted)) {
     why =
       "decisions are the owner's, answered through the main session; put the question in your report";
+  } else if (/\bhitld(\.mjs)?\s+release\s+make\b/.test(unquoted)) {
+    why = "making a release is the owner's, from the main session; propose it in your report";
   } else if (hitldCalls(unquoted).some((rest) => !EXECUTOR_HITLD.test(rest))) {
     why = 'executors run only the hitld commands for claiming, closing, reading and checking';
   }

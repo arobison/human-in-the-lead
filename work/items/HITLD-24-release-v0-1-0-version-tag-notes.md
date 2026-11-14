@@ -5,8 +5,7 @@ kind: work
 status: Planned
 created: 2026-11-14
 project: HITLD-15
-milestone: first-release
-needs: [HITLD-22, HITLD-23, HITLD-16, HITLD-39, HITLD-40, HITLD-45, HITLD-51, HITLD-58, HITLD-59, HITLD-63]
+needs: [HITLD-22, HITLD-23, HITLD-16, HITLD-39, HITLD-40, HITLD-45, HITLD-51, HITLD-58, HITLD-59, HITLD-61, HITLD-63]
 ---
 
 ## Why
