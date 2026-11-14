@@ -29,8 +29,8 @@ const HARNESS_OPTION = Object.freeze({
   copilot: 'GitHub Copilot',
 });
 
-/** @param {{ name: string, version: string }} h */
-function harnessText(h) {
+/** The Harness answer for a record's harness. @param {{ name: string, version: string }} h */
+export function harnessText(h) {
   const option = /** @type {Record<string, string>} */ (HARNESS_OPTION)[h.name];
   const label = option ?? `Other (${h.name})`;
   return h.version === 'unknown' ? label : `${label} ${h.version}`;
@@ -38,7 +38,7 @@ function harnessText(h) {
 
 /**
  * The issue body for a record, from the record's own fields. This is the local, confidential text:
- * the generalizer's draft (HITLD-47) replaces the person's words before anything is published.
+ * the generalizer's draft (core/lib/feedback/publish.mjs) replaces it before anything is published.
  * @param {Record<string, any>} r a valid feedback record
  * @returns {string}
  */

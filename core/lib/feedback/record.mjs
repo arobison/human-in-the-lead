@@ -1,7 +1,7 @@
 // Feedback about HITLd, recorded locally (design part 18.4). A record is one JSON file in the
 // consuming project's private store, feedback/FB-<n>.json. It is confidential: it holds the
 // person's words and the project's IDs, so it is written only into the private store and never
-// into the repository or any worktree. Publishing it is a separate, approved step (HITLD-47).
+// into the repository or any worktree. Publishing it is a separate, approved step (publish.mjs).
 
 import { existsSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -101,6 +101,16 @@ export function checkRecord(record) {
   if (r.state === 'withheld' && !r.reason) problems.push('a withheld record needs a reason');
   if (r.state !== 'withheld' && r.reason !== undefined)
     problems.push('reason is only for a withheld record');
+  if ((r.state === 'drafted' || r.state === 'filed') && !r.draft)
+    problems.push(`a ${r.state} record needs its draft`);
+  if (r.state === 'filed' && !r.approval)
+    problems.push("a filed record needs the person's approval");
+  if (
+    r.approval &&
+    r.state !== 'filed' &&
+    !(r.state === 'drafted' && r.approval.mode === 'by-hand')
+  )
+    problems.push('approval is only for a filed record, or a drafted one approved by-hand');
   return problems;
 }
 

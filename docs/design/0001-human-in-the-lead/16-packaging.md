@@ -25,6 +25,8 @@ human-in-the-lead/
   schemas/                        # versioned JSON Schemas
   skills/                         # layer 2: SKILL.md sources with portable front matter only
     orchestrate/ execute/         # built; the rest of the design's skills are planned
+  agents/                         # agent definitions beyond the executors (the generalizer),
+                                  # portable front matter only; the build adds the harness's
   templates/                      # AGENTS.contract.md, policy.json and the item, decision and
                                   # report templates
   evals/                          # the eval suite (part 17): scenarios, graders, runner

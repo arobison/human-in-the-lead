@@ -240,7 +240,35 @@ test('the record schema: rejects unknown keys and any classification but confide
   assert.notEqual(checkRecord({ ...base, classification: 'public' }).length, 0);
   assert.notEqual(checkRecord({ ...base, kind: 'feature' }).length, 0);
   assert.notEqual(checkRecord({ ...base, state: 'filed' }).length, 0);
-  assert.deepEqual(checkRecord({ ...base, state: 'filed', url: 'https://example.test/i/1' }), []);
+  assert.notEqual(
+    checkRecord({ ...base, state: 'filed', url: 'https://example.test/i/1' }).length,
+    0,
+    'a filed record needs its draft and approval',
+  );
+  const draft = {
+    title: 't',
+    what_happened: 'w',
+    classification: 'public',
+    drafted_at: '2026-11-14T10:00:00.000Z',
+  };
+  const approval = {
+    by: 'owner',
+    at: '2026-11-14T10:00:00.000Z',
+    via: 'main-session',
+    mode: 'approve',
+    answer: 'approve',
+  };
+  assert.deepEqual(
+    checkRecord({ ...base, state: 'filed', url: 'https://example.test/i/1', draft, approval }),
+    [],
+  );
+  assert.notEqual(checkRecord({ ...base, state: 'drafted' }).length, 0);
+  assert.deepEqual(checkRecord({ ...base, state: 'drafted', draft }), []);
+  assert.notEqual(checkRecord({ ...base, state: 'drafted', draft, approval }).length, 0);
+  assert.deepEqual(
+    checkRecord({ ...base, state: 'drafted', draft, approval: { ...approval, mode: 'by-hand' } }),
+    [],
+  );
   assert.notEqual(checkRecord({ ...base, state: 'withheld' }).length, 0);
   assert.deepEqual(checkRecord({ ...base, state: 'withheld', reason: 'not public' }), []);
   assert.notEqual(checkRecord({ ...base, url: 'https://example.test/i/1' }).length, 0);

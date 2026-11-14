@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "id": "feedback/project-feedback-to-note",
+  "piece": "feedback",
+  "category": "feedback",
+  "description": "Feedback about the project's own work is a project note, not HITLd feedback; when it is unclear whom feedback is for, the route asks the one line \"For HITLd, or for this project?\".",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "note",
+      "action": "feedback.cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "route",
+          "--from",
+          "turn",
+          "--words",
+          "The checkout page tests are flaky again."
+        ]
+      }
+    },
+    {
+      "id": "unclear",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "route", "--from", "turn", "--words", "This is slow."]
+      }
+    },
+    {
+      "id": "list",
+      "action": "feedback.cli",
+      "with": {
+        "argv": ["feedback", "list", "--store", "store", "--all"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "note",
+      "grader": "equals",
+      "with": {
+        "path": "steps.note.result.action",
+        "value": "note"
+      }
+    },
+    {
+      "id": "about-project",
+      "grader": "equals",
+      "with": {
+        "path": "steps.note.result.about",
+        "value": "project"
+      }
+    },
+    {
+      "id": "note-left-to-session",
+      "grader": "contains",
+      "with": {
+        "path": "steps.note.result.say",
+        "value": "hitld note is not built yet"
+      }
+    },
+    {
+      "id": "ask",
+      "grader": "equals",
+      "with": {
+        "path": "steps.unclear.result.action",
+        "value": "ask"
+      }
+    },
+    {
+      "id": "one-line",
+      "grader": "contains",
+      "with": {
+        "path": "steps.unclear.result.say",
+        "value": "For HITLd, or for this project?"
+      }
+    },
+    {
+      "id": "nothing-recorded",
+      "grader": "equals",
+      "with": {
+        "path": "steps.list.result.total",
+        "value": 0
+      }
+    }
+  ]
+}

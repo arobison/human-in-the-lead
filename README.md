@@ -262,7 +262,7 @@ Milestones are named by their outcomes, never numbered, and ordered by dependenc
 You do not need a problem to file feedback. Something that worked well is as useful as a bug: it tells us what not to break.
 
 - **On GitHub**, open an issue and pick a form: bug, friction (it works but feels wrong), idea or design comment, worked well, or experience report. Each asks for the HITLd version, the harness, the loop or area, what happened and what you expected. Leave out anything confidential.
-- **From inside a session** (`hitld feedback` records it; the orchestrator's part comes with the first live test), say what you noticed about HITLd, for example "that question was not worth asking". The orchestrator records it with its context in your project's private store. Nothing is filed until a generalized version, with your project's details removed, has been approved.
+- **From inside a session**, say what you noticed about HITLd, for example "that question was not worth asking". The orchestrator records it with its context in your project's private store. Nothing is filed until a generalized version, with your project's details removed, has been approved.
 
 How it works: [giving feedback](docs/design/0001-human-in-the-lead/18-self-improvement.md#184-giving-feedback).
 

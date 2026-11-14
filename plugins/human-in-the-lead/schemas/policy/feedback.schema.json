@@ -1,0 +1,17 @@
+{
+  "$id": "policy/feedback",
+  "title": "policy.json: feedback",
+  "description": "Feedback about HITLd (design part 18.4). Filing feedback in HITLd's public repository is an external publication, so it goes through the send gate. Changing who approves is the owner's decision.",
+  "type": "object",
+  "properties": {
+    "approvers": {
+      "description": "Who may approve publishing a feedback record: \"owner\", or contributor IDs. Until team use is designed (HITLD-44), each person approves only their own feedback and that person is the owner.",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/person" },
+      "minItems": 1,
+      "uniqueItems": true,
+      "default": ["owner"]
+    }
+  },
+  "additionalProperties": false
+}
