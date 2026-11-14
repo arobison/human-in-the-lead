@@ -21,7 +21,15 @@ import { LeaseError } from '../../run/lease.mjs';
 import { Run, handOver } from '../../run/run.mjs';
 import { reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
-import { openEnv } from '../../env/manager.mjs';
+import { machineRootFor, openEnv } from '../../env/manager.mjs';
+import {
+  activeProjects,
+  readAccountSnapshots,
+  registerExecutor,
+  releaseExecutor,
+  runningElsewhere,
+  shareFraction,
+} from '../../registry/machine.mjs';
 import { primaryCheckoutOf } from '../../env/primary.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
@@ -112,8 +120,15 @@ function project(ctx) {
   }
   const store = openStore(privateStorePath(loaded.policy.project.id, { env: ctx.env, repoRoot }));
   const state = loadState(store).state;
-  // The person's and machine's settings layered over the project's (design part 13.4).
-  const layered = loadEffectivePolicy({ env: ctx.env, policyResult: loaded, run: state?.scope });
+  // The person's and machine's settings layered over the project's (design part 13.4), less the
+  // executors other projects already have running on this machine (the machine registry).
+  const machineRoot = machineRootFor(store.root);
+  const layered = loadEffectivePolicy({
+    env: ctx.env,
+    policyResult: loaded,
+    run: state?.scope,
+    running: runningElsewhere(machineRoot, loaded.policy.project.id),
+  });
   if (!layered.policy || !layered.settings) {
     throw new Refusal('settings', 'a settings file is invalid; run hitld config explain', {
       errors: layered.errors,
@@ -126,6 +141,12 @@ function project(ctx) {
     setup: setupState(layered.files),
     store,
     state,
+    machineRoot,
+    person: layered.layers?.person ?? null,
+    max: {
+      person: /** @type {number | undefined} */ (layered.layers?.person?.executors_max),
+      machine: /** @type {number | undefined} */ (layered.layers?.machine?.executors_max),
+    },
   };
 }
 
@@ -181,7 +202,11 @@ function readyQueue(p, ctx) {
  */
 function plan(p, ctx, byHand) {
   const q = readyQueue(p, ctx);
-  const { snapshots } = readSnapshots(p.store);
+  // Snapshots: this project's own, and every account's from the machine registry, so all projects
+  // on the machine see the same use.
+  const snapshots = [...readSnapshots(p.store).snapshots, ...readAccountSnapshots(p.machineRoot)];
+  const projectId = p.policy.project.id;
+  const share = shareFraction(p.person, projectId, activeProjects(p.machineRoot, projectId));
   const ledger = readLedgerEntries(p.store);
   const runStarted = p.state?.run?.started_at ? Date.parse(p.state.run.started_at) : null;
   const env = openEnv({ repoRoot: p.repoRoot, store: p.store, policy: p.policy, env: ctx.env });
@@ -214,7 +239,7 @@ function plan(p, ctx, byHand) {
           critical_path: q.critical.has(String(item.id)),
           estimate_tokens: q.sizes.get(String(item.id))?.estimate_tokens,
         },
-        { ledger, runStartedAt: runStarted },
+        { ledger, runStartedAt: runStarted, share },
       ),
     heldElsewhere: (resource) => {
       const holder = locks.get(resource) ?? null;
@@ -422,6 +447,35 @@ export const commands = [
           ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
         });
 
+        // Count it in the machine registry, against the person's and the machine's maxima. The
+        // plan already left room for it; this check, under the registry's lock, is what keeps two
+        // projects dispatching at once from passing a cap together.
+        const counted = registerExecutor(
+          p.machineRoot,
+          {
+            project: p.policy.project.id,
+            dispatch,
+            item: id,
+            store_root: p.store.root,
+            resources: planned.serial,
+          },
+          p.max,
+        );
+        if (!counted.ok) {
+          run.record({
+            id: lifecycleId('abandoned', dispatch),
+            event: 'abandoned',
+            dispatch,
+            item: id,
+            notes: `the ${counted.layer} maximum of ${counted.max} executors is reached (${counted.live} live on this machine)`,
+          });
+          throw new Refusal(
+            'cap',
+            `the ${counted.layer} maximum of ${counted.max} executors is reached (${counted.live} live on this machine, across projects); ${id} waits`,
+            { dispatch },
+          );
+        }
+
         /** @type {string | null} */
         let worktree = null;
         if (tier === 3) {
@@ -597,6 +651,7 @@ export const commands = [
           n = { kind: 'headless', json: stored };
         }
         const completion = completionOf(d, n);
+        releaseExecutor(p.machineRoot, p.policy.project.id, d);
         const parsed = parseReport(completion.report);
         const commit = parsed.report?.commit?.sha;
         run.record({

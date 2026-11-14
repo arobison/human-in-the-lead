@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
-import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
+import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { loadSettingsFile } from '../../settings/files.mjs';
 import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
@@ -21,7 +21,15 @@ import { LeaseError } from '../../run/lease.mjs';
 import { Run, handOver } from '../../run/run.mjs';
 import { reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
-import { openEnv } from '../../env/manager.mjs';
+import { machineRootFor, openEnv } from '../../env/manager.mjs';
+import {
+  activeProjects,
+  readAccountSnapshots,
+  registerExecutor,
+  releaseExecutor,
+  runningElsewhere,
+  shareFraction,
+} from '../../registry/machine.mjs';
 import { primaryCheckoutOf } from '../../env/primary.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
@@ -112,8 +120,15 @@ function project(ctx) {
   }
   const store = openStore(privateStorePath(loaded.policy.project.id, { env: ctx.env, repoRoot }));
   const state = loadState(store).state;
-  // The person's and machine's settings layered over the project's (design part 13.4).
-  const layered = loadEffectivePolicy({ env: ctx.env, policyResult: loaded, run: state?.scope });
+  // The person's and machine's settings layered over the project's (design part 13.4), less the
+  // executors other projects already have running on this machine (the machine registry).
+  const machineRoot = machineRootFor(store.root);
+  const layered = loadEffectivePolicy({
+    env: ctx.env,
+    policyResult: loaded,
+    run: state?.scope,
+    running: runningElsewhere(machineRoot, loaded.policy.project.id),
+  });
   if (!layered.policy || !layered.settings) {
     throw new Refusal('settings', 'a settings file is invalid; run hitld config explain', {
       errors: layered.errors,
@@ -123,9 +138,14 @@ function project(ctx) {
     repoRoot,
     policy: layered.policy,
     cap: layered.settings.cap,
-    setup: setupState(layered.files),
     store,
     state,
+    machineRoot,
+    person: layered.layers?.person ?? null,
+    max: {
+      person: /** @type {number | undefined} */ (layered.layers?.person?.executors_max),
+      machine: /** @type {number | undefined} */ (layered.layers?.machine?.executors_max),
+    },
   };
 }
 
@@ -176,12 +196,15 @@ function readyQueue(p, ctx) {
 
 /**
  * The dispatch plan for the free slots.
- * `byHand`: the item the person started by hand; it is the only one that runs before setup is done.
- * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand]
+ * @param {ReturnType<typeof project>} p @param {Ctx} ctx
  */
-function plan(p, ctx, byHand) {
+function plan(p, ctx) {
   const q = readyQueue(p, ctx);
-  const { snapshots } = readSnapshots(p.store);
+  // Snapshots: this project's own, and every account's from the machine registry, so all projects
+  // on the machine see the same use.
+  const snapshots = [...readSnapshots(p.store).snapshots, ...readAccountSnapshots(p.machineRoot)];
+  const projectId = p.policy.project.id;
+  const share = shareFraction(p.person, projectId, activeProjects(p.machineRoot, projectId));
   const ledger = readLedgerEntries(p.store);
   const runStarted = p.state?.run?.started_at ? Date.parse(p.state.run.started_at) : null;
   const env = openEnv({ repoRoot: p.repoRoot, store: p.store, policy: p.policy, env: ctx.env });
@@ -214,7 +237,7 @@ function plan(p, ctx, byHand) {
           critical_path: q.critical.has(String(item.id)),
           estimate_tokens: q.sizes.get(String(item.id))?.estimate_tokens,
         },
-        { ledger, runStartedAt: runStarted },
+        { ledger, runStartedAt: runStarted, share },
       ),
     heldElsewhere: (resource) => {
       const holder = locks.get(resource) ?? null;
@@ -222,17 +245,12 @@ function plan(p, ctx, byHand) {
     },
     overlapSerialize: p.policy.dispatch.overlap_serialize,
     critical: q.critical,
-    setup: { ...p.setup, byHand },
   });
-  return { q, result, setup: p.setup };
+  return { q, result };
 }
 
-/**
- * A plan as JSON for the skill.
- * @param {ReturnType<typeof plan>['result']} r @param {ReturnType<typeof setupState>} setup
- */
-const planJson = (r, setup) => ({
-  setup,
+/** A plan as JSON for the skill. @param {ReturnType<typeof plan>['result']} r */
+const planJson = (r) => ({
   cap: r.cap,
   running: r.running,
   free: r.free,
@@ -250,13 +268,11 @@ const planJson = (r, setup) => ({
   held: r.held,
   waiting: r.waiting,
   notes: r.notes,
-  next: !setup.done
-    ? 'setup is not done: run the first-run setup with the owner (orchestrate skill, first run); a hand-started item runs with hitld dispatch start <ID> --by-hand when the owner asks for it'
-    : r.start.length
-      ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch started'
-      : r.gate.notify_owner
-        ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
-        : 'nothing to start: wait for the next completion notice; do not poll',
+  next: r.start.length
+    ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch started'
+    : r.gate.notify_owner
+      ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
+      : 'nothing to start: wait for the next completion notice; do not poll',
 });
 
 /** Where a dispatch's files live in the private store. @param {string} d */
@@ -337,8 +353,7 @@ export const commands = [
     run: (_input, ctx) =>
       guarded(() => {
         const p = project(ctx);
-        const { result, setup } = plan(p, ctx);
-        return { ok: true, ...planJson(result, setup) };
+        return { ok: true, ...planJson(plan(p, ctx).result) };
       }),
   },
   {
@@ -358,12 +373,6 @@ export const commands = [
         type: 'string',
         description: 'For tier 3: headless or interactive (default policy dispatch.tier3_mode)',
       },
-      {
-        name: 'by-hand',
-        type: 'boolean',
-        description:
-          'The owner asked for this item themselves. Before the first-run setup is done, only an item started this way runs, and one at a time',
-      },
       SESSION,
       HOST,
     ],
@@ -372,7 +381,7 @@ export const commands = [
         const p = project(ctx);
         const run = runOf(p, input, ctx);
         const id = String(input.item);
-        const { q, result, setup } = plan(p, ctx, input['by-hand'] === true ? id : undefined);
+        const { q, result } = plan(p, ctx);
         const planned = result.start.find((s) => s.item === id);
         if (!planned) {
           const held = result.held.find((h) => h.item === id);
@@ -383,7 +392,7 @@ export const commands = [
               : q.queue.some((i) => String(i.id) === id)
                 ? `${id} is ready but no slot is free (${result.running} running, cap ${result.cap})`
                 : `${id} is not ready (or is already in flight)`;
-          throw new Refusal('not_planned', why, { plan: planJson(result, setup) });
+          throw new Refusal('not_planned', why, { plan: planJson(result) });
         }
         const item = /** @type {Item} */ (q.byId.get(id));
         const dispatch = nextDispatchId(readLedger(p.store).events);
@@ -421,6 +430,35 @@ export const commands = [
           host: run.host,
           ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
         });
+
+        // Count it in the machine registry, against the person's and the machine's maxima. The
+        // plan already left room for it; this check, under the registry's lock, is what keeps two
+        // projects dispatching at once from passing a cap together.
+        const counted = registerExecutor(
+          p.machineRoot,
+          {
+            project: p.policy.project.id,
+            dispatch,
+            item: id,
+            store_root: p.store.root,
+            resources: planned.serial,
+          },
+          p.max,
+        );
+        if (!counted.ok) {
+          run.record({
+            id: lifecycleId('abandoned', dispatch),
+            event: 'abandoned',
+            dispatch,
+            item: id,
+            notes: `the ${counted.layer} maximum of ${counted.max} executors is reached (${counted.live} live on this machine)`,
+          });
+          throw new Refusal(
+            'cap',
+            `the ${counted.layer} maximum of ${counted.max} executors is reached (${counted.live} live on this machine, across projects); ${id} waits`,
+            { dispatch },
+          );
+        }
 
         /** @type {string | null} */
         let worktree = null;
@@ -597,6 +635,7 @@ export const commands = [
           n = { kind: 'headless', json: stored };
         }
         const completion = completionOf(d, n);
+        releaseExecutor(p.machineRoot, p.policy.project.id, d);
         const parsed = parseReport(completion.report);
         const commit = parsed.report?.commit?.sha;
         run.record({
@@ -637,8 +676,7 @@ export const commands = [
               'for each question: if it is your call (ordering, scope inside the project, which in-plan approach), answer it with hitld dispatch follow-up; otherwise write a question file and run hitld rights ask (precedent first, then a decision item and a message to the decider)';
           }
         }
-        const again = plan(project(ctx), ctx);
-        out.refill = planJson(again.result, again.setup);
+        out.refill = planJson(plan(project(ctx), ctx).result);
         return out;
       }),
   },

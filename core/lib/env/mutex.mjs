@@ -69,3 +69,47 @@ export async function withMutex(dir, fn, options = {}) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+/**
+ * The same mutex for synchronous callers (the status line, which cannot await): the same
+ * directory and owner file, so it excludes `withMutex` holders and is excluded by them. It waits
+ * by blocking the thread in short sleeps, so keep `fn` short.
+ * @template T
+ * @param {string} dir
+ * @param {() => T} fn
+ * @param {{ timeoutMs?: number, pollMs?: number, staleMs?: number }} [options]
+ * @returns {T}
+ */
+export function withMutexSync(dir, fn, options = {}) {
+  const { timeoutMs = 30_000, pollMs = 15, staleMs = 10_000 } = options;
+  mkdirSync(dirname(dir), { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, 'owner'), `${process.pid}\n`);
+      break;
+    } catch (e) {
+      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+    }
+    if (looksStale(dir, staleMs)) {
+      const aside = `${dir}.stale.${process.pid}.${Date.now()}`;
+      try {
+        renameSync(dir, aside);
+        if (looksStale(aside, staleMs)) rmSync(aside, { recursive: true, force: true });
+        else renameSync(aside, dir);
+      } catch {
+        // someone else got there first
+      }
+      continue;
+    }
+    if (Date.now() > deadline) throw new Error(`timed out waiting for the lock at ${dir}`);
+    Atomics.wait(nap, 0, 0, pollMs);
+  }
+  try {
+    return fn();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}

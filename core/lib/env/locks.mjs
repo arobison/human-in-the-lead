@@ -7,7 +7,7 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { checkHolder } from './config.mjs';
 import { withMutex } from './mutex.mjs';
 import { isAlive, processInfo, sleep } from './proc.mjs';
@@ -25,6 +25,7 @@ import { isAlive, processInfo, sleep } from './proc.mjs';
  *
  * @typedef {object} LockContext
  * @property {string} machineRoot the machine-wide directory, with locks/ beneath it
+ * @property {string} [repoRoot] the repository's primary checkout, for the per-repository resources
  * @property {(kind: string, data: Record<string, unknown>) => void} [log]
  *
  * @typedef {object} LockHandle
@@ -45,10 +46,32 @@ function checkResource(resource) {
   return resource;
 }
 
+/**
+ * Resources that are serial per repository, not per machine (design 13.2 and 13.4): the merge
+ * queue works on one repository's main branch, so two repositories never wait on each other.
+ */
+export const PER_REPOSITORY = Object.freeze(['merge-queue']);
+
+/**
+ * The name a resource's files carry: the resource itself, or, for a per-repository one, the
+ * resource and a short hash of the repository's root. Records and reports keep the plain name.
+ * @param {LockContext} ctx @param {string} resource
+ */
+function physical(ctx, resource) {
+  if (!PER_REPOSITORY.includes(resource)) return resource;
+  if (!ctx.repoRoot) {
+    throw new Error(`${resource} is per repository: the lock context needs the repository's root`);
+  }
+  const key = createHash('sha256').update(ctx.repoRoot).digest('hex').slice(0, 12);
+  return `${resource}.${key}`;
+}
+
 /** @param {LockContext} ctx @param {string} resource */
-const lockFile = (ctx, resource) => join(ctx.machineRoot, 'locks', `${resource}.lock`);
+const lockFile = (ctx, resource) =>
+  join(ctx.machineRoot, 'locks', `${physical(ctx, resource)}.lock`);
 /** @param {LockContext} ctx @param {string} resource */
-const queueDir = (ctx, resource) => join(ctx.machineRoot, 'locks', `${resource}.queue`);
+const queueDir = (ctx, resource) =>
+  join(ctx.machineRoot, 'locks', `${physical(ctx, resource)}.queue`);
 
 /** @param {string} path @returns {LockRecord | null | undefined} undefined: absent; null: unreadable */
 function readLock(path) {

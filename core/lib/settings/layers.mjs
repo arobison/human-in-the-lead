@@ -536,6 +536,7 @@ export function loadEffectivePolicy(options = {}) {
     errors,
     warnings: movedKeyWarnings(layers, { person: person.path, machine: machine.path }),
     settings: { cap: eff.cap, values: eff.values },
+    layers: { person: person.data, machine: machine.data },
     files,
   };
 }
