@@ -197,7 +197,7 @@ test('the commands carry a question through to a precedent, a digest and an over
 test('hitld judgement weigh and conflict', async () => {
   const { run } = setup();
   const subject = {
-    judgements: [{ what: 'valuable', basis: 'gut-check', by: 'owner', at: '2026-11-14' }],
+    judgements: [{ what: 'valuable', basis: 'gut-check', by: 'owner' }],
     confidence: 0.5,
     evidence: [{ ref: 'S-4', verdict: 'contradicts', summary: 'no gain' }],
   };

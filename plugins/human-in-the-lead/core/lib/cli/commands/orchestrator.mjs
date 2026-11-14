@@ -244,11 +244,13 @@ const readInput = (path, ctx) =>
 const sentBack = (x, main) =>
   x.reason === 'conflict'
     ? `Rebase onto ${main}: your change conflicts with merged work in ${(x.files ?? []).join(', ') || 'your branch'}. Keep both intents; if they contradict, say so under questions.`
-    : x.reason === 'fast_check'
-      ? `The merge queue's fast check "${x.command}" fails on your branch rebased onto ${main}. Fix it on your branch.`
-      : x.reason === 'security'
-        ? securitySentBack(x, main)
-        : `Your branch fails the full suite in its merge batch ("${x.command}"); bisection named it. Fix it on your branch.`;
+    : x.reason === 'classification'
+      ? `Your branch adds files above the repository's classification ceiling: ${(x.files ?? []).join(', ')}. Take them out of every commit on the branch, not only the last; such files belong in the private store. Lowering a classification is the owner's decision: if one is wrong, say so under questions.`
+      : x.reason === 'fast_check'
+        ? `The merge queue's fast check "${x.command}" fails on your branch rebased onto ${main}. Fix it on your branch.`
+        : x.reason === 'security'
+          ? securitySentBack(x, main)
+          : `Your branch fails the full suite in its merge batch ("${x.command}"); bisection named it. Fix it on your branch.`;
 
 /** @param {import('../../merge/queue.mjs').Rejected} x @param {string} main */
 function securitySentBack(x, main) {
@@ -838,6 +840,12 @@ export const commands = [
               ],
               flakeReruns: p.policy.merge.flake_reruns,
               setup: p.policy.env.worktree_setup,
+              // From main's policy and tracker.json, never the branch's own.
+              classification: {
+                ceiling: layout.classificationCeiling,
+                defaultClassification: layout.defaultClassification,
+                privatePaths: layout.privatePaths,
+              },
             },
             regenerateViews: (dir) => {
               if (existsSync(join(dir, layout.workDir))) {
@@ -885,8 +893,12 @@ export const commands = [
               reason: x.reason,
               ...(x.files ? { files: x.files } : {}),
               ...(x.command ? { command: x.command } : {}),
+              ...(x.reason === 'classification' && x.output
+                ? { problems: x.output.split('\n') }
+                : {}),
               follow_up:
-                x.dispatch && ['conflict', 'fast_check', 'security', 'suite'].includes(x.reason)
+                x.dispatch &&
+                ['conflict', 'classification', 'fast_check', 'security', 'suite'].includes(x.reason)
                   ? { dispatch: x.dispatch, message: sentBack(x, main) }
                   : null,
             })),

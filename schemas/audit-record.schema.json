@@ -1,7 +1,7 @@
 {
   "$id": "audit-record",
   "title": "Audit record",
-  "description": "One line of audit.jsonl in the private store: who or what decided a thing, on what evidence, under which rules (design part 3.2). Hash-chained; internal. Built in milestone A1.",
+  "description": "One line of audit.jsonl in the private store: who or what decided a thing, on what evidence, under which rules (design part 3.2). Hash-chained; internal. Built in the milestone Audit trail.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {

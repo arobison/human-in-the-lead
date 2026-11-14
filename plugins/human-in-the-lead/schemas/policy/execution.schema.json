@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "concurrency": {
-      "description": "The most executors running at once. A controller may move value inside min and max (milestone M2); in v0 it stays at value.",
+      "description": "The most executors running at once. A controller may move value inside min and max (the milestone Controllers); until then it stays at value.",
       "$ref": "#/$defs/bounded",
       "default": { "value": 3, "min": 1, "max": 6 }
     }

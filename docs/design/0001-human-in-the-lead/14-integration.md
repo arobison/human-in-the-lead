@@ -14,7 +14,7 @@ For each finished branch, after verification ([part 6](06-verification.md)) has 
 
 1. **Order.** Branches merge in **dependency order**: an item whose `needs` include another waiting item goes after it. Among independent branches, priority order ([part 2](02-loops.md#24-prioritization)). Branches whose `touches` overlap go one after the other.
 2. **Rebase** onto the current tip of the batch under construction.
-3. **Fast checks** on the rebased branch: the tracker check, lint, type check, the item's acceptance checks, the tests nearest its `touches`, and the declared security scans, diff-aware against the baseline (below).
+3. **Fast checks** on the rebased branch: the commit guard's classification rule on each of its commits (built in, whatever the policy lists; [10.3](10-security.md#103-information-classification)), the tracker check, lint, type check, the item's acceptance checks, the tests nearest its `touches`, and the declared security scans, diff-aware against the baseline (below).
 4. **Batch.** After `merge.batch_max` branches, or when no more are waiting, run the **full suite once** on the combined result, then regenerate tracker views ([part 3](03-data-model.md#generated-views)) and commit them on top.
 5. **Fast-forward** `main` to the tested commit. Each branch's `state: Done` closes its items.
 
