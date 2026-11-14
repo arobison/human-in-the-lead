@@ -12,7 +12,7 @@ Each question stands alone, with a recommendation and the main alternative. They
 
 The ledger, private signals, confidential decisions, research and eval results need a home outside the public repository ([part 3](03-data-model.md#private-store)).
 
-- **Git text files are the source of truth** for what syncs between machines and keeps history: the ledger, decisions, precedents, signals, notes and judgement records. Other machines the owner controls get them through an encrypted bundle, the same way code bundles move (`hitld store export`, `import` and `sync`, planned). One ledger and one decision record, so flow metrics cover every machine.
+- **Git text files are the source of truth** for what syncs between machines and keeps history: the ledger, decisions, precedents, signals, notes and judgement records. Other machines the owner controls get them through an encrypted bundle, the same way code bundles move (`hitld store export`, `import` and `sync`). One ledger and one decision record, so flow metrics cover every machine.
 - **SQLite** (Node's built-in module, so no dependency) holds what is local to one machine and needs transactions or fast queries: the machine registry (live executors, leases, locks, capacities) and an index over the ledger for metrics. The index can be deleted and rebuilt from the text.
 - This is the knowledge base's pattern ([part 8](08-knowledge-base.md#82-markdown-in-git-is-the-source-of-truth)): text is the truth, the index is a deletable cache.
 - **Why not SQLite for everything.** Two SQLite files cannot be merged when two machines both wrote to them. Git text history can.

@@ -2,7 +2,7 @@
 name: orchestrate
 description: Run or resume a human-in-the-lead run as the orchestrator. Sizes ready work items into tiers, dispatches executors in parallel up to the cap, refills slots on completion notices, merges through the local queue, and routes questions to the owner. Use when the owner asks to start, resume or continue a run, or to work through the ready queue.
 license: Apache-2.0
-compatibility: Needs the hitld command line (Node 22 or later) and a project set up with hitld install.
+compatibility: Needs the hitld command line (Node 22.13 or later) and a project set up with hitld install.
 metadata:
   version: 0.0.0
   piece: h
