@@ -1,7 +1,7 @@
 {
   "$id": "opportunity",
   "title": "Opportunity",
-  "description": "A shaped cluster of signals (design part 3.2). Shares the tracker number space. Built in milestone M6; the schema is here so the model is complete.",
+  "description": "A shaped cluster of signals (design part 3.2). Shares the tracker number space. Built in the milestone Shaping and prioritization; the schema is here so the model is complete.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {

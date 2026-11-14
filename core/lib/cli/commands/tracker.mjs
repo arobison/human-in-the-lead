@@ -17,6 +17,8 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadPolicy } from '../../policy/policy.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
+import { apiResponse, fieldFilter } from '../../tracker/files/api.mjs';
+import { MIGRATIONS } from '../../tracker/files/migrations/index.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} CommandContext
@@ -99,6 +101,14 @@ function inside(dir, path) {
 const idOf = (input) => String(input.id);
 
 /** @type {ArgSpec} */
+const jsonArg = {
+  name: 'json',
+  type: 'boolean',
+  description:
+    'Print the versioned read API response: api_version, the entities and the declared fields. Read the tracker through this, never through the files. Removing or retyping a field raises api_version; adding a field does not',
+};
+
+/** @type {ArgSpec} */
 const idArg = {
   name: 'id',
   type: 'string',
@@ -177,9 +187,11 @@ export const commands = [
     name: 'work show',
     summary: 'Show one tracker entity',
     piece: 'a',
-    args: [idArg, ...where],
+    args: [idArg, jsonArg, ...where],
     run(input, ctx) {
-      return { ok: true, entity: open(input, ctx, { readOnly: true }).get(idOf(input)) };
+      const t = open(input, ctx, { readOnly: true });
+      const entity = t.get(idOf(input));
+      return input.json ? apiResponse(t.layout(), { entity }) : { ok: true, entity };
     },
   },
   {
@@ -204,7 +216,15 @@ export const commands = [
       { name: 'ready', type: 'boolean', description: 'Only items that are ready to start' },
       { name: 'blocked', type: 'boolean', description: 'Only items waiting on an open need' },
       { name: 'claimed', type: 'boolean', description: 'Only items a branch has claimed' },
+      {
+        name: 'field',
+        type: 'string',
+        repeatable: true,
+        description:
+          'A declared project field to match, name=value (a list field matches when it holds the value). Repeat to match several',
+      },
       { name: 'bodies', type: 'boolean', description: 'Include each body (left out by default)' },
+      jsonArg,
       ...where,
     ],
     run(input, ctx) {
@@ -215,9 +235,12 @@ export const commands = [
         if (typeof input[k] === 'string') filter[k] = input[k];
       }
       for (const k of ['ready', 'blocked', 'claimed']) if (input[k]) filter[k] = true;
+      if (input.field) filter.fields = fieldFilter(input.field);
       const found = t.query(filter);
       const entities = input.bodies ? found : found.map(({ body: _, ...rest }) => rest);
-      return { ok: true, count: entities.length, entities };
+      return input.json
+        ? apiResponse(t.layout(), { count: entities.length, entities })
+        : { ok: true, count: entities.length, entities };
     },
   },
   {
@@ -278,6 +301,43 @@ export const commands = [
       const t = open(input, ctx);
       const done = t.close(idOf(input), { commit: !input['no-commit'] });
       return { ok: true, id: idOf(input), ...done };
+    },
+  },
+  {
+    name: 'work migrate',
+    summary:
+      'Apply the tracker format migrations to every file (idempotent; --dry-run shows the diff)',
+    piece: 'a',
+    args: [
+      {
+        name: 'dry-run',
+        type: 'boolean',
+        description: 'Show what would change, as a diff, and write nothing',
+      },
+      { name: 'only', type: 'string', description: 'Run only the migration with this name' },
+      {
+        name: 'no-commit',
+        type: 'boolean',
+        description: 'Write the files but do not commit them',
+      },
+      ...where,
+    ],
+    run(input, ctx) {
+      const dryRun = Boolean(input['dry-run']);
+      const t = open(input, ctx, { readOnly: dryRun });
+      const done = t.migrate({
+        dryRun,
+        only: typeof input.only === 'string' ? input.only : undefined,
+        commit: !input['no-commit'],
+      });
+      return {
+        ok: true,
+        ...done,
+        registered: MIGRATIONS.map((m) => m.name),
+        summary: done.changed
+          ? `${done.changed} file(s) ${dryRun ? 'would change' : 'migrated'}`
+          : 'nothing to migrate',
+      };
     },
   },
   {

@@ -1,9 +1,9 @@
 // The ready queue (design parts 5.2 and 2.4): ready items in priority order.
 //
-// v0 orders by the parts of the rule it has data for: the critical path first (an item that
+// For now it orders by the parts of the rule it has data for: the critical path first (an item that
 // unblocks others carries the weight of everything behind it), then the item's priority, then the
 // smaller token estimate (shortest job first), then the ID. Cost of delay and value of information
-// come with milestone M6.
+// come with the milestone Shaping and prioritization.
 
 /**
  * @typedef {import('./item.mjs').Item} Item

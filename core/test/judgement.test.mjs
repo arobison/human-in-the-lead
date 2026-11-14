@@ -17,7 +17,6 @@ const gut = {
   what: 'fits the strategy and is plausibly valuable',
   basis: /** @type {const} */ ('gut-check'),
   by: 'owner',
-  at: '2026-11-14',
 };
 
 test("weights come from policy.json: the owner's gut checks start high, others lower", () => {

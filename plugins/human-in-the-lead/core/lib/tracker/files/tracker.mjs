@@ -7,6 +7,7 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadTrackerConfig, resolveLayout } from './config.mjs';
+import { migrateTracker, pendingMigrationProblems } from './migrate.mjs';
 import {
   claimItem,
   closeItem,
@@ -17,6 +18,7 @@ import {
 } from './claims.mjs';
 import { checkItems, findCollisions } from './check.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
+import { checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
 import {
   createExclusive,
@@ -33,6 +35,7 @@ import {
   allowedKeys,
   applyPatch,
   keyOrder,
+  parseFieldValue,
   toEntity,
   toStored,
 } from './format.mjs';
@@ -72,6 +75,8 @@ import {
  * @property {(options?: { branches?: boolean, inflight?: string[] }) => { problems: string[], files: number }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
+ * @property {(options?: { only?: string, dryRun?: boolean, commit?: boolean, migrations?: readonly import('./migrate.mjs').Migration[] }) => ReturnType<typeof migrateTracker>} migrate
+ *   apply the registered format migrations to every file (idempotent; dryRun shows the diff)
  * @typedef {TrackerAdapter & FilesExtras} FilesTracker
  */
 
@@ -149,6 +154,13 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       (p) => !before.includes(p) && (p.startsWith(`${path}: `) || p.startsWith('cycle: ')),
     );
 
+  /**
+   * Whether an entity's declared field value matches a wanted one.
+   * @param {unknown} have @param {import('./config.mjs').DeclaredField} def @param {unknown} want
+   */
+  const holds = (have, def, want) =>
+    def.list ? Array.isArray(have) && have.includes(want) : have === want;
+
   /** @param {string} id @returns {Entry} */
   function mustFind(id) {
     const it = read().find((e) => e.data?.id === id);
@@ -183,6 +195,16 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       const claimed =
         filter.ready || filter.claimed !== undefined ? new Set(claims().map((c) => c.id)) : null;
       const text = filter.text?.toLowerCase();
+      const wanted = Object.entries(filter.fields ?? {}).map(([name, raw]) => {
+        const def = layout.fields.find((f) => f.name === name);
+        if (!def) {
+          const declared = layout.fields.map((f) => f.name).join(', ') || 'none declared';
+          throw new Error(`no declared field "${name}" (fields: ${declared})`);
+        }
+        const r = parseFieldValue(def, raw);
+        if ('error' in r) throw new Error(`field ${name} ${r.error}`);
+        return /** @type {const} */ ([def, r.value]);
+      });
       return g.all
         .filter((it) => {
           const e = entityOf(it);
@@ -190,6 +212,8 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
           if (states && !states.includes(String(e.state))) return false;
           if (filter.area !== undefined && e.area !== filter.area) return false;
           if (filter.parent !== undefined && e.parent !== filter.parent) return false;
+          if (wanted && !wanted.every(([def, value]) => holds(e[def.name], def, value)))
+            return false;
           if (filter.needs !== undefined && !list(e.needs).includes(filter.needs)) return false;
           if (text && !`${e.title}\n${e.body}`.toLowerCase().includes(text)) return false;
           const id = String(e.id);
@@ -347,6 +371,8 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         created: today(),
       };
       for (const k of layout.optionalKeys) if (draft[k] !== undefined) fields[k] = draft[k];
+      for (const f of layout.fields)
+        if (draft[f.name] !== undefined) fields[f.name] = draft[f.name];
       const { stored: data, unsupported } = toStored(
         Object.fromEntries(
           Object.entries(fields).filter(
@@ -412,8 +438,20 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
     check({ branches = false, inflight } = {}) {
       const items = read();
       const onMain = currentBranch(root) === layout.mainBranch;
-      const problems = checkItems(items, layout, { root, onMain });
+      const problems = [
+        ...checkItems(items, layout, { root, onMain }),
+        ...pendingMigrationProblems(root, layout),
+      ];
       problems.push(...feedbackRecordsIn(root).map(feedbackProblem));
+      // The commit guard's rule over the whole tree; item files give the same line as above.
+      const tree = checkTree(root, {
+        ceiling: layout.classificationCeiling,
+        defaultClassification: layout.defaultClassification,
+        privatePaths: layout.privatePaths,
+      });
+      for (const line of problemLines(tree.refused)) {
+        if (!problems.includes(line)) problems.push(line);
+      }
       if (branches) {
         const placed = loadPlaces(root, layout, listPlaces(root, layout, { remotes: true }));
         for (const c of findCollisions(placed, layout)) {
@@ -435,6 +473,10 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       }
       return { problems, files: items.length };
     },
+
+    /** Apply the registered format migrations; see migrate.mjs. */
+    migrate: ({ only, dryRun, commit, migrations } = {}) =>
+      migrateTracker(root, layout, { only, dryRun, commit, env, migrations }),
 
     /** Every view, as text keyed by view name. */
     renderViewTexts(/** @type {{ who?: string }} */ { who = 'owner' } = {}) {

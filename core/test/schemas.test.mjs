@@ -20,7 +20,7 @@ const examples = {
     state: 'local',
     classification: 'confidential',
   },
-  // Part 12.5: a Claude Code status line snapshot, as piece (h)'s status-line command writes it.
+  // Part 12.5: a Claude Code status line snapshot, as the status-line command writes it.
   'usage-snapshot': {
     schema_version: 1,
     at: '2026-11-14T12:00:00Z',
@@ -71,7 +71,6 @@ const examples = {
         what: 'fits the strategy and is plausibly valuable',
         basis: 'gut-check',
         by: 'owner',
-        at: '2026-11-14',
       },
     ],
     provenance: ['recorded from the owner conversation, 2026-11-14'],
@@ -317,6 +316,17 @@ test('tracker front matter is validated by its kind', () => {
     'project',
     'work',
   ]);
+});
+
+test('a public judgement carries what, basis and who; the time is not public', () => {
+  const signal = /** @type {any} */ (examples.signal);
+  const judgement = signal.judgements[0];
+  const check = (/** @type {any} */ j) =>
+    registry.validateEntity('signal', { ...signal, judgements: [j] });
+  assert.deepEqual(check(judgement), []);
+  assert.ok(check({ ...judgement, at: '2026-11-14' }).length, 'the time is private');
+  assert.ok(check({ what: judgement.what, basis: judgement.basis }).length, 'who is required');
+  assert.ok(check({ ...judgement, confidence: 0.7 }).length, 'private fields are not public');
 });
 
 test('item states are the five of the reference format', () => {
