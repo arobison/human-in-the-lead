@@ -587,12 +587,12 @@ test('hitld config write validates, then writes a private file', posixOnly, asyn
   const cwd = mkdtempSync(join(tmpdir(), 'hitld-settings-cwd-'));
   const { env } = home();
   const bad = await hitld(
-    ['config', 'write', 'machine', '--data', '{"schema_version":1,"cores":4}'],
+    ['config', 'write', 'machine', '--data', '{"schema_version":1,"gpu_count":4}'],
     cwd,
     env,
   );
   assert.equal(bad.code, 1);
-  assert.match(bad.result.message, /cores is not a known key/);
+  assert.match(bad.result.message, /gpu_count is not a known key/);
   const check = await hitld(
     ['config', 'write', 'machine', '--check', '--data', '{"schema_version":1}'],
     cwd,

@@ -74,6 +74,17 @@ const examples = {
     schema_version: 1,
     role: 'workstation',
     executors_max: 2,
+    cores: 4,
+    memory_ceiling_mb: 8192,
+    capacity: { gpu: 4 },
+    load: { max_per_core: 0.7 },
+    detected: {
+      at: '2026-11-14T09:00:00Z',
+      cores: 8,
+      memory_mb: 16384,
+      gpus: [],
+      browsers: ['firefox'],
+    },
     env: { port_range: { min: 4100, max: 4199 }, secret_provider: 'keychain' },
   },
   tracker: {

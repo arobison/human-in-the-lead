@@ -2,10 +2,11 @@
 id: HITLD-38
 title: Machine detection with `hitld machine detect`
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37]
+claimed: D-38
 ---
 
 ## Why
