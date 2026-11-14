@@ -59,12 +59,12 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld kb search / index / stale / orphans / links / check` | The knowledge base tool ([part 8](08-knowledge-base.md#85-the-kb-tool)) |
 | `hitld metrics`, `hitld control evaluate` | Measures; controllers inside bounds |
 | `hitld eval [--offline | --live] [--harness h] [--sealed]` | The eval suite ([part 17](17-evals.md)); built: `--offline`, `eval report`, `eval accept --run` |
-| `hitld config explain / write` (planned) | Each effective setting and the layer it came from; write the person or machine file after validating it ([part 13](13-operations.md#134-settings-in-four-layers)) |
+| `hitld config explain / write` | Each effective setting and the layer it came from; write the person or machine file after validating it ([part 13](13-operations.md#134-settings-in-four-layers)) |
 | `hitld machine detect` (planned) | Probe this machine and propose a machine profile for the person to confirm |
 | `hitld check contract / policy` | `AGENTS.md` contract present and current, and imported by `CLAUDE.md` if one exists; `policy.json` valid within bounds |
 | `hitld check classification [--staged]` | The commit guard: no file above the repository's classification ceiling, in the next commit or the whole tree ([10.3](10-security.md#103-information-classification)) |
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
-| `hitld config migrate` (planned) | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
+| `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` (planned) | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
 | `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its basis, draft notes, items that changed public surface without a changelog line, unmet gates ([3.2](03-data-model.md#release)) |
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |

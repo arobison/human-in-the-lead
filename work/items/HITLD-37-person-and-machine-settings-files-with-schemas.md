@@ -2,9 +2,10 @@
 id: HITLD-37
 title: Person and machine settings files with schemas, trusted loading and `hitld config explain`
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
+claimed: D-37
 ---
 
 ## Why
