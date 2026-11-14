@@ -7,6 +7,10 @@ updates:
     groups:
       dev-tools:
         dependency-type: development
+    ignore:
+      # engines.node is >=22.13, so stay on the Node 22 type definitions.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
