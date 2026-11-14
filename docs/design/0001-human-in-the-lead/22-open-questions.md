@@ -259,7 +259,7 @@ Agents draft every reply; sensitive replies always go through a human ([part 9](
 
 ### Q20. DCO or CLA for inbound contributions? (blocks Outside contributors; also applies to this repository)
 
-*Decided: DCO, as recommended.* Inbound contributions carry a `Signed-off-by` line under the [Developer Certificate of Origin](https://developercertificate.org/). It applies to this repository's own commits too. The owner signs off the first public commit. For a commit an agent made, the person who approves its merge signs it off. CI gains a DCO check (planned). See [9.6](09-contributors.md#96-legal).
+*Decided: DCO, as recommended.* Inbound contributions carry a `Signed-off-by` line under the [Developer Certificate of Origin](https://developercertificate.org/). It applies to this repository's own commits too. The owner signs off the first public commit. For a commit an agent made, the person who approves its merge signs it off. CI checks it: a pull request needs each person's commit signed by its author, and each commit pushed to main needs a person's sign-off, which on an agent pull request is the approver's on the squash commit (`core/bin/dco-check.mjs`). See [9.6](09-contributors.md#96-legal).
 
 - **Recommend: DCO sign-off.** Light for contributors, no copyright assignment, and consistent with Apache-2.0's inbound-equals-outbound practice.
 - **Alternative: a CLA.** Lets the project relicense later, at the cost of friction for every contributor and an agreement to administer.

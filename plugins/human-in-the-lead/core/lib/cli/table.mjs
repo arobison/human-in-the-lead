@@ -15,7 +15,7 @@ import { commands as rights } from './commands/rights.mjs';
 import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
-import { commands as store } from './commands/store.mjs';
+import { commands as security } from './commands/security.mjs';
 import { commands as config } from './commands/config.mjs';
 import { commands as feedback } from './commands/feedback.mjs';
 import { commands as later } from './commands/later.mjs';
@@ -57,8 +57,6 @@ export const PIECES = Object.freeze({
   signal: 'the milestone One signal end to end',
   'settings-hold': "the milestone Settings hold: two projects share the person's limits",
   'first-release': 'the milestone First release',
-  'consumer-live':
-    'the milestone Consumer live: a real consuming project runs its work through HITLd',
   measures: 'the milestone Full measure set',
   controllers: 'the milestone Controllers',
   'kb-upkeep': 'the milestone Knowledge base upkeep',
@@ -78,7 +76,7 @@ export const COMMANDS = Object.freeze([
   ...quota,
   ...evals,
   ...orchestrator,
-  ...store,
+  ...security,
   ...config,
   ...feedback,
   ...later,
