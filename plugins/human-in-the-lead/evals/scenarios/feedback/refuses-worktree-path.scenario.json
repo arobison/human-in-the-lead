@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "feedback/refuses-worktree-path",
+  "piece": "feedback",
+  "category": "feedback",
+  "description": "A feedback record is confidential, so hitld feedback refuses a store that resolves into the repository or a worktree, and writes nothing there.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": { "language": "javascript", "git": true } },
+  "steps": [
+    {
+      "id": "in-repo",
+      "action": "cli",
+      "with": {
+        "argv": ["feedback", "--kind", "bug", "--words", "A step failed.", "--store", "store"]
+      }
+    },
+    {
+      "id": "in-repo-nested",
+      "action": "cli",
+      "with": {
+        "argv": ["feedback", "--kind", "idea", "--words", "An idea.", "--store", "work/private"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "refused",
+      "grader": "equals",
+      "with": { "path": "steps.in-repo.exit", "value": 1 }
+    },
+    {
+      "id": "says-why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.in-repo.result.message",
+        "pattern": "inside the repository or a worktree"
+      }
+    },
+    {
+      "id": "nothing-written",
+      "grader": "file_exists",
+      "with": { "path": "store/feedback/FB-1.json", "present": false }
+    },
+    {
+      "id": "nested-refused",
+      "grader": "equals",
+      "with": { "path": "steps.in-repo-nested.exit", "value": 1 }
+    },
+    {
+      "id": "nested-nothing-written",
+      "grader": "file_exists",
+      "with": { "path": "work/private/feedback/FB-1.json", "present": false }
+    }
+  ]
+}

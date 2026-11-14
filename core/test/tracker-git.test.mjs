@@ -1027,3 +1027,14 @@ test('a plan path that leaves the repository is never probed', () => {
     "work/projects/W-2-the-project.md: plan ../../../etc/passwd doesn't exist",
   ]);
 });
+
+test('the check refuses a feedback record in the repository (design 18.4: private store only)', () => {
+  const root = makeRepo({ files: { 'notes/feedback/FB-1.json': '{}' } });
+  const problems = open(root).check().problems;
+  assert.ok(
+    problems.some((/** @type {string} */ p) =>
+      /^notes\/feedback\/FB-1\.json: a feedback record is confidential/.test(p),
+    ),
+    problems.join('\n'),
+  );
+});

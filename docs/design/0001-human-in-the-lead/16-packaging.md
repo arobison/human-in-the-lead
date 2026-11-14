@@ -66,7 +66,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld config migrate` (planned) | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` (planned) | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
 | `hitld release` (planned) | Tag and publish a release after its gate |
-| `hitld feedback` (planned, HITLD-46) | Capture feedback about the plugin ([part 18](18-self-improvement.md#184-giving-feedback)) |
+| `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
 | `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, and the opt-in status-line capture (`--statusline`) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |

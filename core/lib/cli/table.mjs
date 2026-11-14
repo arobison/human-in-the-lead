@@ -13,6 +13,7 @@ import { commands as rights } from './commands/rights.mjs';
 import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
+import { commands as feedback } from './commands/feedback.mjs';
 import { commands as later } from './commands/later.mjs';
 
 /**
@@ -48,6 +49,7 @@ export const PIECES = Object.freeze({
   f: 'piece (f), quotas and the reserve rule',
   g: 'piece (g), the eval runner',
   h: 'piece (h), the orchestrator, the Claude Code adapter, the merge queue and packaging',
+  feedback: 'feedback about HITLd (HITLD-46)',
   v0: 'the rest of v0, after v0-alpha',
   M1: 'milestone M1 (measures)',
   M2: 'milestone M2 (controllers)',
@@ -67,6 +69,7 @@ export const COMMANDS = Object.freeze([
   ...quota,
   ...evals,
   ...orchestrator,
+  ...feedback,
   ...later,
 ]);
 

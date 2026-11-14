@@ -16,6 +16,7 @@ import {
   releaseClaim,
 } from './claims.mjs';
 import { checkItems, findCollisions } from './check.mjs';
+import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { writeStored } from './edit.mjs';
 import {
   createExclusive,
@@ -412,6 +413,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       const items = read();
       const onMain = currentBranch(root) === layout.mainBranch;
       const problems = checkItems(items, layout, { root, onMain });
+      problems.push(...feedbackRecordsIn(root).map(feedbackProblem));
       if (branches) {
         const placed = loadPlaces(root, layout, listPlaces(root, layout, { remotes: true }));
         for (const c of findCollisions(placed, layout)) {
