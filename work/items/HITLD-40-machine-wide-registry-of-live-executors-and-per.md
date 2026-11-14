@@ -2,10 +2,11 @@
 id: HITLD-40
 title: Machine-wide registry of live executors and per-account usage, with the merge queue lock per repository
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37]
+claimed: D-40
 ---
 
 ## Why

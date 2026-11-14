@@ -100,7 +100,12 @@ export function evaluateQuotas({
     const reserve = limit.limit == null ? null : reserveShare * limit.limit;
 
     // The freshest reading for this limit that belongs to a window not yet reset.
+    // A snapshot from the machine registry carries its account and counts only for limits on that
+    // account (a limit with no account is on the default one); a project's own snapshot has none
+    // and counts for every limit, as before.
+    const account = limit.scope?.account ?? 'default';
     const readings = snapshots
+      .filter((s) => s.account === undefined || s.account === account)
       .map((s) => readingFor(s, limit))
       .filter((r) => r && r.at <= now)
       .sort((a, b) => /** @type {any} */ (a).at - /** @type {any} */ (b).at);
