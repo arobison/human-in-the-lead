@@ -1135,7 +1135,12 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   git(['add', '-f', '.human-in-the-lead/policy.json'], repoRoot);
   git(['commit', '-q', '-m', 'policy'], repoRoot);
   const xdg = dir('xdg');
-  const env = { ...process.env, XDG_DATA_HOME: xdg, HITLD_SECRET_NPM_TOKEN: SECRET };
+  const env = {
+    ...process.env,
+    XDG_DATA_HOME: xdg,
+    XDG_CONFIG_HOME: xdg,
+    HITLD_SECRET_NPM_TOKEN: SECRET,
+  };
   /** @param {string[]} argv @param {Record<string, string>} [extraEnv] @param {string} [cwd] */
   const hitld = async (argv, extraEnv = {}, cwd = repoRoot) => {
     let out = '';

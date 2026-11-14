@@ -8,6 +8,7 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { POLICY_PATH, findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
+import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { readPrimaryCheckout } from '../../env/primary.mjs';
 import { openEnv } from '../../env/manager.mjs';
 import { splitCommand } from '../../env/secrets.mjs';
@@ -30,13 +31,17 @@ function open(ctx) {
       },
     };
   }
-  const loaded = loadPolicy({ cwd: repoRoot });
+  // The machine's port range, worktree root and secret provider layered over the project's
+  // (design part 13.4).
+  const loaded = loadEffectivePolicy({ cwd: repoRoot, env: ctx.env });
   if (!loaded.policy) {
     return {
       error: {
         ok: false,
         error: 'policy',
-        message: 'policy.json is missing or invalid; run hitld check policy',
+        message: loaded.project
+          ? 'a settings file is invalid; run hitld config explain'
+          : 'policy.json is missing or invalid; run hitld check policy',
         errors: loaded.errors,
       },
     };
@@ -138,7 +143,14 @@ function openForExec(ctx) {
       `the policy at ${root} is for project ${loaded.policy.project.id}, not ${projectId}`,
     );
   }
-  return { env: openEnv({ repoRoot: root, store, policy: loaded.policy, env: ctx.env }) };
+  const layered = loadEffectivePolicy({ env: ctx.env, policyResult: loaded });
+  if (!layered.policy) {
+    return refuse(
+      'settings',
+      `a settings file is invalid: ${layered.errors.map((e) => `${e.path} ${e.message}`).join('; ')}`,
+    );
+  }
+  return { env: openEnv({ repoRoot: root, store, policy: layered.policy, env: ctx.env }) };
 }
 
 /**

@@ -471,7 +471,7 @@ function project() {
     { mode: 0o600 },
   );
   const xdg = join(tmp, `xdg-${Math.random().toString(36).slice(2)}`);
-  const env = { XDG_DATA_HOME: xdg };
+  const env = { XDG_DATA_HOME: xdg, XDG_CONFIG_HOME: xdg };
   const store = openStore(privateStorePath('quota-cli', { env }));
   return { repo, env, store };
 }

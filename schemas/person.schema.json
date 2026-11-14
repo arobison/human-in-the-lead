@@ -1,0 +1,64 @@
+{
+  "$id": "person",
+  "title": "Person settings",
+  "description": "The person file (design part 13.4): a person's plans, limits and appetite, kept outside every repository at $XDG_CONFIG_HOME/human-in-the-lead/person.json (~/.config/human-in-the-lead/person.json when XDG_CONFIG_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps, reserves and thresholds take the strictest layer; a project may be stricter, never looser. Internal: never committed or synced.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "executors_max": {
+      "description": "The most executors at once across all of this person's projects: their appetite for parallel agents. The effective cap is the smallest of this, the machine's executors_max, the project's execution.concurrency and the run's cap.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "quota": {
+      "description": "Account limits, the reserve and the thresholds (design part 12.5). These were policy.json's quota keys; a project may still set a larger reserve, earlier thresholds, and run budgets (window: run).",
+      "type": "object",
+      "properties": {
+        "owner_reserve": {
+          "description": "The share of each limit kept for the person's own interactive use, unless a limit sets its own reserve. The largest across the layers applies.",
+          "$ref": "policy/quota#/properties/owner_reserve"
+        },
+        "economize_at": {
+          "description": "Below this headroom, prefer cheaper models and lower concurrency. The largest across the layers applies.",
+          "$ref": "policy/quota#/properties/economize_at"
+        },
+        "critical_at": {
+          "description": "Below this headroom, dispatch only critical-path items. The largest across the layers applies.",
+          "$ref": "policy/quota#/properties/critical_at"
+        },
+        "notify_at": {
+          "description": "Shares of a limit used at which a line goes into the digest. Every layer's shares apply.",
+          "$ref": "policy/quota#/properties/notify_at"
+        },
+        "forecast_hours": {
+          "description": "How many recent hours the burn rate is smoothed over.",
+          "$ref": "policy/quota#/properties/forecast_hours"
+        },
+        "limits": {
+          "description": "The person's declared account limits. This list replaces the default list. A project limit with the same id can only tighten one (a lower limit, hard, a larger reserve).",
+          "type": "array",
+          "items": { "$ref": "policy/quota#/$defs/limit" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "projects": {
+      "description": "Per project, keyed by policy.json project.id: the project's share of headroom near the reserve when several projects compete for it (design part 13.4, across projects). Equal by default.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "share": {
+            "description": "A relative weight; shares are compared with each other, not with 1.",
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["schema_version"],
+  "additionalProperties": false
+}
