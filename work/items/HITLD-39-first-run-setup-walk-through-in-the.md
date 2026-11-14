@@ -2,7 +2,7 @@
 id: HITLD-39
 title: First-run setup walk-through in the orchestrator skill
 kind: work
-status: In progress
+status: Done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37, HITLD-38]
