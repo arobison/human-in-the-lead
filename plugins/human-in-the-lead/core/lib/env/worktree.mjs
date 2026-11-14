@@ -221,8 +221,9 @@ async function saveUncommitted(lease) {
  * Remove a worktree from disk, saving uncommitted work to its branch first. Returns what happened.
  * @param {WorktreeLease} lease
  * @param {boolean} deleteIfMerged
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam] tests fake a mount point
  */
-async function removeFromDisk(lease, deleteIfMerged) {
+export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
   const gone = !existsSync(lease.path);
   /** @type {{ saved: boolean, branch_deleted: boolean, branch: string, links_unlinked: string[] }} */
   const out = { saved: false, branch_deleted: false, branch: lease.branch, links_unlinked: [] };
@@ -233,7 +234,12 @@ async function removeFromDisk(lease, deleteIfMerged) {
     // Unlink every link that points outside the worktree first, so nothing below can reach a
     // target (design 13.2). Uncommitted work is already saved, so --force only lets git remove
     // what the unlinking changed (a tracked link) and the ignored files in the tree.
-    const links = unlinkOutsideLinks(lease.path);
+    const links = unlinkOutsideLinks(lease.path, seam.lstat ? { lstat: seam.lstat } : undefined);
+    if (links.mounts.length) {
+      throw new Error(
+        `not removing ${lease.path}: ${links.mounts.join(', ')} is a mount point (another device)`,
+      );
+    }
     if (links.declined.length) {
       throw new Error(
         `not removing ${lease.path}: could not safely unlink ${links.declined.map((l) => l.path).join(', ')}`,

@@ -36,14 +36,21 @@ function isInside(root, real) {
 const isLink = (full) => lstatSync(full).isSymbolicLink();
 
 /**
- * Walk a worktree without following links and list the links that point outside it.
+ * Walk a worktree without following links and list the links that point outside it. A directory on
+ * another device than the worktree's root is a mount point: it is not descended into and is listed
+ * in `mounts`, since removing the tree would reach what is mounted there.
  * @param {string} worktree
- * @returns {OutsideLink[]}
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam] tests replace lstat to fake a mount
+ * @returns {{ links: OutsideLink[], mounts: string[] }}
  */
-export function findOutsideLinks(worktree) {
+export function scanWorktree(worktree, seam = {}) {
+  const lstat = seam.lstat ?? lstatSync;
   const root = realpathSync(worktree);
+  const rootDev = lstat(root).dev;
   /** @type {OutsideLink[]} */
   const found = [];
+  /** @type {string[]} */
+  const mounts = [];
   /** @param {string} rel the directory, relative to the root ('' for the root) */
   const walk = (rel) => {
     const here = rel ? join(root, rel) : root;
@@ -63,7 +70,7 @@ export function findOutsideLinks(worktree) {
       const full = join(root, childRel);
       let st;
       try {
-        st = lstatSync(full);
+        st = lstat(full);
       } catch {
         continue; // gone since it was listed
       }
@@ -79,13 +86,21 @@ export function findOutsideLinks(worktree) {
           found.push({ path: childRel, target: readlinkSync(full) });
         }
       } else if (st.isDirectory()) {
-        walk(childRel);
+        if (st.dev !== rootDev) mounts.push(childRel);
+        else walk(childRel);
       }
     }
   };
   walk('');
-  return found;
+  return { links: found, mounts };
 }
+
+/**
+ * The links in a worktree that point outside it.
+ * @param {string} worktree
+ * @returns {OutsideLink[]}
+ */
+export const findOutsideLinks = (worktree) => scanWorktree(worktree).links;
 
 /**
  * Unlink one link under the worktree, after checking that it still is one and that its parent is
@@ -113,9 +128,10 @@ export function unlinkLink(root, rel) {
  * Unlink every link in a worktree that points outside it, so removing the worktree cannot reach
  * what they point at. Refuses a worktree path that is itself a link or is not a real path.
  * @param {string} worktree
- * @returns {{ unlinked: OutsideLink[], declined: OutsideLink[] }}
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam]
+ * @returns {{ unlinked: OutsideLink[], declined: OutsideLink[], mounts: string[] }}
  */
-export function unlinkOutsideLinks(worktree) {
+export function unlinkOutsideLinks(worktree, seam) {
   if (isLink(worktree)) throw new Error(`${worktree} is a link; refusing to clean it up`);
   const root = realpathSync(worktree);
   if (root !== worktree) throw new Error(`${worktree} is not a real path (${root}); refusing`);
@@ -123,8 +139,11 @@ export function unlinkOutsideLinks(worktree) {
   const unlinked = [];
   /** @type {OutsideLink[]} */
   const declined = [];
-  for (const link of findOutsideLinks(root)) {
+  const scan = scanWorktree(root, seam);
+  // Nothing is unlinked when a mount is present: the caller refuses the removal.
+  if (scan.mounts.length) return { unlinked, declined, mounts: scan.mounts };
+  for (const link of scan.links) {
     (unlinkLink(root, link.path) ? unlinked : declined).push(link);
   }
-  return { unlinked, declined };
+  return { unlinked, declined, mounts: scan.mounts };
 }

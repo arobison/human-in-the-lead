@@ -22,7 +22,8 @@ import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { openEnv } from '../lib/env/manager.mjs';
 import { isAlive, sleep } from '../lib/env/proc.mjs';
-import { findOutsideLinks, unlinkLink } from '../lib/env/links.mjs';
+import { findOutsideLinks, scanWorktree, unlinkLink } from '../lib/env/links.mjs';
+import { removeFromDisk } from '../lib/env/worktree.mjs';
 import { withMutex } from '../lib/env/mutex.mjs';
 import { createRedactor, splitCommand } from '../lib/env/secrets.mjs';
 import { hostname } from 'node:os';
@@ -1347,4 +1348,31 @@ test('a directory swapped for a link after the walk is not acted on', () => {
   assert.equal(unlinkLink(wt, 'sub/victim'), false);
   assert.equal(readFileSync(join(wt, 'sub', 'victim'), 'utf8'), 'now a file\n');
   assert.ok(otherIntact(other));
+});
+
+test('a directory on another device is a mount point: not descended, and the worktree is not removed', async () => {
+  const repoRoot = makeRepo();
+  const other = makeOtherCheckout();
+  const { env } = await makeEnv({ repoRoot });
+  const { lease } = await env.createWorktree({ holder: 'D-4', itemId: 'W-4' });
+  mkdirSync(join(lease.path, 'mnt'));
+  writeFileSync(join(lease.path, 'mnt', 'data.txt'), 'mounted\n');
+  symlinkSync(join(other, 'node_modules'), join(lease.path, 'mnt', 'link'), 'dir');
+  // fake the device: "mnt" reports a different dev than the rest, without mounting anything
+  const mnt = join(lease.path, 'mnt');
+  /** @param {string} p */
+  const lstat = (p) => {
+    const st = lstatSync(p);
+    return p === mnt
+      ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { dev: st.dev + 1 })
+      : st;
+  };
+  const scan = scanWorktree(lease.path, { lstat });
+  assert.deepEqual(scan.mounts, ['mnt']);
+  assert.deepEqual(scan.links, [], 'the mount is not descended into');
+  await assert.rejects(removeFromDisk(lease, false, { lstat }), /mnt is a mount point/);
+  assert.ok(existsSync(join(mnt, 'data.txt')));
+  assert.ok(lstatSync(join(mnt, 'link')).isSymbolicLink(), 'nothing was unlinked');
+  assert.ok(otherIntact(other));
+  await env.releaseWorktree({ holder: 'D-4', outcome: 'abandoned' });
 });
