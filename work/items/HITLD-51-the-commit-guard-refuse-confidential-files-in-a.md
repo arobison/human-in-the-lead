@@ -2,9 +2,10 @@
 id: HITLD-51
 title: "The commit guard: refuse confidential files in a public repository"
 kind: work
-status: Planned
+status: In progress
 created: 2026-11-14
 project: HITLD-15
+claimed: claude/HITLD-51-commit-guard
 ---
 
 ## Why
