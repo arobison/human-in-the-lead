@@ -32,11 +32,6 @@ export const commands = [
     piece: 'major',
   },
   {
-    name: 'work migrate',
-    summary: 'Upgrade the tracker files to the current tracker format',
-    piece: 'first-release',
-  },
-  {
     name: 'config migrate',
     summary: 'Move settings out of policy.json into the person and machine files',
     piece: 'settings-hold',
