@@ -2,10 +2,11 @@
 id: HITLD-59
 title: DCO check in CI
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
 milestone: first-release
+claimed: D-1
 ---
 
 ## Why
