@@ -5,7 +5,8 @@
 import { isAbsolute, join, resolve } from 'node:path';
 import { outputProblem, writeReportFiles } from '../../report-output.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
-import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
+import { findRepoRoot } from '../../policy/policy.mjs';
+import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml } from '../../quota/report.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
@@ -16,13 +17,16 @@ import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
  * @param {Record<string, unknown>} input
  */
 function gather(ctx, input) {
-  const loaded = loadPolicy({ cwd: ctx.cwd });
+  // The person's limits, reserve and thresholds layered over the project's (design part 13.4).
+  const loaded = loadEffectivePolicy({ cwd: ctx.cwd, env: ctx.env });
   if (!loaded.policy) {
     return {
       error: {
         ok: false,
         error: 'policy',
-        message: 'policy.json is missing or invalid; run hitld check policy',
+        message: loaded.project
+          ? 'a settings file is invalid; run hitld config explain'
+          : 'policy.json is missing or invalid; run hitld check policy',
         errors: loaded.errors,
       },
     };
@@ -45,6 +49,7 @@ function gather(ctx, input) {
     skipped,
     ledger: readLedgerEntries(store),
     now,
+    warnings: loaded.warnings.map((w) => w.message),
   };
 }
 
@@ -77,7 +82,12 @@ export const commands = [
         { critical_path: input.critical === true },
         { now: g.now, ledger: g.ledger },
       );
-      return { ok: true, skipped_snapshots: g.skipped, ...gate };
+      return {
+        ok: true,
+        skipped_snapshots: g.skipped,
+        ...(g.warnings.length ? { warnings: g.warnings } : {}),
+        ...gate,
+      };
     },
   },
   {

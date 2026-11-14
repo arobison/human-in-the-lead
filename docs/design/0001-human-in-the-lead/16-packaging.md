@@ -59,13 +59,13 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld kb search / index / stale / orphans / links / check` | The knowledge base tool ([part 8](08-knowledge-base.md#85-the-kb-tool)) |
 | `hitld metrics`, `hitld control evaluate` | Measures; controllers inside bounds |
 | `hitld eval [--offline | --live] [--harness h] [--sealed]` | The eval suite ([part 17](17-evals.md)); built: `--offline`, `eval report`, `eval accept --run` |
-| `hitld config explain / write` (planned) | Each effective setting and the layer it came from; write the person or machine file after validating it ([part 13](13-operations.md#134-settings-in-four-layers)) |
+| `hitld config explain / write` | Each effective setting and the layer it came from; write the person or machine file after validating it ([part 13](13-operations.md#134-settings-in-four-layers)) |
 | `hitld machine detect` (planned) | Probe this machine and propose a machine profile for the person to confirm |
 | `hitld check contract / policy` | `AGENTS.md` contract present and current, and imported by `CLAUDE.md` if one exists; `policy.json` valid within bounds |
 | `hitld check classification [--staged]` | The commit guard: no file above the repository's classification ceiling, in the next commit or the whole tree ([10.3](10-security.md#103-information-classification)) |
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld work migrate` (planned) | Upgrade the tracker files to the current tracker format ([3.4](03-data-model.md#file-format)) |
-| `hitld config migrate` (planned) | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
+| `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` (planned) | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
 | `hitld release` (planned) | Tag and publish a release after its gate |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
