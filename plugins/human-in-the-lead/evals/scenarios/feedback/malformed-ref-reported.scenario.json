@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "feedback/malformed-ref-reported",
+  "piece": "feedback",
+  "category": "feedback",
+  "description": "A malformed ref is reported by name and nothing is recorded, never dropped silently. A well-formed ref with no ledger entry is kept on the record and listed as unmatched.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": { "language": "javascript" } },
+  "steps": [
+    {
+      "id": "bad",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "bug",
+          "--words",
+          "Something failed.",
+          "--refs",
+          "D-3,oops",
+          "--store",
+          "store"
+        ]
+      }
+    },
+    {
+      "id": "unmatched",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "bug",
+          "--words",
+          "Something failed.",
+          "--refs",
+          "D-77",
+          "--store",
+          "store",
+          "--json"
+        ]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "refused",
+      "grader": "equals",
+      "with": { "path": "steps.bad.exit", "value": 1 }
+    },
+    {
+      "id": "names-the-ref",
+      "grader": "matches",
+      "with": { "path": "steps.bad.result.message", "pattern": "\"oops\"" }
+    },
+    {
+      "id": "nothing-recorded-for-it",
+      "grader": "equals",
+      "with": { "path": "steps.unmatched.result.id", "value": "FB-1" }
+    },
+    {
+      "id": "unmatched-reported",
+      "grader": "equals",
+      "with": { "path": "steps.unmatched.result.unmatched_refs", "value": ["D-77"] }
+    },
+    {
+      "id": "unmatched-kept",
+      "grader": "equals",
+      "with": { "path": "steps.unmatched.result.record.refs", "value": ["D-77"] }
+    }
+  ]
+}
