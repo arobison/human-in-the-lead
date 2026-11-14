@@ -2,7 +2,7 @@
 id: HITLD-58
 title: Symlink-safe worktree teardown
 kind: work
-status: In progress
+status: Done
 created: 2026-11-14
 project: HITLD-15
 milestone: first-release
