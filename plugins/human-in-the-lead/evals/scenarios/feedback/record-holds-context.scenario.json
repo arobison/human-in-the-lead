@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "id": "feedback/record-holds-context",
+  "piece": "feedback",
+  "category": "feedback",
+  "description": "hitld feedback records the person's words verbatim, and captures without being told the plugin version, the harness and its version (unknown offline), the loop from the ledger entries for the refs, what happened and the evidence. The record is confidential, in the local state, valid against its schema, and shows in the waiting list.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": { "language": "javascript" } },
+  "steps": [
+    {
+      "id": "ledger",
+      "action": "file.write",
+      "with": {
+        "path": "store/ledger.jsonl",
+        "content": "{\"schema_version\":1,\"id\":\"E-1\",\"event\":\"dispatched\",\"dispatch\":\"D-3\",\"item\":\"W-9\",\"at\":\"2026-11-14T10:00:00Z\"}\n{\"schema_version\":1,\"id\":\"E-2\",\"event\":\"reported\",\"dispatch\":\"D-3\",\"item\":\"W-9\",\"outcome\":\"done\",\"at\":\"2026-11-14T11:00:00Z\"}\n"
+      }
+    },
+    {
+      "id": "fb",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "feedback",
+          "--kind",
+          "friction",
+          "--words",
+          "That report was longer than it needed to be.",
+          "--refs",
+          "D-3",
+          "--expected",
+          "A shorter report",
+          "--store",
+          "store",
+          "--json"
+        ]
+      }
+    },
+    {
+      "id": "waiting",
+      "action": "cli",
+      "with": { "argv": ["feedback", "list", "--store", "store"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "written",
+      "grader": "equals",
+      "with": { "path": "steps.fb.result.ok", "value": true }
+    },
+    {
+      "id": "valid",
+      "grader": "schema",
+      "with": { "path": "steps.fb.result.record", "schema": "feedback", "entity": true }
+    },
+    {
+      "id": "words-verbatim",
+      "grader": "equals",
+      "with": {
+        "path": "steps.fb.result.record.words",
+        "value": "That report was longer than it needed to be."
+      }
+    },
+    {
+      "id": "version-captured",
+      "grader": "matches",
+      "with": { "path": "steps.fb.result.record.version", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+" }
+    },
+    {
+      "id": "harness-captured",
+      "grader": "equals",
+      "with": {
+        "path": "steps.fb.result.record.harness",
+        "value": { "name": "claude-code", "version": "unknown" }
+      }
+    },
+    {
+      "id": "loop-from-refs",
+      "grader": "equals",
+      "with": { "path": "steps.fb.result.record.area", "value": "dispatch" }
+    },
+    {
+      "id": "what-happened-from-ledger",
+      "grader": "contains",
+      "with": { "path": "steps.fb.result.record.what_happened", "value": "dispatched, reported" }
+    },
+    {
+      "id": "evidence-from-ledger",
+      "grader": "count",
+      "with": { "path": "steps.fb.result.record.evidence", "equals": 2 }
+    },
+    {
+      "id": "confidential",
+      "grader": "equals",
+      "with": { "path": "steps.fb.result.record.classification", "value": "confidential" }
+    },
+    {
+      "id": "local",
+      "grader": "equals",
+      "with": { "path": "steps.fb.result.record.state", "value": "local" }
+    },
+    {
+      "id": "in-the-private-store",
+      "grader": "file_exists",
+      "with": { "path": "store/feedback/FB-1.json" }
+    },
+    {
+      "id": "listed-as-waiting",
+      "grader": "count",
+      "with": { "path": "steps.waiting.result.records", "equals": 1 }
+    }
+  ]
+}
