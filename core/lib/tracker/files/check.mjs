@@ -14,6 +14,7 @@ import {
   PRIORITIES,
   STATUSES,
   allowedKeys,
+  fieldProblems,
   listKeys,
   toEntity,
 } from './format.mjs';
@@ -75,6 +76,7 @@ export function checkItems(items, layout, { root, onMain = false } = {}) {
         say(it, `"${key}" must be ${lists.has(key) ? 'a list' : 'a single value'}`);
       }
     }
+    for (const p of fieldProblems(d, layout)) say(it, p);
     const id = String(d.id ?? '');
     const m = it.file.match(filePattern);
     if (!idPattern.test(id)) {
@@ -176,7 +178,10 @@ export function checkItems(items, layout, { root, onMain = false } = {}) {
   for (const it of items) {
     if (!it.data || flagged.has(it)) continue;
     const entity = toEntity(it.data, layout);
-    const errors = schemas().validateTrackerEntity(entity);
+    // Declared fields are checked against their own types above, not by the entity schema.
+    const model = { ...entity };
+    for (const f of layout.fields) delete model[f.name];
+    const errors = schemas().validateTrackerEntity(model);
     if (errors.length) say(it, `schema: ${formatErrors(errors).split('\n').join('; ')}`);
     else if (CLASSIFICATION_RANK.indexOf(String(entity.classification)) > ceiling) {
       say(

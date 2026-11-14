@@ -21,7 +21,7 @@ const usageLine = (c) =>
     ...(c.args ?? []).map((a) => {
       const word = a.positional
         ? `<${a.name}>`
-        : `--${a.name}${a.type === 'boolean' ? '' : ' <value>'}`;
+        : `--${a.name}${a.type === 'boolean' ? '' : ' <value>'}${a.repeatable ? '...' : ''}`;
       return a.required ? word : `[${word}]`;
     }),
   ].join(' ');
