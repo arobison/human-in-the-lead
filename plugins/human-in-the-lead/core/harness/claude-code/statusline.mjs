@@ -9,6 +9,8 @@
 import { findRepoRoot, loadPolicy } from '../../lib/policy/policy.mjs';
 import { openStore, privateStorePath } from '../../lib/store/store.mjs';
 import { schemas } from '../../lib/schema/registry.mjs';
+import { machineRootFor } from '../../lib/env/manager.mjs';
+import { DEFAULT_ACCOUNT, recordSnapshot } from '../../lib/registry/machine.mjs';
 import { SNAPSHOTS_KEY, readSnapshots } from '../../lib/quota/usage.mjs';
 
 /** Write at most one unchanged snapshot per this many milliseconds. */
@@ -87,5 +89,7 @@ export function recordStatusLine(text, ctx) {
     return { line, recorded: false, reason: 'unchanged within a minute' };
   }
   store.append(SNAPSHOTS_KEY, JSON.stringify(snapshot) + '\n');
+  // Account use is the machine's, not the project's: every project on this machine reads it.
+  recordSnapshot(machineRootFor(store.root), DEFAULT_ACCOUNT, snapshot);
   return { line, recorded: true };
 }
