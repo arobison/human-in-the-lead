@@ -1,7 +1,7 @@
 {
   "$id": "trust-event",
   "title": "Trust-calibration event",
-  "description": "One line of trust/events.jsonl in the private store: a fact the trust-calibration loop counts per area (design part 2.15). Append-only. The data is collected from the first run; nothing acts on it until milestone T1, and nothing here changes anyone's autonomy.",
+  "description": "One line of trust/events.jsonl in the private store: a fact the trust-calibration loop counts per area (design part 2.15). Append-only. The data is collected from the first run; nothing acts on it until the milestone Trust calibration, and nothing here changes anyone's autonomy.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {

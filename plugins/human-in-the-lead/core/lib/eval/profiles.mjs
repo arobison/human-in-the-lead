@@ -15,7 +15,7 @@ import { deepEqual } from './util.mjs';
  * The Copilot cloud agent as the design describes it (part 17.7): one branch per task, a run-time
  * cap, tools-only MCP, a subset of hooks, no background completion, network behind an allowlist,
  * hosted classification limits. The capability values are the interface's reading of those
- * constraints; the Copilot adapter (milestone C1) confirms or corrects them. The constraints the
+ * constraints; the Copilot adapter (the milestone Copilot adapter) confirms or corrects them. The constraints the
  * capability set cannot express are kept as data for the scenarios that check them.
  * @type {Profile}
  */

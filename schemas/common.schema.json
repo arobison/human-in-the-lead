@@ -72,15 +72,14 @@
       ]
     },
     "judgement": {
-      "description": "A person's judgement on a signal or opportunity: an input to prioritization, never a decision (design part 3.2). Its weight is derived, so it is not stored.",
+      "description": "A person's judgement on a signal or opportunity: an input to prioritization, never a decision (design part 3.2). The public entity carries what was judged, the basis and who. The time, confidence, expectation, evidence and outcomes live in the private store, and the weight is derived.",
       "type": "object",
       "properties": {
         "what": { "$ref": "#/$defs/text" },
         "basis": { "enum": ["gut-check", "considered"] },
-        "by": { "$ref": "#/$defs/person" },
-        "at": { "$ref": "#/$defs/timestamp" }
+        "by": { "$ref": "#/$defs/person" }
       },
-      "required": ["what", "basis", "by", "at"],
+      "required": ["what", "basis", "by"],
       "additionalProperties": false
     },
     "judgements": { "type": "array", "items": { "$ref": "#/$defs/judgement" } },

@@ -1,6 +1,6 @@
 # The eval suite
 
-Scenarios, fixtures, graders and the runner ([design part 17](../docs/design/0001-human-in-the-lead/17-evals.md)). This is the guide for the pieces of v0-alpha ([design part 21](../docs/design/0001-human-in-the-lead/21-scope.md)): each adds offline scenarios for what it builds, and `hitld eval --offline` is their gate.
+Scenarios, fixtures, graders and the runner ([design part 17](../docs/design/0001-human-in-the-lead/17-evals.md)). This is the guide for the pieces of "Usable in a consuming project" ([design part 21](../docs/design/0001-human-in-the-lead/21-scope.md)): each adds offline scenarios for what it builds, and `hitld eval --offline` is their gate.
 
 ```bash
 node core/bin/hitld.mjs eval --offline                       # everything
