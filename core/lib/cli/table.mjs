@@ -1,8 +1,9 @@
 // The command table (design part 16.2): one entry per `hitld` command, the single source for the
 // command line, its help, and later the MCP server's tools (design part 15.1).
 //
-// Each piece of v0-alpha owns one file under commands/, so pieces built in parallel never edit the
-// same file. A command without `run` answers "not yet built" and names the piece that builds it.
+// Each piece of "Usable in a consuming project" owns one file under commands/, so pieces built in
+// parallel never edit the same file. A command without `run` answers "not yet built" and names the
+// piece or milestone that builds it, by outcome name.
 
 import { commands as foundation } from './commands/foundation.mjs';
 import { commands as guard } from './commands/guard.mjs';
@@ -38,7 +39,7 @@ import { commands as later } from './commands/later.mjs';
  * @property {(input: Record<string, unknown>, ctx: CommandContext) => CommandResult | Promise<CommandResult>} [run]
  */
 
-/** Who builds what. Letters are the v0-alpha pieces (design part 21). */
+/** Who builds what. Letters are the pieces of "Usable in a consuming project"; the other tags are milestones, named by outcome (design part 21). */
 export const PIECES = Object.freeze({
   foundation: 'the foundation',
   a: 'piece (a), the files tracker backend',
@@ -49,11 +50,13 @@ export const PIECES = Object.freeze({
   f: 'piece (f), quotas and the reserve rule',
   g: 'piece (g), the eval runner',
   h: 'piece (h), the orchestrator, the Claude Code adapter, the merge queue and packaging',
-  v0: 'the rest of v0, after v0-alpha',
-  M1: 'milestone M1 (measures)',
-  M2: 'milestone M2 (controllers)',
-  M4: 'milestone M4 (knowledge base upkeep)',
-  C1: 'milestone C1 (the Copilot adapter)',
+  signal: 'the milestone One signal end to end',
+  'settings-hold': "the milestone Settings hold: two projects share the person's limits",
+  'first-release': 'the milestone First release',
+  measures: 'the milestone Full measure set',
+  controllers: 'the milestone Controllers',
+  'kb-upkeep': 'the milestone Knowledge base upkeep',
+  copilot: 'the milestone Copilot adapter',
   major: 'the first release with a breaking schema change',
 });
 

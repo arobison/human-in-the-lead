@@ -10,7 +10,7 @@
 //   4. batch     after batch_max branches: regenerate generated files and the tracker views, commit
 //                them, then the full suite once
 //   5. failure   rerun on the same commit; a pass is a flake candidate: recorded, nothing blamed,
-//                and the batch is held for the owner (v0 has no base comparison, design 14.7);
+//                and the batch is held for the owner (this milestone has no base comparison, design 14.7);
 //                otherwise run the suite on main (a failure there is an incident); otherwise
 //                bisect the batch's stack of commits to the first failing branch, send it back,
 //                and rebuild the batch without it

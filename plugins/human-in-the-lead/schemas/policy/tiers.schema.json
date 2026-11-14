@@ -1,7 +1,7 @@
 {
   "$id": "policy/tiers",
   "title": "policy.json: tiers",
-  "description": "Who executes each sizing tier, with which model class and effort (design part 5.1). Model classes name roles, not models; the harness adapter maps them (the model catalog, milestone K1, refines this).",
+  "description": "Who executes each sizing tier, with which model class and effort (design part 5.1). Model classes name roles, not models; the harness adapter maps them (the milestone Model catalog refines this).",
   "type": "object",
   "properties": {
     "0": {

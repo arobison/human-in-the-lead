@@ -26,7 +26,8 @@ test('hitld --help lists every command and who builds the unbuilt ones', async (
   const { code, out } = await run(['--help']);
   assert.equal(code, EXIT.ok);
   for (const c of COMMANDS) assert.ok(out.includes(`  ${c.name} `), c.name);
-  assert.match(out, /\[v0\] the rest of v0, after v0-alpha/);
+  assert.match(out, /\[signal\] the milestone One signal end to end/);
+  assert.ok(!/v0/.test(out));
   assert.deepEqual((await run([])).out, out);
 });
 
@@ -44,8 +45,8 @@ test('a command not yet built says so and names its piece', async () => {
   assert.equal(code, EXIT.notBuilt);
   const result = parse(out);
   assert.equal(result.error, 'not_built');
-  assert.equal(result.piece, 'v0');
-  assert.match(result.message, /the rest of v0, after v0-alpha, builds it/);
+  assert.equal(result.piece, 'signal');
+  assert.match(result.message, /the milestone One signal end to end, builds it/);
 });
 
 test('an unknown command is a usage error', async () => {
@@ -149,7 +150,9 @@ test('every command in design part 16.2 is in the table', () => {
     'eval',
     'check contract',
     'check policy',
-    'migrate',
+    'data migrate',
+    'work migrate',
+    'config migrate',
     'mcp',
     'install',
   ]) {

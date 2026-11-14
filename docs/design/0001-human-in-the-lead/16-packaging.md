@@ -45,7 +45,8 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 
 | Command | Does |
 |---|---|
-| `hitld work new / show / query / claim / release / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches |
+| `hitld work new / show / query / claim / release / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
+| `hitld work migrate [--dry-run]` | Apply the tracker format migrations to every file; idempotent; the dry run prints the diff |
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
 | `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, initiatives, lists, a dependency diagram) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |

@@ -72,7 +72,7 @@ test('front matter: a hostile key stays data and never touches the prototype', (
 });
 
 test('front matter: what is written reads back, and the fixed key order holds', () => {
-  const layout = { optionalKeys: [] };
+  const layout = { optionalKeys: [], fields: [] };
   const data = {
     status: 'Planned',
     title: 'Has: a colon, and a "quote"',
