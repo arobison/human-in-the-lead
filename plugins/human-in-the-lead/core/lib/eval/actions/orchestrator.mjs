@@ -17,6 +17,8 @@ import {
   MERGE_SETTINGS,
   buildConsumer,
   buildMergeRepo,
+  fakeWorkstation,
+  writeSetupDone,
   fixtureGit,
 } from '../orchestrator-fixtures.mjs';
 
@@ -160,13 +162,24 @@ export const actions = {
   'orchestrator.consumer': {
     description:
       'Build a fixture consumer repository at consumer/ in the sandbox (three items; W-3 needs W-1) and record a status-line usage snapshot with headroom. Returns { root }.',
-    input: { type: 'object', properties: {}, additionalProperties: false },
-    run: (_input, ctx) => {
+    input: {
+      type: 'object',
+      properties: {
+        setup: {
+          type: 'boolean',
+          description:
+            'Write empty person and machine files, as a finished first-run setup leaves them (default true; the scenario must not use a repo fixture, whose policy.json at the sandbox root makes the sandbox a managed project that refuses settings files). false leaves them missing',
+        },
+      },
+      additionalProperties: false,
+    },
+    run: (input, ctx) => {
       const root = buildConsumer(join(ctx.sandbox, 'consumer'));
       const env = {
         XDG_DATA_HOME: join(ctx.sandbox, 'data'),
         XDG_CONFIG_HOME: join(ctx.sandbox, 'config'),
       };
+      if (input.setup !== false) writeSetupDone(env);
       const now = Math.floor(Date.now() / 1000);
       const status = recordStatusLine(
         JSON.stringify({
@@ -185,12 +198,21 @@ export const actions = {
 
   'orchestrator.cli': {
     description:
-      'Run a hitld command in the fixture consumer as an orchestrator session (session defaults to "first"). Returns { exit, result }.',
+      'Run a hitld command in the fixture consumer as an orchestrator session (session defaults to "first"), or, with as_executor, as a dispatched executor. Returns { exit, result }.',
     input: {
       type: 'object',
       properties: {
         argv: { type: 'array', items: { type: 'string' }, minItems: 1 },
         session: { type: 'string', minLength: 1 },
+        fake_machine: {
+          type: 'boolean',
+          description:
+            'Probe a fake workstation (8 cores, 16 GB, a desktop session) instead of the machine the eval runs on',
+        },
+        as_executor: {
+          type: 'boolean',
+          description: 'Run as a dispatched executor would: HITLD_DISPATCH and HITLD_ROLE are set',
+        },
       },
       required: ['argv'],
       additionalProperties: false,
@@ -202,7 +224,9 @@ export const actions = {
         out: (t) => (out += t),
         err: () => {},
         cwd: join(ctx.sandbox, 'consumer'),
+        ...(input.fake_machine ? { machine: fakeWorkstation() } : {}),
         env: {
+          ...(input.as_executor ? { HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' } : {}),
           XDG_DATA_HOME: join(ctx.sandbox, 'data'),
           XDG_CONFIG_HOME: join(ctx.sandbox, 'config'),
           HITLD_SESSION: input.session ?? 'first',

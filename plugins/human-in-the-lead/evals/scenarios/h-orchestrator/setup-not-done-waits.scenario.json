@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "id": "h-orchestrator/setup-not-done-waits",
+  "piece": "h-orchestrator",
+  "category": "settings",
+  "description": "Until the first-run setup is done (design 13.4), dispatch plan holds all autonomous work with the reason, dispatch start refuses an item the person did not start by hand, and a hand-started item runs with a cap of one.",
+  "mode": "offline",
+  "steps": [
+    { "id": "consumer", "action": "orchestrator.consumer", "with": { "setup": false } },
+    { "id": "run", "action": "orchestrator.cli", "with": { "argv": ["run", "start"] } },
+    { "id": "plan", "action": "orchestrator.cli", "with": { "argv": ["dispatch", "plan"] } },
+    {
+      "id": "auto",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-1"] }
+    },
+    {
+      "id": "hand",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-1", "--by-hand"] }
+    },
+    {
+      "id": "second",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-2", "--by-hand"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "plan-says-not-done",
+      "grader": "equals",
+      "with": { "path": "steps.plan.result.setup.done", "value": false }
+    },
+    {
+      "id": "nothing-starts",
+      "grader": "count",
+      "with": { "path": "steps.plan.result.start", "equals": 0 }
+    },
+    {
+      "id": "all-held",
+      "grader": "count",
+      "with": { "path": "steps.plan.result.held", "equals": 2 }
+    },
+    {
+      "id": "held-for-setup",
+      "grader": "matches",
+      "with": { "path": "steps.plan.result.held[*].reason", "pattern": "^setup$" }
+    },
+    {
+      "id": "reason-given",
+      "grader": "matches",
+      "with": {
+        "path": "steps.plan.result.held[0].why",
+        "pattern": "^setup not done: run the first-run setup"
+      }
+    },
+    {
+      "id": "cap-one",
+      "grader": "equals",
+      "with": { "path": "steps.plan.result.cap", "value": 1 }
+    },
+    {
+      "id": "auto-start-refused",
+      "grader": "equals",
+      "with": { "path": "steps.auto.result.error", "value": "not_planned" }
+    },
+    {
+      "id": "hand-start-runs",
+      "grader": "equals",
+      "with": { "path": "steps.hand.result.ok", "value": true }
+    },
+    {
+      "id": "second-by-hand-waits",
+      "grader": "equals",
+      "with": { "path": "steps.second.result.error", "value": "not_planned" }
+    },
+    {
+      "id": "second-says-cap",
+      "grader": "matches",
+      "with": { "path": "steps.second.result.message", "pattern": "cap 1" }
+    }
+  ]
+}

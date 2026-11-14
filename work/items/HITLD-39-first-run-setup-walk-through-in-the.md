@@ -19,5 +19,5 @@ Per design 13.4: a new person or machine must be set up in the main session, wit
 - Until setup is done, autonomous dispatch waits and one executor at most runs work the person starts by hand.
 - An executor cannot run the setup.
 - An offline eval scenario covers the walk-through and the wait.
-- The walk-through offers the status-line usage capture as opt-in, says what it changes in the person's harness settings, and installs it only on a yes (done: `hitld install` installs it only with `--statusline`; `--no-statusline` is accepted and does nothing).
+- The walk-through offers the status-line usage capture as opt-in, says what it changes in the person's harness settings, and installs it only on a yes. (Already done in `hitld install`: it installs the capture only with `--statusline`; `--no-statusline` is accepted and does nothing. The walk-through only has to ask and then run that.)
 - The status-line readout (design 12.1.1) is HITLD-56.
