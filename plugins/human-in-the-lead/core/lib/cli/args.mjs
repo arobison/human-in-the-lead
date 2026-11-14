@@ -9,6 +9,8 @@
  * @property {string} description
  * @property {boolean} [required]
  * @property {boolean} [positional] taken from bare words, in declaration order
+ * @property {boolean} [repeatable] the option may be given more than once; the input is a list
+ *   (not for a boolean)
  * @property {boolean} [mcp] false for an option that only makes sense on the command line (for
  *   example a path to write to); it is left out of the MCP input schema, which then refuses it
  */
@@ -43,7 +45,12 @@ export function parseArgs(words, specs) {
       }
       const value = inline ?? words[++i];
       if (value === undefined) throw new UsageError(`--${flag} needs a value`);
-      input[spec.name] = convert(spec, value);
+      if (spec.repeatable) {
+        input[spec.name] = [
+          .../** @type {unknown[]} */ (input[spec.name] ?? []),
+          convert(spec, value),
+        ];
+      } else input[spec.name] = convert(spec, value);
     } else {
       const spec = positionals[next++];
       if (!spec) throw new UsageError(`unexpected argument ${JSON.stringify(w)}`);
@@ -77,7 +84,12 @@ export function inputSchema(specs) {
     properties: Object.fromEntries(
       specs
         .filter((s) => s.mcp !== false)
-        .map((s) => [s.name, { type: s.type, description: s.description }]),
+        .map((s) => [
+          s.name,
+          s.repeatable
+            ? { type: 'array', items: { type: s.type }, description: s.description }
+            : { type: s.type, description: s.description },
+        ]),
     ),
     required: specs.filter((s) => s.required && s.mcp !== false).map((s) => s.name),
     additionalProperties: false,

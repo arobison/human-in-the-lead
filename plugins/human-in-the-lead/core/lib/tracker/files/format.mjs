@@ -59,13 +59,18 @@ export const listKeys = (layout) =>
     'needs',
     'milestones',
     ...layout.optionalKeys.filter((k) => OPTIONAL_LISTS.includes(k)),
+    ...layout.fields.filter((f) => f.list).map((f) => f.name),
   ]);
 
 /**
  * The allowed keys for a kind, given the settings.
  * @param {string} kind @param {import('./config.mjs').Layout} layout
  */
-export const allowedKeys = (kind, layout) => [...KEYS[kind], ...layout.optionalKeys];
+export const allowedKeys = (kind, layout) => [
+  ...KEYS[kind],
+  ...layout.optionalKeys,
+  ...layout.fields.map((f) => f.name),
+];
 
 /** The key order a file is written in: the reference order, then the optional keys. */
 export const keyOrder = (
@@ -85,6 +90,97 @@ export const NATIVE_EXTRAS = [
   'lead',
   'plan',
 ];
+
+/**
+ * Names a declared field may not take: every key and entity field the format already uses, and
+ * every key some tool would run as code. Computed from the lists above, so a new key is covered.
+ * @param {string[]} optionalNames the names tracker.json optional_keys may turn on
+ * @returns {Set<string>}
+ */
+export const reservedFieldNames = (optionalNames) =>
+  new Set([
+    ...Object.values(KEYS).flat(),
+    ...optionalNames,
+    ...NATIVE_EXTRAS,
+    ...CODE_KEYS,
+    'state',
+    'parent',
+    'decider',
+    'body',
+    'path',
+    'version',
+    'schema_version',
+    'api_version',
+  ]);
+
+/** @param {unknown} v */
+const show = (v) => (typeof v === 'string' ? JSON.stringify(v) : String(v));
+
+/**
+ * Read one value as a declared field's type.
+ * @param {import('./config.mjs').DeclaredField} def
+ * @param {unknown} raw a stored string, or a value of the type already
+ * @returns {{ value: string | number | boolean } | { error: string }}
+ */
+export function parseFieldValue(def, raw) {
+  const text = typeof raw === 'string' ? raw : typeof raw === 'object' ? '' : String(raw);
+  const bad = (/** @type {string} */ want) => ({ error: `must be ${want}, got ${show(raw)}` });
+  if (def.type === 'integer') {
+    return typeof raw === 'number' && Number.isInteger(raw)
+      ? { value: raw }
+      : /^-?\d+$/.test(text)
+        ? { value: Number(text) }
+        : bad('a whole number');
+  }
+  if (def.type === 'number') {
+    return typeof raw === 'number' && Number.isFinite(raw)
+      ? { value: raw }
+      : /^-?\d+(\.\d+)?$/.test(text)
+        ? { value: Number(text) }
+        : bad('a number');
+  }
+  if (def.type === 'boolean') {
+    return typeof raw === 'boolean'
+      ? { value: raw }
+      : text === 'true' || text === 'false'
+        ? { value: text === 'true' }
+        : bad('true or false');
+  }
+  if (typeof raw !== 'string') return bad('text');
+  if (def.values && !def.values.includes(raw)) return bad(`one of ${def.values.join(', ')}`);
+  return { value: raw };
+}
+
+/**
+ * A declared field's entity value from its stored form: typed, a list for a list field. A value
+ * that is not of the type is carried through as stored, so the check can name it.
+ * @param {import('./config.mjs').DeclaredField} def @param {unknown} stored
+ */
+export function fieldValue(def, stored) {
+  const one = (/** @type {unknown} */ v) => {
+    const r = parseFieldValue(def, v);
+    return 'value' in r ? r.value : v;
+  };
+  return def.list ? list(stored).map(one) : one(stored);
+}
+
+/**
+ * Problems with a file's declared field values.
+ * @param {Record<string, unknown>} d stored keys @param {import('./config.mjs').Layout} layout
+ * @returns {string[]}
+ */
+export function fieldProblems(d, layout) {
+  /** @type {string[]} */
+  const problems = [];
+  for (const def of layout.fields) {
+    if (d[def.name] === undefined) continue;
+    for (const v of list(d[def.name])) {
+      const r = parseFieldValue(def, v);
+      if ('error' in r) problems.push(`"${def.name}" ${r.error}`);
+    }
+  }
+  return problems;
+}
 
 /** @param {unknown} v */
 const intOrSame = (v) => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v);
@@ -111,6 +207,9 @@ export function toEntity(d, layout) {
     if (k === 'classification' || d[k] === undefined) continue;
     e[k] = k === 'estimate_tokens' || k === 'tier_hint' ? intOrSame(d[k]) : d[k];
   }
+  for (const def of layout.fields) {
+    if (d[def.name] !== undefined) e[def.name] = fieldValue(def, d[def.name]);
+  }
   return e;
 }
 
@@ -133,7 +232,7 @@ export function toStored(fields, kind, layout) {
     else if (k === 'parent') stored[ITEM_KINDS.includes(kind) ? 'project' : 'initiative'] = v;
     else if (k === 'decider') stored['decided-by'] = v;
     else if (k === 'schema_version' || k === 'body' || k === 'path' || k === 'version') continue;
-    else if (allowed.has(k)) stored[k] = v;
+    else if (allowed.has(k)) stored[k] = storedField(k, v, layout);
     else unsupported.push(k);
   }
   if (kind === 'initiative' && 'parent' in fields) {
@@ -141,6 +240,23 @@ export function toStored(fields, kind, layout) {
     delete stored.initiative;
   }
   return { stored, unsupported };
+}
+
+/**
+ * A declared field's value for writing: checked against its type and turned into the strings the
+ * file holds. Other keys pass through. A null removes the key.
+ * @param {string} key @param {unknown} v @param {import('./config.mjs').Layout} layout
+ */
+function storedField(key, v, layout) {
+  const def = layout.fields.find((f) => f.name === key);
+  if (!def || v === null || v === undefined) return v;
+  if (!def.list && Array.isArray(v)) throw new Error(`${key} holds one value, not a list`);
+  const out = (def.list ? list(v) : [v]).map((m) => {
+    const r = parseFieldValue(def, m);
+    if ('error' in r) throw new Error(`${key} ${r.error}`);
+    return String(r.value);
+  });
+  return def.list ? out : out[0];
 }
 
 /**
