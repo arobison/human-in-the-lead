@@ -101,7 +101,7 @@ Regardless of precedent, these always need a human:
 
 ## 10.5 Security in "done when"
 
-*Planned, before the first release (HITLD-63). The sensitive-path review and threat-model notes are HITLD-34.*
+*Built (HITLD-63): scanners are declared in `merge.scanners`, the baseline, verdicts and accepted risks live in the private store under `security/`, and `hitld security` shows and records them; accepting a risk cites an answered decision item. The sensitive-path review and threat-model notes are planned (HITLD-34).*
 
 A change is not done while it adds a security finding nobody has looked at. These rules make that checkable without blocking on old findings.
 
