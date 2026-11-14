@@ -19,12 +19,14 @@
       "default": "work"
     },
     "folders": {
-      "description": "The folder name under work_dir for each group of files. Initiatives and projects have their own; work, decision and external items share one, so an item that changes kind does not move.",
+      "description": "The folder name under work_dir for each group of files. Initiatives, projects and milestones have their own; work, decision and external items share one, so an item that changes kind does not move. Release records, one per release named by its tag, have their own folder too (design part 3.2, Milestones and releases).",
       "type": "object",
       "properties": {
         "initiative": { "$ref": "#/$defs/folder", "default": "initiatives" },
         "project": { "$ref": "#/$defs/folder", "default": "projects" },
-        "item": { "$ref": "#/$defs/folder", "default": "items" }
+        "item": { "$ref": "#/$defs/folder", "default": "items" },
+        "milestone": { "$ref": "#/$defs/folder", "default": "milestones" },
+        "release": { "$ref": "#/$defs/folder", "default": "releases" }
       },
       "additionalProperties": false
     },

@@ -46,11 +46,21 @@ test('get returns the model’s field names, validated by the kind’s schema', 
   assert.equal(e.parent, 'W-2');
   assert.deepEqual(e.needs, ['W-3']);
   assert.equal(e.classification, 'public');
-  assert.equal(e.milestone, 'alpha');
   assert.equal(e.body, '\nBody.\n');
+  assert.deepEqual(e.constraint_of, []);
+  assert.deepEqual(e.contributes_to, []);
+  assert.equal(e.released_in, null);
   assert.equal(t.get('W-6').decider, 'owner');
   assert.equal(t.get('W-2').parent, 'W-1');
-  const { body: _b, path: _p, version: _v, milestone: _m, ...canonical } = e;
+  const {
+    body: _b,
+    path: _p,
+    version: _v,
+    constraint_of: _c,
+    contributes_to: _s,
+    released_in: _r,
+    ...canonical
+  } = e;
   assert.deepEqual(schemas().validateTrackerEntity({ schema_version: 1, ...canonical }), []);
   assert.throws(() => t.get('W-99'), /W-99 is not in the tracker/);
 });
@@ -73,18 +83,19 @@ test('update refuses a stale version, an unsupported field and a change that wou
   const root = makeRepo();
   const t = open(root);
   const v1 = String(t.get('W-4').version);
-  const v2 = t.update('W-4', { priority: 'high' }, v1);
+  const v2 = t.update('W-4', { title: 'Second step, renamed' }, v1);
   assert.notEqual(v1, v2);
-  assert.equal(t.get('W-4').priority, 'high');
-  assert.throws(() => t.update('W-4', { priority: 'low' }, v1), /changed since it was read/);
+  assert.equal(t.get('W-4').title, 'Second step, renamed');
+  assert.throws(() => t.update('W-4', { title: 'Again' }, v1), /changed since it was read/);
   assert.throws(() => t.update('W-4', { touches: ['x'] }, v2), /no key for touches/);
+  assert.throws(() => t.update('W-4', { priority: 'high' }, v2), /no key for priority/);
   assert.throws(() => t.update('W-4', { kind: 'decision' }, v2), /kind cannot be changed/);
   assert.throws(() => t.update('W-4', { parent: 'W-99' }, v2), /project W-99 doesn't exist/);
-  assert.throws(() => t.update('W-4', { priority: 'huge' }, v2), /priority "huge" isn't one of/);
-  t.update('W-4', { priority: null }, v2);
-  assert.equal(t.get('W-4').priority, undefined);
+  assert.throws(() => t.update('W-4', { state: 'Wip' }, v2), /status "Wip" isn't one of/);
+  t.update('W-4', { needs: null }, v2);
+  assert.equal(t.get('W-4').needs, undefined);
   assert.equal(
-    readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8').includes('priority'),
+    readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8').includes('needs'),
     false,
   );
 });
@@ -116,7 +127,7 @@ test('link adds a need once, refuses a cycle and an unsupported relation', () =>
   t.link('W-6', 'needs', 'W-3');
   assert.deepEqual(t.get('W-6').needs, ['W-3']);
   assert.throws(() => t.link('W-4', 'needs', 'W-5'), /cycle: W-4 → W-5 → W-4/);
-  assert.throws(() => t.link('W-4', 'needs', 'W-2'), /needs name items only/);
+  assert.throws(() => t.link('W-4', 'needs', 'W-2'), /needs name items and milestones only/);
   assert.throws(() => t.link('W-4', 'duplicate_of', 'W-5'), /no "duplicate_of" link/);
   assert.throws(() => t.link('W-4', 'opened_from', 'W-5'), /optional_keys/);
 });
@@ -178,12 +189,9 @@ test('create refuses incomplete or inconsistent drafts and writes nothing', () =
   );
   assert.throws(
     () => t.create({ kind: 'work', title: 'x', parent: 'W-2', needs: ['W-2'] }),
-    /needs name items only/,
+    /needs name items and milestones only/,
   );
-  assert.throws(
-    () => t.create({ kind: 'work', title: 'x', parent: 'W-2', priority: 'huge' }),
-    /priority/,
-  );
+  assert.throws(() => t.create({ kind: 'capability', title: 'x' }), /a milestone needs a parent/);
   assert.throws(() => t.create({ kind: 'task', title: 'x' }), /kind must be one of/);
   assert.equal(git(root, 'status', '--porcelain').trim(), '');
 });
@@ -613,9 +621,11 @@ test('views are written to the views directory, only changed files are rewritten
     'initiatives.md',
     'items-graph.md',
     'lists.md',
+    'milestones.md',
     'projects-graph.md',
     'projects.md',
     'ready.md',
+    'unreleased.md',
   ]);
   assert.equal(first.dir, join(root, 'work', 'views'));
   assert.match(
@@ -627,7 +637,7 @@ test('views are written to the views directory, only changed files are rewritten
   const status = git(root, 'status', '--porcelain');
   const out = t.writeViews({ outDir: scratch });
   assert.equal(out.dir, scratch);
-  assert.equal(out.written.length, 9);
+  assert.equal(out.written.length, 11);
   assert.equal(git(root, 'status', '--porcelain'), status);
 });
 
@@ -741,18 +751,7 @@ test('hitld work new, claim, close, claims and release walk the lifecycle', asyn
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'settings');
   const made = await hitld(
-    [
-      'work',
-      'new',
-      '--title',
-      'Add a thing',
-      '--parent',
-      'W-2',
-      '--needs',
-      'W-3, W-4',
-      '--priority',
-      'high',
-    ],
+    ['work', 'new', '--title', 'Add a thing', '--parent', 'W-2', '--needs', 'W-3, W-4'],
     root,
   );
   assert.deepEqual(made.json, {
@@ -820,7 +819,7 @@ test('--repo and --config read a tracker with its settings kept outside it, writ
     ['work', 'views', '--repo', root, '--config', cfg, '--out', out],
     elsewhere,
   );
-  assert.equal(views.json.written.length, 9);
+  assert.equal(views.json.written.length, 11);
   assert.equal(git(root, 'status', '--porcelain'), status);
   const missing = await hitld(['work', 'check', '--repo', root], elsewhere);
   assert.equal(missing.code, 1);
@@ -1020,7 +1019,6 @@ test('a plan path that leaves the repository is never probed', () => {
         initiative: 'W-1',
         lead: 'owner',
         plan: '../../../etc/passwd',
-        milestones: ['alpha'],
       }),
     },
   });

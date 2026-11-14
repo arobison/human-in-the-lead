@@ -1,6 +1,8 @@
 // The batch check (design part 3.4, "Validation"): every file matches its kind's allowed keys and
-// the entity schema, every reference resolves, no dependency cycles, nothing above the
-// classification ceiling, no duplicate IDs. Problems are strings, one per line, in the form
+// the entity schema, every reference resolves, no dependency cycles (through items and
+// milestones), nothing above the classification ceiling, no duplicate IDs. For milestones (design
+// part 3.2): every constraint names a clause that exists, every contribution has a value and a
+// confidence, and Done only with a recorded passing check by a role other than its items' authors. Problems are strings, one per line, in the form
 // "<path>: <what is wrong>". The messages and their order are those of the reference check,
 // which this must agree with (design part 16.7).
 
@@ -11,14 +13,15 @@ import {
   CODE_KEYS,
   FOLDER_GROUP,
   KINDS,
-  PRIORITIES,
+  RETIRED_KEYS,
   STATUSES,
   allowedKeys,
   fieldProblems,
   listKeys,
   toEntity,
 } from './format.mjs';
-import { ITEM_KINDS, buildGraph, findCycles, list } from './graph.mjs';
+import { ITEM_KINDS, buildGraph, findCycles } from './graph.mjs';
+import { AUTHOR_ROLE, MILESTONE_KINDS, passingCheck, readMilestone } from './milestones.mjs';
 import { insidePath } from './safe.mjs';
 import { idNumber, patterns } from './tree.mjs';
 
@@ -33,12 +36,14 @@ const CLASSIFICATION_RANK = ['public', 'internal', 'confidential', 'secret'];
  * Validate loaded entries. Returns a list of problem strings.
  * @param {Entry[]} items
  * @param {Layout} layout
- * @param {{ root?: string, onMain?: boolean }} [options]
+ * @param {{ root?: string, onMain?: boolean, authorRoles?: (ids: string[]) => Set<string> }} [options]
  *   root lets `plan` paths be checked for existence; onMain turns on the rule that no work item
- *   on the main branch is In progress (a claim belongs on the executor's branch).
+ *   on the main branch is In progress (a claim belongs on the executor's branch); authorRoles
+ *   gives the roles that wrote the named items (from their commits' Agent-Role trailers), whose
+ *   runs of a milestone's check do not count (default: the executor role only).
  * @returns {string[]}
  */
-export function checkItems(items, layout, { root, onMain = false } = {}) {
+export function checkItems(items, layout, { root, onMain = false, authorRoles } = {}) {
   /** @type {string[]} */
   const problems = [];
   const { id: idPattern, file: filePattern } = patterns(layout.key);
@@ -69,7 +74,10 @@ export function checkItems(items, layout, { root, onMain = false } = {}) {
     }
     const allowed = allowedKeys(kind, layout);
     for (const key of Object.keys(d)) {
-      if (!allowed.includes(key) && !CODE_KEYS.includes(key)) {
+      if (Object.hasOwn(RETIRED_KEYS, key) && !allowed.includes(key)) {
+        say(it, `"${key}" is retired: ${RETIRED_KEYS[key]}; run hitld work migrate`);
+        continue;
+      } else if (!allowed.includes(key) && !CODE_KEYS.includes(key)) {
         say(it, `"${key}" isn't an allowed key for a ${kind}`);
       }
       if (Array.isArray(d[key]) !== lists.has(key)) {
@@ -91,9 +99,6 @@ export function checkItems(items, layout, { root, onMain = false } = {}) {
     const status = String(d.status ?? '');
     if (!STATUSES.includes(status)) {
       say(it, `status "${status}" isn't one of ${STATUSES.join(', ')}`);
-    }
-    if (d.priority !== undefined && !PRIORITIES.includes(String(d.priority))) {
-      say(it, `priority "${d.priority}" isn't one of ${PRIORITIES.join(', ')}`);
     }
     if (d.created !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(d.created))) {
       say(it, `created "${d.created}" isn't YYYY-MM-DD`);
@@ -119,6 +124,15 @@ export function checkItems(items, layout, { root, onMain = false } = {}) {
     if (kind === 'external' && !d.party) say(it, 'an external item needs party (who we wait on)');
     if (['project', 'initiative'].includes(kind) && !d.lead) say(it, `a ${kind} needs a lead`);
     if (kind === 'project' && !d.initiative) say(it, 'a project needs an initiative');
+    if (MILESTONE_KINDS.includes(kind)) {
+      if (!d.project === !d.initiative) {
+        say(it, 'a milestone needs one parent: project or initiative');
+      }
+      if (status === 'In progress') {
+        say(it, 'a milestone is never In progress: items are claimed, milestones are not');
+      }
+      for (const p of readMilestone(d).problems) say(it, p);
+    }
     if (d.plan && root) {
       let found = false;
       try {
@@ -146,26 +160,42 @@ export function checkItems(items, layout, { root, onMain = false } = {}) {
       }
       return target;
     };
-    if (ITEM_KINDS.includes(String(d.kind))) {
-      const project = ref('project', 'project');
-      if (d.milestone && project) {
-        const ms = list(project.data.milestones);
-        if (!ms.includes(String(d.milestone))) {
-          say(
-            it,
-            `milestone "${d.milestone}" isn't one of ${project.data.id}'s (${ms.join(', ') || 'none'})`,
-          );
-        }
-      }
+    const milestone = g.isMilestone(it);
+    if (ITEM_KINDS.includes(String(d.kind)) || milestone) {
+      if (ITEM_KINDS.includes(String(d.kind))) ref('project', 'project');
+      else if (d.project) ref('project', 'project');
+      else ref('initiative', 'initiative');
       for (const n of g.needs(it)) {
         const target = g.get(n);
         if (!target) say(it, `needs ${n}, which doesn't exist`);
-        else if (!g.isItem(target)) {
-          say(it, `needs ${n}, a ${target.data.kind}; needs name items only`);
+        else if (!g.isItem(target) && !g.isMilestone(target)) {
+          say(it, `needs ${n}, a ${target.data.kind}; needs name items and milestones only`);
         } else if (target.data.status === 'Dropped' && g.isOpen(it)) {
-          say(it, `needs ${n}, which was dropped; it can never be ready`);
+          say(it, `needs ${n}, which was dropped; it can never be ${milestone ? 'met' : 'ready'}`);
         }
         if (n === d.id) say(it, 'needs itself');
+      }
+    }
+    if (milestone) {
+      const m = readMilestone(d);
+      for (const c of m.contributions) {
+        const target = g.get(c.id);
+        if (!target) say(it, `serves ${c.id}, which doesn't exist`);
+        else if (!g.isItem(target)) {
+          say(it, `serves ${c.id}, a ${target.data.kind}; contributions are items`);
+        }
+      }
+      if (d.status === 'Done') {
+        const ids = [...g.needs(it), ...m.contributions.map((c) => c.id)];
+        const roles = authorRoles ? authorRoles(ids) : new Set([AUTHOR_ROLE]);
+        if (!passingCheck(String(d.kind), m.results, roles)) {
+          say(
+            it,
+            d.kind === 'learning'
+              ? 'Done needs its study to have a verdict, recorded in check_results'
+              : `Done needs a passing check in check_results, run by a role other than its items' authors (${[...roles].join(', ')})`,
+          );
+        }
       }
     }
     if (d.kind === 'project') ref('initiative', 'initiative');

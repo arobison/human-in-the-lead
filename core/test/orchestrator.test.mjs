@@ -401,6 +401,15 @@ test('hooks: the report check blocks an executor without a report, once; the gua
     assert.match(out, /"deny"/, accept);
     assert.match(out, /owner's decision/, accept);
   }
+  for (const release of ['hitld release make', 'node core/bin/hitld.mjs "release" make --pre rc']) {
+    const out = asExecutor(release);
+    assert.match(out, /"deny"/, release);
+    assert.match(out, /making a release is the owner's/, release);
+  }
+  assert.equal(
+    hook('guard.mjs', { tool_name: 'Bash', tool_input: { command: 'hitld release make' } }).stdout,
+    '',
+  );
   for (const allowed of [
     'hitld work claim W-3 --claimant D-2 --branch b',
     'hitld work close W-3',
@@ -507,7 +516,6 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
       title: 'Add numbers',
       kind: 'work',
       status: 'Done',
-      priority: 'medium',
       touches: ['src/calc.js'],
     }),
   });
@@ -596,9 +604,23 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
         title: 'Redesign',
         kind: 'work',
         status: 'Planned',
-        priority: 'urgent',
         tier_hint: '3',
         touches: ['src/other.js'],
+      }),
+      // Two items wait on W-4, so it unblocks the most and comes first in the queue.
+      'work/items/W-5-after-redesign.md': item({
+        id: 'W-5',
+        title: 'After redesign',
+        kind: 'work',
+        status: 'Planned',
+        needs: ['W-4'],
+      }),
+      'work/items/W-6-also-after.md': item({
+        id: 'W-6',
+        title: 'Also after',
+        kind: 'work',
+        status: 'Planned',
+        needs: ['W-4'],
       }),
     },
   });

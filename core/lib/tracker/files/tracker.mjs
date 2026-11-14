@@ -2,7 +2,10 @@
 // over one file per entity in the repository, in the reference format (design part 3.4).
 //
 // It also carries what the `hitld work` commands need beyond the interface: claims read from
-// branches, close on merge, release, the batch check and the views.
+// branches, close on merge, release, the batch check and the views. Milestones are entities in the
+// same number space; release records are read from their own folder and found by their tag. Every
+// derived field (a milestone's error, check_due, scope, tokens_spent, cost_of_delay_rate and
+// to_shape; an item's constraint_of, contributes_to and released_in) is computed on each read.
 
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -38,6 +41,20 @@ import {
   toStored,
 } from './format.mjs';
 import { ITEM_KINDS, buildGraph, list } from './graph.mjs';
+import {
+  AUTHOR_ROLE,
+  MILESTONE_KINDS,
+  milestoneDerived,
+  passingCheck,
+  readMilestone,
+} from './milestones.mjs';
+import {
+  checkReleases,
+  isPrerelease,
+  loadReleases,
+  releaseEntity,
+  releasedIn,
+} from './releases.mjs';
 import { allocate, assertOrchestrator } from './ids.mjs';
 import { parseItem, renderItem, slugify } from './frontmatter.mjs';
 import { listPlaces, loadPlaces, loadWorkTree, git, repoRootOf } from './tree.mjs';
@@ -51,8 +68,10 @@ import {
   viewCriticalPath,
   viewDecisions,
   viewInitiatives,
+  viewMilestones,
   viewProjects,
   viewReady,
+  viewUnreleased,
 } from './views.mjs';
 
 /**
@@ -75,6 +94,8 @@ import {
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
  * @property {(options?: { only?: string, dryRun?: boolean, commit?: boolean, migrations?: readonly import('./migrate.mjs').Migration[] }) => ReturnType<typeof migrateTracker>} migrate
  *   apply the registered format migrations to every file (idempotent; dryRun shows the diff)
+ * @property {() => Entry[]} releases the release records
+ * @property {(ids: string[]) => Set<string>} authorRoles the roles that wrote the named items
  * @typedef {TrackerAdapter & FilesExtras} FilesTracker
  */
 
@@ -94,6 +115,8 @@ const BODY = /** @type {Record<string, string>} */ ({
   external: '\n## Waiting on\n\n\n',
   project: '\n## Summary\n\n\n',
   initiative: '\n## Goal\n\n\n',
+  capability: '\n## Notes\n\n\n',
+  learning: '\n## Notes\n\n\n',
 });
 
 /** Today as YYYY-MM-DD in local time. */
@@ -128,17 +151,106 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
   const idBlock = block ?? (env.HITLD_ID_BLOCK || undefined);
 
   const read = () => loadWorkTree(root, layout);
+  const releases = () => loadReleases(root, layout);
+
+  /** @type {Map<string, Set<string>> | undefined} item ID to the Agent-Role values on its commits */
+  let rolesByItem;
+  /**
+   * The roles that wrote the named items: the Agent-Role trailers of the commits whose Work-Item
+   * trailer names one, and always the executor role, which writes items. Read from git once.
+   * @param {string[]} ids @returns {Set<string>}
+   */
+  function authorRoles(ids) {
+    if (!rolesByItem) {
+      rolesByItem = new Map();
+      const log = git(
+        root,
+        [
+          'log',
+          '--format=%(trailers:key=Work-Item,valueonly,separator=%x2C)%x09%(trailers:key=Agent-Role,valueonly,separator=%x2C)',
+        ],
+        { allowFail: true },
+      );
+      for (const line of log.split('\n')) {
+        const [items = '', roles = ''] = line.split('\t');
+        for (const item of items
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean)) {
+          const set = rolesByItem.get(item) ?? new Set();
+          for (const r of roles
+            .split(',')
+            .map((x) => x.trim().toLowerCase())
+            .filter(Boolean)) {
+            set.add(r);
+          }
+          rolesByItem.set(item, set);
+        }
+      }
+    }
+    const out = new Set([AUTHOR_ROLE]);
+    for (const id of ids) for (const r of rolesByItem.get(id) ?? []) out.add(r);
+    return out;
+  }
 
   /**
-   * An entry's entity: the model's field names plus the stored keys that have none, the body, the
-   * path and the version.
-   * @param {Entry} it @returns {Entity}
+   * What derived fields are computed from: the graph and which release shipped each item.
+   * @param {Entry[]} [items]
    */
-  function entityOf(it) {
+  function contextOf(items = read()) {
+    const g = buildGraph(items);
+    return { g, released: releasedIn(releases()) };
+  }
+
+  /**
+   * A milestone's derived fields.
+   * @param {ReturnType<typeof contextOf>} ctx @param {Entry} it
+   */
+  const derivedOf = (ctx, it) => {
+    const d = /** @type {Record<string, unknown>} */ (it.data ?? {});
+    const m = readMilestone(d);
+    return milestoneDerived(d, {
+      get: (id) => ctx.g.get(id)?.data,
+      authorRoles: authorRoles([
+        ...ctx.g.needs(/** @type {any} */ (it)),
+        ...m.contributions.map((c) => c.id),
+      ]),
+    });
+  };
+
+  /**
+   * An entry's entity: the model's field names plus the stored keys that have none, the derived
+   * fields, the body, the path and the version.
+   * @param {Entry} it @param {ReturnType<typeof contextOf>} [ctx] @returns {Entity}
+   */
+  function entityOf(it, ctx = contextOf()) {
     const d = /** @type {Record<string, unknown>} */ (it.data ?? {});
     const { schema_version: _, ...entity } = toEntity(d, layout);
     for (const k of NATIVE_EXTRAS) if (d[k] !== undefined) entity[k] = d[k];
+    const id = String(d.id);
+    if (MILESTONE_KINDS.includes(String(d.kind))) Object.assign(entity, derivedOf(ctx, it));
+    else if (ITEM_KINDS.includes(String(d.kind))) {
+      entity.constraint_of = ctx.g.constraintOf(id).map((m) => m.data.id);
+      entity.contributes_to = ctx.g.contributesTo(id).map((m) => m.data.id);
+      entity.released_in = ctx.released.get(id) ?? null;
+    }
     return { ...entity, body: it.body, path: it.path, version: it.version };
+  }
+
+  /**
+   * A release record's entity, with the derived `prerelease`.
+   * @param {Entry} r @returns {Entity}
+   */
+  function releaseEntityOf(r) {
+    const d = /** @type {Record<string, unknown>} */ (r.data ?? {});
+    const { schema_version: _, ...entity } = releaseEntity(d, layout);
+    return {
+      ...entity,
+      kind: 'release',
+      prerelease: isPrerelease(String(d.version ?? '')),
+      body: r.body,
+      path: r.path,
+    };
   }
 
   /**
@@ -183,11 +295,15 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       history: /** @type {'full'} */ ('full'),
     }),
 
-    get: (id) => entityOf(mustFind(id)),
+    get(id) {
+      const record = releases().find((r) => r.data?.id === id);
+      return record?.data ? releaseEntityOf(record) : entityOf(mustFind(id));
+    },
 
     query(filter = {}) {
       const items = read();
-      const g = buildGraph(items);
+      const ctx = contextOf(items);
+      const g = ctx.g;
       const kinds = filter.kind === undefined ? null : list(filter.kind);
       const states = filter.state === undefined ? null : list(filter.state);
       const claimed =
@@ -203,9 +319,27 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         if ('error' in r) throw new Error(`field ${name} ${r.error}`);
         return /** @type {const} */ ([def, r.value]);
       });
+      // Release records have a kind, a tag and notes, and none of the other fields a filter names.
+      const onlyKindAndText = [
+        'state',
+        'area',
+        'parent',
+        'needs',
+        'fields',
+        'ready',
+        'blocked',
+        'claimed',
+      ].every((k) => /** @type {Record<string, unknown>} */ (filter)[k] === undefined);
+      const records =
+        kinds?.includes('release') && onlyKindAndText
+          ? releases()
+              .filter((r) => r.data)
+              .map(releaseEntityOf)
+              .filter((e) => !text || `${e.id}\n${e.body}`.toLowerCase().includes(text))
+          : [];
       return g.all
         .filter((it) => {
-          const e = entityOf(it);
+          const e = entityOf(it, ctx);
           if (kinds && !kinds.includes(String(e.kind))) return false;
           if (states && !states.includes(String(e.state))) return false;
           if (filter.area !== undefined && e.area !== filter.area) return false;
@@ -228,7 +362,8 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
           if (filter.claimed !== undefined && claimed?.has(id) !== filter.claimed) return false;
           return true;
         })
-        .map(entityOf);
+        .map((it) => entityOf(it, ctx))
+        .concat(records);
     },
 
     create: (draft) => tracker.createEntity(draft).id,
@@ -268,6 +403,22 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       if (to === 'In progress' && kind === 'work' && !it.data?.claimed) {
         throw new Error(`claim ${id} to move it to In progress (hitld work claim)`);
       }
+      if (MILESTONE_KINDS.includes(kind)) {
+        if (to === 'In progress') {
+          throw new Error(`${id} is a milestone; items are claimed, milestones are not`);
+        }
+        const m = readMilestone(/** @type {Record<string, unknown>} */ (it.data));
+        const g = buildGraph(read());
+        const roles = authorRoles([
+          ...g.needs(/** @type {any} */ (it)),
+          ...m.contributions.map((c) => c.id),
+        ]);
+        if (to === 'Done' && !passingCheck(kind, m.results, roles)) {
+          throw new Error(
+            `${id} becomes Done only from a recorded passing check by a role other than its items' authors (${[...roles].join(', ')}); record the run in check_results`,
+          );
+        }
+      }
       /** @type {Record<string, unknown>} */
       const changes = { status: to };
       if (to === 'Dropped') changes.reason = String(reason).trim();
@@ -281,14 +432,23 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       const it = mustFind(from);
       const target = mustFind(to);
       if (relation === 'needs') {
-        if (!ITEM_KINDS.includes(String(target.data?.kind))) {
-          throw new Error(`${to} is a ${target.data?.kind}; needs name items only`);
+        if (MILESTONE_KINDS.includes(String(it.data?.kind))) {
+          throw new Error(
+            `${from} is a milestone; a constraint names a clause ("<ID> c<n>"), so update its needs`,
+          );
+        }
+        const kind = String(target.data?.kind);
+        if (!ITEM_KINDS.includes(kind) && !MILESTONE_KINDS.includes(kind)) {
+          throw new Error(`${to} is a ${target.data?.kind}; needs name items and milestones only`);
         }
         const needs = list(it.data?.needs);
         if (!needs.includes(to)) rewrite(it, { needs: [...needs, to] });
       } else if (relation === 'parent') {
-        const key = ITEM_KINDS.includes(String(it.data?.kind)) ? 'project' : 'initiative';
-        rewrite(it, { [key]: to });
+        const kind = String(it.data?.kind);
+        if (MILESTONE_KINDS.includes(kind)) {
+          const key = target.data?.kind === 'initiative' ? 'initiative' : 'project';
+          rewrite(it, { [key]: to, [key === 'project' ? 'initiative' : 'project']: null });
+        } else rewrite(it, { [ITEM_KINDS.includes(kind) ? 'project' : 'initiative']: to });
       } else if (relation === 'opened_from' && layout.optionalKeys.includes('opened_from')) {
         const ids = list(it.data?.opened_from);
         if (!ids.includes(to)) rewrite(it, { opened_from: [...ids, to] });
@@ -340,13 +500,18 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       if (!KINDS.includes(kind)) throw new Error(`kind must be one of ${KINDS.join(', ')}`);
       if (!String(draft.title ?? '').trim()) throw new Error('title is required');
       const isItem = ITEM_KINDS.includes(kind);
-      const state = String(draft.state ?? 'Planned');
+      const isMilestone = MILESTONE_KINDS.includes(kind);
+      // The owner commits a milestone (design part 3.2), so a new one starts Proposed.
+      const state = String(draft.state ?? (isMilestone ? 'Proposed' : 'Planned'));
       if (!['Planned', 'Proposed'].includes(state)) {
         throw new Error(
           'a new entity is Planned or Proposed (claim and close by the claim and close commands)',
         );
       }
       if (isItem && !draft.parent) throw new Error('an item needs a parent: the project ID');
+      if (isMilestone && !draft.parent) {
+        throw new Error('a milestone needs a parent: a project or an initiative ID');
+      }
       if (kind === 'project' && !draft.parent)
         throw new Error('a project needs a parent: the initiative ID');
       if (kind === 'initiative' && draft.parent) throw new Error('an initiative has no parent');
@@ -359,9 +524,10 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         state,
         parent: draft.parent,
         needs: list(draft.needs),
-        priority: draft.priority,
-        milestone: draft.milestone,
-        milestones: list(draft.milestones),
+        parent_kind: isMilestone
+          ? read().find((e) => e.data?.id === draft.parent)?.data?.kind
+          : undefined,
+        outcome: isMilestone ? draft.outcome : undefined,
         party: kind === 'external' ? draft.party : undefined,
         decider: kind === 'decision' ? (draft.decider ?? 'owner') : undefined,
         lead: ['project', 'initiative'].includes(kind) ? (draft.lead ?? 'owner') : undefined,
@@ -436,8 +602,10 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
     check({ branches = false, inflight } = {}) {
       const items = read();
       const onMain = currentBranch(root) === layout.mainBranch;
+      const g = buildGraph(items);
       const problems = [
-        ...checkItems(items, layout, { root, onMain }),
+        ...checkItems(items, layout, { root, onMain, authorRoles }),
+        ...checkReleases(releases(), layout, (id) => g.get(id)?.data),
         ...pendingMigrationProblems(root, layout),
       ];
       if (branches) {
@@ -462,13 +630,17 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       return { problems, files: items.length };
     },
 
+    releases,
+    authorRoles,
+
     /** Apply the registered format migrations; see migrate.mjs. */
     migrate: ({ only, dryRun, commit, migrations } = {}) =>
       migrateTracker(root, layout, { only, dryRun, commit, env, migrations }),
 
     /** Every view, as text keyed by view name. */
     renderViewTexts(/** @type {{ who?: string }} */ { who = 'owner' } = {}) {
-      const g = buildGraph(read());
+      const ctx = contextOf();
+      const g = ctx.g;
       return {
         ready: viewReady(g),
         blocked: viewBlocked(g),
@@ -476,6 +648,8 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         projects: viewProjects(g),
         initiatives: viewInitiatives(g),
         'critical-path': viewCriticalPath(g),
+        milestones: viewMilestones(g, (m) => derivedOf(ctx, m)),
+        unreleased: viewUnreleased(g, ctx.released),
         lists: renderLists(g),
         'items-graph': mermaidItems(g),
         'projects-graph': mermaidProjects(g),
@@ -503,6 +677,8 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         projects: { title: 'Projects', fence: 'text' },
         initiatives: { title: 'Initiatives', fence: 'text' },
         'critical-path': { title: 'Critical path', fence: 'text' },
+        milestones: { title: 'Milestones', fence: 'text' },
+        unreleased: { title: 'Merged, not released', fence: 'text' },
         'items-graph': { title: 'Item dependencies', fence: 'mermaid' },
         'projects-graph': { title: 'Project dependencies', fence: 'mermaid' },
       });

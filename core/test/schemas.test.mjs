@@ -19,9 +19,55 @@ const examples = {
   tracker: {
     schema_version: 1,
     work_dir: 'work',
-    folders: { initiative: 'initiatives', project: 'projects', item: 'items' },
+    folders: {
+      initiative: 'initiatives',
+      project: 'projects',
+      item: 'items',
+      milestone: 'milestones',
+      release: 'releases',
+    },
     main_branch: 'main',
     optional_keys: ['touches', 'estimate_tokens'],
+  },
+  // Design part 3.2, Milestones and releases.
+  milestone: {
+    schema_version: 1,
+    id: 'W-230',
+    kind: 'capability',
+    title: 'Config errors explained',
+    parent: 'W-201',
+    state: 'Planned',
+    classification: 'public',
+    outcome: 'A user with a bad config file sees which key is wrong and why.',
+    done_when: [{ id: 'c1', text: 'An unknown key exits with status 2 and names the key.' }],
+    needs: [
+      { id: 'W-214', clause: 'c1' },
+      { id: 'W-215', clause: null },
+    ],
+    serves: [{ id: 'W-216', value: 3, confidence: 0.7 }],
+    appetite_tokens: 600000,
+    deadline: { date: '2027-03-01', source: 'the conference demo' },
+    check: { kind: 'integration-test', target: 'test/config/errors.test.ts' },
+    check_results: [
+      {
+        result: 'pass',
+        date: '2026-12-01',
+        role: 'acceptance-author',
+        evidence: 'run 41 at 3f9c2a1',
+      },
+    ],
+  },
+  release: {
+    schema_version: 1,
+    id: 'v0.4.0-rc.1',
+    version: '0.4.0-rc.1',
+    previous: 'v0.3.2',
+    bump: 'minor',
+    interface_delta: [{ impact: 'additive', area: 'schemas', what: 'item gains changelog' }],
+    decision: 'owner',
+    items: ['W-214'],
+    milestones: ['W-230'],
+    classification: 'public',
   },
   // Design part 3.4, the file format example.
   item: {
@@ -296,9 +342,11 @@ test('tracker front matter is validated by its kind', () => {
   const errors = registry.validateTrackerEntity({ ...examples.item, kind: 'task' });
   assert.equal(errors[0].path, 'kind');
   assert.deepEqual(Object.keys(TRACKER_KINDS).sort(), [
+    'capability',
     'decision',
     'external',
     'initiative',
+    'learning',
     'opportunity',
     'project',
     'work',

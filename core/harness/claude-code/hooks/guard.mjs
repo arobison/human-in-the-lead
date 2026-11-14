@@ -33,6 +33,8 @@ if (isExecutor(input, process.env)) {
   } else if (/\brights\b[\s\S]*\b(answer|overrule|reverse|rate|trust)\b/.test(unquoted)) {
     why =
       "decisions are the owner's, answered through the main session; put the question in your report";
+  } else if (/\bhitld(\.mjs)?\s+release\s+make\b/.test(unquoted)) {
+    why = "making a release is the owner's, from the main session; propose it in your report";
   } else if (hitldCalls(unquoted).some((rest) => !EXECUTOR_HITLD.test(rest))) {
     why = 'executors run only the hitld commands for claiming, closing, reading and checking';
   }

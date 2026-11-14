@@ -44,7 +44,6 @@ async function ownerConsumer(mode = 'owner') {
         title: 'Add numbers',
         kind: 'work',
         status: 'Done',
-        priority: 'medium',
         touches: ['src/calc.js'],
       }),
       'src/calc.js': 'export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n',

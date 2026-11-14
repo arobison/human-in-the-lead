@@ -13,6 +13,7 @@ import { commands as rights } from './commands/rights.mjs';
 import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
+import { commands as release } from './commands/release.mjs';
 import { commands as later } from './commands/later.mjs';
 
 /**
@@ -34,6 +35,8 @@ import { commands as later } from './commands/later.mjs';
  * @property {keyof typeof PIECES} piece who builds it
  * @property {ArgSpec[]} [args]
  * @property {boolean} [mcp] false for commands that make no sense as an MCP tool; default true
+ * @property {string[]} [output] the top-level fields of the JSON it prints, where it declares them;
+ *   part of the public interface, so the release interface delta compares them (core/lib/release)
  * @property {(input: Record<string, unknown>, ctx: CommandContext) => CommandResult | Promise<CommandResult>} [run]
  */
 
@@ -67,6 +70,7 @@ export const COMMANDS = Object.freeze([
   ...quota,
   ...evals,
   ...orchestrator,
+  ...release,
   ...later,
 ]);
 
