@@ -5,6 +5,7 @@
 // same file. A command without `run` answers "not yet built" and names the piece that builds it.
 
 import { commands as foundation } from './commands/foundation.mjs';
+import { commands as guard } from './commands/guard.mjs';
 import { commands as tracker } from './commands/tracker.mjs';
 import { commands as ledger } from './commands/ledger.mjs';
 import { commands as env } from './commands/env.mjs';
@@ -63,6 +64,7 @@ export const COMMANDS = Object.freeze([
   ...ledger,
   ...env,
   ...contract,
+  ...guard,
   ...rights,
   ...quota,
   ...evals,
