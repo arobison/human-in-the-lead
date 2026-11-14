@@ -49,6 +49,10 @@
       "description": "Path globs the item is expected to change.",
       "$ref": "common#/$defs/globs"
     },
+    "resources": {
+      "description": "What this machine must have for the item to run here, such as gpu or browser (design part 13.4). An item that needs a resource the machine lacks is not dispatched here, and the orchestrator says why.",
+      "$ref": "common#/$defs/names"
+    },
     "serial": {
       "description": "Serial resources the item needs, such as gpu.",
       "$ref": "common#/$defs/names"

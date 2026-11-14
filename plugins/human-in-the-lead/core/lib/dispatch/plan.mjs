@@ -44,6 +44,7 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   capabilities: HarnessCapabilities,
  *   gate: (item: Item) => GateAnswer,
  *   heldElsewhere?: (resource: string) => string | null,
+ *   machine?: { has: (name: string) => boolean, why: (name: string) => string },
  *   overlapSerialize?: number,
  *   critical?: Set<string>,
  * }} r
@@ -99,6 +100,14 @@ export function planDispatch(r) {
         reason: 'classification',
         why: 'without full hooks the guard catches only after the fact, so only public items go to this harness',
       });
+      continue;
+    }
+    // An item needs resources this machine may lack (design part 13.4): it waits, with the reason.
+    const lacking = r.machine
+      ? /** @type {string[]} */ (item.resources ?? []).find((n) => !r.machine?.has(n))
+      : undefined;
+    if (lacking !== undefined) {
+      held.push({ item: id, reason: 'resource', why: `waits: ${r.machine?.why(lacking)}` });
       continue;
     }
     const gate = r.gate(item);

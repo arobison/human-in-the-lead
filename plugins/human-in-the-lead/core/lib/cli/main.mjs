@@ -9,7 +9,8 @@ import { NAME, VERSION } from '../version.mjs';
 
 /**
  * @typedef {import('./table.mjs').Command} Command
- * @typedef {{ out: (text: string) => void, err: (text: string) => void, cwd: string, env: NodeJS.ProcessEnv }} Io
+ * @typedef {{ out: (text: string) => void, err: (text: string) => void, cwd: string, env: NodeJS.ProcessEnv,
+ *   machine?: import('../machine/detect.mjs').Sources }} Io machine: fake probe sources, for tests
  */
 
 export const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2, notBuilt: 3 });
@@ -116,7 +117,12 @@ export async function main(argv, io) {
   }
 
   try {
-    const result = await command.run(input, { cwd: io.cwd, env: io.env, interactive: true });
+    const result = await command.run(input, {
+      cwd: io.cwd,
+      env: io.env,
+      interactive: true,
+      machine: io.machine,
+    });
     json(io, result);
     return result.ok ? EXIT.ok : EXIT.failed;
   } catch (e) {

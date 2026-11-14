@@ -12,6 +12,8 @@ import { hostname } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
+import { loadSettingsFile } from '../../settings/files.mjs';
+import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
@@ -184,7 +186,11 @@ function plan(p, ctx) {
     touches: /** @type {string[]} */ (q.byId.get(d.item)?.touches ?? []),
   }));
   const ours = new Set(running.map((d) => d.dispatch));
+  // What this machine has, from a fresh local probe and the machine file's record: the smaller wins.
+  const machineFile = loadSettingsFile('machine', { env: ctx.env });
+  const machine = machineResources(machineFile.data, probeMachine(ctx.machine ?? localSources()));
   const result = planDispatch({
+    machine,
     queue: q.queue,
     sizes: q.sizes,
     running,

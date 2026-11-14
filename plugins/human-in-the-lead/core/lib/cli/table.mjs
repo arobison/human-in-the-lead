@@ -14,6 +14,7 @@ import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
 import { commands as config } from './commands/config.mjs';
+import { commands as machine } from './commands/machine.mjs';
 import { commands as later } from './commands/later.mjs';
 
 /**
@@ -24,6 +25,8 @@ import { commands as later } from './commands/later.mjs';
  * @property {NodeJS.ProcessEnv} env
  * @property {boolean} [interactive] true only on the human command line (core/lib/cli/main.mjs). An MCP
  *   dispatcher, or anything else that builds a context, leaves it unset, so what needs it is denied by default
+ * @property {import('../machine/detect.mjs').Sources} [machine] what the machine probes read; tests
+ *   pass fakes, everything else leaves it unset for this machine
  *
  * @typedef {{ ok: boolean } & Record<string, unknown>} CommandResult
  *   JSON out. ok false means the command ran and found a problem (exit code 1).
@@ -69,6 +72,7 @@ export const COMMANDS = Object.freeze([
   ...evals,
   ...orchestrator,
   ...config,
+  ...machine,
   ...later,
 ]);
 

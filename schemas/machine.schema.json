@@ -5,7 +5,9 @@
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
-    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "schema_version": {
+      "$ref": "common#/$defs/schemaVersion"
+    },
     "role": {
       "description": "What kind of machine this is; the role sets the defaults for shares and load checks (design part 13.4, machine roles).",
       "enum": ["dedicated", "workstation", "cloud_vm", "ci"]
@@ -14,6 +16,110 @@
       "description": "The most executors on this machine, from every project. The effective cap is the smallest of this, the person's executors_max, the project's execution.concurrency and the run's cap.",
       "type": "integer",
       "minimum": 1
+    },
+    "cores": {
+      "description": "The most cores heavy work started by hitld may keep busy (design part 13.4). A later probe that finds fewer cores than this wins.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "memory_ceiling_mb": {
+      "description": "Megabytes of memory. Heavy work is not admitted when its expected use would pass this. A later probe that finds less memory wins.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "capacity": {
+      "description": "How many weight units each resource takes, such as gpu: 4. A holder takes a weight; a resource with no entry has capacity 1.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "load": {
+      "description": "Load limits for heavy work.",
+      "type": "object",
+      "properties": {
+        "max_per_core": {
+          "description": "Above this load average per core, heavy work waits.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "detected": {
+      "description": "What `hitld machine detect` found and when (design part 13.4). A record, not a limit: the settings above are what hitld may use. A later probe that finds less than this warns and uses the smaller value.",
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "When the probe ran.",
+          "$ref": "common#/$defs/timestamp"
+        },
+        "role": {
+          "description": "The role the local hints pointed to. The role above wins when the person set it.",
+          "enum": ["dedicated", "workstation", "cloud_vm", "ci"]
+        },
+        "role_hints": {
+          "description": "The local hints behind the detected role.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "os": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string",
+              "minLength": 1
+            },
+            "release": {
+              "type": "string"
+            },
+            "arch": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "memory_mb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gpus": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          }
+        },
+        "browsers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": ["at"],
+      "additionalProperties": false
     },
     "env": {
       "description": "What the environment resource manager uses on this machine (design part 13.2). These were policy.json's env keys.",
