@@ -41,8 +41,9 @@ const SKILL_EXTRAS = /** @type {Record<string, Record<string, string>>} */ ({
 
 /**
  * Claude Code front matter added to each agent from agents/. The generalizer works only on what its
- * prompt holds: Read is the narrowest tool list that is not empty (an absent list would give it
- * every tool).
+ * prompt holds: Read is the narrowest tool list that is not empty. The subagent documentation
+ * (https://code.claude.com/docs/en/sub-agents.md, read 2026-11-14) documents no form for no tools:
+ * an absent list inherits every tool, and a list where nothing resolves fails to launch.
  */
 const AGENT_EXTRAS = /** @type {Record<string, Record<string, string>>} */ ({
   generalizer: { tools: 'Read', model: 'inherit' },

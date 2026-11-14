@@ -21,13 +21,12 @@ function readOutbox(sandbox) {
 export const actions = {
   'feedback.cli': {
     description:
-      'Run a feedback command in the sandbox as the human command line would, with a fake filer that keeps what it would send in outbox.json. env sets the environment (for an executor, HITLD_ROLE or HITLD_DISPATCH); agent: true runs it as an agent tool call would (not the human command line). Returns { result, sent }: the command output and how many issues the filer has sent so far.',
+      'Run a feedback command in the sandbox as the human command line would, with a fake filer that keeps what it would send in outbox.json. env sets the environment (for an executor, HITLD_ROLE or HITLD_DISPATCH). Returns { result, sent }: the command output and how many issues the filer has sent so far.',
     input: {
       type: 'object',
       properties: {
         argv: { type: 'array', items: { type: 'string' }, minItems: 1 },
         env: { type: 'object', additionalProperties: { type: 'string' } },
-        agent: { type: 'boolean' },
       },
       required: ['argv'],
       additionalProperties: false,
@@ -47,7 +46,7 @@ export const actions = {
         result = await command.run(args, {
           cwd: ctx.sandbox,
           env: input.env ?? {},
-          interactive: input.agent !== true,
+          interactive: true,
         });
       } catch (e) {
         result = {

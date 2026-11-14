@@ -103,7 +103,7 @@ Feedback that people give in the moment takes the same path ([18.4](#184-giving-
 
 ## 18.4 Giving feedback
 
-The feedback command, `hitld feedback`, records feedback locally (HITLD-46). The orchestrator skill's part, the generalizer agent and `hitld feedback route`, `draft` and `publish` generalize, approve and file it (HITLD-47). Approval is the send gate's first use: an approved publication only a person's answer at the command line in the primary checkout can make, refused to executors, by an approver in policy `feedback.approvers` (default the owner). Filing uses the GitHub command line (`gh issue create`) with the person's own sign-in.
+The feedback command, `hitld feedback`, records feedback locally (HITLD-46). The orchestrator skill's part, the generalizer agent and `hitld feedback route`, `draft` and `publish` generalize, approve and file it (HITLD-47). Approval is the send gate's first use: an approved publication only a person's answer can make, taken with the same guards as answers to decisions (refused to executors), by an approver in policy `feedback.approvers` (default the owner). Filing uses the GitHub command line (`gh issue create`) with the person's own sign-in.
 
 People using HITLd notice what the evals miss: a question that was not worth asking, a step that works but feels wrong, a part that works well. This section sets how that reaches this repository without any project's confidential material. It applies guardrail 5 to feedback given in the moment.
 

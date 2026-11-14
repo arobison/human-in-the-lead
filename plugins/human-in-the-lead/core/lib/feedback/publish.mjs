@@ -30,7 +30,7 @@ import { HEADINGS, harnessText } from './render.mjs';
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
  * @typedef {import('./record.mjs').FeedbackRecord} FeedbackRecord
  * @typedef {import('../sendgate/gate.mjs').Filer} Filer
- * @typedef {{ cwd: string, env: NodeJS.ProcessEnv, interactive?: boolean }} Ctx
+ * @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} Ctx
  * @typedef {{ names: string[], people: string[], paths: string[], ids: string[], tokens: string[] }} Context
  */
 

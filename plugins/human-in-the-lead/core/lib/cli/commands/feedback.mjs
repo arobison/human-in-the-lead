@@ -301,7 +301,6 @@ export function makeCommands({ makeFiler }) {
       summary:
         "Show each drafted record beside the person's words, or take the person's answer on one: approve, edit, by-hand or drop. Only an approved draft is filed, as an issue in HITLd's repository",
       piece: 'feedback',
-      mcp: false,
       args: [
         {
           name: 'id',

@@ -3,7 +3,7 @@
   "id": "feedback/nothing-filed-without-approval",
   "piece": "feedback",
   "category": "feedback",
-  "description": "Nothing is filed without a person's approval: listing sends nothing, an executor (HITLD_ROLE or HITLD_DISPATCH) and an agent tool call are refused, an answer that is not an approval is refused, and a contributor outside feedback.approvers cannot approve. Only the owner's approve files it.",
+  "description": "Nothing is filed without a person's approval: listing sends nothing, an executor (HITLD_ROLE or HITLD_DISPATCH) is refused, as for answers to decisions, an answer that is not an approval is refused, and a contributor outside feedback.approvers cannot approve. Only the owner's approve files it.",
   "mode": "offline",
   "fixture": {
     "generator": "repo",
@@ -77,14 +77,6 @@
         "env": {
           "HITLD_DISPATCH": "D-3"
         }
-      }
-    },
-    {
-      "id": "agent",
-      "action": "feedback.cli",
-      "with": {
-        "argv": ["feedback", "publish", "FB-1", "--answer", "approve", "--store", "store"],
-        "agent": true
       }
     },
     {
@@ -167,14 +159,6 @@
       "grader": "equals",
       "with": {
         "path": "steps.dispatched.result.error",
-        "value": "not_permitted"
-      }
-    },
-    {
-      "id": "agent-refused",
-      "grader": "equals",
-      "with": {
-        "path": "steps.agent.result.error",
         "value": "not_permitted"
       }
     },

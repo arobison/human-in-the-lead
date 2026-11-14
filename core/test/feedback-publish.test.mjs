@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from '../lib/cli/args.mjs';
 import { commands as realCommands, makeCommands } from '../lib/cli/commands/feedback.mjs';
+import { commands as rightsCommands } from '../lib/cli/commands/rights.mjs';
 import { fakeFiler, FEEDBACK_REPO } from '../lib/feedback/filer.mjs';
 import { routeFeedback, ASK } from '../lib/feedback/route.mjs';
 import { FORM_OF } from '../lib/feedback/render.mjs';
@@ -216,7 +217,7 @@ test('draft: the generalizer output is checked before anything else', async () =
   assert.equal(stored(id).state, 'local');
 });
 
-test('publish: nothing is filed without an approval; an executor and an agent are refused', async () => {
+test('publish: nothing is filed without an approval; an executor is refused', async () => {
   const id = await record('That digest was much longer than it needed to be for one merge.');
   await draft(id, { ...clean, title: 'The digest was long for a single merge' });
   const before = filer.sent.length;
@@ -233,10 +234,6 @@ test('publish: nothing is filed without an approval; an executor and an agent ar
     );
     assert.equal(d.error, 'not_permitted');
   }
-  const mcp = await run(['feedback', 'publish', id, '--answer', 'approve', '--store', store], {
-    interactive: false,
-  });
-  assert.equal(mcp.error, 'not_permitted');
   const vague = await run([
     'feedback',
     'publish',
@@ -423,9 +420,19 @@ test('the filer failing leaves the record drafted, to try again', async () => {
   assert.equal(stored(id).approval, undefined);
 });
 
-test('the packaged publish command uses the real filer and is not offered as an MCP tool', () => {
+test('publish is declared and guarded as rights answer is: offered over MCP, refused to executors', async () => {
   const c = realCommands.find((x) => x.name === 'feedback publish');
-  assert.equal(c?.mcp, false);
+  const answer = rightsCommands.find((x) => x.name === 'rights answer');
+  assert.equal(c?.mcp, answer?.mcp);
+  // Without the human command line (an MCP tool call), the person's answer is taken as rights
+  // answer takes it; a dispatch's environment is refused there too.
+  const viaTool = await run(['feedback', 'publish', '--store', store], { interactive: false });
+  assert.equal(viaTool.ok, true);
+  const refused = await run(['feedback', 'publish', '--store', store], {
+    interactive: false,
+    env: { HITLD_DISPATCH: 'D-9' },
+  });
+  assert.equal(refused.error, 'not_permitted');
 });
 
 test('title prefixes and labels match the issue forms', () => {

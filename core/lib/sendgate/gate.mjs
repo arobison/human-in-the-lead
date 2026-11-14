@@ -3,10 +3,10 @@
 // reuse it later.
 //
 // An ApprovedPublication is a value only `approvePublication` can make, and it makes one only from
-// a person's answer, given at the human command line in the primary checkout, by a person the
-// policy lets approve. `sendApproved` refuses anything else, so no caller can hand the filer a
-// look-alike object. The answer itself is taken under the same rule as answers to decisions
-// (design part 22, Q21): only from the person's own turn in the main session. The executor
+// a person's answer, by a person the policy lets approve, in a process that is not an executor's.
+// `sendApproved` refuses anything else, so no caller can hand the filer a look-alike object. The
+// answer is taken exactly as answers to decisions are (`hitld rights answer`, design part 22,
+// Q21): only from the person's own turn in the main session, with the same guards. The executor
 // refusal is the decisions' own (core/lib/cli/executor.mjs); the plugin's Bash guard is the first
 // line, since it denies executors every hitld command outside their short list.
 //
@@ -67,22 +67,16 @@ export function parseAnswer(answer) {
 }
 
 /**
- * Why this process may not take a person's approval, or null. The decisions' guard, plus the
- * human command line: an MCP tool call or any other context that does not set `interactive` is an
- * agent, and is refused by default.
- * @param {{ cwd: string, env: NodeJS.ProcessEnv, interactive?: boolean }} ctx
+ * Why this process may not take a person's approval, or null: the guard on decision answers
+ * (`hitld rights answer`), unchanged. A dispatch's environment or a linked worktree refuses.
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv }} ctx
  */
-export function approvalRefusal(ctx) {
-  const why = executorSignal(ctx.env, ctx.cwd);
-  if (why) return why;
-  if (ctx.interactive !== true) return 'an approval is taken only at the human command line';
-  return null;
-}
+export const approvalRefusal = (ctx) => executorSignal(ctx.env, ctx.cwd);
 
 /**
  * Make an ApprovedPublication from a person's answer.
  * @param {{ subject: string, content: Publication, answer: string, by: string, approvers: readonly string[],
- *   ctx: { cwd: string, env: NodeJS.ProcessEnv, interactive?: boolean }, now?: () => Date }} o
+ *   ctx: { cwd: string, env: NodeJS.ProcessEnv }, now?: () => Date }} o
  * @returns {ApprovedPublication}
  */
 export function approvePublication(o) {
