@@ -5,7 +5,6 @@ kind: work
 status: Done
 created: 2026-11-14
 project: HITLD-15
-milestone: consumer-live
 needs: [HITLD-46]
 claimed: D-47
 ---

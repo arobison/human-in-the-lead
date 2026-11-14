@@ -87,7 +87,6 @@ export function buildConsumer(root, options = {}) {
       title: 'Add numbers',
       kind: 'work',
       status: 'Planned',
-      priority: 'medium',
       touches: ['src/calc.js'],
     }),
     'work/items/W-2-another-thing.md': itemFile({
@@ -95,7 +94,6 @@ export function buildConsumer(root, options = {}) {
       title: 'Another thing',
       kind: 'work',
       status: 'Planned',
-      priority: 'high',
       touches: ['src/other.js'],
     }),
     'work/items/W-3-after-one.md': itemFile({
@@ -103,7 +101,6 @@ export function buildConsumer(root, options = {}) {
       title: 'After one',
       kind: 'work',
       status: 'Planned',
-      priority: 'medium',
       needs: ['W-1'],
       touches: ['src/calc.js'],
     }),

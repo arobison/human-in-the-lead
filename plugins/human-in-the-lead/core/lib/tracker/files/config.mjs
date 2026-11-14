@@ -10,7 +10,7 @@ import { reservedFieldNames } from './format.mjs';
 
 /**
  * @typedef {import('../../schema/validate.mjs').ValidationError} ValidationError
- * @typedef {'initiative' | 'project' | 'work' | 'decision' | 'external'} Kind
+ * @typedef {'initiative' | 'project' | 'work' | 'decision' | 'external' | 'capability' | 'learning'} Kind
  *
  * @typedef {object} DeclaredField a project field declared in tracker.json `fields`
  * @property {string} name
@@ -22,7 +22,7 @@ import { reservedFieldNames } from './format.mjs';
  * @typedef {object} Layout everything the backend needs to find and read item files
  * @property {string} key the ID key, from policy.json project.key
  * @property {string} workDir relative to the repository root, with "/" separators
- * @property {{ initiative: string, project: string, item: string }} folders
+ * @property {{ initiative: string, project: string, item: string, milestone: string, release: string }} folders
  * @property {string} viewsDir relative to workDir
  * @property {string | undefined} listsReadme relative to workDir
  * @property {string} mainBranch

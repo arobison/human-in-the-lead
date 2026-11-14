@@ -6,7 +6,6 @@ status: Planned
 created: 2026-11-14
 initiative: HITLD-1
 lead: owner
-milestones: [safe-to-publish, settings-hold, first-release, consumer-live]
 ---
 
 ## Summary

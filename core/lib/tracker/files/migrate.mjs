@@ -8,8 +8,11 @@
 // writing and shows the diff. A real run writes the files and, unless told not to, commits them in
 // one commit that can be reviewed.
 //
-// Scope today: item files under the work directory (initiatives, projects, items). A step may
-// change, create or delete those. tracker.json is changed by the owner, not by a migration.
+// Scope: ID-named files under the work directory (initiatives, projects, items, milestones). A
+// step may change, create or delete those. A step that creates a file allocates its number from
+// what the tree holds and what `taken` says is used elsewhere in the clone, so a run on one branch
+// does not reuse a number another branch already holds. tracker.json is changed by the owner, not
+// by a migration; release records are written by `hitld release make`, never by a migration.
 
 import { rmSync } from 'node:fs';
 import { checkItems } from './check.mjs';
@@ -22,7 +25,8 @@ import {
   readNoFollow,
   writeNoFollow,
 } from './safe.mjs';
-import { assertOrchestrator } from './ids.mjs';
+import { assertOrchestrator, takenNumbers } from './ids.mjs';
+import { blockRange } from './config.mjs';
 import { folderNames, git, loadWorkTree } from './tree.mjs';
 import { MIGRATIONS } from './migrations/index.mjs';
 
@@ -34,9 +38,12 @@ import { MIGRATIONS } from './migrations/index.mjs';
  * @property {Layout} layout
  * @property {Entry[]} entries every item file, parsed, in path order
  * @property {Map<string, string>} files the same files as text, by repository-relative path
+ * @property {Set<number>} taken numbers used anywhere in this clone (worktrees, branches, bundle
+ *   refs) within `range`; empty when only checking whether work is left
+ * @property {{ from: number, to: number | null }} range the base ID range new files take numbers from
  *
  * @typedef {object} FileChange one file a step changes
- * @property {string} path repository-relative, an item file under the work directory
+ * @property {string} path repository-relative, an ID-named file under the work directory
  * @property {string | null} text the new text; null deletes the file; a new path creates it
  *
  * @typedef {object} Migration
@@ -77,13 +84,19 @@ function entriesOf(files) {
 
 /**
  * A step's view of the files.
- * @param {Map<string, string>} files @param {Layout} layout
+ * @param {Map<string, string>} files @param {Layout} layout @param {Set<number>} [taken]
  * @returns {MigrationTree}
  */
-const treeOf = (files, layout) => ({ layout, entries: entriesOf(files), files: new Map(files) });
+const treeOf = (files, layout, taken = new Set()) => ({
+  layout,
+  entries: entriesOf(files),
+  files: new Map(files),
+  taken,
+  range: blockRange(layout, undefined),
+});
 
 /**
- * Whether a path is a file a migration may touch: an item file in one of the three folders.
+ * Whether a path is a file a migration may touch: an ID-named file in one of the folders.
  * @param {Layout} layout @param {string} path
  */
 function allowedPath(layout, path) {
@@ -160,7 +173,7 @@ function apply(files, layout, name, changes) {
   for (const c of changes) {
     if (!allowedPath(layout, c.path)) {
       throw new Error(
-        `migration "${name}" names ${JSON.stringify(c.path)}, which is not an item file`,
+        `migration "${name}" names ${JSON.stringify(c.path)}, which is not a tracker file`,
       );
     }
     if (seen.has(c.path)) throw new Error(`migration "${name}" changes ${c.path} twice`);
@@ -209,14 +222,15 @@ export function planMigrations(root, layout, { migrations = MIGRATIONS, only } =
   const original = new Map(loaded.map((e) => [e.path, readNoFollow(insidePath(root, e.path))]));
   const files = new Map(original);
   const before = checkItems(loaded, layout, { root });
+  const taken = takenNumbers(root, layout, blockRange(layout, undefined));
   /** @type {PlannedStep[]} */
   const steps = [];
   for (const m of migrations) {
     if (only !== undefined && m.name !== only) continue;
-    const planned = apply(files, layout, m.name, m.plan(treeOf(files, layout)));
+    const planned = apply(files, layout, m.name, m.plan(treeOf(files, layout, taken)));
     steps.push({ name: m.name, summary: m.summary, files: planned });
     // A step with work left after its own changes would never settle.
-    const again = m.plan(treeOf(files, layout));
+    const again = m.plan(treeOf(files, layout, taken));
     if (again.length) {
       throw new Error(
         `migration "${m.name}" is not idempotent: it still wants to change ${again.map((c) => c.path).join(', ')} after its own changes`,
@@ -286,14 +300,19 @@ export function migrateTracker(root, layout, { dryRun = false, commit = true, en
 export function pendingMigrationProblems(root, layout, { migrations = MIGRATIONS } = {}) {
   if (migrations.length === 0) return [];
   checkRegistry(migrations);
+  // A file that is not a regular file is the check's to name; it is never read here.
   const files = new Map(
-    loadWorkTree(root, layout).map((e) => [e.path, readNoFollow(insidePath(root, e.path))]),
+    loadWorkTree(root, layout)
+      .filter((e) => e.version !== undefined)
+      .map((e) => [e.path, readNoFollow(insidePath(root, e.path))]),
   );
   /** @type {string[]} */
   const out = [];
   for (const m of migrations) {
     for (const f of apply(files, layout, m.name, m.plan(treeOf(files, layout)))) {
-      out.push(`${f.path}: needs migration "${m.name}" (run hitld work migrate)`);
+      if (f.action === 'create') {
+        out.push(`migration "${m.name}" would create a file (run hitld work migrate)`);
+      } else out.push(`${f.path}: needs migration "${m.name}" (run hitld work migrate)`);
     }
   }
   return out;

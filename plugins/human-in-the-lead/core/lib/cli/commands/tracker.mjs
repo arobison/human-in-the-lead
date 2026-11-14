@@ -26,7 +26,7 @@ import { MIGRATIONS } from '../../tracker/files/migrations/index.mjs';
  */
 
 /** @type {ArgSpec[]} */
-const where = [
+export const where = [
   {
     name: 'repo',
     type: 'string',
@@ -45,7 +45,7 @@ const where = [
  * @param {Record<string, unknown>} input @param {CommandContext} ctx
  * @param {{ readOnly?: boolean }} [options] readOnly: the command changes nothing in the repository
  */
-function open(input, ctx, { readOnly = false } = {}) {
+export function open(input, ctx, { readOnly = false } = {}) {
   const repo = input.repo ? resolve(ctx.cwd, String(input.repo)) : ctx.cwd;
   const configDir = input.config ? resolve(ctx.cwd, String(input.config)) : undefined;
   if (configDir && !readOnly) {
@@ -128,21 +128,32 @@ export const commands = [
       {
         name: 'kind',
         type: 'string',
-        description: 'work (default), decision, external, project or initiative',
+        description:
+          'work (default), decision, external, project, initiative, or a milestone: capability or learning',
       },
       {
         name: 'parent',
         type: 'string',
-        description: 'The project ID (for an item) or the initiative ID (for a project)',
+        description:
+          'The project ID (for an item), the initiative ID (for a project), or either (for a milestone)',
       },
-      { name: 'state', type: 'string', description: 'Planned (default) or Proposed' },
-      { name: 'needs', type: 'string', description: 'Comma-separated IDs that must be Done first' },
-      { name: 'priority', type: 'string', description: 'urgent, high, medium or low' },
-      { name: 'milestone', type: 'string', description: "One of the project's milestones" },
       {
-        name: 'milestones',
+        name: 'state',
         type: 'string',
-        description: "A project's milestones, comma-separated",
+        description:
+          'Planned (default) or Proposed (the default for a milestone, which the owner commits)',
+      },
+      {
+        name: 'needs',
+        type: 'string',
+        description:
+          'Comma-separated IDs that must be Done first (items and milestones). A milestone links each constraint to a clause in its file',
+      },
+      {
+        name: 'outcome',
+        type: 'string',
+        description:
+          "A milestone's outcome: one sentence, the state for users or the question answered",
       },
       { name: 'decider', type: 'string', description: 'Who decides a decision (default owner)' },
       { name: 'party', type: 'string', description: 'Who an external item waits on' },
@@ -172,9 +183,7 @@ export const commands = [
         parent: input.parent,
         state: input.state,
         needs: csv(input.needs),
-        priority: input.priority,
-        milestone: input.milestone,
-        milestones: csv(input.milestones),
+        outcome: input.outcome,
         decider: input.decider,
         party: input.party,
         lead: input.lead,
@@ -185,8 +194,10 @@ export const commands = [
   },
   {
     name: 'work show',
-    summary: 'Show one tracker entity',
+    summary:
+      'Show one tracker entity: an item, project, initiative or milestone, or a release record by its tag',
     piece: 'a',
+    output: ['ok', 'api_version', 'entity', 'declared_fields'],
     args: [idArg, jsonArg, ...where],
     run(input, ctx) {
       const t = open(input, ctx, { readOnly: true });
@@ -198,11 +209,13 @@ export const commands = [
     name: 'work query',
     summary: 'Query tracker entities by kind, state, area, needs, parent or text',
     piece: 'a',
+    output: ['ok', 'api_version', 'count', 'entities', 'declared_fields'],
     args: [
       {
         name: 'kind',
         type: 'string',
-        description: 'work, decision, external, project or initiative',
+        description:
+          'work, decision, external, project, initiative, capability, learning or release (release records, found by their tag)',
       },
       {
         name: 'state',
@@ -402,7 +415,7 @@ export const commands = [
         name: 'view',
         type: 'string',
         description:
-          'Print one view as text instead of writing files: ready, blocked, decisions, projects, initiatives, critical-path, lists, items-graph or projects-graph',
+          'Print one view as text instead of writing files: ready, blocked, decisions, projects, initiatives, critical-path, milestones, unreleased, lists, items-graph or projects-graph',
       },
       {
         name: 'who',

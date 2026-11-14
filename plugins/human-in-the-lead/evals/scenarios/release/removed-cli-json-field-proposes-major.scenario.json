@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "id": "release/removed-cli-json-field-proposes-major",
+  "piece": "release",
+  "category": "release",
+  "description": "A field removed from a command's JSON output is a breaking change: it proposes a major release from 1.y.z, and a minor release flagged breaking while the version is 0.y.z.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "stable",
+      "action": "release.propose-bump",
+      "with": {
+        "base_version": "1.2.0",
+        "before": {
+          "cli": {
+            "work show": {
+              "args": { "id": { "type": "string", "required": true, "positional": true } },
+              "aliases": [],
+              "output": ["api_version", "entity", "ok"]
+            }
+          }
+        },
+        "after": {
+          "cli": {
+            "work show": {
+              "args": { "id": { "type": "string", "required": true, "positional": true } },
+              "aliases": [],
+              "output": ["entity", "ok"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "early",
+      "action": "release.propose-bump",
+      "with": {
+        "base_version": "0.3.0",
+        "before": {
+          "cli": {
+            "work show": {
+              "args": { "id": { "type": "string", "required": true, "positional": true } },
+              "aliases": [],
+              "output": ["api_version", "entity", "ok"]
+            }
+          }
+        },
+        "after": {
+          "cli": {
+            "work show": {
+              "args": { "id": { "type": "string", "required": true, "positional": true } },
+              "aliases": [],
+              "output": ["entity", "ok"]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "marked-breaking",
+      "grader": "equals",
+      "with": { "path": "steps.stable.interface_delta[0].impact", "value": "breaking" }
+    },
+    {
+      "id": "names-the-field",
+      "grader": "matches",
+      "with": { "path": "steps.stable.interface_delta[0].what", "pattern": "api_version removed" }
+    },
+    {
+      "id": "major-from-1",
+      "grader": "equals",
+      "with": { "path": "steps.stable.bump", "value": "major" }
+    },
+    {
+      "id": "version-2",
+      "grader": "equals",
+      "with": { "path": "steps.stable.version", "value": "2.0.0" }
+    },
+    {
+      "id": "minor-under-0",
+      "grader": "equals",
+      "with": { "path": "steps.early.bump", "value": "minor" }
+    },
+    {
+      "id": "flagged-breaking",
+      "grader": "equals",
+      "with": { "path": "steps.early.breaking", "value": true }
+    },
+    {
+      "id": "version-0-4",
+      "grader": "equals",
+      "with": { "path": "steps.early.version", "value": "0.4.0" }
+    }
+  ]
+}

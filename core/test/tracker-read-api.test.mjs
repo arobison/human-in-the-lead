@@ -35,7 +35,6 @@ function repo(files = {}) {
         kind: 'work',
         status: 'Planned',
         project: 'W-2',
-        milestone: 'alpha',
         needs: ['W-3'],
         team: 'core',
         points: '3',
@@ -358,7 +357,7 @@ test('migrate: refuses a step that is not idempotent or names a file outside the
     summary: 'Writes outside.',
     plan: () => [{ path: '../x.md', text: 'x' }],
   };
-  assert.throws(() => t.migrate({ migrations: [escape], dryRun: true }), /not an item file/);
+  assert.throws(() => t.migrate({ migrations: [escape], dryRun: true }), /not a tracker file/);
   assert.throws(
     () => t.migrate({ migrations: [addPoints, addPoints], dryRun: true }),
     /registered twice/,
@@ -392,19 +391,32 @@ test('migrate: only the orchestrator applies one, and not over uncommitted chang
 });
 
 test('work check names files a registered migration still needs', () => {
-  // The registry is empty today, so the check adds nothing; the library function reports pending files.
   const root = repo();
   assert.deepEqual(open(root).check().problems, []);
   const plan = planMigrations(root, open(root).layout(), { migrations: [addPoints] });
   assert.equal(plan.steps[0].files.length, 2);
+  put(root, {
+    'work/items/W-3-first-step.md': itemText({
+      id: 'W-3',
+      title: 'First step',
+      kind: 'work',
+      status: 'Done',
+      project: 'W-2',
+      priority: 'high',
+    }),
+  });
+  assert.deepEqual(open(root).check().problems, [
+    'work/items/W-3-first-step.md: "priority" is retired: order is derived (design part 2.4, Q30); run hitld work migrate',
+    'work/items/W-3-first-step.md: needs migration "retire-priority" (run hitld work migrate)',
+  ]);
 });
 
-test('work migrate with nothing registered changes nothing', async () => {
+test('work migrate on a tracker already in the format changes nothing', async () => {
   const root = repo();
   const out = await hitld(['work', 'migrate', '--dry-run'], root);
   assert.equal(out.code, 0);
   assert.equal(out.json.changed, 0);
-  assert.deepEqual(out.json.registered, []);
+  assert.deepEqual(out.json.registered, ['milestone-entities', 'retire-priority']);
   assert.equal(out.json.summary, 'nothing to migrate');
   const real = await hitld(['work', 'migrate'], root);
   assert.equal(real.code, 0);
