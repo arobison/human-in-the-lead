@@ -2,11 +2,12 @@
 id: HITLD-38
 title: Machine detection with `hitld machine detect`
 kind: work
-status: Planned
+status: In progress
 created: 2026-11-14
 project: HITLD-15
 milestone: settings-hold
 needs: [HITLD-37]
+claimed: D-38
 ---
 
 ## Why
