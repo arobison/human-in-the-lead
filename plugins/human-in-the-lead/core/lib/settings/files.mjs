@@ -2,9 +2,11 @@
 // and how they are written.
 //
 // Both are data only, with a schema_version, and are read with the same trusted loading as
-// policy.json (readTrustedFile): a regular file, not a link, owned by the current user, writable by
-// nobody else, in directories under the same rule. On top of that, a settings file inside a git
-// working tree is refused, so personal plans, limits and local paths are never committed.
+// policy.json (readTrustedFile): a regular file owned by the current user, writable by nobody else,
+// in directories under the same rule. A symbolic link is allowed when its target passes the same
+// checks, so dotfiles setups (a dotfiles repository, links made by GNU Stow) work. A settings file
+// inside a project HITLd manages (a tree that holds .human-in-the-lead/) is refused, so personal
+// plans, limits and local paths are never committed with a project; other repositories are fine.
 //
 // Seams: the machine-wide registry (HITLD-40) lives in machineDir(), beside the machine file;
 // `hitld machine detect` (HITLD-38) writes the machine profile through writeSettingsFile.
@@ -13,10 +15,12 @@ import { randomBytes } from 'node:crypto';
 import {
   closeSync,
   constants as fsConstants,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
   openSync,
+  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -97,19 +101,99 @@ export function machineDir(options = {}) {
 }
 
 /**
- * The git working tree that holds `dir`: the nearest directory at or above it with a `.git` entry,
- * whoever owns it. Null outside every working tree.
+ * The managed project that holds `dir`: the nearest directory at or above it with a
+ * `.human-in-the-lead` entry, whoever owns it. Null outside every managed project.
  * @param {string} dir @returns {string | null}
  */
-export function gitWorkTreeOf(dir) {
+export function managedProjectOf(dir) {
   for (let d = dir; ; d = dirname(d)) {
     try {
-      lstatSync(join(d, '.git'));
+      lstatSync(join(d, '.human-in-the-lead'));
       return d;
     } catch {
       // no marker here
     }
     if (dirname(d) === d) return null;
+  }
+}
+
+const O_NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0;
+const O_NONBLOCK = fsConstants.O_NONBLOCK ?? 0;
+const S_ISVTX = 0o1000;
+
+/**
+ * Why a directory on a link target's path may not be trusted, or null. The target's own directory
+ * must be the current user's; above it, the current user's or root's, writable by nobody else, or a
+ * root-owned sticky directory such as /tmp, where nobody else can rename what the user owns.
+ * @param {string} dir the target's directory @param {number} uid @returns {string | null}
+ */
+function targetChainProblem(dir, uid) {
+  const own = ownershipProblem(statSync(dir), uid);
+  if (own) return `is in ${dir}, which is ${own}`;
+  for (let d = dirname(dir); d !== dir; dir = d, d = dirname(d)) {
+    const st = statSync(d);
+    if (st.uid === 0 && st.mode & S_ISVTX) continue;
+    const problem = ownershipProblem(st, uid, { allowRoot: true });
+    if (problem) return `is in ${d}, which is ${problem}`;
+  }
+  return null;
+}
+
+/**
+ * Read a settings file that is a symbolic link. The link must be the current user's, in directories
+ * that pass trusted loading up to the XDG base; its target must be a regular file owned by the
+ * current user and writable by nobody else, in a directory under the same rule. The target is
+ * opened once, without following a further link, and checked through that descriptor.
+ * @param {SettingsLocation} loc @param {number} uid
+ * @returns {{ text: string, real: string } | { error: string }}
+ */
+function readLinkedSettings(loc, uid) {
+  /** @param {string} message */
+  const refuse = (message) => ({ error: `${message}; ${WHY}, so it is not read` });
+  try {
+    const link = lstatSync(loc.path);
+    if (POSIX && link.uid !== uid)
+      return refuse(`is a link owned by another user (uid ${link.uid})`);
+    const realBase = realpathSync(loc.base);
+    const realDir = realpathSync(loc.dir);
+    const rel = relative(realBase, realDir);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      return refuse(`is in ${realDir}, outside ${realBase}`);
+    }
+    if (POSIX) {
+      for (let d = realDir; ; d = dirname(d)) {
+        const problem = ownershipProblem(statSync(d), uid, { allowRoot: true });
+        if (problem) return refuse(`is in ${d}, which is ${problem}`);
+        if (d === realBase || dirname(d) === d) break;
+      }
+    }
+  } catch (e) {
+    return { error: `cannot be read: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  /** @type {string} */
+  let real;
+  /** @type {number} */
+  let fd;
+  try {
+    real = realpathSync(loc.path);
+    fd = openSync(real, fsConstants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+  } catch (e) {
+    return { error: `cannot be read: its target ${e instanceof Error ? e.message : String(e)}` };
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) return refuse(`links to ${real}, which is not a regular file`);
+    if (POSIX) {
+      const problem = ownershipProblem(st, uid);
+      if (problem) return refuse(`links to ${real}, which is ${problem}`);
+      const chain = targetChainProblem(dirname(real), uid);
+      if (chain) return refuse(`links to ${real}, which ${chain}`);
+    }
+    const now = statSync(realpathSync(loc.path));
+    if (now.ino !== st.ino || now.dev !== st.dev) return refuse('changed while it was being read');
+    return { text: readFileSync(fd, 'utf8'), real };
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -193,16 +277,19 @@ export function loadSettingsFile(kind, options = {}) {
     return out;
   }
   out.present = true;
-  const read = readTrustedFile(loc.path, loc.base, { why: WHY, uid: options.uid });
+  const uid = options.uid ?? currentUid();
+  const read = lstatSync(loc.path).isSymbolicLink()
+    ? readLinkedSettings(loc, uid)
+    : readTrustedFile(loc.path, loc.base, { why: WHY, uid });
   if ('error' in read) {
     out.errors.push({ path: loc.path, message: read.error });
     return out;
   }
-  const tree = gitWorkTreeOf(dirname(read.real));
-  if (tree) {
+  const project = managedProjectOf(dirname(loc.path)) ?? managedProjectOf(dirname(read.real));
+  if (project) {
     out.errors.push({
       path: loc.path,
-      message: `is inside the git working tree ${tree}; settings files live outside every repository, so it is not read`,
+      message: `is inside ${project}, a project HITLd manages; settings files never live in a managed project, so it is not read`,
     });
     return out;
   }
@@ -256,10 +343,10 @@ export function writeSettingsFile(kind, data, options = {}) {
   const registry = options.registry ?? schemas();
   const loc = settingsLocation(kind, options);
   const uid = options.uid ?? currentUid();
-  const tree = gitWorkTreeOf(nearestExisting(loc.dir));
-  if (tree) {
+  const project = managedProjectOf(nearestExisting(loc.dir));
+  if (project) {
     throw new Error(
-      `${loc.path} is inside the git working tree ${tree}; settings files live outside every repository`,
+      `${loc.path} is inside ${project}, a project HITLd manages; settings files never live in a managed project`,
     );
   }
   /** @type {import('node:fs').Stats | null} */
@@ -271,7 +358,11 @@ export function writeSettingsFile(kind, data, options = {}) {
   }
   let next = data;
   if (existing) {
-    if (existing.isSymbolicLink()) throw new Error(`${loc.path} is a symbolic link; not replaced`);
+    if (existing.isSymbolicLink()) {
+      throw new Error(
+        `${loc.path} is a symbolic link; not replaced, so the link stays. Edit its target, or remove the link and write again`,
+      );
+    }
     if (!existing.isFile()) throw new Error(`${loc.path} is not a regular file; not replaced`);
     const problem = POSIX ? ownershipProblem(existing, uid) : null;
     if (problem) throw new Error(`${loc.path} is ${problem}; not replaced`);
@@ -297,6 +388,10 @@ export function writeSettingsFile(kind, data, options = {}) {
   const rel = relative(realBase, realDir);
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`${loc.dir} resolves to ${realDir}, outside ${realBase}; not written`);
+  }
+  const realProject = managedProjectOf(realDir);
+  if (realProject) {
+    throw new Error(`${realDir} is inside ${realProject}, a project HITLd manages; not written`);
   }
   if (POSIX) {
     for (let d = realDir; ; d = dirname(d)) {

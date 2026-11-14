@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chmodSync,
+  chownSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -195,23 +196,92 @@ test('a settings file in a writable directory is refused', posixOnly, () => {
   );
 });
 
-test('a symlinked settings file is refused', () => {
-  const { base, env } = home();
-  const real = join(base, 'elsewhere.json');
-  writeFileSync(real, JSON.stringify({ schema_version: 1 }), { mode: 0o600 });
+/**
+ * Link the person file to a file in a dotfiles git repository, as GNU Stow would.
+ * @param {string} base @param {NodeJS.ProcessEnv} env @param {unknown} data
+ */
+function dotfilesLink(base, env, data) {
+  const dotfiles = join(base, 'dotfiles');
+  mkdirSync(join(dotfiles, '.git'), { recursive: true });
+  const target = join(dotfiles, 'person.json');
+  writeFileSync(target, JSON.stringify(data), { mode: 0o600 });
   const loc = settingsLocation('person', { env });
   mkdirSync(loc.dir, { recursive: true });
-  symlinkSync(real, loc.path);
-  assert.match(loadSettingsFile('person', { env }).errors[0].message, /symbolic link/);
+  symlinkSync(target, loc.path);
+  return { dotfiles, target };
+}
+
+test('a symlink into a dotfiles git repository loads', () => {
+  const { base, env } = home();
+  dotfilesLink(base, env, { schema_version: 1, executors_max: 2 });
+  const f = loadSettingsFile('person', { env });
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.data?.executors_max, 2);
 });
 
-test('a settings file inside a git working tree is refused', () => {
+test('a symlink whose target is group- or world-writable is refused', posixOnly, () => {
   const { base, env } = home();
-  mkdirSync(join(base, '.git'));
+  const { dotfiles, target } = dotfilesLink(base, env, { schema_version: 1 });
+  chmodSync(target, 0o620);
+  assert.match(loadSettingsFile('person', { env }).errors[0].message, /links to .*mode 620/);
+  chmodSync(target, 0o600);
+  chmodSync(dotfiles, 0o777);
+  assert.match(
+    loadSettingsFile('person', { env }).errors[0].message,
+    /is in .*dotfiles, which is writable by group or others/,
+  );
+  chmodSync(dotfiles, 0o755);
+  assert.deepEqual(loadSettingsFile('person', { env }).errors, []);
+});
+
+test('a symlink whose target is owned by someone else is refused', posixOnly, () => {
+  const { base, env } = home();
+  const { target } = dotfilesLink(base, env, { schema_version: 1 });
+  if (process.getuid?.() === 0) {
+    // As root, give the target itself to someone else: the link and its directory stay ours.
+    chownSync(target, 4242, 4242);
+    const f = loadSettingsFile('person', { env });
+    assert.equal(f.data, null);
+    assert.match(f.errors[0].message, /links to .*person\.json, which is owned by another user/);
+  } else {
+    const other = (process.getuid?.() ?? 0) + 4242;
+    const f = loadSettingsFile('person', { env, uid: other });
+    assert.equal(f.data, null);
+    assert.match(f.errors[0].message, /owned by another user/);
+  }
+});
+
+test('a dangling symlink is reported, not followed', () => {
+  const { base, env } = home();
+  const loc = settingsLocation('person', { env });
+  mkdirSync(loc.dir, { recursive: true });
+  symlinkSync(join(base, 'missing.json'), loc.path);
+  const f = loadSettingsFile('person', { env });
+  assert.equal(f.present, true);
+  assert.match(f.errors[0].message, /cannot be read/);
+});
+
+test('a settings file inside a managed project is refused', () => {
+  const { base, env } = home();
+  mkdirSync(join(base, '.human-in-the-lead'));
   plant(env, 'person', { schema_version: 1 });
   const f = loadSettingsFile('person', { env });
   assert.equal(f.data, null);
-  assert.match(f.errors[0].message, /inside the git working tree/);
+  assert.match(f.errors[0].message, /a project HITLd manages/);
+});
+
+test('a symlink into a managed project is refused', () => {
+  const { base, env } = home();
+  const { dotfiles } = dotfilesLink(base, env, { schema_version: 1 });
+  mkdirSync(join(dotfiles, '.human-in-the-lead'));
+  assert.match(loadSettingsFile('person', { env }).errors[0].message, /a project HITLd manages/);
+});
+
+test('a settings file in another git repository loads', () => {
+  const { base, env } = home();
+  mkdirSync(join(base, '.git'));
+  plant(env, 'person', { schema_version: 1 });
+  assert.deepEqual(loadSettingsFile('person', { env }).errors, []);
 });
 
 // Strictest layer wins, one test per value
@@ -566,13 +636,13 @@ test('hitld config write validates, then writes a private file', posixOnly, asyn
   });
 });
 
-test('config write refuses a location inside a git working tree, and a symlinked file', () => {
+test('config write refuses a location inside a managed project, and keeps a symlink', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'hitld-settings-cwd-'));
   const inTree = home();
-  mkdirSync(join(inTree.base, '.git'));
+  mkdirSync(join(inTree.base, '.human-in-the-lead'));
   assert.throws(
     () => writeSettingsFile('person', { schema_version: 1 }, { env: inTree.env, cwd }),
-    /inside the git working tree/,
+    /a project HITLd manages/,
   );
   const linked = home();
   const loc = settingsLocation('person', { env: linked.env });
