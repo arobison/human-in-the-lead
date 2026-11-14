@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "id": "security/false-positive-not-asked-again",
+  "piece": "security",
+  "category": "security-gate",
+  "description": "A recorded false-positive verdict lets the same finding through on the next scan: it is not asked again at the same place.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "security.repo",
+      "with": {
+        "main": {
+          "src/app.js": "export const run = (x) => UNSAFE(x);\nexport const UNSAFE = (x) => x;\n"
+        },
+        "branches": [
+          {
+            "branch": "hitld/W-1-adds",
+            "item": "W-1",
+            "files": {
+              "src/new.js": "import { UNSAFE } from './app.js';\nexport const handle = (input) => UNSAFE(input);\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "first",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-1-adds"]
+      }
+    },
+    {
+      "id": "verdict",
+      "action": "security.verdict",
+      "with": {
+        "path": "src/new.js",
+        "verdict": "false-positive",
+        "reason": "UNSAFE here is the identity function in a fixture"
+      }
+    },
+    {
+      "id": "again",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-1-adds"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "first-sent-back",
+      "grader": "equals",
+      "with": {
+        "path": "steps.first.rejected[0].reason",
+        "value": "security"
+      }
+    },
+    {
+      "id": "then-merged",
+      "grader": "equals",
+      "with": {
+        "path": "steps.again.merged",
+        "value": ["W-1"]
+      }
+    },
+    {
+      "id": "not-asked",
+      "grader": "count",
+      "with": {
+        "path": "steps.again.rejected",
+        "equals": 0
+      }
+    }
+  ]
+}

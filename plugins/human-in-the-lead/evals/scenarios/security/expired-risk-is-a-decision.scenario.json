@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "id": "security/expired-risk-is-a-decision",
+  "piece": "security",
+  "category": "security-gate",
+  "description": "A real finding the owner accepted merges until its expiry; past the expiry it becomes a decision for the owner, without blocking unrelated changes.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "security.repo",
+      "with": {
+        "main": {
+          "src/app.js": "export const run = (x) => UNSAFE(x);\nexport const UNSAFE = (x) => x;\n"
+        },
+        "branches": [
+          {
+            "branch": "hitld/W-1-adds",
+            "item": "W-1",
+            "files": {
+              "src/new.js": "import { UNSAFE } from './app.js';\nexport const handle = (input) => UNSAFE(input);\n"
+            }
+          },
+          {
+            "branch": "hitld/W-2-clean",
+            "item": "W-2",
+            "files": {
+              "src/two.js": "export const two = 2;\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "first",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-1-adds"],
+        "now": "2030-01-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "accept",
+      "action": "security.accept",
+      "with": {
+        "path": "src/new.js",
+        "expires": "2030-03-01",
+        "reason": "fix planned with the parser rewrite",
+        "now": "2030-01-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "accepted",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-1-adds"],
+        "now": "2030-01-02T00:00:00Z"
+      }
+    },
+    {
+      "id": "before",
+      "action": "security.expired",
+      "with": {
+        "now": "2030-02-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "after",
+      "action": "security.merge",
+      "with": {
+        "branches": ["hitld/W-2-clean"],
+        "now": "2030-03-02T00:00:00Z"
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "first-sent-back",
+      "grader": "equals",
+      "with": {
+        "path": "steps.first.rejected[0].reason",
+        "value": "security"
+      }
+    },
+    {
+      "id": "accepted-merges",
+      "grader": "equals",
+      "with": {
+        "path": "steps.accepted.merged",
+        "value": ["W-1"]
+      }
+    },
+    {
+      "id": "no-decision-before",
+      "grader": "count",
+      "with": {
+        "path": "steps.before.decisions",
+        "equals": 0
+      }
+    },
+    {
+      "id": "clean-still-merges",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after.merged",
+        "value": ["W-2"]
+      }
+    },
+    {
+      "id": "one-decision",
+      "grader": "count",
+      "with": {
+        "path": "steps.after.decisions",
+        "equals": 1
+      }
+    },
+    {
+      "id": "decision-asks",
+      "grader": "matches",
+      "with": {
+        "path": "steps.after.decision_questions[0]",
+        "pattern": "Fix it now, or accept it for another period"
+      }
+    }
+  ]
+}

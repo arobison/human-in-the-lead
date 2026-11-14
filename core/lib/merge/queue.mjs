@@ -5,7 +5,8 @@
 //   2. rebase    each onto the tip of the batch under construction, in a worktree of the queue's
 //                own (the main checkout is the orchestrator's); a conflict confined to generated
 //                files takes the batch's version, any other conflict goes back to the executor
-//   3. fast      the fast checks on the rebased branch; a failure goes back to the executor
+//   3. fast      the fast checks on the rebased branch, then the declared security scans
+//                (security.mjs); a failure goes back to the executor
 //   4. batch     after batch_max branches: regenerate generated files and the tracker views, commit
 //                them, then the full suite once
 //   5. failure   rerun on the same commit; a pass is a flake candidate: recorded, nothing blamed,
@@ -42,8 +43,9 @@ import { matchesAny } from '../precedent/glob.mjs';
  *
  * @typedef {(command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string }} Exec
  *
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'fast_check' | 'suite' | 'missing' | 'needs_rejected',
- *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string }} Rejected
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'fast_check' | 'security' | 'suite' | 'missing' | 'needs_rejected',
+ *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string,
+ *   findings?: import('./security.mjs').SentBack[] }} Rejected
  * @typedef {{ commit: string, command: string, output: string }} Flake
  */
 
@@ -109,7 +111,7 @@ export function dependencyOrder(entries) {
 /**
  * Run the queue over the waiting entries.
  * @param {{ repoRoot: string, entries: Entry[], settings: Settings, exec?: Exec,
- *   regenerateViews?: (dir: string) => void }} r
+ *   regenerateViews?: (dir: string) => void, security?: import('./security.mjs').SecurityGate }} r
  */
 export async function runMergeQueue(r) {
   const exec = r.exec ?? shellExec;
@@ -269,6 +271,21 @@ export async function runMergeQueue(r) {
           rejectedNow.add(e.item);
           continue;
         }
+        const scan = r.security?.check({ ...e, dir, commit: rb.sha, base, checkout }) ?? {
+          ok: true,
+        };
+        if (!scan.ok) {
+          const { ok: _ok, ...why } = scan;
+          result.rejected.push({
+            item: e.item,
+            branch: e.branch,
+            reason: 'security',
+            ...why,
+            dispatch: e.dispatch,
+          });
+          rejectedNow.add(e.item);
+          continue;
+        }
         batch.push({ ...e, commit: rb.sha });
         tip = rb.sha;
       }
@@ -385,6 +402,7 @@ export async function runMergeQueue(r) {
       const current = git(r.repoRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']).out;
       if (current === main) gitOk(r.repoRoot, ['merge', '--ff-only', '--quiet', tip]);
       else gitOk(r.repoRoot, ['update-ref', `refs/heads/${main}`, tip, base]);
+      r.security?.merged({ dir, commit: batch[batch.length - 1].commit, checkout });
       base = tip;
       result.main.after = tip;
       for (const b of batch)
