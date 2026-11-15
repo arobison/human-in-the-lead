@@ -7,6 +7,7 @@ created: 2026-11-14
 project: HITLD-15
 claimed_by: D-21
 needs: [HITLD-20, HITLD-19]
+release_note: "The merge queue reruns a failing suite and compares it with the base before blaming a batch, burns in new and changed tests, and keeps a guarded quarantine file (test ID, scope, expiry, fix item); `hitld quarantine add/remove/list` and `hitld check quarantine` are new. `merge.flake_reruns` is now the rerun count."
 ---
 
 ## Why

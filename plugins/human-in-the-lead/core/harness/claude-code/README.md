@@ -21,4 +21,4 @@ Claude Code's tools (Agent, SendMessage, background Bash, messages in the main s
 
 `hitld dispatch capabilities` prints the capability set and the matrix in `capabilities.mjs`, where each function is marked documented, observed (the desktop app, 2026-11-14) or contract.
 
-Also here: `completion.mjs` (the notification and the headless JSON result; usage from a notification is recorded as observed, not documented), `statusline.mjs` (the usage capture `hitld install --statusline` sets up, feeding the quota gate), and `hooks/` (the plugin's SessionStart, SessionEnd store sync, PreToolUse guard and SubagentStop/Stop report check).
+Also here: `completion.mjs` (the notification and the headless JSON result; usage from a notification is recorded as observed, not documented), `statusline.mjs` (the usage capture `hitld install --statusline` sets up, feeding the quota gate), and `hooks/` (the plugin's SessionStart hooks: the version check, the PATH and the store pull; the SessionEnd store push; the PreToolUse guard; and the SubagentStop/Stop report check).

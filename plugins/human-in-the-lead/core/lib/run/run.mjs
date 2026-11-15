@@ -12,6 +12,7 @@ import { absorb, foldLedger } from './state.mjs';
 import { loadState, saveCheckpoint } from './checkpoint.mjs';
 import { LeaseError, assertHolds, leaseAgeSeconds, leaseExpired } from './lease.mjs';
 import { reportedEvent } from './protocol.mjs';
+import { runVersionCheck } from '../install/drift.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
@@ -28,6 +29,8 @@ import { reportedEvent } from './protocol.mjs';
  * @property {number} [expirySeconds] policy run.lease_expiry_seconds
  * @property {string} [harnessRef] this session's own reference in its harness, where it has one:
  *   recorded with the lease, so wakes for the run can be sent to it
+ * @property {string} [cwd] where the command runs: the project whose pin `startRun` and `resumeRun`
+ *   compare with this release (design part 16.5, Upgrades)
  *
  * @typedef {object} Reality what exists outside the files; each part is optional
  * @property {string} [harness] the adapter ID, for adopting an executor found running
@@ -56,6 +59,8 @@ export class Run {
     this.expirySeconds = options.expirySeconds ?? DEFAULTS.expirySeconds;
     /** The state as this session last wrote it. */
     this.state = state;
+    /** @type {import('../install/drift.mjs').Drift | null} what startRun found about versions */
+    this.drift = null;
   }
 
   /**
@@ -102,12 +107,15 @@ export class Run {
 }
 
 /**
- * Start a run: record run-started, write the first checkpoint, hold the lease.
+ * Start a run: record run-started, write the first checkpoint, hold the lease. First the release
+ * is checked against the pin and the data (design part 16.5): a release that is not the pinned one,
+ * or a store holding data at a schema version it does not read, records nothing (VersionDriftError).
  * @param {PrivateStore} store
  * @param {RunOptions & { id?: string, scope?: Record<string, unknown>, policyHash?: string | null, replace?: boolean }} options
  * @returns {Run}
  */
 export function startRun(store, options) {
+  const drift = runVersionCheck(store, options);
   const now = options.now ?? (() => new Date());
   const expiry = options.expirySeconds ?? DEFAULTS.expirySeconds;
   const existing = loadState(store).state;
@@ -141,6 +149,7 @@ export function startRun(store, options) {
   const state = foldLedger(all);
   const run = new Run(store, options, state);
   run.state = saveCheckpoint(store, existing, state, { kept: options.kept ?? DEFAULTS.kept });
+  run.drift = drift;
   return run;
 }
 
@@ -203,6 +212,7 @@ export function takeLease(store, options) {
         session: options.session,
         host: options.host,
         ...(options.harnessRef ? { harness_ref: options.harnessRef } : {}),
+        skill_versions: { hitld_version: VERSION },
         notes: `from ${state.lease.session} on ${state.lease.host}; ${reason}`,
       },
       { now },
@@ -360,7 +370,7 @@ export function leaseStatus(state, now, expirySeconds = DEFAULTS.expirySeconds) 
 /**
  * Resume a run in a fresh session (design part 13.1): take the lease, absorb the ledger events
  * after the state's position, reconcile the in-flight dispatches with reality, and return the
- * hand-over summary.
+ * hand-over summary. The release is checked first, as in startRun.
  *
  * For each dispatch in flight on this host:
  *   a completion arrived  -> its `reported` event is recorded
@@ -373,6 +383,7 @@ export function leaseStatus(state, now, expirySeconds = DEFAULTS.expirySeconds) 
  * @param {RunOptions & { force?: boolean, reality?: Reality }} options
  */
 export async function resumeRun(store, options) {
+  const drift = runVersionCheck(store, options);
   const { run, tookOver, recoveredFrom, problems } = takeLease(store, options);
   const reconciled = await reconcile(run, options.reality);
   return {
@@ -382,6 +393,7 @@ export async function resumeRun(store, options) {
     problems,
     ...reconciled,
     handover: handOver(run.state, readLedger(store).events),
+    drift,
   };
 }
 

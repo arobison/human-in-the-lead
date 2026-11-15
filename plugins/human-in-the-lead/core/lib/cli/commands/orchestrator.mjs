@@ -75,6 +75,7 @@ import { CAPABILITIES, MATRIX } from '../../../harness/claude-code/capabilities.
 import { followUpInstruction, instructionFor } from '../../../harness/claude-code/instructions.mjs';
 import { completionOf } from '../../../harness/claude-code/adapter.mjs';
 import { install } from '../../install/install.mjs';
+import { dispatchedOn, reportVersion } from '../../install/drift.mjs';
 import { pushingAfter } from '../../store/auto-sync.mjs';
 
 /**
@@ -895,6 +896,10 @@ const table = [
 
         /** @type {Result} */
         const out = { ok: true, dispatch: d, item: entry.item };
+        // An executor dispatched on an earlier release reports to a successor on the new one: its
+        // report is accepted within the same minor (design part 16.5, Upgrades).
+        const executor = reportVersion(dispatchedOn(readLedger(p.store).events, d));
+        if (executor) out.executor_version = executor;
         if (!parsed.report) {
           out.report_errors = parsed.errors;
           out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;

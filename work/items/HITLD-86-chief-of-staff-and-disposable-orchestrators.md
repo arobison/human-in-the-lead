@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-86
+release_note: "A chief of staff skill: the session the owner talks to, which owns scheduled tasks and starts disposable orchestrators. `hitld handover` releases the lease to a successor; `hitld run retire` and `hitld run status` are new; owner-mode merge approval is recorded with `hitld merge approve`. `orchestrator.handover_after_completions` is a new setting."
 ---
 
 ## Why

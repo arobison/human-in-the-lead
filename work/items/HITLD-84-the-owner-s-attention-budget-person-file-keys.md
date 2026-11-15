@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-84
+release_note: "The person file gains `attention` keys (version 2) under owner ceilings in `policy.json`. `hitld rights pending` orders open decisions by cost of delay and gives each a delivery: now, digest, hold or default; `hitld rights sweep` applies due defaults, recorded and reversible. The person and machine files refuse a newer schema version with an upgrade message."
 ---
 
 ## Why

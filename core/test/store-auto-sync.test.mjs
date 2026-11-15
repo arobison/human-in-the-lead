@@ -6,13 +6,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
-import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { LEDGER_KEY, appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { schemas } from '../lib/schema/registry.mjs';
+import { VERSION } from '../lib/version.mjs';
+import { bumpVersion } from '../lib/release/semver.mjs';
 import { generateIdentity } from '../lib/store/age.mjs';
 import { createGitRemote } from '../lib/store/remote-git.mjs';
 import { DEVICES_PATH, serializeDevices } from '../lib/store/devices.mjs';
@@ -524,4 +535,85 @@ test('lease is the lock: --replace and --force are the owner’s way past it', a
     '--replace',
   ]);
   assert.equal(replaced.code, EXIT.ok, JSON.stringify(replaced.json));
+});
+
+/**
+ * Everything in a session's data directory, the store's git repository included: each file's path
+ * and bytes, and the store's HEAD. A fetch or a merge adds objects or refs; a record changes a file.
+ * @param {ReturnType<typeof session>} s
+ */
+function snapshot(s) {
+  /** @type {Record<string, string>} */
+  const files = {};
+  /** @param {string} dir */
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.isFile()) files[relative(s.data, p)] = readFileSync(p).toString('base64');
+    }
+  };
+  if (existsSync(s.data)) walk(s.data);
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: s.store.root, encoding: 'utf8' });
+  return { head: head.stdout.trim(), ledger: s.store.read(LEDGER_KEY), files };
+}
+
+test('a release refused at run start or resume pulls nothing and records nothing (HITLD-110)', async () => {
+  const f = fixture();
+  const one = session(f, 'one', { identity: DEVICE_A.identity });
+  const two = session(f, 'two', { identity: DEVICE_B.identity });
+  const started = await one.hitld(['run', 'start', '--session', 's-1', '--host', 'cloud-1']);
+  assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
+  const first = await one.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'cloud-1']);
+  assert.equal(first.json.store_sync.push.result, 'pushed', JSON.stringify(first.json));
+  // The second device has a store of its own, from the remote.
+  const pulled = await two.hitld(['store', 'pull']);
+  assert.equal(pulled.code, EXIT.ok, JSON.stringify(pulled.json));
+  // The first session records more and pushes it: the remote is ahead of the second device.
+  ask(one, 'E-9', 9);
+  const second = await one.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'cloud-1']);
+  assert.equal(second.json.store_sync.push.result, 'pushed', JSON.stringify(second.json));
+  const ahead = await remoteHead(f);
+
+  const commands = [
+    ['run', 'start', '--replace', '--session', 's-2', '--host', 'cloud-2'],
+    ['run', 'resume', '--live', 'none', '--force', '--session', 's-2', '--host', 'cloud-2'],
+  ];
+  /** @param {string} error */
+  const refusedAll = async (error) => {
+    const before = snapshot(two);
+    assert.ok(before.head && before.ledger, 'the second device has a store');
+    for (const argv of commands) {
+      const r = await two.hitld(argv);
+      assert.deepEqual([r.code, r.json.error], [EXIT.failed, error], JSON.stringify(r.json));
+      assert.equal('store_sync' in r.json, false, `${argv[1]}: no pull was tried`);
+      assert.deepEqual(snapshot(two), before, `${argv[1]}: nothing fetched, merged or recorded`);
+    }
+    assert.equal(
+      readLedger(two.store).events.some((e) => e.id === 'E-9'),
+      false,
+    );
+    assert.equal(await remoteHead(f), ahead, 'the remote is as it was');
+  };
+
+  // The project pins a release this session does not run.
+  const settings = join(f.project, '.claude', 'settings.json');
+  mkdirSync(join(f.project, '.claude'), { recursive: true });
+  const pinned = `v${bumpVersion(VERSION, 'major')}`;
+  writeFileSync(
+    settings,
+    JSON.stringify({
+      extraKnownMarketplaces: {
+        'human-in-the-lead': { source: { source: 'github', repo: 'owner/plugin', ref: pinned } },
+      },
+    }),
+  );
+  await refusedAll('version-not-pinned');
+
+  // No pin again, but the local store holds a ledger line a newer release wrote.
+  rmSync(settings);
+  const newer = /** @type {number} */ (schemas().currentVersion('ledger-entry')) + 1;
+  const line = { schema_version: newer, id: 'E-99', event: 'logged', text: 'newer', at: at(30) };
+  two.store.append(LEDGER_KEY, `${JSON.stringify(line)}\n`);
+  await refusedAll('newer-schema');
 });

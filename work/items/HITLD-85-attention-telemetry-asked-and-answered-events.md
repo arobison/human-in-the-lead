@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-85
+release_note: "`rights ask`, `rights show` and `rights answer` write `asked`, `sent` and `answered` ledger events; `hitld rights log` and `rights reverse` record and undo logged calls; `hitld rights trust` and the digest show a rubber-stamp indicator per area (`trust.rubber_stamp_seconds`)."
 ---
 
 ## Why

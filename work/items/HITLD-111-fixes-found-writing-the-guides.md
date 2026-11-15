@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-111
+release_note: "Refusals return their documented error codes instead of `failed`; an empty `hitld work check` warns where it looked; `hitld dashboard --json --no-write` returns the data contract without writing files."
 ---
 
 ## Why

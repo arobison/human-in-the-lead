@@ -244,9 +244,11 @@ export function install(input, ctx) {
   }
   const settingsPath = join(root, '.claude', 'settings.json');
   const settings = readJson(settingsPath);
+  // autoUpdate false: the plugin moves only when the pin does, by a commit the owner merges
+  // (design part 16.5, Upgrades). It is also Claude Code's default for a marketplace of this kind.
   settings.extraKnownMarketplaces = {
     ...(settings.extraKnownMarketplaces ?? {}),
-    [MARKETPLACE]: { source },
+    [MARKETPLACE]: { source, autoUpdate: false },
   };
   settings.enabledPlugins = {
     ...(settings.enabledPlugins ?? {}),
