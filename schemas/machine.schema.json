@@ -43,6 +43,11 @@
           "description": "Above this load average per core, heavy work waits.",
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "idle_per_core": {
+          "description": "Below this load average per core, with no executor running, the machine counts as idle: the moment for nightly baselines, evals and reports (design part 13.3). The lower of this and max_per_core applies; without it, 0.25.",
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       },
       "additionalProperties": false

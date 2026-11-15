@@ -21,6 +21,7 @@ import { commands as security } from './commands/security.mjs';
 import { commands as config } from './commands/config.mjs';
 import { commands as feedback } from './commands/feedback.mjs';
 import { commands as machine } from './commands/machine.mjs';
+import { commands as cadence } from './commands/cadence.mjs';
 import { commands as later } from './commands/later.mjs';
 
 /**
@@ -91,6 +92,7 @@ export const COMMANDS = Object.freeze([
   ...config,
   ...feedback,
   ...machine,
+  ...cadence,
   ...later,
 ]);
 
