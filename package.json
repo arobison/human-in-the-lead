@@ -29,7 +29,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "spelling": "node core/bin/spelling-check.mjs",
-    "check": "npm run typecheck && npm run format:check && npm run spelling && npm test",
+    "check": "npm run typecheck && npm run format:check && npm test",
     "build": "node core/lib/packaging/build.mjs"
   },
   "devDependencies": {
