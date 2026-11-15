@@ -12,7 +12,7 @@ done_when:
   - "c3: A removed device cannot open anything pushed after its removal."
   - "c4: The storage holds no plain text of the store, checked by a scan of the remote."
   - "c5: No skill or agent prompt mentions a key, a passphrase or a store file path; every store move is a hitld command or a hook."
-constraints: [HITLD-102 c3, HITLD-103 c3, HITLD-104 c2, HITLD-105 c1, HITLD-106 c1, HITLD-107 c5]
+constraints: [HITLD-102 c3, HITLD-103 c3, HITLD-104 c2, HITLD-105 c1, HITLD-106 c1, HITLD-107 c5, HITLD-113 c4]
 check: demo c1 to c3 against a real private repository, run by someone other than the items' authors
 ---
 
