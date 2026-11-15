@@ -291,6 +291,11 @@ test('release make writes the record and the tag, never pushes, and the record i
   assert.equal(git(root, 'tag', '--list').trim(), 'v0.1.0-rc.1');
   assert.equal(git(root, 'cat-file', '-t', 'v0.1.0-rc.1').trim(), 'tag', 'an annotated tag');
   assert.equal(git(root, 'log', '-1', '--format=%s').trim(), 'release record: v0.1.0-rc.1');
+  assert.match(
+    git(root, 'log', '-1', '--format=%B'),
+    /^Signed-off-by: Fixture <fixture@example\.invalid>$/m,
+    'signed off by the person who ran it (DCO)',
+  );
   assert.equal(git(remote, 'tag', '--list').trim(), '', 'never pushed');
   const record = readFileSync(join(root, 'work/releases/v0.1.0-rc.1.md'), 'utf8');
   assert.match(

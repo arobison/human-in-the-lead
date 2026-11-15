@@ -99,9 +99,13 @@ export async function makeRelease(t, { version, pre, decision = 'owner', item } 
   mkdirInside(root, releasesDir(layout));
   createExclusive(insidePath(root, path), text);
   git(root, ['add', '--', path]);
+  // Signed off with the git identity of whoever runs it, which is the owner: release make runs
+  // only in the owner's own turn (the guard in cli/commands/release.mjs). The DCO check on main
+  // (HITLD-59) needs a person's sign-off on every commit pushed there.
   git(root, [
     'commit',
     '--no-verify',
+    '--signoff',
     '-m',
     `release record: ${tag}`,
     '-m',
