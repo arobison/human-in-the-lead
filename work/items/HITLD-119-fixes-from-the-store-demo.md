@@ -2,9 +2,11 @@
 id: HITLD-119
 title: "Fixes from the store demo: unmatched answers, a removed device's own view, who logged a call, example names, feedback publish"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-119
+release_note: "`hitld rights answer` refuses an answer that names no option (`answer-matches-no-option`) and records nothing; words that are exactly one option's label, allowing spelling variants, still match. A removed device's `store status` and `store device list` say it cannot open the store. Logged calls and other events written without a dispatch record the session and host. `hitld feedback publish` checks the private term list. Example device names are `example-\u2026` placeholders."
 ---
 
 ## Why
