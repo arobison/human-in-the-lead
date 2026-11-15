@@ -20,7 +20,7 @@ Each run has one `run-state.json` in the private store:
 | `scope` | Which items or milestones the run covers, its token budget, its concurrency cap, its stopping condition |
 | `in_flight` | Each executor running: dispatch ID, item, harness and its handle, host, worktree, branch, serial resources held, start time |
 | `ledger_position` | The ID of the last ledger event the orchestrator has processed |
-| `decisions_open` | Decision IDs asked and not answered; questions held for the next digest (`held_for_digest`) |
+| `decisions_open` | Decision IDs asked and not answered, from the ledger's `asked` and `answered` events, each with when it was asked and when it was first shown to its decider (`sent_at`, absent while the question waits for a digest). The hand-over lists them |
 | `decisions_answered` | Answers received, precedents applied, logged calls made |
 | `controllers` | Each controller's current setting and its last step ([part 11](11-metrics-and-control.md#114-feedback-controllers)) |
 | `quotas` | The last usage snapshot and forecast ([part 12](12-reporting-and-limits.md)) |

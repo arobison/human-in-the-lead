@@ -37,6 +37,14 @@ import { describeOption, formatQuestion, optionIndex, parseAnswer } from './form
 import { enforceOffer, ownerOnly } from './offer.mjs';
 import { factsOf, fromLegacyQuestion, normalizeQuestion, routeQuestion } from './route.mjs';
 import { UNASSIGNED, readTrustEvents, recordTrustEvent } from './trust.mjs';
+import {
+  LOGGED_TEXT_MAX,
+  decisionTimes,
+  latestAnswered,
+  loggedCalls,
+  recordDecisionEvent,
+  recordLoggedCall,
+} from './attention.mjs';
 
 /**
  * @typedef {import('../policy/policy.mjs').Policy} Policy
@@ -67,7 +75,7 @@ const OPEN_STATES = ['proposed', 'planned'];
  * rule basis, the classification, and the offer the decider was shown. The record also keeps the
  * options and the recommendation, which an answer such as "A" is read against.
  * @typedef {{ deciders: string[], area: string | null, basis: string | null, classification: string, offer: Record<string, any> | null }} Authority
- * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any> }} AskedRecord
+ * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any>, text?: string }} AskedRecord
  */
 
 /** @param {string} id */
@@ -201,10 +209,13 @@ function citeCandidates(candidates, classification) {
  * decider. Returns what became of it:
  * - system: no rule holds; the holder decides, logs it and moves on. Nothing is created.
  * - precedent: one precedent resolves it. A decision item is created Done, citing it.
- * - asked: a decision item is created Planned, and its text is the question to send.
+ * - asked: a decision item is created Planned, and its text is the question to send. It is
+ *   written to the ledger as `asked`. With `send`, the question is going to its decider now, and
+ *   `sent` is written too; otherwise it waits for the next digest and `showQuestion` writes `sent`
+ *   when it is shown.
  * @param {Deps} deps
  * @param {Record<string, any>} given as in schemas/question.schema.json (direction, its name before HITLD-82, is read as touches_direction)
- * @param {{ judged?: Record<string, boolean> }} [options]
+ * @param {{ judged?: Record<string, boolean>, send?: boolean }} [options]
  *   judged: the holder's judgement, per candidate precedent ID, of whether its plain-language
  *   conditions and exceptions fit (design part 4.3, step 2).
  * @returns {Result}
@@ -343,11 +354,13 @@ export function askQuestion(deps, given, options = {}) {
   const made = create(deps, draft);
   if (typeof made !== 'string') return made;
   const id = made;
+  const text = formatQuestion({ ...draft, id }, { blocks: (question.blocks ?? []).length });
   /** @type {AskedRecord} */
   const record = {
     ...currentAuthority(draft),
     options: draft.options,
     recommendation: draft.recommendation,
+    text,
   };
   deps.store.write(askedKey(id), canonicalJson(record) + '\n');
   for (const blocked of question.blocks ?? []) deps.tracker.link(blocked, 'needs', id);
@@ -364,6 +377,8 @@ export function askQuestion(deps, given, options = {}) {
     },
     at,
   );
+  recordDecisionEvent(deps.store, 'asked', id, at);
+  if (options.send) recordDecisionEvent(deps.store, 'sent', id, at);
   return {
     ok: true,
     outcome: 'asked',
@@ -374,8 +389,60 @@ export function askQuestion(deps, given, options = {}) {
       needs_judgement: c.needs_judgement,
       judge: c.judge,
     })),
-    text: formatQuestion({ ...draft, id }, { blocks: (question.blocks ?? []).length }),
+    text,
     warnings,
+  };
+}
+
+/**
+ * Show a question to its decider: the text to send, and `sent` in the ledger the first time, so
+ * the time it waited for a digest (asked to sent) is told apart from the time the decider took
+ * (sent to answered). Showing it again returns the same text and changes nothing.
+ * @param {Deps} deps @param {{ decision: string }} input
+ * @returns {Result}
+ */
+export function showQuestion(deps, input) {
+  /** @type {Record<string, any>} */
+  let entity;
+  try {
+    entity = deps.tracker.get(input.decision);
+  } catch (e) {
+    return fail('not_found', e instanceof Error ? e.message : String(e));
+  }
+  if (entity.kind !== 'decision')
+    return fail('not_a_decision', `${input.decision} is a ${entity.kind}`);
+  if (!OPEN_STATES.includes(entity.state)) {
+    return fail(
+      'not_open',
+      `${input.decision} is ${entity.state}; only an open decision is shown to a decider`,
+    );
+  }
+  const recorded = deps.store.read(askedKey(input.decision));
+  /** @type {AskedRecord | null} */
+  const asked = recorded ? JSON.parse(recorded) : null;
+  /** @type {Record<string, any>} */
+  const question = {
+    ...entity,
+    id: input.decision,
+    options: entity.options ?? asked?.options,
+    recommendation: entity.recommendation ?? asked?.recommendation,
+  };
+  if (!asked?.text && !(question.question && question.options)) {
+    return fail(
+      'no_question_record',
+      `${input.decision} was not asked through hitld rights ask, and the tracker does not hold its question, so there is no text to show`,
+    );
+  }
+  const at = nowOf(deps);
+  // A decision asked before the ledger recorded questions still gets its `asked`, at this time.
+  recordDecisionEvent(deps.store, 'asked', input.decision, at);
+  const { event, appended } = recordDecisionEvent(deps.store, 'sent', input.decision, at);
+  return {
+    ok: true,
+    decision: input.decision,
+    text: asked?.text ?? formatQuestion(question),
+    sent_at: event.at,
+    first_showing: appended,
   };
 }
 
@@ -515,6 +582,23 @@ export function answerDecision(deps, input) {
     ...(precedent ? { precedent: precedent.id } : {}),
   };
   const area = entity.area ?? asked?.area ?? UNASSIGNED;
+  // How long the decider took: from the question being shown, else from its being asked (the
+  // ledger first, then the trust record, which an earlier version wrote alone).
+  const times = decisionTimes(deps.store, input.decision);
+  const startedAt =
+    times.sent ??
+    times.asked ??
+    readTrustEvents(deps.store).find((e) => e.kind === 'asked' && e.subject === input.decision)
+      ?.at ??
+    null;
+  const waited = startedAt === null ? NaN : Date.parse(at) - Date.parse(startedAt);
+  const latency = Number.isFinite(waited) ? Math.max(0, waited) : null;
+  const recommended = question.recommendation
+    ? optionIndex({ options: question.options ?? [] }, question.recommendation.option)
+    : null;
+  /** @type {boolean | null} */
+  const tookRecommendation =
+    recommended === null || parsed.option === null ? null : parsed.option === recommended;
   deps.tracker.update(input.decision, patch, versionOf(entity));
   deps.tracker.transition(
     input.decision,
@@ -538,9 +622,12 @@ export function answerDecision(deps, input) {
         : {}),
       generalization,
       ...(input.agrees_with?.length ? { agrees_with: input.agrees_with } : {}),
+      ...(tookRecommendation === null ? {} : { took_recommendation: tookRecommendation }),
+      ...(latency === null ? {} : { latency_ms: latency }),
     },
     at,
   );
+  recordDecisionEvent(deps.store, 'answered', input.decision, at);
   if (typeof input.worth_asking === 'boolean') {
     recordTrustEvent(
       deps.store,
@@ -560,6 +647,8 @@ export function answerDecision(deps, input) {
     decision: input.decision,
     answer: answerText,
     option: parsed.letter,
+    took_recommendation: tookRecommendation,
+    latency_ms: latency,
     generalization,
     precedent: precedent ? { id: precedent.id, rule: precedent.rule, stored_in: place } : null,
     warnings,
@@ -665,34 +754,104 @@ export function overrule(deps, input) {
  * Record that the owner reversed a call the system made without a precedent: a logged call, a
  * triage route, a controller move. A reversal can become precedent like any other answer; that is
  * a question to ask, not something recorded here.
+ *
+ * A subject that is the ID of a logged call in the ledger (the one the digest lists) is a reversal
+ * of that call: its kind and area are the call's, and it can be reversed once.
  * @param {Deps} deps
  * @param {{ subject: string, subject_kind?: 'logged-call' | 'triage-route' | 'controller-move' | 'other', area?: string, note?: string }} input
+ * @returns {Result}
  */
 export function recordReversal(deps, input) {
+  const call = loggedCalls(deps.store).find((e) => e.id === input.subject);
+  if (
+    call &&
+    readTrustEvents(deps.store).some((e) => e.kind === 'reversal' && e.subject === call.id)
+  ) {
+    return fail('already_reversed', `${call.id} was already reversed`);
+  }
   const line = recordTrustEvent(
     deps.store,
     {
       kind: 'reversal',
-      area: input.area ?? UNASSIGNED,
+      area: input.area ?? call?.area ?? UNASSIGNED,
       subject: input.subject,
-      subject_kind: input.subject_kind ?? 'other',
+      subject_kind: input.subject_kind ?? (call ? 'logged-call' : 'other'),
       ...(input.note ? { note: input.note } : {}),
     },
     nowOf(deps),
   );
-  return { ok: true, recorded: line };
+  return { ok: true, recorded: line, ...(call ? { logged_call: call.text } : {}) };
 }
 
 /**
- * Record the one-tap "worth asking?" rating of an answered question, offered with each answer and
- * never required.
- * @param {Deps} deps @param {{ decision: string, worth: boolean }} input
+ * Record a call made without asking (design part 4.2): a ledger event the digest lists with the
+ * way to reverse it. The holder decides a two-way door that is in no way the owner's, logs it and
+ * moves on; this is the log.
+ * @param {Deps} deps @param {{ text: string, item?: string, dispatch?: string, area?: string }} input
+ * @returns {Result}
+ */
+export function logCall(deps, input) {
+  const text = String(input.text ?? '').trim();
+  if (text === '') return fail('invalid_call', 'a logged call needs its text: what was decided');
+  if (text.length > LOGGED_TEXT_MAX) {
+    return fail(
+      'invalid_call',
+      `a logged call is a sentence, at most ${LOGGED_TEXT_MAX} characters; this one is ${text.length}`,
+    );
+  }
+  try {
+    const event = recordLoggedCall(deps.store, { ...input, text }, nowOf(deps));
+    return { ok: true, id: event.id, event, reverse_with: reverseCommand(event.id) };
+  } catch (e) {
+    return fail('invalid_call', e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** @param {string} id */
+const reverseCommand = (id) => `hitld rights reverse ${id}`;
+
+/**
+ * The logged calls for the digest, each with whether the owner has reversed it and the command
+ * that reverses it.
+ * @param {Deps} deps @param {{ since?: string | null }} [filter] since: only those logged after it
+ */
+export function listLoggedCalls(deps, filter = {}) {
+  const reversed = new Set(
+    readTrustEvents(deps.store)
+      .filter((e) => e.kind === 'reversal')
+      .map((e) => e.subject),
+  );
+  return loggedCalls(deps.store, filter).map((e) => ({
+    id: e.id,
+    text: e.text,
+    ...(e.item ? { item: e.item } : {}),
+    ...(e.dispatch ? { dispatch: e.dispatch } : {}),
+    area: e.area ?? UNASSIGNED,
+    at: e.at,
+    reversed: reversed.has(e.id),
+    ...(reversed.has(e.id) ? {} : { reverse_with: reverseCommand(e.id) }),
+  }));
+}
+
+/**
+ * Record the one-tap "worth asking?" rating of an answered question, offered with each question
+ * and never required. Without a decision it rates the one answered last, so "that was not worth
+ * asking" right after an answer is a rating of that answer. A later rating of the same decision
+ * replaces the earlier one in the counts.
+ * @param {Deps} deps @param {{ decision?: string, worth: boolean }} input
  */
 export function rateWorthAsking(deps, input) {
+  const decision = input.decision ?? latestAnswered(deps.store);
+  if (!decision) {
+    return fail(
+      'nothing_to_rate',
+      'no decision has been answered yet, so there is nothing to rate',
+    );
+  }
   /** @type {Record<string, any>} */
   let entity;
   try {
-    entity = deps.tracker.get(input.decision);
+    entity = deps.tracker.get(decision);
   } catch (e) {
     return fail('not_found', e instanceof Error ? e.message : String(e));
   }
@@ -701,12 +860,12 @@ export function rateWorthAsking(deps, input) {
     {
       kind: 'worth-asking',
       area: entity.area ?? UNASSIGNED,
-      subject: input.decision,
+      subject: decision,
       worth_asking: input.worth,
     },
     nowOf(deps),
   );
-  return { ok: true, recorded: line };
+  return { ok: true, decision, recorded: line };
 }
 
 /**

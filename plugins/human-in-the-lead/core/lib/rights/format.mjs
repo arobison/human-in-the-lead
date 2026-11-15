@@ -1,8 +1,9 @@
 // The stand-alone question (design part 4.2, The decision question) and how its answer is read.
 //
 // A question stands alone, so it can be answered from a phone without opening anything: the title
-// line, the question, the context, the recommendation, the options, and the precedent offer as
-// the last line. The decider can answer `A`, `A yes`, `B just this one`, or in free text.
+// line, the question, the context, the recommendation, the options, the precedent offer, and last
+// an optional tap to say whether it was worth asking. The decider can answer `A`, `A yes`,
+// `B just this one`, or in free text.
 
 /**
  * @typedef {Record<string, any>} Decision a decision item as in schemas/decision.schema.json
@@ -111,6 +112,7 @@ export function formatQuestion(decision, about = {}) {
       ),
     );
   }
+  out.push('', 'Optional, after you answer: was this worth asking? (worth it / not worth asking)');
   return out.join('\n') + '\n';
 }
 

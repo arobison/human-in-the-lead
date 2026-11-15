@@ -70,6 +70,12 @@ export function applyEvent(state, e) {
         });
       }
       break;
+    case 'sent': {
+      // The first showing only: asking again does not restart the owner's clock.
+      const open = state.decisions_open.find((/** @type {any} */ q) => q.decision === e.decision);
+      if (open && open.sent_at === undefined) open.sent_at = e.at;
+      break;
+    }
     case 'answered': {
       state.decisions_open = state.decisions_open.filter(
         (/** @type {any} */ q) => q.decision !== e.decision,

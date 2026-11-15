@@ -37,6 +37,10 @@
           "decision": { "$ref": "common#/$defs/id" },
           "dispatch": { "$ref": "common#/$defs/dispatchId" },
           "asked_at": { "$ref": "common#/$defs/timestamp" },
+          "sent_at": {
+            "description": "When the question was first shown to its decider; absent while it waits for the next digest. The time between asked_at and sent_at is queue time, the time after it is the owner's.",
+            "$ref": "common#/$defs/timestamp"
+          },
           "held_for_digest": {
             "description": "Held for the next digest rather than sent at once.",
             "type": "boolean"

@@ -397,7 +397,14 @@ export function handOver(state, events) {
         )
         .join('; ') || 'none'
     }.`,
-    `Decisions open (${state.decisions_open.length}): ${state.decisions_open.map((/** @type {any} */ q) => q.decision).join(', ') || 'none'}.`,
+    `Decisions open (${state.decisions_open.length}): ${
+      state.decisions_open
+        .map(
+          (/** @type {any} */ q) =>
+            `${q.decision} (asked ${q.asked_at}, ${q.sent_at ? `sent ${q.sent_at}` : 'not sent yet'}${q.dispatch ? `, from ${q.dispatch}` : ''})`,
+        )
+        .join('; ') || 'none'
+    }.`,
     `Waiting to merge (${state.merge_queue.waiting.length}): ${state.merge_queue.waiting.map((/** @type {any} */ w) => w.item).join(', ') || 'none'}.`,
     `Decisions answered this run: ${state.decisions_answered.length}.`,
     `Last events: ${recent.map((e) => `${e.event}${e.dispatch ? ` ${e.dispatch}` : e.item ? ` ${e.item}` : ''}`).join(', ') || 'none'}.`,
