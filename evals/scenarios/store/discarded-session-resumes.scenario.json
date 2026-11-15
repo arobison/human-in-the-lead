@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "id": "store/discarded-session-resumes",
+  "suite": "store",
+  "category": "store",
+  "description": "Milestone c1 (design 0003 section 14). A run started in one cloud session is discarded after a checkpoint: its container, checkout and private store are gone. A new session in the same cloud environment, with the same device key and a fresh clone, resumes the run through the store remote with its ledger, its trust record and its open decisions intact.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "project",
+      "action": "store.fixture",
+      "with": {
+        "devices": ["cloud-main"]
+      }
+    },
+    {
+      "id": "start",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": ["run", "start", "--id", "R-1", "--host", "cloud-1"]
+      }
+    },
+    {
+      "id": "log",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": ["rights", "log", "--text", "Picked the shorter timeout", "--area", "api"]
+      }
+    },
+    {
+      "id": "ask_first",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": [
+          "ledger",
+          "append",
+          "{\"event\":\"asked\",\"decision\":\"SAM-9\"}",
+          "--host",
+          "cloud-1"
+        ]
+      }
+    },
+    {
+      "id": "ask_second",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": [
+          "ledger",
+          "append",
+          "{\"event\":\"asked\",\"decision\":\"SAM-10\"}",
+          "--host",
+          "cloud-1"
+        ]
+      }
+    },
+    {
+      "id": "reversal",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": ["rights", "reverse", "SAM-3", "--subject-kind", "other", "--area", "api"]
+      }
+    },
+    {
+      "id": "trust_before",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": ["rights", "trust"]
+      }
+    },
+    {
+      "id": "checkpoint",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": ["run", "checkpoint", "--host", "cloud-1"]
+      }
+    },
+    {
+      "id": "discard",
+      "action": "store.discard",
+      "with": {
+        "device": "cloud-main"
+      }
+    },
+    {
+      "id": "new_session",
+      "action": "store.session",
+      "with": {
+        "device": "cloud-main-2",
+        "key_from": "cloud-main"
+      }
+    },
+    {
+      "id": "fresh_status",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main-2",
+        "argv": ["store", "status"]
+      }
+    },
+    {
+      "id": "resume",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main-2",
+        "argv": ["run", "resume", "--host", "cloud-2", "--force"]
+      }
+    },
+    {
+      "id": "trust_after",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main-2",
+        "argv": ["rights", "trust"]
+      }
+    },
+    {
+      "id": "ledger_after",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main-2",
+        "argv": ["ledger", "tail", "--limit", "20"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "checkpoint-pushed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.checkpoint.result.store_sync.push.result",
+        "value": "pushed"
+      }
+    },
+    {
+      "id": "container-gone",
+      "grader": "file_exists",
+      "with": {
+        "path": "devices/cloud-main/data",
+        "present": false
+      }
+    },
+    {
+      "id": "new-session-starts-empty",
+      "grader": "equals",
+      "with": {
+        "path": "steps.fresh_status.result.local_version",
+        "value": null
+      }
+    },
+    {
+      "id": "remote-has-something-to-pull",
+      "grader": "equals",
+      "with": {
+        "path": "steps.fresh_status.result.pull_due",
+        "value": true
+      }
+    },
+    {
+      "id": "resume-pulled",
+      "grader": "equals",
+      "with": {
+        "path": "steps.resume.result.store_sync.pull.status",
+        "value": "done"
+      }
+    },
+    {
+      "id": "state-rebuilt-from-the-ledger",
+      "grader": "equals",
+      "with": {
+        "path": "steps.resume.result.store_sync.rebuilt_state",
+        "value": true
+      }
+    },
+    {
+      "id": "same-run",
+      "grader": "equals",
+      "with": {
+        "path": "steps.resume.result.handover.run",
+        "value": "R-1"
+      }
+    },
+    {
+      "id": "open-decisions-intact",
+      "grader": "equals",
+      "with": {
+        "path": "steps.resume.result.handover.decisions_open[*].decision",
+        "value": ["SAM-9", "SAM-10"]
+      }
+    },
+    {
+      "id": "ledger-intact",
+      "grader": "matches",
+      "with": {
+        "path": "steps.ledger_after.result.events[*].text",
+        "pattern": "Picked the shorter timeout"
+      }
+    },
+    {
+      "id": "trust-recorded-before",
+      "grader": "equals",
+      "with": {
+        "path": "steps.trust_before.result.areas.api.reversals",
+        "value": 1
+      }
+    },
+    {
+      "id": "trust-record-intact",
+      "grader": "equals",
+      "with": {
+        "path": "steps.trust_after.result.areas.api.reversals",
+        "value": 1
+      }
+    }
+  ]
+}

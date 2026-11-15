@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "id": "store/unenrolled-device-cannot-push",
+  "suite": "store",
+  "category": "store",
+  "description": "A device is enrolled by a commit that reaches main through the owner's merge (design 0003 section 6). Until then it cannot push (device-not-enrolled), even with its enrolment committed in its own checkout, and what the remote holds was sealed before it existed, so it cannot open it. Once the merge lands, it opens what the enrolled device pushes next, and its own push is accepted.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "project",
+      "action": "store.fixture",
+      "with": { "devices": ["laptop", "tablet"], "enrolled": ["laptop"] }
+    },
+    {
+      "id": "start",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "start", "--host", "laptop"] }
+    },
+    {
+      "id": "log_first",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["rights", "log", "--text", "Recorded before the tablet joined", "--area", "api"]
+      }
+    },
+    {
+      "id": "checkpoint_first",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+    },
+    {
+      "id": "tablet_push_unenrolled",
+      "action": "store.hitld",
+      "with": { "device": "tablet", "argv": ["store", "push"] }
+    },
+    {
+      "id": "tablet_enrol",
+      "action": "store.hitld",
+      "with": {
+        "device": "tablet",
+        "argv": ["store", "device", "init", "--cloud", "--name", "tablet"]
+      }
+    },
+    {
+      "id": "tablet_push_not_merged",
+      "action": "store.hitld",
+      "with": { "device": "tablet", "argv": ["store", "push"] }
+    },
+    { "id": "merge", "action": "store.owner-merge", "with": { "device": "tablet" } },
+    {
+      "id": "tablet_pull_early",
+      "action": "store.hitld",
+      "with": { "device": "tablet", "argv": ["store", "pull"] }
+    },
+    {
+      "id": "log_second",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["rights", "log", "--text", "Recorded after the tablet joined", "--area", "api"]
+      }
+    },
+    {
+      "id": "checkpoint_second",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+    },
+    {
+      "id": "tablet_pull",
+      "action": "store.hitld",
+      "with": { "device": "tablet", "argv": ["store", "pull"] }
+    },
+    {
+      "id": "tablet_ledger",
+      "action": "store.hitld",
+      "with": { "device": "tablet", "argv": ["ledger", "tail", "--limit", "20"] }
+    },
+    {
+      "id": "tablet_status",
+      "action": "store.hitld",
+      "with": { "device": "tablet", "argv": ["store", "status"] }
+    },
+    {
+      "id": "tablet_push",
+      "action": "store.hitld",
+      "with": { "device": "tablet", "argv": ["store", "push"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "first-push-by-the-enrolled-device",
+      "grader": "equals",
+      "with": { "path": "steps.checkpoint_first.result.store_sync.push.result", "value": "pushed" }
+    },
+    {
+      "id": "refused-before-enrolment",
+      "grader": "equals",
+      "with": {
+        "path": "steps.tablet_push_unenrolled.result.error",
+        "value": "device-not-enrolled"
+      }
+    },
+    {
+      "id": "enrolment-is-a-change-to-the-list",
+      "grader": "equals",
+      "with": { "path": "steps.tablet_enrol.result.changed", "value": true }
+    },
+    {
+      "id": "no-key-in-the-result",
+      "grader": "equals",
+      "with": { "path": "steps.tablet_enrol.result.key.where", "value": "environment" }
+    },
+    {
+      "id": "refused-until-main-lists-it",
+      "grader": "equals",
+      "with": {
+        "path": "steps.tablet_push_not_merged.result.error",
+        "value": "device-not-enrolled"
+      }
+    },
+    {
+      "id": "the-owner-merged-the-list",
+      "grader": "equals",
+      "with": { "path": "steps.merge.files", "value": [".human-in-the-lead/store-devices.json"] }
+    },
+    {
+      "id": "an-older-head-does-not-open",
+      "grader": "equals",
+      "with": { "path": "steps.tablet_pull_early.result.error", "value": "age-no-match" }
+    },
+    {
+      "id": "the-next-push-is-sealed-to-both",
+      "grader": "equals",
+      "with": { "path": "steps.checkpoint_second.result.store_sync.push.result", "value": "pushed" }
+    },
+    {
+      "id": "opens-what-follows-the-merge",
+      "grader": "equals",
+      "with": { "path": "steps.tablet_pull.result.ok", "value": true }
+    },
+    {
+      "id": "sees-the-records",
+      "grader": "matches",
+      "with": {
+        "path": "steps.tablet_ledger.result.events[*].text",
+        "pattern": "Recorded after the tablet joined"
+      }
+    },
+    {
+      "id": "knows-it-is-enrolled",
+      "grader": "equals",
+      "with": { "path": "steps.tablet_status.result.device.enrolled", "value": true }
+    },
+    {
+      "id": "may-push-now",
+      "grader": "matches",
+      "with": { "path": "steps.tablet_push.result.result", "pattern": "^(pushed|up-to-date)$" }
+    }
+  ]
+}

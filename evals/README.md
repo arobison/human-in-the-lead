@@ -20,7 +20,7 @@ The command prints JSON and exits 0 only when every scenario passes and the gate
 | `schemas/eval-scenario.schema.json`, `schemas/eval-result.schema.json` | The scenario and result formats |
 | `schemas/policy/eval.schema.json` | The gate's thresholds: category floors and tolerances |
 
-`<suite>` is the area name, matching your command file in `core/lib/cli/commands/`: `foundation`, `tracker`, `ledger`, `env`, `contract`, `rights`, `quota`, `eval`, `orchestrator`, `security`, `release`, `adopt`. Make the directory when you add your first scenario. A consuming project adds its own scenarios under its own `evals/`, in the same format; `hitld eval` runs both.
+`<suite>` is the area name, matching your command file in `core/lib/cli/commands/`: `foundation`, `tracker`, `ledger`, `env`, `contract`, `rights`, `quota`, `eval`, `orchestrator`, `security`, `release`, `adopt`, `store`. Make the directory when you add your first scenario. A consuming project adds its own scenarios under its own `evals/`, in the same format; `hitld eval` runs both.
 
 ## A scenario
 
@@ -59,6 +59,8 @@ Scenarios are data and never run code. A scenario cannot contain a key that name
 | `schema.validate` | Validates data against a schema, after optional `set` edits. Result: `{ valid, errors }` |
 | `adapter.dispatch` | Dispatches to the profile's fake adapter and completes it. A refusal is data: `{ accepted, refusal, completion }` |
 | `adapter.capabilities` | The profile's capabilities |
+| `store.fixture`, `store.session`, `store.discard` | The store remote scenarios (`store/`): a project whose devices each have a checkout, a private store and a key, with bare repositories standing in for the project's origin and the store's host; a new cloud session; a discarded one |
+| `store.hitld`, `store.owner-merge`, `store.inspect-remote` | Run a `hitld` command on one device; land the owner's merge of the device list; look at everything the store's host holds, and what each device's key opens. A private key a command prints is kept as that device's key and left out of the result |
 
 **To add an action**, add `core/lib/eval/actions/<suite>.mjs` exporting `actions`: each has a `description`, an `input` (a JSON Schema for `with`, which the loader checks) and `run(input, ctx)`, which calls your piece's library and returns plain JSON. `ctx` gives `sandbox`, `seed`, `profile`, `adapter()` (the fake adapter for the profile) and `recordTokens(n)`. Never call a harness: use `ctx.adapter()`.
 
