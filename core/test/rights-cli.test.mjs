@@ -265,8 +265,9 @@ test('the commands carry a question through to a precedent, a digest and an over
   const trust = await run('rights trust', {});
   assert.equal(trust.areas.unassigned.overrules, 1);
   assert.equal(trust.areas.cache.reversals, 1);
-  assert.equal(trust.areas.unassigned.rated, 2);
-  assert.equal(trust.areas.unassigned.escalation_worth, 0.5);
+  // W-1 was rated yes with its answer and no afterwards: the later rating stands.
+  assert.equal(trust.areas.unassigned.rated, 1);
+  assert.equal(trust.areas.unassigned.escalation_worth, 0);
   assert.ok(project);
 });
 
@@ -301,11 +302,13 @@ test("the parser accepts the commands' options", () => {
   );
 });
 
-test('an executor cannot ask, answer, overrule, reverse, rate or trust a decision (Q21)', async () => {
+test('an executor cannot ask, show, log, answer, overrule, reverse, rate or trust a decision (Q21)', async () => {
   const cmds = makeCommands({ openTracker: () => /** @type {any} */ (null) });
   const nowhere = mkdtempSync(join(tmpdir(), 'hitld-exec-'));
   for (const name of [
     'rights ask',
+    'rights show',
+    'rights log',
     'rights answer',
     'rights overrule',
     'rights reverse',
