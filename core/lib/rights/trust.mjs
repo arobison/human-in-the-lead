@@ -116,6 +116,8 @@ export function trustSummary(events, options = {}) {
   /** @type {Set<string>} candidates cited, by decision */
   const cited = new Set();
   for (const e of events) {
+    // Merge approvals and reverts have their own summary (approvalSummary in merge/owner.mjs).
+    if (e.kind === 'merge-approval' || e.kind === 'merge-reverted') continue;
     const a = of(e.area);
     if (e.kind === 'asked') {
       a.asked++;

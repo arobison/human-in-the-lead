@@ -11,7 +11,13 @@ import { startRun } from '../../run/run.mjs';
 import { sizeItem } from '../../dispatch/sizing.mjs';
 import { runDispatchLoop } from '../../dispatch/loop.mjs';
 import { runMergeQueue } from '../../merge/queue.mjs';
-import { chooseNamed } from '../../merge/owner.mjs';
+import {
+  approvalEvents,
+  approvePresented,
+  chooseNamed,
+  presentToOwner,
+} from '../../merge/owner.mjs';
+import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 import { recordStatusLine } from '../../../harness/claude-code/statusline.mjs';
 import {
   MERGE_SETTINGS,
@@ -155,6 +161,68 @@ export const actions = {
         main_moved: r.main.before !== r.main.after,
         main_files: fixtureGit(root, 'show', 'main:gen/files.txt'),
         main_head_tested: r.main.after === fixtureGit(root, 'rev-parse', 'main'),
+      };
+    },
+  },
+
+  'orchestrator.owner-merge': {
+    description:
+      "Build the merge fixture repository (as orchestrator.merge) and run owner merge mode on it: the queue checks every branch without moving main and presents the green ones; then the owner's answer, all or a list, is applied and each approval recorded as a trust event in a sandbox store. Returns { presented, question, rejected, main_moved_before_approval, merged, approval_suite_runs, checked_again, main_head_tested, approvals: [{ subject, as_presented }], reads }.",
+    input: {
+      type: 'object',
+      properties: {
+        approve: {
+          description: 'The owner\'s answer: "all", or the branches or items named',
+          anyOf: [{ const: 'all' }, { type: 'array', items: { type: 'string' } }],
+        },
+      },
+      required: ['approve'],
+      additionalProperties: false,
+    },
+    run: async (input, ctx) => {
+      const { root, entries } = buildMergeRepo(join(ctx.sandbox, 'merge-repo'));
+      const store = openStore(join(ctx.sandbox, 'owner-store'));
+      const settings = { ...MERGE_SETTINGS, generated: [...MERGE_SETTINGS.generated] };
+      const policy = policyOf({ merge: { mode: 'owner' } });
+      const before = fixtureGit(root, 'rev-parse', 'main');
+      const shown = await presentToOwner({ repoRoot: root, entries, settings, policy });
+      const p = shown.presentation;
+      const afterChecks = fixtureGit(root, 'rev-parse', 'main');
+      const rejected = [...(shown.queued?.rejected ?? []), ...(shown.checked?.rejected ?? [])];
+      /** @type {Awaited<ReturnType<typeof approvePresented>> | null} */
+      let approved = null;
+      if (p) {
+        approved = await approvePresented({
+          repoRoot: root,
+          presentation: p,
+          all: input.approve === 'all',
+          names: Array.isArray(input.approve) ? input.approve : [],
+          entries,
+          settings,
+        });
+        if (approved.result) {
+          const at = new Date();
+          for (const ev of approvalEvents(p, approved.result.merged, approved.as_presented, at)) {
+            recordTrustEvent(store, ev, at.toISOString());
+          }
+        }
+      }
+      return {
+        presented: (p?.branches ?? []).map((b) => b.item),
+        question: p?.question ?? null,
+        rejected: rejected.map((x) => ({ item: x.item, reason: x.reason })),
+        main_moved_before_approval: afterChecks !== before,
+        merged: (approved?.result?.merged ?? []).map((m) => m.item),
+        approval_suite_runs: approved?.result?.suite_runs ?? null,
+        checked_again: approved?.rechecked ?? null,
+        main_head_tested:
+          approved?.result != null &&
+          fixtureGit(root, 'rev-parse', 'main') === approved.result.main.after,
+        approvals: readTrustEvents(store).map((e) => ({
+          subject: e.subject,
+          as_presented: e.as_presented,
+        })),
+        reads: (p?.branches ?? []).reduce((n, b) => n + b.reads.length, 0),
       };
     },
   },
