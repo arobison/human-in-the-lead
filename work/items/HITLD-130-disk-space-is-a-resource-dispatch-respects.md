@@ -17,5 +17,6 @@ A long orchestrating session filled its disk with worktrees of branches that had
 - After a merge (and in `hitld dispatch watch`), worktrees whose branches have merged or whose dispatch has ended are removed through the environment manager's teardown, which keeps the primary checkout and any worktree a live dispatch holds.
 - `hitld run status`, the watchdog and the digest report free space when it nears the floor, before it is reached.
 - The orchestrate skill creates worktrees only through `hitld env`, so every one is tracked and torn down.
+- **The test suite cleans up after itself:** every test removes the temporary directories it makes (they had built up to about 170,000 and filled the disk), and a test run fails if it leaves any behind.
 - Tests cover the floor refusal, the removal of a merged worktree, and the kept primary and live worktrees.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
