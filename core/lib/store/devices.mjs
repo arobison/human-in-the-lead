@@ -229,8 +229,22 @@ export function requestsOnBranch(storeRoot, url) {
  *   approved  the owner's answer enrolled the key
  *   removed   the owner's answer removed it
  *   refused   the owner's answer said no, to an enrolment or a removal
- * @typedef {{ event: 'asked' | 'approved' | 'removed' | 'refused', decision: string, action: 'enrol' | 'remove', name: string, recipient: string, added?: string, at: string }} ApprovalRecord
+ * An `asked` line also carries the check code of the question asked (`check`, rights/flow.mjs).
+ * @typedef {{ event: 'asked' | 'approved' | 'removed' | 'refused', decision: string, action: 'enrol' | 'remove', name: string, recipient: string, added?: string, at: string, check?: string }} ApprovalRecord
  */
+
+/**
+ * What a device decision applies when answered: its action, the device's name and its key's
+ * fingerprint. Part of the question's check code, and checked by `hitld rights answer` against
+ * the question asked under that ID before anything is recorded.
+ * @param {{ action: 'enrol' | 'remove', name: string, recipient: string }} r
+ * @returns {Record<string, string>}
+ */
+export const deviceBinds = (r) => ({
+  action: r.action,
+  name: r.name,
+  fingerprint: fingerprint(r.recipient),
+});
 
 /**
  * The device decisions and answers recorded in the private store, oldest first. A line that does
@@ -402,14 +416,26 @@ export function deviceQuestion(action, device, parent) {
  * Turn the owner's answer to a device decision into the record that changes the approved set.
  * Called by `hitld rights answer` once the answer is recorded; any other decision is left alone.
  * Option A approves (enrols or removes); anything else refuses. An answer to a decision already
- * answered changes nothing.
+ * answered changes nothing. With `binds` (what the question asked names, deviceBinds), only the
+ * waiting decision it names is answered; without, only a sole waiting one under that ID.
  * @param {import('./store.mjs').PrivateStore} store
- * @param {{ decision: string, option: string | null, at: string }} answer
+ * @param {{ decision: string, option: string | null, at: string, binds?: Record<string, string> | null }} answer
  * @returns {ApprovalRecord | null} the record written, or null when it is not a device decision
  */
 export function applyDeviceAnswer(store, answer) {
   const records = readApprovals(store);
-  const asked = openDeviceAsks(records).find((r) => r.decision === answer.decision);
+  const open = openDeviceAsks(records).filter((r) => r.decision === answer.decision);
+  const binds = answer.binds;
+  const asked = binds
+    ? open.find((r) => {
+        const b = deviceBinds(r);
+        return (
+          b.action === binds.action && b.name === binds.name && b.fingerprint === binds.fingerprint
+        );
+      })
+    : open.length === 1
+      ? open[0]
+      : undefined;
   if (!asked) return null;
   const yes = answer.option === 'A';
   /** @type {ApprovalRecord} */

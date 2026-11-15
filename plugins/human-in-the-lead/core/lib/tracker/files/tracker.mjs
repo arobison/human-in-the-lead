@@ -60,6 +60,7 @@ import {
   releasedIn,
 } from './releases.mjs';
 import { allocate, assertOrchestrator } from './ids.mjs';
+import { sharedIds } from './shared-ids.mjs';
 import { parseItem, renderItem, slugify } from './frontmatter.mjs';
 import { fromLegacy } from './legacy.mjs';
 import { entityType } from './api.mjs';
@@ -91,8 +92,9 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {() => Layout} layout
  * @property {() => string[]} warnings tracker.json names from before HITLD-82, still read
  * @property {() => string} root
- * @property {(draft: Record<string, any>) => { id: string, path: string, block: string }} createEntity
- *   allocate an ID and write the file; orchestrator only
+ * @property {(draft: Record<string, any>) => { id: string, path: string, block: string, id_source: string, warnings: string[] }} createEntity
+ *   allocate an ID and write the file; orchestrator only. id_source: what the number was checked
+ *   against beyond this clone (store-counter, origin or local)
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean }) => ReturnType<typeof closeItem>} close
@@ -190,8 +192,18 @@ const today = () => new Date().toLocaleDateString('sv');
  * @param {string} [options.configDir] where tracker.json is looked for; default <repoRoot>/.human-in-the-lead
  * @param {NodeJS.ProcessEnv} [options.env] the environment (HITLD_ROLE, HITLD_ID_BLOCK); default process.env
  * @param {string} [options.block] the reserved ID block this machine allocates from; default HITLD_ID_BLOCK, else the base range
+ * @param {false | ((o: { root: string, layout: Layout }) => import('./shared-ids.mjs').SharedIds)} [options.sharedIds]
+ *   what a create checks beyond this clone (shared-ids.mjs); default: origin, the store counter
+ *   when the private store has a remote, and the store's decisions. false checks this clone only.
  */
-export function openTracker({ repoRoot, policy, configDir, env = process.env, block }) {
+export function openTracker({
+  repoRoot,
+  policy,
+  configDir,
+  env = process.env,
+  block,
+  sharedIds: shared,
+}) {
   const root = repoRootOf(repoRoot);
   const loaded = loadTrackerConfig({ repoRoot: root, configDir });
   if (!loaded.config) {
@@ -651,8 +663,16 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       const slug = slugify(String(draft.title));
       const folder = layout.folders[FOLDER_GROUP[/** @type {keyof typeof FOLDER_GROUP} */ (kind)]];
       const before = checkItems(read(), layout, { root });
+      const beyond =
+        shared === false
+          ? null
+          : shared
+            ? shared({ root, layout })
+            : sharedIds({ root, layout, policy, env });
+      const { warnings } = beyond ? beyond.prepare() : { warnings: [] };
       const made = allocate(root, layout, {
         block: idBlock,
+        shared: beyond ?? undefined,
         write: (n) => {
           const rel = `${layout.workDir}/${folder}/${layout.key}-${n}-${slug}.md`;
           const full = join(
@@ -673,7 +693,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         rmSync(insidePath(root, made.path));
         throw new Error(`not created: ${problems.join('; ')}`);
       }
-      return made;
+      return { ...made, id_source: beyond?.source ?? 'local', warnings };
     },
 
     /** Claims read from branches. */

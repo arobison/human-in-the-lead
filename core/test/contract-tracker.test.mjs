@@ -9,7 +9,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
-import { git, makeRepo, policyFor } from './tracker-fixture.mjs';
+import { git, isolatedEnv, makeRepo, policyFor } from './tracker-fixture.mjs';
+
+/** No person file, private store or store address of this machine is read. */
+const HOME = isolatedEnv();
 
 const TEMPLATE = readFileSync(
   join(fileURLToPath(new URL('../..', import.meta.url)), 'templates', 'AGENTS.contract.md'),
@@ -53,7 +56,7 @@ test("the contract's claim and close steps, written by hand, are what the files 
   assert.deepEqual(close, [['state', 'done']], 'step 2 names the done state');
 
   const root = makeRepo();
-  const open = () => openTracker({ repoRoot: root, policy: policyFor(), env: {} });
+  const open = () => openTracker({ repoRoot: root, policy: policyFor(), env: { ...HOME } });
   const path = 'work/items/W-4-second-step.md';
   const file = join(root, path);
   git(root, 'checkout', '-q', '-b', 'exec/w-4', 'main');

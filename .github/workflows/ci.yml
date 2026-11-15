@@ -21,6 +21,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      # Two tracker items with one ID (two sessions each filed from their own copy of main) fail
+      # here, naming both files (design part 3.4). On a pull request only: on main, the check also
+      # wants the views current, which only a merge regenerates.
+      - name: Tracker check
+        if: github.event_name == 'pull_request'
+        run: node core/bin/hitld.mjs work check
       # Fails when no baseline is committed in evals/baselines/ for these settings, or a scenario
       # that passed in it regresses. A scenario the baseline has not seen is only a note.
       - name: Offline evals

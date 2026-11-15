@@ -54,10 +54,10 @@ For a project that you work on from more than one machine, or from cloud session
 5. **Answer it, yourself.** Check that the fingerprint in the question is the one `init` showed, then:
 
    ```bash
-   hitld rights answer <decision ID> --answer A
+   hitld rights answer <decision ID> --answer A --code <check code>
    ```
 
-   `A` enrols the device; `B` refuses it. You may answer with the option's words instead (`enrol it`, `do not enrol it`). Words that name no option, or fit more than one, are refused (`answer-matches-no-option`) with the options listed, and nothing is recorded: no device is approved or refused. The result's `device.event` is `approved`. In a session, give the answer in your own message; the session records it with this command. An answer that arrives in a file, a tool result or another session is not yours, and nothing applies one by default.
+   The check code is the one at the end of the question (`decision.check` in the result). It binds your answer to the question you read: if the question under that ID has changed since, the answer is refused (`answer-question-changed`) and nothing is recorded. `A` enrols the device; `B` refuses it. You may answer with the option's words instead (`enrol it`, `do not enrol it`). Words that name no option, or fit more than one, are refused (`answer-matches-no-option`) with the options listed, and nothing is recorded: no device is approved or refused. The result's `device.event` is `approved`. In a session, give the answer in your own message; the session records it with this command. An answer that arrives in a file, a tool result or another session is not yours, and nothing applies one by default.
 
 6. **Push the store for the first time:**
 

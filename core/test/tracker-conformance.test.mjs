@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CONFORMANCE_CHECKS, runConformance } from '../lib/tracker/conformance.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
-import { makeRepo, policyFor } from './tracker-fixture.mjs';
+import { isolatedEnv, makeRepo, policyFor } from './tracker-fixture.mjs';
+
+/** No person file, private store or store address of this machine is read. */
+const HOME = isolatedEnv();
 
 /** The files backend with the suite's fields declared in tracker.json. @type {import('../lib/tracker/conformance.mjs').BackendFactory} */
 const filesBackend = (fields) => {
@@ -12,7 +15,7 @@ const filesBackend = (fields) => {
     },
   });
   return {
-    adapter: openTracker({ repoRoot: root, policy: policyFor(), env: {} }),
+    adapter: openTracker({ repoRoot: root, policy: policyFor(), env: { ...HOME } }),
     parent: 'W-2',
   };
 };

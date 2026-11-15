@@ -11,7 +11,10 @@ import { loadTrackerConfig } from '../lib/tracker/files/config.mjs';
 import { renderItem } from '../lib/tracker/files/frontmatter.mjs';
 import { lineDiff, planMigrations } from '../lib/tracker/files/migrate.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
-import { git, itemText, makeRepo, policyFor, put } from './tracker-fixture.mjs';
+import { git, isolatedEnv, itemText, makeRepo, policyFor, put } from './tracker-fixture.mjs';
+
+/** No person file, private store or store address of this machine is read. */
+const HOME = isolatedEnv();
 
 /** @type {import('../lib/tracker/files/config.mjs').DeclaredField[]} */
 const FIELDS = [
@@ -54,12 +57,12 @@ function repo(files = {}) {
 /** @param {string[]} argv @param {string} cwd */
 async function hitld(argv, cwd) {
   let out = '';
-  const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env: {} });
+  const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env: { ...HOME } });
   return { code, json: JSON.parse(out) };
 }
 
 const open = (/** @type {string} */ root) =>
-  openTracker({ repoRoot: root, policy: policyFor(), env: {} });
+  openTracker({ repoRoot: root, policy: policyFor(), env: { ...HOME } });
 
 // --- The versioned read API ---------------------------------------------------------------
 

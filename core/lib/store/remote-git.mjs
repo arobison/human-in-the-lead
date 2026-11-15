@@ -25,6 +25,14 @@
 // repository can change it, so nothing on it is trusted: the devices a push is encrypted to are
 // the owner's answers, recorded inside the encrypted store. A request push is never forced.
 //
+// The ID counter. A third branch, `hitld-ids`, holds `ids.json`: per tracker key and ID block,
+// the highest number any session has taken (design part 3.4, ID allocation). A session takes the
+// next number by pushing a commit that raises it on top of the tip it read; the plain push is the
+// compare and swap, so two sessions never take the same number, and the one that loses the race
+// reads the new tip and tries again. The file holds numbers only, nothing about the items. It is
+// not trusted either: a number set too high leaves a gap, and one set too low is caught by the
+// check against origin that every allocation also makes.
+//
 // Trust boundary. Authentication is the session's own git access: plain `git` over the configured
 // URL, with no token handled here. Git runs as in git.mjs: an argument list, no shell, GIT_DIR
 // pinned to a bare repository inside the private store (never the project's checkout), hooks off,
@@ -36,8 +44,8 @@
 // (a local or mounted repository) may be used. The bytes are opaque here: no key, passphrase or
 // plain text reaches this module.
 
-import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { StoreRemoteError, remoteMoved } from './remote.mjs';
@@ -47,6 +55,10 @@ export { DEVICES_BRANCH, PROPOSALS_DIR };
 
 /** The branch on the remote unless another is named. */
 export const STORE_BRANCH = 'hitld-store';
+/** The branch on the remote that holds the shared ID counter. */
+export const IDS_BRANCH = 'hitld-ids';
+/** The counter's file on that branch. */
+export const IDS_FILE = 'ids.json';
 /** The largest bundle pushed; GitHub refuses files over 100 MiB. */
 export const MAX_BUNDLE_BYTES = 90 * 1024 * 1024;
 /** How often a push or prune re-reads the remote after losing a race to another writer. */
@@ -338,21 +350,14 @@ const usableBranch = (branch) =>
  * @param {string} dir a checked directory (checkDir)
  */
 function localRepo(dir) {
-  /** @type {Promise<[string, string][]> | undefined} */
+  /** @type {[string, string][] | undefined} */
   let connection;
   /** @type {Promise<void> | undefined} */
   let ready;
 
   /** @param {string[]} args @param {{ input?: Uint8Array, allowFail?: boolean }} [o] */
   async function git(args, o = {}) {
-    const env = baseEnv(dir);
-    const pairs = await (connection ??= connectionConfig(dir));
-    env.GIT_CONFIG_COUNT = String(pairs.length);
-    pairs.forEach(([k, v], i) => {
-      env[`GIT_CONFIG_KEY_${i}`] = k;
-      env[`GIT_CONFIG_VALUE_${i}`] = v;
-    });
-    return run(dir, env, args, o);
+    return run(dir, envWith(dir, (connection ??= connectionConfig(dir))), args, o);
   }
 
   /** The local bare repository, made once. */
@@ -507,6 +512,151 @@ export function createDevicesBranch(options) {
   };
 }
 
+/**
+ * The counter file's numbers: key, then block, then the highest number taken. Anything that is not
+ * that shape is read as no number taken, so a damaged file never stops a session; the check
+ * against origin covers what it lost.
+ * @param {string} text @returns {Record<string, Record<string, number>>}
+ */
+function parseCounter(text) {
+  /** @type {Record<string, Record<string, number>>} */
+  const out = {};
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return out;
+  }
+  const taken = data && typeof data === 'object' ? data.taken : null;
+  if (!taken || typeof taken !== 'object' || Array.isArray(taken)) return out;
+  for (const [key, blocks] of Object.entries(taken)) {
+    if (!ID_KEY.test(key) || !blocks || typeof blocks !== 'object') continue;
+    for (const [block, n] of Object.entries(blocks)) {
+      if (BLOCK_NAME.test(block) && Number.isSafeInteger(n) && n > 0) {
+        (out[key] ??= {})[block] = /** @type {number} */ (n);
+      }
+    }
+  }
+  return out;
+}
+
+const ID_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
+const BLOCK_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/**
+ * @typedef {object} IdCounter
+ * @property {(request: { key: string, block: string, from: number }) => number} take
+ *   Take the next number for a tracker key and ID block: at least `from`, and above every number
+ *   taken from this counter before. The raised counter is pushed, never forced; when another
+ *   session pushed first, the new tip is read and the number taken again. Synchronous, since an
+ *   ID is taken inside a create. Throws remote-unreachable when the remote cannot be read, and
+ *   remote-git-failed when the push is refused for another reason.
+ */
+
+/**
+ * The store repository's ID counter (design part 3.4, ID allocation): the `hitld-ids` branch,
+ * through the same local bare repository and rules as the store's own branch.
+ * @param {GitRemoteOptions} options `branch` is the counter's branch (default hitld-ids)
+ * @returns {IdCounter}
+ */
+export function createIdCounter(options) {
+  const url = checkRemoteUrl(options.url);
+  const branch = options.branch ?? IDS_BRANCH;
+  if (!usableBranch(branch)) {
+    throw new StoreRemoteError('remote-argument-invalid', `not a usable branch name: ${branch}`);
+  }
+  const dir = checkDir(options.dir);
+  const ref = `refs/heads/${branch}`;
+  const local = `refs/hitld/ids/${createHash('sha256').update(url).digest('hex').slice(0, 16)}`;
+  /** @type {[string, string][] | undefined} */
+  let connection;
+  /** @param {string[]} args @param {{ input?: Uint8Array, allowFail?: boolean }} [o] */
+  const git = (args, o = {}) =>
+    runSync(dir, envWith(dir, (connection ??= connectionConfig(dir))), args, o);
+  /** @param {string[]} args @param {{ input?: Uint8Array }} [o] */
+  const text = (args, o) => git(args, o).stdout.toString('utf8').trim();
+
+  function init() {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (!existsSync(join(dir, 'HEAD'))) git(['init', '-q', '--bare']);
+  }
+
+  /** @returns {string | null} */
+  function remoteSha() {
+    const r = git(['ls-remote', url, ref], { allowFail: true });
+    if (!r.ok) throw unreachable(r.stderr);
+    const line = r.stdout.toString('utf8').split('\n').find(Boolean);
+    return line ? line.split('\t')[0] : null;
+  }
+
+  /** @returns {{ commit: string | null, taken: Record<string, Record<string, number>> }} */
+  function readTip() {
+    init();
+    if (remoteSha() === null) return { commit: null, taken: {} };
+    const fetched = git(
+      [
+        '-c',
+        'transfer.fsckObjects=true',
+        'fetch',
+        '-q',
+        '--no-tags',
+        '--no-write-fetch-head',
+        url,
+        `+${ref}:${local}`,
+      ],
+      { allowFail: true },
+    );
+    if (!fetched.ok) throw unreachable(fetched.stderr);
+    const commit = text(['rev-parse', '--verify', local]);
+    const blob = git(['cat-file', 'blob', `${commit}:${IDS_FILE}`], { allowFail: true });
+    return { commit, taken: blob.ok ? parseCounter(blob.stdout.toString('utf8')) : {} };
+  }
+
+  return {
+    take({ key, block, from }) {
+      if (!ID_KEY.test(key) || !BLOCK_NAME.test(block) || !Number.isSafeInteger(from) || from < 1) {
+        throw new StoreRemoteError(
+          'remote-argument-invalid',
+          'take needs a tracker key, a block name and a number from 1',
+        );
+      }
+      let last = '';
+      // More rounds than a push: every session that files at once can win one round ahead.
+      for (let i = 0; i < ATTEMPTS * 2; i++) {
+        const { commit, taken } = readTip();
+        const n = Math.max(from, (taken[key]?.[block] ?? 0) + 1);
+        const next = { ...taken, [key]: { ...taken[key], [block]: n } };
+        const blob = text(['hash-object', '-w', '--stdin'], {
+          input: Buffer.from(`${JSON.stringify({ schema_version: 1, taken: next }, null, 2)}\n`),
+        });
+        const tree = text(['mktree', '-z'], {
+          input: Buffer.from(`100644 blob ${blob}\t${IDS_FILE}\0`),
+        });
+        const made = text([
+          'commit-tree',
+          tree,
+          ...(commit ? ['-p', commit] : []),
+          '-m',
+          // A nonce: two sessions taking the same number at the same second must not make the
+          // same commit, or the second push would succeed as already up to date.
+          `take ${key}-${n} (${block}) ${randomBytes(8).toString('hex')}`,
+        ]);
+        const pushed = git(['push', '-q', '--no-verify', url, `${made}:${ref}`], {
+          allowFail: true,
+        });
+        if (pushed.ok) {
+          git(['update-ref', local, made], { allowFail: true });
+          return n;
+        }
+        last = pushed.stderr;
+        // Refused because another session took a number first: the next round reads it.
+        if (remoteSha() === commit) break;
+      }
+      throw new StoreRemoteError('remote-git-failed', `git push was refused: ${last}`);
+    },
+  };
+}
+
 /** @param {string} why */
 const unreachable = (why) =>
   new StoreRemoteError('remote-unreachable', `could not reach the remote: ${why}`);
@@ -554,16 +704,16 @@ function baseEnv(dir) {
 /**
  * The connection keys from the owner's system and global git config and from GIT_CONFIG_COUNT,
  * in the order git reads them. No other key crosses.
- * @param {string} dir @returns {Promise<[string, string][]>}
+ * @param {string} dir @returns {[string, string][]}
  */
-async function connectionConfig(dir) {
+function connectionConfig(dir) {
   /** @type {[string, string][]} */
   const out = [];
   for (const scope of ['--system', '--global']) {
     const env = baseEnv(dir);
     delete env.GIT_CONFIG_NOSYSTEM;
     delete env.GIT_CONFIG_GLOBAL;
-    const r = await run(dir, env, ['config', scope, '--includes', '--list', '-z'], {
+    const r = runSync(dir, env, ['config', scope, '--includes', '--list', '-z'], {
       allowFail: true,
     });
     if (!r.ok) continue;
@@ -588,6 +738,55 @@ async function connectionConfig(dir) {
 }
 
 /**
+ * The environment git runs in against `dir`: the base, with the connection keys passed on.
+ * @param {string} dir @param {[string, string][]} pairs
+ */
+function envWith(dir, pairs) {
+  const env = baseEnv(dir);
+  env.GIT_CONFIG_COUNT = String(pairs.length);
+  pairs.forEach(([k, v], i) => {
+    env[`GIT_CONFIG_KEY_${i}`] = k;
+    env[`GIT_CONFIG_VALUE_${i}`] = v;
+  });
+  return env;
+}
+
+/** The options every git run starts with: hooks, signing, the file monitor and gc on its own off. */
+const FIXED = [
+  '-c',
+  'core.hooksPath=/dev/null',
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'commit.gpgSign=false',
+  '-c',
+  'gc.auto=0',
+];
+
+/**
+ * Run git without a shell and wait for it, as `run` does. For a caller that cannot wait on a
+ * promise: an ID is taken inside a synchronous create.
+ * @param {string} cwd @param {Record<string, string>} env @param {string[]} args
+ * @param {{ input?: Uint8Array, allowFail?: boolean, timeout?: number }} o
+ * @returns {{ ok: boolean, stdout: Buffer, stderr: string }}
+ */
+function runSync(cwd, env, args, o) {
+  const r = spawnSync('git', [...FIXED, ...args], {
+    cwd,
+    env,
+    input: o.input,
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: o.timeout ?? 120_000,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const stdout = r.stdout ?? Buffer.alloc(0);
+  const stderr = (r.stderr ?? Buffer.alloc(0)).toString('utf8').trim() || (r.error?.message ?? '');
+  if (r.status === 0) return { ok: true, stdout, stderr: '' };
+  if (o.allowFail) return { ok: false, stdout, stderr };
+  throw new StoreRemoteError('remote-git-failed', `git ${args[0]} failed: ${stderr}`);
+}
+
+/**
  * Run git without a shell. Hooks, signing, the file monitor and garbage collection on its own are
  * off.
  * @param {string} cwd @param {Record<string, string>} env @param {string[]} args
@@ -595,17 +794,7 @@ async function connectionConfig(dir) {
  * @returns {Promise<{ ok: boolean, stdout: Buffer, stderr: string }>}
  */
 function run(cwd, env, args, o) {
-  const full = [
-    '-c',
-    'core.hooksPath=/dev/null',
-    '-c',
-    'core.fsmonitor=false',
-    '-c',
-    'commit.gpgSign=false',
-    '-c',
-    'gc.auto=0',
-    ...args,
-  ];
+  const full = [...FIXED, ...args];
   return new Promise((resolvePromise, reject) => {
     const child = spawn('git', full, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
     /** @type {Buffer[]} */

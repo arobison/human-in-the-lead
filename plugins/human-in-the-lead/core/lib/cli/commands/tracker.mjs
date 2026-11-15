@@ -272,7 +272,14 @@ export const commands = [
         owner: input.owner,
         plan: input.plan,
       });
-      return { ok: true, id: made.id, path: made.path, block: made.block };
+      return {
+        ok: true,
+        id: made.id,
+        path: made.path,
+        block: made.block,
+        id_source: made.id_source,
+        ...(made.warnings.length ? { warnings: made.warnings } : {}),
+      };
     },
   },
   {

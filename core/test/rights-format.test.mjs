@@ -197,3 +197,34 @@ test('words that add to a label, or fit two labels, name no option', () => {
   assert.deepEqual([both.option, both.ambiguous], [null, true]);
   assert.equal(parseAnswer('A', twins).option, 0, 'a letter always names one');
 });
+
+test('a letter is an option only on its own, never as the first word of a sentence', () => {
+  /** @param {string} t */
+  const p = (t) => parseAnswer(t, decision).letter;
+  // Alone, after "option", before punctuation, or before the reply to the precedent offer.
+  for (const [t, want] of /** @type {[string, string][]} */ ([
+    ['A', 'A'],
+    ['a', 'A'],
+    ['b.', 'B'],
+    ['Option B', 'B'],
+    ['option c.', 'C'],
+    ['A: because the bug was real', 'A'],
+    ['a, different idea', 'A'],
+    ['A yes', 'A'],
+    ['b just this one', 'B'],
+    ['A narrow to response caches', 'A'],
+  ])) {
+    assert.equal(p(t), want, t);
+  }
+  // The first word of a sentence, in either case, is a word.
+  for (const t of ['a different idea', 'A different idea', 'I think so', 'A because of the bug']) {
+    const r = parseAnswer(t, decision);
+    assert.deepEqual([r.option, r.rationale], [null, t], t);
+  }
+});
+
+test('the question ends with its check code when it has one', () => {
+  const text = formatQuestion({ ...decision, id: 'W-412' }, { check: '7f3a91c2' });
+  assert.match(text, /\n\nCheck code: 7f3a91c2\n$/);
+  assert.doesNotMatch(formatQuestion({ ...decision, id: 'W-412' }), /Check code/);
+});

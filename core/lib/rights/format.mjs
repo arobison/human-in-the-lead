@@ -1,10 +1,13 @@
 // The stand-alone question (design part 4.2, The decision question) and how its answer is read.
 //
 // A question stands alone, so it can be answered from a phone without opening anything: the title
-// line, the question, the context, the recommendation, the options, the precedent offer, and last
-// an optional tap to say whether it was worth asking. The decider can answer `A`, `A yes`,
-// `B just this one`, or in words that name one option's label ("enrol it"). Words that name no
-// option, or more than one, are not an answer.
+// line, the question, the context, the recommendation, the options, the precedent offer, an
+// optional tap to say whether it was worth asking, and last the question's check code, which binds
+// an answer to the question as shown. The decider can answer `A`, `A yes`, `B just this one`, or
+// in words that name one option's label ("enrol it"). A letter is an answer only on its own: alone,
+// after "option", before punctuation, or before the reply to the precedent offer; "a different
+// idea" is a sentence, not option A. Words that name no option, or more than one, are not an
+// answer.
 
 /**
  * @typedef {Record<string, any>} Decision a decision item as in schemas/decision.schema.json
@@ -75,7 +78,8 @@ export function optionIndex(decision, name) {
 /**
  * Render a decision as the question the decider reads.
  * @param {Decision} decision
- * @param {{ blocks?: number, critical_path?: boolean }} [about] what the item blocks, when the caller knows
+ * @param {{ blocks?: number, critical_path?: boolean, check?: string | null }} [about] what the item
+ *   blocks, when the caller knows, and the question's check code
  * @returns {string}
  */
 export function formatQuestion(decision, about = {}) {
@@ -115,8 +119,13 @@ export function formatQuestion(decision, about = {}) {
     );
   }
   out.push('', 'Optional, after you answer: was this worth asking? (worth it / not worth asking)');
+  if (about.check) out.push('', `Check code: ${about.check}`);
   return out.join('\n') + '\n';
 }
+
+/** What may follow a bare letter: the reply to the precedent offer. */
+const OFFER_REPLY =
+  /^(?:yes|y|no|but|just\s+this|this\s+one\s+only|only\s+this\s+one|only\s+for|narrow|treat\s+(?:it\s+)?the\s+same)\b/i;
 
 /** Words that carry no choice: dropped before a label and the words are compared. */
 const FILLER = new Set(['it', 'the', 'a', 'an', 'this', 'that', 'please', 'ok', 'okay']);
@@ -196,10 +205,16 @@ export function parseAnswer(text, decision) {
     text: given,
   };
   let rest = given;
-  const m = /^([A-Za-z])(?![A-Za-z0-9])\s*[,:.;-]?\s*([\s\S]*)$/.exec(given);
-  if (m && m[1].toUpperCase().charCodeAt(0) - 65 < count) {
+  // A letter names an option only when it stands alone: the whole answer, after "option", before
+  // punctuation, or before the reply to the precedent offer. As the first word of a sentence ("a
+  // different idea", "I think so") it is a word.
+  const m = /^(?:option\s+)?([A-Za-z])(?![A-Za-z0-9'\u2019])\s*([,:.;!?)-]*)\s*([\s\S]*)$/i.exec(
+    given,
+  );
+  const alone = m !== null && (m[3] === '' || m[2] !== '' || OFFER_REPLY.test(m[3]));
+  if (m && alone && m[1].toUpperCase().charCodeAt(0) - 65 < count) {
     out.option = m[1].toUpperCase().charCodeAt(0) - 65;
-    rest = m[2];
+    rest = m[3];
   } else if (count > 0) {
     // The whole answer, or the words before the first comma, may be an option's label.
     const split = /^([^,;:.]+)[,;:.]\s*([\s\S]*)$/.exec(given);

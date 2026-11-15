@@ -6,6 +6,16 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 
+/**
+ * An environment with a home of its own: no person file, private store or store address of the
+ * machine running the tests is read, so a create counts only what the test made.
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function isolatedEnv() {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-tracker-home-')));
+  return { HOME: home, XDG_DATA_HOME: home, XDG_CONFIG_HOME: home };
+}
+
 /** @param {string} cwd @param {...string} args */
 export function git(cwd, ...args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });

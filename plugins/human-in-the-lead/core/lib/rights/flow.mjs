@@ -20,7 +20,17 @@
 // options and offer in the body, as text, and returns only the front-matter keys. So the options
 // are also kept in the private store's ask record, and an answer is read against them there when
 // the item does not carry them.
+//
+// An answer is bound to the question as it was shown (design part 4.2, The decision question).
+// Each ask record carries a short check code, a hash of the question, its context and options and,
+// for a device decision, the action, the device's name and its key's fingerprint. Every place a
+// question is shown shows the code, and the session records which code it showed. An answer is
+// refused (`answer-question-changed`) and nothing is recorded when the code given with it, or the
+// one this session last showed, is not the record's; when the tracker item and the record are not
+// the same question; or when the device action it would apply is not the one asked. Two sessions
+// that filed under one ID therefore never have one answer applied to the other's question.
 
+import { createHash } from 'node:crypto';
 import { canonicalJson } from '../policy/policy.mjs';
 import { schemas } from '../schema/registry.mjs';
 import { formatErrors } from '../schema/validate.mjs';
@@ -88,11 +98,160 @@ export const OPEN_STATES = ['proposed', 'planned'];
  * one apply (design part 4.2).
  * never_default: the owner's own answer is the only way it closes; no default, and no
  * recommendation taken for one, is ever applied.
- * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any>, text?: string, reversibility?: 'two-way' | 'one-way', default_if_unanswered?: { option: string, deadline: string }, never_default?: boolean }} AskedRecord
+ * The question as asked is kept too (title, question, context) with its check code, and, for a
+ * question that applies an action when answered (a device decision), what that action is (binds).
+ * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any>, text?: string, reversibility?: 'two-way' | 'one-way', default_if_unanswered?: { option: string, deadline: string }, never_default?: boolean, title?: string, question?: string, context?: string, binds?: Record<string, string>, check?: string }} AskedRecord
  */
 
 /** @param {string} id */
 export const askedKey = (id) => `rights/asked/${id}.json`;
+
+/** Where each showing of a question is recorded: the decision, its check code, who showed it. */
+export const SHOWN_KEY = 'rights/shown.jsonl';
+
+/**
+ * A question's check code: eight hex digits of a SHA-256 over its question, context and options
+ * and, for a question that applies an action, that action (binds). It is short enough to show
+ * beside the question and to type, and any change to what the decider reads changes it.
+ * @param {{ question?: unknown, context?: unknown, options?: unknown, binds?: Record<string, string> | null }} q
+ */
+export function checkCode(q) {
+  const basis = {
+    question: q.question ?? null,
+    context: q.context ?? null,
+    options: q.options ?? [],
+    ...(q.binds ? { binds: q.binds } : {}),
+  };
+  return createHash('sha256').update(canonicalJson(basis)).digest('hex').slice(0, 8);
+}
+
+/** A check code as typed: case, spaces and dashes set aside. @param {unknown} code */
+export const normalizeCode = (code) =>
+  String(code ?? '')
+    .toLowerCase()
+    .replace(/[\s-]+/g, '');
+
+/**
+ * The ask record of a decision, or null when there is none or it cannot be read.
+ * @param {PrivateStore} store @param {string} id @returns {AskedRecord | null}
+ */
+export function readAsked(store, id) {
+  const text = store.read(askedKey(id));
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** @param {Deps} deps */
+const showerOf = (deps) =>
+  deps.who?.session ? { session: deps.who.session } : { host: deps.who?.host ?? null };
+
+/**
+ * Record that this session showed a question, with its check code.
+ * @param {Deps} deps @param {string} decision @param {string | undefined} check @param {string} at
+ */
+function recordShown(deps, decision, check, at) {
+  if (!check) return;
+  deps.store.append(SHOWN_KEY, `${JSON.stringify({ decision, check, ...showerOf(deps), at })}\n`);
+}
+
+/**
+ * The check code this session last showed for a decision, or null when it showed none.
+ * @param {Deps} deps @param {string} decision @returns {string | null}
+ */
+export function lastShown(deps, decision) {
+  const me = showerOf(deps);
+  /** @type {string | null} */
+  let last = null;
+  for (const line of (deps.store.read(SHOWN_KEY) ?? '').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line);
+      if (r.decision !== decision || typeof r.check !== 'string') continue;
+      const mine = 'session' in me ? r.session === me.session : !r.session && r.host === me.host;
+      if (mine) last = r.check;
+    } catch {
+      // skipped
+    }
+  }
+  return last;
+}
+
+/** Whitespace collapsed, for finding the question in a body that may be wrapped. @param {string} t */
+const squash = (t) => t.replace(/\s+/g, ' ').trim();
+
+/**
+ * Why the tracker item is not the question the ask record holds, or null when they agree. Only
+ * what the item carries is compared: the files backend keeps the question in the body as text.
+ * @param {Record<string, any>} entity @param {AskedRecord} asked @returns {string | null}
+ */
+function trackerDisagrees(entity, asked) {
+  if (
+    typeof asked.title === 'string' &&
+    entity.title !== undefined &&
+    String(entity.title) !== asked.title
+  ) {
+    return `the tracker item's title is "${entity.title}", and the question asked under this ID was "${asked.title}"`;
+  }
+  if (typeof asked.question === 'string') {
+    const same =
+      typeof entity.question === 'string'
+        ? entity.question === asked.question
+        : typeof entity.body === 'string'
+          ? squash(entity.body).includes(squash(asked.question))
+          : true;
+    if (!same) return 'the tracker item holds another question than the one asked under this ID';
+  }
+  if (
+    Array.isArray(asked.options) &&
+    Array.isArray(entity.options) &&
+    canonicalJson(entity.options) !== canonicalJson(asked.options)
+  ) {
+    return "the tracker item's options are not the ones asked under this ID";
+  }
+  return null;
+}
+
+/** @param {Record<string, string>} a @param {Record<string, string>} b */
+const sameBinds = (a, b) => canonicalJson(a) === canonicalJson(b);
+
+/**
+ * Why an answer would not apply to the question as shown, or null when it would.
+ * @param {Record<string, any>} entity the tracker item
+ * @param {AskedRecord | null} asked the ask record
+ * @param {{ given: string | null, shown: string | null, applies?: Record<string, string>[] }} o
+ *   given: the code given with the answer; shown: the one this session last showed; applies: what
+ *   each action waiting under this ID would do (for a device decision: action, name, fingerprint)
+ * @returns {string | null}
+ */
+function questionChanged(entity, asked, o) {
+  const check = asked?.check ?? null;
+  if (asked && check && checkCode(asked) !== check) {
+    return 'the ask record does not match its own check code';
+  }
+  if (o.given !== null && o.given !== check) {
+    return `the answer was given for check code ${o.given}, and the question under this ID has ${check ? `check code ${check}` : 'none'}`;
+  }
+  if (o.given === null && o.shown !== null && o.shown !== check) {
+    return `this session showed the question with check code ${o.shown}, and the question under this ID now has ${check ? `check code ${check}` : 'none'}`;
+  }
+  if (asked) {
+    const why = trackerDisagrees(entity, asked);
+    if (why) return why;
+  }
+  const applies = o.applies ?? [];
+  if (asked?.binds) {
+    if (!applies.some((b) => sameBinds(b, /** @type {Record<string, string>} */ (asked.binds)))) {
+      return `the action waiting under this ID is not the one asked (${Object.values(asked.binds).join(', ')})`;
+    }
+  } else if (applies.length && (check || applies.length > 1)) {
+    return 'an action is waiting under this ID that the question asked does not name';
+  }
+  return null;
+}
 
 /** @param {string} text @returns {string[]} */
 const splitDeciders = (text) =>
@@ -228,7 +387,7 @@ function citeCandidates(candidates, classification) {
  *   otherwise it waits for the next digest and `showQuestion` writes `sent` when it is shown.
  * @param {Deps} deps
  * @param {Record<string, any>} given as in schemas/question.schema.json (direction, its name before HITLD-82, is read as touches_direction)
- * @param {{ judged?: Record<string, boolean>, send?: boolean, ownerOnly?: boolean }} [options]
+ * @param {{ judged?: Record<string, boolean>, send?: boolean, ownerOnly?: boolean, binds?: Record<string, string> }} [options]
  *   judged: the holder's judgement, per candidate precedent ID, of whether its plain-language
  *   conditions and exceptions fit (design part 4.3, step 2). ownerOnly: a question only the
  *   owner's own answer settles (a store device's enrolment or removal, design 0003 section 6):
@@ -401,15 +560,27 @@ export function askQuestion(deps, given, options = {}) {
   const made = create(deps, draft);
   if (typeof made !== 'string') return made;
   const id = made;
-  const text = formatQuestion({ ...draft, id }, { blocks: (question.blocks ?? []).length });
+  const binds = options.binds ?? null;
+  const check = checkCode({
+    question: draft.question,
+    context: draft.context,
+    options: draft.options,
+    binds,
+  });
+  const text = formatQuestion({ ...draft, id }, { blocks: (question.blocks ?? []).length, check });
   /** @type {AskedRecord} */
   const record = {
     ...currentAuthority(draft),
+    title: draft.title,
+    question: draft.question,
+    context: draft.context,
     options: draft.options,
     recommendation: draft.recommendation,
     ...(draft.reversibility ? { reversibility: draft.reversibility } : {}),
     ...(draft.default_if_unanswered ? { default_if_unanswered: draft.default_if_unanswered } : {}),
     ...(options.ownerOnly ? { never_default: true } : {}),
+    ...(binds ? { binds } : {}),
+    check,
     text,
   };
   deps.store.write(askedKey(id), canonicalJson(record) + '\n');
@@ -428,12 +599,15 @@ export function askQuestion(deps, given, options = {}) {
     at,
   );
   recordDecisionEvent(deps.store, 'asked', id, at, { who: deps.who });
-  if (options.send)
+  if (options.send) {
     recordDecisionEvent(deps.store, 'sent', id, at, { delivery: 'interrupt', who: deps.who });
+    recordShown(deps, id, check, at);
+  }
   return {
     ok: true,
     outcome: 'asked',
     decision: id,
+    check,
     route,
     candidates: remaining.map((c) => ({
       id: c.id,
@@ -470,9 +644,7 @@ export function showQuestion(deps, input) {
       `${input.decision} is ${entity.state}; only an open decision is shown to a decider`,
     );
   }
-  const recorded = deps.store.read(askedKey(input.decision));
-  /** @type {AskedRecord | null} */
-  const asked = recorded ? JSON.parse(recorded) : null;
+  const asked = readAsked(deps.store, input.decision);
   /** @type {Record<string, any>} */
   const question = {
     ...entity,
@@ -493,10 +665,12 @@ export function showQuestion(deps, input) {
     delivery: input.interrupt ? 'interrupt' : 'digest',
     who: deps.who,
   });
+  recordShown(deps, input.decision, asked?.check, at);
   return {
     ok: true,
     decision: input.decision,
     text: asked?.text ?? formatQuestion(question),
+    ...(asked?.check ? { check: asked.check } : {}),
     sent_at: event.at,
     first_showing: appended,
   };
@@ -516,7 +690,14 @@ export function showQuestion(deps, input) {
  *   worth_asking?: boolean,
  *   agrees_with?: string[],
  *   narrow?: Narrowing,
+ *   code?: string,
+ *   applies?: Record<string, string>[],
  * }} input
+ *   code: the check code of the question as shown; without it, the code this session last showed.
+ *   applies: what each action waiting under this ID would do when answered (for a device
+ *   decision: its action, the device's name and the key's fingerprint), from the caller that
+ *   applies it. The answer is refused (`answer-question-changed`) and nothing recorded when any of
+ *   these, or the tracker item, is not the question asked.
  *   answer: as the decider gave it ("A", "A yes", "B just this one", or the words of one option's label).
  *   An answer that names no option is refused (`answer-matches-no-option`) and nothing is recorded.
  *   narrow: structured narrowing, when the decider's words are not enough.
@@ -542,9 +723,7 @@ export function answerDecision(deps, input) {
 
   // The authority comes from what was recorded at ask time. The item's own fields are checked
   // against it, and a precedent is refused if they differ.
-  const recorded = deps.store.read(askedKey(input.decision));
-  /** @type {AskedRecord | null} */
-  const asked = recorded ? JSON.parse(recorded) : null;
+  const asked = readAsked(deps.store, input.decision);
   const deciders = asked ? asked.deciders : splitDeciders(String(entity.decider ?? ''));
   const changed = asked !== null && authorityChanged(entity, asked);
   // The options an answer such as "A" names: the item's own, or, where the backend keeps them as
@@ -558,6 +737,21 @@ export function answerDecision(deps, input) {
     return fail(
       'not-a-decider',
       `${input.by} is not among the deciders of ${input.decision} (${deciders.join(', ')})`,
+    );
+  }
+  const given = input.code === undefined ? null : normalizeCode(input.code);
+  const shown = given === null ? lastShown(deps, input.decision) : null;
+  const moved = questionChanged(entity, asked, { given, shown, applies: input.applies });
+  if (moved) {
+    return fail(
+      'answer-question-changed',
+      `${moved}, so this answer may be for another question and nothing was recorded. Show the question again (hitld rights show ${input.decision}) and ask the decider; if two questions were filed under ${input.decision}, ask the other one again`,
+      {
+        decision: input.decision,
+        check: asked?.check ?? null,
+        ...(given !== null ? { given } : {}),
+        ...(shown !== null ? { shown } : {}),
+      },
     );
   }
   const parsed = parseAnswer(input.answer, question);
@@ -595,6 +789,12 @@ export function answerDecision(deps, input) {
 
   /** @type {string[]} */
   const warnings = [];
+  const others = (input.applies ?? []).filter((b) => !asked?.binds || !sameBinds(b, asked.binds));
+  if (asked?.binds && others.length) {
+    warnings.push(
+      `another_question_under_this_id: ${others.length} more action(s) wait under ${input.decision} that this answer does not settle; ask them again`,
+    );
+  }
   /** @type {Record<string, any> | null} */
   let precedent = null;
   /** @type {import('./offer.mjs').Enforced} */
@@ -723,6 +923,8 @@ export function answerDecision(deps, input) {
     decision: input.decision,
     answer: answerText,
     option: parsed.letter,
+    check: asked?.check ?? null,
+    binds: asked?.binds ?? null,
     took_recommendation: tookRecommendation,
     latency_ms: latency,
     generalization,

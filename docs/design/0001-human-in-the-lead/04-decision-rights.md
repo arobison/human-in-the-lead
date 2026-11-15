@@ -70,9 +70,21 @@ after upgrades, which is rare.
      cost of a list to maintain.
 
 Future cases like this (cache keys vs. external versions): treat the same way? (yes / just this one)
+
+Check code: 7f3a91c2
 ```
 
-The last line is the **precedent offer** (4.3). The owner can answer `A`, `A yes`, `B just this one`, or with the words of one option's label ("enrol it"). An answer that names no option is refused, and nothing is recorded: no ledger event, no trust event, no change to the item, and no change to who may read the store. The refusal (`answer-matches-no-option`) lists the options. Words match a label only when they are the whole label, after filler words ("it", "the", "please") and simple spelling variants ("enroll" for "enrol") are set aside; a word the label lacks, such as "not", means no match. When the words fit more than one option, the answer is refused too. A reason goes after the letter or the label (`A, because ...`).
+The last line is the **precedent offer** (4.3). The owner can answer `A`, `A yes`, `B just this one`, or with the words of one option's label ("enrol it"). An answer that names no option is refused, and nothing is recorded: no ledger event, no trust event, no change to the item, and no change to who may read the store. The refusal (`answer-matches-no-option`) lists the options. Words match a label only when they are the whole label, after filler words ("it", "the", "please") and simple spelling variants ("enroll" for "enrol") are set aside; a word the label lacks, such as "not", means no match. When the words fit more than one option, the answer is refused too. A letter names an option only on its own: the whole answer, after "option", before punctuation, or before the reply to the precedent offer (`A`, `option B`, `B.`, `A yes`). As the first word of a sentence it is a word, in either case: "a different idea" names no option. A reason goes after the letter or the label (`A, because ...`).
+
+**An answer is bound to the question as shown.** Each question ends with a short **check code**: eight hex digits of a hash of its question, context and options and, for a store device decision, the action, the device's name and its key's fingerprint. It is recorded with the question in the private store (`rights/asked/<ID>.json`), and every place a question is shown shows it: `hitld rights ask --send`, `hitld rights show`, the digest, and the device commands that ask. The session that shows a question records the code it showed (`rights/shown.jsonl`, by session). `hitld rights answer <ID> --answer <answer> [--code <code>]` refuses with `answer-question-changed`, and records nothing, when:
+
+- the code given, or without one the code this session last showed for that ID, is not the ask record's;
+- the tracker item and the ask record are not the same question (its title, its question text, its options);
+- the action the answer would apply is not the one asked: for a device decision, the action, the device's name and the fingerprint of the waiting device decision must be the ones in the record. Another device decision filed under the same ID is not settled by the answer; the result says so, and it is asked again under an ID of its own.
+
+This is how an owner-mode merge approval is bound to the batch it presents ([14.2](14-integration.md#142-the-queue)): the answer names what was shown, and a changed question is never answered by an answer to the old one. Two sessions that filed under one ID therefore never have one answer applied to the other's question.
+
+**The harness's question tool.** Where the harness has a structured question tool, the orchestrate and chief-of-staff skills ask each decision with it: the ID, the question and the check code in the question, one choice per option, the recommendation first, and the full text beside it. The option the owner picks there is the owner's own answer in that session, and is recorded with its code (`--via question-tool`). The owner may still type their own words; they follow the matching rule above.
 
 ## 4.3 Precedent
 

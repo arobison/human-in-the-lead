@@ -24,6 +24,7 @@ import {
   checkName,
   deviceKeychain,
   deviceQuestion,
+  deviceBinds,
   fingerprint,
   keychainService,
   nameFromHost,
@@ -186,7 +187,12 @@ async function askOwner(ctx, action, device, parent) {
   }
   const deps = /** @type {NonNullable<typeof o.deps>} */ (o.deps);
   const parentId = parent ?? soleProject(deps.tracker);
-  const asked = askQuestion(deps, deviceQuestion(action, device, parentId), { ownerOnly: true });
+  // The action, the name and the fingerprint are bound into the question's check code, so an
+  // answer applies only to this device decision (rights/flow.mjs).
+  const asked = askQuestion(deps, deviceQuestion(action, device, parentId), {
+    ownerOnly: true,
+    binds: deviceBinds({ action, name: device.name, recipient: device.recipient }),
+  });
   if (!asked.ok || asked.outcome !== 'asked') {
     throw new DevicesError(
       'device-ask-refused',
@@ -201,14 +207,16 @@ async function askOwner(ctx, action, device, parent) {
     recipient: device.recipient,
     added: device.added,
     at: (ctx.now ?? (() => new Date()))().toISOString(),
+    check: asked.check,
   });
   return {
     decision: asked.decision,
     action,
     name: device.name,
     fingerprint: fingerprint(device.recipient),
+    check: asked.check,
     text: asked.text,
-    answer_with: `hitld rights answer ${asked.decision} --answer A`,
+    answer_with: `hitld rights answer ${asked.decision} --answer A --code ${asked.check}`,
   };
 }
 
@@ -609,7 +617,8 @@ export const deviceCommands = [
             action: open.action,
             name,
             fingerprint: fingerprint(device.recipient),
-            answer_with: `hitld rights answer ${open.decision} --answer A`,
+            ...(open.check ? { check: open.check } : {}),
+            answer_with: `hitld rights answer ${open.decision} --answer A${open.check ? ` --code ${open.check}` : ''}`,
           }
         : await askOwner(ctx, 'remove', device, /** @type {string | undefined} */ (input.parent));
       const left = approvedDevices(records).length - 1;

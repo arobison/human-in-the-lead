@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "id": "store/changed-question-refused",
+  "suite": "store",
+  "category": "store",
+  "description": "Design part 4.2, an answer is bound to the question as shown. example-laptop asks the owner to remove example-spare and shows the question with its check code. Then the question under that ID changes: the decision item becomes another session's enrolment question, as when two sessions file under one ID. The owner's A is refused (answer-question-changed), with the right code too, and nothing is recorded: example-spare stays approved and the removal still waits for the owner.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "project",
+      "action": "store.fixture",
+      "with": { "devices": ["example-laptop", "example-spare"] }
+    },
+    {
+      "id": "remove",
+      "action": "store.hitld",
+      "with": {
+        "device": "example-laptop",
+        "argv": ["store", "device", "remove", "example-spare"]
+      }
+    },
+    {
+      "id": "show",
+      "action": "store.hitld",
+      "with": { "device": "example-laptop", "argv": ["rights", "show", "SAM-2"] }
+    },
+    {
+      "id": "changed",
+      "action": "file.write",
+      "with": {
+        "path": "devices/example-laptop/checkout/work/items/SAM-2-remove-a-store-device.md",
+        "content": "---\nid: SAM-2\ntitle: Approve a store device\nkind: decision\nstate: planned\ncreated: 2026-11-15\nproject: SAM-1\ndecider: owner\n---\n\n## Question\n\nEnrol the store device whose key fingerprint is 0000-1111-2222-3333?\n\nA device asked to read and write this project's private store.\n\n## Options and recommendation\n\n- A. Enrol it: Every push from now on is encrypted to this device too, and it may push.\n- B. Do not enrol it: Nothing is encrypted to it, and it may not push.\n\n## Answer\n\nRecorded in the front matter once answered.\n"
+      }
+    },
+    {
+      "id": "answer",
+      "action": "store.hitld",
+      "with": {
+        "device": "example-laptop",
+        "argv": ["rights", "answer", "SAM-2", "--answer", "A"]
+      }
+    },
+    {
+      "id": "devices",
+      "action": "store.hitld",
+      "with": { "device": "example-laptop", "argv": ["store", "device", "list"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "question-shown-with-its-code",
+      "grader": "matches",
+      "with": { "path": "steps.show.result.text", "pattern": "Check code: [0-9a-f]{8}" }
+    },
+    {
+      "id": "answer-refused",
+      "grader": "equals",
+      "with": { "path": "steps.answer.result.error", "value": "answer-question-changed" }
+    },
+    {
+      "id": "refusal-names-the-change",
+      "grader": "matches",
+      "with": { "path": "steps.answer.result.message", "pattern": "nothing was recorded" }
+    },
+    {
+      "id": "device-still-approved",
+      "grader": "count",
+      "with": { "path": "steps.devices.result.approved", "equals": 2 }
+    },
+    {
+      "id": "removal-still-waits",
+      "grader": "equals",
+      "with": { "path": "steps.devices.result.decisions[0].decision", "value": "SAM-2" }
+    }
+  ]
+}
