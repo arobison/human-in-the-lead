@@ -440,3 +440,88 @@ test('autoPull and autoPush: a conflict is a failure that names the paths, nothi
   assert.ok(pulled.error?.conflicts);
   assert.equal(b.store.read('notes/n.md'), 'two\n');
 });
+
+test('lease is the lock: a pulled lease another machine holds is refused until it is released', async () => {
+  const f = fixture();
+  const a = session(f, 'a', { identity: DEVICE_A.identity });
+  const b = session(f, 'b', { identity: DEVICE_B.identity });
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
+  const cp = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  assert.equal(cp.json.store_sync.push.status, 'done');
+
+  // Machine B pulls and cannot start or resume: A holds the lease and never released it.
+  const refused = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  assert.equal(refused.code, EXIT.failed);
+  assert.equal(refused.json.error, 'lease-held');
+  assert.equal(refused.json.holder.session, 's-A');
+  assert.equal(refused.json.holder.host, 'cloud-1');
+  assert.match(refused.json.message, /s-A on cloud-1 at 20/);
+  assert.match(refused.json.message, /hitld run retire --holder s-A/);
+  assert.match(refused.json.message, /--replace/);
+  const refusedResume = await b.hitld(['run', 'resume', '--session', 's-B', '--host', 'cloud-2']);
+  assert.equal(refusedResume.json.error, 'lease-held');
+  assert.match(refusedResume.json.message, /--force/);
+  // Nothing was taken or started, but the state is there for retire to work on.
+  assert.equal(loadState(b.store).state?.lease.session, 's-A');
+
+  // The same machine's own lease is judged as before: A resumes its own run.
+  const again = await a.hitld(['run', 'resume', '--session', 's-A', '--host', 'cloud-1']);
+  assert.equal(again.code, EXIT.ok, JSON.stringify(again.json));
+
+  // The owner's retire (A's session is known dead) releases it, and B starts.
+  const retired = await b.hitld([
+    'run',
+    'retire',
+    '--holder',
+    's-A',
+    '--session',
+    's-B',
+    '--host',
+    'cloud-2',
+  ]);
+  assert.equal(retired.code, EXIT.ok, JSON.stringify(retired.json));
+  assert.equal(retired.json.store_sync.push.status, 'done');
+  const started = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
+  assert.equal(started.json.handover.lease.session, 's-B');
+});
+
+test('lease is the lock: after the holder hands over, another machine starts without force', async () => {
+  const f = fixture();
+  const a = session(f, 'a', { identity: DEVICE_A.identity });
+  const b = session(f, 'b', { identity: DEVICE_B.identity });
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
+  await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  const refused = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  assert.equal(refused.json.error, 'lease-held');
+
+  const handed = await a.hitld(['handover', '--session', 's-A', '--host', 'cloud-1']);
+  assert.equal(handed.json.store_sync.push.status, 'done', JSON.stringify(handed.json));
+  // B's earlier refusal left a state that lags the ledger; the pull and the release catch it up.
+  const started = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
+  assert.equal(started.json.store_sync.pull.status, 'done');
+});
+
+test('lease is the lock: --replace and --force are the owner’s way past it', async () => {
+  const f = fixture();
+  const a = session(f, 'a', { identity: DEVICE_A.identity });
+  const b = session(f, 'b', { identity: DEVICE_B.identity });
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
+  await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  const args = ['--session', 's-B', '--host', 'cloud-2'];
+  const forced = await b.hitld(['run', 'resume', ...args, '--force']);
+  assert.equal(forced.code, EXIT.ok, JSON.stringify(forced.json));
+  assert.equal(forced.json.took_over.reason, 'owner');
+  const c = session(f, 'c', { identity: DEVICE_B.identity });
+  const replaced = await c.hitld([
+    'run',
+    'start',
+    '--session',
+    's-C',
+    '--host',
+    'cloud-3',
+    '--replace',
+  ]);
+  assert.equal(replaced.code, EXIT.ok, JSON.stringify(replaced.json));
+});
