@@ -2,9 +2,11 @@
 id: HITLD-100
 title: "Accepted eval baselines are committed, and CI gates on them"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-100
+release_note: "`hitld eval accept` writes the accepted offline baseline to `evals/baselines/` for the owner to commit, and keeps a copy in the private store. The gate reads the committed baseline first and says which it used. CI and the release workflow fail when no committed baseline matches. Accept refuses a run whose commit is not on main (`not-on-main`) or whose tree was dirty (`dirty-tree`)."
 ---
 
 ## Why
