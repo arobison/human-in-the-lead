@@ -3,7 +3,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
-import { privateStorePath } from '../../store/store.mjs';
+import { openStore, privateStorePath } from '../../store/store.mjs';
+import { recordAddress } from '../../store/private-terms.mjs';
 import { legacyWarnings } from '../../store/placement.mjs';
 import { executorSignal } from '../executor.mjs';
 import { deviceCommands } from './store-device.mjs';
@@ -192,6 +193,7 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
           'PushPullError',
           'DevicesError',
           'StoreAddressError',
+          'PrivateTermsError',
         ].includes(e.name));
     if (known && typeof code === 'string') {
       return { ok: false, error: code, message: /** @type {Error} */ (e).message };
@@ -382,7 +384,7 @@ function remoteCommands() {
     {
       name: 'store remote set',
       summary:
-        "Set the store remote's address outside the repository: in the person file, under this project's ID (the default), or with --machine as this machine's override. Never in policy.json, which may be public. HITLD_STORE_REMOTE, when set, is used before either (owner only)",
+        "Set the store remote's address outside the repository: in the person file, under this project's ID (the default), or with --machine as this machine's override. Never in policy.json, which may be public. HITLD_STORE_REMOTE, when set, is used before either. The address, the repository's owner/name and its name go on the private term list, so no commit, merge or publication carries them (owner only)",
       built_by: 'consumer-live',
       mcp: false,
       args: [URL_ARG, MACHINE, STORE],
@@ -400,11 +402,14 @@ function remoteCommands() {
                 written: 'person',
               };
         const used = address.chooseRemote({ store: p.root, projectId: p.projectId, env: ctx.env });
+        // The address and the repository's names are private from here on (design 10.3, rule 7).
+        const terms = recordAddress(openStore(p.root), url, ctx.now);
         return {
           ok: true,
           project: p.projectId,
           ...set,
           remote: used,
+          private_terms: terms.map((t) => ({ id: t.id, kind: t.kind, added: t.added })),
           message:
             used?.url === url
               ? `recorded in the ${set.written === 'person' ? 'person file' : "machine's override"}; it is the address this machine uses`

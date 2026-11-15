@@ -67,17 +67,20 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld config explain / write` | Each effective setting and the layer it came from; write the person or machine file after validating it ([part 13](13-operations.md#134-settings-in-four-layers)) |
 | `hitld machine detect` (planned) | Probe this machine and propose a machine profile for the person to confirm |
 | `hitld check contract / policy` | `AGENTS.md` contract present and current, and imported by `CLAUDE.md` if one exists; `policy.json` valid within bounds |
-| `hitld check classification [--staged]` | The commit guard: no file above the repository's classification ceiling, in the next commit or the whole tree ([10.3](10-security.md#103-information-classification)) |
+| `hitld check classification [--staged]` | The commit guard: no file above the repository's classification ceiling, and none that holds a term from the private term list, in the next commit or the whole tree ([10.3](10-security.md#103-information-classification)) |
+| `hitld check commit-message <file>` | The commit message guard the commit-msg hook runs: no term from the private term list in the message ([10.3, rule 7](10-security.md#private-names)) |
+| `hitld private add / list / remove` | Keep the private term list in the private store: names, repositories, devices, hosts, email addresses and URLs that never reach the repository or anything published from it; `list` masks each term unless `--show`; the owner's only ([10.3, rule 7](10-security.md#private-names)) |
+| `hitld publish check --file <path> / --text -` | Check a pull request's title and body, an issue comment or release notes against the private term list before posting it; refused naming the kind and line, never the term. Executors may run it ([10.3, rule 7](10-security.md#private-names)) |
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
 | `hitld store device init / ask / list / remove` | Enrol, list and remove the devices the private store is encrypted to: the key pair, the private key in the OS keychain or a cloud environment variable, the device's request on the store repository, and the device decisions only the owner's answer settles ([0003 section 6](../0003-private-store-remote.md#6-enrolling-and-removing-a-device)) |
-| `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the devices the owner approved; the address is `HITLD_STORE_REMOTE`, else the person file, else this machine's override, never `policy.json` ([design 0003](../0003-private-store-remote.md#8-when-sync-runs)) |
+| `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the devices the owner approved; the address is `HITLD_STORE_REMOTE`, else the person file, else this machine's override, never `policy.json`; `remote set` puts the address and the repository's names on the private term list ([design 0003](../0003-private-store-remote.md#8-when-sync-runs)) |
 | `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its reason, draft notes, items that changed public surface without a `release_note` line, unmet gates ([3.2](03-data-model.md#release)) |
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
-| `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin (the plugin it enables carries the store-sync hooks: SessionStart pulls the private store, SessionEnd pushes it), the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
+| `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin (the plugin it enables carries the store-sync hooks: SessionStart pulls the private store, SessionEnd pushes it), the commit guard's pre-commit and commit-msg hooks, and the opt-in status-line capture (`--statusline`) |
 | `hitld upgrade plan [--to v] [--from v] [--records dir]` | What upgrading to the pinned release takes: the notes and interface delta of the releases on the way, the migrations, the restart, and what each role does, in order; reads only ([16.5, Upgrades](#upgrades)) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
@@ -264,6 +267,13 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `remote-config-invalid`: This machine's override of the store's address is damaged.
 - `sync-state-invalid`: The file that records what this store last merged from the remote is damaged.
 - `store-pull-refused`: hitld run start or run resume stopped: the store remote answered, but its head does not open or merge. An unreachable remote does not stop a run; --no-sync goes on with the local store.
+
+**The private term list**
+
+- `private-term`: The text holds a term from the private term list; the refusal names its kind and line, never the term.
+- `private-term-invalid`: A term is not one the private term list takes: too short or long, more than one line, or of an unknown kind.
+- `private-term-unknown`: No term on the private term list has that ID or matches that term.
+- `private-list-invalid`: A line of the private term list does not read, so nothing is checked or committed until it is fixed.
 
 **Secrets and the environment**
 

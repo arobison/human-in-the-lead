@@ -6,6 +6,7 @@
 // repository, never inside it.
 
 import { spawnSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../../cli/main.mjs';
 import { ownCheckout } from '../../install/install.mjs';
@@ -31,15 +32,16 @@ const LEAK_TEXT =
 
 /**
  * Run hitld in the repository. @param {string[]} argv @param {string} cwd @param {string} data
+ * @param {NodeJS.ProcessEnv} [extra] more of the environment
  * @returns {Promise<{ exit: number, result: Record<string, any> }>}
  */
-async function hitld(argv, cwd, data) {
+async function hitld(argv, cwd, data, extra = {}) {
   let out = '';
   const exit = await main(argv, {
     out: (t) => (out += t),
     err: () => {},
     cwd,
-    env: { PATH: process.env.PATH, XDG_DATA_HOME: data },
+    env: { PATH: process.env.PATH, XDG_DATA_HOME: data, ...extra },
   });
   try {
     return { exit, result: JSON.parse(out) };
@@ -331,6 +333,70 @@ export const actions = {
     run: (input, ctx) => {
       const r = readRecords(openStore(securityPaths(ctx.sandbox).store));
       return { decisions: expiredRisks(r, clock(input.now)()).map((e) => e.key) };
+    },
+  },
+
+  'security.publish-check': {
+    description:
+      "Build a fixture consumer and, as the owner, set the store's address with hitld store remote set (which puts the address and the repository's names on the private term list). Then, as an executor would before a pull request is opened, run hitld publish check on each body given, and run hitld private list as the owner and as an executor. Returns, per body, whether it passed, the error, the kinds and lines refused, and whether the output repeats the address or the repository's name.",
+    input: {
+      type: 'object',
+      properties: {
+        address: { type: 'string', minLength: 1 },
+        bodies: {
+          type: 'object',
+          description: 'Pull request bodies by name, and their text',
+          additionalProperties: { type: 'string' },
+        },
+      },
+      required: ['address', 'bodies'],
+      additionalProperties: false,
+    },
+    run: async (input, ctx) => {
+      const root = buildConsumer(join(ctx.sandbox, 'publish-repo'));
+      const data = join(ctx.sandbox, 'publish-data');
+      const config = { XDG_CONFIG_HOME: join(ctx.sandbox, 'publish-config') };
+      const set = await hitld(['store', 'remote', 'set', input.address], root, data, config);
+      const name = String(input.address)
+        .replace(/\.git\/?$/, '')
+        .split(/[/:]/)
+        .at(-1);
+      /** @param {unknown} v */
+      const echoes = (v) => {
+        const text = JSON.stringify(v).toLowerCase();
+        return (
+          text.includes(String(input.address).toLowerCase()) ||
+          text.includes(String(name).toLowerCase())
+        );
+      };
+      const executor = { ...config, HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' };
+      /** @type {Record<string, unknown>} */
+      const bodies = {};
+      for (const [key, text] of Object.entries(
+        /** @type {Record<string, string>} */ (input.bodies),
+      )) {
+        const file = join(ctx.sandbox, `pr-body-${key}.md`);
+        writeFileSync(file, text);
+        const r = await hitld(['publish', 'check', '--file', file], root, data, executor);
+        bodies[key] = {
+          ok: r.result.ok === true,
+          error: r.result.error ?? null,
+          kinds: (r.result.refused ?? []).map((/** @type {any} */ x) => x.kind),
+          lines: (r.result.refused ?? []).map((/** @type {any} */ x) => x.line),
+          echoes_address: echoes(r.result),
+        };
+      }
+      const owner = await hitld(['private', 'list'], root, data, config);
+      const refused = await hitld(['private', 'list'], root, data, executor);
+      ctx.recordTokens(0);
+      return {
+        set_ok: set.result.ok === true,
+        recorded: (set.result.private_terms ?? []).map((/** @type {any} */ t) => t.kind),
+        bodies,
+        list_kinds: (owner.result.terms ?? []).map((/** @type {any} */ t) => t.kind),
+        list_echoes_address: echoes(owner.result.terms ?? []),
+        executor_list: refused.result.error ?? null,
+      };
     },
   },
 };

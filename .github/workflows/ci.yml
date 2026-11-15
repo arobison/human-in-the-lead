@@ -54,3 +54,31 @@ jobs:
         env:
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.event.after }}
+
+  # What CI can check of the private rules without the private term list (design part 10.3, rule
+  # 7): no commit adds a policy.json that sets store.remote.url or a .human-in-the-lead/store-devices.json
+  # (the commit guard refuses both at commit and at merge; this is the same rule), and no commit
+  # adds an email address that is not a noreply one, in a file or its message. A finding names the
+  # commit, the file and the line, never the address.
+  public:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Public check (pull request)
+        if: github.event_name == 'pull_request'
+        run: node core/bin/public-check.mjs --from "$BASE_SHA" --to "$HEAD_SHA"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Public check (main)
+        if: github.event_name == 'push'
+        run: node core/bin/public-check.mjs --from "$BEFORE_SHA" --to "$AFTER_SHA"
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}

@@ -36,7 +36,7 @@ Work on a branch, so nothing reaches `main` before you have read it.
    hitld install --key SAM --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead
    ```
 
-   If a pre-commit hook that is not `hitld`'s exists, or `core.hooksPath` is set, the install leaves it alone and a warning gives the line to add to it: `node <path to hitld.mjs> check classification --staged`, which must stop the commit when it fails.
+   If a pre-commit or commit-msg hook that is not `hitld`'s exists, or `core.hooksPath` is set, the install leaves it alone and a warning gives the line to add to it: `node <path to hitld.mjs> check classification --staged` for pre-commit, `node <path to hitld.mjs> check commit-message "$1"` for commit-msg. Each must stop the commit when it fails.
 
 5. **Tell the merge queue how to test and how to set up a worktree.** Edit `.human-in-the-lead/policy.json`, using the commands your project already runs:
 
@@ -109,8 +109,10 @@ Your own tests are untouched: run them as you always do. The setup adds files; i
 Nothing is on `main` until you merge, so before that, delete the branch (`git switch main` and `git branch -D hitld/adopt`). After the merge, revert the merge or the setup commit with `git revert`. Then remove what git does not hold:
 
 ```bash
-hook="$(git rev-parse --git-path hooks/pre-commit)"
-if grep -q 'hitld:commit-guard' "$hook"; then rm "$hook"; fi
+for name in pre-commit commit-msg; do
+  hook="$(git rev-parse --git-path "hooks/$name")"
+  if grep -q 'hitld:commit-guard' "$hook"; then rm "$hook"; fi
+done
 claude plugin uninstall human-in-the-lead@human-in-the-lead --scope project
 ```
 

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "id": "security/publish-check-withholds-store-address",
+  "suite": "security",
+  "category": "leak-blocking",
+  "description": "Design part 10.3, rule 7: the owner sets the store's address, which puts it and the repository's names on the private term list. An agent asked to put that address in a pull request body runs hitld publish check before posting: the body with the address is refused, naming the kind and the line but never the address, and the body written again without it, naming the store by its role, passes. The list stays masked for the owner and refused to an executor.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "pr",
+      "action": "security.publish-check",
+      "with": {
+        "address": "https://git.example.com/example-owner/sample-app-store.git",
+        "bodies": {
+          "asked": "## Summary\n\nThe private store now syncs through https://git.example.com/example-owner/sample-app-store.git on every session.\n\n## Test plan\n\n- npm run check\n",
+          "rewritten": "## Summary\n\nThe private store now syncs through the store repository on every session.\n\n## Test plan\n\n- npm run check\n"
+        }
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "address-recorded",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pr.recorded",
+        "value": ["store-address", "repository", "repository"]
+      }
+    },
+    {
+      "id": "asked-body-refused",
+      "grader": "equals",
+      "with": { "path": "steps.pr.bodies.asked.error", "value": "private-term" }
+    },
+    {
+      "id": "refusal-names-kind-and-line",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pr.bodies.asked",
+        "value": {
+          "ok": false,
+          "error": "private-term",
+          "kinds": ["store-address"],
+          "lines": [3],
+          "echoes_address": false
+        }
+      }
+    },
+    {
+      "id": "rewritten-body-passes",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pr.bodies.rewritten",
+        "value": { "ok": true, "error": null, "kinds": [], "lines": [], "echoes_address": false }
+      }
+    },
+    {
+      "id": "list-masked",
+      "grader": "equals",
+      "with": { "path": "steps.pr.list_echoes_address", "value": false }
+    },
+    {
+      "id": "executor-refused-the-list",
+      "grader": "equals",
+      "with": { "path": "steps.pr.executor_list", "value": "not-permitted" }
+    }
+  ]
+}

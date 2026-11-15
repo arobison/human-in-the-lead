@@ -146,8 +146,10 @@ git diff main -- tracker       # no change to any item file you did not mean to 
 - **Steps 2 and 3**: the branch holds all of it. Delete the branch before you merge it, or revert the merge. Then remove the commit guard and the plugin:
 
   ```bash
-  hook="$(git rev-parse --git-path hooks/pre-commit)"
-  if grep -q 'hitld:commit-guard' "$hook"; then rm "$hook"; fi
+  for name in pre-commit commit-msg; do
+    hook="$(git rev-parse --git-path "hooks/$name")"
+    if grep -q 'hitld:commit-guard' "$hook"; then rm "$hook"; fi
+  done
   claude plugin uninstall human-in-the-lead@human-in-the-lead --scope project
   ```
 

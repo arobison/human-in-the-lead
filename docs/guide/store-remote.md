@@ -37,6 +37,8 @@ For a project that you work on from more than one machine, or from cloud session
 
    If you want every machine and session to warn when it has no address, set `"store": { "remote": { "required": true } }` in `policy.json`. That is the only store setting `policy.json` holds. A `store.remote.url` there is refused by `hitld check policy` and by the commit guard.
 
+   The command also puts the address, the repository's `owner/name` and its name on the private term list, in the private store. From then on, a commit, a merge or `hitld publish check` refuses text that names them. Write "the store repository" instead. `hitld private list` shows what is on the list, masked; `hitld private remove <ID>` takes a term off, for example a repository name so common that it matches ordinary words.
+
 ### 2. This machine, as the first device
 
 4. **Make its key, and let it ask.** The private key goes to the operating system's keychain (`security` on macOS, `secret-tool` on Linux, which needs a running Secret Service such as GNOME Keyring). It never goes on a command line or into a file. The request goes to the store repository:
@@ -192,6 +194,7 @@ The service name is `hitld-store-` and the project ID from `policy.json`.
 - **A cloud device's key is an environment variable, and any process in that container can read it.** That includes every tool call a session makes. Encryption protects the store at the provider and keeps your devices apart from each other. It does not protect the store from a session that already holds a key. Inside a session, the network allowlist and least privilege are the defence, so keep the environment's allowed hosts short.
 - **Use a personal environment.** Everyone who can use or edit an environment can read its variables. Do not put a device key in one that is shared with an organization.
 - **An executor** cannot run a store command or answer a decision, and `hitld` never prints a private key except the one `init --cloud` prints to you.
+- **The store's address and the devices' names stay out of public text.** They are on the private term list, which the commit hooks, the merge and `hitld publish check` check text against, and CI refuses a committed address or device list. A name nobody put on the list is not caught: add one with `hitld private add <term>`.
 
 ## Undo it
 

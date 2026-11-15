@@ -121,8 +121,10 @@ Then remove the two things git does not hold:
 
 ```bash
 # the commit guard, only if it is hitld's
-hook="$(git rev-parse --git-path hooks/pre-commit)"
-if grep -q 'hitld:commit-guard' "$hook"; then rm "$hook"; fi
+for name in pre-commit commit-msg; do
+  hook="$(git rev-parse --git-path "hooks/$name")"
+  if grep -q 'hitld:commit-guard' "$hook"; then rm "$hook"; fi
+done
 
 # the plugin, on each machine that installed it
 claude plugin uninstall human-in-the-lead@human-in-the-lead --scope project

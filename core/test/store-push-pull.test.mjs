@@ -253,7 +253,10 @@ test('push then pull on a second store; status before and after', async () => {
   );
 
   await a.run(['remote', 'set', f.url]);
-  await b.run(['remote', 'set', f.url]);
+  // b is a new cloud container: its address comes from HITLD_STORE_REMOTE, so its store stays
+  // empty until it pulls.
+  const bRun = b.run;
+  b.run = (argv, env = {}) => bRun(argv, { HITLD_STORE_REMOTE: f.url, ...env });
 
   // Before: a has text to push and the remote is empty.
   const before = await a.run(['status']);
@@ -293,6 +296,8 @@ test('push then pull on a second store; status before and after', async () => {
   assert.equal(pulled.json.remote_version, pushed.json.version);
   assert.equal(b.store.read('ledger.jsonl'), a.store.read('ledger.jsonl'));
   assert.equal(b.store.read('notes/cache.md'), `${SECRET_NOTE}\n`);
+  // The private term list remote set wrote on a arrives with the rest (design 10.3, rule 7).
+  assert.equal(b.store.read('private/terms.jsonl'), a.store.read('private/terms.jsonl'));
   assert.equal(pulled.json.index.events, 2);
   const caughtUp = await b.run(['status']);
   assert.equal(caughtUp.json.pull_due, false);
@@ -371,6 +376,7 @@ test('machine-local files are never pushed', async () => {
     'ledger.jsonl',
     'notes/cache.md',
     'precedents/P-1.json',
+    'private/terms.jsonl',
   ]);
   // Nor does the address or what this machine last merged.
   assert.equal(existsSync(join(a.store.root, '.git', 'hitld-sync.json')), true);
@@ -495,7 +501,8 @@ test('pull with the wrong identity, no identity or a malformed one is refused', 
   assert.equal(wrong.code, EXIT.failed);
   assert.equal(wrong.json.error, 'age-no-match');
   assert.doesNotMatch(JSON.stringify(wrong.json), new RegExp(STRANGER.identity));
-  assert.deepEqual(stranger.store.list(), []);
+  // Only the private term list its own remote set wrote; nothing from the remote.
+  assert.deepEqual(stranger.store.list(), ['private/terms.jsonl']);
   assert.equal((await stranger.run(['status'])).json.synced, null);
 
   const none = await stranger.run(['pull'], { HITLD_STORE_IDENTITY: '' });
@@ -506,7 +513,7 @@ test('pull with the wrong identity, no identity or a malformed one is refused', 
   });
   assert.equal(malformed.json.error, 'age-bad-identity');
   assert.doesNotMatch(malformed.json.message, /NOTAKEY/);
-  assert.deepEqual(stranger.store.list(), []);
+  assert.deepEqual(stranger.store.list(), ['private/terms.jsonl']);
 });
 
 test('the identity may come from a file descriptor; neither secret is ever an argument', async () => {

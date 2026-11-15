@@ -14,6 +14,7 @@
 | **Over-privileged agents** | An executor with network, secrets or write access it does not need | Least privilege per role, enforced by agent definitions and hooks (10.2) |
 | **Secret leakage** | Keys in prompts, logs, commits, or the ledger | Secrets never enter any agent's context; scanners on commit; `secret` class may live only in a secret manager |
 | **Classification leak** | Confidential text reaching the public repo or a third-party service | High-water-mark rule; a commit hook that blocks non-public artifacts in a public repo (10.3) |
+| **Private names in public text** | A private store's address, a device's name or a partner's name written into an ordinary file, a commit message, a pull request or a comment | The private term list, checked at commit, at merge and before anything is posted (10.3, [private names](#private-names)) |
 | **Tool defaults that reach the network** | Third-party tools that fetch, report telemetry, or contact remotes by default | Executors run with network denied except an allowlist; tools are vetted before adoption |
 
 Other machines the owner controls, and git bundles carried between them, are inside the trust boundary. Bundles are still verified (`git bundle verify`) before fetching.
@@ -40,7 +41,7 @@ Each role's tools, write paths, network and secrets are set in its agent definit
 **Hooks** (shipped by the plugin, [part 16](16-packaging.md)). Built now, a `PreToolUse` guard on Bash only. For an executor it denies:
 
 - `git push`, and moving `main` (only the merge queue does that);
-- any `hitld` command outside the allowlist for claiming, closing, reading and checking, so no orchestrator commands;
+- any `hitld` command outside the allowlist for claiming, closing, reading and checking, so no orchestrator commands. The allowlist includes `check classification`, `check commit-message` and `publish check`, and not `private add`, `list` or `remove`;
 - decision commands (`rights answer`, `overrule`, `reverse`, `rate`, `trust`) and `eval accept`.
 
 The command line refuses the same decision commands when `HITLD_ROLE=executor` or `HITLD_DISPATCH` is set, or when the caller runs in a linked worktree ([Q21](22-open-questions.md)). The guard reads command text, so the command line's refusal is a second line.
@@ -48,7 +49,7 @@ The command line refuses the same decision commands when `HITLD_ROLE=executor` o
 Still to come:
 
 - a `PreToolUse` guard for write paths outside the role's paths, edits to dependency manifests and lockfiles unless the item cites an answered dependency decision, reads of configured secret paths, and network commands outside the allowlist;
-- the commit guard's secret scanner. Its classification check is built (HITLD-51): `hitld install` writes a pre-commit hook, shared by every worktree, that runs `hitld check classification --staged`. The hook can be skipped with `git commit --no-verify`, and hitld's own commits skip it, so the merge runs the same rule on every commit a branch brings, and on the queue's own commit, in either merge mode. That check is the one that enforces;
+- the commit guard's secret scanner. Its classification check is built (HITLD-51): `hitld install` writes a pre-commit hook, shared by every worktree, that runs `hitld check classification --staged`, and a commit-msg hook that runs `hitld check commit-message` on the message ([private names](#private-names)). The hooks can be skipped with `git commit --no-verify`, and hitld's own commits skip them, so the merge runs the same rules on every commit a branch brings, its files and its message, and on the queue's own commit, in either merge mode. That check is the one that enforces;
 - `SessionStart`: loads the role's contract and the policy, and refuses to start an executor outside a worktree.
 
 **Sandboxing.** Executors run with the harness's own sandbox enabled where one exists. Any tool run on untrusted input (tests of external PRs, fuzzers) must run with no network, no secrets, and no write outside its scratch area. The mechanism is each harness adapter's job, not this design's.
@@ -86,6 +87,37 @@ Four levels ([part 3](03-data-model.md#classification-levels)): `public`, `inter
 4. **Stubs for confidential tracker entities.** When a public item needs a confidential decision, the public repository holds at most a stub (ID, title "confidential decision", state), so `needs` still resolves; the content lives in the private store. Decided: a stub ([Q6](22-open-questions.md)).
 5. **Third-party services by level.** A notification channel or tracker backend declares the highest level it may carry. Above that, only a pointer is sent.
 6. **Agents carry the level.** An agent given a confidential input is marked as holding confidential data for the rest of its life: its writes are classified at that level, and it may not write to the public repository. (This is enforced by the orchestrator at dispatch: briefs that cite confidential material go to agents whose write path is the private store.)
+7. **Private names never reach a public repository.** Rules 3 and 6 work on whole files. A private name can still sit inside an ordinary public file, or in the text written around one: a commit message, a pull request, a comment, release notes. The private term list closes that gap, below.
+
+### Private names
+
+The private term list holds the names a public repository, and anything published from it, never holds: the private store's address and its repository's name, the names of the devices that read the store, and whatever the owner adds, such as a partner's name, a private host or a person's email address. Text refers to each by its role instead: "the store repository", "a device", "the owner's laptop".
+
+**Where it lives.** In the private store, at `private/terms.jsonl` (`core/lib/store/private-terms.mjs`). It syncs with the store, encrypted to the devices the owner approved ([design 0003](../0003-private-store-remote.md)), so every device has it. It is never in the project's repository and never in plain text anywhere outside the machine. The file is append-only: a line adds a term or removes one, so copies on two devices merge line by line.
+
+**How it fills.**
+
+- `hitld store remote set <url>` adds the store's address, its repository's path on the host (`owner/name`) and its name alone. `hitld store device init` adds the device's name. Both results list what they added by kind.
+- `hitld private add <term> [--kind <k>]` adds the owner's own; `--git-email` adds the address git commits with, only when the owner asks and only when it is not a noreply address. `hitld private list` shows each term masked, with its ID, kind and length, unless `--show`. `hitld private remove <ID or term>` takes one off.
+- Two sources count without being on the list: the store address in use on this machine (`HITLD_STORE_REMOTE`, the person file or this machine's override), because a cloud environment's address arrives in a variable; and the device names in the owner's device answers, because another device's name arrives in its request.
+- Executors are refused `private add`, `list` and `remove`, by the plugin's guard and by the command line. They may run the checks.
+
+**Matching.** Case-insensitive, as whole words: `example-partner` matches "Example-Partner." but not "examplepartners". A run of spaces in a term matches any run of white space. A URL is matched with or without its scheme, its user, its port, `.git` and a trailing slash, so `https://host/owner/repo.git`, `git@host:owner/repo` and `host/owner/repo/` are one term. A term has at least three characters. The kinds are `store-address`, `repository`, `device`, `name`, `email`, `host` and `url`; the kind is what a refusal names.
+
+**Where it is checked.**
+
+| Where | What | Enforces |
+|---|---|---|
+| The pre-commit hook (`hitld check classification --staged`) | The staged files, their content and paths, as the index holds them | No: `--no-verify` skips it |
+| The commit-msg hook (`hitld check commit-message`) | The message, without comment lines or what follows a scissors line | No: `--no-verify` skips it |
+| The merge, in either mode | Every commit a branch brings: its files and its message; and the queue's own commit | Yes |
+| `hitld work check` | The whole tree | Reports |
+| `hitld publish check --file <path>` or `--text -` | A pull request's title and body, an issue comment, release notes: any text before it is posted | When it runs: the skills run it before posting |
+| CI (`core/bin/public-check.mjs`) | Without the list: a committed `store.remote.url` or `.human-in-the-lead/store-devices.json`, and an email address that is neither a noreply one nor on a domain reserved for examples, in the lines each commit adds and in its message | Yes, on every pull request and push to main |
+
+**A refusal names the term's kind and where it was found** (the file or field, and the line), never the term: a hook's output, a merge rejection and a CI log can each end up in a report, a pull request or a public page. A line of the list that does not read stops every check (`private-list-invalid`), because a skipped line would let its term through.
+
+**Limits.** The list holds only what someone put on it or what is implied; a name nobody listed passes. CI cannot know the terms, so it checks only what needs none. Text posted outside hitld, by a person or by an agent through the forge's own tools, is checked only when `publish check` runs first: the orchestrate, chief-of-staff, execute and adopt skills require it. Publishing pull requests and comments through the send gate, which would make the check a step no one can skip, is the next step ([9.3](09-contributors.md#93-replies)). A repository whose history already holds a term keeps it; rewriting that history is the owner's choice.
 
 ## 10.4 Human gates
 

@@ -77,6 +77,7 @@ import { completionOf } from '../../../harness/claude-code/adapter.mjs';
 import { install } from '../../install/install.mjs';
 import { dispatchedOn, reportVersion } from '../../install/drift.mjs';
 import { pushingAfter } from '../../store/auto-sync.mjs';
+import { loadTerms } from '../../store/private-terms.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} Ctx
@@ -128,6 +129,24 @@ const dueFor = (run, policy, input) =>
     contextShare: policy.orchestrator?.handover_context_share,
     contextUsed: contextShareOf(input),
   });
+
+/**
+ * The private terms the merge checks every commit against. A list that does not read stops the
+ * merge: nothing goes to main unchecked.
+ * @param {import('../../store/store.mjs').PrivateStore} store @param {string} projectId
+ * @param {NodeJS.ProcessEnv} env
+ */
+function mergeTerms(store, projectId, env) {
+  try {
+    return loadTerms({ store, projectId, env }).matchers;
+  } catch (e) {
+    const err = /** @type {{ code?: unknown, message: string }} */ (e);
+    if (err.code === 'private-list-invalid') {
+      throw new Refusal('private-list-invalid', `${err.message}; nothing merged`);
+    }
+    throw e;
+  }
+}
 
 export class Refusal extends Error {
   /** @param {string} code @param {string} message @param {Record<string, unknown>} [more] */
@@ -1224,11 +1243,13 @@ const table = [
             environments: p.policy.flake.environments,
           },
           setup: p.policy.env.worktree_setup,
-          // From main's policy and tracker.json, never the branch's own.
+          // From main's policy and tracker.json, never the branch's own; the private terms from
+          // the private store, so every commit's files and message are checked for them.
           classification: {
             ceiling: layout.classificationCeiling,
             defaultClassification: layout.defaultClassification,
             privatePaths: layout.privatePaths,
+            terms: mergeTerms(p.store, p.policy.project.id, ctx.env),
           },
         };
         /** @param {string} dir */

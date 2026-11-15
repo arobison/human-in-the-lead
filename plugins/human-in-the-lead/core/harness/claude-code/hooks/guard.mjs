@@ -14,9 +14,13 @@ const command = String(input.tool_input?.command ?? '');
 // word from it. The command line's own refusal (core/lib/cli/commands/rights.mjs) is the second
 // line, and signed answers (design part 22, Q21) the strong one.
 const unquoted = command.replace(/['"\\]/g, '');
-/** The hitld subcommands an executor may run (claim, close, read, check, its own leases). */
+/**
+ * The hitld subcommands an executor may run (claim, close, read, check, its own leases), and
+ * `publish check` on text it writes for others to read. The private term list itself is not
+ * among them: `private add | list | remove` are the owner's.
+ */
 const EXECUTOR_HITLD =
-  /^\s+(work\s+(claim|close|show|query|check|claims)|check\s+(contract|policy|quarantine)|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|--help|--version)\b/;
+  /^\s+(work\s+(claim|close|show|query|check|claims)|check\s+(contract|policy|quarantine|classification|commit-message)|publish\s+check|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|--help|--version)\b/;
 /** What follows each call of hitld in a command. @param {string} text */
 const hitldCalls = (text) =>
   [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
