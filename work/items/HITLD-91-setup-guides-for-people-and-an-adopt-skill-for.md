@@ -2,9 +2,10 @@
 id: HITLD-91
 title: "Setup guides for people and an adopt skill for agents: new project, existing project, existing tracker"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-91
 ---
 
 ## Why
