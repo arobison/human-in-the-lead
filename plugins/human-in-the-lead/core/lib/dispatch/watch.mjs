@@ -128,7 +128,16 @@ export function watchDispatches(r) {
     const signals = r.signals(entry);
     const times = progressTimes(signals);
     const lastSignal = times.length ? Math.max(...times) : null;
-    const lastProgress = Math.max(started, lastSignal ?? started);
+    // A session continued after a usage limit (a poke, for an interactive one) starts its clock
+    // again from then.
+    const continued = r.events.findLast(
+      (e) => e.event === 'stalled' && e.dispatch === entry.dispatch && e.reason === 'limit',
+    );
+    const lastProgress = Math.max(
+      started,
+      lastSignal ?? started,
+      continued ? Date.parse(continued.at) : started,
+    );
     const quiet = Math.max(0, Math.round((r.now - lastProgress) / 1000));
     const deadlineAt = started + limits.deadline * 1000;
     const overdue = r.now >= deadlineAt;

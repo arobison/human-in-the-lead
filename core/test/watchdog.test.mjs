@@ -628,3 +628,37 @@ test('ledger events of the watchdog and the pause are checked', () => {
     assert.equal(readLedger(store).events.length, 0, JSON.stringify(e));
   }
 });
+
+test('an interactive session cut off by a limit is poked through the chief of staff, once', () => {
+  const { t, at, entry, events } = synthetic({ tier: 3, mode: 'interactive' });
+  const p = policy();
+  const pause = { id: 'E-2', at: at(600), limit: 'five', resets_at: at(3000), reason: 'x' };
+  /** @param {any[]} evs @param {number} s */
+  const judge = (evs, s) =>
+    watchDispatches({
+      inFlight: [entry],
+      events: evs,
+      signals: () => [],
+      policy: p,
+      now: t + s * 1000,
+      pause: null,
+      timedPause: pause,
+    })[0];
+  const cut = judge(events, 3700);
+  assert.equal(cut.state, 'cut_off');
+  assert.equal(cut.step, 'poke', 'an interactive session is continued with a message');
+  const after = [
+    ...events,
+    {
+      id: 'E-4',
+      event: 'stalled',
+      dispatch: 'D-1',
+      item: 'W-1',
+      reason: 'limit',
+      step: 'poke',
+      at: at(3700),
+    },
+  ];
+  assert.equal(judge(after, 3800).state, 'progressing', 'its clock starts again from the poke');
+  assert.equal(judge(after, 3700 + 5400).step, 'poke', 'then the ordinary ladder');
+});
