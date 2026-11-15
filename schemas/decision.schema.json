@@ -141,14 +141,19 @@
       "$ref": "common#/$defs/timestamp"
     },
     "answered_via": {
-      "description": "The channel the answer came through.",
+      "description": "The channel the answer came through, or \"precedent\" when a precedent resolved it.",
       "$ref": "common#/$defs/text"
+    },
+    "answered_by": {
+      "description": "Who answered: \"owner\", or a decider's contributor ID once signed answers exist (Q21). Absent when a precedent resolved it.",
+      "$ref": "common#/$defs/person"
     },
     "precedent": {
       "description": "The precedent created from this decision, if any.",
       "$ref": "common#/$defs/precedentId"
     },
     "resolved_by_precedent": {
+      "description": "The precedent that resolved it, when no person answered.",
       "$ref": "common#/$defs/precedentId"
     }
   },

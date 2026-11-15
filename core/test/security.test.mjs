@@ -166,7 +166,16 @@ const T1 = { tool: 'tool', version: '1.0.0' };
 /** An answered decision, W-9, in a stand-in tracker. */
 const ANSWERED = {
   decision: 'W-9',
-  tracker: { get: () => ({ id: 'W-9', kind: 'decision', state: 'Done', answer: 'B' }) },
+  tracker: {
+    get: () => ({
+      id: 'W-9',
+      kind: 'decision',
+      state: 'Done',
+      answer: 'B',
+      answered_at: '2030-01-01T00:00:00Z',
+      answered_by: 'owner',
+    }),
+  },
 };
 
 test('records: the first scan makes the baseline; a new tool version extends it; nothing else adds', () => {
@@ -295,15 +304,42 @@ test('records: accepting a risk needs an answered decision item, read through th
     },
   });
   const base = { key: 'abcdefabcdef', expires: '2030-06-01', reason: 'x', decision: 'W-9', now };
+  const AT = '2029-12-31T09:00:00Z';
   for (const [entity, why] of /** @type {[Record<string, unknown> | null, RegExp][]} */ ([
     [null, /not in the tracker/],
     [{ id: 'W-9', kind: 'work', state: 'Done' }, /not a decision/],
     [{ id: 'W-9', kind: 'decision', state: 'Planned' }, /not answered/],
     [{ id: 'W-9', kind: 'decision', state: 'Dropped' }, /not answered/],
     [{ id: 'W-9', kind: 'decision', state: 'Done', answer: '' }, /not answered/],
+    // Done by hand, with no answer recorded: not an answered decision.
+    [{ id: 'W-9', kind: 'decision', state: 'Done' }, /not answered/],
+    [{ id: 'W-9', kind: 'decision', state: 'Done', answer: 'A' }, /not answered/],
     [
-      { id: 'W-9', kind: 'decision', state: 'Done', answer: 'A', resolved_by_precedent: 'P-1' },
+      { id: 'W-9', kind: 'decision', state: 'Planned', answer: 'A', answered_at: AT },
+      /not answered/,
+    ],
+    [
+      {
+        id: 'W-9',
+        kind: 'decision',
+        state: 'Done',
+        answer: 'A',
+        answered_at: AT,
+        answered_via: 'precedent',
+        resolved_by_precedent: 'P-1',
+      },
       /resolved by a precedent/,
+    ],
+    [
+      {
+        id: 'W-9',
+        kind: 'decision',
+        state: 'Done',
+        answer: 'A',
+        answered_at: AT,
+        answered_by: 'C-3',
+      },
+      /answered by C-3/,
     ],
   ])) {
     assert.throws(() => acceptRisk(store, { ...base, tracker: tracker(entity) }), why);
@@ -541,9 +577,25 @@ test('commands: the merge scans with the primary checkout policy, never the bran
   const c = makeConsumer({
     files: {
       'work/items/W-4-accept-a-risk.md': decisionItem('W-4', { status: 'Planned' }),
+      // Set Done by hand, with no answer recorded: not the owner's answered decision.
       'work/items/W-5-accept-a-risk.md': decisionItem('W-5', {
         status: 'Done',
       }),
+      'work/initiatives/W-6-keep-it-safe.md': item(
+        { id: 'W-6', title: 'Keep it safe', kind: 'initiative', status: 'Planned', lead: 'owner' },
+        '\n## Goal\n\n',
+      ),
+      'work/projects/W-7-security-findings.md': item(
+        {
+          id: 'W-7',
+          title: 'Security findings',
+          kind: 'project',
+          status: 'Planned',
+          initiative: 'W-6',
+          lead: 'owner',
+        },
+        '\n## Summary\n\n',
+      ),
     },
     policy: {
       merge: { mode: 'queue', full_suite: ["node --test 'test/*.test.js'"], scanners: [scanner] },
@@ -658,7 +710,37 @@ test('commands: the merge scans with the primary checkout policy, never the bran
   const open = await accept('W-4');
   assert.equal(open.result.error, 'decision');
   assert.match(open.result.message, /W-4 is Planned and not answered/);
-  const decision = 'W-5';
+  const handClosed = await accept('W-5');
+  assert.equal(handClosed.result.error, 'decision');
+  assert.match(handClosed.result.message, /W-5 is Done and not answered/);
+
+  // The owner's decision, asked and answered through the command line into the files tracker.
+  const question = {
+    title: 'Accept the unsafe call as a risk?',
+    question: 'Accept the unsafe call in src/calc.js as a risk until the parser rewrite?',
+    context: 'The scanner flags UNSAFE in src/calc.js. The parser rewrite removes the call.',
+    options: [
+      { label: 'Accept it', what_happens: 'the finding merges until the expiry' },
+      { label: 'Fix it now', what_happens: 'the branch goes back to the executor' },
+    ],
+    recommendation: { option: 'A', why: 'The rewrite removes the call anyway.' },
+    triggers: [{ basis: 'security', reason: 'accepting a real finding as a risk' }],
+    paths: ['src/calc.js'],
+    classification: 'public',
+    parent: 'W-7',
+  };
+  const asked = await c.hitld(['rights', 'ask', '--question', JSON.stringify(question)]);
+  assert.equal(asked.exit, 0, JSON.stringify(asked.result));
+  assert.equal(asked.result.outcome, 'asked');
+  const decision = asked.result.decision;
+  const early = await accept(decision);
+  assert.match(early.result.message, new RegExp(`${decision} is Planned and not answered`));
+  const answered = await c.hitld(['rights', 'answer', decision, '--answer', 'A']);
+  assert.equal(answered.exit, 0, JSON.stringify(answered.result));
+  const shown = await c.hitld(['work', 'show', decision, '--json']);
+  assert.equal(shown.result.entity.state, 'Done');
+  assert.equal(shown.result.entity.answered_by, 'owner');
+  assert.equal(shown.result.entity.answered_via, 'main-session');
   const ok = await accept(decision);
   assert.equal(ok.exit, 0, JSON.stringify(ok.result));
   assert.equal(ok.result.accepted.decision, decision);

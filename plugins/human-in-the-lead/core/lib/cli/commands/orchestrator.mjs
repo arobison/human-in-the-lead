@@ -10,8 +10,8 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
-import { loadEffectivePolicy } from '../../settings/layers.mjs';
+import { loadPolicy } from '../../policy/policy.mjs';
+import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { loadSettingsFile } from '../../settings/files.mjs';
 import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
@@ -30,7 +30,7 @@ import {
   runningElsewhere,
   shareFraction,
 } from '../../registry/machine.mjs';
-import { primaryCheckoutOf } from '../../env/primary.mjs';
+import { ownerCheckoutOf } from '../../env/primary.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
 import { parseReport } from '../../contract/report.mjs';
@@ -105,12 +105,7 @@ async function guarded(fn) {
 function project(ctx) {
   // The primary checkout, even from inside a linked worktree: policy, tracker and main are the
   // owner's there, never an executor's copy (as piece (c) does for env exec).
-  let repoRoot = findRepoRoot(ctx.cwd);
-  try {
-    repoRoot = primaryCheckoutOf(ctx.cwd);
-  } catch {
-    // not a git repository with a primary checkout: refused below if findRepoRoot found none
-  }
+  const repoRoot = ownerCheckoutOf(ctx.cwd);
   if (!repoRoot) throw new Refusal('not_a_repository', `${ctx.cwd} is not in a git repository`);
   const loaded = loadPolicy({ cwd: repoRoot });
   if (!loaded.policy) {
@@ -138,6 +133,7 @@ function project(ctx) {
     repoRoot,
     policy: layered.policy,
     cap: layered.settings.cap,
+    setup: setupState(layered.files),
     store,
     state,
     machineRoot,
@@ -196,9 +192,10 @@ function readyQueue(p, ctx) {
 
 /**
  * The dispatch plan for the free slots.
- * @param {ReturnType<typeof project>} p @param {Ctx} ctx
+ * `byHand`: the item the person started by hand; it is the only one that runs before setup is done.
+ * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand]
  */
-function plan(p, ctx) {
+function plan(p, ctx, byHand) {
   const q = readyQueue(p, ctx);
   // Snapshots: this project's own, and every account's from the machine registry, so all projects
   // on the machine see the same use.
@@ -245,12 +242,17 @@ function plan(p, ctx) {
     },
     overlapSerialize: p.policy.dispatch.overlap_serialize,
     critical: q.critical,
+    setup: { ...p.setup, byHand },
   });
-  return { q, result };
+  return { q, result, setup: p.setup };
 }
 
-/** A plan as JSON for the skill. @param {ReturnType<typeof plan>['result']} r */
-const planJson = (r) => ({
+/**
+ * A plan as JSON for the skill.
+ * @param {ReturnType<typeof plan>['result']} r @param {ReturnType<typeof setupState>} setup
+ */
+const planJson = (r, setup) => ({
+  setup,
   cap: r.cap,
   running: r.running,
   free: r.free,
@@ -268,11 +270,13 @@ const planJson = (r) => ({
   held: r.held,
   waiting: r.waiting,
   notes: r.notes,
-  next: r.start.length
-    ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch started'
-    : r.gate.notify_owner
-      ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
-      : 'nothing to start: wait for the next completion notice; do not poll',
+  next: !setup.done
+    ? 'setup is not done: run the first-run setup with the owner (orchestrate skill, first run); a hand-started item runs with hitld dispatch start <ID> --by-hand when the owner asks for it'
+    : r.start.length
+      ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch started'
+      : r.gate.notify_owner
+        ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
+        : 'nothing to start: wait for the next completion notice; do not poll',
 });
 
 /** Where a dispatch's files live in the private store. @param {string} d */
@@ -353,7 +357,8 @@ export const commands = [
     run: (_input, ctx) =>
       guarded(() => {
         const p = project(ctx);
-        return { ok: true, ...planJson(plan(p, ctx).result) };
+        const { result, setup } = plan(p, ctx);
+        return { ok: true, ...planJson(result, setup) };
       }),
   },
   {
@@ -373,6 +378,12 @@ export const commands = [
         type: 'string',
         description: 'For tier 3: headless or interactive (default policy dispatch.tier3_mode)',
       },
+      {
+        name: 'by-hand',
+        type: 'boolean',
+        description:
+          'The owner asked for this item themselves. Before the first-run setup is done, only an item started this way runs, and one at a time',
+      },
       SESSION,
       HOST,
     ],
@@ -381,7 +392,7 @@ export const commands = [
         const p = project(ctx);
         const run = runOf(p, input, ctx);
         const id = String(input.item);
-        const { q, result } = plan(p, ctx);
+        const { q, result, setup } = plan(p, ctx, input['by-hand'] === true ? id : undefined);
         const planned = result.start.find((s) => s.item === id);
         if (!planned) {
           const held = result.held.find((h) => h.item === id);
@@ -392,7 +403,7 @@ export const commands = [
               : q.queue.some((i) => String(i.id) === id)
                 ? `${id} is ready but no slot is free (${result.running} running, cap ${result.cap})`
                 : `${id} is not ready (or is already in flight)`;
-          throw new Refusal('not_planned', why, { plan: planJson(result) });
+          throw new Refusal('not_planned', why, { plan: planJson(result, setup) });
         }
         const item = /** @type {Item} */ (q.byId.get(id));
         const dispatch = nextDispatchId(readLedger(p.store).events);
@@ -676,7 +687,8 @@ export const commands = [
               'for each question: if it is your call (ordering, scope inside the project, which in-plan approach), answer it with hitld dispatch follow-up; otherwise write a question file and run hitld rights ask (precedent first, then a decision item and a message to the decider)';
           }
         }
-        out.refill = planJson(plan(project(ctx), ctx).result);
+        const again = plan(project(ctx), ctx);
+        out.refill = planJson(again.result, again.setup);
         return out;
       }),
   },

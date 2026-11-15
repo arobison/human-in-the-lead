@@ -10,6 +10,8 @@ import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { executorSignal } from '../executor.mjs';
 import { loadPolicy, findRepoRoot } from '../../policy/policy.mjs';
+import { ownerCheckoutOf } from '../../env/primary.mjs';
+import { openTracker as openFilesTracker } from '../../tracker/files/tracker.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
@@ -30,31 +32,19 @@ import { readTrustEvents, trustSummary } from '../../rights/trust.mjs';
 
 /**
  * @typedef {import('../../tracker/interface.mjs').TrackerAdapter} TrackerAdapter
- * @typedef {(options: { repoRoot: string, policy: Record<string, any> }) => Promise<TrackerAdapter> | TrackerAdapter} OpenTracker
+ * @typedef {(options: { repoRoot: string, policy: Record<string, any>, env: NodeJS.ProcessEnv }) => Promise<TrackerAdapter> | TrackerAdapter} OpenTracker
  */
 
 /** The private store key of the digest cursor. */
 const DIGEST_KEY = 'rights/digest.json';
 
 /**
- * Open the files tracker backend (piece (a)). Until it is merged, commands that need a tracker
- * say so; the library works against any TrackerAdapter.
- * @param {{ repoRoot: string, policy: Record<string, any> }} options
- * @returns {Promise<TrackerAdapter>}
+ * Open the files tracker backend (piece (a)) of the owner's checkout, as `hitld work` and
+ * `hitld security accept` do. The library works against any TrackerAdapter.
+ * @type {OpenTracker}
  */
-async function defaultOpenTracker(options) {
-  /** @type {any} */
-  let backend;
-  try {
-    const module = '../../tracker/files/index.mjs'; // not a literal: the module may not exist yet
-    backend = await import(module);
-  } catch {
-    throw new Error(
-      'the files tracker backend (piece (a), core/lib/tracker/files/) is not in this checkout, and decision items need a tracker',
-    );
-  }
-  return backend.openTracker(options);
-}
+const defaultOpenTracker = ({ repoRoot, policy, env }) =>
+  openFilesTracker({ repoRoot, policy, env });
 
 /** The largest JSON input read from a file. */
 const MAX_FILE_BYTES = 1_000_000;
@@ -124,13 +114,18 @@ const FILE_ARG = {
   mcp: false,
 };
 
-/** Commands that record or change a decision: never run by an executor. */
-const EXECUTOR_REFUSED = new Set([
-  'rights answer',
-  'rights overrule',
-  'rights reverse',
-  'rights rate',
-  'rights trust',
+/**
+ * Commands never run by an executor, and whose they are: those that record or change a decision
+ * are the owner's; asking creates a decision item in the primary checkout's tracker, which only
+ * the orchestrator does (design part 3.4, ID allocation).
+ */
+const EXECUTOR_REFUSED = new Map([
+  ['rights ask', "the orchestrator's"],
+  ['rights answer', "the owner's"],
+  ['rights overrule', "the owner's"],
+  ['rights reverse', "the owner's"],
+  ['rights rate', "the owner's"],
+  ['rights trust', "the owner's"],
 ]);
 
 /**
@@ -143,12 +138,14 @@ export function makeCommands({ openTracker }) {
    * @param {{ tracker?: boolean }} [needs]
    */
   async function open(ctx, needs = {}) {
-    const loaded = loadPolicy({ cwd: ctx.cwd });
+    // The primary checkout, even from inside a linked worktree: decision rights, the tracker the
+    // owner's answers are recorded in, and main are the owner's there, never a branch's copy.
+    const repoRoot = ownerCheckoutOf(ctx.cwd);
+    const loaded = loadPolicy({ cwd: repoRoot ?? ctx.cwd });
     if (!loaded.policy) {
       return { failure: { ok: false, error: 'policy', path: loaded.path, errors: loaded.errors } };
     }
     const policy = loaded.policy;
-    const repoRoot = findRepoRoot(ctx.cwd);
     const store = openStore(
       privateStorePath(policy.project.id, { env: ctx.env, repoRoot: repoRoot ?? undefined }),
     );
@@ -158,7 +155,7 @@ export function makeCommands({ openTracker }) {
       ceiling: policy.project.classification_ceiling,
     });
     const tracker = needs.tracker
-      ? await openTracker({ repoRoot: repoRoot ?? ctx.cwd, policy })
+      ? await openTracker({ repoRoot: repoRoot ?? ctx.cwd, policy, env: ctx.env })
       : /** @type {TrackerAdapter} */ (/** @type {unknown} */ (null));
     return { deps: { policy, policyHash: loaded.hash, tracker, precedents, store } };
   }
@@ -486,9 +483,11 @@ export function makeCommands({ openTracker }) {
     },
   ];
   // Decisions are the owner's (Q21, owner 2026-11-14: answers come only from the owner's own turns
-  // in the main session). An executor never records, overrules, reverses or rates one. The
-  // plugin's Bash guard stops this at the harness, where the agent type is attested; this check is
-  // the second line, for headless executors and other harnesses.
+  // in the main session). An executor never records, overrules, reverses or rates one, and never
+  // asks one: the tracker is the primary checkout's, even from a worktree, and only the
+  // orchestrator creates items there. The plugin's Bash guard stops this at the harness, where
+  // the agent type is attested; this check is the second line, for headless executors and other
+  // harnesses.
   for (const c of commands) {
     if (!EXECUTOR_REFUSED.has(c.name) || !c.run) continue;
     const run = c.run;
@@ -498,7 +497,7 @@ export function makeCommands({ openTracker }) {
         ? {
             ok: false,
             error: 'not_permitted',
-            message: `${c.name} is the owner's, through the main session in the primary checkout (${why}); an executor sends questions in its report`,
+            message: `${c.name} is ${EXECUTOR_REFUSED.get(c.name)}, through the main session in the primary checkout (${why}); an executor sends questions in its report`,
           }
         : run(input, ctx);
     };

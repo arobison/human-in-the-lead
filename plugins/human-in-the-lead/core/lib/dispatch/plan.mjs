@@ -47,7 +47,10 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   machine?: { has: (name: string) => boolean, why: (name: string) => string },
  *   overlapSerialize?: number,
  *   critical?: Set<string>,
+ *   setup?: { done: boolean, reason?: string | null, byHand?: string },
  * }} r
+ *   setup: until the first-run setup is done (design part 13.4), every item waits (reason
+ *   `setup`) and the cap is one, except `byHand`, the one item the person started by hand
  */
 export function planDispatch(r) {
   const caps = r.capabilities;
@@ -57,6 +60,11 @@ export function planDispatch(r) {
   if (!caps.parallelSubagents && cap > 1) {
     cap = 1;
     notes.push('the harness runs one executor at a time: the cap is pinned at 1');
+  }
+  const setupWait = r.setup && !r.setup.done ? r.setup : null;
+  if (setupWait) {
+    cap = Math.min(cap, 1);
+    notes.push('setup not done: conservative defaults apply (one executor, the default reserve)');
   }
   /** @type {Planned[]} */
   const start = [];
@@ -75,6 +83,14 @@ export function planDispatch(r) {
   for (const item of r.queue) {
     const id = String(item.id);
     const sizing = /** @type {Sizing} */ (r.sizes.get(id));
+    if (setupWait && id !== setupWait.byHand) {
+      held.push({
+        item: id,
+        reason: 'setup',
+        why: setupWait.reason ?? 'setup not done: run the first-run setup',
+      });
+      continue;
+    }
     if (sizing.tier === 0) {
       inline.push({
         item: id,

@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
-import { buildConsumer } from '../lib/eval/orchestrator-fixtures.mjs';
+import { buildConsumer, writeSetupDone } from '../lib/eval/orchestrator-fixtures.mjs';
 
 /** @param {string} cwd @param {...string} args */
 export const git = (cwd, ...args) =>
@@ -26,7 +26,8 @@ export { itemFile as item } from '../lib/eval/orchestrator-fixtures.mjs';
 
 /**
  * The repository, on main, committed, with a private store outside it.
- * @param {{ policy?: Record<string, unknown>, files?: Record<string, string> }} [options]
+ * @param {{ policy?: Record<string, unknown>, files?: Record<string, string>, setup?: boolean }} [options]
+ *   setup: false leaves the person and machine files unwritten (first run not done)
  */
 export function makeConsumer(options = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-orch-')));
@@ -39,6 +40,7 @@ export function makeConsumer(options = {}) {
     HITLD_SESSION: 'test-session',
     PATH: process.env.PATH,
   };
+  if (options.setup !== false) writeSetupDone(env);
   /**
    * Run a hitld command in the repository.
    * @param {string[]} argv @param {{ cwd?: string, env?: NodeJS.ProcessEnv }} [o]

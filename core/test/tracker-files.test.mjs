@@ -419,6 +419,61 @@ test('optional keys are allowed only when tracker.json turns them on, and are ty
   assert.ok(problems.some((p) => /; area /.test(p)));
 });
 
+test('a decision carries its answer keys, typed by the decision schema; a work item does not', () => {
+  const answered = {
+    id: 'W-7',
+    title: 'Which licence?',
+    kind: 'decision',
+    status: 'Done',
+    project: 'W-2',
+    'decided-by': 'owner',
+    answer: '"A. MIT: the usual one"',
+    rationale: 'Simple.',
+    answered_at: '2026-11-14T10:00:00Z',
+    answered_via: 'main-session',
+    answered_by: 'owner',
+    precedent: 'P-1',
+  };
+  assert.deepEqual(problemsFor({ 'work/items/W-7-which-licence.md': itemText(answered) }), []);
+  const { answered_by: _, precedent: __, ...rest } = answered;
+  const resolved = { ...rest, answered_via: 'precedent', resolved_by_precedent: 'P-2' };
+  assert.deepEqual(problemsFor({ 'work/items/W-7-which-licence.md': itemText(resolved) }), []);
+  const bad = problemsFor({
+    'work/items/W-7-which-licence.md': itemText({
+      ...answered,
+      answered_at: 'yesterday',
+      answered_by: 'someone',
+      precedent: 'W-3',
+    }),
+  });
+  for (const key of ['answered_at', 'answered_by', 'precedent']) {
+    assert.ok(
+      bad.some((p) => new RegExp(`(schema: |; )${key} `).test(p)),
+      `${key}: ${bad.join('\n')}`,
+    );
+  }
+  const work = problemsFor({
+    'work/items/W-7-sized.md': itemText({
+      id: 'W-7',
+      title: 'Sized',
+      kind: 'work',
+      status: 'Done',
+      project: 'W-2',
+      answer: 'yes',
+    }),
+  });
+  assert.ok(work.some((p) => p.includes(`"answer" isn't an allowed key for a work`)));
+});
+
+test('front matter: a value of several lines is written on one line and reads back', () => {
+  const data = { id: 'W-1', kind: 'decision', answer: `Neither: 'wait',\nthen "ask" again` };
+  const text = renderItem(data, ['id', 'kind', 'answer']);
+  assert.equal(text.split('\n').filter((l) => l.startsWith('answer: ')).length, 1);
+  const back = parseItem(text);
+  assert.deepEqual(back.errors, []);
+  assert.deepEqual(back.data, data);
+});
+
 test('nothing above the repository’s classification ceiling', () => {
   const files = {
     'work/items/W-7-secretive.md': itemText({

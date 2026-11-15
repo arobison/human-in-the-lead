@@ -60,7 +60,11 @@
       "description": "Items that cannot proceed until it is answered. They get a needs link.",
       "$ref": "common#/$defs/ids"
     },
-    "opened_from": { "$ref": "common#/$defs/ids" }
+    "opened_from": { "$ref": "common#/$defs/ids" },
+    "parent": {
+      "description": "The project the decision item belongs to. A tracker that files every item under a project (the files backend) needs it.",
+      "$ref": "decision#/properties/parent"
+    }
   },
   "additionalProperties": false
 }

@@ -284,20 +284,29 @@ export function recordVerdict(store, v) {
 
 /**
  * Why a tracker entity does not show the owner's answered decision, or null if it does: it must
- * exist, be a decision, and be Done, which for a decision means answered (design part 3.2). One
- * resolved by a precedent does not count, because accepting a real finding as a risk always needs
- * a human (design 10.4). An answer, where the backend stores one, must not be empty.
+ * exist, be a decision, be Done, and carry the answer and when it was given (design part 3.2,
+ * Decision: `answer` and `answered_at`, filled by hitld rights answer). One resolved by a
+ * precedent does not count, nor one answered by anyone but the owner, because accepting a real
+ * finding as a risk is the owner's own decision (design 10.4).
  * @param {string} id @param {Record<string, unknown> | null} entity
  * @returns {string | null}
  */
 export function decisionProblem(id, entity) {
   if (!entity) return `${id} is not in the tracker`;
   if (entity.kind !== 'decision') return `${id} is a ${String(entity.kind)} item, not a decision`;
-  if (entity.state !== 'Done' || entity.answer === '') {
+  const answered =
+    typeof entity.answer === 'string' &&
+    entity.answer.trim() !== '' &&
+    typeof entity.answered_at === 'string' &&
+    entity.answered_at !== '';
+  if (entity.state !== 'Done' || !answered) {
     return `${id} is ${String(entity.state)} and not answered: the owner answers it first (hitld rights answer)`;
   }
   if (entity.resolved_by_precedent) {
     return `${id} was resolved by a precedent; accepting a real risk is always the owner's own answer`;
+  }
+  if (entity.answered_by !== undefined && entity.answered_by !== 'owner') {
+    return `${id} was answered by ${String(entity.answered_by)}; accepting a real risk is the owner's own answer`;
   }
   return null;
 }

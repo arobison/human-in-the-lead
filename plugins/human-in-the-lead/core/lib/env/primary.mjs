@@ -22,6 +22,7 @@ import {
   realpathSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { findRepoRoot } from '../policy/policy.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
@@ -70,6 +71,22 @@ export function primaryCheckoutOf(cwd) {
     throw new Error(`${cwd} is not in a repository with a primary checkout (git dir ${git})`);
   }
   return dirname(git);
+}
+
+/**
+ * The checkout a command run for the owner works in: the primary checkout of the repository that
+ * holds `cwd`, even from inside a linked worktree, so the policy, the tracker and main are the
+ * owner's and never a branch's copy. Outside a repository with a primary checkout, the repository
+ * root found from `cwd`; null when there is none.
+ * @param {string} cwd
+ * @returns {string | null}
+ */
+export function ownerCheckoutOf(cwd) {
+  try {
+    return primaryCheckoutOf(cwd);
+  } catch {
+    return findRepoRoot(cwd);
+  }
 }
 
 /**
