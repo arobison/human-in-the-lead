@@ -161,3 +161,13 @@ test('an unknown command and a command not yet built use codes from the map', as
   const unbuilt = COMMANDS.find((c) => !c.run);
   if (unbuilt) assert.equal(await run(unbuilt.name.split(' ')), 'not-built');
 });
+
+test('the design lists every code in the map', () => {
+  const doc = readFileSync(
+    join(ROOT, 'docs/design/0001-human-in-the-lead/16-packaging.md'),
+    'utf8',
+  );
+  for (const [code, meaning] of Object.entries(ERROR_CODES)) {
+    assert.ok(doc.includes(`- \`${code}\`: ${meaning}\n`), `16.2 does not list ${code}`);
+  }
+});
