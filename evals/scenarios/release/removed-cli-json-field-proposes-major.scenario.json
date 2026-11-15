@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "release/removed-cli-json-field-proposes-major",
-  "piece": "release",
+  "suite": "release",
   "category": "release",
   "description": "A field removed from a command's JSON output is a breaking change: it proposes a major release from 1.y.z, and a minor release flagged breaking while the version is 0.y.z.",
   "mode": "offline",

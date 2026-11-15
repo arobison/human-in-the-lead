@@ -6,8 +6,8 @@
   "type": "object",
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
-    "executors_max": {
-      "description": "The most executors at once across all of this person's projects: their appetite for parallel agents. The effective cap is the smallest of this, the machine's executors_max, the project's execution.concurrency and the run's cap.",
+    "max_executors": {
+      "description": "The most executors at once across all of this person's projects: their appetite for parallel agents. The effective cap is the smallest of this, the machine's max_executors, the project's execution.max_executors and the run's cap.",
       "type": "integer",
       "minimum": 1
     },
@@ -15,21 +15,21 @@
       "description": "Account limits, the reserve and the thresholds (design part 12.5). These were policy.json's quota keys; a project may still set a larger reserve, earlier thresholds, and run budgets (window: run).",
       "type": "object",
       "properties": {
-        "owner_reserve": {
+        "reserve": {
           "description": "The share of each limit kept for the person's own interactive use, unless a limit sets its own reserve. The largest across the layers applies.",
-          "$ref": "policy/quota#/properties/owner_reserve"
+          "$ref": "policy/quota#/properties/reserve"
         },
-        "economize_at": {
+        "economize_below": {
           "description": "Below this headroom, prefer cheaper models and lower concurrency. The largest across the layers applies.",
-          "$ref": "policy/quota#/properties/economize_at"
+          "$ref": "policy/quota#/properties/economize_below"
         },
-        "critical_at": {
+        "critical_below": {
           "description": "Below this headroom, dispatch only critical-path items. The largest across the layers applies.",
-          "$ref": "policy/quota#/properties/critical_at"
+          "$ref": "policy/quota#/properties/critical_below"
         },
-        "notify_at": {
+        "notify_used": {
           "description": "Shares of a limit used at which a line goes into the digest. Every layer's shares apply.",
-          "$ref": "policy/quota#/properties/notify_at"
+          "$ref": "policy/quota#/properties/notify_used"
         },
         "forecast_hours": {
           "description": "How many recent hours the burn rate is smoothed over.",

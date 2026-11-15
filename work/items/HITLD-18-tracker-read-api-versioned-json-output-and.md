@@ -2,11 +2,11 @@
 id: HITLD-18
 title: "Tracker read API: versioned JSON output and declared extension fields"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-18
-changelog: "`hitld work show` and `work query` take `--json` with `api_version`; projects can declare their own fields in tracker.json; `hitld work migrate` applies tracker format migrations."
+claimed_by: D-18
+release_note: "`hitld work show` and `work query` take `--json` with `api_version`; projects can declare their own fields in tracker.json; `hitld work migrate` applies tracker format migrations."
 ---
 
 ## Why

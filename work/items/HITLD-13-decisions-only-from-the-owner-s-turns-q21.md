@@ -2,7 +2,7 @@
 id: HITLD-13
 title: Decisions only from the owner's turns (Q21, option 3)
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

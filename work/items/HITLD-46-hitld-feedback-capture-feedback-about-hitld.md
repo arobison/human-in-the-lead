@@ -2,11 +2,11 @@
 id: HITLD-46
 title: "`hitld feedback`: capture feedback about HITLd with context, stored locally"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-46
-changelog: "`hitld feedback` records feedback about HITLd, with its context, in the project's private store."
+claimed_by: D-46
+release_note: "`hitld feedback` records feedback about HITLd, with its context, in the project's private store."
 ---
 
 ## Why

@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "id": "contract/check-contract-lifecycle",
+  "suite": "contract",
+  "category": "contract",
+  "description": "hitld check contract reports a missing block, accepts an installed one, keeps the project's own text through an install, and reports an edited block and a CLAUDE.md that does not import AGENTS.md.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": { "language": "javascript" } },
+  "steps": [
+    { "id": "no-file", "action": "cli", "with": { "argv": ["check", "contract"] } },
+    {
+      "id": "own-text",
+      "action": "file.write",
+      "with": { "path": "AGENTS.md", "content": "# My project\n\nBuild with npm.\n" }
+    },
+    { "id": "no-block", "action": "cli", "with": { "argv": ["check", "contract"] } },
+    { "id": "install", "action": "contract.install", "with": {} },
+    { "id": "installed", "action": "cli", "with": { "argv": ["check", "contract"] } },
+    { "id": "again", "action": "contract.install", "with": {} },
+    {
+      "id": "claude",
+      "action": "file.write",
+      "with": { "path": "CLAUDE.md", "content": "# Notes\n" }
+    },
+    { "id": "no-import", "action": "cli", "with": { "argv": ["check", "contract"] } },
+    {
+      "id": "claude-imports",
+      "action": "file.write",
+      "with": { "path": "CLAUDE.md", "content": "# Notes\n\n@AGENTS.md\n" }
+    },
+    { "id": "imports", "action": "cli", "with": { "argv": ["check", "contract"] } }
+  ],
+  "graders": [
+    {
+      "id": "no-file-missing",
+      "grader": "equals",
+      "with": { "path": "steps.no-file.result.block", "value": "missing" }
+    },
+    {
+      "id": "no-block-fails",
+      "grader": "equals",
+      "with": { "path": "steps.no-block.result.ok", "value": false }
+    },
+    {
+      "id": "install-adds",
+      "grader": "equals",
+      "with": { "path": "steps.install.action", "value": "added" }
+    },
+    {
+      "id": "installed-ok",
+      "grader": "equals",
+      "with": { "path": "steps.installed.result.ok", "value": true }
+    },
+    {
+      "id": "again-unchanged",
+      "grader": "equals",
+      "with": { "path": "steps.again.action", "value": "unchanged" }
+    },
+    {
+      "id": "no-import-fails",
+      "grader": "equals",
+      "with": { "path": "steps.no-import.result.claude_md", "value": "missing-import" }
+    },
+    {
+      "id": "no-import-not-ok",
+      "grader": "equals",
+      "with": { "path": "steps.no-import.result.ok", "value": false }
+    },
+    {
+      "id": "imports-ok",
+      "grader": "equals",
+      "with": { "path": "steps.imports.result.ok", "value": true }
+    }
+  ]
+}

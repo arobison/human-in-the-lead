@@ -22,11 +22,11 @@
       "$ref": "common#/$defs/id"
     },
     "state": {
-      "description": "Proposed, Planned, Done or Dropped. A milestone is never In progress: items are claimed, milestones are not.",
-      "enum": ["Proposed", "Planned", "Done", "Dropped"]
+      "description": "proposed, planned, done or dropped. A milestone is never in-progress: work items are claimed, milestones are not.",
+      "$ref": "common#/$defs/plannedState"
     },
     "owner": {
-      "description": "The human accountable, if not the project owner.",
+      "description": "Who is accountable for this record. Defaults to the owner: the person who holds the project's decision rights.",
       "$ref": "common#/$defs/person"
     },
     "classification": {
@@ -53,7 +53,7 @@
         "additionalProperties": false
       }
     },
-    "needs": {
+    "constraints": {
       "description": "Constraints: items or milestones without which a clause cannot be true, each linked to that clause. Stored as \"<ID> c1\", or \"<ID> c?\" for a constraint still to be linked to a clause at shaping.",
       "type": "array",
       "items": {
@@ -108,12 +108,12 @@
       "additionalProperties": false
     },
     "check_results": {
-      "description": "Each recorded run of the check, oldest first. Stored as \"<pass | fail | verdict> <YYYY-MM-DD> <role>: <evidence>\". Only a pass (a verdict, for a learning milestone) by a role other than the items' authors moves the milestone to Done.",
+      "description": "Each recorded run of the check, oldest first. Stored as \"<pass | fail | answered> <YYYY-MM-DD> <role>: <evidence>\". Only a pass (for a learning milestone, answered: its study has a verdict) by a role other than the items' authors moves the milestone to done.",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "result": { "enum": ["pass", "fail", "verdict"] },
+          "result": { "enum": ["pass", "fail", "answered"] },
           "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
           "role": { "$ref": "common#/$defs/name" },
           "evidence": { "$ref": "common#/$defs/text" }

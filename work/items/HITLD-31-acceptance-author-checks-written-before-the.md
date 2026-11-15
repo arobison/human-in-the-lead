@@ -2,7 +2,7 @@
 id: HITLD-31
 title: "Acceptance author: checks written before the executor starts"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

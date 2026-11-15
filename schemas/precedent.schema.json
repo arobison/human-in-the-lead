@@ -39,12 +39,19 @@
       "items": { "anyOf": [{ "$ref": "common#/$defs/text" }, { "$ref": "#/$defs/exception" }] }
     },
     "sources": { "description": "The decisions it came from.", "$ref": "common#/$defs/ids" },
-    "scope": { "type": "string", "pattern": "^(project|area:[a-z0-9][a-z0-9._-]*)$" },
+    "scope": {
+      "description": "all (the whole project; was project before HITLD-82) or area:<name>.",
+      "type": "string",
+      "pattern": "^(all|area:[a-z0-9][a-z0-9._-]*)$"
+    },
     "decider": {
       "description": "Who decided the decision it came from: \"owner\", or the area owners' contributor IDs, comma-separated. A precedent resolves only questions its decider could have decided (design parts 4.3 and 4.5). One without a decider resolves nothing.",
       "$ref": "common#/$defs/text"
     },
-    "state": { "enum": ["active", "narrowed", "retired"] },
+    "state": {
+      "description": "active or retired. A narrowed precedent is active with exceptions; the trust event precedent-narrowed records the narrowing (narrowed was a state before HITLD-82, read as active).",
+      "enum": ["active", "retired"]
+    },
     "checked": {
       "description": "When last confirmed still valid, and under which policy.",
       "type": "object",

@@ -12,7 +12,7 @@ import { arch, cpus, release, totalmem } from 'node:os';
 import { delimiter, join } from 'node:path';
 
 /**
- * @typedef {'dedicated' | 'workstation' | 'cloud_vm' | 'ci'} Role
+ * @typedef {'dedicated' | 'workstation' | 'cloud-vm' | 'ci'} Role
  *
  * @typedef {object} Sources what the probes read; every part is replaceable in tests
  * @property {string} platform process.platform
@@ -40,7 +40,7 @@ import { delimiter, join } from 'node:path';
  * @property {string[]} notes what could not be probed
  */
 
-export const ROLES = /** @type {const} */ (['dedicated', 'workstation', 'cloud_vm', 'ci']);
+export const ROLES = /** @type {const} */ (['dedicated', 'workstation', 'cloud-vm', 'ci']);
 
 const PROBE_TIMEOUT_MS = 5000;
 const MB = 1024 * 1024;
@@ -221,7 +221,7 @@ export function detectRole(s) {
     const text = s.readText(f)?.trim();
     if (text && CLOUD_DMI.test(text)) cloud.push(`${f} says "${text}"`);
   }
-  if (cloud.length) return { role: 'cloud_vm', hints: cloud };
+  if (cloud.length) return { role: 'cloud-vm', hints: cloud };
 
   const linux = s.platform !== 'darwin';
   const remote = Boolean(s.env.SSH_CONNECTION || s.env.SSH_TTY);
@@ -287,7 +287,7 @@ export function probeMachine(sources = localSources(), now = new Date()) {
  * What a role starts with, from the probe (design part 13.4, machine roles). `confirm` says whether
  * a person confirms the profile before it is written.
  * @param {Role} role @param {{ cores: number, memory_mb: number }} have
- * @returns {{ cores: number, memory_ceiling_mb: number, executors_max: number,
+ * @returns {{ cores: number, memory_ceiling_mb: number, max_executors: number,
  *   load: { max_per_core: number }, confirm: boolean }}
  */
 export function roleDefaults(role, have) {
@@ -296,7 +296,7 @@ export function roleDefaults(role, have) {
   const make = (n, mb, load, confirm) => ({
     cores: n,
     memory_ceiling_mb: Math.max(1, Math.floor(mb)),
-    executors_max: Math.max(1, Math.floor(n / 2)),
+    max_executors: Math.max(1, Math.floor(n / 2)),
     load: { max_per_core: load },
     confirm,
   });
@@ -306,7 +306,7 @@ export function roleDefaults(role, have) {
       return make(Math.max(1, cores - 1), have.memory_mb * 0.9, 1, true);
     case 'workstation':
       return make(Math.max(1, Math.floor(cores / 2)), have.memory_mb * 0.5, 0.7, true);
-    case 'cloud_vm':
+    case 'cloud-vm':
       // The whole allocation, less a tenth of memory; nobody is there to confirm it.
       return make(cores, have.memory_mb * 0.9, 0.9, false);
     case 'ci':
@@ -370,20 +370,21 @@ export function reconcile(profile, probe) {
 
 /**
  * The profile this probe proposes. Whatever the person already set in the machine file wins over a
- * default, the role included; `detected` is always refreshed.
+ * default, the kind of machine included (stored as `kind`; `role` before HITLD-82); `detected`
+ * is always refreshed.
  * @param {Probe} probe @param {Record<string, any> | null} [existing]
  * @returns {{ profile: Record<string, any>, role: Role, role_source: 'machine file' | 'detected',
  *   confirm: boolean, warnings: string[] }}
  */
 export function proposeProfile(probe, existing = null) {
-  const role = /** @type {Role} */ (existing?.role ?? probe.role);
+  const role = /** @type {Role} */ (existing?.kind ?? existing?.role ?? probe.role);
   const defaults = roleDefaults(role, probe);
   const rec = reconcile(existing, probe);
   /** @type {Record<string, any>} */
   const profile = {
     schema_version: 1,
-    role,
-    executors_max: existing?.executors_max ?? defaults.executors_max,
+    kind: role,
+    max_executors: existing?.max_executors ?? defaults.max_executors,
     cores: rec.cores ?? defaults.cores,
     memory_ceiling_mb: rec.memory_ceiling_mb ?? defaults.memory_ceiling_mb,
     load: existing?.load ?? defaults.load,
@@ -391,8 +392,8 @@ export function proposeProfile(probe, existing = null) {
     ...(existing?.env ? { env: existing.env } : {}),
     detected: {
       at: probe.at,
-      role: probe.role,
-      role_hints: probe.role_hints,
+      kind: probe.role,
+      kind_hints: probe.role_hints,
       os: probe.os,
       cores: probe.cores,
       memory_mb: probe.memory_mb,
@@ -403,7 +404,7 @@ export function proposeProfile(probe, existing = null) {
   return {
     profile,
     role,
-    role_source: existing?.role ? 'machine file' : 'detected',
+    role_source: existing?.kind || existing?.role ? 'machine file' : 'detected',
     confirm: defaults.confirm,
     warnings: [...probe.notes, ...rec.warnings],
   };

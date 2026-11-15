@@ -69,7 +69,7 @@ export async function makeRelease(
   if (!bump) throw new Error(`${made} is not above the last full release, ${p.base_version}`);
   if (!atLeast(bump, p.bump)) {
     throw new Error(
-      `${made} is a ${bump} release, but the interface delta proposes ${p.bump} (${p.basis}); make ${coreOf(p.version)} or above`,
+      `${made} is a ${bump} release, but the interface delta proposes ${p.bump} (${p.reason}); make ${coreOf(p.version)} or above`,
     );
   }
   const tag = `v${made}`;
@@ -93,7 +93,7 @@ export async function makeRelease(
     milestones: p.milestones,
     classification: layout.defaultClassification,
   };
-  const notes = p.notes.length ? p.notes.map((n) => `- ${n}`).join('\n') : 'No changelog lines.';
+  const notes = p.notes.length ? p.notes.map((n) => `- ${n}`).join('\n') : 'No release notes.';
   const body = [
     '',
     '## Notes',
@@ -106,7 +106,7 @@ export async function makeRelease(
           '',
           ...p.interface_delta
             .filter((e) => e.impact === 'breaking')
-            .map((e) => `- ${e.area}: ${e.what}`),
+            .map((e) => `- ${e.surface}: ${e.what}`),
           '',
         ]
       : []),
@@ -229,7 +229,7 @@ function pullRequest(p, { tag, made, bump, path, notes }) {
     '',
     `- Version: ${made}${pre ? ' (a pre-release)' : ''}`,
     `- Bump: ${bump}${p.breaking ? ', breaking' : ''}, from ${p.base ?? 'no release yet (0.0.0)'}`,
-    `- Basis: ${p.basis}`,
+    `- Reason: ${p.reason}`,
     `- Items: ${p.items.length ? p.items.join(', ') : 'none'}`,
     '',
     '## Notes',

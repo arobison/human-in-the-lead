@@ -18,7 +18,6 @@
 
 import { renderItem, slugify } from '../frontmatter.mjs';
 import { idNumber } from '../tree.mjs';
-import { keyOrder } from '../format.mjs';
 import { list } from '../graph.mjs';
 import { UNLINKED } from '../milestones.mjs';
 
@@ -51,6 +50,17 @@ export const titleOf = (name) => {
   const words = name.replace(/[-_]+/g, ' ').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
+
+/**
+ * The milestone key order of the format this step writes: the one before HITLD-82, which the
+ * later step names-and-states renames in place.
+ * @param {import('../config.mjs').Layout} layout
+ */
+const legacyOrder = (layout) => [
+  ...['id', 'title', 'kind', 'status', 'created', 'project', 'initiative', 'outcome'],
+  ...['done_when', 'needs', 'contributions', 'appetite_tokens', 'deadline', 'check'],
+  ...['check_results', 'reason', ...layout.optionalKeys, ...layout.fields.map((f) => f.name)],
+];
 
 /** @param {string} s */
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -107,10 +117,7 @@ export const milestoneEntities = {
           if (add.length) {
             const data = { ...existing.data };
             data.needs = [...list(existing.data?.needs), ...add.map((id) => `${id} ${UNLINKED}`)];
-            changed.set(
-              existing.path,
-              renderItem(data, keyOrder(String(data.kind), layout), existing.body),
-            );
+            changed.set(existing.path, renderItem(data, legacyOrder(layout), existing.body));
           }
           continue;
         }
@@ -141,7 +148,7 @@ export const milestoneEntities = {
         };
         changed.set(
           `${milestoneDir}/${id}-${slugify(title)}.md`,
-          renderItem(data, keyOrder('capability', layout), body),
+          renderItem(data, legacyOrder(layout), body),
         );
       }
       if (p.data && Object.hasOwn(p.data, 'milestones')) {

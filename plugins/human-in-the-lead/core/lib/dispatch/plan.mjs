@@ -57,7 +57,7 @@ export function planDispatch(r) {
   /** @type {string[]} */
   const notes = [];
   let cap = r.cap;
-  if (!caps.parallelSubagents && cap > 1) {
+  if (!caps.parallel_subagents && cap > 1) {
     cap = 1;
     notes.push('the harness runs one executor at a time: the cap is pinned at 1');
   }
@@ -102,11 +102,11 @@ export function planDispatch(r) {
       continue;
     }
     const level = LEVELS.indexOf(String(item.classification ?? 'internal'));
-    if (level > LEVELS.indexOf(caps.maxClassification)) {
+    if (level > LEVELS.indexOf(caps.max_classification)) {
       held.push({
         item: id,
         reason: 'classification',
-        why: `${item.classification} is above what this harness may process (${caps.maxClassification})`,
+        why: `${item.classification} is above what this harness may process (${caps.max_classification})`,
       });
       continue;
     }
@@ -173,7 +173,7 @@ export function planDispatch(r) {
     /** @type {string[]} */
     const itemNotes = [];
     let tier = sizing.tier;
-    if (tier === 3 && !caps.persistentSessions) {
+    if (tier === 3 && !caps.persistent_sessions) {
       tier = 2;
       itemNotes.push(
         'no separate sessions here: tier 3 runs as tier 2 at the highest model and effort, with a smaller slice of the item',

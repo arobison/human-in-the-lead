@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
-import { COMMANDS, PIECES, findCommand, toolName } from '../lib/cli/table.mjs';
+import { COMMANDS, BUILT_BY, findCommand, toolName } from '../lib/cli/table.mjs';
 import { inputSchema, parseArgs, UsageError } from '../lib/cli/args.mjs';
 import { VERSION } from '../lib/version.mjs';
 
@@ -40,12 +40,12 @@ test('hitld version', async () => {
   assert.equal(result.schema_versions.policy, 1);
 });
 
-test('a command not yet built says so and names its piece', async () => {
+test('a command not yet built says so and names who builds it (built_by)', async () => {
   const { code, out } = await run(['kb', 'search']);
   assert.equal(code, EXIT.notBuilt);
   const result = parse(out);
   assert.equal(result.error, 'not_built');
-  assert.equal(result.piece, 'signal');
+  assert.equal(result.built_by, 'signal');
   assert.match(result.message, /the milestone One signal end to end, builds it/);
 });
 
@@ -84,7 +84,7 @@ test('hitld policy check is the same command, and --effective prints the merged 
   const root = fixture({ schema_version: 1, project: { id: 'fixture', key: 'W' } });
   const { code, out } = await run(['policy', 'check', '--effective'], root);
   assert.equal(code, EXIT.ok);
-  assert.equal(parse(out).policy.execution.concurrency.value, 3);
+  assert.equal(parse(out).policy.execution.max_executors.value, 3);
 });
 
 test('hitld check policy fails with readable errors', async () => {
@@ -100,17 +100,17 @@ test('hitld check policy fails with readable errors', async () => {
   assert.equal(result.ok, false);
   assert.deepEqual(
     result.errors.map((/** @type {any} */ e) => e.path),
-    ['execution.concurrency', 'hooks'],
+    ['execution.max_executors', 'hooks'],
   );
 });
 
-test('the command table: unique names and tool names, a piece and a summary each', () => {
+test('the command table: unique names and tool names, a built_by and a summary each', () => {
   const names = COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]);
   assert.equal(new Set(names).size, names.length);
   const tools = COMMANDS.map(toolName);
   assert.equal(new Set(tools).size, tools.length);
   for (const c of COMMANDS) {
-    assert.ok(Object.hasOwn(PIECES, c.piece), `${c.name}: unknown piece ${c.piece}`);
+    assert.ok(Object.hasOwn(BUILT_BY, c.built_by), `${c.name}: unknown built_by ${c.built_by}`);
     assert.ok(c.summary.length > 10, `${c.name}: summary`);
   }
   assert.equal(findCommand(['check', 'policy', '--x'])?.command.name, 'check policy');
@@ -122,7 +122,7 @@ test('every command in design part 16.2 is in the table', () => {
     'work show',
     'work query',
     'work claim',
-    'work release',
+    'work unclaim',
     'work close',
     'work claims',
     'work check',
@@ -133,9 +133,9 @@ test('every command in design part 16.2 is in the table', () => {
     'merge',
     'ledger append',
     'ledger tail',
-    'ledger inflight',
+    'ledger in-flight',
     'ledger summary',
-    'rights',
+    'rights who',
     'precedent match',
     'intake pull',
     'note',

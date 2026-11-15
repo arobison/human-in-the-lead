@@ -2,10 +2,10 @@
 id: HITLD-20
 title: "Flaky tests: defaults, quarantine without asking, the contract line"
 kind: decision
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-decided-by: owner
+decider: owner
 ---
 
 ## Question

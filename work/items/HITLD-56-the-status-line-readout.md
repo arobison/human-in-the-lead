@@ -2,7 +2,7 @@
 id: HITLD-56
 title: The status-line readout
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-37, HITLD-40]

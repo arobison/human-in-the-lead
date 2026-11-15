@@ -42,7 +42,7 @@ test('get returns the model’s field names, validated by the kind’s schema', 
   const t = open(makeRepo());
   const e = t.get('W-4');
   assert.equal(e.id, 'W-4');
-  assert.equal(e.state, 'Planned');
+  assert.equal(e.state, 'planned');
   assert.equal(e.parent, 'W-2');
   assert.deepEqual(e.needs, ['W-3']);
   assert.equal(e.classification, 'public');
@@ -56,6 +56,7 @@ test('get returns the model’s field names, validated by the kind’s schema', 
     body: _b,
     path: _p,
     version: _v,
+    entity: _t,
     constraint_of: _c,
     contributes_to: _s,
     released_in: _r,
@@ -70,7 +71,7 @@ test('query by kind, state, needs, parent and text, and the derived ready and bl
   /** @param {import('../lib/tracker/interface.mjs').Filter} f */
   const ids = (f) => t.query(f).map((e) => e.id);
   assert.deepEqual(ids({ kind: 'decision' }), ['W-6']);
-  assert.deepEqual(ids({ kind: ['work', 'decision'], state: 'Planned' }), ['W-4', 'W-5', 'W-6']);
+  assert.deepEqual(ids({ kind: ['work', 'decision'], state: 'planned' }), ['W-4', 'W-5', 'W-6']);
   assert.deepEqual(ids({ needs: 'W-4' }), ['W-5']);
   assert.deepEqual(ids({ parent: 'W-2' }), ['W-3', 'W-4', 'W-5', 'W-6']);
   assert.deepEqual(ids({ text: 'WHICH' }), ['W-6']);
@@ -91,7 +92,7 @@ test('update refuses a stale version, an unsupported field and a change that wou
   assert.throws(() => t.update('W-4', { priority: 'high' }, v2), /no key for priority/);
   assert.throws(() => t.update('W-4', { kind: 'decision' }, v2), /kind cannot be changed/);
   assert.throws(() => t.update('W-4', { parent: 'W-99' }, v2), /project W-99 doesn't exist/);
-  assert.throws(() => t.update('W-4', { state: 'Wip' }, v2), /status "Wip" isn't one of/);
+  assert.throws(() => t.update('W-4', { state: 'Wip' }, v2), /state "Wip" isn't one of/);
   t.update('W-4', { needs: null }, v2);
   assert.equal(t.get('W-4').needs, undefined);
   assert.equal(
@@ -103,17 +104,17 @@ test('update refuses a stale version, an unsupported field and a change that wou
 test('transition follows the lifecycle, and Dropped records its reason', () => {
   const t = open(makeRepo());
   assert.throws(
-    () => t.transition('W-3', 'Planned', 'x', {}),
-    /W-3 is Done; the lifecycle allows no change/,
+    () => t.transition('W-3', 'planned', 'x', {}),
+    /W-3 is done; the lifecycle allows no change/,
   );
-  assert.throws(() => t.transition('W-4', 'Dropped', ' ', {}), /Dropped needs a reason/);
-  assert.throws(() => t.transition('W-4', 'In progress', 'x', {}), /claim W-4/);
+  assert.throws(() => t.transition('W-4', 'dropped', ' ', {}), /dropped needs a reason/);
+  assert.throws(() => t.transition('W-4', 'in-progress', 'x', {}), /claim W-4/);
   assert.throws(
-    () => t.transition('W-4', 'Proposed', 'x', {}),
-    /allows In progress, Done, Dropped/,
+    () => t.transition('W-4', 'proposed', 'x', {}),
+    /allows in-progress, done, dropped/,
   );
-  t.transition('W-4', 'Dropped', 'not needed', {});
-  assert.equal(t.get('W-4').state, 'Dropped');
+  t.transition('W-4', 'dropped', 'not needed', {});
+  assert.equal(t.get('W-4').state, 'dropped');
   assert.equal(t.get('W-4').reason, 'not needed');
   // W-5 needs the dropped W-4: the check says so, and the tracker reports it.
   assert.ok(
@@ -135,14 +136,14 @@ test('link adds a need once, refuses a cycle and an unsupported relation', () =>
 test('history lists each state change with its commit', () => {
   const root = makeRepo();
   const t = open(root);
-  t.transition('W-4', 'Done', '', {});
+  t.transition('W-4', 'done', '', {});
   const sha = commitAll(root, 'done');
   const h = t.history('W-4');
   assert.deepEqual(
     h.map((c) => [c.from, c.to]),
     [
-      [null, 'Planned'],
-      ['Planned', 'Done'],
+      [null, 'planned'],
+      ['planned', 'done'],
     ],
   );
   assert.equal(h[1].ref.commit, sha);
@@ -164,14 +165,14 @@ test('create allocates the next number, writes the reference format and passes t
   const text = readFileSync(join(root, 'work/items/W-7-cache-responses.md'), 'utf8');
   assert.match(
     text,
-    /^---\nid: W-7\ntitle: Cache responses\nkind: work\nstatus: Planned\ncreated: \d{4}-\d\d-\d\d\nproject: W-2\nneeds: \[W-4\]\n---\n\n## Done when\n/,
+    /^---\nid: W-7\ntitle: Cache responses\nkind: work\nstate: planned\ncreated: \d{4}-\d\d-\d\d\nproject: W-2\nneeds: \[W-4\]\n---\n\n## Done when\n/,
   );
   assert.equal(t.check().problems.length, 0);
   assert.equal(t.create({ kind: 'decision', title: 'Which?', parent: 'W-2' }), 'W-8');
   assert.equal(t.get('W-8').decider, 'owner');
   assert.equal(t.create({ kind: 'initiative', title: 'Big goal' }), 'W-9');
   assert.equal(t.create({ kind: 'project', title: 'A project', parent: 'W-9' }), 'W-10');
-  assert.equal(t.get('W-10').lead, 'owner');
+  assert.equal(t.get('W-10').owner, 'owner');
 });
 
 test('create refuses incomplete or inconsistent drafts and writes nothing', () => {
@@ -182,10 +183,13 @@ test('create refuses incomplete or inconsistent drafts and writes nothing', () =
     () => t.create({ kind: 'work', title: 'x', parent: 'W-99' }),
     /project W-99 doesn't exist/,
   );
-  assert.throws(() => t.create({ kind: 'external', title: 'x', parent: 'W-2' }), /needs party/);
   assert.throws(
-    () => t.create({ kind: 'work', title: 'x', parent: 'W-2', state: 'Done' }),
-    /Planned or Proposed/,
+    () => t.create({ kind: 'external', title: 'x', parent: 'W-2' }),
+    /needs waiting_on/,
+  );
+  assert.throws(
+    () => t.create({ kind: 'work', title: 'x', parent: 'W-2', state: 'done' }),
+    /planned or proposed/,
   );
   assert.throws(
     () => t.create({ kind: 'work', title: 'x', parent: 'W-2', needs: ['W-2'] }),
@@ -226,7 +230,7 @@ test('allocation counts numbers on other branches, other worktrees and bundle re
       id: 'W-9',
       title: 'On a branch',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
   });
@@ -241,7 +245,7 @@ test('allocation counts numbers on other branches, other worktrees and bundle re
       id: 'W-20',
       title: 'Uncommitted',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
   });
@@ -252,7 +256,7 @@ test('allocation counts numbers on other branches, other worktrees and bundle re
       id: 'W-30',
       title: 'Bundled',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
   });
@@ -331,7 +335,7 @@ test('the check fails on a number used by two different items on different branc
       id: 'W-7',
       title: 'From B',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
   });
@@ -342,7 +346,7 @@ test('the check fails on a number used by two different items on different branc
       id: 'W-7',
       title: 'From A',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
   });
@@ -389,7 +393,7 @@ test('a claim is the branch’s first commit, changes only the item file and is 
   git(root, 'checkout', '-q', '--', '.');
 
   const t = open(root);
-  assert.equal(t.get('W-4').state, 'Planned', 'main never shows In progress');
+  assert.equal(t.get('W-4').state, 'planned', 'main never shows In progress');
   const claims = t.claims();
   assert.equal(claims.length, 1);
   assert.equal(claims[0].id, 'W-4');
@@ -417,7 +421,7 @@ test('a claim is refused on main, for an item not Planned, for a container, or o
   git(root, 'checkout', '-q', '-b', 'exec/a');
   assert.throws(
     () => t.claim('W-3', 'D-1', 'exec/a'),
-    /W-3 is Done; only a Planned item can be claimed/,
+    /W-3 is done; only a planned item can be claimed/,
   );
   assert.throws(() => t.claim('W-2', 'D-1', 'exec/a'), /W-2 is a project/);
   assert.throws(() => t.claim('W-4', 'D-1', 'exec/other'), /on exec\/a, not exec\/other/);
@@ -434,7 +438,7 @@ test('closing rides with the work: merging the branch takes the item from Planne
   put(root, { 'src/feature.txt': 'the work' });
   commitAll(root, 'the work');
   const t = open(root);
-  assert.throws(() => t.close('W-5'), /W-5 is Planned; close an item that this branch claimed/);
+  assert.throws(() => t.close('W-5'), /W-5 is planned; close an item that this branch claimed/);
   const done = t.close('W-4');
   assert.equal(git(root, 'log', '-1', '--format=%s', String(done.commit)).trim(), 'close: W-4');
   assert.equal(
@@ -442,22 +446,22 @@ test('closing rides with the work: merging the branch takes the item from Planne
     'Work-Item: W-4\nDispatch: D-3',
   );
   assert.equal(
-    readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8').includes('status: Done'),
+    readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8').includes('state: done'),
     true,
   );
   assert.equal(
-    readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8').includes('claimed: D-3'),
+    readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8').includes('claimed_by: D-3'),
     true,
   );
   git(root, 'checkout', '-q', 'main');
-  assert.throws(() => open(root).close('W-4'), /W-4 is Planned/);
+  assert.throws(() => open(root).close('W-4'), /W-4 is planned/);
   git(root, 'merge', '-q', '--no-ff', '-m', 'merge exec/w-4', 'exec/w-4');
   const m = open(root);
-  assert.equal(m.get('W-4').state, 'Done');
+  assert.equal(m.get('W-4').state, 'done');
   assert.deepEqual(m.claims(), [], 'a Done item is no longer a claim');
   assert.deepEqual(
     m.history('W-4').map((c) => c.to),
-    ['Planned', 'In progress', 'Done'],
+    ['planned', 'in-progress', 'done'],
   );
   assert.equal(m.check().problems.length, 0, 'main passes the check, with no item In progress');
   assert.deepEqual(
@@ -475,26 +479,26 @@ test('close refuses a work item on main; a decision is closed on main', () => {
       join(root, 'work/items/W-4-second-step.md'),
       'utf8',
     )
-      .replace('Planned', 'In progress')
-      .replace('needs:', 'claimed: me\nneeds:'),
+      .replace('planned', 'in-progress')
+      .replace('needs:', 'claimed_by: me\nneeds:'),
   });
   assert.throws(() => t.close('W-4'), /in the branch that does the work, not on main/);
   const done = t.close('W-6', { commit: false });
   assert.equal(done.commit, null);
-  assert.equal(t.get('W-6').state, 'Done');
+  assert.equal(t.get('W-6').state, 'done');
 });
 
-test('a release on main records why and retires the claim; main is otherwise untouched', () => {
+test('an unclaim on main records why and retires the claim; main is otherwise untouched', () => {
   const root = makeRepo();
   const ref = claimOn(root, 'exec/w-4', 'W-4', 'D-5');
   const t = open(root);
   put(root, { 'work/staged.txt': 'staged' });
   git(root, 'add', 'work/staged.txt');
-  assert.throws(() => t.release('W-4', ' '), /needs a reason/);
-  assert.throws(() => t.release('W-5', 'x'), /W-5 has no live claim/);
-  assert.throws(() => t.release('W-4', 'x', 'exec/other'), /no live claim on exec\/other/);
+  assert.throws(() => t.unclaim('W-4', ' '), /needs a reason/);
+  assert.throws(() => t.unclaim('W-5', 'x'), /W-5 has no live claim/);
+  assert.throws(() => t.unclaim('W-4', 'x', 'exec/other'), /no live claim on exec\/other/);
   const before = git(root, 'rev-parse', 'HEAD^{tree}').trim();
-  const out = t.release('W-4', 'the executor stalled');
+  const out = t.unclaim('W-4', 'the executor stalled');
   assert.equal(git(root, 'rev-parse', 'HEAD^{tree}').trim(), before, 'an empty commit');
   assert.equal(
     git(root, 'diff', '--cached', '--name-only').trim(),
@@ -504,7 +508,7 @@ test('a release on main records why and retires the claim; main is otherwise unt
   const message = git(root, 'log', '-1', '--format=%B', out.commit);
   assert.match(
     message,
-    /^release: W-4\n\nReason: the executor stalled\n\nWork-Item: W-4\nClaim-Branch: exec\/w-4\nClaim-Commit: [0-9a-f]{40}/,
+    /^unclaim: W-4\n\nReason: the executor stalled\n\nWork-Item: W-4\nClaim-Branch: exec\/w-4\nClaim-Commit: [0-9a-f]{40}/,
   );
   assert.ok(message.includes(String(ref.commit)));
   assert.deepEqual(t.claims(), []);
@@ -523,11 +527,55 @@ test('a release on main records why and retires the claim; main is otherwise unt
   );
 });
 
-test('a release is made on main only', () => {
+test('a claim branch and an unclaim commit from before HITLD-82 still count', () => {
+  const root = makeRepo();
+  // A branch made before the migration: the item file holds the old keys and values.
+  git(root, 'checkout', '-q', '-b', 'exec/old', 'main');
+  const path = 'work/items/W-4-second-step.md';
+  put(root, {
+    [path]: itemText({
+      id: 'W-4',
+      title: 'Second step',
+      kind: 'work',
+      status: 'In progress',
+      project: 'W-2',
+      needs: ['W-3'],
+      claimed: 'D-3',
+    }),
+  });
+  git(root, 'add', path);
+  git(root, 'commit', '-q', '-m', 'claim: W-4');
+  const sha = git(root, 'rev-parse', 'HEAD').trim();
+  git(root, 'checkout', '-q', 'main');
+  const t = open(root);
+  assert.deepEqual(
+    t.claims().map((c) => [c.id, c.claims[0].claimant, c.claims[0].branch]),
+    [['W-4', 'D-3', 'exec/old']],
+  );
+  // The history of a file reads its old commits in the new form.
+  assert.deepEqual(
+    t.history('W-4').map((c) => c.to),
+    ['planned'],
+  );
+  // An unclaim commit made before HITLD-82 starts release:.
+  git(
+    root,
+    'commit',
+    '-q',
+    '--allow-empty',
+    '-m',
+    'release: W-4',
+    '-m',
+    `Reason: old\n\nWork-Item: W-4\nClaim-Branch: exec/old\nClaim-Commit: ${sha}`,
+  );
+  assert.deepEqual(t.claims(), []);
+});
+
+test('an unclaim is made on main only', () => {
   const root = makeRepo();
   claimOn(root, 'exec/w-4', 'W-4', 'D-5');
   git(root, 'checkout', '-q', 'exec/w-4');
-  assert.throws(() => open(root).release('W-4', 'x'), /release on main/);
+  assert.throws(() => open(root).unclaim('W-4', 'x'), /unclaim on main/);
 });
 
 test('claims from a fetched bundle ref count, and double claims and orphans are flagged by the check', () => {
@@ -536,8 +584,8 @@ test('claims from a fetched bundle ref count, and double claims and orphans are 
   // Another machine's claim on the same item, arriving by bundle.
   git(root, 'checkout', '-q', '-b', 'scratch', 'main');
   const text = readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8')
-    .replace('Planned', 'In progress')
-    .replace('needs:', 'claimed: D-100001\nneeds:');
+    .replace('planned', 'in-progress')
+    .replace('needs:', 'claimed_by: D-100001\nneeds:');
   put(root, { 'work/items/W-4-second-step.md': text });
   const sha = commitAll(root, 'claim: W-4');
   git(root, 'checkout', '-q', 'main');
@@ -550,7 +598,7 @@ test('claims from a fetched bundle ref count, and double claims and orphans are 
     ['D-1', 'local'],
     ['D-100001', 'bundle'],
   ]);
-  assert.equal(t.check().problems.length, 0, 'claims are scanned with --branches or --inflight');
+  assert.equal(t.check().problems.length, 0, 'claims are scanned with --branches or --in-flight');
   const problems = t.check({ branches: true, inflight: ['D-1', 'D-9'] }).problems;
   assert.ok(
     problems.includes(
@@ -732,7 +780,7 @@ test('hitld work check exits 1 and lists the problems', async () => {
         id: 'W-7',
         title: 'Bad',
         kind: 'work',
-        status: 'Planned',
+        state: 'planned',
         project: 'W-99',
       }),
     },
@@ -745,7 +793,7 @@ test('hitld work check exits 1 and lists the problems', async () => {
   assert.equal(r.json.summary, '1 problem(s)');
 });
 
-test('hitld work new, claim, close, claims and release walk the lifecycle', async () => {
+test('hitld work new, claim, close, claims and unclaim walk the lifecycle', async () => {
   const root = makeRepo();
   settings(root);
   git(root, 'add', '-A');
@@ -770,7 +818,7 @@ test('hitld work new, claim, close, claims and release walk the lifecycle', asyn
 
   git(root, 'checkout', '-q', '-b', 'exec/w-4');
   const claim = await hitld(
-    ['work', 'claim', 'W-4', '--claimant', 'D-7', '--branch', 'exec/w-4'],
+    ['work', 'claim', 'W-4', '--dispatch', 'D-7', '--branch', 'exec/w-4'],
     root,
   );
   assert.equal(claim.code, 0);
@@ -784,15 +832,18 @@ test('hitld work new, claim, close, claims and release walk the lifecycle', asyn
 
   git(root, 'checkout', '-q', 'main');
   git(root, 'checkout', '-q', '-b', 'exec/w-5', 'main');
-  await hitld(['work', 'claim', 'W-6', '--claimant', 'D-8'], root);
+  const decision = await hitld(['work', 'claim', 'W-6', '--dispatch', 'D-8'], root);
+  assert.match(decision.json.message, /only a work item is claimed/);
+  await hitld(['work', 'claim', 'W-5', '--dispatch', 'D-8'], root);
   git(root, 'checkout', '-q', 'main');
   const claims = await hitld(['work', 'claims'], root);
   assert.equal(claims.json.count, 1);
-  assert.equal(claims.json.claims[0].id, 'W-6');
-  const released = await hitld(['work', 'release', 'W-6', '--reason', 'dispatch lost'], root);
-  assert.equal(released.code, 0);
+  assert.equal(claims.json.claims[0].id, 'W-5');
+  const unclaimed = await hitld(['work', 'unclaim', 'W-5', '--reason', 'dispatch lost'], root);
+  assert.equal(unclaimed.code, 0);
+  assert.match(git(root, 'log', '-1', '--format=%s'), /^unclaim: W-5/);
   assert.equal((await hitld(['work', 'claims'], root)).json.count, 0);
-  const noReason = await hitld(['work', 'release', 'W-6'], root);
+  const noReason = await hitld(['work', 'unclaim', 'W-5'], root);
   assert.equal(noReason.code, 2);
   const parsed = await hitld(['work', 'close', 'W-6', '--no-commit'], root);
   assert.equal(parsed.code, 0);
@@ -828,7 +879,7 @@ test('--repo and --config read a tracker with its settings kept outside it, writ
 
 test('every command this piece owns is built', async () => {
   const { COMMANDS } = await import('../lib/cli/table.mjs');
-  const mine = COMMANDS.filter((c) => c.piece === 'a');
+  const mine = COMMANDS.filter((c) => c.built_by === 'a');
   assert.deepEqual(
     mine.map((c) => c.name),
     [
@@ -836,7 +887,7 @@ test('every command this piece owns is built', async () => {
       'work show',
       'work query',
       'work claim',
-      'work release',
+      'work unclaim',
       'work close',
       'work migrate',
       'work claims',
@@ -867,8 +918,8 @@ test('a command that acts refuses --config; the settings must come from the repo
   const status = git(root, 'status', '--porcelain');
   for (const argv of [
     ['work', 'new', '--title', 'x', '--parent', 'W-2'],
-    ['work', 'claim', 'W-4', '--claimant', 'D-1'],
-    ['work', 'release', 'W-4', '--reason', 'x'],
+    ['work', 'claim', 'W-4', '--dispatch', 'D-1'],
+    ['work', 'unclaim', 'W-4', '--reason', 'x'],
     ['work', 'close', 'W-6'],
     ['work', 'views'],
   ]) {
@@ -986,7 +1037,7 @@ test('an item file or an item folder that is a link is refused, and nothing is w
   const target = join(outside, 'W-7-elsewhere.md');
   writeFileSync(
     target,
-    itemText({ id: 'W-7', title: 'Elsewhere', kind: 'work', status: 'Planned', project: 'W-2' }),
+    itemText({ id: 'W-7', title: 'Elsewhere', kind: 'work', state: 'planned', project: 'W-2' }),
   );
   symlinkSync(target, join(root, 'work', 'items', 'W-7-elsewhere.md'));
   const t = open(root);
@@ -1015,9 +1066,9 @@ test('a plan path that leaves the repository is never probed', () => {
         id: 'W-2',
         title: 'The project',
         kind: 'project',
-        status: 'Planned',
+        state: 'planned',
         initiative: 'W-1',
-        lead: 'owner',
+        owner: 'owner',
         plan: '../../../etc/passwd',
       }),
     },

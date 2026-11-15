@@ -2,9 +2,9 @@
 // over one file per entity in the repository, in the reference format (design part 3.4).
 //
 // It also carries what the `hitld work` commands need beyond the interface: claims read from
-// branches, close on merge, release, the batch check and the views. Milestones are entities in the
+// branches, close on merge, unclaim, the batch check and the views. Milestones are entities in the
 // same number space; release records are read from their own folder and found by their tag. Every
-// derived field (a milestone's error, check_due, scope, tokens_spent, cost_of_delay_rate and
+// derived field (a milestone's unmet_clauses, check_due, scope, tokens_spent, cost_of_delay_rate and
 // to_shape; an item's constraint_of, contributes_to and released_in) is computed on each read.
 
 import { mkdirSync, rmSync } from 'node:fs';
@@ -17,7 +17,7 @@ import {
   currentBranch,
   findClaims,
   findOrphans,
-  releaseClaim,
+  unclaimItem,
 } from './claims.mjs';
 import { checkItems, findCollisions } from './check.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
@@ -59,6 +59,8 @@ import {
 } from './releases.mjs';
 import { allocate, assertOrchestrator } from './ids.mjs';
 import { parseItem, renderItem, slugify } from './frontmatter.mjs';
+import { fromLegacy } from './legacy.mjs';
+import { entityType } from './api.mjs';
 import { listPlaces, loadPlaces, loadWorkTree, git, repoRootOf } from './tree.mjs';
 import {
   LIST_BEGIN,
@@ -85,11 +87,12 @@ import {
  *
  * @typedef {object} FilesExtras what the `hitld work` commands need beyond the interface
  * @property {() => Layout} layout
+ * @property {() => string[]} warnings tracker.json names from before HITLD-82, still read
  * @property {() => string} root
  * @property {(draft: Record<string, any>) => { id: string, path: string, block: string }} createEntity
  *   allocate an ID and write the file; orchestrator only
  * @property {() => ClaimedItem[]} claims claims read from branches
- * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof releaseClaim>} release
+ * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean }) => ReturnType<typeof closeItem>} close
  * @property {(options?: { branches?: boolean, inflight?: string[] }) => { problems: string[], files: number }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
@@ -101,13 +104,16 @@ import {
  * @typedef {TrackerAdapter & FilesExtras} FilesTracker
  */
 
-/** Which state changes the lifecycle allows (design part 3.2). Done and Dropped are final. */
+/**
+ * Which state changes the lifecycle allows (design part 3.2). done and dropped are final. Only a
+ * work item is ever in-progress, by its claim.
+ */
 export const TRANSITIONS = Object.freeze({
-  Proposed: ['Planned', 'Dropped'],
-  Planned: ['In progress', 'Done', 'Dropped'],
-  'In progress': ['Done', 'Planned', 'Dropped'],
-  Done: [],
-  Dropped: [],
+  proposed: ['planned', 'dropped'],
+  planned: ['in-progress', 'done', 'dropped'],
+  'in-progress': ['done', 'planned', 'dropped'],
+  done: [],
+  dropped: [],
 });
 
 /** The body skeleton per kind, as the reference creator writes it. */
@@ -195,7 +201,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
   for (const rel of [
     layout.workDir,
     `${layout.workDir}/${layout.viewsDir}`,
-    ...(layout.listsReadme ? [`${layout.workDir}/${layout.listsReadme}`] : []),
+    ...(layout.listsFile ? [`${layout.workDir}/${layout.listsFile}`] : []),
   ]) {
     insidePath(root, rel);
   }
@@ -285,7 +291,13 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       entity.contributes_to = ctx.g.contributesTo(id).map((m) => m.data.id);
       entity.released_in = ctx.released.get(id) ?? null;
     }
-    return { ...entity, body: it.body, path: it.path, version: it.version };
+    return {
+      ...entity,
+      entity: entityType(d.kind),
+      body: it.body,
+      path: it.path,
+      version: it.version,
+    };
   }
 
   /**
@@ -298,6 +310,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
     return {
       ...entity,
       kind: 'release',
+      entity: 'release',
       prerelease: isPrerelease(String(d.version ?? '')),
       body: r.body,
       path: r.path,
@@ -441,7 +454,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
 
     transition(id, to, reason, via) {
       const it = mustFind(id);
-      const from = String(it.data?.status);
+      const from = String(it.data?.state);
       const kind = String(it.data?.kind);
       const allowed = /** @type {Record<string, string[]>} */ (TRANSITIONS)[from] ?? [];
       if (!allowed.includes(to)) {
@@ -449,32 +462,32 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
           `${id} is ${from}; the lifecycle allows ${allowed.join(', ') || 'no change'}, not ${to}`,
         );
       }
-      if (to === 'Dropped' && !String(reason ?? '').trim())
-        throw new Error('Dropped needs a reason');
-      if (to === 'In progress' && kind === 'work' && !it.data?.claimed) {
-        throw new Error(`claim ${id} to move it to In progress (hitld work claim)`);
+      if (to === 'dropped' && !String(reason ?? '').trim())
+        throw new Error('dropped needs a reason');
+      if (to === 'in-progress' && kind !== 'work') {
+        throw new Error(`${id} is a ${kind}; only work items are claimed (in-progress)`);
+      }
+      if (to === 'in-progress' && !it.data?.claimed_by) {
+        throw new Error(`claim ${id} to move it to in-progress (hitld work claim)`);
       }
       if (MILESTONE_KINDS.includes(kind)) {
-        if (to === 'In progress') {
-          throw new Error(`${id} is a milestone; items are claimed, milestones are not`);
-        }
         const m = readMilestone(/** @type {Record<string, unknown>} */ (it.data));
         const g = buildGraph(read());
         const roles = authorRoles([
           ...g.needs(/** @type {any} */ (it)),
           ...m.contributions.map((c) => c.id),
         ]);
-        if (to === 'Done' && !passingCheck(kind, m.results, roles)) {
+        if (to === 'done' && !passingCheck(kind, m.results, roles)) {
           throw new Error(
-            `${id} becomes Done only from a recorded passing check by a role other than its items' authors (${[...roles].join(', ')}); record the run in check_results`,
+            `${id} becomes done only from a recorded passing check by a role other than its items' authors (${[...roles].join(', ')}); record the run in check_results`,
           );
         }
       }
       /** @type {Record<string, unknown>} */
-      const changes = { status: to };
-      if (to === 'Dropped') changes.reason = String(reason).trim();
+      const changes = { state: to };
+      if (to === 'dropped') changes.reason = String(reason).trim();
       else changes.reason = null;
-      if (to === 'Planned') changes.claimed = null;
+      if (to === 'planned' && kind === 'work') changes.claimed_by = null;
       void via; // the file records the state; the commit that carries it is the caller's
       return rewrite(it, changes);
     },
@@ -485,7 +498,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       if (relation === 'needs') {
         if (MILESTONE_KINDS.includes(String(it.data?.kind))) {
           throw new Error(
-            `${from} is a milestone; a constraint names a clause ("<ID> c<n>"), so update its needs`,
+            `${from} is a milestone; a constraint names a clause ("<ID> c<n>"), so update its constraints`,
           );
         }
         const kind = String(target.data?.kind);
@@ -524,15 +537,16 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       for (const line of log.split('\n').filter(Boolean)) {
         const [commit, at] = line.split(' ');
         const text = git(root, ['show', `${commit}:${it.path}`], { allowFail: true });
-        const status = parseItem(text).data?.status;
-        if (typeof status !== 'string' || status === prev) continue;
+        // A commit from before HITLD-82 holds `status` with the old values: read in the new form.
+        const state = fromLegacy(parseItem(text).data)?.state;
+        if (typeof state !== 'string' || state === prev) continue;
         changes.push({
           at,
           from: /** @type {any} */ (prev),
-          to: /** @type {any} */ (status),
+          to: /** @type {any} */ (state),
           ref: { commit },
         });
-        prev = status;
+        prev = state;
       }
       return changes;
     },
@@ -542,6 +556,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
     // --- Beyond the interface -------------------------------------------------
 
     layout: () => layout,
+    warnings: () => loaded.warnings,
     root: () => root,
 
     /** Create an entity: allocate its ID and write its file. Orchestrator only. */
@@ -552,11 +567,11 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       if (!String(draft.title ?? '').trim()) throw new Error('title is required');
       const isItem = ITEM_KINDS.includes(kind);
       const isMilestone = MILESTONE_KINDS.includes(kind);
-      // The owner commits a milestone (design part 3.2), so a new one starts Proposed.
-      const state = String(draft.state ?? (isMilestone ? 'Proposed' : 'Planned'));
-      if (!['Planned', 'Proposed'].includes(state)) {
+      // The owner commits a milestone (design part 3.2), so a new one starts proposed.
+      const state = String(draft.state ?? (isMilestone ? 'proposed' : 'planned'));
+      if (!['planned', 'proposed'].includes(state)) {
         throw new Error(
-          'a new entity is Planned or Proposed (claim and close by the claim and close commands)',
+          'a new entity is planned or proposed (claim and close by the claim and close commands)',
         );
       }
       if (isItem && !draft.parent) throw new Error('an item needs a parent: the project ID');
@@ -566,8 +581,8 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
       if (kind === 'project' && !draft.parent)
         throw new Error('a project needs a parent: the initiative ID');
       if (kind === 'initiative' && draft.parent) throw new Error('an initiative has no parent');
-      if (kind === 'external' && !draft.party)
-        throw new Error('an external item needs party (who we wait on)');
+      if (kind === 'external' && !draft.waiting_on)
+        throw new Error('an external item needs waiting_on (who we wait on)');
       // Without a classification key, every file is the default classification. A draft more
       // restricted than that (or of no known level) would be published below its level, so it is
       // refused, never written.
@@ -590,14 +605,15 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         kind,
         state,
         parent: draft.parent,
-        needs: list(draft.needs),
+        needs: isMilestone ? undefined : list(draft.needs),
+        constraints: isMilestone ? list(draft.constraints ?? draft.needs) : undefined,
         parent_kind: isMilestone
           ? read().find((e) => e.data?.id === draft.parent)?.data?.kind
           : undefined,
         outcome: isMilestone ? draft.outcome : undefined,
-        party: kind === 'external' ? draft.party : undefined,
+        waiting_on: kind === 'external' ? draft.waiting_on : undefined,
         decider: kind === 'decision' ? (draft.decider ?? 'owner') : undefined,
-        lead: ['project', 'initiative'].includes(kind) ? (draft.lead ?? 'owner') : undefined,
+        owner: ['project', 'initiative'].includes(kind) ? (draft.owner ?? 'owner') : undefined,
         plan: kind === 'project' ? draft.plan : undefined,
         created: today(),
       };
@@ -655,14 +671,14 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
     /** Claims read from branches. */
     claims,
 
-    /** Release an abandoned claim on the main branch, with the reason. */
-    release: (
+    /** Give up an abandoned claim on the main branch, with the reason. */
+    unclaim: (
       /** @type {string} */ id,
       /** @type {string} */ reason,
       /** @type {string | undefined} */ branch,
-    ) => releaseClaim(root, layout, id, reason, { branch }),
+    ) => unclaimItem(root, layout, id, reason, { branch }),
 
-    /** Set an item to Done in the working tree and commit the file. */
+    /** Set an item to done in the working tree and commit the file. */
     close: (/** @type {string} */ id, /** @type {{ commit?: boolean } | undefined} */ options) =>
       closeItem(root, layout, id, options),
 
@@ -785,15 +801,15 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         );
       }
       put('lists.md', `${header}\n# Item lists\n\n${texts.lists}`);
-      if (!outDir && layout.listsReadme) {
-        const readme = insidePath(root, `${layout.workDir}/${layout.listsReadme}`);
+      if (!outDir && layout.listsFile) {
+        const readme = insidePath(root, `${layout.workDir}/${layout.listsFile}`);
         const g = buildGraph(read());
         const text = readNoFollow(readme);
         const next = replaceBetweenMarkers(text, renderLists(g, { linkBase: './' }));
         if (next !== text) {
           writeNoFollow(readme, next);
-          written.push(`${layout.listsReadme} (lists between ${LIST_BEGIN.slice(0, 22)} markers)`);
-        } else unchanged.push(layout.listsReadme);
+          written.push(`${layout.listsFile} (lists between ${LIST_BEGIN.slice(0, 22)} markers)`);
+        } else unchanged.push(layout.listsFile);
       }
       return { dir, written, unchanged };
     },

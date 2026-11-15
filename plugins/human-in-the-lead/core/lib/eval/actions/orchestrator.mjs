@@ -42,7 +42,7 @@ const ITEMS = {
 
 /** @param {string} id */
 const doneReport = (id) =>
-  `item: ${id}\nstatus: done\ncommit: abc1234 (branch hitld/${id})\nevidence:\n  - npm test: passed\nruns: none\ndeviations: none\ncalls: none\nquestions: none\n`;
+  `item: ${id}\nresult: done\ncommit: abc1234 (branch hitld/${id})\nevidence:\n  - npm test: passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n`;
 
 /** @type {Record<string, import('./builtin.mjs').Action>} */
 export const actions = {
@@ -105,7 +105,7 @@ export const actions = {
       return {
         dispatches: r.dispatches,
         max_running: r.maxRunning,
-        within_cap: r.maxRunning <= (fake.capabilities().parallelSubagents ? (input.cap ?? 3) : 1),
+        within_cap: r.maxRunning <= (fake.capabilities().parallel_subagents ? (input.cap ?? 3) : 1),
         remaining: r.remaining,
         order: r.trace.filter((t) => t.step === 'dispatch').map((t) => t.item),
         waits: fake.calls.filter((c) => c.method === 'onComplete').length,

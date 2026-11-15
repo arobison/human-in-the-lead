@@ -3,11 +3,11 @@
 
 /**
  * @typedef {{ item: string, branch: string | null }} Waiting
- * @typedef {{ item: string, branch: string | null, status: string | null, fast_check: string, waiting_since: string | null, waited_ms: number | null }} OwnerWaiting
+ * @typedef {{ item: string, branch: string | null, result: string | null, fast_check: string, waiting_since: string | null, waited_ms: number | null }} OwnerWaiting
  */
 
 /**
- * Branches waiting for the owner: the item, the report's status, the fast-check result so far and
+ * Branches waiting for the owner: the item, the report's result, the fast-check result so far and
  * how long each has waited (since its verification passed).
  * @param {Waiting[]} waiting @param {Record<string, any>[]} events @param {number} [now]
  * @returns {OwnerWaiting[]}
@@ -21,7 +21,7 @@ export function waitingForOwner(waiting, events, now = Date.now()) {
     return {
       item: w.item,
       branch: w.branch,
-      status: reported?.outcome ?? null,
+      result: reported?.result ?? null,
       // The queue runs the fast checks when it merges, so a waiting branch has none yet.
       fast_check: 'not run',
       waiting_since: since,

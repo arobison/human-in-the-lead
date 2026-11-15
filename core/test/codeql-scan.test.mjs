@@ -23,14 +23,14 @@ test('policy: this repository declares CodeQL, run from the primary checkout, wr
 
 /** @param {Record<string, string>} env */
 const run = (env) => {
-  const { HITLD_CODEQL: _c, HITLD_SARIF: _s, NODE_TEST_CONTEXT: _t, ...rest } = process.env;
+  const { HITLD_CODEQL_PATH: _c, HITLD_SARIF: _s, NODE_TEST_CONTEXT: _t, ...rest } = process.env;
   return spawnSync(process.execPath, [wrapper], { env: { ...rest, ...env }, encoding: 'utf8' });
 };
 
-test('wrapper: refuses without HITLD_CODEQL and says how to install the pinned version', () => {
+test('wrapper: refuses without HITLD_CODEQL_PATH and says how to install the pinned version', () => {
   const r = run({ HITLD_SARIF: '/nonexistent/out.sarif' });
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /HITLD_CODEQL is not set/);
+  assert.match(r.stderr, /HITLD_CODEQL_PATH is not set/);
   assert.match(r.stderr, /codeql-bundle-v2\.27\.4\/codeql-bundle-linux64\.tar\.gz/);
   assert.match(r.stderr, /89ed56c8ec6bfccef6a0d2e7fe86da0469ca24b4db08b88016ec134b942c17a4/);
 });
@@ -39,7 +39,7 @@ test('wrapper: refuses a CodeQL that is not the pinned version', () => {
   // A stand-in executable that reports another version.
   const r = run({
     HITLD_SARIF: '/nonexistent/out.sarif',
-    HITLD_CODEQL: '/bin/true',
+    HITLD_CODEQL_PATH: '/bin/true',
   });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /this repository pins 2\.27\.4/);

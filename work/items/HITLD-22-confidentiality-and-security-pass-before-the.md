@@ -2,7 +2,7 @@
 id: HITLD-22
 title: Confidentiality and security pass before the first push
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 ---

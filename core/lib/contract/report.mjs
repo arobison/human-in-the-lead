@@ -3,20 +3,38 @@
 
 import { schemas } from '../schema/registry.mjs';
 
-const FIELDS = ['item', 'status', 'commit', 'evidence', 'runs', 'deviations', 'calls', 'questions'];
-const LISTS = new Set(['evidence', 'runs', 'deviations', 'calls', 'questions']);
+const FIELDS = [
+  'item',
+  'result',
+  'commit',
+  'evidence',
+  'bench_runs',
+  'deviations',
+  'calls',
+  'questions',
+];
+const LISTS = new Set(['evidence', 'bench_runs', 'deviations', 'calls', 'questions']);
+/**
+ * The field names before HITLD-82, read with a warning until the next minor release: a report
+ * from an executor whose contract block predates the change.
+ */
+const OLD_FIELDS = /** @type {Record<string, string>} */ ({ status: 'result', runs: 'bench_runs' });
 const NONE = /^none$/i;
 const REVERSIBLE = /\s*\(reversible\)\.?\s*$/i;
 
 /**
  * Parse a report. `report` is the parsed data when there are no errors, else null.
  * One surrounding code fence is tolerated; any other text outside the shape is an error.
+ * A field under its name before HITLD-82 (`status`, `runs`) is read as the new one, with a
+ * warning.
  * @param {string} text
- * @returns {{ report: Record<string, any> | null, errors: string[] }}
+ * @returns {{ report: Record<string, any> | null, errors: string[], warnings: string[] }}
  */
 export function parseReport(text) {
   /** @type {string[]} */
   const errors = [];
+  /** @type {string[]} */
+  const warnings = [];
   let lines = String(text).replace(/\r\n?/g, '\n').trim().split('\n');
   if (lines.length >= 2 && /^```/.test(lines[0]) && lines.at(-1)?.trim() === '```') {
     lines = lines.slice(1, -1);
@@ -33,13 +51,16 @@ export function parseReport(text) {
       else errors.push(`a list entry outside a list field: ${line.trim()}`);
       continue;
     }
-    const head = /^([a-z]+):\s*(.*?)\s*$/.exec(line);
-    if (!head || !FIELDS.includes(head[1])) {
+    const head = /^([a-z_]+):\s*(.*?)\s*$/.exec(line);
+    const old = head ? OLD_FIELDS[head[1]] : undefined;
+    if (!head || !(FIELDS.includes(head[1]) || old)) {
       errors.push(`unexpected line: ${line.trim().slice(0, 80)}`);
       open = null;
       continue;
     }
-    const [, name, value] = head;
+    if (old) warnings.push(`${head[1]} is now ${old}: update the contract block (hitld install)`);
+    const name = old ?? head[1];
+    const value = head[2];
     if (name in raw) {
       errors.push(`${name} appears twice`);
       open = null;
@@ -56,14 +77,14 @@ export function parseReport(text) {
   for (const f of FIELDS) if (!(f in raw)) errors.push(`${f} is missing`);
 
   /** @type {Record<string, any>} */
-  const report = { item: raw.item, status: raw.status };
+  const report = { item: raw.item, result: raw.result };
   const c = /^([0-9a-f]+)(?:\s+\((?:branch\s+)?([^)]+)\))?$/i.exec(raw.commit ?? '');
   if (raw.commit === undefined) report.commit = null;
   else if (NONE.test(raw.commit)) report.commit = null;
   else if (c) report.commit = { sha: c[1], ...(c[2] ? { branch: c[2].trim() } : {}) };
   else errors.push(`commit must be "<sha> (branch <name>)" or "none": ${raw.commit}`);
 
-  for (const f of ['evidence', 'runs', 'deviations', 'questions']) {
+  for (const f of ['evidence', 'bench_runs', 'deviations', 'questions']) {
     /** @type {string[]} */
     const entries = raw[f] ?? [];
     report[f] = entries.length === 1 && NONE.test(entries[0]) ? [] : entries;
@@ -75,13 +96,14 @@ export function parseReport(text) {
     return { text: call.replace(REVERSIBLE, ''), reversible: true };
   });
 
-  if (errors.length) return { report: null, errors };
+  if (errors.length) return { report: null, errors, warnings };
   const checked = schemas().validate('report', report);
   if (checked.length) {
     return {
       report: null,
       errors: checked.map((e) => `${e.path || 'report'}: ${e.message}`),
+      warnings,
     };
   }
-  return { report, errors: [] };
+  return { report, errors: [], warnings };
 }

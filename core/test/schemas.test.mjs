@@ -28,14 +28,14 @@ const examples = {
   },
   // Design part 18.4: a feedback record, as `hitld feedback` writes it to the private store.
   feedback: {
-    schema_version: 1,
+    schema_version: 2,
     id: 'FB-1',
     kind: 'friction',
     words: 'That question was not worth asking.',
     created_at: '2026-11-14T12:00:00Z',
-    version: '0.1.0',
+    hitld_version: '0.1.0',
     harness: { name: 'claude-code', version: 'unknown' },
-    area: 'decision rights',
+    loop: 'decision rights',
     refs: ['W-3'],
     state: 'local',
     classification: 'confidential',
@@ -53,9 +53,9 @@ const examples = {
   // Part 13.4: the person file, with a declared limit and a share between projects.
   person: {
     schema_version: 1,
-    executors_max: 4,
+    max_executors: 4,
     quota: {
-      owner_reserve: 0.3,
+      reserve: 0.3,
       limits: [
         {
           id: 'api-monthly',
@@ -72,8 +72,8 @@ const examples = {
   // Part 13.4: the machine file.
   machine: {
     schema_version: 1,
-    role: 'workstation',
-    executors_max: 2,
+    kind: 'workstation',
+    max_executors: 2,
     cores: 4,
     memory_ceiling_mb: 8192,
     capacity: { gpu: 4 },
@@ -97,7 +97,6 @@ const examples = {
       milestone: 'milestones',
       release: 'releases',
     },
-    main_branch: 'main',
     optional_keys: ['touches', 'estimate_tokens'],
   },
   // Design part 3.2, Milestones and releases.
@@ -107,11 +106,11 @@ const examples = {
     kind: 'capability',
     title: 'Config errors explained',
     parent: 'W-201',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
     outcome: 'A user with a bad config file sees which key is wrong and why.',
     done_when: [{ id: 'c1', text: 'An unknown key exits with status 2 and names the key.' }],
-    needs: [
+    constraints: [
       { id: 'W-214', clause: 'c1' },
       { id: 'W-215', clause: null },
     ],
@@ -134,7 +133,7 @@ const examples = {
     version: '0.4.0-rc.1',
     previous: 'v0.3.2',
     bump: 'minor',
-    interface_delta: [{ impact: 'additive', area: 'schemas', what: 'item gains changelog' }],
+    interface_delta: [{ impact: 'additive', surface: 'schemas', what: 'item gains release_note' }],
     decision: 'owner',
     items: ['W-214'],
     milestones: ['W-230'],
@@ -147,7 +146,7 @@ const examples = {
     kind: 'work',
     title: 'Cache responses by request key',
     parent: 'W-201',
-    state: 'Planned',
+    state: 'planned',
     area: 'cache',
     category: 'platform',
     needs: ['W-209', 'W-213'],
@@ -185,7 +184,7 @@ const examples = {
     id: 'W-412',
     kind: 'decision',
     title: 'Response cache key and locale',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
     question: 'Should the response cache key include the locale?',
     context: 'Keys without it are stable across driver updates.',
@@ -203,7 +202,7 @@ const examples = {
     id: 'W-1',
     kind: 'initiative',
     title: 'Request pipeline',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
   },
   project: {
@@ -212,7 +211,7 @@ const examples = {
     kind: 'project',
     title: 'Response cache',
     parent: 'W-1',
-    state: 'Planned',
+    state: 'planned',
     owner: 'owner',
     classification: 'public',
   },
@@ -234,7 +233,7 @@ const examples = {
     rule: 'When a dependency has a permissive licence, allow it.',
     conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
     sources: ['W-300'],
-    scope: 'project',
+    scope: 'all',
     state: 'active',
     classification: 'public',
   },
@@ -251,7 +250,7 @@ const examples = {
     schema_version: 1,
     id: 'C-3',
     identities: [{ source: 'github', handle: 'someone' }],
-    trust_level: 'T1',
+    trust_level: 'L1',
     classification: 'internal',
   },
   'ledger-entry': {
@@ -262,18 +261,18 @@ const examples = {
     item: 'W-214',
     tier: 2,
     at: '2026-11-14T03:00:00Z',
-    outcome: 'done',
+    result: 'done',
     tokens: null,
     commit: '3f9c2a1',
   },
   'run-state': {
     schema_version: 1,
     run: { id: '2026-11-14-1', started_at: '2026-11-14T03:00:00Z' },
-    scope: { items: ['W-214'], concurrency_cap: 3 },
+    scope: { items: ['W-214'], max_executors: 3 },
     in_flight: [],
     ledger_position: null,
-    open_questions: [],
-    decisions_this_run: [],
+    decisions_open: [],
+    decisions_answered: [],
     controllers: {},
     quotas: null,
     merge_queue: { waiting: [], batch: null },
@@ -294,7 +293,7 @@ const examples = {
     verdict: null,
     classification: 'internal',
   },
-  run: {
+  'bench-run': {
     schema_version: 1,
     id: 'R-1203',
     commit: 'abcdef1',
@@ -305,7 +304,7 @@ const examples = {
   'eval-scenario': {
     schema_version: 1,
     id: 'foundation/policy-check',
-    piece: 'foundation',
+    suite: 'foundation',
     category: 'policy',
     description: 'hitld check policy accepts a valid policy.',
     mode: 'offline',
@@ -328,10 +327,10 @@ const examples = {
     scenarios: [
       {
         id: 'foundation/policy-check',
-        piece: 'foundation',
+        suite: 'foundation',
         category: 'policy',
         profile: 'none',
-        status: 'pass',
+        result: 'pass',
         score: 1,
         graders: [
           { id: 'ok', grader: 'equals', passed: true, message: 'steps.check.result.ok is true' },
@@ -391,8 +390,8 @@ for (const [id, example] of Object.entries(examples)) {
 }
 
 test('free-form data is still checked for code-running keys', () => {
-  const errors = registry.validateEntity('run', {
-    ...examples.run,
+  const errors = registry.validateEntity('bench-run', {
+    ...examples['bench-run'],
     configuration: { steps: [{ post_run: 'rm -rf ~' }] },
   });
   assert.equal(errors[0].path, 'configuration.steps[0].post_run');
@@ -430,12 +429,12 @@ test('a public judgement carries what, basis and who; the time is not public', (
     registry.validateEntity('signal', { ...signal, judgements: [j] });
   assert.deepEqual(check(judgement), []);
   assert.ok(check({ ...judgement, at: '2026-11-14' }).length, 'the time is private');
-  assert.ok(check({ what: judgement.what, basis: judgement.basis }).length, 'who is required');
+  assert.ok(check({ what: judgement.what, basis: judgement.reason }).length, 'who is required');
   assert.ok(check({ ...judgement, confidence: 0.7 }).length, 'private fields are not public');
 });
 
 test('item states are the five of the reference format', () => {
-  for (const state of ['Proposed', 'Planned', 'In progress', 'Done', 'Dropped']) {
+  for (const state of ['proposed', 'planned', 'in-progress', 'done', 'dropped']) {
     assert.deepEqual(registry.validateEntity('item', { ...examples.item, state }), [], state);
   }
   assert.equal(registry.validateEntity('item', { ...examples.item, state: 'Open' }).length, 1);

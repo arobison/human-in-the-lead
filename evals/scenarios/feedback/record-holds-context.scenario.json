@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/record-holds-context",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "hitld feedback records the person's words verbatim, and captures without being told the plugin version, the harness and its version (unknown offline), the loop from the ledger entries for the refs, what happened and the evidence. The record is confidential, in the local state, valid against its schema, and shows in the waiting list.",
   "mode": "offline",
@@ -63,7 +63,10 @@
     {
       "id": "version-captured",
       "grader": "matches",
-      "with": { "path": "steps.fb.result.record.version", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+" }
+      "with": {
+        "path": "steps.fb.result.record.hitld_version",
+        "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+"
+      }
     },
     {
       "id": "harness-captured",
@@ -76,7 +79,7 @@
     {
       "id": "loop-from-refs",
       "grader": "equals",
-      "with": { "path": "steps.fb.result.record.area", "value": "dispatch" }
+      "with": { "path": "steps.fb.result.record.loop", "value": "dispatch" }
     },
     {
       "id": "what-happened-from-ledger",

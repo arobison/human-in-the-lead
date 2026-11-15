@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/malformed-ref-reported",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "A malformed ref is reported by name and nothing is recorded, never dropped silently. A well-formed ref with no ledger entry is kept on the record and listed as unmatched.",
   "mode": "offline",

@@ -1,7 +1,7 @@
 {
   "$id": "decision",
   "title": "Decision",
-  "description": "An item of kind decision: a question for a decider (design part 3.2). Proposed while being framed, Planned once asked, Done when answered, Dropped if mooted. Derived fields (blocks, cost_of_delay_rate) are never stored.",
+  "description": "An item of kind decision: a question for a decider (design part 3.2). proposed while being framed, planned once asked, done when answered, dropped if mooted; never in-progress. Derived fields (blocks, cost_of_delay_rate) are never stored.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
@@ -21,10 +21,10 @@
       "$ref": "common#/$defs/id"
     },
     "state": {
-      "$ref": "common#/$defs/itemState"
+      "$ref": "common#/$defs/plannedState"
     },
     "owner": {
-      "description": "The human accountable, if not the project owner.",
+      "description": "Who is accountable for this record. Defaults to the owner: the person who holds the project's decision rights.",
       "$ref": "common#/$defs/person"
     },
     "area": {

@@ -29,7 +29,7 @@ import { loadSettingsFile } from './files.mjs';
  * @typedef {'person' | 'machine' | 'project' | 'run' | 'default'} Layer
  * @typedef {{ layer: string, value: unknown, why: string }} Overridden
  * @typedef {{ key: string, value: unknown, layer: string, overridden: Overridden[] }} Entry
- * @typedef {{ path: string, home: 'person' | 'machine', message: string }} MovedWarning
+ * @typedef {{ path: string, home: 'person' | 'machine' | 'project', message: string }} MovedWarning
  *
  * @typedef {object} Layers
  * @property {Record<string, any>} project the project's policy merged with the defaults
@@ -55,10 +55,10 @@ import { loadSettingsFile } from './files.mjs';
  */
 export const MOVED_KEYS = Object.freeze([
   { path: 'quota.limits', home: 'person', still: 'set run budgets (window: run)' },
-  { path: 'quota.owner_reserve', home: 'person', still: 'set a larger reserve' },
-  { path: 'quota.economize_at', home: 'person', still: 'set an earlier threshold' },
-  { path: 'quota.critical_at', home: 'person', still: 'set an earlier threshold' },
-  { path: 'quota.notify_at', home: 'person', still: 'add notification shares' },
+  { path: 'quota.reserve', home: 'person', still: 'set a larger reserve' },
+  { path: 'quota.economize_below', home: 'person', still: 'set an earlier threshold' },
+  { path: 'quota.critical_below', home: 'person', still: 'set an earlier threshold' },
+  { path: 'quota.notify_used', home: 'person', still: 'add notification shares' },
   { path: 'quota.forecast_hours', home: 'person', still: 'nothing' },
   { path: 'env.port_range', home: 'machine', still: 'narrow it to a sub-range' },
   { path: 'env.worktree_root', home: 'machine', still: 'name a subdirectory under it' },
@@ -104,16 +104,16 @@ function largest(key, set, fallback) {
 function capEntry(l) {
   /** @type {[Layer, number][]} */
   const set = [];
-  const person = get(l.person, 'executors_max');
+  const person = get(l.person, 'max_executors');
   if (typeof person === 'number')
     set.push(['person', Math.max(0, person - (l.running?.person ?? 0))]);
-  const machine = get(l.machine, 'executors_max');
+  const machine = get(l.machine, 'max_executors');
   if (typeof machine === 'number') {
     set.push(['machine', Math.max(0, machine - (l.running?.machine ?? 0))]);
   }
-  const projectSet = get(l.raw, 'execution.concurrency.value') !== undefined;
-  set.push([projectSet ? 'project' : 'default', l.project.execution.concurrency.value]);
-  const run = get(l.run, 'concurrency_cap');
+  const projectSet = get(l.raw, 'execution.max_executors.value') !== undefined;
+  set.push([projectSet ? 'project' : 'default', l.project.execution.max_executors.value]);
+  const run = get(l.run, 'max_executors');
   if (typeof run === 'number') set.push(['run', run]);
   const [layer, value] = set.reduce((best, c) => (c[1] < best[1] ? c : best));
   return {
@@ -389,7 +389,7 @@ export function effectiveSettings(l) {
   const cap = capEntry(l);
   /** @type {Entry[]} */
   const values = [cap];
-  for (const k of ['owner_reserve', 'economize_at', 'critical_at']) {
+  for (const k of ['reserve', 'economize_below', 'critical_below']) {
     values.push(
       largest(
         `quota.${k}`,
@@ -402,13 +402,13 @@ export function effectiveSettings(l) {
     );
   }
   const notify = /** @type {[Layer, number[] | undefined][]} */ ([
-    ['person', get(l.person, 'quota.notify_at')],
-    ['project', get(l.raw, 'quota.notify_at')],
+    ['person', get(l.person, 'quota.notify_used')],
+    ['project', get(l.raw, 'quota.notify_used')],
   ]).filter(([, v]) => Array.isArray(v));
   values.push(
     notify.length
       ? {
-          key: 'quota.notify_at',
+          key: 'quota.notify_used',
           value: [...new Set(notify.flatMap(([, v]) => /** @type {number[]} */ (v)))].sort(
             (a, b) => a - b,
           ),
@@ -416,8 +416,8 @@ export function effectiveSettings(l) {
           overridden: [],
         }
       : {
-          key: 'quota.notify_at',
-          value: defaults.quota.notify_at,
+          key: 'quota.notify_used',
+          value: defaults.quota.notify_used,
           layer: 'default',
           overridden: [],
         },
@@ -459,7 +459,13 @@ export function effectiveSettings(l) {
 
   const policy = structuredClone(l.project);
   const valueOf = (/** @type {string} */ key) => values.find((e) => e.key === key)?.value;
-  for (const k of ['owner_reserve', 'economize_at', 'critical_at', 'notify_at', 'forecast_hours']) {
+  for (const k of [
+    'reserve',
+    'economize_below',
+    'critical_below',
+    'notify_used',
+    'forecast_hours',
+  ]) {
     policy.quota[k] = valueOf(`quota.${k}`);
   }
   policy.quota.limits = limits.limits;
@@ -534,12 +540,29 @@ export function loadEffectivePolicy(options = {}) {
     project: loaded.policy,
     policy: errors.length ? null : eff.policy,
     errors,
-    warnings: movedKeyWarnings(layers, { person: person.path, machine: machine.path }),
+    warnings: [
+      ...movedKeyWarnings(layers, { person: person.path, machine: machine.path }),
+      ...renamedWarnings(loaded.renamed, person.renamed, machine.renamed),
+    ],
     settings: { cap: eff.cap, values: eff.values },
     layers: { person: person.data, machine: machine.data },
     files,
   };
 }
+
+/**
+ * The warnings for settings read under their names before HITLD-82.
+ * @param {...(import('./renamed.mjs').RenamedSetting[] | undefined)} lists
+ * @returns {MovedWarning[]}
+ */
+const renamedWarnings = (...lists) =>
+  lists.flatMap((l, i) =>
+    (l ?? []).map((r) => ({
+      path: r.from,
+      home: /** @type {MovedWarning['home']} */ (['project', 'person', 'machine'][i]),
+      message: r.message,
+    })),
+  );
 
 /** A value for people: limits and ranges in words, everything else as JSON. @param {any} v */
 const show = (v) => {

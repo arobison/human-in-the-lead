@@ -63,7 +63,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
     schema_version: 1,
     kind: 'work',
     title: 'Fix report padding',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
   });
 
@@ -75,7 +75,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
   assert.equal(asked.route.rule.id, 'rights.rules.security');
   const decision = tracker.get(asked.decision);
   assert.equal(decision.kind, 'decision');
-  assert.equal(decision.state, 'Planned');
+  assert.equal(decision.state, 'planned');
   assert.equal(decision.decider, 'owner');
   assert.equal(decision.rights_basis, 'security');
   assert.deepEqual(
@@ -99,7 +99,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
   assert.equal(answered.precedent.id, 'P-1');
   assert.equal(answered.precedent.stored_in, 'repository');
   const done = tracker.get(asked.decision);
-  assert.equal(done.state, 'Done');
+  assert.equal(done.state, 'done');
   assert.equal(done.answer, 'A. Add it: one small dependency, MIT licensed');
   assert.equal(done.answered_via, 'remote-control');
   assert.equal(done.precedent, 'P-1');
@@ -129,11 +129,11 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
     /^Resolved by precedent P-1: When a new dependency has a permissive licence/,
   );
   const resolved = tracker.get(later.decision);
-  assert.equal(resolved.state, 'Done');
+  assert.equal(resolved.state, 'done');
   assert.equal(resolved.resolved_by_precedent, 'P-1');
   assert.equal(resolved.answered_via, 'precedent');
   assert.equal(
-    tracker.query({ kind: 'decision', state: 'Planned' }).length,
+    tracker.query({ kind: 'decision', state: 'planned' }).length,
     0,
     'the decider was not asked',
   );
@@ -158,7 +158,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
     paths: ['package.json'],
     tags: ['dependency-licence', 'npm'],
   });
-  assert.equal(precedents.get('P-1')?.state, 'narrowed');
+  assert.equal(precedents.get('P-1')?.state, 'active');
   assert.equal(listApplications(project)[0].overruled, true);
 
   const sameAgain = askQuestion(
@@ -249,7 +249,7 @@ test('a question with several fitting precedents goes to the decider with them c
       rule: `Rule ${id}: allow permissively licensed dependencies.`,
       conditions: { rights_basis: ['security'] },
       sources: ['W-1'],
-      scope: 'project',
+      scope: 'all',
       decider: 'owner',
       state: 'active',
       classification: 'public',
@@ -323,7 +323,7 @@ test('only an open decision takes an answer', () => {
     schema_version: 1,
     kind: 'work',
     title: 'x',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
   });
   assert.equal(answerDecision(project, { decision: work, answer: 'A' }).error, 'not_a_decision');
@@ -457,7 +457,7 @@ test('trust-calibration data: reversals, worth-asking ratings, overrules, per ar
   overrule(project, { decision: later.decision, why: 'no' });
   recordReversal(project, {
     subject: 'logged-call-7',
-    what: 'logged-call',
+    subject_kind: 'logged-call',
     area: 'cache',
     note: 'wrong default',
   });

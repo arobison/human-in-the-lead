@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/refuses-worktree-path",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "A feedback record is confidential, so hitld feedback refuses a store that resolves into the repository or a worktree, and writes nothing there.",
   "mode": "offline",

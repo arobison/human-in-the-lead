@@ -73,7 +73,7 @@ const memoryBackend = (drop) => (fields) => {
       const entity = {
         ...(drop === 'create' ? withoutDeclared(draft) : draft),
         id,
-        state: 'Planned',
+        state: 'planned',
       };
       for (const k of declared.keys()) if (entity[k] !== undefined) checked(k, entity[k]);
       store.set(id, { ...entity, version: '1' });

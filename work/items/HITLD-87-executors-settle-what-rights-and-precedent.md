@@ -2,7 +2,7 @@
 id: HITLD-87
 title: Executors settle what rights and precedent settle before asking
 kind: work
-status: Planned
+state: planned
 created: 2026-11-15
 project: HITLD-15
 ---

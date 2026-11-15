@@ -2,12 +2,12 @@
 id: HITLD-40
 title: Machine-wide registry of live executors and per-account usage, with the merge queue lock per repository
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37]
-claimed: D-40
-changelog: "A machine-wide registry counts live executors from every project against the person's and the machine's caps, shares usage readings per account, and locks the merge queue per repository."
+claimed_by: D-40
+release_note: "A machine-wide registry counts live executors from every project against the person's and the machine's caps, shares usage readings per account, and locks the merge queue per repository."
 ---
 
 ## Why

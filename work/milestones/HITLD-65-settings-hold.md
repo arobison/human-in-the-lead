@@ -2,10 +2,10 @@
 id: HITLD-65
 title: Settings hold
 kind: capability
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
-needs: [HITLD-37 c?, HITLD-38 c?, HITLD-39 c?, HITLD-40 c?]
+constraints: [HITLD-37 c?, HITLD-38 c?, HITLD-39 c?, HITLD-40 c?]
 ---
 
 ## Notes

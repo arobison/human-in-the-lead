@@ -67,7 +67,7 @@ export function preLabelOf(version) {
 /** The text of a record body's "## Notes" section. @param {string} body */
 export function notesOf(body) {
   const m = /(?:^|\n)## Notes\n([\s\S]*?)(?=\n## |$)/.exec(body);
-  return m ? m[1].trim() || 'No changelog lines.' : 'No changelog lines.';
+  return m ? m[1].trim() || 'No release notes.' : 'No release notes.';
 }
 
 /**
@@ -203,7 +203,7 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
     out.warnings.push(...p.warnings);
     if (p.version !== version) {
       problems.push(
-        `${tag} is not the next release: at the parent, release propose${label ? ` --pre ${label}` : ''} gives ${p.version} (${p.basis})`,
+        `${tag} is not the next release: at the parent, release propose${label ? ` --pre ${label}` : ''} gives ${p.version} (${p.reason})`,
       );
     }
     if ((d.previous ?? null) !== p.base) {

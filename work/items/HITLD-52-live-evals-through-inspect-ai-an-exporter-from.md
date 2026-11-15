@@ -2,7 +2,7 @@
 id: HITLD-52
 title: "Live evals through Inspect AI: an exporter from our scenarios, OpenTelemetry GenAI traces"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

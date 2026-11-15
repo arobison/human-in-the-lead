@@ -1,28 +1,28 @@
 // Milestones in the files backend (design part 3.2, Milestones and releases).
 //
-// A milestone is a setpoint: an outcome, "done when" clauses, constraints (`needs`, each linked to
-// a clause), contributions (`contributions`, with a value and a confidence), an appetite, an optional
+// A milestone is a setpoint: an outcome, "done when" clauses, constraints (`constraints`, each
+// linked to a clause), contributions (`contributions`, with a value and a confidence), an appetite, an optional
 // external deadline and an independent check. The front matter holds strings and lists of strings
 // only (frontmatter.mjs), so each structured entry is one line of text in a fixed form:
 //
 //   done_when:     "c1: <text>"
-//   needs:         "<ID> c1"          a constraint linked to clause c1
+//   constraints:   "<ID> c1"          a constraint linked to clause c1
 //                  "<ID> c?"          a constraint still to be linked to a clause at shaping
 //   contributions:        "<ID> value=<number above 0> confidence=<0 to 1>"
 //                  value is in the project's value units (design part 2), as an opportunity's is;
 //                  1, 2, 3, 5, 8 and 13 are quick choices, not the only values
 //   check:         "<demo|integration-test|study> <target>"
-//   check_results: "<pass|fail|verdict> <YYYY-MM-DD> <role>: <evidence>"
+//   check_results: "<pass|fail|answered> <YYYY-MM-DD> <role>: <evidence>"
 //   deadline:      "<YYYY-MM-DD> <source>"
 //
-// This module parses and writes those lines, and computes the derived fields: error, check_due,
+// This module parses and writes those lines, and computes the derived fields: unmet_clauses, check_due,
 // scope, tokens_spent, cost_of_delay_rate and to_shape for a milestone; constraint_of and
 // contributes_to for an item. Derived fields are computed on every read and never written.
 
 export const MILESTONE_KINDS = ['capability', 'learning'];
-export const MILESTONE_STATES = ['Proposed', 'Planned', 'Done', 'Dropped'];
+export const MILESTONE_STATES = ['proposed', 'planned', 'done', 'dropped'];
 export const CHECK_KINDS = ['demo', 'integration-test', 'study'];
-export const CHECK_RESULTS = ['pass', 'fail', 'verdict'];
+export const CHECK_RESULTS = ['pass', 'fail', 'answered'];
 /** The clause marker of a constraint still to be linked at shaping. */
 export const UNLINKED = 'c?';
 /** The role that writes items; its runs of a check never count (design part 6.2). */
@@ -142,7 +142,7 @@ export function readMilestone(d) {
     return /** @type {T} */ (r);
   };
   const clauses = each('done_when', parseClause);
-  const constraints = each('needs', parseConstraint);
+  const constraints = each('constraints', parseConstraint);
   const contributions = each('contributions', parseContribution);
   const check = one('check', parseCheck);
   const results = each('check_results', parseCheckResult);
@@ -159,13 +159,13 @@ export function readMilestone(d) {
   }
   for (const c of constraints) {
     if (c.clause !== null && !ids.includes(c.clause)) {
-      problems.push(`needs ${c.id} names clause ${c.clause}, which done_when doesn't have`);
+      problems.push(`constraints ${c.id} names clause ${c.clause}, which done_when doesn't have`);
     }
   }
   const seen = new Set();
   for (const c of constraints) {
     const k = `${c.id} ${c.clause}`;
-    if (seen.has(k)) problems.push(`needs ${c.id} ${c.clause ?? UNLINKED} appears twice`);
+    if (seen.has(k)) problems.push(`constraints ${c.id} ${c.clause ?? UNLINKED} appears twice`);
     seen.add(k);
   }
   const served = contributions.map((c) => c.id);
@@ -217,7 +217,7 @@ export function storedMilestoneField(key, v) {
     strings(Array.isArray(v) ? v.map((x) => (typeof x === 'object' ? f(x) : x)) : v);
   if (v === null || v === undefined) return v;
   if (key === 'done_when') return many(formatClause);
-  if (key === 'needs' && Array.isArray(v) && v.some((x) => typeof x === 'object')) {
+  if (key === 'constraints' && Array.isArray(v) && v.some((x) => typeof x === 'object')) {
     return many(formatConstraint);
   }
   if (key === 'contributions') return many(formatContribution);
@@ -240,7 +240,7 @@ export function milestoneFields(d) {
   const e = {};
   if (m.outcome !== undefined) e.outcome = m.outcome;
   if (d.done_when !== undefined) e.done_when = m.clauses;
-  if (d.needs !== undefined) e.needs = m.constraints;
+  if (d.constraints !== undefined) e.constraints = m.constraints;
   if (d.contributions !== undefined) e.contributions = m.contributions;
   if (m.appetite !== undefined) e.appetite_tokens = m.appetite;
   if (m.deadline) e.deadline = m.deadline;
@@ -251,21 +251,21 @@ export function milestoneFields(d) {
 
 /**
  * Whether the milestone's check has passed: for a capability, its latest pass or fail is a pass;
- * for a learning milestone, its study has a verdict, whatever it says. A run by a role that wrote
+ * for a learning milestone, its study is answered (has a verdict), whatever the answer. A run by a role that wrote
  * its items never counts.
  * @param {string} kind @param {CheckResult[]} results @param {Set<string>} authorRoles
  * @returns {CheckResult | null} the run that passed it
  */
 export function passingCheck(kind, results, authorRoles) {
   const independent = results.filter((r) => !authorRoles.has(r.role));
-  if (kind === 'learning') return independent.find((r) => r.result === 'verdict') ?? null;
+  if (kind === 'learning') return independent.find((r) => r.result === 'answered') ?? null;
   const last = independent.filter((r) => r.result === 'pass' || r.result === 'fail').at(-1);
   return last?.result === 'pass' ? last : null;
 }
 
 /**
  * @typedef {object} MilestoneDerived
- * @property {{ clause: string | null, text: string | null, open: string[], checked: boolean }[]} error
+ * @property {{ clause: string | null, text: string | null, open: string[], checked: boolean }[]} unmet_clauses
  *   the unmet clauses: each with its constraints not Done, and whether the check has passed;
  *   constraints still to be linked show under clause null
  * @property {boolean} check_due every constraint is Done and the check has not passed
@@ -289,20 +289,20 @@ export function passingCheck(kind, results, authorRoles) {
  */
 export function milestoneDerived(d, { get, authorRoles, tokens, rates }) {
   const m = readMilestone(d);
-  const status = String(d.status);
-  const closed = status === 'Done' || status === 'Dropped';
-  const done = (/** @type {string} */ id) => get(id)?.status === 'Done';
+  const state = String(d.state);
+  const closed = state === 'done' || state === 'dropped';
+  const done = (/** @type {string} */ id) => get(id)?.state === 'done';
   const passed = passingCheck(String(d.kind), m.results, authorRoles) !== null;
-  /** @type {MilestoneDerived['error']} */
-  const error = [];
+  /** @type {MilestoneDerived['unmet_clauses']} */
+  const unmet = [];
   if (!closed) {
     for (const c of m.clauses) {
       const open = m.constraints.filter((x) => x.clause === c.id && !done(x.id)).map((x) => x.id);
-      if (open.length || !passed) error.push({ clause: c.id, text: c.text, open, checked: passed });
+      if (open.length || !passed) unmet.push({ clause: c.id, text: c.text, open, checked: passed });
     }
     const unlinked = m.constraints.filter((x) => x.clause === null && !done(x.id));
     if (unlinked.length) {
-      error.push({ clause: null, text: null, open: unlinked.map((x) => x.id), checked: passed });
+      unmet.push({ clause: null, text: null, open: unlinked.map((x) => x.id), checked: passed });
     }
   }
   const allDone = constraintIds(m).every(done);
@@ -312,7 +312,7 @@ export function milestoneDerived(d, { get, authorRoles, tokens, rates }) {
   };
   const constraintTokens = constraintIds(m).reduce((sum, id) => sum + (estimate(id) ?? 0), 0);
   const appetite = m.appetite ?? null;
-  const live = m.contributions.filter((c) => get(c.id)?.status !== 'Dropped');
+  const live = m.contributions.filter((c) => get(c.id)?.state !== 'dropped');
   const unsized = live.filter((c) => estimate(c.id) === null).map((c) => c.id);
   const sized = live
     .filter((c) => estimate(c.id) !== null)
@@ -345,7 +345,7 @@ export function milestoneDerived(d, { get, authorRoles, tokens, rates }) {
     if (unlinked.length) toShape.push(`link ${unlinked.join(', ')} to a clause`);
   }
   return {
-    error,
+    unmet_clauses: unmet,
     check_due: !closed && allDone && !passed,
     scope: {
       appetite_tokens: appetite,

@@ -47,20 +47,20 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 
 | Command | Does |
 |---|---|
-| `hitld work new / show / query / claim / release / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
+| `hitld work new / show / query / claim / unclaim / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
 | `hitld work migrate [--dry-run]` | Apply the tracker format migrations to every file; idempotent; the dry run prints the diff. Registered: `milestone-entities`, `retire-priority` |
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
 | `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, initiatives, critical path, milestones, unreleased, lists, dependency diagrams) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
 | `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection |
-| `hitld ledger append / tail / inflight / summary` | Ledger operations; `inflight` for restart; `summary` for the run report |
-| `hitld rights <question.json>` | Which decider, by which rule |
+| `hitld ledger append / tail / in-flight / summary` | Ledger operations; `in-flight` for restart; `summary` for the run report |
+| `hitld rights who --file <question.json>` | Which decider, by which rule |
 | `hitld precedent match <question.json>` | Candidate precedents |
 | `hitld intake pull <source>` and `hitld note <text>` | Pull raw signals into quarantine; record an owner's note |
 | `hitld kb search / index / stale / orphans / links / check` | The knowledge base tool ([part 8](08-knowledge-base.md#85-the-kb-tool)) |
 | `hitld metrics`, `hitld control evaluate` | Measures; controllers inside bounds |
-| `hitld eval [--offline | --live] [--harness h] [--sealed]` | The eval suite ([part 17](17-evals.md)); built: `--offline`, `eval report`, `eval accept --run` |
+| `hitld eval [--offline | --live] [--harness h] [--sealed]` | The eval suite ([part 17](17-evals.md)); built: `--offline`, `eval report`, `eval accept --result` |
 | `hitld config explain / write` | Each effective setting and the layer it came from; write the person or machine file after validating it ([part 13](13-operations.md#134-settings-in-four-layers)) |
 | `hitld machine detect` (planned) | Probe this machine and propose a machine profile for the person to confirm |
 | `hitld check contract / policy` | `AGENTS.md` contract present and current, and imported by `CLAUDE.md` if one exists; `policy.json` valid within bounds |
@@ -68,14 +68,14 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
-| `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its basis, draft notes, items that changed public surface without a changelog line, unmet gates ([3.2](03-data-model.md#release)) |
+| `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its reason, draft notes, items that changed public surface without a `release_note` line, unmet gates ([3.2](03-data-model.md#release)) |
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
 | `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
-Built as well: `run`, `env`, `handover`, `rights ask / answer`, `quota`, `report`, `eval accept` and `merge --only`. `hitld --help` lists every built command; this table is the design, not the list.
+Built as well: `run`, `env`, `handover`, `rights ask / answer`, `quota`, `dashboard`, `eval accept` and `merge --only`. `hitld --help` lists every built command; this table is the design, not the list.
 
 ## 16.3 How a consuming project gets the plugin
 
@@ -162,7 +162,8 @@ Compatibility rules for data:
 - **Every data file and ledger line carries `schema_version`.**
 - **From 1.0, minor and patch releases** read every older schema version of the same major, and write only formats that the previous minor release can still read. New fields are optional with defaults.
 - **Major releases** may change formats. Each ships `hitld data migrate` and `hitld work migrate` where it changes data files or the tracker format; each rewrites its files in one reviewable commit, and `hitld work check` names files that still need it.
-- **The ledger is never rewritten.** It is append-only, so readers handle every schema version that appears in it.
+- **The ledger is never rewritten.** It is append-only, so readers handle every schema version that appears in it, and every name it ever used (HITLD-82: `claimed`, `question`, `released`, `outcome` and `handle` are read as `started`, `asked`, `unclaimed`, `result` and `harness_ref`).
+- **A rename is read under the old name for one minor release, with a warning**, wherever the data lives outside the repository: private-store records (feedback, run state, the environment manager's holders file), eval results and baselines, precedent files, the person and machine files (`hitld config migrate` rewrites those two) and `policy.json`. Tracker files move with `hitld work migrate`; claim branches, file history and release tags from before are read in the new names. `hitld install` rewrites the contract block.
 - **No writing ahead.** A release refuses to write a file whose `schema_version` is newer than it knows, so a machine on an older pin cannot corrupt data written by a newer one (relevant when two machines exchange bundles).
 - **`policy.json` migrations** add new settings with their defaults and bounds; they never change a value the owner set.
 

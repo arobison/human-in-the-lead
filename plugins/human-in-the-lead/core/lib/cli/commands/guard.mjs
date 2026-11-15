@@ -14,7 +14,7 @@ export const commands = [
     name: 'check classification',
     summary:
       "The commit guard: refuse files above the repository's classification ceiling, naming the file and the rule. --staged checks the next commit (the pre-commit hook); without it, the whole tree",
-    piece: 'first-release',
+    built_by: 'first-release',
     args: [
       {
         name: 'staged',

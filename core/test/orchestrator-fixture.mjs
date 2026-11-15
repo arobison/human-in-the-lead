@@ -78,16 +78,16 @@ export const STATUS_INPUT = (/** @type {string} */ dir) =>
 
 /**
  * A report in the fixed shape.
- * @param {{ item: string, sha: string, branch: string, status?: string, questions?: string }} r
+ * @param {{ item: string, sha: string, branch: string, result?: string, questions?: string }} r
  */
 export const report = (r) =>
   [
     `item: ${r.item}`,
-    `status: ${r.status ?? 'done'}`,
+    `result: ${r.result ?? 'done'}`,
     `commit: ${r.sha} (branch ${r.branch})`,
     'evidence:',
     '  - node --test test/: 1 passed',
-    'runs: none',
+    'bench_runs: none',
     'deviations: none',
     'calls: none',
     `questions: ${r.questions ?? 'none'}`,

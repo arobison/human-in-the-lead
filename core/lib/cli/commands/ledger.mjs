@@ -60,9 +60,9 @@ function setup(input, ctx) {
     store: openStore(root),
     hash: loaded.hash,
     projectId: loaded.policy?.project.id ?? null,
-    concurrency: policy.execution?.concurrency?.value,
+    concurrency: policy.execution?.max_executors?.value,
     kept: policy.run?.checkpoints_kept,
-    expirySeconds: policy.run?.lease_expiry,
+    expirySeconds: policy.run?.lease_expiry_seconds,
     cwd: ctx.cwd,
   };
 }
@@ -92,16 +92,16 @@ async function guarded(fn) {
 
 /**
  * The only events raw append may write: about decisions and about work already reported. Every
- * dispatch lifecycle event (dispatched, claimed, reported, abandoned, released) and the run and
+ * dispatch lifecycle event (dispatched, started, reported, abandoned, unclaimed) and the run and
  * lease events belong to the run module alone, since they decide what is live and who may act.
  */
 /** @type {Record<string, string[]>} */
 const RAW_APPEND_FIELDS = {
-  question: ['decision', 'dispatch', 'notes'],
+  asked: ['decision', 'dispatch', 'notes'],
   answered: ['decision', 'notes'],
   verified: [
     'item',
-    'outcome',
+    'result',
     'defects',
     'dispatch',
     'branch',
@@ -122,8 +122,8 @@ export const commands = [
   {
     name: 'ledger append',
     summary:
-      'Append a question, answered, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
-    piece: 'b',
+      'Append an asked, answered, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
+    built_by: 'b',
     args: [
       {
         name: 'event',
@@ -208,7 +208,7 @@ export const commands = [
   {
     name: 'ledger tail',
     summary: 'Show the latest ledger events',
-    piece: 'b',
+    built_by: 'b',
     args: [{ name: 'limit', type: 'integer', description: 'How many events (default 10)' }, STORE],
     run: (input, ctx) => {
       const { store } = setup(input, ctx);
@@ -223,9 +223,9 @@ export const commands = [
     },
   },
   {
-    name: 'ledger inflight',
+    name: 'ledger in-flight',
     summary: 'Dispatches without a terminal event, for restart',
-    piece: 'b',
+    built_by: 'b',
     args: [STORE],
     run: (input, ctx) => {
       const { store } = setup(input, ctx);
@@ -236,21 +236,21 @@ export const commands = [
   {
     name: 'ledger summary',
     summary: 'The run report: tokens per accepted item, first-pass yield, waste, decision latency',
-    piece: 'b',
+    built_by: 'b',
     args: [STORE],
     run: (input, ctx) => ({ ok: true, ...summary(setup(input, ctx).store) }),
   },
   {
     name: 'run start',
     summary: 'Start a run: record it in the ledger, write the first checkpoint and hold the lease',
-    piece: 'b',
+    built_by: 'b',
     args: [
       { name: 'id', type: 'string', description: 'The run ID. Default: <date>-<n>' },
       {
         name: 'scope',
         type: 'string',
         description:
-          'What the run covers, as JSON: items, milestones, token_budget, concurrency_cap, stop_when. concurrency_cap defaults to policy execution.concurrency',
+          'What the run covers, as JSON: items, milestones, budget_tokens, max_executors, stop_when. max_executors defaults to policy execution.max_executors',
       },
       {
         name: 'replace',
@@ -278,8 +278,8 @@ export const commands = [
             };
           }
         }
-        if (scope.concurrency_cap === undefined && s.concurrency !== undefined) {
-          scope.concurrency_cap = s.concurrency;
+        if (scope.max_executors === undefined && s.concurrency !== undefined) {
+          scope.max_executors = s.concurrency;
         }
         const run = startRun(s.store, {
           ...who(input, ctx),
@@ -317,7 +317,7 @@ export const commands = [
     name: 'run checkpoint',
     summary:
       'A clean point with nothing new to record: absorb the ledger into the run state and renew the lease',
-    piece: 'b',
+    built_by: 'b',
     args: [SESSION, HOST, STORE],
     run: (input, ctx) =>
       guarded(() => {
@@ -341,7 +341,7 @@ export const commands = [
   {
     name: 'run resume',
     summary: 'Take the lease, reconcile in-flight work and print the hand-over summary',
-    piece: 'b',
+    built_by: 'b',
     args: [
       {
         name: 'live',
@@ -386,7 +386,7 @@ export const commands = [
           reported: r.reported,
           adopted: r.adopted,
           abandoned: r.abandoned,
-          release_claims: r.released_items,
+          unclaim_items: r.unclaimed_items,
           follow_up: r.follow_up,
           foreign: r.foreign,
           unverified: r.unverified,
@@ -397,10 +397,10 @@ export const commands = [
   {
     name: 'run rebuild',
     summary: 'Rebuild the run-state file from the ledger, claim branches and the tracker',
-    piece: 'b',
+    built_by: 'b',
     args: [
       {
-        name: 'branch_prefix',
+        name: 'branch-prefix',
         type: 'string',
         description: 'The claim-branch prefix to cross-check (default "hitld")',
       },
@@ -412,7 +412,7 @@ export const commands = [
         const r = rebuildRun(s.store, {
           kept: s.kept,
           reality: gitReality({ cwd: s.cwd }),
-          branchPrefix: /** @type {string | undefined} */ (input.branch_prefix),
+          branchPrefix: /** @type {string | undefined} */ (input['branch-prefix']),
         });
         return {
           ok: true,

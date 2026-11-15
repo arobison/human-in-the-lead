@@ -34,18 +34,18 @@ import { TAG, compareVersions, isPrerelease, nextPrerelease } from './semver.mjs
  * @property {string | null} last_tag the latest release tag reachable from HEAD, pre-releases included
  * @property {string | null} base the last full release, which the delta is measured from
  * @property {string} base_version 0.0.0 when there is no base
- * @property {boolean} initial true when there is no base: everything public is the initial surface
+ * @property {boolean} first_release true when there is no base: everything public is the initial surface
  * @property {DeltaEntry[]} interface_delta
  * @property {'major' | 'minor' | 'patch'} bump
  * @property {boolean} breaking
- * @property {string} basis why this bump
+ * @property {string} reason why this bump
  * @property {string} version the proposed version
  * @property {string} tag
  * @property {boolean} prerelease
  * @property {string} prerelease_rule how pre-releases are treated
  * @property {string[]} items work items closed since the base, not yet in a full release
  * @property {string[]} notes draft release notes from those items' changelog lines
- * @property {{ item: string, files: string[] }[]} missing_changelog items that changed public surface without a changelog line
+ * @property {{ item: string, files: string[] }[]} missing_release_note items that changed public surface without a changelog line
  * @property {{ item: string, milestone: string, title: string, state: string, check_due: boolean }[]} gates milestones a release item needs that are not Done
  * @property {string[]} milestones milestones Done since the base, for the record
  * @property {number} unreleased merged items no full release lists yet
@@ -201,7 +201,7 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
   const doneAtBase = new Set(
     base
       ? loadPlaces(root, layout, [{ where: base, ref: `refs/tags/${base}` }])[0]
-          .items.filter((e) => e.data?.status === 'Done')
+          .items.filter((e) => e.data?.state === 'done')
           .map((e) => String(e.data?.id))
       : [],
   );
@@ -209,21 +209,21 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     .filter(
       (it) =>
         it.data.kind === 'work' &&
-        it.data.status === 'Done' &&
+        it.data.state === 'done' &&
         !doneAtBase.has(String(it.data.id)) &&
         !released.has(String(it.data.id)),
     )
     .map((it) => String(it.data.id));
   const notes = items.flatMap((id) => {
     const d = g.get(id)?.data;
-    if (!d?.changelog) return [];
+    if (!d?.release_note) return [];
     const credit =
       Array.isArray(d.credit) && d.credit.length ? `, thanks ${d.credit.join(', ')}` : '';
-    return [`${d.changelog} (${id}${credit})`];
+    return [`${d.release_note} (${id}${credit})`];
   });
   const touches = surfaceTouches(root, base);
   const missing = items
-    .filter((id) => touches.has(id) && !g.get(id)?.data.changelog)
+    .filter((id) => touches.has(id) && !g.get(id)?.data.release_note)
     .map((id) => ({ item: id, files: [...(touches.get(id) ?? [])].sort() }));
 
   // Gates: milestones an open release item needs that are not Done.
@@ -239,7 +239,7 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     g
       .needs(it)
       .map((n) => g.get(n))
-      .filter((m) => m && g.isMilestone(m) && m.data.status !== 'Done')
+      .filter((m) => m && g.isMilestone(m) && m.data.state !== 'done')
       .map((m) => {
         const ms = /** @type {NonNullable<typeof m>} */ (m);
         const entity = t.get(String(ms.data.id));
@@ -247,7 +247,7 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
           item: String(it.data.id),
           milestone: String(ms.data.id),
           title: String(ms.data.title),
-          state: String(ms.data.status),
+          state: String(ms.data.state),
           check_due: entity.check_due === true,
         };
       }),
@@ -256,12 +256,12 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     records.flatMap((r) => (Array.isArray(r.data?.milestones) ? r.data.milestones : [])),
   );
   const milestones = g.milestones
-    .filter((m) => m.data.status === 'Done' && !recorded.has(String(m.data.id)))
+    .filter((m) => m.data.state === 'done' && !recorded.has(String(m.data.id)))
     .filter((m) => readMilestone(m.data).results.length > 0)
     .map((m) => String(m.data.id));
   const unreleased = g.items.filter(
     (it) =>
-      it.data.kind === 'work' && it.data.status === 'Done' && !released.has(String(it.data.id)),
+      it.data.kind === 'work' && it.data.state === 'done' && !released.has(String(it.data.id)),
   ).length;
 
   let packageVersion = null;
@@ -291,20 +291,20 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     last_tag: lastTag,
     base,
     base_version: baseVersion,
-    initial: base === null,
+    first_release: base === null,
     interface_delta: delta,
     bump: proposed.bump,
     breaking: proposed.breaking,
-    basis: base
-      ? `${proposed.basis}, since ${base}`
-      : `no release tag yet, so the whole public interface is the initial surface, counted as additive from 0.0.0: ${proposed.basis}`,
+    reason: base
+      ? `${proposed.reason}, since ${base}`
+      : `no release tag yet, so the whole public interface is the initial surface, counted as additive from 0.0.0: ${proposed.reason}`,
     version,
     tag: `v${version}`,
     prerelease: isPrerelease(version),
     prerelease_rule: PRERELEASE_RULE,
     items,
     notes,
-    missing_changelog: missing,
+    missing_release_note: missing,
     gates,
     milestones,
     unreleased,

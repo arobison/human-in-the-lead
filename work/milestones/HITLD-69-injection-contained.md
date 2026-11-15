@@ -2,10 +2,10 @@
 id: HITLD-69
 title: Injection contained
 kind: capability
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
-needs: [HITLD-34 c?]
+constraints: [HITLD-34 c?]
 ---
 
 ## Notes

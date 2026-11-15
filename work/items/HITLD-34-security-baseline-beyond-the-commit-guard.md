@@ -2,7 +2,7 @@
 id: HITLD-34
 title: Security baseline beyond the commit guard
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

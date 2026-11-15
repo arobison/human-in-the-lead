@@ -1,6 +1,6 @@
 // Piece (c): the environment resource manager (design part 13.2).
 //
-// Every command takes a holder, a dispatch ID such as D-12, and answers in JSON. The library is
+// Every command takes the dispatch that holds what it asks for (--dispatch, such as D-12), and answers in JSON. The library is
 // core/lib/env/; these are thin wrappers over it.
 
 import { execFileSync } from 'node:child_process';
@@ -75,7 +75,7 @@ function primaryCheckout(dir) {
 
 /**
  * Open the manager for `env exec`, which hands out secrets and so trusts nothing the caller can
- * influence. The project comes from HITLD_PROJECT (set by the orchestrator, like HITLD_DISPATCH);
+ * influence. The project comes from HITLD_PROJECT_ID (set by the orchestrator, like HITLD_DISPATCH);
  * the primary checkout's path comes from the record the orchestrator wrote in that project's
  * private store at run start; policy is loaded from that path alone and must agree with the
  * record. There is no fallback to the working directory, to findRepoRoot or to git metadata in
@@ -86,18 +86,19 @@ function primaryCheckout(dir) {
 function openForExec(ctx) {
   /** @param {string} error @param {string} message */
   const refuse = (error, message) => ({ error: { ok: false, error, message } });
-  const projectId = ctx.env.HITLD_PROJECT;
+  // HITLD_PROJECT is its name before HITLD-82, set by an orchestrator of the previous minor release.
+  const projectId = ctx.env.HITLD_PROJECT_ID ?? ctx.env.HITLD_PROJECT;
   if (!projectId) {
     return refuse(
       'project_unknown',
-      'HITLD_PROJECT is not set: only a dispatched executor may use a task',
+      'HITLD_PROJECT_ID is not set: only a dispatched executor may use a task',
     );
   }
   let store;
   try {
     store = openStore(privateStorePath(projectId, { env: ctx.env }));
   } catch (e) {
-    return refuse('project_unknown', `HITLD_PROJECT: ${/** @type {Error} */ (e).message}`);
+    return refuse('project_unknown', `HITLD_PROJECT_ID: ${/** @type {Error} */ (e).message}`);
   }
   const record = readPrimaryCheckout(store);
   if (!record) {
@@ -179,10 +180,10 @@ export const commands = [
     name: 'env setup',
     summary:
       'Create a worktree for a holder from the tip of main (or adopt one the harness made) and run the declared setup in it',
-    piece: 'c',
+    built_by: 'c',
     args: [
       {
-        name: 'holder',
+        name: 'dispatch',
         type: 'string',
         required: true,
         description: 'The dispatch ID that holds the worktree, such as D-12',
@@ -207,7 +208,7 @@ export const commands = [
       },
     ],
     run: withEnv(async (input, env) => {
-      const holder = String(input.holder);
+      const holder = String(input.dispatch);
       if (!input.item && !input.adopt) {
         return {
           ok: false,
@@ -248,11 +249,11 @@ export const commands = [
     name: 'env cleanup',
     summary:
       'Release everything a holder has: its worktree, its port (stopping only a server the manager started) and its locks',
-    piece: 'c',
+    built_by: 'c',
     args: [
-      { name: 'holder', type: 'string', required: true, description: 'The dispatch ID' },
+      { name: 'dispatch', type: 'string', required: true, description: 'The dispatch ID' },
       {
-        name: 'outcome',
+        name: 'result',
         type: 'string',
         required: true,
         description:
@@ -260,28 +261,28 @@ export const commands = [
       },
     ],
     run: withEnv(async (input, env) => {
-      const outcome = String(input.outcome);
-      if (!['merged', 'abandoned', 'failed'].includes(outcome)) {
+      const result = String(input.result);
+      if (!['merged', 'abandoned', 'failed'].includes(result)) {
         return {
           ok: false,
           error: 'usage',
-          message: '--outcome must be merged, abandoned or failed',
+          message: '--result must be merged, abandoned or failed',
         };
       }
       const released = await env.releaseHolder({
-        holder: String(input.holder),
-        outcome: /** @type {'merged' | 'abandoned' | 'failed'} */ (outcome),
+        holder: String(input.dispatch),
+        result: /** @type {'merged' | 'abandoned' | 'failed'} */ (result),
       });
-      return { ok: true, holder: String(input.holder), ...released };
+      return { ok: true, holder: String(input.dispatch), ...released };
     }),
   },
   {
     name: 'env port lease',
     summary:
       'Lease a free dev-server port from the policy range, optionally starting a server on it; ports in use by anything else are skipped',
-    piece: 'c',
+    built_by: 'c',
     args: [
-      { name: 'holder', type: 'string', required: true, description: 'The dispatch ID' },
+      { name: 'dispatch', type: 'string', required: true, description: 'The dispatch ID' },
       {
         name: 'serve',
         type: 'string',
@@ -294,7 +295,7 @@ export const commands = [
       },
     ],
     run: withEnv(async (input, env, ctx) => {
-      const holder = String(input.holder);
+      const holder = String(input.dispatch);
       const leased = await env.leasePort({ holder });
       let server = leased.lease.server;
       if (input.serve) {
@@ -317,20 +318,20 @@ export const commands = [
     }),
   },
   {
-    name: 'env port release',
+    name: 'env port free',
     summary:
-      "Release a holder's port, stopping its server only if the manager started that exact process",
-    piece: 'c',
-    args: [{ name: 'holder', type: 'string', required: true, description: 'The dispatch ID' }],
+      "Free a dispatch's port, stopping its server only if the manager started that exact process",
+    built_by: 'c',
+    args: [{ name: 'dispatch', type: 'string', required: true, description: 'The dispatch ID' }],
     run: withEnv(async (input, env) => ({
       ok: true,
-      ...(await env.releasePort({ holder: String(input.holder) })),
+      ...(await env.releasePort({ holder: String(input.dispatch) })),
     })),
   },
   {
     name: 'env lock',
     summary: 'Take a machine-wide lock on a serial resource such as gpu; with --wait, queue for it',
-    piece: 'c',
+    built_by: 'c',
     args: [
       {
         name: 'resource',
@@ -338,22 +339,22 @@ export const commands = [
         required: true,
         description: 'A resource named in policy env.serial_resources',
       },
-      { name: 'holder', type: 'string', required: true, description: 'The dispatch ID' },
+      { name: 'dispatch', type: 'string', required: true, description: 'The dispatch ID' },
       {
         name: 'wait',
         type: 'boolean',
         description: 'Queue behind earlier arrivals until the lock is free',
       },
       {
-        name: 'timeout_seconds',
+        name: 'timeout-seconds',
         type: 'integer',
         description: 'With --wait, give up after this long',
       },
       {
-        name: 'ttl_seconds',
+        name: 'ttl-seconds',
         type: 'integer',
         description:
-          'Expiry if not renewed; default env.lock_expiry. Asking again as the holder renews',
+          'Expiry if not renewed; default env.lock_expiry_seconds. Asking again as the holder renews',
       },
       {
         name: 'pid',
@@ -365,12 +366,14 @@ export const commands = [
     run: withEnv(async (input, env) => {
       const r = await env.acquireLock({
         resource: String(input.resource),
-        holder: String(input.holder),
+        holder: String(input.dispatch),
         pid: typeof input.pid === 'number' ? input.pid : process.ppid,
         wait: input.wait === true,
         timeoutMs:
-          typeof input.timeout_seconds === 'number' ? input.timeout_seconds * 1000 : undefined,
-        ttlSeconds: typeof input.ttl_seconds === 'number' ? input.ttl_seconds : undefined,
+          typeof input['timeout-seconds'] === 'number'
+            ? input['timeout-seconds'] * 1000
+            : undefined,
+        ttlSeconds: typeof input['ttl-seconds'] === 'number' ? input['ttl-seconds'] : undefined,
         autoRenew: false,
       });
       return r.acquired
@@ -393,18 +396,21 @@ export const commands = [
   {
     name: 'env unlock',
     summary: 'Release a lock the holder has',
-    piece: 'c',
+    built_by: 'c',
     args: [
       { name: 'resource', type: 'string', required: true, description: 'The resource' },
       {
-        name: 'holder',
+        name: 'dispatch',
         type: 'string',
         required: true,
         description: 'The dispatch ID that holds it',
       },
     ],
     run: withEnv((input, env) => {
-      const r = env.releaseLock({ resource: String(input.resource), holder: String(input.holder) });
+      const r = env.releaseLock({
+        resource: String(input.resource),
+        holder: String(input.dispatch),
+      });
       return { ok: r.released, ...r };
     }),
   },
@@ -412,7 +418,7 @@ export const commands = [
     name: 'env status',
     summary:
       'Show the worktrees, ports and locks the manager holds, and the time spent waiting for locks',
-    piece: 'c',
+    built_by: 'c',
     run: withEnv((_input, env) => {
       const registry = env.registry();
       return {
@@ -428,7 +434,7 @@ export const commands = [
     name: 'env exec',
     summary:
       'Run a secret task declared in policy.json with its secrets injected into its environment only; output is filtered for their values',
-    piece: 'c',
+    built_by: 'c',
     mcp: false,
     args: [
       {
@@ -440,7 +446,7 @@ export const commands = [
           "The name of a task in policy env.secret_tasks. The command, the secrets and the roles allowed are the owner's, not the caller's; the role is read from the dispatch named in HITLD_DISPATCH",
       },
       {
-        name: 'timeout_seconds',
+        name: 'timeout-seconds',
         type: 'integer',
         description: 'Stop the task after this long; default 600',
       },
@@ -453,7 +459,9 @@ export const commands = [
         dispatch: ctx.env.HITLD_DISPATCH,
         callerCwd: ctx.cwd,
         timeoutMs:
-          typeof input.timeout_seconds === 'number' ? input.timeout_seconds * 1000 : undefined,
+          typeof input['timeout-seconds'] === 'number'
+            ? input['timeout-seconds'] * 1000
+            : undefined,
       });
     },
   },

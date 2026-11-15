@@ -24,7 +24,7 @@
       "$ref": "common#/$defs/itemState"
     },
     "owner": {
-      "description": "The human accountable, if not the project owner.",
+      "description": "Who is accountable for this record. Defaults to the owner: the person who holds the project's decision rights.",
       "$ref": "common#/$defs/person"
     },
     "area": {
@@ -42,7 +42,7 @@
       "$ref": "common#/$defs/ids"
     },
     "needs": {
-      "description": "IDs that must be Done before this is ready.",
+      "description": "IDs that must be done before this is ready.",
       "$ref": "common#/$defs/ids"
     },
     "touches": {
@@ -61,12 +61,12 @@
       "description": "Set at sizing.",
       "$ref": "common#/$defs/tokens"
     },
-    "tier_hint": {
-      "description": "Optional override from the owner or the shaper.",
+    "tier_override": {
+      "description": "The tier the owner or the shaper set, over the one sizing derives.",
       "$ref": "common#/$defs/tier"
     },
-    "changelog": {
-      "description": "One line for release notes, if the item changes public surface.",
+    "release_note": {
+      "description": "One line for the release notes, if the item changes public surface.",
       "$ref": "common#/$defs/text"
     },
     "credit": {

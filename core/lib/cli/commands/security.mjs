@@ -96,7 +96,7 @@ export const commands = [
     name: 'security status',
     summary:
       'The baseline, the recorded verdicts and accepted risks, the findings waiting for a verdict, and expired risks as decisions for the owner',
-    piece: 'first-release',
+    built_by: 'first-release',
     args: [],
     run: notForExecutors('security status', "the orchestrator's", (_input, ctx) => {
       const p = project(ctx);
@@ -143,7 +143,7 @@ export const commands = [
     name: 'security baseline',
     summary:
       "Scan main in the primary checkout with each declared scanner and make or extend the baseline for tool versions it does not hold; the merge queue does this itself on a scanner's first run",
-    piece: 'first-release',
+    built_by: 'first-release',
     args: [],
     run: notForExecutors('security baseline', "the orchestrator's", (_input, ctx) => {
       const p = project(ctx);
@@ -201,7 +201,7 @@ export const commands = [
     name: 'security verdict',
     summary:
       "Record a triage verdict for a finding the merge queue reported, from the item's evidence: real, by-design or false-positive",
-    piece: 'first-release',
+    built_by: 'first-release',
     args: [
       FINDING,
       {
@@ -244,7 +244,7 @@ export const commands = [
     name: 'security accept',
     summary:
       "Record the owner's acceptance of a real finding as a risk, until an expiry; at expiry it is a decision again. Only from the owner's own message in the main session",
-    piece: 'first-release',
+    built_by: 'first-release',
     args: [
       FINDING,
       {

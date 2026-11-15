@@ -4,8 +4,8 @@
 //
 // Headroom is the share of a limit above the reserve (see quota.mjs). Per limit:
 //   headroom <= 0                  stop (at or past the reserve)
-//   headroom <  quota.critical_at  critical_path_only
-//   headroom <  quota.economize_at economize
+//   headroom <  quota.critical_below  critical_path_only
+//   headroom <  quota.economize_below economize
 // The gate takes the worst mode over every limit. A limit with no reading cannot restrict
 // anything, and says so in `unread`. A hard limit that stops dispatch also sets ask_owner: going
 // past it needs the owner's yes.
@@ -17,7 +17,7 @@ export const MODES = /** @type {const} */ (['normal', 'economize', 'critical_pat
 /** @param {string} unit @param {number} v */
 export function show(unit, v) {
   const n = Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
-  return unit === 'plan_percent' ? `${n}%` : unit === 'usd' ? `$${n}` : `${n} ${unit}`;
+  return unit === 'plan-percent' ? `${n}%` : unit === 'usd' ? `$${n}` : `${n} ${unit}`;
 }
 
 /** @param {number} share */
@@ -45,7 +45,7 @@ function modeOf(s, q, item, share = 1) {
   // each judges its own share of it (design 13.4, "Shares near the reserve"). Past the reserve the
   // sign is unchanged, so a stop stays a stop. Above the threshold nobody is competing yet.
   const whole = /** @type {number} */ (s.headroom);
-  const shared = share < 1 && whole < q.economize_at;
+  const shared = share < 1 && whole < q.economize_below;
   const headroom = shared ? whole * share : whole;
   const used = /** @type {number} */ (s.used);
   const limit = /** @type {number} */ (s.limit);
@@ -66,16 +66,16 @@ function modeOf(s, q, item, share = 1) {
   }
   if (headroom <= 0)
     return { mode: 'stop', why: `${left}: ${headroom < 0 ? 'past' : 'at'} the reserve` };
-  if (headroom < q.critical_at) {
+  if (headroom < q.critical_below) {
     return {
       mode: 'critical_path_only',
-      why: `${left}, below the critical threshold of ${pct(q.critical_at)}`,
+      why: `${left}, below the critical threshold of ${pct(q.critical_below)}`,
     };
   }
-  if (headroom < q.economize_at) {
+  if (headroom < q.economize_below) {
     return {
       mode: 'economize',
-      why: `${left}, below the economize threshold of ${pct(q.economize_at)}`,
+      why: `${left}, below the economize threshold of ${pct(q.economize_below)}`,
     };
   }
   return { mode: 'normal', why: `${left}, ample` };

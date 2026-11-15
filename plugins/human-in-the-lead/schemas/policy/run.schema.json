@@ -11,7 +11,7 @@
       "maximum": 100,
       "default": 5
     },
-    "lease_expiry": {
+    "lease_expiry_seconds": {
       "description": "Seconds after which an orchestrator's lease on the run may be taken over without the owner's say-so. A session renews it at every checkpoint, so it should be longer than the longest stretch between checkpoints.",
       "type": "integer",
       "minimum": 1,

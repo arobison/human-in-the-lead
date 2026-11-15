@@ -83,16 +83,16 @@ interface HarnessAdapter {
 }
 
 interface HarnessCapabilities {
-  parallelSubagents: boolean        // several executors at once under one orchestrator
-  persistentSessions: boolean       // a separate long-running session (tier 3)
+  parallel_subagents: boolean        // several executors at once under one orchestrator
+  persistent_sessions: boolean       // a separate long-running session (tier 3)
   worktrees: boolean                // an isolated checkout per executor
-  backgroundCompletion: boolean     // completion arrives as an event, without polling
-  remoteHumanChannel: boolean       // the human can answer away from the machine
+  background_completion: boolean     // completion arrives as an event, without polling
+  remote_human_channel: boolean       // the human can answer away from the machine
   hooks: 'full' | 'subset' | 'none' // lifecycle hooks such as pre-tool-use
-  modelSelection: boolean
-  effortSelection: boolean
-  usageReporting: 'tokens' | 'requests' | 'none'
-  maxClassification: Classification // the highest level it may process (hosted runners are limited)
+  model_selection: boolean
+  effort_selection: boolean
+  usage_reporting: 'tokens' | 'requests' | 'none'
+  max_classification: Classification // the highest level it may process (hosted runners are limited)
 }
 ```
 
@@ -135,7 +135,7 @@ GitHub Copilot has two surfaces, and they map onto different tiers.
 |---|---|
 | **Instructions** | Reads `AGENTS.md` (and `.github/copilot-instructions.md`); skills from `.agents/skills/`, `.github/skills/` or `.claude/skills/` |
 | **Roles** | Custom agents (`.agent.md`) for executor tiers, reviewer, adversary, with `tools` and `model` set per role |
-| **Dispatch** | Subagents (the Copilot harness's `task` tool) under an orchestrating chat session. Parallel execution is not documented, so the adapter starts with `parallelSubagents: false` and raises it only when the eval suite shows parallel runs work |
+| **Dispatch** | Subagents (the Copilot harness's `task` tool) under an orchestrating chat session. Parallel execution is not documented, so the adapter starts with `parallel_subagents: false` and raises it only when the eval suite shows parallel runs work |
 | **Isolation** | Worktree isolation exists but is documented as not a security boundary, so the guard is the merge queue plus hooks |
 | **Hooks** | Preview: `preToolUse` and `postToolUse` from `.github/hooks/*.json`. Treated as `subset` until they leave preview, so this surface also gets public items only (15.3), pending Q16 |
 | **Tools** | The command line in the integrated terminal, or the MCP server from a workspace `.mcp.json` |
@@ -148,7 +148,7 @@ GitHub now calls the coding agent the Copilot cloud agent. It takes a task, work
 | Function | How |
 |---|---|
 | **Dispatch** | The adapter creates the task from the brief: by assigning a GitHub issue (the item's public twin) to Copilot, or with `gh agent-task create` (in preview), naming a custom agent for the role |
-| **Claim and close** | The brief's first instruction is the claim commit on the agent's branch; its last is the `Done` change. The orchestrator fetches the branch and runs it through the same merge queue as any other ([part 5](05-execution.md#53-the-merge-queue)) |
+| **Claim and close** | The brief's first instruction is the claim commit on the agent's branch; its last is the `done` change. The orchestrator fetches the branch and runs it through the same merge queue as any other ([part 5](05-execution.md#53-the-merge-queue)) |
 | **Completion and report** | The pull request and its session log. The adapter reads the report from the final PR comment, which the brief asks to be in the fixed shape. Completion is collected at defined points (start of a run, merge batch boundaries) unless a notification channel delivers GitHub's events |
 | **Follow-up** | `@copilot` comments on the pull request, from a user with write access |
 | **Instructions** | `AGENTS.md`, custom instructions, skills, and custom agents (`.agent.md` with `tools`, `model` and `mcp-servers`) from the repository |

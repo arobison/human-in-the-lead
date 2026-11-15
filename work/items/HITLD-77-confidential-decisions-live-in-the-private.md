@@ -2,7 +2,7 @@
 id: HITLD-77
 title: Confidential decisions live in the private store, not the public tracker
 kind: work
-status: Planned
+state: planned
 created: 2026-11-15
 project: HITLD-15
 ---

@@ -2,11 +2,11 @@
 id: HITLD-51
 title: "The commit guard: refuse confidential files in a public repository"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: claude/HITLD-51-commit-guard
-changelog: "The commit guard refuses files above the repository's classification ceiling, at commit, at merge and in `hitld work check` (`hitld check classification`, policy `project.private_paths`)."
+claimed_by: claude/HITLD-51-commit-guard
+release_note: "The commit guard refuses files above the repository's classification ceiling, at commit, at merge and in `hitld work check` (`hitld check classification`, policy `project.private_paths`)."
 ---
 
 ## Why

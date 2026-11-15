@@ -1,6 +1,6 @@
 // The harness calls the orchestrator makes for a dispatch (design part 15.4). The core cannot call
 // Claude Code's tools from Node, so for each dispatch the adapter says exactly which tool call the
-// main session makes; the orchestrator skill makes it, and `hitld dispatch started` and
+// main session makes; the orchestrator skill makes it, and `hitld dispatch handle` and
 // `hitld dispatch complete` record what came back.
 
 import { MODEL_CLASSES } from './capabilities.mjs';
@@ -21,7 +21,7 @@ import { MODEL_CLASSES } from './capabilities.mjs';
  * @property {string} [resultPath] where a headless run writes its JSON result
  * @property {'headless' | 'interactive'} [tier3Mode]
  * @property {string} [permissionMode] for a headless run
- * @property {Record<string, string>} [env] the executor's environment (HITLD_DISPATCH, HITLD_PROJECT, HITLD_ROLE)
+ * @property {Record<string, string>} [env] the executor's environment (HITLD_DISPATCH, HITLD_PROJECT_ID, HITLD_ROLE)
  */
 
 /** The plugin's agent for a tier. @param {number} tier */
@@ -104,7 +104,7 @@ export function instructionFor(request, place = {}) {
 
 /**
  * The call that continues an executor with its context.
- * @param {{ handle: string, message: string, tier: number, worktree?: string | null, sessionId?: string | null,
+ * @param {{ harnessRef: string, message: string, tier: number, worktree?: string | null, sessionId?: string | null,
  *   briefPath?: string, resultPath?: string, dispatch: string, permissionMode?: string, env?: Record<string, string> }} r
  * @returns {Instruction}
  */
@@ -112,7 +112,7 @@ export function followUpInstruction(r) {
   if (r.tier <= 2) {
     return {
       tool: 'SendMessage',
-      input: { to: r.handle, message: r.message, summary: `follow-up ${r.dispatch}` },
+      input: { to: r.harnessRef, message: r.message, summary: `follow-up ${r.dispatch}` },
     };
   }
   if (!r.sessionId || !r.worktree || !r.briefPath || !r.resultPath) {

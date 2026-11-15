@@ -53,7 +53,7 @@ export const NOTICE =
 /** The draft fields the generalizer writes. */
 const DRAFT_FIELDS = Object.freeze([
   'title',
-  'area',
+  'loop',
   'what_happened',
   'expected',
   'evidence',
@@ -63,7 +63,7 @@ const DRAFT_FIELDS = Object.freeze([
 const CLASSES = Object.freeze(['public', 'internal', 'confidential', 'secret']);
 const LIMITS = Object.freeze({
   title: 120,
-  area: 120,
+  loop: 120,
   what_happened: 4000,
   expected: 2000,
   evidence: 4000,
@@ -163,7 +163,7 @@ export function recordContext(record, o) {
   if (o.env?.HOME) paths.push(o.env.HOME);
   const ids = [...(record.refs ?? [])];
   const tokens = [];
-  for (const text of [record.words, record.expected, record.area].filter(Boolean)) {
+  for (const text of [record.words, record.expected, record.loop].filter(Boolean)) {
     tokens.push(...particulars(text));
   }
   for (const line of [...(record.evidence ?? []), record.what_happened ?? '']) {
@@ -276,7 +276,7 @@ export function checkDraftShape(input) {
 
 /** The text of a draft that would be published, every field joined. @param {Record<string, string>} d */
 const draftText = (d) =>
-  [d.title, d.area, d.what_happened, d.expected, d.evidence].filter(Boolean).join('\n');
+  [d.title, d.loop, d.what_happened, d.expected, d.evidence].filter(Boolean).join('\n');
 
 /** @param {PrivateStore} store @param {string} cwd @param {FeedbackRecord} next */
 function save(store, cwd, next) {
@@ -299,14 +299,17 @@ function withoutOutcome(r) {
 
 /**
  * Record the generalizer's draft for a waiting record. A draft that is not public, or that the
- * screen catches, makes the record `withheld` with the reason; otherwise it is `drafted`.
+ * screen catches, makes the record `withheld` with the reason; otherwise it is `drafted`. A
+ * withheld record takes a new draft, so the generalizer can try again.
  * @param {PrivateStore} store @param {string} id @param {unknown} input
  * @param {{ ctx: Ctx, policy?: Record<string, any> | null, now?: () => Date }} o
  */
 export function recordDraft(store, id, input, o) {
   const record = readRecord(store, id);
-  if (record.state !== 'local' && record.state !== 'drafted') {
-    throw new Error(`${id} is ${record.state}; only a local or drafted record takes a draft`);
+  if (!['local', 'drafted', 'withheld'].includes(record.state)) {
+    throw new Error(
+      `${id} is ${record.state}; only a local, drafted or withheld record takes a draft`,
+    );
   }
   const draft = checkDraftShape(input);
   const context = recordContext(record, {
@@ -346,9 +349,9 @@ export function publication(record, draft) {
   const EMPTY = '_No response_';
   const evidence = draft.evidence ? `\`\`\`\n${draft.evidence}\n\`\`\`` : EMPTY;
   const sections = [
-    record.version,
+    record.hitld_version,
     harnessText(record.harness),
-    draft.area,
+    draft.loop,
     draft.what_happened,
     draft.expected,
     evidence,
@@ -452,7 +455,7 @@ export async function answerPublication(store, id, input, o) {
     if (!Object.keys(edits).length) {
       throw new GateRefusal(
         'no_edits',
-        'edit needs the changed text: --title, --what_happened, ...',
+        'edit needs the changed text: --title, --what-happened, ...',
       );
     }
     const { drafted_at, ...fields } = record.draft;

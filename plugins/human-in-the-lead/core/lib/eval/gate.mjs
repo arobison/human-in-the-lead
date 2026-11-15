@@ -76,27 +76,27 @@ export function compareToBaseline(current, baseline, thresholds, options = {}) {
   for (const [key, was] of before) {
     if (!inScope(was.id)) continue;
     const is = now.get(key);
-    if (was.status !== 'pass') continue;
+    if (was.result !== 'pass') continue;
     if (!is) {
       failures.push({
         kind: 'scenario-missing',
         subject: key,
         message: `${key} passed in the baseline and was not run`,
       });
-    } else if (is.status === 'not_applicable') {
+    } else if (is.result === 'not-applicable') {
       failures.push({
         kind: 'scenario-not-run',
         subject: key,
         message: `${key} passed in the baseline and is now not applicable: ${is.reason ?? ''}`,
       });
-    } else if (is.status !== 'pass') {
+    } else if (is.result !== 'pass') {
       const failed = (is.graders ?? [])
         .filter((/** @type {any} */ g) => !g.passed)
         .map((/** @type {any} */ g) => g.message);
       failures.push({
         kind: 'scenario-regressed',
         subject: key,
-        message: `${key} passed in the baseline and now ${is.status === 'error' ? 'errors' : 'fails'}${is.reason ? `: ${is.reason}` : failed.length ? `: ${failed.join('; ')}` : ''}`,
+        message: `${key} passed in the baseline and now ${is.result === 'error' ? 'errors' : 'fails'}${is.reason ? `: ${is.reason}` : failed.length ? `: ${failed.join('; ')}` : ''}`,
       });
     } else if (
       was.tokens &&
@@ -111,8 +111,8 @@ export function compareToBaseline(current, baseline, thresholds, options = {}) {
     }
   }
   for (const [key, is] of now) {
-    if (!before.has(key) && is.status !== 'not_applicable')
-      notes.push(`new scenario: ${key} (${is.status})`);
+    if (!before.has(key) && is.result !== 'not-applicable')
+      notes.push(`new scenario: ${key} (${is.result})`);
   }
 
   for (const [category, was] of Object.entries(baseline.summary.categories)) {

@@ -2,13 +2,13 @@
 //
 //   1. record `dispatched`   the intent; the ledger is written before the harness is called
 //   2. adapter.dispatch(...) the harness starts the executor
-//   3. record `claimed`      the harness accepted it; carries the harness's handle
+//   3. record `started`      the harness accepted it; carries the harness's reference (harness_ref)
 //   4. record `reported`     the completion, whenever it arrives
 //
 // Each `record` appends to the ledger first and then checkpoints. A crash before step 2 leaves a
 // dispatch no executor ever started: on resume it has no live executor and no report, so it is
-// abandoned and its item released, and the item is dispatched afresh. A crash after step 2 and
-// before step 3 leaves a started executor with no handle on file: resume finds it live (or its
+// abandoned and its item unclaimed, and the item is dispatched afresh. A crash after step 2 and
+// before step 3 leaves a started executor with no harness_ref on file: resume finds it live (or its
 // completion waiting) by dispatch ID and adopts it. Neither starts a second executor for an item
 // whose first is running.
 
@@ -25,13 +25,14 @@ import { lifecycleId, nextDispatchId, readLedger } from '../ledger/ledger.mjs';
  */
 
 /**
- * The outcome in a report's `status:` line (design part 5.6). Undefined when there is none, so
- * the ledger never carries a guess; piece (d)'s parser is the real reader of reports.
+ * The result in a report's `result:` line (design part 5.6), or its `status:` line in a report
+ * written before HITLD-82. Undefined when there is none, so the ledger never carries a guess;
+ * piece (d)'s parser is the real reader of reports.
  * @param {string} report
  * @returns {'done' | 'partial' | 'blocked' | undefined}
  */
-export function reportStatus(report) {
-  const m = /^status:[ \t]*(done|partial|blocked)\b/im.exec(report ?? '');
+export function reportResult(report) {
+  const m = /^(?:result|status):[ \t]*(done|partial|blocked)\b/im.exec(report ?? '');
   return m ? /** @type {'done' | 'partial' | 'blocked'} */ (m[1].toLowerCase()) : undefined;
 }
 
@@ -41,14 +42,14 @@ export function reportStatus(report) {
  * @param {Omit<Completion, 'dispatch'> & { dispatch?: string }} completion
  */
 export function reportedEvent(entry, completion) {
-  const outcome = reportStatus(completion.report);
+  const result = reportResult(completion.report);
   return {
     id: lifecycleId('reported', entry.dispatch),
     event: 'reported',
     dispatch: entry.dispatch,
     item: entry.item,
     ...(entry.role !== undefined ? { role: entry.role } : {}),
-    ...(outcome ? { outcome } : {}),
+    ...(result ? { result } : {}),
     tokens: completion.usage?.tokens ?? null,
     tool_calls: completion.usage?.toolCalls ?? null,
     duration_ms: completion.usage?.durationMs ?? null,
@@ -83,7 +84,7 @@ export async function dispatchExecutor(run, adapter, request, extra = {}) {
     ...(request.branch ? { branch: request.branch } : {}),
     brief_hash: createHash('sha256').update(request.brief).digest('hex'),
     skill_versions: {
-      plugin: VERSION,
+      hitld_version: VERSION,
       ...(extra.skillVersions ? { skills: extra.skillVersions } : {}),
     },
     ...(extra.estimateTokens !== undefined ? { estimate_tokens: extra.estimateTokens } : {}),
@@ -106,12 +107,12 @@ export async function dispatchExecutor(run, adapter, request, extra = {}) {
     throw e;
   }
   run.record({
-    id: lifecycleId('claimed', dispatch),
-    event: 'claimed',
+    id: lifecycleId('started', dispatch),
+    event: 'started',
     dispatch,
     item: request.item,
     harness: handle.harness,
-    handle: handle.ref,
+    harness_ref: handle.ref,
     host: run.host,
   });
   return handle;

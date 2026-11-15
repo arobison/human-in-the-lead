@@ -2,8 +2,8 @@
 //
 // It records every call, and completes dispatches either through a `respond` function or when a
 // test calls `complete()`. It enforces its declared capabilities where the core must degrade: with
-// parallelSubagents false it refuses a second dispatch while one is in flight, and it refuses an
-// item above its maxClassification. So a core change that leans on one harness fails the tests.
+// parallel_subagents false it refuses a second dispatch while one is in flight, and it refuses an
+// item above its max_classification. So a core change that leans on one harness fails the tests.
 
 /**
  * @typedef {import('../interface.mjs').HarnessAdapter} HarnessAdapter
@@ -29,31 +29,31 @@ export const FAKE_PROFILES = Object.freeze({
   /** Everything available. */
   full: Object.freeze(
     /** @type {HarnessCapabilities} */ ({
-      parallelSubagents: true,
-      persistentSessions: true,
+      parallel_subagents: true,
+      persistent_sessions: true,
       worktrees: true,
-      backgroundCompletion: true,
-      remoteHumanChannel: true,
+      background_completion: true,
+      remote_human_channel: true,
       hooks: 'full',
-      modelSelection: true,
-      effortSelection: true,
-      usageReporting: 'tokens',
-      maxClassification: 'confidential',
+      model_selection: true,
+      effort_selection: true,
+      usage_reporting: 'tokens',
+      max_classification: 'confidential',
     }),
   ),
   /** Nothing optional: the most degraded harness the core must still work with. */
   minimal: Object.freeze(
     /** @type {HarnessCapabilities} */ ({
-      parallelSubagents: false,
-      persistentSessions: false,
+      parallel_subagents: false,
+      persistent_sessions: false,
       worktrees: false,
-      backgroundCompletion: false,
-      remoteHumanChannel: false,
+      background_completion: false,
+      remote_human_channel: false,
       hooks: 'none',
-      modelSelection: false,
-      effortSelection: false,
-      usageReporting: 'none',
-      maxClassification: 'public',
+      model_selection: false,
+      effort_selection: false,
+      usage_reporting: 'none',
+      max_classification: 'public',
     }),
   ),
 });
@@ -96,7 +96,7 @@ export function createFakeAdapter(options = {}) {
   const finish = (dispatch, completion) => {
     if (!running.has(dispatch)) throw new Error(`fake adapter: ${dispatch} is not in flight`);
     running.delete(dispatch);
-    const usage = caps.usageReporting === 'none' ? null : (completion.usage ?? null);
+    const usage = caps.usage_reporting === 'none' ? null : (completion.usage ?? null);
     slot(dispatch).resolve({ ...completion, usage, dispatch });
   };
 
@@ -112,12 +112,12 @@ export function createFakeAdapter(options = {}) {
       if (running.has(request.dispatch)) {
         throw new Error(`fake adapter: ${request.dispatch} is already in flight`);
       }
-      if (!caps.parallelSubagents && running.size > 0) {
-        throw new Error('fake adapter: parallelSubagents is false; one dispatch at a time');
+      if (!caps.parallel_subagents && running.size > 0) {
+        throw new Error('fake adapter: parallel_subagents is false; one dispatch at a time');
       }
-      if (LEVELS.indexOf(request.classification) > LEVELS.indexOf(caps.maxClassification)) {
+      if (LEVELS.indexOf(request.classification) > LEVELS.indexOf(caps.max_classification)) {
         throw new Error(
-          `fake adapter: ${request.item} is ${request.classification}, above this harness's ${caps.maxClassification}`,
+          `fake adapter: ${request.item} is ${request.classification}, above this harness's ${caps.max_classification}`,
         );
       }
       running.add(request.dispatch);

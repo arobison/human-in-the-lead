@@ -17,8 +17,8 @@ import { PROFILES, checkRequires } from './profiles.mjs';
  * @typedef {import('./actions/builtin.mjs').Action} Action
  *
  * @typedef {object} LoadedScenario
- * @property {string} id <piece>/<name>, from the file's path
- * @property {string} piece
+ * @property {string} id <suite>/<name>, from the file's path
+ * @property {string} suite
  * @property {string} file the path of the file
  * @property {string} evalsDir the evals directory it came from
  * @property {Record<string, any> | null} scenario the parsed scenario, when it is valid
@@ -26,6 +26,18 @@ import { PROFILES, checkRequires } from './profiles.mjs';
  */
 
 export const SCENARIO_SUFFIX = '.scenario.json';
+
+/**
+ * A scenario in the names before HITLD-82: `piece` is `suite`. Read until the next minor release.
+ * @param {unknown} data
+ */
+export function fromLegacyScenario(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  const s = /** @type {Record<string, any>} */ (data);
+  if (!Object.hasOwn(s, 'piece') || Object.hasOwn(s, 'suite')) return data;
+  const { piece, ...rest } = s;
+  return { ...rest, suite: piece };
+}
 
 const ACTIONS_DIR = new URL('./actions/', import.meta.url);
 
@@ -73,18 +85,18 @@ function checkWith(inputSchema, data, where) {
 /**
  * Everything wrong with a parsed scenario beyond its schema: the id against its path, actions and
  * graders that exist, their `with`, the harness profiles and capabilities, the fixture generator.
- * @param {Record<string, any>} scenario @param {string} id @param {string} piece
+ * @param {Record<string, any>} scenario @param {string} id @param {string} suite
  * @param {Record<string, Action>} actions
  * @returns {string[]}
  */
-export function checkScenario(scenario, id, piece, actions) {
+export function checkScenario(scenario, id, suite, actions) {
   /** @type {string[]} */
   const problems = [];
   const errors = schemas().validateEntity('eval-scenario', scenario);
   if (errors.length) return [formatErrors(errors)];
   if (scenario.id !== id) problems.push(`id is "${scenario.id}", but the file's path says "${id}"`);
-  if (scenario.piece !== piece)
-    problems.push(`piece is "${scenario.piece}", but the directory is "${piece}"`);
+  if (scenario.suite !== suite)
+    problems.push(`suite is "${scenario.suite}", but the directory is "${suite}"`);
   const stepIds = new Set();
   for (const step of scenario.steps) {
     if (stepIds.has(step.id)) problems.push(`step id "${step.id}" is used twice`);
@@ -145,25 +157,27 @@ export function discoverScenarios(evalsDir, actions) {
   if (!existsSync(root)) return [];
   /** @type {LoadedScenario[]} */
   const found = [];
-  for (const piece of readdirSync(root).sort()) {
-    const dir = join(root, piece);
+  for (const suite of readdirSync(root).sort()) {
+    const dir = join(root, suite);
     if (!statSync(dir).isDirectory()) continue;
     for (const f of readdirSync(dir).sort()) {
       if (!f.endsWith(SCENARIO_SUFFIX)) continue;
       const file = join(dir, f);
-      const id = `${piece}/${basename(f, SCENARIO_SUFFIX)}`;
+      const id = `${suite}/${basename(f, SCENARIO_SUFFIX)}`;
       /** @type {Record<string, any> | null} */
       let scenario = null;
       /** @type {string[]} */
       let problems = [];
       try {
-        scenario = JSON.parse(readFileSync(file, 'utf8'));
-        problems = checkScenario(/** @type {Record<string, any>} */ (scenario), id, piece, actions);
+        scenario = /** @type {Record<string, any>} */ (
+          fromLegacyScenario(JSON.parse(readFileSync(file, 'utf8')))
+        );
+        problems = checkScenario(/** @type {Record<string, any>} */ (scenario), id, suite, actions);
         if (problems.length) scenario = null;
       } catch (e) {
         problems = [`cannot be read: ${e instanceof Error ? e.message : String(e)}`];
       }
-      found.push({ id, piece, file, evalsDir, scenario, problems });
+      found.push({ id, suite, file, evalsDir, scenario, problems });
     }
   }
   return found;

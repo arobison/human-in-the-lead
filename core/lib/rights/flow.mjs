@@ -35,7 +35,7 @@ import {
 } from '../precedent/create.mjs';
 import { describeOption, formatQuestion, optionIndex, parseAnswer } from './format.mjs';
 import { enforceOffer, ownerOnly } from './offer.mjs';
-import { factsOf, normalizeQuestion, routeQuestion } from './route.mjs';
+import { factsOf, fromLegacyQuestion, normalizeQuestion, routeQuestion } from './route.mjs';
 import { UNASSIGNED, readTrustEvents, recordTrustEvent } from './trust.mjs';
 
 /**
@@ -58,7 +58,7 @@ import { UNASSIGNED, readTrustEvents, recordTrustEvent } from './trust.mjs';
  */
 
 /** The state of a decision that has been asked and not answered. */
-const OPEN_STATES = ['Proposed', 'Planned'];
+const OPEN_STATES = ['proposed', 'planned'];
 
 /**
  * The authority a question was asked under, recorded in the private store when it was asked. A
@@ -203,13 +203,14 @@ function citeCandidates(candidates, classification) {
  * - precedent: one precedent resolves it. A decision item is created Done, citing it.
  * - asked: a decision item is created Planned, and its text is the question to send.
  * @param {Deps} deps
- * @param {Record<string, any>} raw as in schemas/question.schema.json
+ * @param {Record<string, any>} given as in schemas/question.schema.json (direction, its name before HITLD-82, is read as touches_direction)
  * @param {{ judged?: Record<string, boolean> }} [options]
  *   judged: the holder's judgement, per candidate precedent ID, of whether its plain-language
  *   conditions and exceptions fit (design part 4.3, step 2).
  * @returns {Result}
  */
-export function askQuestion(deps, raw, options = {}) {
+export function askQuestion(deps, given, options = {}) {
+  const raw = fromLegacyQuestion(given);
   const invalid = schemas().validate('question', raw);
   if (invalid.length) {
     return fail('invalid_question', formatErrors(invalid), { errors: invalid });
@@ -241,7 +242,7 @@ export function askQuestion(deps, raw, options = {}) {
       schema_version: 1,
       kind: 'decision',
       title: question.title ?? question.question ?? `Resolved by ${p.id}`,
-      state: 'Done',
+      state: 'done',
       classification,
       ...(area ? { area } : {}),
       ...(question.question ? { question: question.question } : {}),
@@ -263,11 +264,11 @@ export function askQuestion(deps, raw, options = {}) {
     };
     const problem = invalidDraft(deps, { ...draft, ...answered });
     if (problem) return fail('invalid_decision', problem);
-    const made = create(deps, { ...draft, state: 'Planned' });
+    const made = create(deps, { ...draft, state: 'planned' });
     if (typeof made !== 'string') return made;
     const id = made;
     deps.tracker.update(id, answered, versionOf(deps.tracker.get(id)));
-    deps.tracker.transition(id, 'Done', `resolved by precedent ${p.id}`, {});
+    deps.tracker.transition(id, 'done', `resolved by precedent ${p.id}`, {});
     recordTrustEvent(
       deps.store,
       {
@@ -320,7 +321,7 @@ export function askQuestion(deps, raw, options = {}) {
     schema_version: 1,
     kind: 'decision',
     title: question.title ?? question.question,
-    state: 'Planned',
+    state: 'planned',
     classification,
     ...(area ? { area } : {}),
     question: question.question,
@@ -517,7 +518,7 @@ export function answerDecision(deps, input) {
   deps.tracker.update(input.decision, patch, versionOf(entity));
   deps.tracker.transition(
     input.decision,
-    'Done',
+    'done',
     `answered by ${entity.decider ?? 'the decider'}`,
     {},
   );
@@ -543,7 +544,7 @@ export function answerDecision(deps, input) {
   if (typeof input.worth_asking === 'boolean') {
     recordTrustEvent(
       deps.store,
-      { kind: 'worth-asking', area, subject: input.decision, worth: input.worth_asking },
+      { kind: 'worth-asking', area, subject: input.decision, worth_asking: input.worth_asking },
       at,
     );
   }
@@ -665,7 +666,7 @@ export function overrule(deps, input) {
  * triage route, a controller move. A reversal can become precedent like any other answer; that is
  * a question to ask, not something recorded here.
  * @param {Deps} deps
- * @param {{ subject: string, what?: 'logged-call' | 'triage-route' | 'controller-move' | 'other', area?: string, note?: string }} input
+ * @param {{ subject: string, subject_kind?: 'logged-call' | 'triage-route' | 'controller-move' | 'other', area?: string, note?: string }} input
  */
 export function recordReversal(deps, input) {
   const line = recordTrustEvent(
@@ -674,7 +675,7 @@ export function recordReversal(deps, input) {
       kind: 'reversal',
       area: input.area ?? UNASSIGNED,
       subject: input.subject,
-      what: input.what ?? 'other',
+      subject_kind: input.subject_kind ?? 'other',
       ...(input.note ? { note: input.note } : {}),
     },
     nowOf(deps),
@@ -701,7 +702,7 @@ export function rateWorthAsking(deps, input) {
       kind: 'worth-asking',
       area: entity.area ?? UNASSIGNED,
       subject: input.decision,
-      worth: input.worth,
+      worth_asking: input.worth,
     },
     nowOf(deps),
   );
@@ -722,7 +723,7 @@ export function listApplications(deps, filter = {}) {
   );
   const rules = new Map(deps.precedents.list().map((p) => [p.id, p]));
   return deps.tracker
-    .query({ kind: 'decision', state: 'Done' })
+    .query({ kind: 'decision', state: 'done' })
     .filter((d) => typeof d.resolved_by_precedent === 'string')
     .filter((d) => !filter.precedent || d.resolved_by_precedent === filter.precedent)
     .filter((d) => !filter.since || String(d.answered_at) > filter.since)

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "release/internal-change-proposes-patch",
-  "piece": "release",
+  "suite": "release",
   "category": "release",
   "description": "A change that leaves the public interface as it was, however large inside, has an empty interface delta and proposes a patch release.",
   "mode": "offline",

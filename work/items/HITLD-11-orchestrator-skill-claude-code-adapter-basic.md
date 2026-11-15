@@ -2,7 +2,7 @@
 id: HITLD-11
 title: Orchestrator skill, Claude Code adapter, basic merge queue, packaging (piece h)
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

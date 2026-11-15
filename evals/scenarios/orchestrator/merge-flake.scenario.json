@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "orchestrator/merge-flake",
+  "suite": "orchestrator",
+  "category": "merge-queue",
+  "description": "A full suite that fails and then passes on the same commit is a flake candidate: it is recorded, not blamed on the branch, and the batch is held, not merged (One signal end to end has no base comparison, design 14.7).",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": {} },
+  "steps": [{ "id": "queue", "action": "orchestrator.merge", "with": { "flaky": true } }],
+  "graders": [
+    {
+      "id": "not-merged",
+      "grader": "equals",
+      "with": { "path": "steps.queue.merged", "value": [] }
+    },
+    {
+      "id": "held",
+      "grader": "equals",
+      "with": { "path": "steps.queue.held", "value": ["W-1"] }
+    },
+    {
+      "id": "not-blamed",
+      "grader": "count",
+      "with": { "path": "steps.queue.rejected", "equals": 0 }
+    },
+    {
+      "id": "recorded",
+      "grader": "equals",
+      "with": { "path": "steps.queue.flakes", "value": 1 }
+    }
+  ]
+}

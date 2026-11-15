@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "release/additive-schema-proposes-minor",
-  "piece": "release",
+  "suite": "release",
   "category": "release",
   "description": "A schema that gains an optional field is an additive change, and an additive delta proposes a minor release, not flagged breaking.",
   "mode": "offline",

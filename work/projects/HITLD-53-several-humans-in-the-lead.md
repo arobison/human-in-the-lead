@@ -2,10 +2,10 @@
 id: HITLD-53
 title: "Several humans in the lead"
 kind: project
-status: Planned
+state: planned
 created: 2026-11-14
 initiative: HITLD-1
-lead: owner
+owner: owner
 ---
 
 ## Summary

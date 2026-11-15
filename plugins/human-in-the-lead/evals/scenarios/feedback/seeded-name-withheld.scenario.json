@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/seeded-name-withheld",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "A draft that holds a project name, a path or a person from the record's context is withheld with the reason, whatever the generalizer classified it, and is never filed even when approved.",
   "mode": "offline",
@@ -97,7 +97,7 @@
           "draft",
           "FB-1",
           "--draft",
-          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"area\": \"decision rights\", \"what_happened\": \"The orchestrator in fixture-repo asked the same question twice.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"loop\": \"decision rights\", \"what_happened\": \"The orchestrator in fixture-repo asked the same question twice.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
           "--store",
           "store"
         ]
@@ -112,7 +112,7 @@
           "draft",
           "FB-2",
           "--draft",
-          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"area\": \"decision rights\", \"what_happened\": \"It asked twice about src/billing/invoice.js.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"loop\": \"decision rights\", \"what_happened\": \"It asked twice about src/billing/invoice.js.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
           "--store",
           "store"
         ]
@@ -127,7 +127,7 @@
           "draft",
           "FB-3",
           "--draft",
-          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"area\": \"decision rights\", \"what_happened\": \"It asked casey-q the same question twice.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"loop\": \"decision rights\", \"what_happened\": \"It asked casey-q the same question twice.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
           "--store",
           "store"
         ]
@@ -142,7 +142,7 @@
           "draft",
           "FB-4",
           "--draft",
-          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"area\": \"decision rights\", \"what_happened\": \"The orchestrator asked about a choice that was cheap to undo and inside the plan. The person rated it not worth asking.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"internal\", \"reason\": \"describes the billing plans\"}",
+          "{\"title\": \"A low-stakes question reached the person instead of being decided\", \"loop\": \"decision rights\", \"what_happened\": \"The orchestrator asked about a choice that was cheap to undo and inside the plan. The person rated it not worth asking.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"internal\", \"reason\": \"describes the billing plans\"}",
           "--store",
           "store"
         ]

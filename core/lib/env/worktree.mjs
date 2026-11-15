@@ -59,7 +59,7 @@ export async function createWorktree(ctx, request) {
       repo_root: realpathSync((await git(['rev-parse', '--show-toplevel'], ctx.repoRoot)).trim()),
       base,
       adopted: false,
-      status: 'ready',
+      state: 'ready',
       created_at: new Date().toISOString(),
     };
     registry.worktrees[holder] = lease;
@@ -93,7 +93,7 @@ export async function adoptWorktree(ctx, request) {
       repo_root: dirname(realpathSync(common)),
       base: 'main',
       adopted: true,
-      status: 'ready',
+      state: 'ready',
       created_at: new Date().toISOString(),
     };
     registry.worktrees[holder] = lease;
@@ -178,7 +178,7 @@ export async function runSetup(ctx, request) {
     const l = registry.worktrees[holder];
     if (!l) return;
     l.setup = result;
-    l.status = result.ok ? 'ready' : 'setup_failed';
+    l.state = result.ok ? 'ready' : 'setup-failed';
     logEvent(ctx.store, 'worktree_setup', {
       holder,
       ok: result.ok,
@@ -271,12 +271,12 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
  *   `failed_worktrees_kept`.
  * A worktree adopted from the harness is released but never removed.
  * @param {WorktreeContext} ctx
- * @param {{ holder: string, outcome: 'merged' | 'abandoned' | 'failed' }} request
+ * @param {{ holder: string, result: 'merged' | 'abandoned' | 'failed' }} request
  */
 export async function releaseWorktree(ctx, request) {
   const holder = checkHolder(request.holder);
-  if (!['merged', 'abandoned', 'failed'].includes(request.outcome)) {
-    throw new Error(`outcome must be merged, abandoned or failed, not "${request.outcome}"`);
+  if (!['merged', 'abandoned', 'failed'].includes(request.result)) {
+    throw new Error(`result must be merged, abandoned or failed, not "${request.result}"`);
   }
   return updateRegistry(ctx.store, async (registry) => {
     const lease = registry.worktrees[holder];
@@ -284,11 +284,11 @@ export async function releaseWorktree(ctx, request) {
       return { released: false, kept: false, removed: [], pruned: [], links_unlinked: [] };
     /** @type {string[]} */
     const pruned = [];
-    if (request.outcome === 'failed' && !lease.adopted) {
-      lease.status = 'failed';
+    if (request.result === 'failed' && !lease.adopted) {
+      lease.state = 'failed';
       lease.failed_at = new Date().toISOString();
       const failed = Object.values(registry.worktrees)
-        .filter((l) => l.status === 'failed' && !l.adopted)
+        .filter((l) => l.state === 'failed' && !l.adopted)
         .sort((a, b) => String(a.failed_at).localeCompare(String(b.failed_at)));
       for (const old of failed.slice(
         0,
@@ -300,14 +300,14 @@ export async function releaseWorktree(ctx, request) {
         logEvent(ctx.store, 'worktree_pruned', { holder: old.holder, path: old.path });
       }
       const kept = !pruned.includes(holder);
-      logEvent(ctx.store, 'worktree_released', { holder, outcome: 'failed', kept });
+      logEvent(ctx.store, 'worktree_released', { holder, result: 'failed', kept });
       return { released: true, kept, path: lease.path, removed: [], pruned, links_unlinked: [] };
     }
     /** @type {Awaited<ReturnType<typeof removeFromDisk>> | null} */
     let removed = null;
-    if (!lease.adopted) removed = await removeFromDisk(lease, request.outcome === 'merged');
+    if (!lease.adopted) removed = await removeFromDisk(lease, request.result === 'merged');
     delete registry.worktrees[holder];
-    logEvent(ctx.store, 'worktree_released', { holder, outcome: request.outcome, ...removed });
+    logEvent(ctx.store, 'worktree_released', { holder, result: request.result, ...removed });
     return {
       released: true,
       kept: lease.adopted,

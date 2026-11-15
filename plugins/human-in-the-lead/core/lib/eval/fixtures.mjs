@@ -48,7 +48,7 @@ const git = (dir, args) =>
  * @param {{ seed: number, options: Record<string, unknown> }} request
  *   options: language ("javascript" or "python", default javascript), modules (1 to 8, default 2),
  *   git (a real repository with one commit; default false), policy (data merged into policy.json's
- *   project section's sibling sections, for example { "execution": { "concurrency": { ... } } })
+ *   project section's sibling sections, for example { "execution": { "max_executors": { ... } } })
  * @returns {Fixture}
  */
 function generateRepo(dir, { seed, options }) {

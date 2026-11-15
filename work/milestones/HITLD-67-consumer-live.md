@@ -2,10 +2,10 @@
 id: HITLD-67
 title: Consumer live
 kind: capability
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
-needs: [HITLD-25 c?, HITLD-26 c?, HITLD-46 c?, HITLD-47 c?, HITLD-60 c?]
+constraints: [HITLD-25 c?, HITLD-26 c?, HITLD-46 c?, HITLD-47 c?, HITLD-60 c?]
 ---
 
 ## Notes

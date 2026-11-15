@@ -6,17 +6,17 @@
 
 /** @type {import('../interface.mjs').HarnessCapabilities} */
 export const CAPABILITIES = Object.freeze({
-  parallelSubagents: true,
-  persistentSessions: true,
+  parallel_subagents: true,
+  persistent_sessions: true,
   worktrees: true,
-  backgroundCompletion: true,
-  remoteHumanChannel: true,
+  background_completion: true,
+  remote_human_channel: true,
   hooks: 'full',
-  modelSelection: true,
-  effortSelection: true,
-  usageReporting: 'tokens',
+  model_selection: true,
+  effort_selection: true,
+  usage_reporting: 'tokens',
   // Runs on the owner's machine. Secret material is never given to any agent (design part 10).
-  maxClassification: 'confidential',
+  max_classification: 'confidential',
 });
 
 /**

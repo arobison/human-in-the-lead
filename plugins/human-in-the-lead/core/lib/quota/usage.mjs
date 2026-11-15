@@ -91,7 +91,7 @@ export function effectiveEntries(entries) {
 
 /**
  * What one snapshot says about one limit, or null. A reading by limit ID wins; the status line's
- * percentages feed plan_percent limits on the matching window.
+ * percentages feed plan-percent limits on the matching window.
  * @param {Record<string, any>} snapshot
  * @param {{ id: string, unit: string, window: string, limit: number | null }} limit
  * @returns {{ at: number, used: number, resetsAt: number | null } | null}
@@ -100,7 +100,7 @@ export function readingFor(snapshot, limit) {
   const at = Date.parse(snapshot.at);
   const named = (snapshot.readings ?? []).find((/** @type {any} */ r) => r.limit === limit.id);
   if (named) return { at, used: named.used, resetsAt: resetsAtMs(named.resets_at) };
-  if (limit.unit !== 'plan_percent') return null;
+  if (limit.unit !== 'plan-percent') return null;
   const w =
     limit.window === 'rolling_5h'
       ? snapshot.rate_limits?.five_hour

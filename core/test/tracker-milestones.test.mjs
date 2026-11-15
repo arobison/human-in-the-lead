@@ -28,11 +28,11 @@ const milestone = (extra = {}) =>
     id: 'W-7',
     title: 'Config errors explained',
     kind: 'capability',
-    status: 'Planned',
+    state: 'planned',
     project: 'W-2',
     outcome: 'A user with a bad config sees which key is wrong.',
     done_when: ['"c1: An unknown key exits with status 2."', '"c2: The message names the line."'],
-    needs: ['W-4 c1', 'W-5 c2'],
+    constraints: ['W-4 c1', 'W-5 c2'],
     ...extra,
   });
 
@@ -97,17 +97,17 @@ test('entries parse from one line each, and bad ones are named', () => {
   });
   const m = readMilestone({
     done_when: ['c1: one', 'c1: again'],
-    needs: ['W-4 c3'],
+    constraints: ['W-4 c3'],
     contributions: ['W-4 value=3 confidence=0.5'],
     deadline: '2027-01-01',
   });
   assert.deepEqual(m.problems, [
     'deadline "2027-01-01" isn\'t "<YYYY-MM-DD> <source>": an external date needs its source',
     'done_when: clause c1 appears twice',
-    "needs W-4 names clause c3, which done_when doesn't have",
+    "constraints W-4 names clause c3, which done_when doesn't have",
     'W-4 is both a constraint and a contribution; it is one or the other',
   ]);
-  assert.deepEqual(storedMilestoneField('needs', [{ id: 'W-4', clause: null }]), ['W-4 c?']);
+  assert.deepEqual(storedMilestoneField('constraints', [{ id: 'W-4', clause: null }]), ['W-4 c?']);
   assert.deepEqual(
     tokensByItem([{ item: 'W-4', tokens: 10 }, { item: 'W-4', tokens: 5 }, {}]).get('W-4'),
     15,
@@ -129,7 +129,7 @@ test('a milestone file passes the check, and its entity validates against the mi
   assert.deepEqual(t.check().problems, []);
   const e = t.get('W-7');
   assert.equal(e.parent, 'W-2');
-  assert.deepEqual(e.needs, [
+  assert.deepEqual(e.constraints, [
     { id: 'W-4', clause: 'c1' },
     { id: 'W-5', clause: 'c2' },
   ]);
@@ -139,7 +139,8 @@ test('a milestone file passes the check, and its entity validates against the mi
     'body',
     'path',
     'version',
-    'error',
+    'entity',
+    'unmet_clauses',
     'check_due',
     'scope',
     'tokens_spent',
@@ -148,7 +149,13 @@ test('a milestone file passes the check, and its entity validates against the mi
   ];
   const canonical = Object.fromEntries(Object.entries(e).filter(([k]) => !stored.includes(k)));
   assert.deepEqual(schemas().validateTrackerEntity({ schema_version: 1, ...canonical }), []);
-  for (const derived of ['error', 'check_due', 'scope', 'tokens_spent', 'cost_of_delay_rate']) {
+  for (const derived of [
+    'unmet_clauses',
+    'check_due',
+    'scope',
+    'tokens_spent',
+    'cost_of_delay_rate',
+  ]) {
     const errors = schemas().validateEntity('milestone', {
       schema_version: 1,
       ...canonical,
@@ -160,7 +167,7 @@ test('a milestone file passes the check, and its entity validates against the mi
   assert.deepEqual(t.get('W-6').contributes_to, ['W-7']);
   assert.deepEqual(t.get('W-3').constraint_of, []);
   assert.equal(
-    /^(error|check_due|scope|to_shape):/m.test(
+    /^(unmet_clauses|check_due|scope|to_shape):/m.test(
       readFileSync(join(root, 'work/milestones/W-7-config-errors-explained.md'), 'utf8'),
     ),
     false,
@@ -171,31 +178,31 @@ test('a milestone file passes the check, and its entity validates against the mi
 test('the check: clauses exist, contributions are scored, references resolve, no cycle runs through a milestone', () => {
   const found = problems({
     'work/milestones/W-7-config-errors-explained.md': milestone({
-      needs: ['W-4 c9', 'W-99 c1', 'W-1 c2'],
+      constraints: ['W-4 c9', 'W-99 c1', 'W-1 c2'],
       contributions: ['W-6 value=0 confidence=0.5', 'W-2 value=3 confidence=0.5'],
-      status: 'In progress',
+      state: 'in-progress',
     }),
     'work/milestones/W-8-other.md': itemText({
       id: 'W-8',
       title: 'Other',
       kind: 'learning',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       initiative: 'W-1',
-      needs: ['W-9 c?'],
+      constraints: ['W-9 c?'],
     }),
     'work/items/W-9-loop.md': itemText({
       id: 'W-9',
       title: 'Loop',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       needs: ['W-8'],
     }),
   });
   for (const p of [
-    'work/milestones/W-7-config-errors-explained.md: a milestone is never In progress: items are claimed, milestones are not',
-    "work/milestones/W-7-config-errors-explained.md: needs W-4 names clause c9, which done_when doesn't have",
+    'work/milestones/W-7-config-errors-explained.md: a capability is never in-progress: only work items are claimed',
+    "work/milestones/W-7-config-errors-explained.md: constraints W-4 names clause c9, which done_when doesn't have",
     "work/milestones/W-7-config-errors-explained.md: contributions: W-6: value 0 isn't a number above 0",
     'work/milestones/W-8-other.md: a milestone needs one parent: project or initiative',
   ]) {
@@ -203,22 +210,22 @@ test('the check: clauses exist, contributions are scored, references resolve, no
   }
   const refs = problems({
     'work/milestones/W-7-config-errors-explained.md': milestone({
-      needs: ['W-99 c1', 'W-1 c2'],
+      constraints: ['W-99 c1', 'W-1 c2'],
       contributions: ['W-2 value=3 confidence=0.5'],
     }),
     'work/milestones/W-8-other.md': itemText({
       id: 'W-8',
       title: 'Other',
       kind: 'learning',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
-      needs: ['W-9 c?'],
+      constraints: ['W-9 c?'],
     }),
     'work/items/W-9-loop.md': itemText({
       id: 'W-9',
       title: 'Loop',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       needs: ['W-8'],
     }),
@@ -234,17 +241,17 @@ test('the check: clauses exist, contributions are scored, references resolve, no
 });
 
 test('Done only from a recorded passing check by a role other than the items’ authors', () => {
-  const files = (/** @type {string[]} */ results, status = 'Done', kind = 'capability') => ({
+  const files = (/** @type {string[]} */ results, status = 'done', kind = 'capability') => ({
     'work/milestones/W-7-config-errors-explained.md': milestone({
       kind,
-      status,
-      needs: ['W-3 c1'],
+      state: status,
+      constraints: ['W-3 c1'],
       done_when: ['"c1: It works."'],
       ...(results.length ? { check_results: results.map((r) => `"${r}"`) } : {}),
     }),
   });
   const say = (/** @type {string[]} */ ps) =>
-    ps.filter((p) => p.includes('W-7') && p.includes('Done needs'));
+    ps.filter((p) => p.includes('W-7') && p.includes('done needs'));
   assert.equal(say(problems(files([]))).length, 1);
   assert.equal(say(problems(files(['pass 2026-12-01 executor: ran it myself']))).length, 1);
   assert.equal(
@@ -258,46 +265,45 @@ test('Done only from a recorded passing check by a role other than the items’ 
   );
   assert.deepEqual(say(problems(files(['pass 2026-12-01 acceptance-author: run 41']))), []);
   assert.deepEqual(
-    say(problems(files(['verdict 2026-12-01 researcher: study FB-3 says no'], 'Done', 'learning'))),
+    say(
+      problems(files(['answered 2026-12-01 researcher: study FB-3 says no'], 'done', 'learning')),
+    ),
     [],
     'a learning milestone is Done when its study has a verdict, whatever it says',
   );
   assert.equal(
-    say(problems(files(['pass 2026-12-01 researcher: x'], 'Done', 'learning'))).length,
+    say(problems(files(['pass 2026-12-01 researcher: x'], 'done', 'learning'))).length,
     1,
   );
 
   // A role named in the items' commits is an author too.
-  const root = makeRepo({ files: files(['pass 2026-12-01 reviewer: looked'], 'Planned') });
+  const root = makeRepo({ files: files(['pass 2026-12-01 reviewer: looked'], 'planned') });
   put(root, { 'note.txt': 'x\n' });
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'work', '-m', 'Work-Item: W-3\nAgent-Role: reviewer');
   const t = open(root);
   assert.throws(
-    () => t.transition('W-7', 'Done', '', {}),
-    /Done only from a recorded passing check by a role other than its items' authors \(executor, reviewer\)/,
+    () => t.transition('W-7', 'done', '', {}),
+    /done only from a recorded passing check by a role other than its items' authors \(executor, reviewer\)/,
   );
-  assert.throws(
-    () => t.transition('W-7', 'In progress', '', {}),
-    /lifecycle allows|milestones are not/,
-  );
+  assert.throws(() => t.transition('W-7', 'in-progress', '', {}), /only work items are claimed/);
 });
 
-test('derived: error, check_due, scope, to_shape and tokens_spent are computed, never stored', () => {
+test('derived: unmet_clauses, check_due, scope, to_shape and tokens_spent are computed, never stored', () => {
   /** @type {Record<string, Record<string, unknown>>} */
   const byId = {
-    'W-4': { status: 'Done', estimate_tokens: '100' },
-    'W-5': { status: 'Planned', estimate_tokens: '200' },
-    'W-6': { status: 'Planned', estimate_tokens: '300' },
-    'W-8': { status: 'Planned', estimate_tokens: '50' },
-    'W-9': { status: 'Planned' },
+    'W-4': { state: 'done', estimate_tokens: '100' },
+    'W-5': { state: 'planned', estimate_tokens: '200' },
+    'W-6': { state: 'planned', estimate_tokens: '300' },
+    'W-8': { state: 'planned', estimate_tokens: '50' },
+    'W-9': { state: 'planned' },
   };
   const d = {
     id: 'W-7',
     kind: 'capability',
-    status: 'Planned',
+    state: 'planned',
     done_when: ['c1: one', 'c2: two'],
-    needs: ['W-4 c1', 'W-5 c2', 'W-10 c?'],
+    constraints: ['W-4 c1', 'W-5 c2', 'W-10 c?'],
     contributions: [
       'W-6 value=8 confidence=0.5',
       'W-8 value=3 confidence=1',
@@ -314,7 +320,7 @@ test('derived: error, check_due, scope, to_shape and tokens_spent are computed, 
     ]),
   };
   const x = milestoneDerived(d, ctx);
-  assert.deepEqual(x.error, [
+  assert.deepEqual(x.unmet_clauses, [
     { clause: 'c1', text: 'one', open: [], checked: false },
     { clause: 'c2', text: 'two', open: ['W-5'], checked: false },
     { clause: null, text: null, open: ['W-10'], checked: false },
@@ -332,8 +338,8 @@ test('derived: error, check_due, scope, to_shape and tokens_spent are computed, 
   assert.equal(x.tokens_spent, 1007);
   assert.equal(x.cost_of_delay_rate, null);
   assert.deepEqual(x.to_shape, ['outcome', 'check', 'link W-10 to a clause']);
-  byId['W-5'].status = 'Done';
-  byId['W-10'] = { status: 'Done' };
+  byId['W-5'].state = 'done';
+  byId['W-10'] = { state: 'done' };
   const due = milestoneDerived(d, ctx);
   assert.equal(due.check_due, true);
   const passed = milestoneDerived(
@@ -341,22 +347,23 @@ test('derived: error, check_due, scope, to_shape and tokens_spent are computed, 
     ctx,
   );
   assert.equal(passed.check_due, false);
-  assert.deepEqual(passed.error, []);
+  assert.deepEqual(passed.unmet_clauses, []);
   assert.equal(milestoneDerived({ ...d, appetite_tokens: '100' }, ctx).scope.too_big, true);
 });
 
-test('the read API returns milestones with api_version, and work new makes one Proposed', async () => {
+test('the read API returns milestones with api_version and entity, and work new makes one proposed', async () => {
   const root = makeRepo({
     files: { 'work/milestones/W-7-config-errors-explained.md': milestone() },
   });
   settings(root);
   const show = await hitld(['work', 'show', 'W-7', '--json'], root);
   assert.equal(show.code, 0);
-  assert.equal(show.json.api_version, 1);
+  assert.equal(show.json.api_version, 2);
   assert.equal(show.json.entity.kind, 'capability');
+  assert.equal(show.json.entity.entity, 'milestone');
   assert.equal(show.json.entity.check_due, false);
   assert.deepEqual(
-    show.json.entity.error.map((/** @type {any} */ e) => e.clause),
+    show.json.entity.unmet_clauses.map((/** @type {any} */ e) => e.clause),
     ['c1', 'c2'],
   );
   const query = await hitld(['work', 'query', '--kind', 'capability', '--json'], root);
@@ -383,17 +390,17 @@ test('the read API returns milestones with api_version, and work new makes one P
   const text = readFileSync(join(root, made.json.path), 'utf8');
   assert.match(
     text,
-    /^---\nid: W-8\ntitle: Which cache key\nkind: learning\nstatus: Proposed\ncreated: [\d-]+\ninitiative: W-1\noutcome: We know which key to use\.\n---/,
+    /^---\nid: W-8\ntitle: Which cache key\nkind: learning\nstate: proposed\ncreated: [\d-]+\ninitiative: W-1\noutcome: We know which key to use\.\n---/,
   );
   assert.equal(made.json.path, 'work/milestones/W-8-which-cache-key.md');
   assert.deepEqual(open(root).check().problems, []);
 });
 
-test('views: milestones with their error and scope, and the merged-but-unreleased stock', () => {
+test('views: milestones with their unmet clauses and scope, and the merged-but-unreleased stock', () => {
   const root = makeRepo({
     files: {
       'work/milestones/W-7-config-errors-explained.md': milestone({
-        needs: ['W-3 c1', 'W-4 c?'],
+        constraints: ['W-3 c1', 'W-4 c?'],
         contributions: ['W-5 value=3 confidence=0.5'],
         appetite_tokens: '1000',
       }),
@@ -406,9 +413,9 @@ test('views: milestones with their error and scope, and the merged-but-unrelease
       'W-7 Config errors explained [Planned], capability, under W-2 The project',
       '  outcome: A user with a bad config sees which key is wrong.',
       '  constraints: 1 of 2 done',
-      '  error: c1 An unknown key exits with status 2. (check not passed)',
-      '  error: c2 The message names the line. (check not passed)',
-      '  error: not linked to a clause yet (open: W-4; check not passed)',
+      '  unmet: c1 An unknown key exits with status 2. (check not passed)',
+      '  unmet: c2 The message names the line. (check not passed)',
+      '  unmet: not linked to a clause yet (open: W-4; check not passed)',
       '  scope: appetite 1000; constraints 0 tokens; in scope: none; not sized: W-5',
       '  to shape: check; link W-4 to a clause',
       '',
@@ -459,19 +466,20 @@ test('migrate: project milestones and item milestone keys become milestone files
   assert.equal(done.code, 0, JSON.stringify(done.json));
   assert.match(
     git(root, 'log', '-1', '--format=%s').trim(),
-    /^migrate: milestone-entities, retire-priority$/,
+    /^migrate: milestone-entities, retire-priority, names-and-states$/,
   );
   assert.equal(git(root, 'status', '--porcelain'), '');
   const alpha = readFileSync(join(root, 'work/milestones/W-7-alpha.md'), 'utf8');
   assert.match(
     alpha,
-    /^---\nid: W-7\ntitle: Alpha\nkind: capability\nstatus: Planned\ncreated: 2026-11-01\nproject: W-2\nneeds: \[W-4 c\?, W-5 c\?\]\n---\n/,
+    /^---\nid: W-7\ntitle: Alpha\nkind: capability\nstate: planned\ncreated: 2026-11-01\nproject: W-2\nconstraints: \[W-4 c\?, W-5 c\?\]\n---\n/,
   );
   assert.match(alpha, /From W-2:\n\n- \*\*alpha\*\* \(capability\)\. Outcome: it starts\./);
   assert.ok(existsSync(join(root, 'work/milestones/W-8-beta-two.md')));
   const project = readFileSync(join(root, 'work/projects/W-2-the-project.md'), 'utf8');
   assert.equal(project.includes('milestones:'), false);
   assert.ok(project.includes('title: "The project"'), 'other lines are left as they were');
+  assert.ok(project.includes('\nstate: planned\n') && project.includes('\nowner: owner\n'));
   const item = readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8');
   assert.equal(item.includes('milestone:'), false);
   assert.equal(item.includes('priority:'), false);
@@ -496,7 +504,7 @@ test('migrate: numbers skip what another branch already holds', () => {
         id: 'W-4',
         title: 'Second step',
         kind: 'work',
-        status: 'Planned',
+        state: 'planned',
         project: 'W-2',
         milestone: 'alpha',
       }),
@@ -508,7 +516,7 @@ test('migrate: numbers skip what another branch already holds', () => {
       id: 'W-7',
       title: 'Taken',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
   });
@@ -522,14 +530,14 @@ test('migrate: numbers skip what another branch already holds', () => {
 test('scope ranks contributions by value times confidence per estimate token, for any positive value', () => {
   /** @type {Record<string, Record<string, unknown>>} */
   const byId = {
-    'W-4': { status: 'Planned', estimate_tokens: '100' },
-    'W-5': { status: 'Planned', estimate_tokens: '100' },
-    'W-6': { status: 'Planned', estimate_tokens: '100' },
+    'W-4': { state: 'planned', estimate_tokens: '100' },
+    'W-5': { state: 'planned', estimate_tokens: '100' },
+    'W-6': { state: 'planned', estimate_tokens: '100' },
   };
   const d = {
     id: 'W-7',
     kind: 'capability',
-    status: 'Planned',
+    state: 'planned',
     contributions: [
       'W-4 value=4 confidence=1',
       'W-5 value=0.5 confidence=1',

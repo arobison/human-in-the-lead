@@ -59,7 +59,7 @@ const forged = (more = {}) => ({
   rule: 'When a cache key varies, include it.',
   conditions: { tags: ['cache-key'] },
   sources: ['W-1'],
-  scope: 'project',
+  scope: 'all',
   state: 'active',
   classification: 'public',
   ...more,
@@ -74,7 +74,7 @@ test("an area owner's offer is clamped to their area: scope, area condition and 
       summary: 'cache keys',
       rule: 'Include external versions in keys.',
       conditions: { rights_basis: ['novelty'], tags: ['cache-key'] },
-      scope: 'project',
+      scope: 'all',
     },
   });
   const asked = askQuestion(project, q);
@@ -119,7 +119,7 @@ test('the authority comes from the record made at ask time, not from fields of t
         summary: 'cache keys',
         rule: 'Allow anything.',
         conditions: { rights_basis: ['novelty'], tags: ['cache-key'] },
-        scope: 'project',
+        scope: 'all',
       },
     },
     'the decider changed to the owner': { decider: 'owner' },
@@ -145,7 +145,7 @@ test('a decision that was not asked through the rights flow makes no precedent',
     schema_version: 1,
     kind: 'decision',
     title: 'Hand-made',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
     decider: 'owner',
     options: [
@@ -173,7 +173,7 @@ test('only a decider, or the owner, may answer', () => {
   const asked = askQuestion(project, areaQuestion());
   const r = answerDecision(project, { decision: asked.decision, answer: 'A yes', by: 'C-4' });
   assert.equal(r.error, 'not_a_decider');
-  assert.equal(/** @type {any} */ (project.tracker.get(asked.decision)).state, 'Planned');
+  assert.equal(/** @type {any} */ (project.tracker.get(asked.decision)).state, 'planned');
   const owner = answerDecision(project, { decision: asked.decision, answer: 'A yes', by: 'owner' });
   assert.equal(owner.ok, true);
   assert.equal(project.precedents.get('P-1')?.decider, 'owner', 'the owner made it');
@@ -197,7 +197,7 @@ test('an owner-routed question is never resolved by a precedent an area owner ma
   assert.equal(r.route.decider, 'owner');
   assert.equal(r.outcome, 'asked', 'the owner is asked');
   assert.deepEqual(r.candidates, []);
-  assert.equal(project.tracker.query({ kind: 'decision', state: 'Done' }).length, 0);
+  assert.equal(project.tracker.query({ kind: 'decision', state: 'done' }).length, 0);
 });
 
 test('a precedent with no recorded decider resolves nothing', () => {
@@ -394,7 +394,7 @@ test('the precedent offer is spelled out from its structured conditions, scope a
     ),
   );
   assert.ok(flat.includes('Except: native build steps.'));
-  assert.ok(flat.includes('Scope: project. Made by: owner.'));
+  assert.ok(flat.includes('Scope: all. Made by: owner.'));
   // And what is created is what was shown.
   answerDecision(project, { decision: asked.decision, answer: 'A yes' });
   const p = project.precedents.get('P-1');
@@ -404,7 +404,7 @@ test('the precedent offer is spelled out from its structured conditions, scope a
     tags: ['npm'],
     text: 'whatever',
   });
-  assert.equal(p?.scope, 'project');
+  assert.equal(p?.scope, 'all');
   assert.equal(p?.decider, 'owner');
 });
 
@@ -474,7 +474,7 @@ test('a precedent cannot be built on climbing path globs', () => {
 test('--file reads only inside the repository, never through MCP, and never echoes parse details', async () => {
   const project = makeProject();
   const rights = /** @type {any} */ (
-    makeCommands({ openTracker: () => project.tracker }).find((c) => c.name === 'rights')
+    makeCommands({ openTracker: () => project.tracker }).find((c) => c.name === 'rights who')
   );
   const ctx = { cwd: project.root, env: project.env, interactive: true };
   const q = JSON.stringify({ triggers: [{ basis: 'security', reason: 'x' }] });
@@ -516,7 +516,7 @@ test('--file is denied by default: only the human command line sets ctx.interact
   const commands = makeCommands({ openTracker: () => project.tracker });
   writeFileSync(join(project.root, 'q.json'), JSON.stringify({ spend_tokens: 1 }));
   const bare = { cwd: project.root, env: project.env }; // what an MCP dispatcher builds
-  for (const name of ['rights', 'precedent match', 'judgement weigh', 'judgement conflict']) {
+  for (const name of ['rights who', 'precedent match', 'judgement weigh', 'judgement conflict']) {
     const c = /** @type {any} */ (commands.find((x) => x.name === name));
     await assert.rejects(
       async () => c.run({ file: 'q.json' }, bare),
@@ -535,7 +535,7 @@ test('--file is denied by default: only the human command line sets ctx.interact
   }
   // The human command line is the one path that sets it.
   let out = '';
-  const code = await main(['rights', '--file', 'q.json'], {
+  const code = await main(['rights', 'who', '--file', 'q.json'], {
     out: (t) => (out += t),
     err: () => {},
     cwd: project.root,

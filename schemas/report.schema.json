@@ -1,11 +1,14 @@
 {
   "$id": "report",
   "title": "Executor report",
-  "description": "The fixed report an executor ends with (design part 5.6), as parseReport returns it. Not a data file: the report is text, and this is its parsed form.",
+  "description": "The fixed report an executor ends with (design part 5.6), as parseReport returns it. Not a data file: the report is text, and this is its parsed form. A report written before HITLD-82, with status for result and runs for bench_runs, parses with a warning until the next minor release.",
   "type": "object",
   "properties": {
     "item": { "$ref": "common#/$defs/id" },
-    "status": { "enum": ["done", "partial", "blocked"] },
+    "result": {
+      "description": "How the attempt ended (HITLD-82: was status).",
+      "enum": ["done", "partial", "blocked"]
+    },
     "commit": {
       "description": "The branch's final commit; null when the executor made none (blocked before any).",
       "anyOf": [
@@ -25,8 +28,8 @@
       "description": "Commands and their results, one per entry.",
       "$ref": "common#/$defs/texts"
     },
-    "runs": {
-      "description": "Benchmark run IDs with what each shows; empty for `runs: none`.",
+    "bench_runs": {
+      "description": "Benchmark run IDs with what each shows; empty for `bench_runs: none` (HITLD-82: was runs).",
       "$ref": "common#/$defs/texts"
     },
     "deviations": {
@@ -51,6 +54,15 @@
       "$ref": "common#/$defs/texts"
     }
   },
-  "required": ["item", "status", "commit", "evidence", "runs", "deviations", "calls", "questions"],
+  "required": [
+    "item",
+    "result",
+    "commit",
+    "evidence",
+    "bench_runs",
+    "deviations",
+    "calls",
+    "questions"
+  ],
   "additionalProperties": false
 }

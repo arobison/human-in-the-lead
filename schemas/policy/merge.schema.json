@@ -10,7 +10,7 @@
       "default": "owner"
     },
     "main_branch": {
-      "description": "The integration branch. Only the merge queue moves it.",
+      "description": "The integration branch: the one main-branch setting (HITLD-82). Only the merge queue moves it; the orchestrator creates items and gives up claims on it, and claims are read from every other branch.",
       "$ref": "common#/$defs/name",
       "default": "main"
     },
@@ -22,7 +22,7 @@
       "default": 4
     },
     "fast_checks": {
-      "description": "Commands run on each rebased branch before it joins the batch: lint, type check, the item's acceptance checks, the tests nearest its touches. Each runs through the shell in the queue's worktree with HITLD_ITEM, HITLD_TOUCHES and HITLD_CHANGED set. A failure sends the branch back to its executor.",
+      "description": "Commands run on each rebased branch before it joins the batch: lint, type check, the item's acceptance checks, the tests nearest its touches. Each runs through the shell in the queue's worktree with HITLD_ITEM, HITLD_TOUCHES and HITLD_CHANGED_FILES set. A failure sends the branch back to its executor.",
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
       "default": [],

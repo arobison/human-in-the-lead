@@ -33,7 +33,7 @@ import { withMutex } from './mutex.mjs';
  * @property {string} repo_root
  * @property {string} base
  * @property {boolean} adopted a harness-created worktree: the manager never removes it
- * @property {'ready' | 'setup_failed' | 'failed'} status
+ * @property {'ready' | 'setup-failed' | 'failed'} state
  * @property {string} created_at
  * @property {string} [failed_at]
  * @property {SetupResult} [setup]
@@ -44,18 +44,41 @@ import { withMutex } from './mutex.mjs';
  * @property {Record<string, PortLease>} ports keyed by port number
  */
 
-const REGISTRY_FILE = 'env/registry.json';
+const REGISTRY_FILE = 'env/holders.json';
+/** The file's name before HITLD-82, read until the next minor release when the new one is missing. */
+const LEGACY_REGISTRY_FILE = 'env/registry.json';
 const EVENTS = 'env/events.jsonl';
 
 /** @returns {Registry} */
 const empty = () => ({ version: 1, worktrees: {}, ports: {} });
 
+/**
+ * A worktree lease in the current names: `status` (before HITLD-82) is `state`, and
+ * `setup_failed` is `setup-failed`.
+ * @param {Record<string, any>} lease
+ * @returns {WorktreeLease}
+ */
+function fromLegacyLease(lease) {
+  if (!lease || typeof lease !== 'object' || !Object.hasOwn(lease, 'status')) {
+    return /** @type {WorktreeLease} */ (lease);
+  }
+  const { status, ...rest } = lease;
+  return /** @type {WorktreeLease} */ ({
+    ...rest,
+    state: rest.state ?? (status === 'setup_failed' ? 'setup-failed' : status),
+  });
+}
+
 /** @param {PrivateStore} store @returns {Registry} */
 export function readRegistry(store) {
-  const text = store.read(REGISTRY_FILE);
+  const text = store.read(REGISTRY_FILE) ?? store.read(LEGACY_REGISTRY_FILE);
   if (text === null) return empty();
   const parsed = JSON.parse(text);
-  return { ...empty(), ...parsed };
+  const out = { ...empty(), ...parsed };
+  out.worktrees = Object.fromEntries(
+    Object.entries(out.worktrees ?? {}).map(([k, v]) => [k, fromLegacyLease(v)]),
+  );
+  return out;
 }
 
 /**

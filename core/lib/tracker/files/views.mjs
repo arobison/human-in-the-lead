@@ -1,15 +1,19 @@
 // The views over the item graph (design part 3.4, "Generated views"): ready, blocked, the
 // decision backlog, projects, initiatives, the item lists, the dependency diagrams, the critical
-// path, the milestones (each with its error and scope) and the merged-but-unreleased stock. Each
+// path, the milestones (each with its unmet clauses and scope) and the merged-but-unreleased stock. Each
 // returns text. The first five are the reference views byte for byte (design part 16.7).
 
 import { ITEM_KINDS, describeProgress, progress } from './graph.mjs';
 import { readMilestone } from './milestones.mjs';
+import { STATE_LABELS } from './format.mjs';
 
 /**
  * @typedef {import('./graph.mjs').Graph} Graph
  * @typedef {import('./graph.mjs').Node} Node
  */
+
+/** A state's display label ("in-progress" shows as "In progress"). @param {unknown} s */
+const stateLabel = (s) => STATE_LABELS[String(s)] ?? String(s);
 
 /** @param {Graph} g @param {string} id */
 const titleOf = (g, id) => String(g.get(id)?.data.title ?? id);
@@ -45,11 +49,11 @@ function grouped(g, its, line) {
 export function itemRow(g, it) {
   const d = it.data;
   const project = String(g.get(String(d.project))?.data.title ?? d.project);
-  const claim = d.claimed && d.status === 'In progress' ? ` [${d.claimed}]` : '';
+  const claim = d.claimed_by && d.state === 'in-progress' ? ` [${d.claimed_by}]` : '';
   return `${d.id}\t${d.kind === 'work' ? '' : `${d.kind}: `}${d.title}${claim}\t(${shortTitle(project)})`;
 }
 
-/** Planned items whose needs are all Done, by project. @param {Graph} g */
+/** Planned items whose needs are all done, by project. @param {Graph} g */
 export function viewReady(g) {
   const ready = g.items.filter(g.isReady);
   const lines = grouped(g, ready, (it) => itemRow(g, it).split('\t').slice(0, 2).join('  '));
@@ -61,7 +65,7 @@ export function viewBlocked(g) {
   const blocked = g.items.filter(g.isBlocked);
   const lines = grouped(g, blocked, (it) => {
     const open = g.openNeeds(it).map((n) => `${n} ${titleOf(g, n)}`);
-    return `${it.data.id}  ${it.data.title}${it.data.status === 'Proposed' ? ' (proposed)' : ''}\n      ← ${open.join('\n        ')}`;
+    return `${it.data.id}  ${it.data.title}${it.data.state === 'proposed' ? ' (proposed)' : ''}\n      ← ${open.join('\n        ')}`;
   });
   return `${[...lines, '', `${blocked.length} blocked`].join('\n')}\n`;
 }
@@ -73,14 +77,12 @@ export function viewBlocked(g) {
 export function viewDecisions(g, who = 'owner') {
   const open = g.items.filter(
     (it) =>
-      it.data.kind === 'decision' &&
-      g.isOpen(it) &&
-      (who === 'all' || it.data['decided-by'] === who),
+      it.data.kind === 'decision' && g.isOpen(it) && (who === 'all' || it.data.decider === who),
   );
   const lines = grouped(g, open, (it) => {
     const waits = g.dependents(String(it.data.id)).map((d) => d.data.id);
     const first = g.openNeeds(it);
-    const out = [`${it.data.id}  ${it.data.title} (${it.data['decided-by']})`];
+    const out = [`${it.data.id}  ${it.data.title} (${it.data.decider})`];
     if (first.length) out.push(`      first needs ${first.join(', ')}`);
     if (waits.length) out.push(`      waited on by ${waits.join(', ')}`);
     return out.join('\n');
@@ -118,7 +120,9 @@ export function viewProjects(g) {
   for (const p of g.projects) {
     const id = String(p.data.id);
     const c = progress(g, g.itemsOf(id));
-    out.push(`${id} ${p.data.title} [${p.data.status}], led by ${p.data.lead}`);
+    out.push(
+      `${id} ${p.data.title} [${stateLabel(p.data.state)}], led by ${p.data.owner ?? 'owner'}`,
+    );
     out.push(`  ${describeProgress(c)}`);
     const on = deps.filter((e) => e.from === id);
     const by = deps.filter((e) => e.to === id);
@@ -138,7 +142,7 @@ export function viewInitiatives(g) {
   for (const ini of g.initiatives) {
     const projects = g.projectsOf(String(ini.data.id));
     const all = projects.flatMap((p) => g.itemsOf(String(p.data.id)));
-    out.push(`${ini.data.id} ${ini.data.title} [${ini.data.status}]`);
+    out.push(`${ini.data.id} ${ini.data.title} [${stateLabel(ini.data.state)}]`);
     for (const p of projects) {
       out.push(
         `  ${p.data.id} ${p.data.title}: ${describeProgress(progress(g, g.itemsOf(String(p.data.id))))}`,
@@ -155,11 +159,11 @@ export function viewInitiatives(g) {
 // --- The lists -------------------------------------------------------------
 
 const BOX = /** @type {Record<string, string>} */ ({
-  Done: 'x',
-  'In progress': '~',
-  Planned: ' ',
-  Proposed: '?',
-  Dropped: '-',
+  done: 'x',
+  'in-progress': '~',
+  planned: ' ',
+  proposed: '?',
+  dropped: '-',
 });
 
 /** @param {string[]} ids */
@@ -183,16 +187,16 @@ function itemLine(g, it, projectId, linkBase) {
   const tag = d.kind === 'work' ? '' : `${d.kind}: `;
   const id = linkBase ? `[${d.id}](${linkBase}${it.folder}/${it.file})` : d.id;
   let tail;
-  if (d.status === 'Dropped') tail = `Dropped: ${d.reason}`;
-  else if (d.status === 'Done') tail = 'Done.';
+  if (d.state === 'dropped') tail = `Dropped: ${d.reason}`;
+  else if (d.state === 'done') tail = 'Done.';
   else {
     tail = needsText(g, it, projectId);
-    if (d.status === 'In progress') tail += ` Claimed by ${d.claimed ?? '?'}.`;
-    else if (d.status === 'Proposed') tail = `Proposed. ${tail}`;
-    if (d.kind === 'decision') tail += ` Decided by ${d['decided-by']}.`;
-    else if (d.kind === 'external') tail += ` Waiting on ${d.party}.`;
+    if (d.state === 'in-progress') tail += ` Claimed by ${d.claimed_by ?? '?'}.`;
+    else if (d.state === 'proposed') tail = `Proposed. ${tail}`;
+    if (d.kind === 'decision') tail += ` Decided by ${d.decider}.`;
+    else if (d.kind === 'external') tail += ` Waiting on ${d.waiting_on}.`;
   }
-  return `- [${BOX[String(d.status)] ?? ' '}] ${id} ${tag}${String(d.title).replace(/\.$/, '')}. ${tail}`;
+  return `- [${BOX[String(d.state)] ?? ' '}] ${id} ${tag}${String(d.title).replace(/\.$/, '')}. ${tail}`;
 }
 
 /**
@@ -212,7 +216,7 @@ export function renderLists(g, { linkBase = '' } = {}) {
     out.push(
       `${'#'.repeat(level)} ${p.data.title}`,
       '',
-      `${pid}, ${p.data.status}, led by ${p.data.lead}: ${describeProgress(progress(g, items))}.${plan}`,
+      `${pid}, ${stateLabel(p.data.state)}, led by ${p.data.owner ?? 'owner'}: ${describeProgress(progress(g, items))}.${plan}`,
       '',
     );
     // Each item shows under the first of the project's milestones that names it as a constraint.
@@ -225,7 +229,7 @@ export function renderLists(g, { linkBase = '' } = {}) {
       const its = items.filter((it) => needs.includes(String(it.data.id)) && !placed.has(it));
       its.forEach((it) => placed.add(it));
       const mid = linkBase ? `[${m.data.id}](${linkBase}${m.folder}/${m.file})` : m.data.id;
-      groups.push([`${m.data.title} (${mid}, ${m.data.status})`, its]);
+      groups.push([`${m.data.title} (${mid}, ${stateLabel(m.data.state)})`, its]);
     }
     groups.push(['', items.filter((it) => !placed.has(it))]);
     for (const [m, its] of groups) {
@@ -241,7 +245,7 @@ export function renderLists(g, { linkBase = '' } = {}) {
     const projects = g.projectsOf(String(ini.data.id));
     const all = projects.flatMap((p) => g.itemsOf(String(p.data.id)));
     const iid = linkBase ? `[${ini.data.id}](${linkBase}${ini.folder}/${ini.file})` : ini.data.id;
-    out.push(`${iid}, ${ini.data.status}: ${describeProgress(progress(g, all))}.`, '');
+    out.push(`${iid}, ${stateLabel(ini.data.state)}: ${describeProgress(progress(g, all))}.`, '');
     for (const p of projects) projectBlock(p, 4);
   }
   for (const p of g.projects.filter((p) => !g.get(String(p.data.initiative)))) projectBlock(p, 3);
@@ -266,7 +270,7 @@ export function replaceBetweenMarkers(text, generated) {
 // --- Milestones and releases -----------------------------------------------
 
 /**
- * Each open milestone: its outcome, its error (the unmet clauses), whether its check is due, its
+ * Each open milestone: its outcome, its unmet clauses, whether its check is due, its
  * scope and what shaping still owes it; then the closed ones, one line each.
  * @param {Graph} g
  * @param {(m: Node) => import('./milestones.mjs').MilestoneDerived} derived
@@ -281,20 +285,20 @@ export function viewMilestones(g, derived) {
     const parent = String(m.data.project ?? m.data.initiative);
     if (out.length) out.push('');
     out.push(
-      `${m.data.id} ${m.data.title} [${m.data.status}], ${m.data.kind}, under ${parent} ${titleOf(g, parent)}`,
+      `${m.data.id} ${m.data.title} [${stateLabel(m.data.state)}], ${m.data.kind}, under ${parent} ${titleOf(g, parent)}`,
     );
     if (data.outcome) out.push(`  outcome: ${data.outcome}`);
     const ids = g.needs(m);
-    const done = ids.filter((id) => g.get(id)?.data.status === 'Done').length;
+    const done = ids.filter((id) => g.get(id)?.data.state === 'done').length;
     out.push(`  constraints: ${done} of ${ids.length} done`);
     if (d.check_due) out.push('  check due: every constraint is done; the check has not passed');
-    for (const e of d.error) {
+    for (const e of d.unmet_clauses) {
       const what = e.clause ? `${e.clause} ${e.text}` : 'not linked to a clause yet';
       const why = [
         ...(e.open.length ? [`open: ${e.open.join(', ')}`] : []),
         ...(e.checked ? [] : ['check not passed']),
       ];
-      out.push(`  error: ${what} (${why.join('; ')})`);
+      out.push(`  unmet: ${what} (${why.join('; ')})`);
     }
     const s = d.scope;
     if (data.contributions.length || s.appetite_tokens !== null) {
@@ -313,7 +317,7 @@ export function viewMilestones(g, derived) {
   const closed = g.milestones.filter((m) => !g.isOpen(m));
   if (closed.length) {
     if (out.length) out.push('');
-    for (const m of closed) out.push(`${m.data.id} ${m.data.title} [${m.data.status}]`);
+    for (const m of closed) out.push(`${m.data.id} ${m.data.title} [${stateLabel(m.data.state)}]`);
   }
   out.push('', `${open.length} open milestone(s)`);
   return `${out.join('\n').replace(/^\n+/, '')}\n`;
@@ -326,7 +330,7 @@ export function viewMilestones(g, derived) {
 export function viewUnreleased(g, released) {
   const stock = g.items.filter(
     (it) =>
-      it.data.kind === 'work' && it.data.status === 'Done' && !released.has(String(it.data.id)),
+      it.data.kind === 'work' && it.data.state === 'done' && !released.has(String(it.data.id)),
   );
   const lines = grouped(g, stock, (it) => `${it.data.id}  ${it.data.title}`);
   return `${[...lines, '', `${stock.length} merged item(s) not in a release`].join('\n')}\n`;
@@ -348,12 +352,12 @@ const node = (id) => id.replace('-', '_');
 
 /** @param {Node} it */
 function classOf(it) {
-  const s = it.data.status;
-  if (s === 'Done') return 'done';
-  if (s === 'Dropped') return 'dropped';
+  const s = it.data.state;
+  if (s === 'done') return 'done';
+  if (s === 'dropped') return 'dropped';
   if (it.data.kind === 'decision') return 'decision';
   if (it.data.kind === 'external') return 'external';
-  return s === 'Proposed' ? 'proposed' : 'open';
+  return s === 'proposed' ? 'proposed' : 'open';
 }
 
 /** The item graph as Mermaid. @param {Graph} g @param {string} [projectId] */
@@ -462,7 +466,8 @@ export function viewCriticalPath(g, top = 5) {
   const out = [];
   for (const [i, p] of paths.entries()) {
     out.push(`${i + 1}. weight ${p.weight}, ${p.chain.length} item(s)`);
-    for (const it of p.chain) out.push(`   ${it.data.id}  ${it.data.title} [${it.data.status}]`);
+    for (const it of p.chain)
+      out.push(`   ${it.data.id}  ${it.data.title} [${stateLabel(it.data.state)}]`);
   }
   return `${out.join('\n')}\n`;
 }

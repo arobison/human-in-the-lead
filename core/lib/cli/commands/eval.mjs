@@ -5,7 +5,12 @@ import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
-import { acceptRefusal, readBaseline, writeBaseline } from '../../eval/results.mjs';
+import {
+  acceptRefusal,
+  fromLegacyResult,
+  readBaseline,
+  writeBaseline,
+} from '../../eval/results.mjs';
 import { executorSignal } from '../executor.mjs';
 import { renderEvalReport } from '../../eval/report.mjs';
 import { outputProblem, writeReportFiles } from '../../report-output.mjs';
@@ -61,7 +66,7 @@ function openEvalStore(ctx) {
  * @param {import('../../store/store.mjs').PrivateStore} store @param {string} id
  */
 function readRun(store, id) {
-  const doc = JSON.parse(store.read(`eval/results/${id}.json`) ?? 'null');
+  const doc = fromLegacyResult(JSON.parse(store.read(`eval/results/${id}.json`) ?? 'null'));
   const errors = schemas().validateEntity('eval-result', doc);
   if (errors.length) {
     return {
@@ -79,7 +84,7 @@ export const commands = [
     name: 'eval',
     summary:
       'Run the eval suite: --offline runs the deterministic scenarios against the fake adapter and gates on the baseline (--live, --harness and --sealed come later)',
-    piece: 'g',
+    built_by: 'g',
     args: [
       {
         name: 'offline',
@@ -108,7 +113,7 @@ export const commands = [
         name: 'accept-baseline',
         type: 'boolean',
         description:
-          "Record this full, passing run as the baseline the gate compares with. The owner's decision (design part 17.9): agents do not pass it. To accept a run you have already reviewed, use hitld eval accept --run <id> instead",
+          "Record this full, passing run as the baseline the gate compares with. The owner's decision (design part 17.9): agents do not pass it. To accept a run you have already reviewed, use hitld eval accept --result <id> instead",
       },
       {
         name: 'evals-dir',
@@ -144,11 +149,11 @@ export const commands = [
   {
     name: 'eval report',
     summary:
-      'Write a static HTML page for a stored eval run (the latest unless --run names one): verdict, changes against the baseline, every scenario, and the command that accepts it as the baseline',
-    piece: 'g',
+      'Write a static HTML page for a stored eval run (the latest unless --result names one): verdict, changes against the baseline, every scenario, and the command that accepts it as the baseline',
+    built_by: 'g',
     args: [
       {
-        name: 'run',
+        name: 'result',
         type: 'string',
         description:
           'The run ID to render, such as EV-20261114T031500Z-ab12cd (default: the latest)',
@@ -166,7 +171,7 @@ export const commands = [
       if (!opened.ok) return opened;
       const { store, stored } = opened;
       const repoRoot = findRepoRoot(ctx.cwd) ?? undefined;
-      let id = input.run;
+      let id = input.result;
       if (id === undefined) {
         // IDs start with a UTC timestamp, so the last one sorted is the newest.
         id = [...stored].sort().at(-1);
@@ -212,11 +217,11 @@ export const commands = [
     name: 'eval accept',
     summary:
       "Accept exactly a stored eval run as the baseline for its settings, without running again. The owner's decision (design part 17.9): executors never run it",
-    piece: 'g',
+    built_by: 'g',
     mcp: false,
     args: [
       {
-        name: 'run',
+        name: 'result',
         type: 'string',
         required: true,
         description:
@@ -228,7 +233,7 @@ export const commands = [
       const opened = openEvalStore(ctx);
       if (!opened.ok) return opened;
       const { store, stored } = opened;
-      const id = input.run;
+      const id = input.result;
       if (typeof id !== 'string' || !RUN_ID.test(id) || !stored.includes(id)) {
         return {
           ok: false,
