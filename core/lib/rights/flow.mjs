@@ -66,7 +66,7 @@ import {
  */
 
 /** The state of a decision that has been asked and not answered. */
-const OPEN_STATES = ['proposed', 'planned'];
+export const OPEN_STATES = ['proposed', 'planned'];
 
 /**
  * The authority a question was asked under, recorded in the private store when it was asked. A
@@ -75,11 +75,14 @@ const OPEN_STATES = ['proposed', 'planned'];
  * rule basis, the classification, and the offer the decider was shown. The record also keeps the
  * options and the recommendation, which an answer such as "A" is read against.
  * @typedef {{ deciders: string[], area: string | null, basis: string | null, classification: string, offer: Record<string, any> | null }} Authority
- * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any>, text?: string }} AskedRecord
+ * Also kept: whether the question is a two-way door and the default it carries. A default is
+ * applied only from this record, never from the decision item, so editing the item cannot make
+ * one apply (design part 4.2).
+ * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any>, text?: string, reversibility?: 'two-way' | 'one-way', default_if_unanswered?: { option: string, deadline: string } }} AskedRecord
  */
 
 /** @param {string} id */
-const askedKey = (id) => `rights/asked/${id}.json`;
+export const askedKey = (id) => `rights/asked/${id}.json`;
 
 /** @param {string} text @returns {string[]} */
 const splitDeciders = (text) =>
@@ -211,8 +214,8 @@ function citeCandidates(candidates, classification) {
  * - precedent: one precedent resolves it. A decision item is created Done, citing it.
  * - asked: a decision item is created Planned, and its text is the question to send. It is
  *   written to the ledger as `asked`. With `send`, the question is going to its decider now, and
- *   `sent` is written too; otherwise it waits for the next digest and `showQuestion` writes `sent`
- *   when it is shown.
+ *   `sent` is written too, as an interrupt (it uses one of the person's interrupts_per_day);
+ *   otherwise it waits for the next digest and `showQuestion` writes `sent` when it is shown.
  * @param {Deps} deps
  * @param {Record<string, any>} given as in schemas/question.schema.json (direction, its name before HITLD-82, is read as touches_direction)
  * @param {{ judged?: Record<string, boolean>, send?: boolean }} [options]
@@ -311,6 +314,23 @@ export function askQuestion(deps, given, options = {}) {
       { missing, route },
     );
   }
+  if (question.default_if_unanswered) {
+    if (question.reversibility !== 'two-way') {
+      return fail(
+        'invalid_default',
+        'default_if_unanswered is for a two-way door only: set reversibility to two-way, or leave the default out. A call that is hard to undo always waits for the owner',
+      );
+    }
+    if (
+      optionIndex({ options: question.options ?? [] }, question.default_if_unanswered.option) ===
+      null
+    ) {
+      return fail(
+        'invalid_default',
+        `default_if_unanswered.option "${question.default_if_unanswered.option}" must name one of the options, by letter or label`,
+      );
+    }
+  }
   const cite = citeCandidates(remaining, classification);
   /** @type {string[]} */
   const warnings = question.precedent_offer ? [] : ['no_precedent_offer'];
@@ -360,6 +380,8 @@ export function askQuestion(deps, given, options = {}) {
     ...currentAuthority(draft),
     options: draft.options,
     recommendation: draft.recommendation,
+    ...(draft.reversibility ? { reversibility: draft.reversibility } : {}),
+    ...(draft.default_if_unanswered ? { default_if_unanswered: draft.default_if_unanswered } : {}),
     text,
   };
   deps.store.write(askedKey(id), canonicalJson(record) + '\n');
@@ -378,7 +400,7 @@ export function askQuestion(deps, given, options = {}) {
     at,
   );
   recordDecisionEvent(deps.store, 'asked', id, at);
-  if (options.send) recordDecisionEvent(deps.store, 'sent', id, at);
+  if (options.send) recordDecisionEvent(deps.store, 'sent', id, at, { delivery: 'interrupt' });
   return {
     ok: true,
     outcome: 'asked',
@@ -397,8 +419,10 @@ export function askQuestion(deps, given, options = {}) {
 /**
  * Show a question to its decider: the text to send, and `sent` in the ledger the first time, so
  * the time it waited for a digest (asked to sent) is told apart from the time the decider took
- * (sent to answered). Showing it again returns the same text and changes nothing.
- * @param {Deps} deps @param {{ decision: string }} input
+ * (sent to answered). Showing it again returns the same text and changes nothing. A question shown
+ * on its own, at once, is an interrupt and uses one of the person's interrupts_per_day; one shown
+ * as part of a digest is not.
+ * @param {Deps} deps @param {{ decision: string, interrupt?: boolean }} input
  * @returns {Result}
  */
 export function showQuestion(deps, input) {
@@ -436,7 +460,9 @@ export function showQuestion(deps, input) {
   const at = nowOf(deps);
   // A decision asked before the ledger recorded questions still gets its `asked`, at this time.
   recordDecisionEvent(deps.store, 'asked', input.decision, at);
-  const { event, appended } = recordDecisionEvent(deps.store, 'sent', input.decision, at);
+  const { event, appended } = recordDecisionEvent(deps.store, 'sent', input.decision, at, {
+    delivery: input.interrupt ? 'interrupt' : 'digest',
+  });
   return {
     ok: true,
     decision: input.decision,
@@ -756,31 +782,44 @@ export function overrule(deps, input) {
  * a question to ask, not something recorded here.
  *
  * A subject that is the ID of a logged call in the ledger (the one the digest lists) is a reversal
- * of that call: its kind and area are the call's, and it can be reversed once.
+ * of that call: its kind and area are the call's, and it can be reversed once. A subject that is a
+ * decision that took its default is a reversal of that default, on the same terms: the owner's
+ * note says what they want instead, and the orchestrator undoes what the default started and
+ * applies it.
  * @param {Deps} deps
- * @param {{ subject: string, subject_kind?: 'logged-call' | 'triage-route' | 'controller-move' | 'other', area?: string, note?: string }} input
+ * @param {{ subject: string, subject_kind?: 'logged-call' | 'triage-route' | 'controller-move' | 'default' | 'other', area?: string, note?: string }} input
  * @returns {Result}
  */
 export function recordReversal(deps, input) {
   const call = loggedCalls(deps.store).find((e) => e.id === input.subject);
-  if (
-    call &&
-    readTrustEvents(deps.store).some((e) => e.kind === 'reversal' && e.subject === call.id)
-  ) {
-    return fail('already_reversed', `${call.id} was already reversed`);
+  const trust = readTrustEvents(deps.store);
+  const defaulted = trust.find((e) => e.kind === 'default' && e.subject === input.subject);
+  const target = call?.id ?? (defaulted ? input.subject : null);
+  if (target && trust.some((e) => e.kind === 'reversal' && e.subject === target)) {
+    return fail('already_reversed', `${target} was already reversed`);
   }
   const line = recordTrustEvent(
     deps.store,
     {
       kind: 'reversal',
-      area: input.area ?? call?.area ?? UNASSIGNED,
+      area: input.area ?? call?.area ?? defaulted?.area ?? UNASSIGNED,
       subject: input.subject,
-      subject_kind: input.subject_kind ?? (call ? 'logged-call' : 'other'),
+      subject_kind: input.subject_kind ?? (call ? 'logged-call' : defaulted ? 'default' : 'other'),
       ...(input.note ? { note: input.note } : {}),
     },
     nowOf(deps),
   );
-  return { ok: true, recorded: line, ...(call ? { logged_call: call.text } : {}) };
+  return {
+    ok: true,
+    recorded: line,
+    ...(call ? { logged_call: call.text } : {}),
+    ...(defaulted
+      ? {
+          default_reversed: input.subject,
+          next: `${input.subject} took its default with no one answering. Undo what that default started and apply the owner's choice${input.note ? ` (their note: ${input.note})` : ''}`,
+        }
+      : {}),
+  };
 }
 
 /**

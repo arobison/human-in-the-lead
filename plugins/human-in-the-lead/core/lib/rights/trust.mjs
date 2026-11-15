@@ -73,6 +73,8 @@ const share = (n, d) => (d === 0 ? null : Math.round((n / d) * 1000) / 1000);
  * - precedent-match accuracy: of precedent applications, the share not overruled; and of questions
  *   sent despite candidate precedents, the share answered as a candidate would have;
  * - overturn: reversals and overrules, as counts;
+ * - defaults: decisions that took their default with no one answering, and the share of them the
+ *   owner reversed (a default is not an answer, so it is in none of the answer counts);
  * - auto-resolution: the share of questions that precedent resolved, the Goodhart pair of the
  *   overrule share (design part 11.3);
  * - rubber stamp: of the answers that record both whether the recommendation was taken and how
@@ -103,6 +105,8 @@ export function trustSummary(events, options = {}) {
       applications: 0,
       overrules: 0,
       reversals: 0,
+      defaults: 0,
+      defaults_reversed: 0,
       asked_with_candidates: 0,
       answered_as_candidate: 0,
       generalizations: { yes: 0, narrowed: 0, 'just-this-one': 0, 'none-given': 0 },
@@ -148,6 +152,9 @@ export function trustSummary(events, options = {}) {
       overruled.add(e.subject);
     } else if (e.kind === 'reversal') {
       a.reversals++;
+      if (e.subject_kind === 'default') a.defaults_reversed++;
+    } else if (e.kind === 'default') {
+      a.defaults++;
     } else if (e.kind === 'precedent-created') {
       a.precedents_created++;
     }
@@ -159,6 +166,7 @@ export function trustSummary(events, options = {}) {
     a.overrule_rate = share(a.overrules, a.applications);
     a.recommendation_taken_rate = share(a.recommendation_taken, a.recommendation_known);
     a.rubber_stamp_rate = share(a.stamped, a.stamp_known);
+    a.default_reversal_rate = share(a.defaults_reversed, a.defaults);
     a.auto_resolution_rate = share(a.applications, a.applications + a.asked);
   }
   return areas;

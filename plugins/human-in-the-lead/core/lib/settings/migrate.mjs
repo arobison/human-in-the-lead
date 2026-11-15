@@ -5,8 +5,8 @@
 // stays in policy.json.
 
 import { isAbsolute, relative } from 'node:path';
-import { schemas } from '../schema/registry.mjs';
 import { movedKeyWarnings, tightenLimit } from './layers.mjs';
+import { stampLowest } from './versions.mjs';
 
 /**
  * @typedef {object} MigrationInput
@@ -45,10 +45,9 @@ function put(obj, section, key, value) {
  * @returns {Migration}
  */
 export function proposeMigration({ raw, person, machine }) {
-  const registry = schemas();
   const policy = structuredClone(raw);
-  const p = structuredClone(person ?? { schema_version: registry.currentVersion('person') });
-  const m = structuredClone(machine ?? { schema_version: registry.currentVersion('machine') });
+  const p = structuredClone(person ?? { schema_version: 1 });
+  const m = structuredClone(machine ?? { schema_version: 1 });
   /** @type {Move[]} */
   const moves = [];
   const flagged = new Set(
@@ -137,8 +136,12 @@ export function proposeMigration({ raw, person, machine }) {
     JSON.stringify(before) !== JSON.stringify(after);
   return {
     moves,
-    person: changed(person, p) && moves.some((x) => x.to === 'person') ? p : null,
-    machine: changed(machine, m) && moves.some((x) => x.to === 'machine') ? m : null,
+    person:
+      changed(person, p) && moves.some((x) => x.to === 'person') ? stampLowest('person', p) : null,
+    machine:
+      changed(machine, m) && moves.some((x) => x.to === 'machine')
+        ? stampLowest('machine', m)
+        : null,
     policy,
   };
 }

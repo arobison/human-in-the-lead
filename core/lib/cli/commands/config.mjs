@@ -16,6 +16,8 @@ import {
 } from '../../settings/files.mjs';
 import { explainText, loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { proposeMigration } from '../../settings/migrate.mjs';
+import { pinnedProjects } from '../../settings/pins.mjs';
+import { pinWarnings } from '../../settings/versions.mjs';
 
 const MAX_FILE_BYTES = 1_000_000;
 
@@ -67,6 +69,24 @@ function dataInput(input, ctx) {
   }
 }
 
+/**
+ * Warnings for the projects pinned on this machine that cannot read the person or machine file as
+ * it is (design part 16.5).
+ * @param {Record<string, any> | null | undefined} layers the loaded person and machine data
+ * @param {import('../table.mjs').CommandContext} ctx @param {string | undefined} project
+ * @returns {{ path: string, home: 'person' | 'machine', message: string }[]}
+ */
+function versionWarnings(layers, ctx, project) {
+  const pins = pinnedProjects({ cwd: ctx.cwd, env: ctx.env, project });
+  return /** @type {const} */ (['person', 'machine']).flatMap((kind) =>
+    pinWarnings(kind, layers?.[kind] ?? null, pins).map((message) => ({
+      path: `${kind}.schema_version`,
+      home: kind,
+      message: `the ${kind} file: ${message}`,
+    })),
+  );
+}
+
 /** @type {import('../table.mjs').Command[]} */
 export const commands = [
   {
@@ -101,20 +121,25 @@ export const commands = [
         run: noPolicy ? null : run,
       });
       const ok = r.errors.length === 0;
+      const warnings = [
+        ...r.warnings,
+        ...versionWarnings(r.layers, ctx, noPolicy ? undefined : base.policy?.project?.id),
+      ];
       const files = {
         ...r.files,
         policy: noPolicy ? { path: null, present: false } : r.files.policy,
       };
       const setup = setupState(files);
-      if (!r.settings) return { ok, files, setup, errors: r.errors, warnings: r.warnings };
+      if (!r.settings) return { ok, files, setup, errors: r.errors, warnings };
       if (input.json) {
         return {
           ok,
           files,
           setup,
           cap: r.settings.cap,
+          attention: r.settings.attention,
           values: r.settings.values,
-          warnings: r.warnings,
+          warnings,
           errors: r.errors,
         };
       }
@@ -123,7 +148,7 @@ export const commands = [
         text: explainText(r.settings.values) + (setup.reason ? `\n\n${setup.reason}` : ''),
         files,
         setup,
-        warnings: r.warnings.map((w) => w.message),
+        warnings: warnings.map((w) => w.message),
         errors: r.errors,
       };
     },

@@ -159,7 +159,7 @@ export class SchemaRegistry {
         return [
           {
             path: 'schema_version',
-            message: `is ${v}, newer than this release knows (${current}); upgrade hitld before reading or writing this file`,
+            message: `is ${v}, newer than this release knows (${current}); upgrade hitld (the human-in-the-lead plugin) before reading or writing this file`,
           },
         ];
       }
