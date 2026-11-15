@@ -6,6 +6,7 @@ status: Done
 created: 2026-11-14
 project: HITLD-15
 claimed: D-63
+changelog: "Security scanners declared in `merge.scanners` run in the merge queue against a baseline; only new, untriaged findings send a branch back (`hitld security status`, `baseline`, `verdict`, `accept`)."
 ---
 
 ## Why

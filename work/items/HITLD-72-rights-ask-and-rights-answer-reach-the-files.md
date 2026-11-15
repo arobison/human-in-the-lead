@@ -6,6 +6,7 @@ status: Done
 created: 2026-11-14
 project: HITLD-15
 claimed: D-72
+changelog: "`hitld rights ask` and `rights answer` work from the command line, and answered decisions are recorded in the tracker files."
 ---
 
 ## Why

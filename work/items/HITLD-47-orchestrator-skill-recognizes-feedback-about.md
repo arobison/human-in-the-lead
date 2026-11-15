@@ -7,6 +7,7 @@ created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-46]
 claimed: D-47
+changelog: "The orchestrator recognizes feedback about HITLd in the person's own turns and files a generalized version only after the person approves it."
 ---
 
 ## Why

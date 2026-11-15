@@ -6,6 +6,7 @@ status: Done
 created: 2026-11-14
 project: HITLD-15
 claimed: D-46
+changelog: "`hitld feedback` records feedback about HITLd, with its context, in the project's private store."
 ---
 
 ## Why
