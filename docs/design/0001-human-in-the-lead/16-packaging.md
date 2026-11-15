@@ -76,6 +76,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
 | `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
+| `hitld upgrade plan [--to v] [--from v] [--records dir]` | What upgrading to the pinned release takes: the notes and interface delta of the releases on the way, the migrations, the restart, and what each role does, in order; reads only ([16.5, Upgrades](#upgrades)) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
 Built as well: `run`, `env`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, and for owner merge mode `merge --all`, `merge --only` and `merge approve`. `hitld --help` lists every built command; this table is the design, not the list.
@@ -113,6 +114,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `no-eval-run`: No stored eval run has that ID, or none is stored yet.
 - `invalid-eval-run`: A stored eval run is not a valid eval result.
 - `setup-failed`: The worktree's setup commands failed.
+- `version-not-pinned`: This session runs another release of the plugin than the pin in .claude/settings.json names, so no run starts or resumes.
 
 **The run lease and locks**
 
@@ -312,14 +314,15 @@ The consumer commits `.claude/settings.json`:
 {
   "extraKnownMarketplaces": {
     "human-in-the-lead": {
-      "source": { "source": "github", "repo": "arobison/human-in-the-lead", "ref": "v0.1.0" }
+      "source": { "source": "github", "repo": "arobison/human-in-the-lead", "ref": "v0.1.0" },
+      "autoUpdate": false
     }
   },
   "enabledPlugins": { "human-in-the-lead@human-in-the-lead": true }
 }
 ```
 
-- **What the committed file does.** It declares the marketplace pinned to a release tag (`ref`) and turns the plugin on for the project. Every worktree is a checkout of the same repository, so every worktree session sees the same pin.
+- **What the committed file does.** It declares the marketplace pinned to a release tag (`ref`), with automatic updates off, and turns the plugin on for the project. Every worktree is a checkout of the same repository, so every worktree session sees the same pin.
 - **What it does not do** (per the documentation read on 2026-11-14): committed project settings turn the plugin on but **do not download it** to a collaborator's machine, and a marketplace declared in project settings takes effect only after the person trusts the folder. Each machine therefore installs once:
 
   ```bash
@@ -336,7 +339,7 @@ The consumer commits `.claude/settings.json`:
 - A release is a **tag** (`vMAJOR.MINOR.PATCH`) on `main`, with a changelog generated from this repository's own item files. It is made through a release pull request, and the release workflow tags it ([16.5, Release mechanics](#release-mechanics)).
 - A release is **gated by the eval suite**: the visible suite passes on the supported harnesses, the head-to-head against the previous release shows no regression beyond tolerance, and for skill or policy changes the sealed set passes ([part 18](18-self-improvement.md#183-guardrails-against-gaming-its-own-grading)). The changelog cites the eval run IDs.
 - **The first release** has no previous release, no live runner and no sealed set yet. It is gated on the offline suite passing against the owner-accepted baseline, which is committed in `evals/baselines/` ([17.5](17-evals.md#175-how-it-runs)); the release workflow fails when no committed baseline matches. The live evals, the comparison with the previous release and the sealed set join the gate once each exists.
-- **A consumer upgrades by committing a change to the `ref`**, then running the migrations the release notes name (`hitld data migrate`, `hitld work migrate` or `hitld config migrate`). Rolling back is reverting that commit.
+- **A consumer upgrades by committing a change to the `ref`**, then running the migrations the release notes name (`hitld data migrate`, `hitld work migrate` or `hitld config migrate`); `hitld upgrade plan` lists them in order. Rolling back is reverting that commit ([16.5, Upgrades](#upgrades)).
 
 ### The development loop
 
@@ -376,6 +379,58 @@ Compatibility rules for data:
 - **No writing ahead.** A release refuses to write a file whose `schema_version` is newer than it knows, so a machine on an older pin cannot corrupt data written by a newer one (relevant when two machines exchange bundles).
 - **The person and machine files follow one rule, because every project on the machine reads them, each with the release it is pinned to.** A reader accepts a `schema_version` at or below its own and refuses a newer one, with a message that says to upgrade human-in-the-lead and leaves the file as it is. A writer stamps the lowest version that expresses the file's content, so a file that uses nothing new stays readable by the older release a project may still be pinned to. `hitld config explain` warns when a project pinned on this machine cannot read the file as it is, naming the project, the version it reads and the release that reads more. It finds the pin in the project's `.claude/settings.json` (a tag, or a checkout whose own schemas say what it reads) and, for every other project with a private store, the release its last run started with.
 - **`policy.json` migrations** add new settings with their defaults and bounds; they never change a value the owner set.
+
+### Upgrades
+
+A project runs the release its pin names, and only a commit the owner merges moves the pin. A harness that updated the plugin on its own would change the running release under the project without anyone deciding it, so `hitld` checks.
+
+**The drift check.** `hitld` compares three releases: the one this session runs, the one the pin in `.claude/settings.json` names (a tag, or a checkout's own `package.json` version), and the one that last wrote the run's data (the ledger's `run-started` and `lease-taken` events record it). The check is `core/lib/install/drift.mjs`. It runs at session start, in a SessionStart hook that only speaks, and at `hitld run start` and `run resume`, before anything is recorded:
+
+- A session on another release than the pin is refused with `version-not-pinned`. When the pin is ahead, this machine has not caught up: `claude plugin marketplace update human-in-the-lead`, `claude plugin update human-in-the-lead@human-in-the-lead --scope project`, then a restart. When the running release is ahead, the plugin moved without the pin: move the pin by a pull request the owner merges, or turn off automatic updates for the marketplace and install the pinned release again.
+- Data at a schema version this release does not read is refused with `newer-schema`, the no-writing-ahead rule above.
+- A pin ahead of the release that last wrote the data says an upgrade is due (`upgrade.due` in the output), with `hitld upgrade plan` as the next step. It clears once a session on the new release takes the lease.
+- A pin to a commit or a branch names no release, so nothing is compared. A branch gets a warning, since it moves; so does `"autoUpdate": true` on the marketplace entry.
+
+**`hitld upgrade plan`** reads the release records from the release that last wrote the data up to the pinned one: the target's `work/releases/<tag>.md` and those before it, from the marketplace's own clone in the plugins directory, or from `--records`. A pre-release is left out when its full release is on the way. From the notes and the interface delta it lists, in order, what to run and who does it:
+
+1. The owner merges the pull request that moves the pin.
+2. The chief of staff asks the orchestrator to hand over.
+3. The orchestrator drains and hands over. Across minors, it waits until nothing is in flight.
+4. Each machine that runs the project's sessions updates the plugin.
+5. Each session restarts, the chief of staff's included, so skills, hooks and the `hitld` on the PATH reload.
+6. The chief of staff starts the successor.
+7. The successor runs the migrations (`hitld work migrate`, `config migrate`, `data migrate`), then `hitld check contract` and `hitld work check`, before it plans.
+
+A migration is listed when a release on the way names it or makes a breaking change (`data migrate` for a breaking schema change). The plan changes nothing.
+
+**The chief of staff upgrades only at a hand-over** ([13.1](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)). No orchestrator changes release mid-run: it drains, hands over, and its successor starts on the new release.
+
+**Executors on the old release.** A dispatch records the release it started on. An executor still running when its orchestrator is replaced finishes on that release, and `hitld dispatch complete` accepts its report when the two releases share a minor (`executor_version` in the output). A report from another minor is read with the new release's rules and warned about, so an upgrade across minors waits until `hitld ledger in-flight` lists nothing.
+
+**Rolling back** is reverting the pin commit, then the same update and restart. No migration runs backwards. Data the newer release wrote at a schema version the older one does not read is refused and left as it is; data at versions it reads goes on, with a warning. A test shows an older release refusing newer data (`core/test/upgrade.test.mjs`).
+
+### How Claude Code installs and updates the plugin
+
+HITLd relies on what the Claude Code documentation says, read on 2026-11-15: [Plugin loading reference](https://code.claude.com/docs/en/plugins/loading) (loading), [Install and manage plugins](https://code.claude.com/docs/en/plugins/install) (install), [Host and maintain a marketplace](https://code.claude.com/docs/en/plugins/host-marketplace) (hosting), [Marketplace reference](https://code.claude.com/docs/en/plugins/marketplace-reference) (marketplace), [Plugin commands reference](https://code.claude.com/docs/en/plugins/cli-reference) (commands), [Settings reference, `extraKnownMarketplaces`](https://code.claude.com/docs/en/settings-reference#extraknownmarketplaces) (settings), [Manage plugins for your organization](https://code.claude.com/docs/en/plugins/org) (org) and [Environment variables](https://code.claude.com/docs/en/env-vars) (env).
+
+- **Three stages.** Settings declare the plugin, Claude Code fetches it to disk, and the session loads it when it starts. A change to settings or to disk reaches a running session only through `/reload-plugins` or a new session. (loading)
+- **A copy per version.** A plugin from a git marketplace is copied to `cache/<marketplace>/<plugin>/<version>/` under `~/.claude/plugins` (or `$CLAUDE_PLUGIN_CACHE_DIR`), and `${CLAUDE_PLUGIN_ROOT}` points at that directory. The marketplace itself is cloned to `marketplaces/<name>/`. (loading)
+- **The version comes from `plugin.json`** first, then the marketplace entry, then the commit. An update replaces the cached copy only when that version changes. HITLd's release step sets it to the tag. (loading, hosting)
+- **A `ref` pins the marketplace.** In `extraKnownMarketplaces` it is a branch, a tag, or a commit's full SHA (a SHA needs Claude Code v2.1.324 or later). A refresh moves a branch or tag ref to its latest commit; the release tag ruleset keeps a tag from moving. (marketplace, commands)
+- **Automatic updates are off by default for this marketplace.** Only Anthropic's official marketplaces and those added from claude.ai default on. The first of these that is set decides: `autoUpdate` on the `extraKnownMarketplaces` entry in a settings file; then the user's toggle in `/plugin`, Marketplaces, which also writes that settings entry when one exists; then the default. `DISABLE_AUTOUPDATER`, `DISABLE_UPDATES` or `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` turn it off unless `FORCE_AUTOUPDATE_PLUGINS` is set. `hitld install` writes `"autoUpdate": false`, so the committed file decides, and a toggle shows as a change to it. (loading, install, settings, org, env)
+- **An automatic update** runs up to ten minutes after the first message of an interactive session. It updates the copies on disk and leaves the running session on what it loaded (`Run /reload-plugins to apply`); the next session loads the new release. (loading, install)
+- **A changed source is fetched again.** When the source a settings file declares for a marketplace changes, as a new `ref` does, Claude Code fetches it again in the background after the session starts and says `Plugins changed. Run /reload-plugins to activate.` (loading)
+- **Updating by hand.** `claude plugin update <plugin>@<marketplace>` updates to the version the marketplace offers, and it loads in the next session or after `/reload-plugins`. `claude plugin marketplace update` with no name refreshes the listings and leaves installed plugins as they are. (commands, install)
+- **`/reload-plugins`** switches hooks and MCP and LSP servers to the new copy; monitors need a restart, and a session without an interactive terminal connects no new MCP server. (loading, commands)
+- **One registration per marketplace name**, per user: a marketplace added in one project is known in every project. (loading, marketplace)
+- **Project settings do not install**, a marketplace they declare takes effect only after the folder is trusted, and a cloud session never adds it; `--plugin-dir` silently replaces an installed plugin of the same name ([16.3](#163-how-a-consuming-project-gets-the-plugin)). (loading, settings)
+
+Not documented either way, and not yet checked (open checks, not results):
+
+- Whether fetching a marketplace again after its `ref` changed also replaces the installed copy of the plugin, or only the listing. The plan runs `claude plugin update` either way.
+- What a session loads when two projects on one machine pin this marketplace to different refs, given one registration per name. The drift check catches the result: a session that loaded the other project's release is refused.
+- Whether `claude plugin update` moves a plugin back to an older version after the pin moved back. For a plugin ahead of its pin, the fix the check gives is to uninstall it and install it again from the pinned ref.
+- Whether `/reload-plugins` runs SessionStart hooks again. HITLd's SessionStart hook puts the plugin's versioned `bin` directory on the session's PATH, so the plan restarts sessions instead of reloading them.
 
 ### Release mechanics
 

@@ -39,6 +39,8 @@ export const ERROR_CODES = Object.freeze({
   'no-eval-run': 'No stored eval run has that ID, or none is stored yet.',
   'invalid-eval-run': 'A stored eval run is not a valid eval result.',
   'setup-failed': "The worktree's setup commands failed.",
+  'version-not-pinned':
+    'This session runs another release of the plugin than the pin in .claude/settings.json names, so no run starts or resumes.',
 
   // The run lease and locks
   'lease-held': 'Another session holds the run lease.',

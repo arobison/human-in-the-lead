@@ -29,6 +29,7 @@ import { executorSignal } from '../executor.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
 import { activePause } from '../../quota/pause.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
+import { VersionDriftError } from '../../install/drift.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const STORE = {
@@ -105,9 +106,24 @@ function who(input, ctx) {
   return {
     session,
     host: /** @type {string | undefined} */ (input.host) ?? hostname(),
+    cwd: ctx.cwd,
     ...(ctx.now ? { now: ctx.now } : {}),
   };
 }
+
+/**
+ * What run start and run resume say about versions (design part 16.5, Upgrades).
+ * @param {import('../../install/drift.mjs').Drift | null} d
+ */
+const versionOut = (d) =>
+  d && {
+    running: d.running,
+    pin: d.pin,
+    data: d.data,
+    ...(d.newer.length ? { newer: d.newer } : {}),
+    upgrade: d.upgrade,
+    ...(d.warnings.length ? { warnings: d.warnings } : {}),
+  };
 
 /**
  * @param {() => import('../table.mjs').CommandResult | Promise<import('../table.mjs').CommandResult>} fn
@@ -121,6 +137,9 @@ async function guarded(fn) {
     }
     if (e instanceof LedgerError)
       return { ok: false, error: 'invalid-event', message: e.message, errors: e.errors };
+    if (e instanceof VersionDriftError) {
+      return { ok: false, error: e.code, message: e.message, version: versionOut(e.drift) };
+    }
     throw e;
   }
 }
@@ -354,6 +373,7 @@ export const commands = [
           run: run.state.run,
           checkpoint: run.state.checkpoint.number,
           primary_checkout: primary,
+          version: versionOut(run.drift),
           handover: handOver(run.state, readLedger(s.store).events),
         };
       }),
@@ -437,6 +457,7 @@ export const commands = [
           follow_up: r.follow_up,
           foreign: r.foreign,
           unverified: r.unverified,
+          version: versionOut(r.drift),
           handover: handOver(r.run.state, readLedger(s.store).events),
         };
       }),

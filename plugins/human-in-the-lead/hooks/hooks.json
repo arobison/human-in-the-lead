@@ -8,6 +8,14 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/core/harness/claude-code/hooks/session-start.mjs\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/core/harness/claude-code/hooks/version-check.mjs\""
+          }
+        ]
       }
     ],
     "PreToolUse": [
