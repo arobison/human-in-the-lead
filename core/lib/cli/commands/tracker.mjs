@@ -12,13 +12,15 @@
 // the tracker writes must come from the repository itself. The files in a --config directory are
 // held to the same checks as policy.json: owned by the user, not group- or world-writable, no links.
 
-import { realpathSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { loadPolicy } from '../../policy/policy.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import { apiResponse, fieldFilter } from '../../tracker/files/api.mjs';
 import { MIGRATIONS } from '../../tracker/files/migrations/index.mjs';
+import { CodedError } from '../errors.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} CommandContext
@@ -49,7 +51,8 @@ export function open(input, ctx, { readOnly = false } = {}) {
   const repo = input.repo ? resolve(ctx.cwd, String(input.repo)) : ctx.cwd;
   const configDir = input.config ? resolve(ctx.cwd, String(input.config)) : undefined;
   if (configDir && !readOnly) {
-    throw new Error(
+    throw new CodedError(
+      'usage',
       '--config is only for read-only commands (work check, show, query, claims, and views with --view or --out outside the repository); a command that acts takes its settings from the repository',
     );
   }
@@ -59,7 +62,10 @@ export function open(input, ctx, { readOnly = false } = {}) {
     ...(configDir ? { path: resolve(configDir, 'policy.json') } : {}),
   });
   if (!loaded.policy) {
-    throw new Error(`policy.json: ${formatErrors(loaded.errors).split('\n').join('; ')}`);
+    throw new CodedError(
+      'policy',
+      `policy.json: ${formatErrors(loaded.errors).split('\n').join('; ')}`,
+    );
   }
   return openTracker({
     repoRoot: repo,
@@ -95,6 +101,59 @@ function inside(dir, path) {
       at = dirname(at);
     }
   }
+}
+
+/**
+ * Warnings for a check that found no tracker files: where it looked, whether tracker.json is
+ * there, and any tracker-shaped files elsewhere in the repository.
+ * @param {ReturnType<typeof open>} t @param {Record<string, unknown>} input @param {CommandContext} ctx
+ * @returns {string[]}
+ */
+function emptyCheckWarnings(t, input, ctx) {
+  const root = t.root();
+  const layout = t.layout();
+  const configDir = input.config
+    ? resolve(ctx.cwd, String(input.config))
+    : join(root, '.human-in-the-lead');
+  /** @type {string[]} */
+  const out = [
+    `no tracker files found in ${layout.workDir}/ (the folder this repository's settings point at)`,
+  ];
+  if (!existsSync(join(configDir, 'tracker.json'))) {
+    out.push(
+      'there is no tracker.json, so the defaults apply; if the tracker lives in another folder, set work_dir in tracker.json',
+    );
+  }
+  try {
+    const listed = execFileSync('git', ['ls-files', '-z', '--', '*.md'], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    })
+      .split('\0')
+      .filter(Boolean);
+    const dirs = new Set();
+    for (const f of listed) {
+      if (f === layout.workDir || f.startsWith(`${layout.workDir}/`)) continue;
+      let head = '';
+      try {
+        head = readFileSync(join(root, f), 'utf8').slice(0, 600);
+      } catch {
+        continue;
+      }
+      if (/^---\r?\n/.test(head) && /^id:\s*\S/m.test(head) && /^(kind|state):/m.test(head)) {
+        dirs.add(dirname(f) === '.' ? '.' : dirname(f));
+      }
+    }
+    if (dirs.size) {
+      out.push(
+        `files that look like tracker items (front matter with id and state) are in ${[...dirs].slice(0, 5).join(', ')}; set work_dir in tracker.json to the folder that holds them`,
+      );
+    }
+  } catch {
+    // Not a git checkout the check can list; the first warning stands.
+  }
+  return out;
 }
 
 /** The `id` of a positional. @param {Record<string, unknown>} input */
@@ -397,13 +456,18 @@ export const commands = [
       const t = open(input, ctx, { readOnly: true });
       const inflight = csv(input['in-flight']);
       const { problems, files } = t.check({ branches: Boolean(input.branches), inflight });
-      const warnings = t.warnings();
+      const warnings = [...t.warnings()];
+      if (files === 0) warnings.push(...emptyCheckWarnings(t, input, ctx));
       return {
         ok: problems.length === 0,
         files,
         problems,
         ...(warnings.length ? { warnings } : {}),
-        summary: problems.length ? `${problems.length} problem(s)` : `${files} files, no problems`,
+        summary: problems.length
+          ? `${problems.length} problem(s)`
+          : files === 0
+            ? '0 files checked (see warnings)'
+            : `${files} files, no problems`,
       };
     },
   },
@@ -439,7 +503,10 @@ export const commands = [
       if (typeof input.view === 'string') {
         const texts = t.renderViewTexts({ who });
         if (!Object.hasOwn(texts, input.view)) {
-          throw new Error(`no view "${input.view}" (views: ${Object.keys(texts).join(', ')})`);
+          throw new CodedError(
+            'usage',
+            `no view "${input.view}" (views: ${Object.keys(texts).join(', ')})`,
+          );
         }
         return {
           ok: true,
@@ -449,7 +516,8 @@ export const commands = [
       }
       const out = typeof input.out === 'string' ? resolve(ctx.cwd, input.out) : undefined;
       if (input.config && out && inside(t.root(), out)) {
-        throw new Error(
+        throw new CodedError(
+          'usage',
           '--config with --out needs --out outside the repository; views inside it are written with the repository’s own settings',
         );
       }

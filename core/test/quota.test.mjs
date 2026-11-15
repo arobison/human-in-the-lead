@@ -620,3 +620,15 @@ test('a duplicate entry ID is dropped and can neither hide nor be hidden in plac
     ],
   );
 });
+
+test('hitld dashboard --no-write returns the data contract and writes no files', async () => {
+  const p = project();
+  p.store.append('usage/snapshots.jsonl', `${JSON.stringify(snap(T0 - 60_000, 80))}\n`);
+  const out = join(p.repo, 'nowrite');
+  const r = await hitld(['dashboard', '--out', 'nowrite', '--no-write', '--now', iso(T0)], p);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.report.metrics_schema_version, 1);
+  assert.equal(existsSync(out), false);
+  assert.equal(r.json.html, undefined);
+  assert.equal(existsSync(join(p.store.root, 'reports', 'dashboard.html')), false);
+});
