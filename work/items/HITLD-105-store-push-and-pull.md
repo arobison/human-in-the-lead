@@ -7,7 +7,7 @@ created: 2026-11-15
 project: HITLD-15
 claimed_by: D-105
 needs: [HITLD-102, HITLD-104]
-release_note: "`hitld store push`, `store pull`, `store status` and `store remote set/show/clear` move the encrypted store to a private git repository named by `store.remote.url` in `policy.json`. Push encrypts only to the devices on main's list."
+release_note: "`hitld store push`, `store pull`, `store status` and `store remote set/show/clear` move the encrypted store to a private git repository, whose address is kept outside the project repository (HITLD-113). Push encrypts only to the approved devices."
 ---
 
 ## Why
