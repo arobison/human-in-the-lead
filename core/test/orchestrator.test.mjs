@@ -503,6 +503,7 @@ test('install --statusline sets up a consumer: policy, contract, settings, statu
     source: 'directory',
     path: resolve(checkout),
   });
+  assert.equal(settings.extraKnownMarketplaces['human-in-the-lead'].autoUpdate, false);
   assert.equal(settings.enabledPlugins['human-in-the-lead@human-in-the-lead'], true);
   const local = JSON.parse(readFileSync(join(fresh, '.claude/settings.local.json'), 'utf8'));
   assert.match(local.statusLine.command, /hitld-statusline\.mjs/);

@@ -31,6 +31,7 @@ import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.
 import { revertEvents } from '../../merge/owner.mjs';
 import { activePause } from '../../quota/pause.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
+import { VersionDriftError, runVersionCheck } from '../../install/drift.mjs';
 import { CodedError } from '../errors.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
@@ -117,9 +118,24 @@ function who(input, ctx) {
   return {
     session,
     host: /** @type {string | undefined} */ (input.host) ?? hostname(),
+    cwd: ctx.cwd,
     ...(ctx.now ? { now: ctx.now } : {}),
   };
 }
+
+/**
+ * What run start and run resume say about versions (design part 16.5, Upgrades).
+ * @param {import('../../install/drift.mjs').Drift | null} d
+ */
+const versionOut = (d) =>
+  d && {
+    running: d.running,
+    pin: d.pin,
+    data: d.data,
+    ...(d.newer.length ? { newer: d.newer } : {}),
+    upgrade: d.upgrade,
+    ...(d.warnings.length ? { warnings: d.warnings } : {}),
+  };
 
 /**
  * @param {() => import('../table.mjs').CommandResult | Promise<import('../table.mjs').CommandResult>} fn
@@ -133,6 +149,9 @@ async function guarded(fn) {
     }
     if (e instanceof LedgerError)
       return { ok: false, error: 'invalid-event', message: e.message, errors: e.errors };
+    if (e instanceof VersionDriftError) {
+      return { ok: false, error: e.code, message: e.message, version: versionOut(e.drift) };
+    }
     if (e instanceof SyncRefused) {
       return {
         ok: false,
@@ -332,6 +351,7 @@ const table = [
     run: (input, ctx) =>
       guarded(async () => {
         const s = setup(input, ctx);
+        runVersionCheck(s.store, who(input, ctx)); // before the pull: a refused release fetches nothing
         const pull = await pullBeforeRun('run start', input, ctx);
         if (input.replace !== true) {
           refuseHeldElsewhere({
@@ -387,6 +407,7 @@ const table = [
           run: run.state.run,
           checkpoint: run.state.checkpoint.number,
           primary_checkout: primary,
+          version: versionOut(run.drift),
           handover: handOver(run.state, readLedger(s.store).events),
           ...(pull ? { store_sync: { pull } } : {}),
         };
@@ -446,6 +467,7 @@ const table = [
     run: (input, ctx) =>
       guarded(async () => {
         const s = setup(input, ctx);
+        runVersionCheck(s.store, who(input, ctx)); // before the pull: a refused release fetches nothing
         const pull = await pullBeforeRun('run resume', input, ctx);
         const rebuilt = pull?.status === 'done' && restoreState(s.store, s.kept);
         if (input.force !== true) {
@@ -486,6 +508,7 @@ const table = [
           follow_up: r.follow_up,
           foreign: r.foreign,
           unverified: r.unverified,
+          version: versionOut(r.drift),
           handover: handOver(r.run.state, readLedger(s.store).events),
           ...(pull ? { store_sync: { pull, rebuilt_state: rebuilt } } : {}),
         };

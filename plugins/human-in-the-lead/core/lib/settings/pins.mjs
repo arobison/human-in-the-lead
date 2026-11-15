@@ -5,7 +5,7 @@
 //   from `hitld install --ref`, or a checkout directory in development; the checkout's own
 //   schemas then say exactly what it reads).
 // - Every other project with a private store on this machine: the release its last run started
-//   with (the ledger's `run-started` event).
+//   with or last took the lease with (the ledger's `run-started` and `lease-taken` events).
 //
 // Reads only. Nothing here is trusted beyond being shown in a warning.
 
@@ -75,7 +75,7 @@ export function declaredPin(root, project) {
 }
 
 /**
- * The release a project's last run started with, from its private store's ledger.
+ * The release a project's run last started or took the lease with, from its private store's ledger.
  * @param {string} storeDir @returns {string | null}
  */
 function lastRunVersion(storeDir) {
@@ -88,11 +88,13 @@ function lastRunVersion(storeDir) {
   /** @type {string | null} */
   let version = null;
   for (const line of text.split('\n')) {
-    if (!line.includes('"run-started"')) continue;
+    if (!line.includes('"run-started"') && !line.includes('"lease-taken"')) continue;
     try {
       const e = JSON.parse(line);
       const v = e?.skill_versions?.hitld_version ?? e?.skill_versions?.plugin;
-      if (e?.event === 'run-started' && typeof v === 'string') version = v;
+      if ((e?.event === 'run-started' || e?.event === 'lease-taken') && typeof v === 'string') {
+        version = v;
+      }
     } catch {
       // a damaged line says nothing
     }

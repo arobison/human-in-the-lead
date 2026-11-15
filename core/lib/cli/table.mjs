@@ -25,6 +25,7 @@ import { commands as machine } from './commands/machine.mjs';
 import { commands as cadence } from './commands/cadence.mjs';
 import { commands as later } from './commands/later.mjs';
 import { commands as quarantine } from './commands/quarantine.mjs';
+import { commands as upgrade } from './commands/upgrade.mjs';
 
 /**
  * @typedef {import('./args.mjs').ArgSpec} ArgSpec
@@ -100,6 +101,7 @@ export const COMMANDS = Object.freeze([
   ...cadence,
   ...later,
   ...quarantine,
+  ...upgrade,
 ]);
 
 /**
