@@ -21,10 +21,10 @@ const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-report-test-'));
 
 /** @param {Record<string, any>} o */
 const scenario = (o) => ({
-  piece: 't',
+  suite: 't',
   category: 'schema',
   profile: 'none',
-  status: 'pass',
+  result: 'pass',
   score: 1,
   graders: [{ id: 'equals-1', grader: 'equals', passed: true, message: 'ok' }],
   wall_ms: 3,
@@ -38,11 +38,11 @@ const scenario = (o) => ({
  * @param {Record<string, any>[]} scenarios @param {Record<string, any>} [over]
  */
 function run(scenarios, over = {}) {
-  const count = (/** @type {string} */ s) => scenarios.filter((x) => x.status === s).length;
+  const count = (/** @type {string} */ s) => scenarios.filter((x) => x.result === s).length;
   /** @type {Record<string, { sum: number, n: number }>} */
   const cats = {};
   for (const s of scenarios) {
-    if (s.status === 'not_applicable') continue;
+    if (s.result === 'not-applicable') continue;
     (cats[s.category] ??= { sum: 0, n: 0 }).sum += s.score;
     cats[s.category].n++;
   }
@@ -64,7 +64,7 @@ function run(scenarios, over = {}) {
       passed: count('pass'),
       failed: count('fail'),
       errors: count('error'),
-      not_applicable: count('not_applicable'),
+      not_applicable: count('not-applicable'),
       tokens: 0,
       wall_ms: 0,
       categories: Object.fromEntries(
@@ -88,7 +88,10 @@ test('no baseline: the page says there is nothing to compare with, and gives the
   assert.match(html, /Gate passed/);
   assert.match(html, /No baseline yet/);
   assert.match(html, /Nothing to compare with/);
-  assert.match(html, /<pre tabindex="0">hitld eval accept --run EV-20261114T031500Z-abcdef<\/pre>/);
+  assert.match(
+    html,
+    /<pre tabindex="0">hitld eval accept --result EV-20261114T031500Z-abcdef<\/pre>/,
+  );
   assert.doesNotMatch(html, /--accept-baseline|run the suite again/i);
   assert.doesNotMatch(html, /<script|https?:\/\//i);
   assert.match(html, /prefers-color-scheme:dark/);
@@ -104,7 +107,7 @@ test('a failed gate names the baseline and its failures, and no accept command i
       scenario({ id: 't/a' }),
       scenario({
         id: 't/b',
-        status: 'fail',
+        result: 'fail',
         score: 0,
         graders: [
           { id: 'equals-1', grader: 'equals', passed: false, message: 'steps.v.valid was false' },
@@ -133,18 +136,18 @@ test('a failed gate names the baseline and its failures, and no accept command i
 test('changes against the baseline: new failures, fixed, removed, new, not applicable and score changes', () => {
   const base = run([
     scenario({ id: 't/regress' }),
-    scenario({ id: 't/fixed', status: 'fail', score: 0 }),
+    scenario({ id: 't/fixed', result: 'fail', score: 0 }),
     scenario({ id: 't/gone' }),
     scenario({ id: 't/same' }),
     scenario({ id: 't/na' }),
   ]);
   const cur = run([
-    scenario({ id: 't/regress', status: 'error', score: 0 }),
+    scenario({ id: 't/regress', result: 'error', score: 0 }),
     scenario({ id: 't/fixed' }),
     scenario({ id: 't/same' }),
     scenario({ id: 't/new' }),
-    scenario({ id: 't/newbad', status: 'fail', score: 0 }),
-    scenario({ id: 't/na', status: 'not_applicable', score: null }),
+    scenario({ id: 't/newbad', result: 'fail', score: 0 }),
+    scenario({ id: 't/na', result: 'not-applicable', score: null }),
   ]);
   const c = /** @type {NonNullable<ReturnType<typeof changesAgainst>>} */ (
     changesAgainst(cur, base)
@@ -188,13 +191,13 @@ test('failures come first, and not applicable is shown as not applicable, never 
       scenario({ id: 't/a-pass' }),
       scenario({
         id: 't/b-na',
-        status: 'not_applicable',
+        result: 'not-applicable',
         score: null,
         graders: [],
         reason: 'needs a model',
       }),
-      scenario({ id: 't/c-fail', status: 'fail', score: 0 }),
-      scenario({ id: 't/d-error', status: 'error', score: 0, reason: 'the runner failed: boom' }),
+      scenario({ id: 't/c-fail', result: 'fail', score: 0 }),
+      scenario({ id: 't/d-error', result: 'error', score: 0, reason: 'the runner failed: boom' }),
     ]),
     null,
   );
@@ -209,7 +212,7 @@ test('failures come first, and not applicable is shown as not applicable, never 
   // Failing rows start open; passing and not applicable ones start closed.
   assert.match(html, /<details class="scenario fail" open>/);
   assert.match(html, /<details class="scenario pass">/);
-  assert.match(html, /<details class="scenario not_applicable">/);
+  assert.match(html, /<details class="scenario not-applicable">/);
   // Counts show not applicable separately.
   assert.match(html, /<b>1<\/b><span>Not applicable<\/span>/);
   assert.match(html, /<b>1<\/b><span>Pass<\/span>/);
@@ -223,7 +226,7 @@ test('every value from the run is escaped: nothing becomes markup, a URL or scri
         id: `t/${evil}`,
         category: evil,
         profile: evil,
-        status: 'fail',
+        result: 'fail',
         score: 0,
         reason: evil,
         transcript: evil,
@@ -315,7 +318,7 @@ test('every value from the run is escaped: nothing becomes markup, a URL or scri
 
 test('acceptCommand: only a full, passing, offline run that is not already the baseline', () => {
   const ok = run([scenario({ id: 't/a' })], { gate: noBaselineGate });
-  assert.equal(acceptCommand(ok, null).command, `hitld eval accept --run ${ok.id}`);
+  assert.equal(acceptCommand(ok, null).command, `hitld eval accept --result ${ok.id}`);
   assert.match(acceptCommand(run([scenario({ id: 't/a' })]), null).reason ?? '', /no gate verdict/);
   assert.match(
     acceptCommand(run([scenario({ id: 't/a' })], { gate: { ...noBaselineGate, ok: false } }), null)
@@ -338,7 +341,7 @@ test('acceptCommand: only a full, passing, offline run that is not already the b
     /only some scenarios/,
   );
   assert.match(
-    acceptCommand(run([scenario({ id: 't/a', status: 'error', score: 0 })]), null).reason ?? '',
+    acceptCommand(run([scenario({ id: 't/a', result: 'error', score: 0 })]), null).reason ?? '',
     /failing/,
   );
   assert.match(
@@ -359,7 +362,7 @@ function workspace() {
     JSON.stringify({
       schema_version: 1,
       id: 't/a',
-      piece: 't',
+      suite: 't',
       category: 'schema',
       description: 'validates an item',
       mode: 'offline',
@@ -418,13 +421,13 @@ test('hitld eval report renders the latest stored run into reports/ in the priva
   assert.match(html, new RegExp(`Eval run ${ran.json.run}`));
   assert.match(html, /t\/a/);
   // It can name the run, and refuses one that is not stored or is not an ID.
-  assert.equal((await w.hitld(['eval', 'report', '--run', ran.json.run])).code, 0);
+  assert.equal((await w.hitld(['eval', 'report', '--result', ran.json.run])).code, 0);
   assert.equal(
-    (await w.hitld(['eval', 'report', '--run', 'EV-20000101T000000Z-000000'])).json.error,
+    (await w.hitld(['eval', 'report', '--result', 'EV-20000101T000000Z-000000'])).json.error,
     'no_run',
   );
   assert.equal(
-    (await w.hitld(['eval', 'report', '--run', '../../etc/passwd'])).json.error,
+    (await w.hitld(['eval', 'report', '--result', '../../etc/passwd'])).json.error,
     'no_run',
   );
 });
@@ -469,7 +472,7 @@ test('hitld eval report --out stays inside the repository or the private store, 
   symlinkSync(join(outside, 'target'), join(w.cwd, 'tricky', file));
   assert.equal((await w.hitld(args('tricky'))).json.error, 'output_path');
   assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
-  // The private store is allowed, and so is sharing reports/ with `hitld report`.
+  // The private store is allowed, and so is sharing reports/ with `hitld dashboard`.
   assert.equal(
     (await w.hitld(args(join(w.env.XDG_DATA_HOME, 'human-in-the-lead', 'hitld-evals', 'mine'))))
       .code,
@@ -477,11 +480,11 @@ test('hitld eval report --out stays inside the repository or the private store, 
   );
 });
 
-test('eval report is a command with --run, and --out is a command-line option only', () => {
+test('eval report is a command with --result, and --out is a command-line option only', () => {
   const cmd = COMMANDS.find((c) => c.name === 'eval report');
   assert.ok(cmd?.run);
   const schema = inputSchema(cmd.args ?? []);
-  assert.ok('run' in schema.properties);
+  assert.ok('result' in schema.properties);
   assert.equal('out' in schema.properties, false);
   // The plain eval command is unchanged.
   assert.ok(COMMANDS.find((c) => c.name === 'eval'));

@@ -4,7 +4,7 @@
 // 3 the command is not yet built.
 
 import { parseArgs, UsageError } from './args.mjs';
-import { COMMANDS, PIECES, findCommand } from './table.mjs';
+import { COMMANDS, BUILT_BY, findCommand } from './table.mjs';
 import { NAME, VERSION } from '../version.mjs';
 
 /**
@@ -31,9 +31,9 @@ const usageLine = (c) =>
 export function helpText() {
   const width = Math.max(...COMMANDS.map((c) => c.name.length)) + 2;
   const lines = COMMANDS.map(
-    (c) => `  ${c.name.padEnd(width)}${c.summary}${c.run ? '' : ` [${c.piece}]`}`,
+    (c) => `  ${c.name.padEnd(width)}${c.summary}${c.run ? '' : ` [${c.built_by}]`}`,
   );
-  const unbuilt = [...new Set(COMMANDS.filter((c) => !c.run).map((c) => c.piece))];
+  const unbuilt = [...new Set(COMMANDS.filter((c) => !c.run).map((c) => c.built_by))];
   return [
     `hitld ${VERSION}: ${NAME}. Agents do the work; people set the direction and make the calls.`,
     '',
@@ -47,7 +47,7 @@ export function helpText() {
     ...lines,
     '',
     'A tag in brackets marks a command not yet built, and names who builds it (docs/design/0001-human-in-the-lead/21-scope.md):',
-    ...unbuilt.map((p) => `  [${p}] ${PIECES[p]}`),
+    ...unbuilt.map((p) => `  [${p}] ${BUILT_BY[p]}`),
     '',
   ].join('\n');
 }
@@ -64,7 +64,7 @@ function commandHelp(c) {
     c.summary + '.',
     ...(c.aliases?.length ? ['', `Also: ${c.aliases.map((a) => `hitld ${a}`).join(', ')}`] : []),
     ...(args.length ? ['', 'Options:', ...args] : []),
-    ...(c.run ? [] : ['', `Not yet built: ${PIECES[c.piece]} builds it.`]),
+    ...(c.run ? [] : ['', `Not yet built: ${BUILT_BY[c.built_by]} builds it.`]),
     '',
   ].join('\n');
 }
@@ -101,8 +101,8 @@ export async function main(argv, io) {
       ok: false,
       error: 'not_built',
       command: command.name,
-      piece: command.piece,
-      message: `hitld ${command.name} is not yet built: ${PIECES[command.piece]}, builds it. See docs/design/0001-human-in-the-lead/21-scope.md.`,
+      built_by: command.built_by,
+      message: `hitld ${command.name} is not yet built: ${BUILT_BY[command.built_by]}, builds it. See docs/design/0001-human-in-the-lead/21-scope.md.`,
     });
     return EXIT.notBuilt;
   }

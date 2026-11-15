@@ -47,7 +47,8 @@
       "description": "Run, study, eval and test IDs; the decisions and precedents cited.",
       "$ref": "common#/$defs/texts"
     },
-    "rule_version": {
+    "under": {
+      "description": "The rules it was decided under: the policy hash, the decision-rights rule, the precedent and its version, the HITLd version (was rule_version before HITLD-82).",
       "type": "object",
       "properties": {
         "policy_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

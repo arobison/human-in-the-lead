@@ -319,7 +319,7 @@ export const commands = [
   {
     name: 'ready',
     summary: 'The ready queue in priority order, with tiers and estimates',
-    piece: 'h',
+    built_by: 'h',
     args: [],
     run: (_input, ctx) =>
       guarded(() => {
@@ -352,7 +352,7 @@ export const commands = [
   {
     name: 'dispatch plan',
     summary: 'Choose items for free slots and serial resources, within the cap and the reserve',
-    piece: 'h',
+    built_by: 'h',
     args: [],
     run: (_input, ctx) =>
       guarded(() => {
@@ -364,7 +364,7 @@ export const commands = [
   {
     name: 'dispatch start',
     summary: 'Record one planned dispatch and print the harness call that starts it',
-    piece: 'h',
+    built_by: 'h',
     args: [
       {
         name: 'item',
@@ -554,7 +554,7 @@ export const commands = [
     name: 'dispatch handle',
     summary:
       'Record the reference the harness gave a dispatch (harness_ref: the agent ID, the background task ID)',
-    piece: 'h',
+    built_by: 'h',
     args: [
       DISPATCH,
       {
@@ -595,7 +595,7 @@ export const commands = [
     name: 'dispatch complete',
     summary:
       'Record a completion notice, check the report, queue the branch to merge, and plan the refill',
-    piece: 'h',
+    built_by: 'h',
     args: [
       DISPATCH,
       {
@@ -697,7 +697,7 @@ export const commands = [
   {
     name: 'dispatch follow-up',
     summary: 'Continue the same executor with its context (a new dispatch ID, the same agent)',
-    piece: 'h',
+    built_by: 'h',
     args: [
       DISPATCH,
       { name: 'message', type: 'string', description: 'The follow-up, as text' },
@@ -800,7 +800,7 @@ export const commands = [
   {
     name: 'dispatch capabilities',
     summary: "The Claude Code adapter's capabilities, and how each function is carried out",
-    piece: 'h',
+    built_by: 'h',
     args: [],
     run: () => ({ ok: true, harness: 'claude-code', capabilities: CAPABILITIES, matrix: MATRIX }),
   },
@@ -808,7 +808,7 @@ export const commands = [
     name: 'merge',
     summary:
       'Run the merge queue: rebase, fast checks, batch suite, bisection. In owner mode (policy merge.mode), lists the branches waiting for the owner; --only merges exactly those named',
-    piece: 'h',
+    built_by: 'h',
     args: [
       {
         name: 'only',
@@ -1016,7 +1016,7 @@ export const commands = [
     name: 'handover',
     summary:
       'Checkpoint and write the hand-over note for a fresh orchestrator session, from the ledger and run state',
-    piece: 'h',
+    built_by: 'h',
     args: [SESSION, HOST],
     run: (input, ctx) =>
       guarded(() => {
@@ -1052,7 +1052,7 @@ export const commands = [
     name: 'install',
     summary:
       'Set up a consuming project: policy.json, the contract block, project settings for the plugin, the usage status line',
-    piece: 'h',
+    built_by: 'h',
     mcp: false,
     args: [
       {

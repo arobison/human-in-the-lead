@@ -16,7 +16,7 @@ import { COMMANDS } from '../lib/cli/table.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { DETAIL_LIMIT, GRADERS, boundVerdict } from '../lib/eval/graders.mjs';
-import { acceptRefusal, readBaseline } from '../lib/eval/results.mjs';
+import { acceptRefusal, fromLegacyResult, readBaseline } from '../lib/eval/results.mjs';
 import { renderEvalReport } from '../lib/eval/report.mjs';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-accept-test-'));
@@ -28,7 +28,7 @@ const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-accept-test-'));
 const scenario = (name, grader) => ({
   schema_version: 1,
   id: `t/${name}`,
-  piece: 't',
+  suite: 't',
   category: 'schema',
   description: 'validates an item',
   mode: 'offline',
@@ -98,7 +98,7 @@ test('eval accept: a full, passing run becomes the baseline, recorded as the own
   const ran = await w.offline();
   assert.equal(ran.code, 0);
   const before = w.store().list('eval/results/');
-  const r = await w.hitld(['eval', 'accept', '--run', ran.json.run]);
+  const r = await w.hitld(['eval', 'accept', '--result', ran.json.run]);
   assert.equal(r.code, 0, JSON.stringify(r.json));
   assert.equal(r.json.run, ran.json.run);
   assert.equal(r.json.accepted.by, 'owner');
@@ -112,7 +112,7 @@ test('eval accept: a full, passing run becomes the baseline, recorded as the own
   assert.deepEqual(baseline?.accepted, r.json.accepted);
   assert.equal(stored.accepted, undefined);
   // A second time: already the baseline.
-  const again = await w.hitld(['eval', 'accept', '--run', ran.json.run]);
+  const again = await w.hitld(['eval', 'accept', '--result', ran.json.run]);
   assert.equal(again.code, 1);
   assert.equal(again.json.error, 'refused');
   assert.match(again.json.message, /already the baseline/);
@@ -121,29 +121,29 @@ test('eval accept: a full, passing run becomes the baseline, recorded as the own
 test('eval accept: refuses a partial run, a failing run, a run that failed the gate, and a run that is not stored', async () => {
   const w = workspace({ a: GOOD, b: GOOD });
   const partial = await w.offline(['--scenarios', 't/a']);
-  const refusedPartial = await w.hitld(['eval', 'accept', '--run', partial.json.run]);
+  const refusedPartial = await w.hitld(['eval', 'accept', '--result', partial.json.run]);
   assert.equal(refusedPartial.json.error, 'refused');
   assert.match(refusedPartial.json.message, /only some scenarios/);
 
   const full = await w.offline();
-  assert.equal((await w.hitld(['eval', 'accept', '--run', full.json.run])).code, 0);
+  assert.equal((await w.hitld(['eval', 'accept', '--result', full.json.run])).code, 0);
   // A scenario that was in the baseline is gone: nothing fails, but the gate does.
   rmSync(join(w.dir, 'b.scenario.json'));
   const gated = await w.offline();
   assert.equal(gated.json.gate.ok, false);
-  const refusedGate = await w.hitld(['eval', 'accept', '--run', gated.json.run]);
+  const refusedGate = await w.hitld(['eval', 'accept', '--result', gated.json.run]);
   assert.equal(refusedGate.json.error, 'refused');
   assert.match(refusedGate.json.message, /regression gate/);
 
   const w2 = workspace({ a: BAD });
   const failing = await w2.offline();
-  const refusedFail = await w2.hitld(['eval', 'accept', '--run', failing.json.run]);
+  const refusedFail = await w2.hitld(['eval', 'accept', '--result', failing.json.run]);
   assert.equal(refusedFail.json.error, 'refused');
   assert.match(refusedFail.json.message, /failing scenarios/);
   assert.equal(w2.store().list('eval/baselines/').length, 0);
 
   for (const bad of ['EV-20000101T000000Z-000000', '../../etc/passwd']) {
-    assert.equal((await w.hitld(['eval', 'accept', '--run', bad])).json.error, 'no_run');
+    assert.equal((await w.hitld(['eval', 'accept', '--result', bad])).json.error, 'no_run');
   }
 });
 
@@ -166,7 +166,7 @@ test('eval accept: executors are refused, by HITLD_ROLE and by HITLD_DISPATCH, a
   /** @type {Record<string, string>[]} */
   const executors = [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-4' }];
   for (const env of executors) {
-    const accept = await w.hitld(['eval', 'accept', '--run', ran.json.run], env);
+    const accept = await w.hitld(['eval', 'accept', '--result', ran.json.run], env);
     assert.equal(accept.code, 1);
     assert.equal(accept.json.error, 'not_allowed');
     const flag = await w.offline(['--accept-baseline'], env);
@@ -185,14 +185,17 @@ test('eval accept is not an MCP tool, and the --accept-baseline owner path still
   assert.equal(readBaseline(w.store(), stored)?.accepted?.run, r.json.run);
 });
 
-test('the results page shows hitld eval accept --run <id> under the same conditions', async () => {
+test('the results page shows hitld eval accept --result <id> under the same conditions', async () => {
   const w = workspace();
   const ran = await w.offline();
   const page = async () => readFileSync((await w.hitld(['eval', 'report'])).json.html, 'utf8');
   let html = await page();
-  assert.match(html, new RegExp(`<pre tabindex="0">hitld eval accept --run ${ran.json.run}</pre>`));
+  assert.match(
+    html,
+    new RegExp(`<pre tabindex="0">hitld eval accept --result ${ran.json.run}</pre>`),
+  );
   assert.doesNotMatch(html, /--accept-baseline/);
-  await w.hitld(['eval', 'accept', '--run', ran.json.run]);
+  await w.hitld(['eval', 'accept', '--result', ran.json.run]);
   html = await page();
   assert.match(html, /already the baseline/);
   assert.doesNotMatch(html, /hitld eval accept --run/);
@@ -285,10 +288,10 @@ function sampleRun() {
     scenarios: [
       {
         id: 't/a',
-        piece: 't',
+        suite: 't',
         category: 'schema',
         profile: 'none',
-        status: 'fail',
+        result: 'fail',
         score: 0,
         graders: [{ id: 'equals-1', grader: 'equals', passed: false, message: 'was 1' }],
         wall_ms: 1,
@@ -311,17 +314,17 @@ function sampleRun() {
 
 test('older stored runs and baselines (version 1, no detail, no accepted record) still load and render', async () => {
   const doc = sampleRun();
-  assert.deepEqual(schemas().validateEntity('eval-result', doc), []);
+  assert.deepEqual(schemas().validateEntity('eval-result', fromLegacyResult(doc)), []);
   assert.match(renderEvalReport(doc, null), /was 1/);
   const w = workspace();
   w.store().write(`eval/results/${doc.id}.json`, JSON.stringify(doc));
   w.store().write(`eval/baselines/offline-abcdef012345.json`, JSON.stringify(doc));
   assert.equal(readBaseline(w.store(), doc)?.id, doc.id);
-  const r = await w.hitld(['eval', 'report', '--run', doc.id]);
+  const r = await w.hitld(['eval', 'report', '--result', doc.id]);
   assert.equal(r.code, 0, JSON.stringify(r.json));
   assert.ok(existsSync(r.json.html));
   // And a run from a newer release is still refused.
-  assert.ok(schemas().validateEntity('eval-result', { ...doc, schema_version: 3 }).length > 0);
+  assert.ok(schemas().validateEntity('eval-result', { ...doc, schema_version: 4 }).length > 0);
 });
 
 test('acceptRefusal: a run judged against another baseline, or older than the current one, is refused', () => {

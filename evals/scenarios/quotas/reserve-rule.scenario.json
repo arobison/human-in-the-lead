@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "f-quotas/reserve-rule",
-  "piece": "f-quotas",
+  "id": "quotas/reserve-rule",
+  "suite": "quotas",
   "category": "quota-gate",
   "description": "A declared token quota burned toward its reserve: the gate economizes, then allows only critical-path items, then stops autonomous dispatch at the reserve with a message, and the report shows the forecast that triggered it (check 9 of One signal end to end).",
   "mode": "offline",

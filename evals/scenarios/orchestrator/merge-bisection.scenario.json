@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "h-orchestrator/merge-bisection",
-  "piece": "h-orchestrator",
+  "id": "orchestrator/merge-bisection",
+  "suite": "orchestrator",
   "category": "merge-queue",
   "description": "The merge queue keeps main green: a semantic conflict goes back to its executor, a conflict confined to a generated file is regenerated rather than merged, a batch that fails the full suite is bisected to the one branch that broke it, and main moves only to the tested commit of the rest.",
   "mode": "offline",

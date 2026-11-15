@@ -71,7 +71,7 @@ function write(cwd, name, s) {
 const itemScenario = (name, { expectValid, category = 'schema', extra = {} }) => ({
   schema_version: 1,
   id: `t/${name}`,
-  piece: 't',
+  suite: 't',
   category,
   description: 'validates an item',
   mode: 'offline',
@@ -121,7 +121,7 @@ test('a run is recorded with the plugin version, schema versions, policy hash an
   assert.equal(doc.plugin.name, 'human-in-the-lead');
   assert.equal(doc.plugin.version, VERSION);
   assert.equal(doc.schema_versions.item, 1);
-  assert.equal(doc.schema_versions['eval-result'], 2);
+  assert.equal(doc.schema_versions['eval-result'], 3);
   assert.match(doc.policy_hash, /^[0-9a-f]{64}$/);
   assert.equal(doc.policy_source, 'defaults');
   assert.equal(doc.settings.seed, 1);
@@ -262,7 +262,7 @@ test('the gate: tokens above tolerance fail, within it pass; wall time is never 
 test('the gate: a scenario that was not applicable is not counted as passing', () => {
   const base = fakeResult({ x: 1 });
   const now = fakeResult({ x: 1 });
-  now.scenarios[0].state = 'not_applicable';
+  now.scenarios[0].result = 'not-applicable';
   now.scenarios[0].reason = 'lacks a capability';
   now.summary.categories = {};
   const verdict = compareToBaseline(now, base, thresholds());
@@ -288,7 +288,7 @@ function fakeResult(categories, one = {}) {
       id: `p/${category}`,
       profile: 'none',
       category,
-      status: score === 1 ? 'pass' : 'fail',
+      result: score === 1 ? 'pass' : 'fail',
       score,
       graders: [],
       tokens: one.tokens ?? null,
@@ -390,13 +390,13 @@ test('a scenario runs under each profile it names, and a missing capability is n
     par: {
       schema_version: 1,
       id: 't/par',
-      piece: 't',
+      suite: 't',
       category: 'portability',
       description: 'needs parallel subagents',
       mode: 'offline',
-      harness: { profiles: ['*'], requires: { parallelSubagents: true } },
+      harness: { profiles: ['*'], requires: { parallel_subagents: true } },
       steps: [{ id: 'c', action: 'adapter.capabilities' }],
-      graders: [{ grader: 'equals', with: { path: 'steps.c.parallelSubagents', value: true } }],
+      graders: [{ grader: 'equals', with: { path: 'steps.c.parallel_subagents', value: true } }],
     },
   });
   const result = /** @type {any} */ (await w.run());
@@ -405,12 +405,12 @@ test('a scenario runs under each profile it names, and a missing capability is n
   assert.equal(result.summary.not_applicable, 2);
   const stored = JSON.parse(readFileSync(result.stored, 'utf8'));
   const by = Object.fromEntries(
-    stored.scenarios.map((/** @type {any} */ s) => [s.profile, s.status]),
+    stored.scenarios.map((/** @type {any} */ s) => [s.profile, s.result]),
   );
   assert.deepEqual(by, {
     full: 'pass',
-    minimal: 'not_applicable',
-    'copilot-cloud-agent': 'not_applicable',
+    minimal: 'not-applicable',
+    'copilot-cloud-agent': 'not-applicable',
   });
   assert.deepEqual(stored.summary.categories, { portability: { score: 1, scenarios: 1 } });
 });
@@ -420,8 +420,8 @@ test('profiles: the Copilot cloud agent profile is a valid capability set, and d
     assert.deepEqual(schemas().validate('harness-capabilities', p.capabilities), [], p.id);
   }
   const c = PROFILES['copilot-cloud-agent'].capabilities;
-  assert.equal(c.parallelSubagents, false);
-  assert.equal(c.backgroundCompletion, false);
+  assert.equal(c.parallel_subagents, false);
+  assert.equal(c.background_completion, false);
   assert.equal(c.hooks, 'subset');
   assert.deepEqual(missingCapabilities(c, { hooks: ['full', 'subset'] }), []);
   assert.match(missingCapabilities(c, { hooks: 'full' })[0], /hooks: needs "full", has "subset"/);

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "security/new-finding-fails",
-  "piece": "security",
+  "suite": "security",
   "category": "security-gate",
   "description": "A change that adds a finding in neither the baseline nor the verdicts is sent back with the finding, and main does not move.",
   "mode": "offline",

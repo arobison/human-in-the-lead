@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "h-orchestrator/merge-owner-waits",
-  "piece": "h-orchestrator",
+  "id": "orchestrator/merge-owner-waits",
+  "suite": "orchestrator",
   "category": "merge-queue",
   "description": "In owner mode, with no branch named by the owner, nothing merges and main does not move.",
   "mode": "offline",

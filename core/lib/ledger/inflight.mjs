@@ -1,5 +1,5 @@
 // In-flight dispatches: those with no terminal event (design parts 5.4 and 13.1). One fold, used
-// by `hitld ledger inflight` and by the run state, so the two cannot disagree.
+// by `hitld ledger in-flight` and by the run state, so the two cannot disagree.
 
 import { TERMINAL_EVENTS, readLedger } from './ledger.mjs';
 

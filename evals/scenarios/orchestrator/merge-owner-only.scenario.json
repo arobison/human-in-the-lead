@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "h-orchestrator/merge-owner-only",
-  "piece": "h-orchestrator",
+  "id": "orchestrator/merge-owner-only",
+  "suite": "orchestrator",
   "category": "merge-queue",
   "description": "In owner mode only the branch the owner names merges: the other three keep waiting, and main moves to the tested commit once.",
   "mode": "offline",

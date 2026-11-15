@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/seeded-name-withheld",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "A draft that holds a project name, a path or a person from the record's context is withheld with the reason, whatever the generalizer classified it, and is never filed even when approved.",
   "mode": "offline",

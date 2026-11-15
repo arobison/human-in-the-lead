@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "foundation/policy-check",
-  "piece": "foundation",
+  "suite": "foundation",
   "category": "policy",
   "description": "hitld check policy accepts a project's policy, and refuses a value beyond its bound and a misspelled key, naming each.",
   "mode": "offline",

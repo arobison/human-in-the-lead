@@ -103,7 +103,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback',
       summary:
         'Record feedback about HITLd in the private store, with its context (the version, the harness, what the ledger says about the refs)',
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'kind',
@@ -170,7 +170,7 @@ export function makeCommands({ makeFiler }) {
     {
       name: 'feedback list',
       summary: 'Show the feedback records still waiting to be published (local or drafted)',
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         { name: 'all', type: 'boolean', description: 'Show every record, whatever its state' },
         { name: 'json', type: 'boolean', description: 'Include the whole records in the output' },
@@ -192,7 +192,7 @@ export function makeCommands({ makeFiler }) {
     {
       name: 'feedback drop',
       summary: 'Mark a feedback record dropped, so it is never published',
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'id',
@@ -213,7 +213,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback render',
       summary:
         "Print a record's issue body under the headings of the issue forms (HITLd version, Harness, Loop, What happened, What you expected, Evidence)",
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'id',
@@ -240,7 +240,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback route',
       summary:
         "Say where feedback-like text goes: record it (about HITLd, from the person's own turn), a project note, ask the person, or quote it back (from anywhere but the person)",
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'from',
@@ -259,7 +259,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback draft',
       summary:
         "Record the generalizer's public draft of a waiting record. A draft that is not public, or holds a name, path, person or ID from the record's context, is withheld with the reason",
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'id',
@@ -300,7 +300,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback publish',
       summary:
         "Show each drafted record beside the person's words, or take the person's answer on one: approve, edit, by-hand or drop. Only an approved draft is filed, as an issue in HITLd's repository",
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'id',

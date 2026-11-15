@@ -47,6 +47,17 @@ export const BASIS_ORDER = Object.freeze([
 ]);
 
 /**
+ * A question in the names before HITLD-82: `direction` is `touches_direction`. Read until the next
+ * minor release, from an orchestrator that still writes the old name.
+ * @param {any} q
+ */
+export function fromLegacyQuestion(q) {
+  if (!q || typeof q !== 'object' || !Object.hasOwn(q, 'direction')) return q;
+  const { direction, ...rest } = q;
+  return rest.touches_direction === undefined ? { ...rest, touches_direction: direction } : rest;
+}
+
+/**
  * The question with its paths normalized (posix.normalize), or what is wrong with them. Done before
  * routing and matching, so `src/cache/../../secret` cannot be read as a cache path, and an
  * absolute path or one that leaves the repository is refused, not guessed at.
@@ -134,7 +145,7 @@ function decide(basis, question, policy, areas) {
   if (when.includes('cross-area') && areas.length > 1) {
     return owner(`the rule sends a call across areas (${areas.join(', ')}) to the owner`);
   }
-  if (when.includes('direction') && question.direction) {
+  if (when.includes('direction') && question.touches_direction) {
     return owner('the rule sends a call that touches direction to the owner');
   }
   if (areas.length === 0) return owner('no area is identified, so there is no area owner');

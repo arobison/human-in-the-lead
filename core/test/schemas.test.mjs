@@ -133,7 +133,7 @@ const examples = {
     version: '0.4.0-rc.1',
     previous: 'v0.3.2',
     bump: 'minor',
-    interface_delta: [{ impact: 'additive', area: 'schemas', what: 'item gains release_note' }],
+    interface_delta: [{ impact: 'additive', surface: 'schemas', what: 'item gains release_note' }],
     decision: 'owner',
     items: ['W-214'],
     milestones: ['W-230'],
@@ -233,7 +233,7 @@ const examples = {
     rule: 'When a dependency has a permissive licence, allow it.',
     conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
     sources: ['W-300'],
-    scope: 'project',
+    scope: 'all',
     state: 'active',
     classification: 'public',
   },
@@ -250,7 +250,7 @@ const examples = {
     schema_version: 1,
     id: 'C-3',
     identities: [{ source: 'github', handle: 'someone' }],
-    trust_level: 'T1',
+    trust_level: 'L1',
     classification: 'internal',
   },
   'ledger-entry': {
@@ -293,7 +293,7 @@ const examples = {
     verdict: null,
     classification: 'internal',
   },
-  run: {
+  'bench-run': {
     schema_version: 1,
     id: 'R-1203',
     commit: 'abcdef1',
@@ -304,7 +304,7 @@ const examples = {
   'eval-scenario': {
     schema_version: 1,
     id: 'foundation/policy-check',
-    piece: 'foundation',
+    suite: 'foundation',
     category: 'policy',
     description: 'hitld check policy accepts a valid policy.',
     mode: 'offline',
@@ -327,10 +327,10 @@ const examples = {
     scenarios: [
       {
         id: 'foundation/policy-check',
-        piece: 'foundation',
+        suite: 'foundation',
         category: 'policy',
         profile: 'none',
-        status: 'pass',
+        result: 'pass',
         score: 1,
         graders: [
           { id: 'ok', grader: 'equals', passed: true, message: 'steps.check.result.ok is true' },
@@ -390,8 +390,8 @@ for (const [id, example] of Object.entries(examples)) {
 }
 
 test('free-form data is still checked for code-running keys', () => {
-  const errors = registry.validateEntity('run', {
-    ...examples.run,
+  const errors = registry.validateEntity('bench-run', {
+    ...examples['bench-run'],
     configuration: { steps: [{ post_run: 'rm -rf ~' }] },
   });
   assert.equal(errors[0].path, 'configuration.steps[0].post_run');
@@ -429,7 +429,7 @@ test('a public judgement carries what, basis and who; the time is not public', (
     registry.validateEntity('signal', { ...signal, judgements: [j] });
   assert.deepEqual(check(judgement), []);
   assert.ok(check({ ...judgement, at: '2026-11-14' }).length, 'the time is private');
-  assert.ok(check({ what: judgement.what, basis: judgement.basis }).length, 'who is required');
+  assert.ok(check({ what: judgement.what, basis: judgement.reason }).length, 'who is required');
   assert.ok(check({ ...judgement, confidence: 0.7 }).length, 'private fields are not public');
 });
 

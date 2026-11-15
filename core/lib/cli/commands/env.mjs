@@ -180,7 +180,7 @@ export const commands = [
     name: 'env setup',
     summary:
       'Create a worktree for a holder from the tip of main (or adopt one the harness made) and run the declared setup in it',
-    piece: 'c',
+    built_by: 'c',
     args: [
       {
         name: 'dispatch',
@@ -249,7 +249,7 @@ export const commands = [
     name: 'env cleanup',
     summary:
       'Release everything a holder has: its worktree, its port (stopping only a server the manager started) and its locks',
-    piece: 'c',
+    built_by: 'c',
     args: [
       { name: 'dispatch', type: 'string', required: true, description: 'The dispatch ID' },
       {
@@ -280,7 +280,7 @@ export const commands = [
     name: 'env port lease',
     summary:
       'Lease a free dev-server port from the policy range, optionally starting a server on it; ports in use by anything else are skipped',
-    piece: 'c',
+    built_by: 'c',
     args: [
       { name: 'dispatch', type: 'string', required: true, description: 'The dispatch ID' },
       {
@@ -321,7 +321,7 @@ export const commands = [
     name: 'env port free',
     summary:
       "Free a dispatch's port, stopping its server only if the manager started that exact process",
-    piece: 'c',
+    built_by: 'c',
     args: [{ name: 'dispatch', type: 'string', required: true, description: 'The dispatch ID' }],
     run: withEnv(async (input, env) => ({
       ok: true,
@@ -331,7 +331,7 @@ export const commands = [
   {
     name: 'env lock',
     summary: 'Take a machine-wide lock on a serial resource such as gpu; with --wait, queue for it',
-    piece: 'c',
+    built_by: 'c',
     args: [
       {
         name: 'resource',
@@ -396,7 +396,7 @@ export const commands = [
   {
     name: 'env unlock',
     summary: 'Release a lock the holder has',
-    piece: 'c',
+    built_by: 'c',
     args: [
       { name: 'resource', type: 'string', required: true, description: 'The resource' },
       {
@@ -418,7 +418,7 @@ export const commands = [
     name: 'env status',
     summary:
       'Show the worktrees, ports and locks the manager holds, and the time spent waiting for locks',
-    piece: 'c',
+    built_by: 'c',
     run: withEnv((_input, env) => {
       const registry = env.registry();
       return {
@@ -434,7 +434,7 @@ export const commands = [
     name: 'env exec',
     summary:
       'Run a secret task declared in policy.json with its secrets injected into its environment only; output is filtered for their values',
-    piece: 'c',
+    built_by: 'c',
     mcp: false,
     args: [
       {

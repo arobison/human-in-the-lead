@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/nothing-filed-without-approval",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "Nothing is filed without a person's approval: listing sends nothing, an executor (HITLD_ROLE or HITLD_DISPATCH) is refused, as for answers to decisions, an answer that is not an approval is refused, and a contributor outside feedback.approvers cannot approve. Only the owner's approve files it.",
   "mode": "offline",

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "d-contract/check-contract-lifecycle",
-  "piece": "d-contract",
+  "id": "contract/check-contract-lifecycle",
+  "suite": "contract",
   "category": "contract",
   "description": "hitld check contract reports a missing block, accepts an installed one, keeps the project's own text through an install, and reports an edited block and a CLAUDE.md that does not import AGENTS.md.",
   "mode": "offline",

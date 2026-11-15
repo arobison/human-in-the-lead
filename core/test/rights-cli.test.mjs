@@ -47,12 +47,12 @@ function setup() {
 }
 
 test("piece (e)'s commands are in the table, built, and have MCP schemas", () => {
-  for (const name of ['rights', 'precedent match']) {
+  for (const name of ['rights who', 'precedent match']) {
     const found = findCommand(name.split(' '));
     assert.ok(found?.command.run, `${name} is built`);
-    assert.equal(found.command.piece, 'e');
+    assert.equal(found.command.built_by, 'e');
   }
-  const mine = COMMANDS.filter((c) => c.piece === 'e');
+  const mine = COMMANDS.filter((c) => c.built_by === 'e');
   assert.ok(mine.length >= 10);
   for (const c of mine) {
     assert.ok(c.run, c.name);
@@ -64,7 +64,7 @@ test("piece (e)'s commands are in the table, built, and have MCP schemas", () =>
 test('hitld rights classifies a question from the command line, and names the rule', async () => {
   const { project } = setup();
   let out = '';
-  const code = await main(['rights', '--question', JSON.stringify(question)], {
+  const code = await main(['rights', 'who', '--question', JSON.stringify(question)], {
     out: (t) => (out += t),
     err: () => {},
     cwd: project.root,
@@ -92,22 +92,22 @@ test('hitld rights reads a question from a file, and refuses bad input with a us
     });
     return { code, result: JSON.parse(out) };
   };
-  const ok = await hitld(['rights', '--file', file]);
+  const ok = await hitld(['rights', 'who', '--file', file]);
   assert.equal(ok.result.decider, 'system');
-  const both = await hitld(['rights', '--file', file, '--question', '{}']);
+  const both = await hitld(['rights', 'who', '--file', file, '--question', '{}']);
   assert.equal(both.code, EXIT.failed);
   assert.match(both.result.message, /not both/);
-  const none = await hitld(['rights']);
+  const none = await hitld(['rights', 'who']);
   assert.equal(none.code, EXIT.failed);
-  const bad = await hitld(['rights', '--question', '{"surprise":1}']);
+  const bad = await hitld(['rights', 'who', '--question', '{"surprise":1}']);
   assert.match(bad.result.message, /surprise is not a known key/);
-  const notJson = await hitld(['rights', '--question', 'nope']);
+  const notJson = await hitld(['rights', 'who', '--question', 'nope']);
   assert.match(notJson.result.message, /is not valid JSON/);
 });
 
 test('without a policy.json the commands say so', async () => {
   const rights = makeCommands({ openTracker: () => /** @type {any} */ (null) }).find(
-    (c) => c.name === 'rights',
+    (c) => c.name === 'rights who',
   );
   const nowhere = mkdtempSync(join(tmpdir(), 'hitld-none-'));
   const r = /** @type {any} */ (await rights?.run?.({ question: '{}' }, { cwd: nowhere, env: {} }));
@@ -261,7 +261,7 @@ test('the commands carry a question through to a precedent, a digest and an over
   assert.equal((await run('rights digest', { since: '2000-01-01' })).overruled, 1);
 
   await run('rights reverse', { subject: 'W-77', what: 'logged-call', area: 'cache' });
-  await run('rights rate', { decision: 'W-1', worth: 'no' });
+  await run('rights rate', { decision: 'W-1', 'worth-asking': 'no' });
   const trust = await run('rights trust', {});
   assert.equal(trust.areas.unassigned.overrules, 1);
   assert.equal(trust.areas.cache.reversals, 1);

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/raw-words-not-sent",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "Only the approved draft is sent: the issue has the forms' headings, the feedback and kind labels and the footer, and nothing sent holds the person's words, the project's name or the record's IDs. The record keeps the words locally and becomes filed with the issue URL.",
   "mode": "offline",

@@ -2,7 +2,7 @@
 // <work dir>/releases/<tag>.md, named by its tag and written by `hitld release make`. A record is
 // data only, like an item file: front matter of strings and lists of strings, then the notes.
 //
-//   interface_delta entries: "<breaking|additive|fix> <area>: <what>"
+//   interface_delta entries: "<breaking|additive|fix> <surface>: <what>"
 //
 // A release moves items from merged to released: an item's `released_in` is the first full
 // release whose record lists it. A pre-release (a version with a hyphen, such as 0.1.0-rc.1) is
@@ -24,7 +24,7 @@ export { isPrerelease };
 /**
  * @typedef {import('./config.mjs').Layout} Layout
  * @typedef {import('./tree.mjs').Entry} Entry
- * @typedef {{ impact: string, area: string, what: string }} DeltaEntry
+ * @typedef {{ impact: string, surface: string, what: string }} DeltaEntry
  */
 
 /** The stored keys of a release record, in the order they are written. */
@@ -51,11 +51,11 @@ export function parseDeltaEntry(s) {
       error: `"${s}" isn't "<${IMPACTS.join(' | ')}> <${AREAS.join(' | ')}>: <what>"`,
     };
   }
-  return { impact: m[1], area: m[2], what: m[3].trim() };
+  return { impact: m[1], surface: m[2], what: m[3].trim() };
 }
 
 /** @param {DeltaEntry} e */
-export const formatDeltaEntry = (e) => `${e.impact} ${e.area}: ${e.what}`;
+export const formatDeltaEntry = (e) => `${e.impact} ${e.surface}: ${e.what}`;
 
 /** The records' folder, repository-relative. @param {Layout} layout */
 export const releasesDir = (layout) => `${layout.workDir}/${layout.folders.release}`;

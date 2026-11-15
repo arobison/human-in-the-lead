@@ -100,7 +100,9 @@ export function createClaudeCodeAdapter(options = {}) {
     capabilities: () => ({ ...CAPABILITIES }),
     instructionFor,
     async dispatch(request) {
-      if (LEVELS.indexOf(request.classification) > LEVELS.indexOf(CAPABILITIES.maxClassification)) {
+      if (
+        LEVELS.indexOf(request.classification) > LEVELS.indexOf(CAPABILITIES.max_classification)
+      ) {
         throw new Error(
           `${request.item} is ${request.classification}: no agent is given ${request.classification} material`,
         );

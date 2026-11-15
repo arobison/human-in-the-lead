@@ -43,8 +43,8 @@
         "additionalProperties": false
       }
     },
-    "direction": {
-      "description": "True when the call touches strategy, principles or non-goals (a rule's owner_when: direction).",
+    "touches_direction": {
+      "description": "True when the call touches strategy, principles or non-goals (a rule's owner_when: direction). Was direction before HITLD-82.",
       "type": "boolean"
     },
     "spend_tokens": {

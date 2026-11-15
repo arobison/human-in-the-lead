@@ -203,7 +203,7 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
     out.warnings.push(...p.warnings);
     if (p.version !== version) {
       problems.push(
-        `${tag} is not the next release: at the parent, release propose${label ? ` --pre ${label}` : ''} gives ${p.version} (${p.basis})`,
+        `${tag} is not the next release: at the parent, release propose${label ? ` --pre ${label}` : ''} gives ${p.version} (${p.reason})`,
       );
     }
     if ((d.previous ?? null) !== p.base) {

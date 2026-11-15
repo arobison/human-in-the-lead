@@ -598,7 +598,7 @@ test('claims from a fetched bundle ref count, and double claims and orphans are 
     ['D-1', 'local'],
     ['D-100001', 'bundle'],
   ]);
-  assert.equal(t.check().problems.length, 0, 'claims are scanned with --branches or --inflight');
+  assert.equal(t.check().problems.length, 0, 'claims are scanned with --branches or --in-flight');
   const problems = t.check({ branches: true, inflight: ['D-1', 'D-9'] }).problems;
   assert.ok(
     problems.includes(
@@ -879,7 +879,7 @@ test('--repo and --config read a tracker with its settings kept outside it, writ
 
 test('every command this piece owns is built', async () => {
   const { COMMANDS } = await import('../lib/cli/table.mjs');
-  const mine = COMMANDS.filter((c) => c.piece === 'a');
+  const mine = COMMANDS.filter((c) => c.built_by === 'a');
   assert.deepEqual(
     mine.map((c) => c.name),
     [

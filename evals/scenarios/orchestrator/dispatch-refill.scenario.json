@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "h-orchestrator/dispatch-refill",
-  "piece": "h-orchestrator",
+  "id": "orchestrator/dispatch-refill",
+  "suite": "orchestrator",
   "category": "dispatch",
   "description": "The orchestrator dispatches from the head of the ready queue up to the cap and refills a slot only on a completion notice: one wait per dispatch, never more running than the cap (one at a time without parallel subagents), dependencies respected, and every dispatch reported in the ledger.",
   "mode": "offline",

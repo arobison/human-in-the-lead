@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/record-holds-context",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "hitld feedback records the person's words verbatim, and captures without being told the plugin version, the harness and its version (unknown offline), the loop from the ledger entries for the refs, what happened and the evidence. The record is confidential, in the local state, valid against its schema, and shows in the waiting list.",
   "mode": "offline",

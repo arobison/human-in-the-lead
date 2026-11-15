@@ -702,7 +702,7 @@ test('the harness refusing a dispatch ends it in the ledger', async () => {
   await dispatchExecutor(run, adapter, request(), {});
   await assert.rejects(
     () => dispatchExecutor(run, adapter, request({ item: 'W-2' }), {}),
-    /parallelSubagents/,
+    /parallel_subagents/,
   );
   const events = readLedger(store).events;
   assert.deepEqual(

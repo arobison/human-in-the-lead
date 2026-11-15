@@ -123,7 +123,7 @@ export const commands = [
     name: 'ledger append',
     summary:
       'Append an asked, answered, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
-    piece: 'b',
+    built_by: 'b',
     args: [
       {
         name: 'event',
@@ -208,7 +208,7 @@ export const commands = [
   {
     name: 'ledger tail',
     summary: 'Show the latest ledger events',
-    piece: 'b',
+    built_by: 'b',
     args: [{ name: 'limit', type: 'integer', description: 'How many events (default 10)' }, STORE],
     run: (input, ctx) => {
       const { store } = setup(input, ctx);
@@ -223,9 +223,9 @@ export const commands = [
     },
   },
   {
-    name: 'ledger inflight',
+    name: 'ledger in-flight',
     summary: 'Dispatches without a terminal event, for restart',
-    piece: 'b',
+    built_by: 'b',
     args: [STORE],
     run: (input, ctx) => {
       const { store } = setup(input, ctx);
@@ -236,14 +236,14 @@ export const commands = [
   {
     name: 'ledger summary',
     summary: 'The run report: tokens per accepted item, first-pass yield, waste, decision latency',
-    piece: 'b',
+    built_by: 'b',
     args: [STORE],
     run: (input, ctx) => ({ ok: true, ...summary(setup(input, ctx).store) }),
   },
   {
     name: 'run start',
     summary: 'Start a run: record it in the ledger, write the first checkpoint and hold the lease',
-    piece: 'b',
+    built_by: 'b',
     args: [
       { name: 'id', type: 'string', description: 'The run ID. Default: <date>-<n>' },
       {
@@ -317,7 +317,7 @@ export const commands = [
     name: 'run checkpoint',
     summary:
       'A clean point with nothing new to record: absorb the ledger into the run state and renew the lease',
-    piece: 'b',
+    built_by: 'b',
     args: [SESSION, HOST, STORE],
     run: (input, ctx) =>
       guarded(() => {
@@ -341,7 +341,7 @@ export const commands = [
   {
     name: 'run resume',
     summary: 'Take the lease, reconcile in-flight work and print the hand-over summary',
-    piece: 'b',
+    built_by: 'b',
     args: [
       {
         name: 'live',
@@ -397,7 +397,7 @@ export const commands = [
   {
     name: 'run rebuild',
     summary: 'Rebuild the run-state file from the ledger, claim branches and the tracker',
-    piece: 'b',
+    built_by: 'b',
     args: [
       {
         name: 'branch-prefix',

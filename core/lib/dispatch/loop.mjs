@@ -1,6 +1,6 @@
 // The dispatch cycle (design part 5.2), as one library function: dispatch from the head of the
 // ready queue up to the cap, then wait for the next completion notice and refill the slot it
-// freed. Never polling: with backgroundCompletion each wait is one onComplete per dispatch, raced;
+// freed. Never polling: with background_completion each wait is one onComplete per dispatch, raced;
 // without it, completions are collected at a defined point, right after each dispatch returns.
 //
 // The orchestrator skill runs the same cycle across turns with `hitld dispatch plan / start /
@@ -144,7 +144,7 @@ export async function runDispatchLoop(r) {
       );
       maxRunning = Math.max(maxRunning, pending.size);
       trace.push({ step: 'dispatch', dispatch, item: String(item.id), running: pending.size });
-      if (!caps.backgroundCompletion) {
+      if (!caps.background_completion) {
         // No completion events: collect this one now, at the point the dispatch returned.
         const done = /** @type {Promise<{ dispatch: string, completion: Completion }>} */ (
           pending.get(dispatch)

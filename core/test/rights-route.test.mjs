@@ -103,7 +103,7 @@ test('a call across areas is blast radius found by the script, and the owner dec
 
 test('novelty goes to the owner when it touches direction, otherwise to an area owner', () => {
   const direction = routeQuestion(
-    { triggers: [trig('novelty')], paths: ['src/cache/a.ts'], direction: true },
+    { triggers: [trig('novelty')], paths: ['src/cache/a.ts'], touches_direction: true },
     policy,
   );
   assert.equal(direction.decider, 'owner');

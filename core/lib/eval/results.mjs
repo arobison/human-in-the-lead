@@ -20,7 +20,40 @@ import { canonicalJson } from '../policy/policy.mjs';
 
 // Version 2 added the optional grader detail (path, expected, actual) and the baseline's
 // `accepted` record. Both are optional, so version 1 runs and baselines still load.
-export const RESULT_SCHEMA_VERSION = 2;
+export const RESULT_SCHEMA_VERSION = 3;
+
+/** Scenario suites renamed by HITLD-82 (the letter prefixes went). */
+const LEGACY_SUITES = /** @type {Record<string, string>} */ ({
+  'd-contract': 'contract',
+  'f-quotas': 'quotas',
+  'h-orchestrator': 'orchestrator',
+});
+
+/**
+ * A stored result of schema version 2 or older in the names of version 3 (HITLD-82), read until
+ * the next minor release: each scenario's `status` is `result`, `not_applicable` is
+ * `not-applicable`, `piece` is `suite`, and a suite named with a letter prefix has lost it, so a
+ * baseline from before still compares by scenario. The schema_version stays as written.
+ * @param {any} doc
+ */
+export function fromLegacyResult(doc) {
+  if (!doc || typeof doc !== 'object' || !Array.isArray(doc.scenarios)) return doc;
+  if (typeof doc.schema_version !== 'number' || doc.schema_version >= 3) return doc;
+  const suite = (/** @type {string} */ s) => LEGACY_SUITES[s] ?? s;
+  return {
+    ...doc,
+    scenarios: doc.scenarios.map((/** @type {any} */ c) => {
+      const { status, piece, ...rest } = c;
+      const [first, ...name] = String(rest.id).split('/');
+      return {
+        ...rest,
+        id: [suite(first), ...name].join('/'),
+        suite: suite(String(piece ?? rest.suite ?? first)),
+        result: status === 'not_applicable' ? 'not-applicable' : (status ?? rest.result),
+      };
+    }),
+  };
+}
 
 /**
  * The hash of what must match for two runs to be comparable.
@@ -55,15 +88,15 @@ const compact = (d) =>
 
 /**
  * Summarize cases: counts, totals, and each category's mean score over its applicable cases
- * (not_applicable ones are left out, never counted as passes).
+ * (not-applicable ones are left out, never counted as passes).
  * @param {CaseResult[]} cases
  */
 export function summarize(cases) {
-  const count = (/** @type {string} */ s) => cases.filter((c) => c.status === s).length;
+  const count = (/** @type {string} */ s) => cases.filter((c) => c.result === s).length;
   /** @type {Record<string, { sum: number, n: number }>} */
   const byCategory = {};
   for (const c of cases) {
-    if (c.status === 'not_applicable') continue;
+    if (c.result === 'not-applicable') continue;
     const slot = (byCategory[c.category] ??= { sum: 0, n: 0 });
     slot.sum += c.score ?? 0;
     slot.n += 1;
@@ -73,7 +106,7 @@ export function summarize(cases) {
     passed: count('pass'),
     failed: count('fail'),
     errors: count('error'),
-    not_applicable: count('not_applicable'),
+    not_applicable: count('not-applicable'),
     tokens: cases.reduce((a, c) => a + (c.tokens ?? 0), 0),
     wall_ms: cases.reduce((a, c) => a + c.wall_ms, 0),
     categories: Object.fromEntries(
@@ -102,22 +135,22 @@ export function buildResult(run) {
   const scenarios = run.cases.map((c) => {
     /** @type {string | null} */
     let transcript = null;
-    if (c.status !== 'pass' && c.status !== 'not_applicable') {
+    if (c.result !== 'pass' && c.result !== 'not-applicable') {
       transcript = `eval/transcripts/${id}/${c.id.replace('/', '__')}@${c.profile}.json`;
       transcripts.set(transcript, {
         scenario: c.id,
         profile: c.profile,
-        status: c.status,
+        result: c.result,
         reason: c.reason ?? null,
         steps: c.transcript,
       });
     }
     return {
       id: c.id,
-      piece: c.piece,
+      suite: c.suite,
       category: c.category,
       profile: c.profile,
-      status: c.status,
+      result: c.result,
       score: c.score,
       ...(c.reason ? { reason: c.reason } : {}),
       graders: c.graders,
@@ -180,7 +213,7 @@ export const baselineKey = (mode, hash) => `eval/baselines/${mode}-${hash}.json`
 export function readBaseline(store, result) {
   const text = store.read(baselineKey(result.mode, result.settings.settings_hash));
   if (text === null) return null;
-  const doc = JSON.parse(text);
+  const doc = fromLegacyResult(JSON.parse(text));
   const errors = schemas().validateEntity('eval-result', doc);
   if (errors.length) {
     throw new Error(`the stored baseline is not a valid eval result: ${formatErrors(errors)}`);

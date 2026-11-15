@@ -43,7 +43,22 @@ export function readTrustEvents(store) {
   return (store.read(TRUST_KEY) ?? '')
     .split('\n')
     .filter((l) => l.trim() !== '')
-    .map((l) => JSON.parse(l));
+    .map((l) => fromLegacyTrustEvent(JSON.parse(l)));
+}
+
+/**
+ * A trust event in the names before HITLD-82 (`worth`, `what`), read as `worth_asking` and
+ * `subject_kind`. The log is append-only, so this is read permanently.
+ * @param {any} e
+ */
+export function fromLegacyTrustEvent(e) {
+  if (!e || typeof e !== 'object' || !('worth' in e || 'what' in e)) return e;
+  const { worth, what, ...rest } = e;
+  return {
+    ...rest,
+    ...(worth !== undefined && rest.worth_asking === undefined ? { worth_asking: worth } : {}),
+    ...(what !== undefined && rest.subject_kind === undefined ? { subject_kind: what } : {}),
+  };
 }
 
 /** @param {number} n @param {number} d */
@@ -96,7 +111,7 @@ export function trustSummary(events) {
       if (cited.has(e.subject) && e.agrees_with?.length) a.answered_as_candidate++;
     } else if (e.kind === 'worth-asking') {
       a.rated++;
-      if (e.worth) a.worth_asking++;
+      if (e.worth_asking) a.worth_asking++;
     } else if (e.kind === 'application') {
       a.applications++;
     } else if (e.kind === 'overrule') {

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "security/expired-risk-is-a-decision",
-  "piece": "security",
+  "suite": "security",
   "category": "security-gate",
   "description": "Accepting a real finding needs an answered decision item. A finding the owner accepted merges until its expiry; past the expiry it becomes a decision for the owner, without blocking unrelated changes.",
   "mode": "offline",

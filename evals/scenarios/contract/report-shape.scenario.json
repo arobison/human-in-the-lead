@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "d-contract/report-shape",
-  "piece": "d-contract",
+  "id": "contract/report-shape",
+  "suite": "contract",
   "category": "contract",
   "description": "The report parser accepts the fixed shape with result and calls, and names a missing field and a call not marked reversible.",
   "mode": "offline",

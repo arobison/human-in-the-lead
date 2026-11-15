@@ -10,7 +10,7 @@ export const commands = [
   {
     name: 'version',
     summary: 'The plugin version, the Node version, and the schema version of each data format',
-    piece: 'foundation',
+    built_by: 'foundation',
     args: [],
     run: () => {
       const registry = schemas();
@@ -30,7 +30,7 @@ export const commands = [
     aliases: ['policy check'],
     summary:
       'Validate .human-in-the-lead/policy.json merged with the defaults: no unknown or code-running keys, values within bounds',
-    piece: 'foundation',
+    built_by: 'foundation',
     args: [
       {
         name: 'policy',

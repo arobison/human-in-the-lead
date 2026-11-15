@@ -34,18 +34,18 @@ import { TAG, compareVersions, isPrerelease, nextPrerelease } from './semver.mjs
  * @property {string | null} last_tag the latest release tag reachable from HEAD, pre-releases included
  * @property {string | null} base the last full release, which the delta is measured from
  * @property {string} base_version 0.0.0 when there is no base
- * @property {boolean} initial true when there is no base: everything public is the initial surface
+ * @property {boolean} first_release true when there is no base: everything public is the initial surface
  * @property {DeltaEntry[]} interface_delta
  * @property {'major' | 'minor' | 'patch'} bump
  * @property {boolean} breaking
- * @property {string} basis why this bump
+ * @property {string} reason why this bump
  * @property {string} version the proposed version
  * @property {string} tag
  * @property {boolean} prerelease
  * @property {string} prerelease_rule how pre-releases are treated
  * @property {string[]} items work items closed since the base, not yet in a full release
  * @property {string[]} notes draft release notes from those items' changelog lines
- * @property {{ item: string, files: string[] }[]} missing_changelog items that changed public surface without a changelog line
+ * @property {{ item: string, files: string[] }[]} missing_release_note items that changed public surface without a changelog line
  * @property {{ item: string, milestone: string, title: string, state: string, check_due: boolean }[]} gates milestones a release item needs that are not Done
  * @property {string[]} milestones milestones Done since the base, for the record
  * @property {number} unreleased merged items no full release lists yet
@@ -291,20 +291,20 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     last_tag: lastTag,
     base,
     base_version: baseVersion,
-    initial: base === null,
+    first_release: base === null,
     interface_delta: delta,
     bump: proposed.bump,
     breaking: proposed.breaking,
-    basis: base
-      ? `${proposed.basis}, since ${base}`
-      : `no release tag yet, so the whole public interface is the initial surface, counted as additive from 0.0.0: ${proposed.basis}`,
+    reason: base
+      ? `${proposed.reason}, since ${base}`
+      : `no release tag yet, so the whole public interface is the initial surface, counted as additive from 0.0.0: ${proposed.reason}`,
     version,
     tag: `v${version}`,
     prerelease: isPrerelease(version),
     prerelease_rule: PRERELEASE_RULE,
     items,
     notes,
-    missing_changelog: missing,
+    missing_release_note: missing,
     gates,
     milestones,
     unreleased,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "foundation/dispatch-above-classification-limit",
-  "piece": "foundation",
+  "suite": "foundation",
   "category": "portability",
   "description": "Nothing above a harness's classification limit is dispatched to it: a secret item is refused under every profile, and the refusal is not a completion. A public item is accepted by all.",
   "mode": "offline",

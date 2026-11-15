@@ -18,10 +18,10 @@ import { hashSeed, seededShuffle } from './util.mjs';
  *
  * @typedef {object} CaseResult one scenario under one profile
  * @property {string} id
- * @property {string} piece
+ * @property {string} suite
  * @property {string} category
  * @property {string} profile
- * @property {'pass' | 'fail' | 'error' | 'not_applicable'} status
+ * @property {'pass' | 'fail' | 'error' | 'not-applicable'} result
  * @property {number | null} score
  * @property {string} [reason]
  * @property {(import('./graders.mjs').Verdict & { id: string, grader: string, expected_truncated?: true, actual_truncated?: true })[]} graders
@@ -54,10 +54,10 @@ export async function runCase(loaded, profile, options) {
   /** @type {CaseResult} */
   const base = {
     id: loaded.id,
-    piece: loaded.piece,
+    suite: loaded.suite,
     category: sc?.category ?? 'invalid',
     profile,
-    status: 'error',
+    result: 'error',
     score: null,
     graders: [],
     wall_ms: 0,
@@ -73,13 +73,13 @@ export async function runCase(loaded, profile, options) {
 
   if (!sc)
     return done({
-      status: 'error',
+      result: 'error',
       score: 0,
       reason: `scenario does not load: ${loaded.problems.join('; ')}`,
     });
   if (sc.mode === 'live') {
     return done({
-      status: 'not_applicable',
+      result: 'not-applicable',
       reason: 'a live scenario: `hitld eval --live` runs it, and it is not built yet',
     });
   }
@@ -88,7 +88,7 @@ export async function runCase(loaded, profile, options) {
   );
   if (judged) {
     return done({
-      status: 'not_applicable',
+      result: 'not-applicable',
       reason: `uses the ${judged.grader} grader, which needs a model (live mode)`,
     });
   }
@@ -97,7 +97,7 @@ export async function runCase(loaded, profile, options) {
     const missing = missingCapabilities(profileDef.capabilities, sc.harness.requires ?? {});
     if (missing.length) {
       return done({
-        status: 'not_applicable',
+        result: 'not-applicable',
         reason: `${profile} lacks what it needs: ${missing.join('; ')}`,
       });
     }
@@ -147,7 +147,7 @@ export async function runCase(loaded, profile, options) {
       } catch (e) {
         entry.error = e instanceof Error ? e.message : String(e);
         return done({
-          status: 'error',
+          result: 'error',
           score: 0,
           reason: `step ${step.id} (${step.action}) failed to run: ${entry.error}`,
           transcript,
@@ -177,7 +177,7 @@ export async function runCase(loaded, profile, options) {
     transcript.push({ graders });
     const passed = graders.filter((g) => g.passed).length;
     return done({
-      status: passed === graders.length ? 'pass' : 'fail',
+      result: passed === graders.length ? 'pass' : 'fail',
       score: passed / graders.length,
       graders,
       transcript,
@@ -185,7 +185,7 @@ export async function runCase(loaded, profile, options) {
     });
   } catch (e) {
     return done({
-      status: 'error',
+      result: 'error',
       score: 0,
       reason: `the runner failed: ${e instanceof Error ? e.message : String(e)}`,
       transcript,

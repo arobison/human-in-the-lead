@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "h-orchestrator/first-run-walk-through",
-  "piece": "h-orchestrator",
+  "id": "orchestrator/first-run-walk-through",
+  "suite": "orchestrator",
   "category": "settings",
   "description": "The first-run walk-through (design 13.4): with no person or machine file the setup is not done; the orchestrator detects the machine, writes both files through config write with the answers given, and config explain shows them and says setup is done. A dispatched executor cannot write them.",
   "mode": "offline",

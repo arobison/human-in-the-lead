@@ -158,7 +158,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
     paths: ['package.json'],
     tags: ['dependency-licence', 'npm'],
   });
-  assert.equal(precedents.get('P-1')?.state, 'narrowed');
+  assert.equal(precedents.get('P-1')?.state, 'active');
   assert.equal(listApplications(project)[0].overruled, true);
 
   const sameAgain = askQuestion(
@@ -249,7 +249,7 @@ test('a question with several fitting precedents goes to the decider with them c
       rule: `Rule ${id}: allow permissively licensed dependencies.`,
       conditions: { rights_basis: ['security'] },
       sources: ['W-1'],
-      scope: 'project',
+      scope: 'all',
       decider: 'owner',
       state: 'active',
       classification: 'public',
@@ -457,7 +457,7 @@ test('trust-calibration data: reversals, worth-asking ratings, overrules, per ar
   overrule(project, { decision: later.decision, why: 'no' });
   recordReversal(project, {
     subject: 'logged-call-7',
-    what: 'logged-call',
+    subject_kind: 'logged-call',
     area: 'cache',
     note: 'wrong default',
   });

@@ -143,7 +143,7 @@ test('hitld: a run from the command line, with a second session taking over', as
   assert.equal(bad.json.error, 'invalid_event');
   assert.equal((await hitld(['ledger', 'append', 'nope', ...me])).json.error, 'usage');
 
-  const inflight = await hitld(['ledger', 'inflight', '--store', store]);
+  const inflight = await hitld(['ledger', 'in-flight', '--store', store]);
   assert.deepEqual(
     inflight.json.in_flight.map((/** @type {any} */ d) => d.dispatch),
     ['D-1'],
@@ -321,7 +321,7 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
   assert.deepEqual([fix.code, fix.json.event.corrects], [EXIT.ok, first.json.event.id]);
   // the lifecycle event is untouched
   assert.deepEqual(
-    (await hitld(['ledger', 'inflight', '--store', own])).json.in_flight.map(
+    (await hitld(['ledger', 'in-flight', '--store', own])).json.in_flight.map(
       (/** @type {any} */ d) => d.dispatch,
     ),
     ['D-1'],

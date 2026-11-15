@@ -105,7 +105,7 @@ export const actions = {
       return {
         dispatches: r.dispatches,
         max_running: r.maxRunning,
-        within_cap: r.maxRunning <= (fake.capabilities().parallelSubagents ? (input.cap ?? 3) : 1),
+        within_cap: r.maxRunning <= (fake.capabilities().parallel_subagents ? (input.cap ?? 3) : 1),
         remaining: r.remaining,
         order: r.trace.filter((t) => t.step === 'dispatch').map((t) => t.item),
         waits: fake.calls.filter((c) => c.method === 'onComplete').length,

@@ -4,28 +4,28 @@
   "description": "What a harness adapter supports (design part 15.3). The orchestrator reads it and degrades where a capability is missing.",
   "type": "object",
   "properties": {
-    "parallelSubagents": { "type": "boolean" },
-    "persistentSessions": { "type": "boolean" },
+    "parallel_subagents": { "type": "boolean" },
+    "persistent_sessions": { "type": "boolean" },
     "worktrees": { "type": "boolean" },
-    "backgroundCompletion": { "type": "boolean" },
-    "remoteHumanChannel": { "type": "boolean" },
+    "background_completion": { "type": "boolean" },
+    "remote_human_channel": { "type": "boolean" },
     "hooks": { "enum": ["full", "subset", "none"] },
-    "modelSelection": { "type": "boolean" },
-    "effortSelection": { "type": "boolean" },
-    "usageReporting": { "enum": ["tokens", "requests", "none"] },
-    "maxClassification": { "$ref": "common#/$defs/classification" }
+    "model_selection": { "type": "boolean" },
+    "effort_selection": { "type": "boolean" },
+    "usage_reporting": { "enum": ["tokens", "requests", "none"] },
+    "max_classification": { "$ref": "common#/$defs/classification" }
   },
   "required": [
-    "parallelSubagents",
-    "persistentSessions",
+    "parallel_subagents",
+    "persistent_sessions",
     "worktrees",
-    "backgroundCompletion",
-    "remoteHumanChannel",
+    "background_completion",
+    "remote_human_channel",
     "hooks",
-    "modelSelection",
-    "effortSelection",
-    "usageReporting",
-    "maxClassification"
+    "model_selection",
+    "effort_selection",
+    "usage_reporting",
+    "max_classification"
   ],
   "additionalProperties": false
 }

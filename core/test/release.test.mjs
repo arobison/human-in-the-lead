@@ -189,17 +189,17 @@ test('the delta marks each change breaking, additive or fix', () => {
     read_api: 2,
   });
   assert.deepEqual(diffSurface(base, next), [
-    { impact: 'breaking', area: 'schemas', what: 'item: id type string → integer' },
-    { impact: 'additive', area: 'schemas', what: 'item: note added' },
-    { impact: 'breaking', area: 'schemas', what: 'item: state no longer allows done' },
-    { impact: 'additive', area: 'schemas', what: 'item: state allows dropped' },
-    { impact: 'additive', area: 'schemas', what: 'schema release added' },
-    { impact: 'additive', area: 'cli', what: 'hitld work show --json added' },
-    { impact: 'breaking', area: 'cli', what: 'hitld work show JSON: api_version removed' },
-    { impact: 'additive', area: 'report', what: 'report key runs added' },
-    { impact: 'breaking', area: 'trailers', what: 'trailer Work-Item removed' },
-    { impact: 'fix', area: 'contract', what: "the executor contract's wording changed" },
-    { impact: 'breaking', area: 'read-api', what: 'api_version 1 → 2' },
+    { impact: 'breaking', surface: 'schemas', what: 'item: id type string → integer' },
+    { impact: 'additive', surface: 'schemas', what: 'item: note added' },
+    { impact: 'breaking', surface: 'schemas', what: 'item: state no longer allows done' },
+    { impact: 'additive', surface: 'schemas', what: 'item: state allows dropped' },
+    { impact: 'additive', surface: 'schemas', what: 'schema release added' },
+    { impact: 'additive', surface: 'cli', what: 'hitld work show --json added' },
+    { impact: 'breaking', surface: 'cli', what: 'hitld work show JSON: api_version removed' },
+    { impact: 'additive', surface: 'report', what: 'report key runs added' },
+    { impact: 'breaking', surface: 'trailers', what: 'trailer Work-Item removed' },
+    { impact: 'fix', surface: 'contract', what: "the executor contract's wording changed" },
+    { impact: 'breaking', surface: 'read-api', what: 'api_version 1 → 2' },
   ]);
 });
 
@@ -209,7 +209,7 @@ test('the bump comes from the delta alone: breaking is major, or minor under 0.y
     bump: 'minor',
     breaking: false,
     version: '0.4.0',
-    basis: '1 additive change(s), none breaking: minor',
+    reason: '1 additive change(s), none breaking: minor',
   });
   const removed = diffSurface(surface(), surface({ report: ['item'] }));
   assert.equal(proposeBump(removed, '1.2.0').bump, 'major');
@@ -218,10 +218,10 @@ test('the bump comes from the delta alone: breaking is major, or minor under 0.y
     bump: 'minor',
     breaking: true,
     version: '0.4.0',
-    basis: '1 breaking change(s): minor while the version is 0.y.z, flagged breaking',
+    reason: '1 breaking change(s): minor while the version is 0.y.z, flagged breaking',
   });
   assert.equal(proposeBump([], '0.3.1').bump, 'patch');
-  assert.match(proposeBump([], '0.3.1').basis, /internal change proposes patch at most/);
+  assert.match(proposeBump([], '0.3.1').reason, /internal change proposes patch at most/);
   assert.throws(() => proposeBump([], '0.3.1-rc.1'), /not a full release/);
 });
 
@@ -233,11 +233,11 @@ test('with no tag yet, propose says so and treats the whole surface as initial',
   assert.equal(p.code, 0, JSON.stringify(p.json));
   assert.equal(p.json.last_tag, null);
   assert.equal(p.json.base, null);
-  assert.equal(p.json.initial, true);
+  assert.equal(p.json.first_release, true);
   assert.equal(p.json.version, '0.1.0');
   assert.equal(p.json.tag, 'v0.1.0');
   assert.match(
-    p.json.basis,
+    p.json.reason,
     /^no release tag yet, so the whole public interface is the initial surface/,
   );
   assert.ok(p.json.interface_delta.every((/** @type {any} */ e) => e.impact === 'additive'));
@@ -327,7 +327,7 @@ test('release make writes the record and the tag, never pushes, and the record i
   assert.equal(shown.json.entity.prerelease, false);
   assert.deepEqual(shown.json.entity.interface_delta[0], {
     impact: 'additive',
-    area: 'schemas',
+    surface: 'schemas',
     what: 'schema thing added',
   });
   const listed = await hitld(['work', 'query', '--kind', 'release', '--json'], root);
@@ -354,7 +354,7 @@ test('after a release, the delta is read against the tag’s own surface', async
   const additive = await hitld(['release', 'propose'], root);
   assert.equal(additive.json.base, 'v0.1.0');
   assert.deepEqual(additive.json.interface_delta, [
-    { impact: 'additive', area: 'schemas', what: 'thing: note added' },
+    { impact: 'additive', surface: 'schemas', what: 'thing: note added' },
   ]);
   assert.equal(additive.json.version, '0.2.0');
   put(root, { 'schemas/thing.schema.json': schema({ id: { type: 'string' } }) });
@@ -363,7 +363,7 @@ test('after a release, the delta is read against the tag’s own surface', async
   assert.equal(breaking.json.bump, 'minor');
   assert.equal(breaking.json.breaking, true);
   assert.deepEqual(breaking.json.interface_delta, [
-    { impact: 'breaking', area: 'schemas', what: 'thing: name removed' },
+    { impact: 'breaking', surface: 'schemas', what: 'thing: name removed' },
   ]);
   put(root, {
     'schemas/thing.schema.json': schema({ id: { type: 'string' }, name: { type: 'string' } }),
@@ -425,7 +425,7 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
     { item: 'W-8', milestone: 'W-7', title: 'Ready', state: 'planned', check_due: true },
   ]);
   assert.deepEqual(p.notes, ['Config errors name the key. (W-9)']);
-  assert.deepEqual(p.missing_changelog, [{ item: 'W-3', files: ['schemas/thing.schema.json'] }]);
+  assert.deepEqual(p.missing_release_note, [{ item: 'W-3', files: ['schemas/thing.schema.json'] }]);
   const refused = await hitld(['release', 'make', '--item', 'W-8'], root);
   assert.equal(refused.code, 1);
   assert.match(

@@ -123,7 +123,7 @@ export async function evalOffline(options) {
       ok: false,
       error: 'no_scenarios',
       message: filter
-        ? `no scenario matches "${filter}" (${loaded.length} found; IDs are <piece>/<name>)`
+        ? `no scenario matches "${filter}" (${loaded.length} found; IDs are <suite>/<name>)`
         : `no scenarios found under ${dirs.map((d) => join(d, 'scenarios')).join(', ')}`,
     };
   }
@@ -166,7 +166,7 @@ export async function evalOffline(options) {
 
   const s = result.summary;
   const failing = result.scenarios.filter(
-    (/** @type {any} */ c) => c.status === 'fail' || c.status === 'error',
+    (/** @type {any} */ c) => c.result === 'fail' || c.result === 'error',
   );
   /** @type {string | null} */
   let accepted = null;
@@ -203,7 +203,7 @@ export async function evalOffline(options) {
     problems: failing.map((/** @type {any} */ c) => ({
       scenario: c.id,
       profile: c.profile,
-      status: c.status,
+      result: c.result,
       ...(c.reason ? { reason: c.reason } : {}),
       failed_graders: c.graders
         .filter((/** @type {any} */ g) => !g.passed)
