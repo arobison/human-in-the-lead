@@ -129,13 +129,13 @@ export const commands = [
         name: 'kind',
         type: 'string',
         description:
-          'work (default), decision, external, project, initiative, or a milestone: capability or learning',
+          'work (default), decision, external, project or milestone (a learning milestone is one whose check is a study)',
       },
       {
         name: 'parent',
         type: 'string',
         description:
-          'The project ID (for an item), the initiative ID (for a project), or either (for a milestone)',
+          'The project ID (for an item, or for a milestone; a milestone with none is a long outcome). A project has no parent',
       },
       {
         name: 'state',
@@ -160,7 +160,7 @@ export const commands = [
       {
         name: 'owner',
         type: 'string',
-        description: 'Who is accountable for a project or initiative (default owner)',
+        description: 'Who is accountable for the record (default: the owner, not written)',
       },
       {
         name: 'plan',
@@ -195,7 +195,7 @@ export const commands = [
   {
     name: 'work show',
     summary:
-      'Show one tracker entity: an item, project, initiative or milestone, or a release record by its tag',
+      'Show one tracker entity: an item, project or milestone, or a release record by its tag',
     built_by: 'a',
     output: ['ok', 'api_version', 'entity', 'declared_fields'],
     args: [idArg, jsonArg, ...where],
@@ -215,7 +215,7 @@ export const commands = [
         name: 'kind',
         type: 'string',
         description:
-          'work, decision, external, project, initiative, capability, learning or release (release records, found by their tag)',
+          'work, decision, external, project, milestone or release (release records, found by their tag)',
       },
       {
         name: 'state',
@@ -224,7 +224,7 @@ export const commands = [
       },
       { name: 'area', type: 'string', description: 'An area (needs the area key turned on)' },
       { name: 'needs', type: 'string', description: 'Entities that need this ID' },
-      { name: 'parent', type: 'string', description: 'Entities under this project or initiative' },
+      { name: 'parent', type: 'string', description: 'Entities under this project' },
       { name: 'text', type: 'string', description: 'Case-insensitive, in the title and body' },
       { name: 'ready', type: 'boolean', description: 'Only items that are ready to start' },
       { name: 'blocked', type: 'boolean', description: 'Only items waiting on an open need' },
@@ -422,7 +422,7 @@ export const commands = [
         name: 'view',
         type: 'string',
         description:
-          'Print one view as text instead of writing files: ready, blocked, decisions, projects, initiatives, critical-path, milestones, unreleased, lists, items-graph or projects-graph',
+          'Print one view as text instead of writing files: ready, blocked, decisions, projects, critical-path, milestones, unreleased, lists, items-graph or projects-graph',
       },
       {
         name: 'who',

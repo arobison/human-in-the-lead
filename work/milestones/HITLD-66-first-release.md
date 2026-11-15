@@ -1,7 +1,7 @@
 ---
 id: HITLD-66
 title: First release
-kind: capability
+kind: milestone
 state: planned
 created: 2026-11-14
 project: HITLD-15

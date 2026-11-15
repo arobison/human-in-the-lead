@@ -10,7 +10,7 @@ import { reservedFieldNames } from './format.mjs';
 
 /**
  * @typedef {import('../../schema/validate.mjs').ValidationError} ValidationError
- * @typedef {'initiative' | 'project' | 'work' | 'decision' | 'external' | 'capability' | 'learning'} Kind
+ * @typedef {'project' | 'work' | 'decision' | 'external' | 'milestone'} Kind
  *
  * @typedef {object} DeclaredField a project field declared in tracker.json `fields`
  * @property {string} name
@@ -23,6 +23,7 @@ import { reservedFieldNames } from './format.mjs';
  * @property {string} key the ID key, from policy.json project.key
  * @property {string} workDir relative to the repository root, with "/" separators
  * @property {{ initiative: string, project: string, item: string, milestone: string, release: string }} folders
+ *   `initiative` is read only by `hitld work migrate`, which moves initiatives into milestones
  * @property {string} viewsDir relative to workDir
  * @property {string | undefined} listsFile relative to workDir
  * @property {string} mainBranch
@@ -110,7 +111,7 @@ export function trackerDefaults() {
 
 /**
  * Read and validate tracker.json. A missing file is not an error: the defaults apply, which is
- * the reference layout (work/, with initiatives/, projects/ and items/).
+ * the reference layout (work/, with projects/, items/ and milestones/).
  * @param {{ repoRoot: string, configDir?: string }} options
  *   configDir overrides where tracker.json is looked for (default: <repoRoot>/.human-in-the-lead),
  *   so a tracker can be read with settings kept outside its repository. Only read-only commands

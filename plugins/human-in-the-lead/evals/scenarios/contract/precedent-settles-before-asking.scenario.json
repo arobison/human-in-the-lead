@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "id": "contract/precedent-settles-before-asking",
+  "suite": "contract",
+  "category": "contract",
+  "description": "An executor holding a question checks who decides it and whether a precedent fits. A question an active owner precedent settles has one candidate that needs no judgement, so the executor decides and cites it. A like question no precedent covers has no candidate, so it goes up as a question.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": { "language": "javascript", "git": true } },
+  "steps": [
+    {
+      "id": "seed",
+      "action": "file.write",
+      "with": {
+        "path": "precedents/P-1-module-prefix.md",
+        "content": "---\n{\n  \"schema_version\": 1,\n  \"id\": \"P-1\",\n  \"rule\": \"When a new public helper is named, prefix it with the name of the module it lives in.\",\n  \"conditions\": {\n    \"rights_basis\": [\"public-commitment\"],\n    \"tags\": [\"helper-naming\"],\n    \"paths\": [\"src/**\"]\n  },\n  \"exceptions\": [],\n  \"sources\": [\"D-1\"],\n  \"scope\": \"all\",\n  \"decider\": \"owner\",\n  \"state\": \"active\",\n  \"classification\": \"public\"\n}\n---\n\n# P-1\n\nWhen a new public helper is named, prefix it with the name of the module it lives in.\n"
+      }
+    },
+    {
+      "id": "settled-who",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "rights",
+          "who",
+          "--question",
+          "{\"title\":\"Name the new helper\",\"triggers\":[{\"basis\":\"public-commitment\",\"reason\":\"the helper is exported\"}],\"tags\":[\"helper-naming\"],\"paths\":[\"src/cache/keys.js\"],\"item_kind\":\"work\",\"classification\":\"public\"}"
+        ]
+      }
+    },
+    {
+      "id": "settled-match",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "precedent",
+          "match",
+          "--question",
+          "{\"title\":\"Name the new helper\",\"triggers\":[{\"basis\":\"public-commitment\",\"reason\":\"the helper is exported\"}],\"tags\":[\"helper-naming\"],\"paths\":[\"src/cache/keys.js\"],\"item_kind\":\"work\",\"classification\":\"public\"}"
+        ]
+      }
+    },
+    {
+      "id": "open-match",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "precedent",
+          "match",
+          "--question",
+          "{\"title\":\"Pick an error format\",\"triggers\":[{\"basis\":\"public-commitment\",\"reason\":\"the format is public\"}],\"tags\":[\"error-format\"],\"paths\":[\"src/cache/errors.js\"],\"item_kind\":\"work\",\"classification\":\"public\"}"
+        ]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "settled-is-the-owners",
+      "grader": "equals",
+      "with": { "path": "steps.settled-who.result.decider", "value": "owner" }
+    },
+    {
+      "id": "settled-one-candidate",
+      "grader": "count",
+      "with": { "path": "steps.settled-match.result.candidates", "equals": 1 }
+    },
+    {
+      "id": "settled-cites-p1",
+      "grader": "equals",
+      "with": { "path": "steps.settled-match.result.candidates[0].id", "value": "P-1" }
+    },
+    {
+      "id": "settled-needs-no-judgement",
+      "grader": "equals",
+      "with": { "path": "steps.settled-match.result.candidates[0].needs_judgement", "value": false }
+    },
+    {
+      "id": "open-no-candidate",
+      "grader": "count",
+      "with": { "path": "steps.open-match.result.candidates", "equals": 0 }
+    },
+    {
+      "id": "open-says-why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.open-match.result.excluded[*].reason",
+        "pattern": "lacks tags helper-naming"
+      }
+    }
+  ]
+}

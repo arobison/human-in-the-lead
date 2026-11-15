@@ -13,7 +13,7 @@ These rules decide what the model holds and how. Each rests on an idea in [part 
 | 1 | **Stocks and flows** | Model states and the transitions between them explicitly; derive everything else. | Derived fields cannot go stale, and every queue's stock and flows can be computed ([20.1](20-prior-art.md#201-cybernetics-and-systems-theory)). |
 | 2 | **A milestone is a setpoint** | A milestone is a checkable future state with its own "done when"; its unmet constraints are the error the system works down. | A controller needs a setpoint to compare against; a list of tasks gives it none ([20.2](20-prior-art.md#202-control-theory)). |
 | 3 | **Good regulator** | A field earns its place only if someone (a person or a controller) acts differently because of it. | A regulator needs a model of what it regulates, and every extra field costs writing, reading and tokens ([20.1](20-prior-art.md#201-cybernetics-and-systems-theory)). |
-| 4 | **Near-decomposability** | The tree (initiative, project, item) is for accountability; the graph (`needs`) is for dependency; milestones cut across both, many to many. | A hierarchy stays stable when links inside a part are dense and links between parts are few and explicit ([20.1](20-prior-art.md#201-cybernetics-and-systems-theory)). |
+| 4 | **Near-decomposability** | The tree (project, item) is for accountability; the graph (`needs`) is for dependency; milestones cut across both, many to many. | A hierarchy stays stable when links inside a part are dense and links between parts are few and explicit ([20.1](20-prior-art.md#201-cybernetics-and-systems-theory)). |
 | 5 | **Viable system model** | Milestones belong to intelligence: future states set with strategy. Releases are the boundary to the environment. Commitments at that boundary are policy, the owner's. | Each function needs a named owner, and the boundary is where promises to users are made ([20.1](20-prior-art.md#201-cybernetics-and-systems-theory), [part 19](19-viable-system-model.md)). |
 | 6 | **Leverage and delays** | A release closes the outer feedback loop through users; a shorter delay from merge to release means faster learning. | Delays make loops slow or unstable ([20.1](20-prior-art.md#201-cybernetics-and-systems-theory)). |
 | 7 | **Batch size** | Releases and milestones are batches: keep both thin. | Small batches cut waiting and bring feedback sooner ([20.3](20-prior-art.md#203-queueing-and-flow)). |
@@ -25,7 +25,7 @@ These rules decide what the model holds and how. Each rests on an idea in [part 
 
 ## 3.1 Conventions
 
-- **IDs.** Every tracked entity has a global ID of the form `<KEY>-<n>`, where the key is set per project in `policy.json` (example in this document: `W`, giving `W-214`). Initiatives, projects, milestones (planned), items and decisions share one number space, so a reference never needs its kind to resolve. Releases are named by their tag (`v0.4.0`). Signals, precedents, studies, runs and ledger entries have their own prefixes (`SIG-`, `P-`, `FB-` for feedback records ([18.4](18-self-improvement.md#184-giving-feedback)), and the evidence source's own IDs) because they live in different stores. ID allocation rules for parallel worktrees are in [3.4](#id-allocation).
+- **IDs.** Every tracked entity has a global ID of the form `<KEY>-<n>`, where the key is set per project in `policy.json` (example in this document: `W`, giving `W-214`). Projects, milestones, items and decisions share one number space, so a reference never needs its kind to resolve. Releases are named by their tag (`v0.4.0`). Signals, precedents, studies, runs and ledger entries have their own prefixes (`SIG-`, `P-`, `FB-` for feedback records ([18.4](18-self-improvement.md#184-giving-feedback)), and the evidence source's own IDs) because they live in different stores. ID allocation rules for parallel worktrees are in [3.4](#id-allocation).
 - **Stored versus derived.** A field is either *stored* (written by someone, versioned in the backend) or *derived* (computed by scripts from stored fields, the ledger or git history). Derived fields are never written by hand, so they cannot go stale.
 - **Classification on everything.** Every entity has a `classification` field: `public`, `internal`, `confidential` or `secret` ([part 10](10-security.md)). It decides where the entity may be stored.
 - **Untrusted text is marked.** Fields that hold text from outside the project's trust boundary (a reporter's issue body, a contributor's PR description) are typed `untrusted_text`. Agents read them as quoted data only.
@@ -50,40 +50,43 @@ Anything that arrived. Created by intake, updated by triage.
 | `area`, `severity`, `reach` | stored | Set by triage |
 | `duplicate_of` | stored | Signal or item ID |
 | `route` | stored | `auto-fix`, `backlog`, `owner`, `reply`, `closed` with a reason |
-| `links` | stored | Items, opportunities, decisions created from it |
+| `links` | stored | Items, projects and decisions created from it |
 | `provenance` | stored | Ordered list of transforms: who or what touched it and how (normalized by, triaged by, reproduced by, with dispatch IDs) |
 | `judgements` | stored | Owner or area-owner judgements on it ([Judgement](#judgement)) |
 | `design_refs` | stored | Design sections that already cover the signal (`covers`) or relate to it (`related`), so triage does not file work the design already holds |
 | `state` | stored | `new`, `triaged`, `closed` |
 | `classification` | stored | From the source's default; raised by triage if needed |
 
-### Opportunity
+### Project
 
-A shaped cluster of signals ([part 2, shaping](02-loops.md#23-shaping)).
+A body of work toward an outcome, with its items, its milestones and its appetite. A project being shaped is a `proposed` project: it carries the shaping fields ([part 2, shaping](02-loops.md#23-shaping)). It is the same record before and after the bet.
 
 | Field | Kind | Notes |
 |---|---|---|
-| `id` | stored | Shares the tracker number space |
 | `problem` | stored | In the user's terms |
 | `signals` | stored | Signal IDs |
 | `evidence` | stored | Signals, run and study IDs, research notes with sources and dates read |
 | `options` | stored | Each with its trade-offs; always includes "do nothing" with its cost of delay |
-| `value`, `confidence` | stored | Value in project units; confidence as a probability |
+| `value`, `confidence` | stored | Value in the project's value units; confidence as a probability |
 | `cost_of_delay` | stored | Profile (`standard`, `urgent`, `fixed-date`, `intangible`) and rate; date for `fixed-date` |
-| `category` | stored | Portfolio category |
-| `appetite_tokens` | stored | |
-| `outcome_measures` | stored | What would show the problem is solved; checked by outcome sensing |
-| `no_gos`, `rabbit_holes` | stored | |
-| `state` | stored | `raw`, `shaping`, `shaped`, `bet`, `parked`, `rejected` |
-| `bet_by`, `bet_decision` | stored | The decider and the decision item that committed it |
-| `judgements` | stored | Carried over from its signals, plus any made on the opportunity itself |
+| `appetite_tokens` | stored | What the project is worth, in tokens. Its milestones hold shares of it |
+| `out_of_scope` | stored | What is explicitly out |
+| `risks` | stored | Known holes the work could fall into |
+| `plan` | stored | The plan, or a pointer to a section of a design document |
+| `decision` | stored | The decision item whose answer is the owner's bet |
+| `bet_by` | derived | Who answered that decision; none until it is answered |
+| `judgements` | stored | Carried over from its signals, plus any made on the project itself |
 | `revisions` | stored | Each change to value or confidence after shaping began, with its reason and evidence (for example, a study verdict that lowered a judgement's prior) |
 
-A bet opportunity becomes a project (or, if large, an initiative with projects). The project keeps a link back. Its outcome measures become the project's milestones ([Milestones and releases](#milestones-and-releases), planned).
+Plus the fields common to projects and items ([below](#project-and-item)). The files backend does not store `judgements` and `revisions` yet.
+
+- **The bet.** The owner's bet is the answer to the project's `decision`. It moves the project from `proposed` to `planned` (a commitment of budget, so it is the owner's: [part 4](04-decision-rights.md)). A planned or done project's decision is answered; `hitld work check` refuses one whose decision is still open. A project the owner rejects is `dropped`, with the reason.
+- **The appetite.** The project holds it. Each of its milestones holds a share, in its own `appetite_tokens`, and `hitld work check` verifies that the shares of the milestones not dropped fit the project's appetite.
+- **No parent.** A project stands alone. A long outcome that spans projects is a milestone with no parent whose constraints are the projects' milestones ([Milestone](#milestone)). The read API's `parent` stays optional on a project; the files backend stores none.
 
 ### Judgement
 
-A person's judgement on a signal or opportunity. It records an input, not a decision: it raises priority into shaping and never settles anything by itself.
+A person's judgement on a signal or a project being shaped. It records an input, not a decision: it raises priority into shaping and never settles anything by itself. The eval scenario `rights/judgement-never-settles-a-call` checks that.
 
 | Field | Notes |
 |---|---|
@@ -98,11 +101,11 @@ A person's judgement on a signal or opportunity. It records an input, not a deci
 - **Not infallible.** When research, a study verdict or measurements conflict with a judgement, the conflict goes to the person who made it, with the evidence and a recommendation. Neither side wins silently.
 - **The judgement record.** Optional confidence, what the person expected, the evidence available at the time, and matched outcomes; per-person weights and the calibration review: [part 23](23-people-in-the-lead.md).
 
-### Initiative, project, item
+### Project and item
 
-The work hierarchy. Initiatives group projects toward an outcome; projects group items toward a deliverable; items are the unit of dispatch.
+The work tree. Projects group items toward an outcome; items are the unit of dispatch. Milestones cut across the tree ([Milestones and releases](#milestones-and-releases)).
 
-**Stored fields common to all three** (the files backend stores some under other names and holds several only when `tracker.json` turns them on: [3.4](#file-format)): `id`, `kind`, `title`, `parent`, `state`, `owner` (the human accountable, if not the project owner), `area`, `category`, `classification`, `opened_from` (signal, opportunity or decision IDs), and a body with these sections:
+**Stored fields common to both** (the files backend stores some under other names and holds several only when `tracker.json` turns them on: [3.4](#file-format)): `id`, `kind`, `title`, `parent` (an item's project; a project has none), `state`, `owner` (who is accountable for the record; optional, and without one it is the owner), `area`, `category`, `classification`, `opened_from` (signal, project or decision IDs), and a body with these sections:
 
 - **Why**: the outcome and who it serves.
 - **Done when**: the exit condition, written as checks that can be executed or observed. For work items this is the acceptance criterion ([part 6](06-verification.md)).
@@ -113,7 +116,7 @@ The work hierarchy. Initiatives group projects toward an outcome; projects group
 
 | Field | Notes |
 |---|---|
-| `kind` | `work`, `decision`, `external` |
+| `kind` | `work`, `decision`, `external` (below) |
 | `needs` | IDs that must be `done` before this item is ready |
 | `touches` | Path globs the item is expected to change. Used to predict merge conflicts and serial-file contention |
 | `serial` | Serial resources the item needs (`gpu`, a named fixture) |
@@ -123,7 +126,9 @@ The work hierarchy. Initiatives group projects toward an outcome; projects group
 | `credit` | Contributor IDs to credit |
 | `claimed_by` | Set by the claim commit, on work items only: the dispatch, session or person holding it; the branch and time come from git |
 
-**Lifecycle (stored).** The core lifecycle, stored as `state` in lowercase kebab-case (views show display labels such as "In progress"). Work items use all five states, `in-progress` only on the claim branch. Decisions, external items, milestones, projects and initiatives use the four without `in-progress`; whether a project or initiative is active is derived from its items. `dropped` always carries a reason:
+**External items.** An external item is work that someone the system cannot dispatch completes: the owner by hand, a contributor, an upstream project or a vendor. `waiting_on` names who. It is never claimed; it is closed when that work is done ([2.20](02-loops.md#220-upstream-and-the-ecosystem)).
+
+**Lifecycle (stored).** The core lifecycle, stored as `state` in lowercase kebab-case (views show display labels such as "In progress"). Work items use all five states, `in-progress` only on the claim branch. Decisions, external items, milestones and projects use the four without `in-progress`; whether a project is active is derived from its items. `dropped` always carries a reason:
 
 ```mermaid
 stateDiagram-v2
@@ -155,7 +160,7 @@ stateDiagram-v2
 | `blocked` | `planned` with at least one `needs` entry not `done`; `blocked_on` lists them |
 | `stage` | From the ledger, for items `in-progress`: `briefed`, `started`, `implementing`, `verifying`, `reporting`, `in-review`, `merged` (the fleet view) |
 | `critical_path` | Whether the item is on the longest dependency chain (by estimate tokens) to a milestone that needs it |
-| `cost_of_delay_rate` | Inherited from the opportunity, plus the rates of everything that `needs` it, milestones included |
+| `cost_of_delay_rate` | Inherited from the project, plus the rates of everything that `needs` it, milestones included |
 | `constraint_of`, `contributes_to` | The milestones whose `constraints` or `contributions` name it. The milestone holds the edge; the item stores nothing |
 | `released_in` | The first full release whose record lists it ([Release](#release)); a pre-release does not set it |
 | `lead_time`, `blocked_time` | From git history of the item file and the ledger |
@@ -187,21 +192,21 @@ An item of kind `decision`. It sits in the same tracker, uses the same lifecycle
 
 A milestone is a future state worth reaching; a release is the record of what reached users. Together they replace the files backend's `milestone` key on items and `milestones` list on projects, and its `priority` key retires ([3.4](#file-format), [Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)).
 
-**Milestones are never numbered.** A milestone is named by its outcome ("One signal end to end", "Config errors explained"), never "v2" or "phase 3". Order comes from the dependency graph (a milestone may `need` another milestone) and from cost of delay, not from names. A milestone's tracker ID is stable, but it carries no order. No codes, numbers or ordinals appear in a milestone's name or handle: not "M1", not "S2", not "second release"; prose refers to a milestone by name.
+**Milestones are never numbered.** A milestone is named by its outcome ("One signal end to end", "Config errors explained"), never "v2" or "phase 3". Order comes from the dependency graph (a milestone may `need` another milestone) and from cost of delay, not from names. A milestone's tracker ID is stable, but it carries no order. No codes, numbers or ordinals appear in a milestone's name or handle: not "M1", not "S2", not "second release"; prose refers to a milestone by name. `hitld work check` refuses a name with a code (M1, S2, v2) or a sequence word with a number (phase 3, stage 2).
 
 #### Milestone
 
-A checkable future state with its own "done when" (principle 2 in [3.0](#30-principles-of-the-model)). It sits under a project or an initiative and has its own ID in the shared number space. It cuts across the tree: one item may serve several milestones, in several projects (principle 4).
+A checkable future state with its own "done when" (principle 2 in [3.0](#30-principles-of-the-model)). It sits under a project and has its own ID in the shared number space. It cuts across the tree: one item may serve several milestones, in several projects (principle 4). A milestone with no parent is a **long outcome**: its constraints are other milestones, so an outcome that takes several projects is one milestone over theirs.
 
 | Field | Kind | Notes |
 |---|---|---|
-| `id`, `title`, `parent`, `state`, `owner`, `classification`, `opened_from` | stored | As for items. `parent` is a project or an initiative |
-| `kind` | stored | `capability` (users can do something new) or `learning` (a question gets answered) |
+| `id`, `title`, `parent`, `state`, `owner`, `classification`, `opened_from` | stored | As for items. `parent` is a project, or none for a long outcome |
+| `kind` | stored | `milestone`, the one kind. A learning milestone (a question gets answered) is the one whose `check` is a study: derived from the check, never stored |
 | `outcome` | stored | One sentence: the state for users, or the question answered |
 | `done_when` | stored | Clauses, each with a short ID (`c1`, `c2`). Outcome predicates for users where possible ("a new user installs the plugin and dispatches a first item without help"), not lists of outputs. A learning milestone's clause names the study whose verdict settles it |
 | `constraints` | stored | **Constraints** (stored as `needs` before HITLD-82): items, or other milestones, without which a clause cannot be true, each linked to that clause. Logical necessity derived from the outcome, not a priority label |
-| `contributions` | stored | **Contributions**: items that add to the outcome, each with a `value` and a `confidence`. The value is a positive number in the project's value units ([2.3](02-loops.md#23-shaping), [Q18](22-open-questions.md#q18-what-unit-is-value-measured-in-blocks-shaping-and-prioritization)), the same unit as an opportunity's value, so the milestone's scope can rank contributions by value per token. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering it, not the only values. A learning item's value is the value of information |
-| `appetite_tokens` | stored | What the milestone is worth. A project's milestones share its appetite; an item counted in several counts once |
+| `contributions` | stored | **Contributions**: items that add to the outcome, each with a `value` and a `confidence`. The value is a positive number in the project's value units ([2.3](02-loops.md#23-shaping), [Q18](22-open-questions.md#q18-what-unit-is-value-measured-in-blocks-shaping-and-prioritization)), the same unit as a project's value, so the milestone's scope can rank contributions by value per token. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering it, not the only values. A learning item's value is the value of information |
+| `appetite_tokens` | stored | The milestone's share of its project's appetite. The shares of a project's milestones must fit the project's appetite, and `hitld work check` verifies it; an item counted in several milestones counts once |
 | `deadline` | stored, optional | An external date (an event, a dependency's end of support) with its source, held as a fixed-date cost-of-delay profile. Never an internal estimate ([1.5](../0001-human-in-the-lead.md#15-durations)) |
 | `check` | stored | The independent check that the outcome holds: `demo` (a script run by someone other than the items' authors), `integration-test` (a test path) or `study` (a study ID). Each result is recorded with its evidence |
 | `unmet_clauses` | derived | The unmet clauses (named `error` before HITLD-82): those with a constraint not `done`, and those the check has not passed. What the system works down |
@@ -442,13 +447,12 @@ The default backend stores the tracker in the repository, one file per entity. I
 
 ```
 work/
-  initiatives/
-    W-1-command-line-tool-v1.md  # one file per initiative
   projects/
-    W-2-config-parsing.md        # one file per project
+    W-2-config-parsing.md        # one file per project, shaped or planned
   items/
     W-3-reject-unknown-keys.md   # one file per work item, decision or external item
   milestones/                    # one file per milestone
+    W-1-a-usable-command-line.md # a long outcome: no parent
     W-4-config-errors-explained.md
   releases/                      # one record per release, named by its tag
     v0.4.0.md
@@ -460,7 +464,6 @@ work/
     milestones.md                # each open milestone: error, scope, check due, what shaping owes it
     unreleased.md                # the merged-but-unreleased stock
     projects.md
-    initiatives.md
     lists.md
     items-graph.md               # dependency diagrams
     projects-graph.md
@@ -482,20 +485,19 @@ The plugin owns the file format; a project that uses it depends on the format, n
 - **Reads go through a versioned JSON read API**: `hitld work query --json` and `hitld work show --json` carry an `api_version` in every response, with the entities and the declared fields (`declared_fields`: name, type, list, description). Anything else that reads the tracker (a board, custom views, reports) reads this output, never the files, so a change to the files that keeps the API stable breaks no reader. Without `--json` the commands print the same JSON without the version promise. **The rule for `api_version`:** it starts at 1; removing, renaming or retyping a field raises it; adding a field does not, so readers ignore fields they do not know. The version is `API_VERSION` in `core/lib/tracker/files/api.mjs`.
 - **Extension by declaration.** `optional_keys` in `tracker.json` turns on a fixed list of extra keys. For a project's own fields, `tracker.json` also takes `fields`: each has a `name`, a `type` (`string`, `integer`, `number` or `boolean`), `list` (true for a list of that type), optional `values` (the allowed texts of a string field) and a `description`. A declared field is validated against its type by `hitld work check` and by every write, kept when the tool rewrites a file, returned typed in the read API and matched in queries (`hitld work query --field name=value`; a list field matches when it holds the value). A name the format already uses, or a key that names code to run, is refused. The file holds the value as text; the read API types it. An undeclared key is still an error.
 
-Structural changes (a new state, a new kind, different claim or readiness rules) are plugin changes: a schema version bump with a migration. `hitld work migrate` applies the migrations to the tracker's files. A migration is a registered, named step: a function from the files to the changes that bring them to the new format, which returns no changes for a file already in it, so a second run does nothing. `--dry-run` prints each file's diff and writes nothing; a real run checks the result, writes it and commits it as one commit (`--no-commit` leaves the files in the working tree); `--only <name>` runs one step; only the orchestrator runs it. When a registered migration still has work, `hitld work check` names the files. The registered migrations are `milestone-entities` (each project's `milestones` list and each item's `milestone` key become milestone files, with those items as constraints marked `c?` for shaping to link to clauses), `retire-priority` (removes `priority`, [Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)) and `names-and-states` (HITLD-82: the lifecycle key is `state` with lowercase kebab-case values, and the other renamed keys in [File format](#file-format)). A step that creates a file takes its number above every ID in the tracker and every number another branch, worktree or bundle ref of the clone already holds. A conformance suite (`core/lib/tracker/conformance.mjs`) checks any backend against the tracker interface through the interface alone, with declared fields: a backend that drops, retypes or refuses a declared field fails. The files backend runs it in the test suite; another backend (a hosted tracker, an adapter behind the same interface) runs the same module.
+Structural changes (a new state, a new kind, different claim or readiness rules) are plugin changes: a schema version bump with a migration. `hitld work migrate` applies the migrations to the tracker's files. A migration is a registered, named step: a function from the files to the changes that bring them to the new format, which returns no changes for a file already in it, so a second run does nothing. `--dry-run` prints each file's diff and writes nothing; a real run checks the result, writes it and commits it as one commit (`--no-commit` leaves the files in the working tree); `--only <name>` runs one step; only the orchestrator runs it. When a registered migration still has work, `hitld work check` names the files. The registered migrations are `milestone-entities` (each project's `milestones` list and each item's `milestone` key become milestone files, with those items as constraints marked `c?` for shaping to link to clauses), `retire-priority` (removes `priority`, [Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)), `names-and-states` (HITLD-82: the lifecycle key is `state` with lowercase kebab-case values, and the other renamed keys in [File format](#file-format)) and `tracker-structure` (HITLD-90: each initiative becomes a milestone with no parent, with the same ID, whose constraints are the milestones of its projects, marked `c?`; every milestone gets `kind: milestone`; a project's `initiative` key goes; an opportunity becomes a proposed project). A step that creates a file takes its number above every ID in the tracker and every number another branch, worktree or bundle ref of the clone already holds. A conformance suite (`core/lib/tracker/conformance.mjs`) checks any backend against the tracker interface through the interface alone, with declared fields: a backend that drops, retypes or refuses a declared field fails. The files backend runs it in the test suite; another backend (a hosted tracker, an adapter behind the same interface) runs the same module.
 
 ### File format
 
 Markdown with YAML front matter. The front matter is **data only**: the schema lists every allowed key, and the check script rejects unknown keys. No key is ever executed. Some trackers support fields or hooks that run commands when an item changes; this format excludes executable keys by schema ([part 10](10-security.md)), and the check refuses keys such as `hooks`, `script` and `run` by name.
 
-The stored keys take the model's names (HITLD-82), except the parent: the files backend stores `project` (an item's parent; a milestone's when it sits under a project) and `initiative` (a project's parent; a milestone's when it sits under an initiative), which the read API returns as `parent`. It also stores `claimed_by` (who holds a claim) and `created`, which the model does not list. Before HITLD-82 the format stored `status` (with the values `Proposed`, `Planned`, `In progress`, `Done`, `Dropped`), `claimed`, `decided-by`, `lead`, `party`, `tier_hint`, `changelog`, a milestone's `needs` and the check result `verdict`; the migration `names-and-states` moves them, the check names a file that still holds one, and claim branches, file history and release tags from before are read in the new names. The keys `milestone` (on items), `milestones` (a project's list of names) and `priority` are retired: milestones are their own files, and order is derived, with an owner's direct reorder a recorded decision ([Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)). The check names a retired key and points to `hitld work migrate`. These keys are always allowed:
+The stored keys take the model's names (HITLD-82), except the parent: the files backend stores `project` (the parent of an item or a milestone), which the read API returns as `parent`. A project has no parent key. It also stores `claimed_by` (who holds a claim) and `created`, which the model does not list. Before HITLD-82 the format stored `status` (with the values `Proposed`, `Planned`, `In progress`, `Done`, `Dropped`), `claimed`, `decided-by`, `lead`, `party`, `tier_hint`, `changelog`, a milestone's `needs` and the check result `verdict`; the migration `names-and-states` moves them, the check names a file that still holds one, and claim branches, file history and release tags from before are read in the new names. The keys `milestone` (on items), `milestones` (a project's list of names) and `priority` are retired: milestones are their own files, and order is derived, with an owner's direct reorder a recorded decision ([Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)). The check names a retired key and points to `hitld work migrate`. Before HITLD-90 the format had the kinds `initiative` (in its own folder, `initiatives/`), `capability` and `learning`, and the model had `opportunity`; a project stored its parent as `initiative`. The migration `tracker-structure` moves them; until the next minor release the check names a file that still holds one, and claim branches, file history and release tags are read in the new form. `bet_by` is never stored: it is derived from the project's decision. These keys are always allowed:
 
 | Kinds | Keys |
 |---|---|
-| work, decision, external | `id`, `title`, `kind`, `state`, `created`, `project`, `needs`, `reason`; work items add `claimed_by`; decisions add `decider` and, once answered, `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by`, `precedent` and `resolved_by_precedent`; external items add `waiting_on`. An item's `needs` may name items and milestones |
-| project | the common keys plus `initiative`, `owner`, `plan`, `reason` |
-| initiative | the common keys plus `owner`, `reason` |
-| capability, learning (milestones) | the common keys plus `project` or `initiative` (one), `outcome`, `done_when`, `constraints`, `contributions`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
+| work, decision, external | `id`, `title`, `kind`, `state`, `created`, `project`, `owner`, `needs`, `reason`; work items add `claimed_by`; decisions add `decider` and, once answered, `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by`, `precedent` and `resolved_by_precedent`; external items add `waiting_on`. An item's `needs` may name items and milestones |
+| project | the common keys plus `owner`, `plan`, the shaping keys `problem`, `signals`, `evidence`, `options`, `value`, `confidence`, `cost_of_delay`, `appetite_tokens`, `out_of_scope`, `risks`, and `decision`, `reason` |
+| milestone | the common keys plus `project` (none for a long outcome), `owner`, `outcome`, `done_when`, `constraints`, `contributions`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
 | release record (`releases/<tag>.md`) | `id`, `version`, `previous`, `bump`, `interface_delta`, `decision`, `items`, `milestones`, `classification`; the body holds the notes |
 
 The front matter holds strings and lists of strings only, so each structured milestone entry is one line of text in a fixed form, and the read API returns it typed:
@@ -508,13 +510,15 @@ The front matter holds strings and lists of strings only, so each structured mil
 | `check` | `<demo, integration-test or study> <target>` |
 | `check_results` | `<pass, fail or answered> <YYYY-MM-DD> <role>: <evidence>`, oldest first (`answered`: a learning milestone's study has a verdict) |
 | `deadline` | `<YYYY-MM-DD> <source>` |
+| `options` (project) | `<label>: <trade-offs>` |
+| `cost_of_delay` (project) | `<standard, urgent, fixed-date or intangible>[ rate=<number>][ date=<YYYY-MM-DD>]`; `fixed-date` needs its date |
 | `interface_delta` (release) | `<breaking, additive or fix> <area>: <what>`, where the area is `schemas`, `cli`, `contract`, `report`, `trailers`, `read-api` or `adapters` |
 
 A decision's question, context, options, recommendation, precedent offer, rule basis and reversibility are text for the decider, so `hitld rights ask` writes them into its body under the reference sections (Question; Options and recommendation; Answer), not into the front matter. The private store keeps the options it was asked with, so an answer such as "A" is read against them. A decision item is filed under a project like any item: the question names it as `parent`. A question classified above the tracker's `default_classification` is refused unless `classification` is in `optional_keys`, so it is never written as public.
 
-A milestone is `done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone, when `answered` is recorded by such a role. The check and the tracker refuse anything else.
+A milestone is `done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone (its check is a study), when `answered` is recorded by such a role. The check and the tracker refuse anything else.
 
-Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#initiative-project-item) (`owner`, `area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_override`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them. An item with no `classification` key takes `default_classification`.
+Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#project-and-item) (`area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_override`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them. `owner` is always allowed: a record without it is the owner's. An item with no `classification` key takes `default_classification`.
 
 ```markdown
 ---
@@ -575,6 +579,8 @@ The check script verifies, on every merge batch:
 - every file matches the schema for its kind, with no unknown keys;
 - every reference (`parent`, `needs`, `constraints`, `contributions`, `opened_from`, `precedent`, and a release record's `previous`, `items` and `milestones`) resolves;
 - every milestone constraint names a clause that exists (or `c?`), every contribution has a value and a confidence, and a `done` milestone has its passing check;
+- no milestone name is numbered (M1, v2, phase 3);
+- a project's shaping fields parse, a planned or done project's `decision` names an answered decision item, and its milestones' shares fit its appetite;
 - no dependency cycles, through items and milestones;
 - no entity above `public` classification in a public repository;
 - no item on `main` is `in-progress` (a claim committed directly to `main` is an error);

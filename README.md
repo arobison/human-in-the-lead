@@ -65,7 +65,7 @@ flowchart LR
 
 - **Intake** turns anything that arrives (issues, owner notes, CI failures) into a *signal* with its provenance. Outside text is stored as data and never treated as instructions.
 - **Triage** deduplicates, classifies, reproduces bugs into failing tests, and routes each signal: to a fix, to the backlog, to the owner, or to a drafted reply.
-- **Shaping** turns clusters of signals into opportunities: a problem, evidence, options, value with a confidence, and an *appetite*, which is the token budget the problem is worth.
+- **Shaping** turns clusters of signals into projects ready to bet on: a problem, evidence, options, value with a confidence, and an *appetite*, which is the token budget the problem is worth. The owner's bet commits the project.
 - **Prioritization** orders work by cost of delay divided by size, with the critical path first.
 - **Design review** turns a bet into a written plan, asks the owner its judgement calls as questions with recommendations, and only then turns it into items.
 - **Execution** runs ready work in parallel, each agent in its own git worktree.

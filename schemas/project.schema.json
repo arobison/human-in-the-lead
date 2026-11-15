@@ -1,7 +1,7 @@
 {
   "$id": "project",
   "title": "Project",
-  "description": "Groups items toward a deliverable (design part 3.2). In the files backend the body holds the sections Why, Done when, Plan and Notes; this schema covers the front matter. Derived fields (claimed, ready, blocked, stage, critical_path, lead_time) are never stored.",
+  "description": "Groups items and milestones toward an outcome (design part 3.2). A proposed project is being shaped: it carries the shaping fields (part 2.3), and the owner's bet, the answer to its decision, moves it to planned; a rejected one is dropped with a reason. The project holds the appetite; its milestones hold shares of it. In the files backend the body holds the sections Why, Done when, Plan and Notes, and each structured field is one line of text (see the format notes on each field); this schema covers the entity as the read API returns it. Derived fields (bet_by, and progress from its items) are never stored.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
@@ -18,9 +18,11 @@
       "$ref": "common#/$defs/text"
     },
     "parent": {
+      "description": "Optional. The files backend stores none: a long outcome across projects is a milestone with no parent, whose constraints are their milestones.",
       "$ref": "common#/$defs/id"
     },
     "state": {
+      "description": "proposed while being shaped; planned once the owner bets on it; done; dropped with a reason, as when the owner rejects it.",
       "$ref": "common#/$defs/plannedState"
     },
     "owner": {
@@ -38,8 +40,98 @@
       "$ref": "common#/$defs/classification"
     },
     "opened_from": {
-      "description": "Signal, opportunity or decision IDs this was opened from.",
+      "description": "Signal, project or decision IDs this was opened from.",
       "$ref": "common#/$defs/ids"
+    },
+    "plan": {
+      "description": "The plan: a design document or a section of one, repository-relative. It must exist.",
+      "$ref": "common#/$defs/text"
+    },
+    "problem": {
+      "description": "In the user's terms, citing the signals.",
+      "$ref": "common#/$defs/text"
+    },
+    "signals": {
+      "description": "The signals it was shaped from.",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/signalId" },
+      "uniqueItems": true
+    },
+    "evidence": {
+      "description": "Signal, run and study IDs; research notes with sources and dates read.",
+      "$ref": "common#/$defs/texts"
+    },
+    "options": {
+      "description": "Each with its trade-offs. Always includes \"do nothing\" with its cost of delay. Stored as \"<label>: <trade-offs>\".",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": { "$ref": "common#/$defs/text" },
+          "tradeoffs": { "$ref": "common#/$defs/text" }
+        },
+        "required": ["label", "tradeoffs"],
+        "additionalProperties": false
+      }
+    },
+    "value": {
+      "description": "In the project's value units (design part 22, Q18), the same unit as a milestone's contributions. Stored as a number.",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "confidence": {
+      "description": "A probability that the value materializes if built.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "cost_of_delay": {
+      "description": "The profile, with its rate where known and its date for fixed-date. Stored as \"<profile>[ rate=<number>][ date=<YYYY-MM-DD>]\".",
+      "type": "object",
+      "properties": {
+        "profile": { "enum": ["standard", "urgent", "fixed-date", "intangible"] },
+        "rate": { "type": "number", "minimum": 0 },
+        "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+      },
+      "required": ["profile"],
+      "additionalProperties": false
+    },
+    "appetite_tokens": {
+      "description": "What the project is worth, in tokens. Its milestones hold shares of it, and the check verifies the shares fit.",
+      "$ref": "common#/$defs/tokens"
+    },
+    "out_of_scope": {
+      "description": "What is explicitly out.",
+      "$ref": "common#/$defs/texts"
+    },
+    "risks": {
+      "description": "Known risks: the holes the work could fall into.",
+      "$ref": "common#/$defs/texts"
+    },
+    "decision": {
+      "description": "The decision item whose answer is the owner's bet on it. A planned or done project's decision is answered; who made the bet (bet_by) is derived from it.",
+      "$ref": "common#/$defs/id"
+    },
+    "judgements": {
+      "description": "Judgements carried over from its signals, plus any made on the project. Inputs, never a decision. Not stored by the files backend yet.",
+      "$ref": "common#/$defs/judgements"
+    },
+    "revisions": {
+      "description": "Each change to value or confidence after shaping began, with its reason and evidence. Not stored by the files backend yet.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": { "$ref": "common#/$defs/timestamp" },
+          "field": { "enum": ["value", "confidence"] },
+          "from": { "type": "number" },
+          "to": { "type": "number" },
+          "reason": { "$ref": "common#/$defs/text" },
+          "evidence": { "$ref": "common#/$defs/texts" }
+        },
+        "required": ["at", "field", "from", "to", "reason"],
+        "additionalProperties": false
+      }
     }
   },
   "required": ["schema_version", "id", "kind", "title", "state", "classification"],

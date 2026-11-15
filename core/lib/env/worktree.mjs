@@ -28,8 +28,8 @@ const slugify = (s) =>
     .slice(0, 40) || 'work';
 
 /**
- * Cut a worktree from the tip of `base` on a branch named <branch_prefix>/<ID>-<slug>. Asking again
- * for a holder that already has one returns it.
+ * Cut a worktree from the tip of `base` (default: policy.json merge.main_branch) on a branch named
+ * <branch_prefix>/<ID>-<slug>. Asking again for a holder that already has one returns it.
  * @param {WorktreeContext} ctx
  * @param {{ holder: string, itemId: string, slug?: string, base?: string }} request
  * @returns {Promise<{ lease: WorktreeLease, existing: boolean }>}
@@ -37,7 +37,7 @@ const slugify = (s) =>
 export async function createWorktree(ctx, request) {
   const holder = checkHolder(request.holder);
   checkHolder(request.itemId);
-  const base = request.base ?? 'main';
+  const base = request.base ?? ctx.settings.mainBranch ?? 'main';
   const branch = `${ctx.settings.branchPrefix}/${request.itemId}-${slugify(request.slug ?? 'work')}`;
   if (!(await gitOk(['check-ref-format', '--branch', branch], ctx.repoRoot))) {
     throw new Error(`"${branch}" is not a valid branch name`);
@@ -91,7 +91,7 @@ export async function adoptWorktree(ctx, request) {
       path,
       branch,
       repo_root: dirname(realpathSync(common)),
-      base: 'main',
+      base: ctx.settings.mainBranch ?? 'main',
       adopted: true,
       state: 'ready',
       created_at: new Date().toISOString(),

@@ -264,6 +264,48 @@ export const actions = {
     },
   },
 
+  'orchestrator.owner-turns': {
+    description:
+      'Script the owner side of a conversation, one entry per owner message. A reply in the "values" phase must be "yes to all" or one or more "change N to X" (separated by commas or semicolons), the forms the first-run walk-through accepts; any other reply fails the step. Returns { turns, values_turns, replies }.',
+    input: {
+      type: 'object',
+      properties: {
+        turns: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              phase: { enum: ['values', 'status_line'] },
+              say: { type: 'string', minLength: 1 },
+            },
+            required: ['phase', 'say'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['turns'],
+      additionalProperties: false,
+    },
+    run: (input) => {
+      const accepted = /^(yes to all|change \d+ to .+)$/i;
+      /** @type {{ phase: string, say: string }[]} */
+      const turns = input.turns;
+      for (const t of turns) {
+        if (t.phase !== 'values') continue;
+        const parts = t.say.split(/\s*[;,]\s*(?=change \d+ to )/i);
+        if (!parts.every((p) => accepted.test(p.trim()))) {
+          throw new Error(`the owner reply "${t.say}" is not "yes to all" or "change N to X"`);
+        }
+      }
+      return {
+        turns: turns.length,
+        values_turns: turns.filter((t) => t.phase === 'values').length,
+        replies: turns.map((t) => t.say),
+      };
+    },
+  },
+
   'orchestrator.cli': {
     description:
       'Run a hitld command in the fixture consumer as an orchestrator session (session defaults to "first"), or, with as_executor, as a dispatched executor. Returns { exit, result }.',

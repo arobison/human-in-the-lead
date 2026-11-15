@@ -16,7 +16,7 @@ judgements:
 provenance:
   - recorded from the owner's conversation with the orchestrating session, 2026-11-14
 design_refs:
-  - { related: "03-data-model.md#opportunity" }
+  - { related: "03-data-model.md#project" }
   - { related: "02-loops.md#215-trust-calibration" }
 ---
 
@@ -24,7 +24,7 @@ Calibrated confidence: agents attach a confidence to their claims, tracked again
 
 ## Design references
 
-- related: [03-data-model.md#opportunity](../docs/design/0001-human-in-the-lead/03-data-model.md#opportunity)
+- related: [03-data-model.md#project](../docs/design/0001-human-in-the-lead/03-data-model.md#project)
 - related: [02-loops.md#215-trust-calibration](../docs/design/0001-human-in-the-lead/02-loops.md#215-trust-calibration)
 
 Untriaged. This is an idea, not a design commitment, until triage and shaping run.

@@ -50,7 +50,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld work new / show / query / claim / unclaim / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
 | `hitld work migrate [--dry-run]` | Apply the tracker format migrations to every file; idempotent; the dry run prints the diff. Registered: `milestone-entities`, `retire-priority` |
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
-| `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, initiatives, critical path, milestones, unreleased, lists, dependency diagrams) |
+| `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, critical path, milestones, unreleased, lists, dependency diagrams) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
 | `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection |
@@ -120,7 +120,7 @@ The consumer commits `.claude/settings.json`:
   ```
 
   `hitld check contract` (or the adopt skill) reports a machine where the pinned version is not installed.
-- **First run.** The person's first session runs the orchestrator's setup: `hitld machine detect`, a few questions, then `hitld config write` for the person and machine files ([13.4](13-operations.md#134-settings-in-four-layers)). Until then defaults are conservative and autonomous dispatch waits. The setup also offers the status-line usage capture, which is opt-in: it changes the person's own harness settings, so it is installed only on a yes (`hitld install --statusline`).
+- **First run.** The person's first session runs the orchestrator's setup: `hitld machine detect`, one message with every proposed value for the person to accept or change, then `hitld config write` for the person and machine files ([13.4](13-operations.md#134-settings-in-four-layers)). Until then defaults are conservative and autonomous dispatch waits. The setup also offers the status-line usage capture, which is opt-in: it changes the person's own harness settings, so it is installed only on a yes (`hitld install --statusline`).
 - **Before any tag exists**, `hitld install` pins a local checkout path, which puts a machine path in the committed `.claude/settings.json`. It warns; switch to `--ref <tag> --repo <owner/name>` before others clone the project.
 - **Pinning.** The marketplace `ref` pins the catalog to a tag; the plugin's `version` in `plugin.json` is set equal to that tag by the release step, so the version a session loads is the version the tag names. A commit SHA can be used as `ref` for an exact pin.
 

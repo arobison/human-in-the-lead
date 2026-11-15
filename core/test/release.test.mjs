@@ -102,7 +102,7 @@ test('versions order as semver does, pre-releases first', () => {
 
 test('the surface reads schemas, built commands, the report shape, trailers and the read API', async () => {
   const s = await surfaceOf(ROOT);
-  assert.equal(s.read_api, 2);
+  assert.equal(s.read_api, 3);
   assert.deepEqual(s.report, [
     'item',
     'result',
@@ -321,7 +321,7 @@ test('release make writes the record and the tag, never pushes, and the record i
   assert.deepEqual(t.check().problems, []);
   assert.equal(t.get('W-3').released_in, 'v0.1.0');
   const shown = await hitld(['work', 'show', 'v0.1.0', '--json'], root);
-  assert.equal(shown.json.api_version, 2);
+  assert.equal(shown.json.api_version, 3);
   assert.equal(shown.json.entity.kind, 'release');
   assert.equal(shown.json.entity.decision, 'W-6');
   assert.equal(shown.json.entity.prerelease, false);
@@ -389,10 +389,10 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
       'work/milestones/W-7-ready.md': itemText({
         id: 'W-7',
         title: 'Ready',
-        kind: 'capability',
+        kind: 'milestone',
         state: 'planned',
         project: 'W-2',
-        needs: ['W-3 c?'],
+        constraints: ['W-3 c?'],
       }),
       'work/items/W-8-release.md': itemText({
         id: 'W-8',

@@ -103,7 +103,7 @@ const examples = {
   milestone: {
     schema_version: 1,
     id: 'W-230',
-    kind: 'capability',
+    kind: 'milestone',
     title: 'Config errors explained',
     parent: 'W-201',
     state: 'planned',
@@ -197,35 +197,29 @@ const examples = {
     rights_basis: 'novelty',
     reversibility: 'two-way',
   },
-  initiative: {
-    schema_version: 1,
-    id: 'W-1',
-    kind: 'initiative',
-    title: 'Request pipeline',
-    state: 'planned',
-    classification: 'public',
-  },
+  // Design part 3.2, Project: a project being shaped, with the shaping fields.
   project: {
     schema_version: 1,
     id: 'W-201',
     kind: 'project',
     title: 'Response cache',
-    parent: 'W-1',
-    state: 'planned',
+    state: 'proposed',
     owner: 'owner',
     classification: 'public',
-  },
-  opportunity: {
-    schema_version: 1,
-    id: 'W-90',
-    kind: 'opportunity',
-    problem: 'First frame is slow in large scenes.',
+    plan: 'docs/design/0012-response-cache.md',
+    problem: 'Repeated requests are slow.',
     signals: ['SIG-88'],
-    options: [{ label: 'do nothing', tradeoffs: 'Slow first frames continue.' }],
+    evidence: ['run 41: median 900 ms for a repeated request'],
+    options: [
+      { label: 'do nothing', tradeoffs: 'Slow repeated requests continue.' },
+      { label: 'cache by request key', tradeoffs: 'Fast; needs invalidation.' },
+    ],
+    value: 8,
     confidence: 0.6,
     cost_of_delay: { profile: 'standard', rate: 1 },
-    state: 'shaping',
-    classification: 'public',
+    appetite_tokens: 2000000,
+    out_of_scope: ['a shared cache across machines'],
+    risks: ['invalidation on schema change'],
   },
   precedent: {
     schema_version: 1,
@@ -411,15 +405,32 @@ test('tracker front matter is validated by its kind', () => {
   const errors = registry.validateTrackerEntity({ ...examples.item, kind: 'task' });
   assert.equal(errors[0].path, 'kind');
   assert.deepEqual(Object.keys(TRACKER_KINDS).sort(), [
-    'capability',
     'decision',
     'external',
-    'initiative',
-    'learning',
-    'opportunity',
+    'milestone',
     'project',
     'work',
   ]);
+  // The kinds before HITLD-90 are not entities any more: the migration moves them.
+  for (const kind of ['initiative', 'opportunity', 'capability', 'learning']) {
+    assert.ok(registry.validateTrackerEntity({ ...examples.item, kind }).length, kind);
+  }
+});
+
+test('a project being shaped carries the shaping fields; its bet is a decision', () => {
+  const project = /** @type {any} */ (examples.project);
+  assert.deepEqual(registry.validateTrackerEntity({ ...project, decision: 'W-412' }), []);
+  /** @type {[string, unknown][]} */
+  const bad = [
+    ['bet_by', 'owner'],
+    ['no_gos', ['x']],
+    ['confidence', 1.5],
+    ['value', 0],
+    ['cost_of_delay', { profile: 'soon' }],
+  ];
+  for (const [key, value] of bad) {
+    assert.ok(registry.validateTrackerEntity({ ...project, [key]: value }).length, key);
+  }
 });
 
 test('a public judgement carries what, basis and who; the time is not public', () => {
@@ -452,7 +463,7 @@ test('untrusted text fields are declared', () => {
   assert.deepEqual(registry.untrustedFields('signal'), ['body']);
 });
 
-test('the four tracker schemas share the common fields', () => {
+test('the tracker schemas share the common fields', () => {
   const common = [
     'schema_version',
     'id',
@@ -466,7 +477,7 @@ test('the four tracker schemas share the common fields', () => {
     'classification',
     'opened_from',
   ];
-  for (const id of ['initiative', 'project', 'item', 'decision']) {
+  for (const id of ['project', 'item', 'decision']) {
     const props = Object.keys(registry.get(id).properties);
     for (const field of common) assert.ok(props.includes(field), `${id} lacks ${field}`);
   }

@@ -15,7 +15,7 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 | **Critical-path progress** | For each active milestone: items done on its critical path over items on it; and the estimate tokens remaining on the path | Tracker, estimates |
 | **Slot utilization** | Busy executor-slot time over (concurrency cap × run time) | Ledger |
 | **Blocked time** | Time items spend ready-but-waiting: on a decision, a serial resource, or the merge queue, broken down by cause | Tracker history, ledger |
-| **Decision latency** | From a decision being asked to being answered, split into queue time (held for a digest) and owner time (sent, unanswered). Median and 90th percentile | Tracker history, ledger |
+| **Decision latency** | From a decision being asked to being answered, split into queue time (held for a digest: `asked` to `sent`) and owner time (shown, unanswered: `sent` to `answered`). Median and 90th percentile. A decision never recorded as shown has no queue time, and its owner time runs from `asked` | Ledger |
 
 ### Cost
 
@@ -46,6 +46,8 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 |---|---|---|
 | **Decisions per period** and **reads per period** | Owner attention spent, against the budget | Ledger |
 | **Auto-resolution rate** and **overrule rate** | Share of questions resolved by precedent; share of those the owner reversed | Tracker |
+| **Rubber-stamp share** | Per area, of the answers that record both whether the recommendation was taken and how long the owner took, the share that took it within `trust.rubber_stamp_seconds` of the question being shown. A high share is a prompt to look: either the recommendations are good or the owner is not reading. Its pair is the overturn count: answers stamped and later reversed. The digest lists it per area | Trust record |
+| **Escalation worth** | Of the questions rated, the share rated worth asking. Each question offers the optional rating; "that was not worth asking", said right after an answer, rates that answer. A later rating of the same decision replaces the earlier | Trust record |
 | **Time to first response** | For external issues and PRs, per source and trust level | Intake, send gate |
 | **Contributor retention, bus factor** | [Part 9](09-contributors.md#95-community-health) | Tracker, git |
 
@@ -76,7 +78,7 @@ When a measure becomes a target, it stops being a good measure (Goodhart's law, 
 |---|---|
 | Throughput (merges, items done) | Change failure rate, escaped defects |
 | Tokens per accepted item ↓ | First-pass yield, escaped defects |
-| Decision latency ↓ | Overrule and reversal rate of answered decisions |
+| Decision latency ↓ | Overrule and reversal rate of answered decisions; rubber-stamp share |
 | Auto-resolution rate ↑ | Overrule rate of precedent applications |
 | Slot utilization ↑ | Blocked time, merge conflicts, rework rate |
 | Review allocation ↓ (fewer reviews) | Escaped defects in unreviewed areas |

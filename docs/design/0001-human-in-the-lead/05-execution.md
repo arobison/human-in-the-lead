@@ -27,7 +27,7 @@ The orchestrator (the main session) manages execution. It sizes ready items into
 
 ### The ready queue and the cap
 
-The ready queue is a script query: items that are `ready` ([part 3](03-data-model.md#initiative-project-item)), ordered by the prioritization rule ([part 2](02-loops.md#24-prioritization)). The orchestrator dispatches from the head of the queue until it reaches:
+The ready queue is a script query: items that are `ready` ([part 3](03-data-model.md#project-and-item)), ordered by the prioritization rule ([part 2](02-loops.md#24-prioritization)). The orchestrator dispatches from the head of the queue until it reaches:
 
 - the **concurrency cap**: the strictest of the person's, the machine's, the project's (`execution.max_executors`, moved by its controller inside the owner's bounds) and the run's ([part 13](13-operations.md#134-settings-in-four-layers)), or
 - a **serial resource** at capacity: one benchmark-heavy item at a time, one merge at a time, one holder of any named serial fixture, or
@@ -99,7 +99,7 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 
 | Field | Notes |
 |---|---|
-| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started` and `lease-taken`. Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
+| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started` and `lease-taken`. Two more record the owner's attention: `sent` (a question was first shown to its decider) and `logged` (a call the orchestrator made without asking). Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
 | `dispatch` | `D-<n>`, unique per dispatch |
 | `item` | Tracker ID |
 | `tier`, `model`, `effort` | As dispatched |
@@ -113,6 +113,8 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 | `tokens_before_first_edit` | Onboarding cost, from the harness's telemetry where it provides it; empty for now, because Claude Code provides it only through OpenTelemetry ([part 11](11-metrics-and-control.md#111-measures)) |
 | `estimate_tokens` | Copied from the item at dispatch |
 | `commit` | Final commit of the branch |
+| `decision` | On `asked`, `sent` and `answered`: the decision item. Each is written once per decision. A decision a precedent resolves has none of them: no one was asked |
+| `text`, `area` | On `logged`: the call in a sentence, and its area. The event's ID is the handle the digest gives for reversing the call |
 | `notes` | Short; never untrusted text |
 
 The table lists the main fields; `schemas/ledger-entry.schema.json` is the full reference. The ledger is append-only. Corrections are new events that reference the old. It is `internal`: it holds no product secrets, but it is the project's working record.

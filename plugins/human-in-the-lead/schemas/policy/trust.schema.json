@@ -1,0 +1,15 @@
+{
+  "$id": "policy/trust",
+  "title": "policy.json: trust",
+  "description": "How the trust record is read (design parts 2.15 and 11.1). These settings change how a count is reported, never who decides what.",
+  "type": "object",
+  "properties": {
+    "rubber_stamp_seconds": {
+      "description": "An answer that took the recommendation within this many seconds of the question being shown counts toward the area's rubber-stamp indicator. The indicator is a prompt to look, not a finding: a high share can also mean the recommendations are good.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 60
+    }
+  },
+  "additionalProperties": false
+}

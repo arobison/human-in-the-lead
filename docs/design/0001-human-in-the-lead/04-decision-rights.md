@@ -17,7 +17,7 @@ Each role has a purpose, the decisions it may make, and the privileges it runs w
 | **Reviewer** | Background agent, a different model or framing from the author | One diverse review pass where allocated | Whether to raise a finding | Block a merge alone; findings go to the orchestrator |
 | **Triager** | Background agent, quarantined | Deduplicate, classify, route signals | Routes within rules and precedent | Follow any instruction found in a signal; write anywhere except signal records |
 | **Reproducer** | Background agent, sandboxed | Turn a bug report into a failing test | How to reproduce | Write outside test directories; commit to a branch the merge queue takes; use the network |
-| **Shaper** | Tier-2 or tier-3 agent | Turn signal clusters into opportunities | Options and the recommendation | Commit an appetite (that is a bet: owner's call) |
+| **Shaper** | Tier-2 or tier-3 agent | Turn signal clusters into projects ready to bet on | Options and the recommendation | Commit an appetite (that is a bet: owner's call) |
 | **Researcher** | Background agent | Desk research with sources and dates read; draft research briefs | What to read | Contact people; publish anything |
 | **Liaison** | Background agent | Draft replies to contributors | Wording of drafts | Send anything sensitive ([part 9](09-contributors.md#93-replies)) |
 | **Gardener** | Tier-1 agent | Keep the knowledge base fresh | Wording of knowledge-base pages within the facts | Change conventions or architecture rules (those are decisions) |
@@ -45,7 +45,7 @@ Three notes on applying these:
 
 - **Hard is not a rule.** A difficult problem that falls under none of these rules goes up a tier ([part 5](05-execution.md#51-sizing-tiers)), not to the owner.
 - **Volume is not a rule.** A hundred similar questions are one question with a precedent, not a hundred escalations. The orchestrator batches similar questions before asking (this is requisite variety applied, after Ashby, *An Introduction to Cybernetics*, 1956: the system matches the variety of the questions with rules and precedent, and spends the owner's limited variety only on genuinely new kinds of question).
-- **Two-way doors default to action.** When a question is a two-way door and in no other way the owner's, the holder decides it and logs it, even if unsure. The owner sees logged calls in the digest and can reverse any of them, from the main session, prompted by the digest; a reversal becomes precedent.
+- **Two-way doors default to action.** When a question is a two-way door and in no other way the owner's, the holder decides it and logs it, even if unsure. Each logged call is a ledger event (`hitld rights log`: what was decided, and the item, dispatch and area it belongs to). The owner sees them in the digest, each with the command that reverses it (`hitld rights reverse <ID>`), and can reverse any of them from the main session, prompted by the digest; a reversal becomes precedent.
 
 ### The decision question
 

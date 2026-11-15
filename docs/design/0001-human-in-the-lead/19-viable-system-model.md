@@ -21,7 +21,7 @@ Stafford Beer's viable system model says that any system able to keep itself goi
 
 Beer's central warning is that System 3 (run today well) and System 4 (prepare for tomorrow) compete for the same resources, and System 5 must arbitrate. Unbalanced, a system either optimizes itself into irrelevance (3 dominates) or plans without delivering (4 dominates).
 
-Loops are nested by speed ([part 2](02-loops.md#loops-nested-by-speed)): the slowest, strategy, is System 5 acting on System 4's evidence; slow loops set the setpoints of medium and fast ones. Here the arbitration is explicit: the owner's **portfolio weights** and **target shares** ([part 2](02-loops.md#24-prioritization)) set how much of the token budget goes to research, shaping and learning against delivery, and the prioritization rule enforces the shares within tolerance. The shaping loop's own controller (pause shaping when shaped opportunities pile up unbet) stops System 4 from outrunning System 5's capacity to decide.
+Loops are nested by speed ([part 2](02-loops.md#loops-nested-by-speed)): the slowest, strategy, is System 5 acting on System 4's evidence; slow loops set the setpoints of medium and fast ones. Here the arbitration is explicit: the owner's **portfolio weights** and **target shares** ([part 2](02-loops.md#24-prioritization)) set how much of the token budget goes to research, shaping and learning against delivery, and the prioritization rule enforces the shares within tolerance. The shaping loop's own controller (pause shaping when shaped projects pile up unbet) stops System 4 from outrunning System 5's capacity to decide.
 
 ## 19.3 Recursion
 

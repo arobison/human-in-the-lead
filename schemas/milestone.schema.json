@@ -1,7 +1,7 @@
 {
   "$id": "milestone",
   "title": "Milestone",
-  "description": "A checkable future state with its own done-when clauses (design part 3.2, Milestones and releases). Kind capability (users can do something new) or learning (a question gets answered). Named by its outcome, never numbered. In the files backend each list entry is one line of text (see the format notes on each field); this schema covers the entity as the read API returns it. Derived fields (error, check_due, scope, tokens_spent, cost_of_delay_rate, to_shape) are never stored.",
+  "description": "A checkable future state with its own done-when clauses (design part 3.2, Milestones and releases). One kind, milestone. A learning milestone is one whose check is a study: done when its question is answered. That is derived from the check, never stored. A milestone with no parent is a long outcome, whose constraints are other milestones. Named by its outcome, never numbered: the check refuses a name such as M1, v2 or phase 3. In the files backend each list entry is one line of text (see the format notes on each field); this schema covers the entity as the read API returns it. Derived fields (error, check_due, scope, tokens_spent, cost_of_delay_rate, to_shape) are never stored.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
@@ -12,13 +12,13 @@
       "$ref": "common#/$defs/id"
     },
     "kind": {
-      "enum": ["capability", "learning"]
+      "const": "milestone"
     },
     "title": {
       "$ref": "common#/$defs/text"
     },
     "parent": {
-      "description": "A project or an initiative.",
+      "description": "The project it belongs to. Optional: a milestone with no parent is a long outcome, whose constraints are other milestones.",
       "$ref": "common#/$defs/id"
     },
     "state": {
@@ -33,7 +33,7 @@
       "$ref": "common#/$defs/classification"
     },
     "opened_from": {
-      "description": "Signal, opportunity or decision IDs this was opened from.",
+      "description": "Signal, project or decision IDs this was opened from.",
       "$ref": "common#/$defs/ids"
     },
     "outcome": {
@@ -70,7 +70,7 @@
       }
     },
     "contributions": {
-      "description": "Contributions: items that add to the outcome. Stored as \"<ID> value=<number above 0> confidence=<0 to 1>\". Value is in the project's value units, the same as an opportunity's value; 1, 2, 3, 5, 8 and 13 are quick choices, not the only values.",
+      "description": "Contributions: items that add to the outcome. Stored as \"<ID> value=<number above 0> confidence=<0 to 1>\". Value is in the project's value units, the same as a project's value; 1, 2, 3, 5, 8 and 13 are quick choices, not the only values.",
       "type": "array",
       "items": {
         "type": "object",

@@ -65,6 +65,7 @@ function setup(input, ctx) {
     concurrency: policy.execution?.max_executors?.value,
     kept: policy.run?.checkpoints_kept,
     expirySeconds: policy.run?.lease_expiry_seconds,
+    mainBranch: /** @type {string | undefined} */ (policy.merge?.main_branch),
     cwd: ctx.cwd,
   };
 }
@@ -100,7 +101,9 @@ async function guarded(fn) {
 /** @type {Record<string, string[]>} */
 const RAW_APPEND_FIELDS = {
   asked: ['decision', 'dispatch', 'notes'],
+  sent: ['decision', 'notes'],
   answered: ['decision', 'notes'],
+  logged: ['text', 'item', 'dispatch', 'area', 'notes', 'corrects'],
   verified: [
     'item',
     'result',
@@ -124,7 +127,7 @@ export const commands = [
   {
     name: 'ledger append',
     summary:
-      'Append an asked, answered, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
+      'Append an asked, sent, answered, logged, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
     built_by: 'b',
     args: [
       {
@@ -377,7 +380,7 @@ export const commands = [
                 .map((x) => x.trim())
                 .filter((x) => x && x !== 'none')
             : null;
-        const reality = gitReality({ cwd: s.cwd });
+        const reality = gitReality({ cwd: s.cwd, mainBranch: s.mainBranch });
         if (live) reality.live = () => live;
         const r = await resumeRun(s.store, {
           ...who(input, ctx),
@@ -419,7 +422,7 @@ export const commands = [
         const s = setup(input, ctx);
         const r = rebuildRun(s.store, {
           kept: s.kept,
-          reality: gitReality({ cwd: s.cwd }),
+          reality: gitReality({ cwd: s.cwd, mainBranch: s.mainBranch }),
           branchPrefix: /** @type {string | undefined} */ (input['branch-prefix']),
         });
         return {
