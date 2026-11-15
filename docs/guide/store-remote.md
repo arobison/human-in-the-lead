@@ -83,7 +83,13 @@ One cloud environment is one device. Every session in that environment shares it
 
 9. **Enrol it.** The command in step 7 added the device to `.human-in-the-lead/store-devices.json`. Commit that file and have it reach `main` through your merge, as in step 5.
 
-10. **Let an enrolled device push once more.** A pushed file is encrypted to the devices that were enrolled when it was pushed. The new device opens what is pushed after its enrolment reaches `main`, and nothing before. On a machine that is already enrolled, carry on with the project: the next checkpoint that has something new to record pushes a file the new device can open. A push with nothing new reports `up-to-date` and changes nothing on the remote.
+10. **Let an enrolled device push once more.** A pushed file is encrypted to the devices on `main`'s list when it is pushed, so the file already on the remote cannot be opened by the new device. After the enrolment reaches `main`, `hitld store status` on a device that is already enrolled shows `push_due: true` with `push_reason: recipients-changed`, even though nothing new is in its store. The next push by any enrolled device seals the whole store to the new list: `hitld run checkpoint` does it, the session-end hook does it, or run it yourself:
+
+    ```bash
+    hitld store push
+    ```
+
+    `result` is `pushed`, and `recipients` counts the new device. Nothing is pruned: only a removal prunes.
 
 11. **Start a cloud session in that environment.** `hitld run start` or `hitld run resume` pulls the store first, rebuilds the run state from the ledger if the container has none, and takes the lease. The ledger, trust record and open decisions are there.
 
@@ -113,7 +119,7 @@ hitld store pull
 
 The pull reports `fast-forward` or `merged`, and `changed` lists the files. `up-to-date` means there was nothing new, and `empty` means nothing has been pushed yet.
 
-If a pull is refused with `age-no-match`, the file on the remote was pushed before this device's enrolment reached `main`. Step 10 fixes it.
+If a pull is refused with `age-no-match`, the file on the remote was pushed before this device's enrolment reached `main`. Step 10 fixes it: `hitld store status` on an enrolled device shows `push_reason: recipients-changed` until it has pushed.
 
 ## When something is refused
 
@@ -121,7 +127,7 @@ If a pull is refused with `age-no-match`, the file on the remote was pushed befo
 |---|---|---|
 | `device-not-enrolled` | This device's key is not on `main`'s device list, or it has no key | Enrol it (step 4 or 7), merge, and push again |
 | `devices-fetch-failed` | A push could not fetch `main` from `origin` to read the list | Fix the connection to the project's repository, then push again. Nothing was pushed |
-| `age-no-match` | The remote's file was not encrypted to this device's key | Step 10 if the device is new. A removed device sees this by design |
+| `age-no-match` | The remote's file was not encrypted to this device's key | If the device is new, an enrolled device must push once (step 10). A removed device sees this by design |
 | `store-pull-refused` | `run start` or `run resume` pulled, and the remote's file does not open or merge | Read `cause` in the result. Fix it, or go on with the local store using `--no-sync` if you decide to |
 | `lease-held` | The ledger shows another machine took the run's lease and never released it | See below |
 | `nothing-to-push` | The store holds no text yet | Record something first: start a run, then checkpoint |

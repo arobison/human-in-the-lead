@@ -47,7 +47,7 @@ const at = (/** @type {number} */ n) => `2026-11-14T10:${String(n).padStart(2, '
 /**
  * A project checkout whose main enrols devices A and B, with an origin; and a bare repository
  * standing in for the store's host. `remote` false leaves policy.json without an address.
- * @param {{ remote?: boolean }} [o]
+ * @param {{ remote?: boolean, onlyA?: boolean }} [o] onlyA: main enrols device A and no other
  */
 function fixture(o = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'hitld-auto-sync-'));
@@ -71,7 +71,9 @@ function fixture(o = {}) {
       schema_version: 1,
       devices: [
         { name: 'device-a', recipient: DEVICE_A.recipient, added: '2026-11-15' },
-        { name: 'device-b', recipient: DEVICE_B.recipient, added: '2026-11-15' },
+        ...(o.onlyA
+          ? []
+          : [{ name: 'device-b', recipient: DEVICE_B.recipient, added: '2026-11-15' }]),
       ],
     }),
   });
@@ -616,4 +618,91 @@ test('a release refused at run start or resume pulls nothing and records nothing
   const line = { schema_version: newer, id: 'E-99', event: 'logged', text: 'newer', at: at(30) };
   two.store.append(LEDGER_KEY, `${JSON.stringify(line)}\n`);
   await refusedAll('newer-schema');
+});
+
+/**
+ * Put these devices on main's list, as the owner's merge does.
+ * @param {ReturnType<typeof fixture>} f @param {{ name: string, id: ReturnType<typeof generateIdentity> }[]} devices
+ */
+function enrolOnMain(f, devices) {
+  putFiles(f.project, {
+    [DEVICES_PATH]: serializeDevices({
+      schema_version: 1,
+      devices: devices.map((d) => ({
+        name: d.name,
+        recipient: d.id.recipient,
+        added: '2026-11-15',
+      })),
+    }),
+  });
+  commitAll(f.project, `enrol ${devices.map((d) => d.name).join(' and ')}`);
+  fixtureGit(f.project, 'push', '-q', 'origin', 'main');
+}
+
+test('enrolment: with nothing new, the next push makes the store readable by the new device', async () => {
+  const f = fixture({ onlyA: true });
+  const A = { name: 'device-a', id: DEVICE_A };
+  const B = { name: 'device-b', id: DEVICE_B };
+  const a = session(f, 'a', { identity: DEVICE_A.identity });
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
+  const handed = await a.hitld(['handover', '--session', 's-A', '--host', 'cloud-1']);
+  assert.equal(handed.json.store_sync.push.result, 'pushed', JSON.stringify(handed.json));
+  const first = await a.hitld(['store', 'status']);
+  assert.equal(first.json.push_due, false, JSON.stringify(first.json));
+  assert.equal(first.json.push_reason, null);
+
+  // B is not on main's list: what the remote holds is not sealed to it.
+  const early = session(f, 'early', { identity: DEVICE_B.identity });
+  assert.equal((await early.hitld(['store', 'pull'])).json.error, 'age-no-match');
+
+  // The owner's merge enrols B. Nothing new is in A's store, but the head on the remote was
+  // sealed to A alone.
+  enrolOnMain(f, [A, B]);
+  const due = await a.hitld(['store', 'status']);
+  assert.equal(due.json.local_changed, false);
+  assert.equal(due.json.push_due, true);
+  assert.equal(due.json.push_reason, 'recipients-changed');
+  const pushed = await a.hitld(['store', 'push']);
+  assert.equal(pushed.json.result, 'pushed', JSON.stringify(pushed.json));
+  assert.equal(pushed.json.recipients, 2);
+  assert.deepEqual(pushed.json.rotation.rotated, [], 'an enrolment prunes nothing');
+  const after = await a.hitld(['store', 'status']);
+  assert.equal(after.json.push_due, false);
+  assert.equal((await a.hitld(['store', 'push'])).json.result, 'up-to-date');
+
+  // B pulls it, and with nothing new has nothing to push.
+  const b = session(f, 'b', { identity: DEVICE_B.identity });
+  const pulled = await b.hitld(['store', 'pull']);
+  assert.equal(pulled.code, EXIT.ok, JSON.stringify(pulled.json));
+  assert.equal(pulled.json.ok, true);
+  assert.equal((await b.hitld(['store', 'push'])).json.result, 'up-to-date');
+
+  // A fresh cloud session on B's key starts its run: no store-pull-refused.
+  rmSync(b.data, { recursive: true, force: true });
+  const fresh = session(f, 'fresh', { identity: DEVICE_B.identity });
+  const started = await fresh.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
+  assert.equal(started.json.store_sync.pull.status, 'done');
+});
+
+test('enrolment: a checkpoint with nothing new pushes once the device list has changed', async () => {
+  const f = fixture({ onlyA: true });
+  const A = { name: 'device-a', id: DEVICE_A };
+  const B = { name: 'device-b', id: DEVICE_B };
+  const a = session(f, 'a', { identity: DEVICE_A.identity });
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
+  const first = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  assert.equal(first.json.store_sync.push.result, 'pushed');
+  const same = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  assert.equal(same.json.store_sync.push.result, 'up-to-date', JSON.stringify(same.json));
+  enrolOnMain(f, [A, B]);
+  const cp = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  assert.equal(cp.json.store_sync.push.result, 'pushed', JSON.stringify(cp.json));
+  const b = session(f, 'b', { identity: DEVICE_B.identity });
+  assert.equal((await b.hitld(['store', 'pull'])).json.ok, true);
+  // A removal takes the same route, and locks the removed device out again.
+  enrolOnMain(f, [A]);
+  const gone = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  assert.equal(gone.json.store_sync.push.result, 'pushed');
+  assert.equal((await b.hitld(['store', 'pull'])).json.error, 'age-no-match');
 });

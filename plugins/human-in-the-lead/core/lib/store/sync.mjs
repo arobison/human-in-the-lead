@@ -45,6 +45,16 @@ function schemaVersions() {
 }
 
 /**
+ * The recipients a file's manifest says it was sealed to, sorted; null when it says nothing.
+ * @param {import('./sealed.mjs').Manifest} manifest
+ * @returns {string[] | null}
+ */
+function sealedTo(manifest) {
+  const r = manifest.recipients;
+  return Array.isArray(r) && r.every((x) => typeof x === 'string') ? [...r].sort() : null;
+}
+
+/**
  * Commit the store's text and seal its history, format 2, encrypted to the recipients: the bytes
  * an export writes to a file and a push sends to a remote.
  * @param {SyncOptions} options
@@ -63,6 +73,7 @@ export function sealStore(options) {
     branch: BRANCH,
     created_at: (options.now ?? (() => new Date()))().toISOString(),
     hitld_version: VERSION,
+    recipients: [...recipients].sort(),
   };
   return { bytes: seal(manifest, bundle, recipients), head };
 }
@@ -152,6 +163,7 @@ export async function importStore(options) {
       result: merged.result,
       head: merged.head,
       incoming: manifest.head,
+      sealed_to: sealedTo(manifest),
       changed: merged.changed,
       index: { events: index.events, ledger_problems: index.ledger_problems },
     };
