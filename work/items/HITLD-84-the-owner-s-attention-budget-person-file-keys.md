@@ -2,9 +2,10 @@
 id: HITLD-84
 title: "The owner's attention budget: person-file keys, delivery now or digest or hold, quiet hours, unanswered defaults, computed urgency"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-84
 ---
 
 ## Why

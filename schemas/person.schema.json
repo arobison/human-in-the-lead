@@ -1,8 +1,8 @@
 {
   "$id": "person",
   "title": "Person settings",
-  "description": "The person file (design part 13.4): a person's plans, limits and appetite, kept outside every repository at $XDG_CONFIG_HOME/human-in-the-lead/person.json (~/.config/human-in-the-lead/person.json when XDG_CONFIG_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps, reserves and thresholds take the strictest layer; a project may be stricter, never looser. Internal: never committed or synced.",
-  "x-hitld-schema-version": 1,
+  "description": "The person file (design part 13.4): a person's plans, limits and appetite, kept outside every repository at $XDG_CONFIG_HOME/human-in-the-lead/person.json (~/.config/human-in-the-lead/person.json when XDG_CONFIG_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps, reserves and thresholds take the strictest layer; a project may be stricter, never looser. Version 2 adds attention; a file that sets no attention key is written as version 1, the lowest version that expresses it (design part 16.5). Internal: never committed or synced.",
+  "x-hitld-schema-version": 2,
   "type": "object",
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
@@ -39,6 +39,71 @@
           "description": "The person's declared account limits. This list replaces the default list. A project limit with the same id can only tighten one (a lower limit, hard, a larger reserve).",
           "type": "array",
           "items": { "$ref": "policy/quota#/$defs/limit" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "attention": {
+      "description": "The person's attention budget (design part 2, the owner's attention as a budget; part 23.5). How many decisions the system may put in front of them, how often it may interrupt, and when it may not. The system decides whether each open question goes now, in the next digest, waits, or takes its default from these (hitld rights pending). Only a sev-1 breaks quiet hours. A project may set lower ceilings in policy.json (attention.*_max); the lower value wins. Added in schema version 2.",
+      "type": "object",
+      "properties": {
+        "decisions_per_digest": {
+          "description": "The most decisions in front of the person at once through digests: questions shown to them and not yet answered. When that many are waiting, the next questions are held, and an easy-to-undo one takes its default.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 5
+        },
+        "interrupts_per_day": {
+          "description": "The most questions sent at once, outside a digest, in any 24 hours. A question that blocks the critical path or leaves executor slots idle uses one. 0 sends none: everything waits for a digest.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 3
+        },
+        "quiet_hours": {
+          "description": "Windows in which nothing is sent at once. Each runs from `from` to `to` in the timezone below, and may cross midnight. An empty list means no quiet hours. Only a sev-1 breaks them.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "description": "The start, as HH:MM on a 24-hour clock.",
+                "type": "string",
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+              },
+              "to": {
+                "description": "The end, as HH:MM. Earlier than `from` means the window runs past midnight.",
+                "type": "string",
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+              }
+            },
+            "required": ["from", "to"],
+            "additionalProperties": false
+          },
+          "maxItems": 8,
+          "default": [{ "from": "22:00", "to": "07:00" }]
+        },
+        "timezone": {
+          "description": "The IANA time zone the quiet hours are read in, such as Europe/Paris. Default: this machine's own time zone.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_+/-]+$"
+        },
+        "non_urgent_at_once": {
+          "description": "How many questions that are not urgent may be in front of the person at once, sent outside a digest, while they are answering quickly. Each uses an interrupt, and quiet hours hold them. 0 sends every non-urgent question in a digest.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "default": 0
+        },
+        "answering_window_minutes": {
+          "description": "The person counts as answering quickly when they answered a question within this many minutes.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "default": 30
         }
       },
       "additionalProperties": false
