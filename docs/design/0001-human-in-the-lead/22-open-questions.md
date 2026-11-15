@@ -203,6 +203,14 @@ Ordering is derived (cost of delay over size), and milestones split work into co
 - **Recommend: yes.** The format change replaces two keys of a public schema. Releasing first would mean shipping a format the next release breaks, and every consuming project would need a migration on its second release. The release item HITLD-24 needs the build item HITLD-45.
 - **Alternative: release v0.1.0 now** and ship the format in the next minor, with the tracker format migration, `hitld work migrate`. A consuming project starts sooner, at the cost of one migration.
 
+### Q37. How is a release tagged when the owner has no terminal? (affects releases)
+
+*Decided: through a release pull request, tagged by the release workflow behind the owner's approval (HITLD-79).* The owner works from cloud sessions and a phone, and a session cannot push to main or push tags. `hitld release make --branch <name>` writes the record on a branch; the orchestrator opens the pull request; the owner's squash merge, with their sign-off, is the release decision. One workflow run on that push checks the record, waits for the owner's approval in the `release` environment, then tags the commit with the run's own token, builds, attests and drafts the release ([16.5, Release mechanics](16-packaging.md#release-mechanics)). `release make` on main still works for a person at a terminal.
+
+- **Taken: the release pull request** (release-please, Changesets). The record is reviewed as a diff, the decision is a merge with a sign-off, and no long-lived token is stored.
+- **Alternative not taken: tag from the session with a stored token.** Simpler, but a session would hold a token that can push tags, and the tag push would start the release workflow outside the owner's approval.
+- **Alternative not taken: a second workflow started by the tag push.** A push made with the Actions token starts no workflow, so this needs a personal access token or a GitHub App key, which is a stored secret.
+
 ## Before later milestones
 
 ### Q13. May the merge queue push candidate branches to GitHub so CI can test them? (blocks CI integration)

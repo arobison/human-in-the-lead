@@ -1,16 +1,143 @@
 name: Release
 
-# Runs when the owner pushes a version tag. Making a release is the owner's decision (a one-way
-# door for the public interface); this workflow only builds, attests and drafts it.
+# Making a release is the owner's decision (a one-way door for the public interface; design 3.2
+# and 16.5). This workflow tags, builds, attests and drafts it, in two ways:
+#
+# - A release pull request (`hitld release make --branch <name>`). The owner's squash merge, with
+#   their Signed-off-by, adds work/releases/<tag>.md on main: that merge is the release decision.
+#   `record` checks the record (core/bin/release-check.mjs). `release` waits for the owner's
+#   approval in the `release` environment, checks the record again, builds, tags that exact
+#   commit, pushes the tag with this run's token, attests and drafts the release, all in one run:
+#   nothing waits on the tag push starting another workflow (a push made with the Actions token
+#   starts none), and no long-lived token is stored.
+# - A person who tags by hand (`hitld release make` on main, then `git push origin main <tag>`):
+#   `tagged` builds, attests and drafts, as before. A tag ruleset on v* may refuse that push
+#   (CONTRIBUTING.md, Releases).
 on:
   push:
+    branches: [main]
+    # Path filters apply to the branch push only; tag pushes are never path-filtered.
+    paths: ['work/releases/**']
     tags: ['v*']
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  record:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: The merged pull requests GitHub links this commit to
+        id: prs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          numbers=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '[.[] | select(.merged_at != null) | .number] | map(tostring) | join(",")')
+          echo "numbers=${numbers}" >> "$GITHUB_OUTPUT"
+      # No record added (a record edited, say): tag is empty and nothing more runs.
+      - name: Check the release record
+        id: check
+        env:
+          PRS: ${{ steps.prs.outputs.numbers }}
+        run: >-
+          node core/bin/release-check.mjs --commit "$GITHUB_SHA" --main origin/main
+          --pr "$PRS" --output "$GITHUB_OUTPUT"
+
   release:
+    needs: record
+    if: needs.record.outputs.tag != ''
+    runs-on: ubuntu-latest
+    # Waits for the owner's approval; limited to main (CONTRIBUTING.md, Releases).
+    environment: release
+    permissions:
+      contents: write # push the tag and draft the release
+      pull-requests: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: The merged pull requests GitHub links this commit to
+        id: prs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          numbers=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '[.[] | select(.merged_at != null) | .number] | map(tostring) | join(",")')
+          echo "numbers=${numbers}" >> "$GITHUB_OUTPUT"
+      # Again after the approval, which may come much later: a tag made meanwhile is refused.
+      - name: Check the release record
+        id: check
+        env:
+          PRS: ${{ steps.prs.outputs.numbers }}
+        run: >-
+          node core/bin/release-check.mjs --commit "$GITHUB_SHA" --main origin/main
+          --pr "$PRS" --output "$GITHUB_OUTPUT"
+          --message-file "$RUNNER_TEMP/tag-message" --notes-file "$RUNNER_TEMP/notes.md"
+      - run: npm ci
+      - run: npm run check
+      - run: node core/bin/hitld.mjs eval --offline
+      - name: Package
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+        run: |
+          mkdir dist
+          npm pack --pack-destination dist
+          tar -czf "dist/human-in-the-lead-plugin-${TAG}.tgz" -C plugins human-in-the-lead
+      # The only step that holds a token able to write: it pushes the one tag, on this commit.
+      - name: Tag the commit and push the tag
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -F "$RUNNER_TEMP/tag-message" "$GITHUB_SHA"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::${auth}"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "refs/tags/${TAG}"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.check.outputs.tag }}
+          PRERELEASE: ${{ steps.check.outputs.prerelease }}
+        run: |
+          # A tag with a pre-release part (v0.1.0-rc.1) is a GitHub pre-release.
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" dist/* --draft --verify-tag --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" --generate-notes "${flags[@]}"
+
+  tagged:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write

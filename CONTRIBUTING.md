@@ -66,3 +66,38 @@ Contributions carry a `Signed-off-by` line under the [Developer Certificate of O
 The owner signs off the first public commit.
 
 Credit for adapted patches uses `Co-Authored-By:` with the contributor's forge noreply address, unless they ask for another.
+
+## Releases
+
+A release goes through a release pull request ([design 16.5, Release mechanics](docs/design/0001-human-in-the-lead/16-packaging.md#release-mechanics)). Making one is the owner's decision.
+
+1. In the owner's own turn, in the main session: `hitld release propose` to see the version, then `hitld release make --branch release/<tag>` (add `--pre rc` for a release candidate). It writes `work/releases/<tag>.md` on that new branch and tags nothing.
+2. The orchestrator pushes the branch and opens a pull request to main, with the title and body `release make` returned.
+3. The owner reviews it and squash-merges it with their `Signed-off-by:` line in the commit message. That merge is the release decision.
+4. The release workflow starts on that push to main, checks the record (`core/bin/release-check.mjs`), and waits: approve it from the run's page (Actions → Release → the run → Review deployments → check `release` → Approve and deploy). It then tags the squash commit, builds, attests provenance and drafts the GitHub release.
+5. The owner publishes the draft (Releases → the draft → Edit → Publish release).
+
+The check refuses a record whose tag exists, whose version is not the one `release propose` gives at the merged commit's parent, or that did not arrive through a pull request. A release at a version above the proposal (`--version`) is tagged by hand: `hitld release make` on main at a terminal, then `git push origin main <tag>`; the same workflow drafts it on the tag push.
+
+### Repository settings for releases
+
+The owner applies these on github.com; each works from a phone browser. On a phone, the Settings tab may be behind the `…` at the end of the repository's tab bar.
+
+**1. A tag ruleset on `v*`.** Repository → Settings → Rules → Rulesets → New ruleset → New tag ruleset.
+
+- Ruleset name: `release tags`. Enforcement status: Active.
+- Target tags: Add target → Include by pattern → `v*` → Add inclusion pattern.
+- Bypass list: Add bypass. If the list offers **GitHub Actions** (under apps), check it, choose Add selected, and leave it on Always allow. Add no role: the Actions token is not a user, so a role such as Repository admin does not let it through.
+- Rules: check **Restrict updates** and **Restrict deletions**, and keep Block force pushes. Check **Restrict creations** only if GitHub Actions is on the bypass list. Without that bypass, Restrict creations also refuses the workflow's own tag push, at the step "Tag the commit and push the tag", and nothing is drafted; without Restrict creations, only people with write access (the owner) can create a `v*` tag, and no one can move or delete one.
+- Create.
+
+With Restrict creations on, a tag pushed by hand is refused too, so the by-hand path needs the person on the bypass list as well.
+
+**2. Immutable releases.** Repository → Settings → General → Releases → check **Enable release immutability**. A draft stays editable, so the workflow can draft the release and attach its files; once the owner publishes it, its files and its tag can no longer change or be deleted, and the tag name cannot be reused. It applies to releases published after it is turned on.
+
+**3. The `release` environment.** Repository → Settings → Environments → New environment → Name `release` → Configure environment.
+
+- Deployment protection rules: check **Required reviewers**, add the owner, leave **Prevent self-review** unchecked (one maintainer approves their own release), then Save protection rules.
+- Deployment branches and tags: choose **Selected branches and tags** → Add deployment branch or tag rule → Ref type Branch, name pattern `main` → Add rule.
+
+Only the workflow's `release` job uses the environment. The by-hand `tagged` job runs on a tag push and does not, so the `main`-only rule does not stop it.

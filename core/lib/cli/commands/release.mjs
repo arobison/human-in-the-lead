@@ -82,7 +82,7 @@ export const commands = [
   {
     name: 'release make',
     summary:
-      "Make a release: write the release record and an annotated tag on main, never pushing (the owner's, from the main session)",
+      "Make a release: write the release record and an annotated tag on main, or with --branch the record alone on a release branch; never pushing (the owner's, from the main session)",
     piece: 'first-release',
     mcp: false,
     args: [
@@ -100,6 +100,12 @@ export const commands = [
           'The decision or precedent the release is made under: a decision ID or a precedent ID (default owner, made directly in this turn)',
       },
       itemArg,
+      {
+        name: 'branch',
+        type: 'string',
+        description:
+          'Put the record on this new branch, made from main, for a release pull request, and tag nothing: merging the pull request is the release, and the release workflow tags it',
+      },
       ...repoArg,
     ],
     async run(input, ctx) {
@@ -120,6 +126,7 @@ export const commands = [
         pre: typeof input.pre === 'string' ? input.pre : undefined,
         decision: typeof input.decision === 'string' ? input.decision : undefined,
         item: typeof input.item === 'string' ? input.item : undefined,
+        branch: typeof input.branch === 'string' ? input.branch : undefined,
       });
       return { ok: true, ...made };
     },

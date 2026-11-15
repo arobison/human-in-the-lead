@@ -3,6 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ import {
   nextPrerelease,
 } from '../lib/release/semver.mjs';
 import { proposeRelease } from '../lib/release/propose.mjs';
+import { checkReleaseCommit } from '../lib/release/check.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
 import { commitAll, git, itemText, makeRepo, policyFor, put } from './tracker-fixture.mjs';
 
@@ -430,4 +432,175 @@ test('propose lists unmet gates, missing changelog lines and drafts notes; make 
     refused.json.message,
     /the release waits for its gates: W-7 Ready \(Planned, check due\)/,
   );
+});
+
+// --- The release pull request and the record-to-tag check (HITLD-79) ------------------------
+
+/** Squash-merge a branch into main, as GitHub's merge button does. @param {string} root */
+function squash(root, branch = 'release', subject = 'Release v0.1.0 (#7)') {
+  git(root, 'merge', '-q', '--squash', branch);
+  git(root, 'commit', '-q', '-m', subject, '-m', 'Signed-off-by: Owner <owner@example.invalid>');
+  return git(root, 'rev-parse', 'HEAD').trim();
+}
+
+test('release make --branch puts the record on a new branch, tags nothing and returns to main', async () => {
+  const root = releaseRepo();
+  const before = git(root, 'rev-parse', 'HEAD').trim();
+  const made = await hitld(['release', 'make', '--branch', 'release'], root);
+  assert.equal(made.code, 0, JSON.stringify(made.json));
+  assert.equal(made.json.tag, 'v0.1.0');
+  assert.equal(made.json.branch, 'release');
+  assert.equal(made.json.tagged, false);
+  assert.equal(made.json.pushed, false);
+  assert.equal(made.json.pr.title, 'Release v0.1.0');
+  assert.match(made.json.pr.body, /- Bump: minor, from no release yet/);
+  assert.match(made.json.pr.body, /## Interface delta\n\n- additive schemas: schema thing added/);
+  assert.match(made.json.pr.body, /Squash-merge this pull request with your `Signed-off-by:`/);
+  assert.match(made.json.next, /git push origin release/);
+  assert.equal(git(root, 'tag', '--list').trim(), '', 'nothing was tagged');
+  assert.equal(git(root, 'symbolic-ref', '--short', 'HEAD').trim(), 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').trim(), before, 'main is unchanged');
+  assert.equal(git(root, 'status', '--porcelain').trim(), '');
+  assert.equal(git(root, 'rev-parse', 'release~1').trim(), before, 'the branch is made from main');
+  assert.equal(made.json.commit, git(root, 'rev-parse', 'release').trim());
+  assert.match(git(root, 'show', 'release:work/releases/v0.1.0.md'), /^---\nid: v0\.1\.0\n/);
+  assert.match(git(root, 'log', '-1', '--format=%B', 'release'), /^Signed-off-by: Fixture/m);
+
+  const again = await hitld(['release', 'make', '--branch', 'release'], root);
+  assert.equal(again.code, 1);
+  assert.match(again.json.message, /branch release already exists/);
+  const onMain = await hitld(['release', 'make', '--branch', 'main'], root);
+  assert.match(onMain.json.message, /names a new branch, not main/);
+  const bad = await hitld(['release', 'make', '--branch', 'a..b'], root);
+  assert.match(bad.json.message, /not a valid branch name/);
+  const guarded = await hitld(['release', 'make', '--branch', 'other'], root, {
+    HITLD_ROLE: 'executor',
+  });
+  assert.equal(guarded.json.error, 'not_permitted');
+  assert.equal(git(root, 'branch', '--list', 'other').trim(), '');
+});
+
+test('the record-to-tag check passes a squash-merged release pull request', async () => {
+  const root = releaseRepo();
+  assert.equal((await hitld(['release', 'make', '--branch', 'release'], root)).code, 0);
+  const sha = squash(root);
+  const r = await checkReleaseCommit({ root, prs: [7] });
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.ok, true);
+  assert.equal(r.commit, sha);
+  assert.equal(r.tag, 'v0.1.0');
+  assert.equal(r.prerelease, false);
+  assert.equal(r.pr, 7);
+  assert.equal(r.proposed, '0.1.0');
+  assert.equal(r.record, 'work/releases/v0.1.0.md');
+  assert.equal(r.message, 'v0.1.0\n\nNo changelog lines.');
+  assert.equal(git(root, 'worktree', 'list').trim().split('\n').length, 1, 'no worktree left');
+
+  const elsewhere = await checkReleaseCommit({ root, prs: [8] });
+  assert.match(elsewhere.problems.join('\n'), /names #7, but GitHub links the commit to #8/);
+
+  // A later commit that adds no record: nothing to release.
+  put(root, { 'src/x.js': 'x\n' });
+  commitAll(root, 'internal (#8)');
+  const none = await checkReleaseCommit({ root });
+  assert.equal(none.ok, true);
+  assert.equal(none.tag, null);
+});
+
+test('the record-to-tag check passes the next pre-release', async () => {
+  const root = releaseRepo();
+  git(root, 'tag', '-a', 'v0.1.0-rc.1', '-m', 'rc.1');
+  const made = await hitld(['release', 'make', '--pre', 'rc', '--branch', 'rc'], root);
+  assert.equal(made.json.tag, 'v0.1.0-rc.2');
+  squash(root, 'rc', 'Release v0.1.0-rc.2 (#3)');
+  const r = await checkReleaseCommit({ root });
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.prerelease, true);
+});
+
+test('the record-to-tag check refuses an existing tag, a wrong version and a commit not from a pull request', async () => {
+  const root = releaseRepo();
+  assert.equal((await hitld(['release', 'make', '--branch', 'release'], root)).code, 0);
+  const record = git(root, 'show', 'release:work/releases/v0.1.0.md');
+  squash(root);
+  git(root, 'tag', '-a', 'v0.1.0', '-m', 'by hand', 'HEAD~1');
+  const tagged = await checkReleaseCommit({ root });
+  assert.equal(tagged.ok, false);
+  assert.match(tagged.problems.join('\n'), /tag v0\.1\.0 already exists/);
+
+  // A record whose version is not the one release propose gives at the parent.
+  const wrong = releaseRepo();
+  put(wrong, {
+    'work/releases/v0.2.0.md': record
+      .replace('id: v0.1.0', 'id: v0.2.0')
+      .replace('version: 0.1.0', 'version: 0.2.0'),
+  });
+  commitAll(wrong, 'Release v0.2.0 (#9)');
+  const r = await checkReleaseCommit({ root: wrong });
+  assert.equal(r.ok, false);
+  assert.equal(r.proposed, '0.1.0');
+  assert.deepEqual(r.problems.length, 1);
+  assert.match(
+    r.problems[0],
+    /^v0\.2\.0 is not the next release: at the parent, release propose gives 0\.1\.0 /,
+  );
+
+  // The right record, pushed straight to main rather than merged from a pull request.
+  const direct = releaseRepo();
+  put(direct, { 'work/releases/v0.1.0.md': record });
+  commitAll(direct, 'release record: v0.1.0');
+  const d = await checkReleaseCommit({ root: direct });
+  assert.equal(d.ok, false);
+  assert.match(d.problems.join('\n'), /did not arrive through a pull request/);
+
+  // A commit that is not on main.
+  const side = releaseRepo();
+  git(side, 'switch', '-q', '-c', 'side');
+  put(side, { 'work/releases/v0.1.0.md': record });
+  commitAll(side, 'Release v0.1.0 (#7)');
+  const s = await checkReleaseCommit({ root: side, main: 'main' });
+  assert.match(s.problems.join('\n'), /is not on main/);
+
+  // A record that does not pass the release checks.
+  const broken = releaseRepo();
+  put(broken, { 'work/releases/v0.1.0.md': record.replace('bump: minor', 'bump: huge') });
+  commitAll(broken, 'Release v0.1.0 (#7)');
+  const b = await checkReleaseCommit({ root: broken });
+  assert.equal(b.ok, false);
+  assert.match(b.problems[0], /^record work\/releases\/v0\.1\.0\.md: /);
+});
+
+test('the release-check script prints the result and writes the workflow files', async () => {
+  const root = releaseRepo();
+  assert.equal((await hitld(['release', 'make', '--branch', 'release'], root)).code, 0);
+  squash(root);
+  const dir = mkdtempSync(join(tmpdir(), 'hitld-release-out-'));
+  const script = join(ROOT, 'core/bin/release-check.mjs');
+  const run = (/** @type {string[]} */ args) =>
+    spawnSync(process.execPath, [script, '--repo', root, ...args], { encoding: 'utf8' });
+  const ok = run([
+    '--pr',
+    '7',
+    '--output',
+    join(dir, 'out'),
+    '--message-file',
+    join(dir, 'msg'),
+    '--notes-file',
+    join(dir, 'notes'),
+  ]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(JSON.parse(ok.stdout).tag, 'v0.1.0');
+  assert.equal(
+    readFileSync(join(dir, 'out'), 'utf8'),
+    'tag=v0.1.0\nversion=0.1.0\nprerelease=false\nrecord=work/releases/v0.1.0.md\n',
+  );
+  assert.equal(readFileSync(join(dir, 'msg'), 'utf8'), 'v0.1.0\n\nNo changelog lines.\n');
+  assert.match(
+    readFileSync(join(dir, 'notes'), 'utf8'),
+    /Release record: `work\/releases\/v0\.1\.0\.md`/,
+  );
+  const refused = run(['--pr', '8']);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /refused:\n {2}- the subject names #7/);
+  assert.equal(run(['--pr', 'x']).status, 2);
 });
