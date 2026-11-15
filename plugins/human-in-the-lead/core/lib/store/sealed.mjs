@@ -1,29 +1,33 @@
-// The store export file (design part 3.2): one file, encrypted, because the store holds
-// confidential material. Node's built-in crypto only.
+// The store export file (design part 3.2, design 0003 section 10): one file, encrypted, because
+// the store holds confidential material. Node's built-in crypto only.
 //
-// Layout, format 1:
+// The payload, in every format, is the manifest as one line of JSON, a newline, then the git
+// bundle's bytes.
+//
+// Format 2, the one this version writes, is an age file (age.mjs): the payload encrypted once
+// under a fresh file key, and the file key wrapped for each recipient's X25519 public key. Any
+// recipient opens it with its own private key, and so does the `age` program.
+//
+// Format 1 is read only, for files written by earlier versions:
 //   header   one line of JSON and a newline: what to read the rest with (below)
 //   body     AES-256-GCM ciphertext of the payload
 //   tag      the 16-byte GCM authentication tag
-//
-// The header is authenticated as associated data, so changing any byte of the file (header, body
-// or tag) makes it fail to open. The key comes from the passphrase through scrypt, with the
-// parameters and a random salt recorded in the header; the nonce is random too.
-//
-// The payload is the manifest as one line of JSON, a newline, then the git bundle's bytes.
+// The header is authenticated as associated data. The key comes from a passphrase through scrypt,
+// with the parameters and a random salt recorded in the header; the nonce is random too.
 
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+import { createDecipheriv, scryptSync } from 'node:crypto';
+import { decrypt, encrypt, isAgeFile, parseRecipient } from './age.mjs';
 
 export const FILE_KIND = 'hitld-store-export';
-export const FORMAT = 1;
+/** The format this version writes. */
+export const FORMAT = 2;
+const FORMAT_1 = 1;
 const CIPHER = 'aes-256-gcm';
 const TAG_BYTES = 16;
 const HEADER_MAX = 4096;
 
-/** scrypt cost: the default, and the bounds a file's header may name. */
-export const SCRYPT_DEFAULT = Object.freeze({ N: 2 ** 17, r: 8, p: 1 });
-// The upper bounds keep a damaged or hostile header from asking for more than 256 MiB before the
-// file is authenticated.
+// The bounds a format-1 header may name. The upper bounds keep a damaged or hostile header from
+// asking for more than 256 MiB before the file is authenticated.
 const SCRYPT_BOUNDS = Object.freeze({ N: [2 ** 14, 2 ** 18], r: [8, 8], p: [1, 4] });
 
 export class SealedError extends Error {
@@ -44,6 +48,49 @@ export class SealedError extends Error {
  * @property {string} created_at
  * @property {string} hitld_version
  */
+
+/**
+ * The keys that may open a file: age private keys for format 2, a passphrase for format 1.
+ * @typedef {{ identities?: Array<string | import('./age.mjs').Identity>, passphrase?: string }} Keys
+ */
+
+/**
+ * Refuse an empty recipient list, or a key that does not parse, before any work is done.
+ * @param {string[] | undefined} recipients
+ * @returns {string[]}
+ */
+export function checkRecipients(recipients) {
+  if (!Array.isArray(recipients) || !recipients.length) {
+    throw new SealedError(
+      'no-recipients',
+      'no recipient: the export is encrypted to age public keys (age1...); give at least one',
+    );
+  }
+  for (const r of recipients) parseRecipient(r);
+  return recipients;
+}
+
+/**
+ * Seal a manifest and a bundle into the export file's bytes, format 2.
+ * @param {Manifest} manifest @param {Buffer} bundle @param {string[]} recipients age public keys
+ * @returns {Buffer}
+ */
+export function seal(manifest, bundle, recipients) {
+  checkRecipients(recipients);
+  return encrypt(Buffer.concat([Buffer.from(JSON.stringify(manifest) + '\n'), bundle]), recipients);
+}
+
+/**
+ * Which format a file is, without any key. Refuses a file that is not an export, or a format
+ * this version does not read.
+ * @param {Buffer} file
+ * @returns {1 | 2}
+ */
+export function formatOf(file) {
+  if (isAgeFile(file)) return 2;
+  readHeader(file);
+  return 1;
+}
 
 /** @param {{ N: number, r: number, p: number }} s */
 function checkScrypt(s) {
@@ -67,40 +114,7 @@ const deriveKey = (passphrase, salt, s) =>
   });
 
 /**
- * Seal a manifest and a bundle into the export file's bytes.
- * @param {Manifest} manifest @param {Buffer} bundle @param {string} passphrase
- * @param {{ scrypt?: { N: number, r: number, p: number } }} [options] scrypt is for tests
- * @returns {Buffer}
- */
-export function seal(manifest, bundle, passphrase, options = {}) {
-  if (!passphrase) throw new SealedError('no_passphrase', 'the passphrase is empty');
-  const s = options.scrypt ?? SCRYPT_DEFAULT;
-  checkScrypt(s);
-  const salt = randomBytes(16);
-  const nonce = randomBytes(12);
-  const header = Buffer.from(
-    JSON.stringify({
-      file: FILE_KIND,
-      format: FORMAT,
-      cipher: CIPHER,
-      kdf: 'scrypt',
-      scrypt: { N: s.N, r: s.r, p: s.p },
-      salt: salt.toString('base64'),
-      nonce: nonce.toString('base64'),
-    }) + '\n',
-  );
-  const cipher = createCipheriv(CIPHER, deriveKey(passphrase, salt, s), nonce, {
-    authTagLength: TAG_BYTES,
-  });
-  cipher.setAAD(header);
-  const payload = Buffer.concat([Buffer.from(JSON.stringify(manifest) + '\n'), bundle]);
-  const body = Buffer.concat([cipher.update(payload), cipher.final()]);
-  return Buffer.concat([header, body, cipher.getAuthTag()]);
-}
-
-/**
- * Read the header without the passphrase. Refuses a file that is not an export, or a format this
- * version does not read.
+ * Read a format-1 header without the passphrase.
  * @param {Buffer} file
  */
 export function readHeader(file) {
@@ -116,10 +130,10 @@ export function readHeader(file) {
   if (!h || typeof h !== 'object' || h.file !== FILE_KIND) {
     throw new SealedError('not_export', 'not a hitld store export');
   }
-  if (h.format !== FORMAT) {
+  if (h.format !== FORMAT_1) {
     throw new SealedError(
       'unknown_format',
-      `the file is export format ${JSON.stringify(h.format)}; this version reads format ${FORMAT} only`,
+      `the file is export format ${JSON.stringify(h.format)}; this version reads format 1 (a passphrase) and format 2 (age)`,
     );
   }
   const keys = ['file', 'format', 'cipher', 'kdf', 'scrypt', 'salt', 'nonce'];
@@ -145,13 +159,14 @@ export function readHeader(file) {
 }
 
 /**
- * Open an export file: check the header, derive the key, decrypt and authenticate.
- * @param {Buffer} file @param {string} passphrase
- * @returns {{ manifest: Manifest, bundle: Buffer }}
+ * Decrypt and authenticate a format-1 file.
+ * @param {Buffer} file @param {string | undefined} passphrase
  */
-export function open(file, passphrase) {
-  if (!passphrase) throw new SealedError('no_passphrase', 'the passphrase is empty');
+function openFormat1(file, passphrase) {
   const h = readHeader(file);
+  if (!passphrase) {
+    throw new SealedError('no_passphrase', 'the file is format 1, which opens with a passphrase');
+  }
   if (file.length < h.header.length + TAG_BYTES) {
     throw new SealedError('damaged', 'the file is too short to hold its authentication tag');
   }
@@ -162,15 +177,35 @@ export function open(file, passphrase) {
   });
   decipher.setAAD(h.header);
   decipher.setAuthTag(tag);
-  /** @type {Buffer} */
-  let payload;
   try {
-    payload = Buffer.concat([decipher.update(body), decipher.final()]);
+    return Buffer.concat([decipher.update(body), decipher.final()]);
   } catch {
     throw new SealedError(
       'cannot_open',
       'the file does not open: the passphrase is wrong, or the file was changed or damaged',
     );
+  }
+}
+
+/**
+ * Open an export file of either format: decrypt and authenticate, then check the manifest.
+ * @param {Buffer} file @param {Keys} keys
+ * @returns {{ manifest: Manifest, bundle: Buffer, format: 1 | 2 }}
+ */
+export function open(file, keys) {
+  const format = formatOf(file);
+  /** @type {Buffer} */
+  let payload;
+  if (format === 2) {
+    if (!keys.identities?.length) {
+      throw new SealedError(
+        'no-identity',
+        'the file is format 2, which opens with an age private key (AGE-SECRET-KEY-1...)',
+      );
+    }
+    payload = decrypt(file, keys.identities);
+  } else {
+    payload = openFormat1(file, keys.passphrase);
   }
   const nl = payload.indexOf(0x0a);
   /** @type {any} */
@@ -191,5 +226,5 @@ export function open(file, passphrase) {
   ) {
     throw new SealedError('damaged', 'the manifest inside the file is not valid');
   }
-  return { manifest, bundle: payload.subarray(nl + 1) };
+  return { manifest, bundle: payload.subarray(nl + 1), format };
 }
