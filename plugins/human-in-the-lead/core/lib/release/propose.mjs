@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { CodedError } from '../cli/errors.mjs';
 import { buildGraph } from '../tracker/files/graph.mjs';
 import { readMilestone } from '../tracker/files/milestones.mjs';
 import { git, loadPlaces, loadWorkTree, readBlobs } from '../tracker/files/tree.mjs';
@@ -241,7 +242,8 @@ export async function proposeRelease(t, { pre, item, version: making, surfaceOfB
   if (item && !named.length) warnings.push(`${item} is not an item in the tracker`);
   const own = named[0]?.data.release;
   if (own !== undefined && own !== lookup) {
-    throw new Error(
+    throw new CodedError(
+      'release-item-mismatch',
       `${item} is the release item for ${own}, but this release is ${lookup}; name an item whose release is ${lookup}, or none`,
     );
   }

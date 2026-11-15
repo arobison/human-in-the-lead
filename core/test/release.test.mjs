@@ -477,10 +477,12 @@ test('an open item the release item needs is a gate; make refuses while it is op
   ]);
   const refused = await hitld(['release', 'make'], root);
   assert.equal(refused.code, 1);
+  assert.equal(refused.json.error, 'release-gates-open');
   assert.match(refused.json.message, WAITING);
   assert.match(refused.json.message, /W-4 Second step \(planned\)/);
   assert.equal(git(root, 'tag', '--list').trim(), '');
   const viaItem = await hitld(['release', 'make', '--item', 'W-8'], root);
+  assert.equal(viaItem.json.error, 'release-gates-open');
   assert.match(viaItem.json.message, WAITING);
 });
 
@@ -520,6 +522,7 @@ test('an open milestone the release item needs is a gate, listed as one', async 
     },
   ]);
   const refused = await hitld(['release', 'make'], root);
+  assert.equal(refused.json.error, 'release-gates-open');
   assert.match(refused.json.message, /W-7 Ready \(planned, check due\)/);
 });
 
@@ -557,11 +560,13 @@ test('the release item is found by the version proposed or made; --item override
   // An item whose release is another version is refused, by propose and by make.
   const wrong = await hitld(['release', 'propose', '--item', 'W-9'], root);
   assert.equal(wrong.code, 1);
+  assert.equal(wrong.json.error, 'release-item-mismatch');
   assert.match(
     wrong.json.message,
     /W-9 is the release item for 0\.2\.0, but this release is 0\.1\.0/,
   );
   const wrongMake = await hitld(['release', 'make', '--version', '0.3.0', '--item', 'W-9'], root);
+  assert.equal(wrongMake.json.error, 'release-item-mismatch');
   assert.match(wrongMake.json.message, /release item for 0\.2\.0, but this release is 0\.3\.0/);
 });
 

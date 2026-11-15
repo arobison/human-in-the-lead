@@ -17,6 +17,7 @@
 //              once the owner approves the run (core/lib/release/check.mjs).
 
 import { existsSync, rmSync } from 'node:fs';
+import { CodedError } from '../cli/errors.mjs';
 import { renderItem } from '../tracker/files/frontmatter.mjs';
 import { RELEASE_KEYS, formatDeltaEntry, releasesDir } from '../tracker/files/releases.mjs';
 import { createExclusive, insidePath, mkdirInside } from '../tracker/files/safe.mjs';
@@ -159,7 +160,10 @@ export async function makeRelease(
  */
 export function assertGatesMet(p) {
   if (p.gates.length) {
-    throw new Error(`the release waits for its gates: ${describeGates(p.gates)}`);
+    throw new CodedError(
+      'release-gates-open',
+      `the release waits for its gates: ${describeGates(p.gates)}`,
+    );
   }
 }
 
