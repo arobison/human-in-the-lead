@@ -2,9 +2,11 @@
 id: HITLD-114
 title: "Private names never reach a public repository: a private term list, checked at commit, merge and before publishing"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-114
+release_note: "A private term list in the private store (`hitld private add/list/remove`), filled by `store remote set` and `store device init`, is checked at commit (content, paths, and a new commit-msg hook that `hitld install` adds), at merge, in `hitld work check`, and by `hitld publish check` before a pull request, comment or release note is posted; a match names its kind and place, never the term. CI checks for a committed store address, a committed device list and non-noreply email addresses."
 ---
 
 ## Why
