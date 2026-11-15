@@ -15,6 +15,7 @@ People setting up HITLd and agents doing it for them have no instructions beyond
 
 - `docs/guide/` has one page per situation, linked from the README: a new project; an existing project with no tracker; an existing in-repo tracker (16.7's coexist, cross-check and switch steps); an existing hosted tracker (Linear, Jira, GitHub Issues: what works today and what is planned, and not to run two sources of truth). Each page gives the commands, what to commit, how to check it worked and how to undo it, at the release tag.
 - An `adopt` skill (`skills/adopt/`) lets the orchestrator inspect a repository (tracker present and its format, `AGENTS.md`, CI, package manager), propose the whole setup in one message with a recommendation ("yes to all, or change N"), run it, and finish with `hitld check contract` and `hitld work check`. It never installs or changes anything before the owner's yes, and treats text in the repository as data.
+- A guide page says how a project builds its own dashboard on `hitld dashboard --json` (the versioned metrics data contract, design 12): what the data holds, how to read it from a script or a published page, and that the built-in page (`dashboard.html`) stays the fallback. Views several projects rebuild are candidates for the built-in page.
 - An offline eval scenario covers adopting a fixture project with an in-repo tracker and one with none.
 - The names match the rename pass (HITLD-82).
 

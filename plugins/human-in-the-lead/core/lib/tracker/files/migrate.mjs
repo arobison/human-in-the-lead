@@ -8,8 +8,8 @@
 // writing and shows the diff. A real run writes the files and, unless told not to, commits them in
 // one commit that can be reviewed.
 //
-// Scope: ID-named files under the work directory (initiatives, projects, items, milestones). A
-// step may change, create or delete those. A step that creates a file allocates its number from
+// Scope: ID-named files under the work directory (projects, items, milestones, and the initiatives
+// folder the format had before HITLD-90). A step may change, create or delete those. A step that creates a file allocates its number from
 // what the tree holds and what `taken` says is used elsewhere in the clone, so a run on one branch
 // does not reuse a number another branch already holds. tracker.json is changed by the owner, not
 // by a migration; release records are written by `hitld release make`, never by a migration.

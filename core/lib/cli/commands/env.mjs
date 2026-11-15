@@ -199,7 +199,11 @@ export const commands = [
         type: 'string',
         description: 'A few words for the branch name; default "work"',
       },
-      { name: 'base', type: 'string', description: 'The branch to cut from; default main' },
+      {
+        name: 'base',
+        type: 'string',
+        description: 'The branch to cut from; default policy.json merge.main_branch',
+      },
       {
         name: 'adopt',
         type: 'string',

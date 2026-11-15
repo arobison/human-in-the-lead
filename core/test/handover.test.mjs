@@ -250,34 +250,3 @@ test('commands: after enough completions the refill is held, the hand-over waits
   const next = await c.hitld(['dispatch', 'start', 'W-3'], orch2);
   assert.equal(next.result.error, 'not_planned');
 });
-
-test('commands: in owner merge mode the chief of staff records the approval and the holder sees it', async () => {
-  const c = makeConsumer({ policy: { merge: { mode: 'owner', full_suite: [] } } });
-  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
-  const orch = { env: { HITLD_SESSION: 'orch-1' } };
-  const cos = { env: { HITLD_SESSION: 'cos' } };
-  await c.hitld(['run', 'start'], orch);
-  await c.hitld(['dispatch', 'start', 'W-1'], orch);
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1'], orch);
-  const note = join(c.base, 'note.txt');
-  const branch = 'hitld/W-1-add-numbers';
-  writeFileSync(note, report({ item: 'W-1', sha: 'abc1234', branch }));
-  await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note], orch);
-
-  const before = await c.hitld(['merge'], orch);
-  assert.equal(before.result.waiting[0].approved, null);
-  const unknown = await c.hitld(['merge', 'approve', '--only', 'W-9'], cos);
-  assert.equal(unknown.result.error, 'not_waiting');
-  const approved = await c.hitld(['merge', 'approve', '--only', 'W-1'], cos);
-  assert.equal(approved.exit, 0, JSON.stringify(approved.result));
-  assert.deepEqual(approved.result.approved, [{ item: 'W-1', branch, already: false }]);
-  const again = await c.hitld(['merge', 'approve', '--only', branch], cos);
-  assert.equal(again.result.approved[0].already, true);
-  const listed = await c.hitld(['merge'], orch);
-  assert.equal(listed.result.waiting[0].approved.by, 'cos');
-  assert.match(listed.result.next, new RegExp(`hitld merge --only ${branch}`));
-  const executor = await c.hitld(['merge', 'approve', '--only', 'W-1'], {
-    env: { HITLD_SESSION: 'x', HITLD_DISPATCH: 'D-1' },
-  });
-  assert.equal(executor.result.error, 'not_permitted');
-});

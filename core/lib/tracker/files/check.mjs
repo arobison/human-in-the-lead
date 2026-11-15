@@ -2,8 +2,11 @@
 // the entity schema, every reference resolves, no dependency cycles (through items and
 // milestones), nothing above the classification ceiling, no duplicate IDs. For milestones (design
 // part 3.2): every constraint names a clause that exists, every contribution has a value and a
-// confidence, and done only with a recorded passing check by a role other than its items' authors.
-// A key or a state value in the format before HITLD-82 is named with the migration that moves it.
+// confidence, done only with a recorded passing check by a role other than its items' authors, and
+// a name that is an outcome, never a number. For projects (design part 3.2): the shaping fields
+// parse, the bet names an answered decision, and the milestones' shares fit the appetite. A key, a
+// state value or a kind in the formats before HITLD-82 and HITLD-90 is named with the migration
+// that moves it.
 // Problems are strings, one per line, in the form
 // "<path>: <what is wrong>". The messages and their order are those of the reference check,
 // which this must agree with (design part 16.7).
@@ -24,8 +27,16 @@ import {
   toEntity,
 } from './format.mjs';
 import { ITEM_KINDS, buildGraph, findCycles } from './graph.mjs';
-import { LEGACY_STATES, renamesFor } from './legacy.mjs';
-import { AUTHOR_ROLE, MILESTONE_KINDS, passingCheck, readMilestone } from './milestones.mjs';
+import { LEGACY_KINDS, LEGACY_KIND_NOTES, LEGACY_STATES, renamesFor } from './legacy.mjs';
+import {
+  AUTHOR_ROLE,
+  MILESTONE_KINDS,
+  isLearning,
+  numberedName,
+  passingCheck,
+  readMilestone,
+} from './milestones.mjs';
+import { readProject } from './projects.mjs';
 import { insidePath } from './safe.mjs';
 import { idNumber, patterns } from './tree.mjs';
 
@@ -70,6 +81,13 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
       }
     }
     const kind = String(d.kind ?? '');
+    if (Object.hasOwn(LEGACY_KINDS, kind)) {
+      say(
+        it,
+        `kind "${kind}" is now "${LEGACY_KINDS[kind]}" (${LEGACY_KIND_NOTES[kind]}); run hitld work migrate`,
+      );
+      return;
+    }
     if (!KINDS.includes(kind)) {
       say(it, `kind "${kind}" isn't one of ${KINDS.join(', ')}`);
       return;
@@ -138,12 +156,16 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
     if (kind === 'external' && !d.waiting_on) {
       say(it, 'an external item needs waiting_on (who we wait on)');
     }
-    if (kind === 'project' && !d.initiative) say(it, 'a project needs an initiative');
+    if (kind === 'project') for (const p of readProject(d).problems) say(it, p);
     if (MILESTONE_KINDS.includes(kind)) {
-      if (!d.project === !d.initiative) {
-        say(it, 'a milestone needs one parent: project or initiative');
-      }
       for (const p of readMilestone(d).problems) say(it, p);
+      const numbered = numberedName(d.title);
+      if (numbered) {
+        say(
+          it,
+          `the name numbers the milestone ("${numbered}"); name it by its outcome, and let the graph give the order`,
+        );
+      }
     }
     if (d.plan && root) {
       let found = false;
@@ -174,9 +196,7 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
     };
     const milestone = g.isMilestone(it);
     if (ITEM_KINDS.includes(String(d.kind)) || milestone) {
-      if (ITEM_KINDS.includes(String(d.kind))) ref('project', 'project');
-      else if (d.project) ref('project', 'project');
-      else ref('initiative', 'initiative');
+      ref('project', 'project');
       for (const n of g.needs(it)) {
         const target = g.get(n);
         if (!target) say(it, `needs ${n}, which doesn't exist`);
@@ -200,17 +220,47 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
       if (d.state === 'done') {
         const ids = [...g.needs(it), ...m.contributions.map((c) => c.id)];
         const roles = authorRoles ? authorRoles(ids) : new Set([AUTHOR_ROLE]);
-        if (!passingCheck(String(d.kind), m.results, roles)) {
+        if (!passingCheck(m, roles)) {
           say(
             it,
-            d.kind === 'learning'
+            isLearning(m)
               ? 'done needs its study answered, recorded in check_results as answered'
               : `done needs a passing check in check_results, run by a role other than its items' authors (${[...roles].join(', ')})`,
           );
         }
       }
     }
-    if (d.kind === 'project') ref('initiative', 'initiative');
+    if (d.kind === 'project') {
+      const decision = ref('decision', 'decision');
+      if (decision && ['planned', 'done'].includes(String(d.state))) {
+        if (decision.data.state !== 'done') {
+          say(
+            it,
+            `decision ${d.decision} isn't answered; a project is planned only by the owner's bet, the answer to its decision`,
+          );
+        }
+      }
+      // The project holds the appetite; its milestones hold shares of it.
+      const shares = g
+        .milestonesOf(String(d.id))
+        .filter((m) => m.data.state !== 'dropped')
+        .map((m) => ({ id: String(m.data.id), tokens: readMilestone(m.data).appetite }))
+        .filter((s) => s.tokens !== undefined);
+      const shared = shares.reduce((sum, s) => sum + Number(s.tokens), 0);
+      const appetite = readProject(d).appetite;
+      const each = shares.map((s) => `${s.id} ${s.tokens}`).join(', ');
+      if (shares.length && appetite === undefined) {
+        say(
+          it,
+          `its milestones hold shares of an appetite (${each}) it doesn't set; give it appetite_tokens`,
+        );
+      } else if (appetite !== undefined && shared > appetite) {
+        say(
+          it,
+          `its milestones' shares of the appetite (${shared} tokens: ${each}) exceed its appetite_tokens ${appetite}`,
+        );
+      }
+    }
   }
   for (const cycle of findCycles(g)) problems.push(`cycle: ${cycle.join(' → ')}`);
 

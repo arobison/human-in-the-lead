@@ -13,11 +13,15 @@
 // `claimed_by`, `party` is `waiting_on`, `lead` is `owner`, `tier_hint` is `tier_override`,
 // `changelog` is `release_note`; a milestone's `needs` is `constraints`, its derived `error` is
 // `unmet_clauses`, and a check result `verdict` is `answered`. Every entity carries `entity`: the
-// entity type (`item`, `project`, `initiative`, `milestone` or `release`), since a milestone's
-// `kind` is `capability` or `learning`.
+// entity type (`item`, `project`, `milestone` or `release`).
+//
+// Version 3 (HITLD-90): a milestone's `kind` is `milestone` (it was `capability` or `learning`;
+// a learning milestone is one whose check is a study); there are no initiatives (a long outcome
+// is a milestone with no `parent`); a project carries the shaping fields and its `decision`, with
+// `bet_by` derived; every record carries `owner`, which is the owner when the file names none.
 
 /** The version of the read API's response shapes. */
-export const API_VERSION = 2;
+export const API_VERSION = 3;
 
 /** The entity type of a kind, for the read API's `entity` field. @param {unknown} kind */
 export const entityType = (kind) =>
@@ -26,9 +30,7 @@ export const entityType = (kind) =>
     decision: 'item',
     external: 'item',
     project: 'project',
-    initiative: 'initiative',
-    capability: 'milestone',
-    learning: 'milestone',
+    milestone: 'milestone',
     release: 'release',
   })[String(kind)] ?? String(kind);
 

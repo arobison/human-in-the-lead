@@ -4,7 +4,6 @@ title: "One signal end to end: the rest of the slice"
 kind: project
 state: planned
 created: 2026-11-14
-initiative: HITLD-1
 owner: owner
 ---
 

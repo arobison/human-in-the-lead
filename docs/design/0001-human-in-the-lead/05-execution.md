@@ -28,7 +28,7 @@ The orchestrator manages execution: the session that holds the run lease, starte
 
 ### The ready queue and the cap
 
-The ready queue is a script query: items that are `ready` ([part 3](03-data-model.md#initiative-project-item)), ordered by the prioritization rule ([part 2](02-loops.md#24-prioritization)). The orchestrator dispatches from the head of the queue until it reaches:
+The ready queue is a script query: items that are `ready` ([part 3](03-data-model.md#project-and-item)), ordered by the prioritization rule ([part 2](02-loops.md#24-prioritization)). The orchestrator dispatches from the head of the queue until it reaches:
 
 - the **concurrency cap**: the strictest of the person's, the machine's, the project's (`execution.max_executors`, moved by its controller inside the owner's bounds) and the run's ([part 13](13-operations.md#134-settings-in-four-layers)), or
 - a **serial resource** at capacity: one benchmark-heavy item at a time, one merge at a time, one holder of any named serial fixture, or
@@ -90,7 +90,7 @@ When a report needs a follow-up (a fix after review, an answer to its question),
 
 The orchestrator runs a local merge queue on `main`, a serial resource: branches merge in dependency order, each is rebased and fast-checked, the full suite runs once per batch, a failing batch is bisected, and `main` is fast-forwarded only to a tested commit, which closes the merged items. Conflicts, flakes and CI integration are specified in [part 14](14-integration.md).
 
-**Owner merge mode.** With `merge.mode` set to `owner`, finished branches wait: `hitld merge` lists them and merges nothing, and `hitld merge --only <branch>` merges what the owner names, through the same rebase, fast checks, full suite and fast-forward ([part 14](14-integration.md#142-the-queue)). A new project starts in owner mode. The owner opts into the queue, which merges whenever branches are waiting, once the record supports it ([part 6](06-verification.md#65-reliability-over-time)).
+**Owner merge mode.** With `merge.mode` set to `owner`, finished branches wait for the owner, but the queue checks them first: `hitld merge` rebases them and runs the fast checks, the scanners and the full suite without moving `main`, sends back the branches that fail, and presents the green ones with evidence the executor did not write, in one question for the batch. `hitld merge --all` merges the batch as presented, and `hitld merge --only <branch>` a list the owner names ([part 14](14-integration.md#142-the-queue)). A new project starts in owner mode, and `merge.owner_paths` and `merge.owner_areas` can limit it. The owner opts into the queue, which merges whenever branches are waiting, once the record supports it ([part 6](06-verification.md#65-reliability-over-time)).
 
 **Second machine.** A second machine works on its own branches and exchanges them with `git bundle`. Its items' claims become visible when its bundle is fetched. Its branches enter the same merge queue on the primary machine. It allocates IDs from its reserved block ([part 3](03-data-model.md#id-allocation)). Pushing to a remote is a separate, owner-controlled step: the system never pushes on its own.
 
@@ -100,7 +100,7 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 
 | Field | Notes |
 |---|---|
-| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started`, `lease-taken` and `lease-released` (a hand-over, or a session the chief of staff retired). `merge-approved` records the owner's approval of a merge in owner merge mode, by the session the owner said it in. Two more record the owner's attention: `sent` (a question was first shown to its decider) and `logged` (a call the orchestrator made without asking). Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
+| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started`, `lease-taken` and `lease-released` (a hand-over, or a session the chief of staff retired). `merge-approved` records the owner's answer to a batch presented in owner merge mode, bound to that presentation, by the session the owner said it in ([part 14](14-integration.md#142-the-queue)). Two more record the owner's attention: `sent` (a question was first shown to its decider) and `logged` (a call the orchestrator made without asking). Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
 | `dispatch` | `D-<n>`, unique per dispatch |
 | `item` | Tracker ID |
 | `tier`, `model`, `effort` | As dispatched |

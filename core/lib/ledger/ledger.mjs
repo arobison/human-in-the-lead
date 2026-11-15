@@ -96,7 +96,7 @@ const REQUIRED = {
   'run-started': ['run', 'session', 'host'],
   'lease-taken': ['run', 'session', 'host'],
   'lease-released': ['run', 'session', 'host', 'reason', 'by'],
-  'merge-approved': ['branch', 'by'],
+  'merge-approved': ['branches', 'presented_at', 'commit', 'by'],
   dispatched: ['dispatch', 'item'],
   started: ['dispatch', 'item'],
   asked: ['decision'],

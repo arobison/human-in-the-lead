@@ -68,7 +68,7 @@ test('work show --json carries api_version, the entity with typed declared field
   const { code, json } = await hitld(['work', 'show', 'W-4', '--json'], root);
   assert.equal(code, 0);
   assert.equal(json.api_version, API_VERSION);
-  assert.equal(API_VERSION, 2);
+  assert.equal(API_VERSION, 3);
   assert.equal(json.entity.team, 'core');
   assert.equal(json.entity.points, 3);
   assert.deepEqual(json.entity.labels, ['a', 'b']);
@@ -87,7 +87,7 @@ test('work show --json carries api_version, the entity with typed declared field
 test('work query --json carries api_version and leaves bodies out unless asked', async () => {
   const root = repo();
   const { json } = await hitld(['work', 'query', '--json', '--kind', 'work'], root);
-  assert.equal(json.api_version, 2);
+  assert.equal(json.api_version, 3);
   assert.equal(json.count, json.entities.length);
   assert.ok(json.entities.every((/** @type {any} */ e) => e.body === undefined));
   const withBodies = await hitld(['work', 'query', '--json', '--bodies'], root);
@@ -420,6 +420,7 @@ test('work migrate on a tracker already in the format changes nothing', async ()
     'milestone-entities',
     'retire-priority',
     'names-and-states',
+    'tracker-structure',
   ]);
   assert.equal(out.json.summary, 'nothing to migrate');
   const real = await hitld(['work', 'migrate'], root);

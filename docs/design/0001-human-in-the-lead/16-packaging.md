@@ -51,7 +51,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld work new / show / query / claim / unclaim / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
 | `hitld work migrate [--dry-run]` | Apply the tracker format migrations to every file; idempotent; the dry run prints the diff. Registered: `milestone-entities`, `retire-priority` |
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
-| `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, initiatives, critical path, milestones, unreleased, lists, dependency diagrams) |
+| `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, critical path, milestones, unreleased, lists, dependency diagrams) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
 | `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection |
@@ -77,7 +77,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
-Built as well: `run`, `env`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, `merge --only` and `merge approve`. `hitld --help` lists every built command; this table is the design, not the list.
+Built as well: `run`, `env`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, and for owner merge mode `merge --all`, `merge --only` and `merge approve`. `hitld --help` lists every built command; this table is the design, not the list.
 
 ## 16.3 How a consuming project gets the plugin
 
@@ -158,6 +158,8 @@ Known limits, from the documentation read on 2026-11-14: cloud sessions do not l
 The plugin's **public interface** is: the executor contract; the report shape; the data schemas (items, decisions, precedents, signals, studies, ledger, `policy.json`, eval scenarios and results); the adapter interfaces; the `hitld` command's and MCP server's JSON; and the commit trailers. Semantic versioning applies to that interface. The adapter interface and capability set are public and labelled experimental until a second adapter proves their shape. The schemas of the person and machine files ([13.4](13-operations.md#134-settings-in-four-layers)) are part of it.
 
 **While the version is 0.y.z** (before 1.0), a minor release may break formats or commands, and ships the migration for whatever it changes: `hitld data migrate` for data files, `hitld work migrate` for the tracker format. Patch releases never break. Minor and major releases are the owner's call; a patch release may follow a precedent the owner confirmed. The first tag is `v0.1.0`. The rules below apply from 1.0.
+
+**What a 0.y.z release still keeps.** Data people keep (tracker files, settings, the ledger, private-store records) follows the rename rule below even before 1.0: an old name is read for one minor release, with a warning, and the release ships its migration. Output (error codes, the `hitld` command's JSON and text, generated pages) may change in any minor release with no fallback; the release notes list each change.
 
 Compatibility rules for data:
 

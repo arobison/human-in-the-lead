@@ -141,7 +141,7 @@ These shape a format or a default that the first release (v0.1.0, HITLD-24) woul
 
 ### Q18. What unit is value measured in? (blocks Shaping and prioritization)
 
-*Decided: the project's own value units, a positive number.* A contribution's value has the same meaning as an opportunity's value ([part 2](02-loops.md#23-shaping), [part 3](03-data-model.md#milestone)). 1, 2, 3, 5, 8 and 13 are quick choices, not the only values.
+*Decided: the project's own value units, a positive number.* A contribution's value has the same meaning as a project's value ([part 2](02-loops.md#23-shaping), [part 3](03-data-model.md#milestone)). 1, 2, 3, 5, 8 and 13 are quick choices, not the only values.
 
 Prioritization divides cost of delay by size, so value needs a unit ([part 1](../0001-human-in-the-lead.md#13-the-objective)).
 
@@ -331,7 +331,7 @@ These are calls the design makes without asking. Each can be reversed cheaply no
 - Studies and runs stay in the project's benchmark tool; this system cites them ([part 3](03-data-model.md#study-run-verdict)).
 - The report shape adds `result` (`status` before HITLD-82) and `calls` (logged calls) to the agreed shape ([part 5](05-execution.md#56-the-report-shape)).
 - Executors never create tracker entities; the orchestrator does ([part 3](03-data-model.md#id-allocation)).
-- Claims are read from branches; `main` never shows `in-progress`; views are written only as part of a merge (by the queue, or by the merge the owner names in owner mode) ([part 3](03-data-model.md#initiative-project-item)).
+- Claims are read from branches; `main` never shows `in-progress`; views are written only as part of a merge (by the queue, or by the merge the owner names in owner mode) ([part 3](03-data-model.md#project-and-item)).
 - A sandboxed reproducer role turns bug reports into failing tests ([part 2](02-loops.md#22-triage)).
 - The owner's own words in the main session are directions; notes and pasted material become signals ([part 9](09-contributors.md#92-trust-levels)).
 - A minimal acceptance author and the security baseline are part of "One signal end to end" ([part 21](21-scope.md)).

@@ -159,12 +159,9 @@ export function checkReleases(records, layout, get) {
       for (const ref of Array.isArray(d[key]) ? d[key] : []) {
         const t = get(ref);
         if (!t) say(`${key} ${ref} doesn't exist`);
-        else if (key === 'milestones' && !['capability', 'learning'].includes(String(t.kind))) {
+        else if (key === 'milestones' && t.kind !== 'milestone') {
           say(`milestones ${ref} is a ${t.kind}, not a milestone`);
-        } else if (
-          key === 'items' &&
-          ['capability', 'learning', 'project', 'initiative'].includes(String(t.kind))
-        ) {
+        } else if (key === 'items' && ['milestone', 'project'].includes(String(t.kind))) {
           say(`items ${ref} is a ${t.kind}, not an item`);
         }
       }

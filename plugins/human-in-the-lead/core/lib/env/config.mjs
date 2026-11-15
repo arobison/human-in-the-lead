@@ -21,6 +21,7 @@ import { isAbsolute, join, resolve } from 'node:path';
  * @property {number} lockExpirySeconds
  * @property {'auto' | 'keychain' | 'env'} secretProvider
  * @property {SecretTask[]} secretTasks
+ * @property {string} mainBranch policy.json merge.main_branch: the branch worktrees are cut from
  */
 
 /**
@@ -40,6 +41,8 @@ export function envSettings(policy) {
     lockExpirySeconds: e.lock_expiry_seconds ?? 300,
     secretProvider: e.secret_provider ?? 'auto',
     secretTasks: e.secret_tasks ?? [],
+    // The one main-branch setting; 'main' only when no policy section sets it.
+    mainBranch: policy.merge?.main_branch ?? 'main',
   };
 }
 

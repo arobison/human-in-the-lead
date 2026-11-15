@@ -100,3 +100,5 @@ A human (the area owner or the owner; the owner alone, until area owners can ans
 | **First changes after a model or skill change** in an area | A sample | Is the new configuration as good as the old? |
 
 Nothing else triggers a read. In particular, size and complexity do not: a large, well-tested change in a reliable area is not read.
+
+In owner merge mode, these reads ride on the merge question ([14.2](14-integration.md#142-the-queue)): each green branch is presented with the reads its triggers call for, and a branch no trigger fires on carries none. The merge queue fires the triggers it can see in the diff: security-sensitive paths (`dispatch.sensitive_globs`), public surface (`merge.public_globs`), a new dependency (a changed dependency manifest) and owner-reviewed UI work (`dispatch.owner_review_areas`). The others need records not yet kept, such as an area's escaped defects and sampling rate.

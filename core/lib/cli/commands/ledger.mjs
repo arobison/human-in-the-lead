@@ -26,6 +26,8 @@ import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
+import { revertEvents } from '../../merge/owner.mjs';
+import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const STORE = {
@@ -90,6 +92,7 @@ function setup(input, ctx) {
     kept: policy.run?.checkpoints_kept,
     expirySeconds: policy.run?.lease_expiry_seconds,
     orchestrator: /** @type {Record<string, number | undefined>} */ (policy.orchestrator ?? {}),
+    mainBranch: /** @type {string | undefined} */ (policy.merge?.main_branch),
     cwd: ctx.cwd,
   };
 }
@@ -231,6 +234,12 @@ export const commands = [
           }
         }
         const { event: written, appended } = run.record(fields);
+        // A revert of a merge the owner approved is trust-calibration data (design 14.2).
+        if (appended && written.event === 'reverted' && typeof written.item === 'string') {
+          for (const ev of revertEvents(readTrustEvents(s.store), written.item)) {
+            recordTrustEvent(s.store, ev, written.at);
+          }
+        }
         return { ok: true, appended, event: written };
       }),
   },
@@ -401,7 +410,7 @@ export const commands = [
                 .map((x) => x.trim())
                 .filter((x) => x && x !== 'none')
             : null;
-        const reality = gitReality({ cwd: s.cwd });
+        const reality = gitReality({ cwd: s.cwd, mainBranch: s.mainBranch });
         if (live) reality.live = () => live;
         const r = await resumeRun(s.store, {
           ...who(input, ctx),
@@ -557,7 +566,7 @@ export const commands = [
         const s = setup(input, ctx);
         const r = rebuildRun(s.store, {
           kept: s.kept,
-          reality: gitReality({ cwd: s.cwd }),
+          reality: gitReality({ cwd: s.cwd, mainBranch: s.mainBranch }),
           branchPrefix: /** @type {string | undefined} */ (input['branch-prefix']),
         });
         return {

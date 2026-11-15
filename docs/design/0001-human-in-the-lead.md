@@ -146,7 +146,7 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 **Goals**
 
 - One owner can direct many parallel agents on a large codebase and spend attention only on decisions that are theirs.
-- Every unit of work is traceable: from a signal, through a decision or an opportunity, to an item, a dispatch, a commit, evidence, and a release.
+- Every unit of work is traceable: from a signal, through a decision or a project being shaped, to an item, a dispatch, a commit, evidence, and a release.
 - Confidence in generated code comes from independent evidence that accumulates over time, not from reading the code.
 - The system measures itself and tunes itself inside bounds the owner sets; changes to the rules go to the owner as decisions.
 - Token- and wall-time-efficient by design: short briefs, short reports, parallel work, serial resources protected.
@@ -180,16 +180,18 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 |---|---|
 | **Owner** | The person who holds the project's decision rights: identity and policy, direction, weights, budgets. "The owner" always means this person. A record's `owner` field is different: whoever is accountable for that record, which defaults to the owner. |
 | **Area owner** | A human with delegated decision rights over an area (paths and topics). |
-| **Chief of staff** | The owner's front-desk session: the session the owner talks to, which takes their requests and answers, keeps their attention budget and hands work to an orchestrator. `chief-of-staff` where code needs a role value. Distinct from the orchestrator. |
-| **Orchestrator** | The session that runs the work: plans, sizes, dispatches, merges, asks. Implements only tiny tasks. Until the chief of staff is built (HITLD-86), the main session in the harness is both. |
+| **Chief of staff** | The owner's front-desk session: the session the owner talks to, which takes their requests and answers, keeps their attention budget and hands work to an orchestrator. It starts orchestrator sessions and their successors, owns every scheduled task and wake source of a run, and records only what the owner says: answers, ratings and merge approvals. It never holds the run lease. `chief-of-staff` where code needs a role value. Distinct from the orchestrator. |
+| **Orchestrator** | The session that runs the work: plans, sizes, dispatches, merges, asks. Implements only tiny tasks. It holds the run lease, and it is disposable: it hands over to a fresh session as its context fills, and the chief of staff starts the successor. Where no session can be started, the main session is both. |
 | **Executor** | An agent that implements one item in its own worktree. A background agent (tiers 1–2) or its own session (tier 3). |
 | **Signal** | Anything that arrives: a bug report, feature request, idea, question, failing test, research finding. Has provenance. |
-| **Opportunity** | A shaped cluster of signals: problem, evidence, options, value, confidence, appetite. |
-| **Initiative, project, item** | The work hierarchy. Items are the unit of dispatch. |
-| **Item kinds** | `work` (change the product), `decision` (a question for a decider), `external` (waits on something outside the project). |
+| **Project, item** | The work tree. A project groups items toward an outcome and holds the appetite; items are the unit of dispatch. A project has no parent. |
+| **Project being shaped** | A `proposed` project: a cluster of signals turned into a problem, evidence, options, value, confidence, cost of delay, appetite, what is out of scope and the risks. The owner's bet, the answer to its decision, moves it to `planned`; a rejected one is `dropped` with the reason. |
+| **Bet** | The owner's commitment of a project's appetite: the answer to the project's decision. Who made it is read from that answer. |
+| **Milestone** | A checkable future state for users, named by its outcome and never numbered: done-when clauses, constraints, contributions, an independent check, and a share of its project's appetite. One kind; a **learning milestone** is the one whose check is a study. A milestone with no parent is a **long outcome**, whose constraints are other milestones. |
+| **Item kinds** | `work` (change the product), `decision` (a question for a decider), `external` (work someone the system cannot dispatch completes: the owner by hand, a contributor, an upstream project, a vendor). |
 | **Decision** | An item of kind `decision`: a question, options, a recommendation, a decider, and after answering, an answer and rationale. |
 | **Precedent** | A rule generalized from an answered decision, which resolves matching future questions automatically. |
-| **Judgement** | A person's recorded judgement on a signal or opportunity (a gut check or a considered call): a calibrated prior for prioritization, never a decision by itself. |
+| **Judgement** | A person's recorded judgement on a signal or a project being shaped (a gut check or a considered call): a calibrated prior for prioritization, never a decision by itself. |
 | **Judgement record** | The per-person view of every call a person made (judgements and decision answers), each with optional confidence, what they expected, the evidence available at the time, and outcomes as they arrive ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)). |
 | **Calibration review** | A periodic report to one person on how their calls turned out, by area and confidence level; for their own improvement, private to them by default, never a ranking ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)). |
 | **Trust calibration** | The slow loop that matches the system's autonomy to its record per area, by proposals the owner decides. |

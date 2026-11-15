@@ -1,7 +1,7 @@
 ---
 id: HITLD-67
 title: Consumer live
-kind: capability
+kind: milestone
 state: planned
 created: 2026-11-14
 project: HITLD-15

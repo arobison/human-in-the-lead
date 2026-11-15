@@ -58,7 +58,7 @@
       "enum": ["proposed", "planned", "in-progress", "done", "dropped"]
     },
     "plannedState": {
-      "description": "The core lifecycle without in-progress, for what is never claimed: decisions, external items, milestones, projects and initiatives (design part 3.2). A project or initiative being active is derived from its items.",
+      "description": "The core lifecycle without in-progress, for what is never claimed: decisions, external items, milestones and projects (design part 3.2). A project being active is derived from its items.",
       "enum": ["proposed", "planned", "done", "dropped"]
     },
     "rightsBasis": {
@@ -76,7 +76,7 @@
       ]
     },
     "judgement": {
-      "description": "A person's judgement on a signal or opportunity: an input to prioritization, never a decision (design part 3.2). The public entity carries what was judged, the basis and who. The time, confidence, expectation, evidence and outcomes live in the private store, and the weight is derived.",
+      "description": "A person's judgement on a signal or a project being shaped: an input to prioritization, never a decision (design part 3.2). The public entity carries what was judged, the basis and who. The time, confidence, expectation, evidence and outcomes live in the private store, and the weight is derived.",
       "type": "object",
       "properties": {
         "what": { "$ref": "#/$defs/text" },

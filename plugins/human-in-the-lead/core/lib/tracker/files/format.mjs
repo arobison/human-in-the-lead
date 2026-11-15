@@ -2,18 +2,20 @@
 // kinds, statuses, the allowlist of front-matter keys per kind, and how the stored keys map to
 // the tracker's entity fields (design part 3.2).
 //
-// The stored names are the model's, except two: `project` (an item's parent) and `initiative` (a
-// project's parent), which the entity hands out as `parent`. The mapping is here, in one place. A
-// milestone's parent is a project or an initiative, stored under the key of its kind.
+// The stored names are the model's, except one: `project` (the parent of an item or a milestone),
+// which the entity hands out as `parent`. The mapping is here, in one place. A project has no
+// parent, and a milestone with none is a long outcome.
 //
-// The format before HITLD-82 used other names (legacy.mjs); `hitld work migrate` moves a tracker's
-// files, and the check names a file that still holds an old key.
+// The formats before HITLD-82 and HITLD-90 used other names and kinds (legacy.mjs); `hitld work
+// migrate` moves a tracker's files, and the check names a file that still holds an old key or
+// kind.
 
 import { ITEM_KINDS, list } from './graph.mjs';
-import { LEGACY_STATES, RENAMED_KEYS } from './legacy.mjs';
+import { LEGACY_STATES, OPPORTUNITY_RENAMED_KEYS, RENAMED_KEYS } from './legacy.mjs';
 import { MILESTONE_KINDS, milestoneFields, storedMilestoneField } from './milestones.mjs';
+import { SHAPING_KEYS, SHAPING_LIST_KEYS, projectFields, storedProjectField } from './projects.mjs';
 
-export const KINDS = ['work', 'decision', 'external', 'project', 'initiative', ...MILESTONE_KINDS];
+export const KINDS = ['work', 'decision', 'external', 'project', ...MILESTONE_KINDS];
 /** The lifecycle (design part 3.2): stored as `state`, lowercase kebab-case. */
 export const STATES = ['proposed', 'planned', 'in-progress', 'done', 'dropped'];
 
@@ -22,24 +24,22 @@ export const STATE_LABELS = /** @type {Record<string, string>} */ (
   Object.fromEntries(Object.entries(LEGACY_STATES).map(([label, state]) => [state, label]))
 );
 
-/** Folder group per kind: containers and milestones have their own, every item kind shares one. */
+/** Folder group per kind: projects and milestones have their own, every item kind shares one. */
 export const FOLDER_GROUP = /** @type {const} */ ({
-  initiative: 'initiative',
   project: 'project',
   work: 'item',
   decision: 'item',
   external: 'item',
-  capability: 'milestone',
-  learning: 'milestone',
+  milestone: 'milestone',
 });
 
 const COMMON_KEYS = ['id', 'title', 'kind', 'state', 'created'];
 
-/** The stored milestone keys (design part 3.2, Milestone). */
+/** The stored milestone keys (design part 3.2, Milestone). `project` is optional. */
 const MILESTONE_KEYS = [
   ...COMMON_KEYS,
   'project',
-  'initiative',
+  'owner',
   'outcome',
   'done_when',
   'constraints',
@@ -66,25 +66,41 @@ export const DECISION_ANSWER_KEYS = [
   'resolved_by_precedent',
 ];
 
-/** The allowlist: any key not listed for an item's kind is an error. */
+/**
+ * The allowlist: any key not listed for an item's kind is an error. Every record may name its
+ * `owner`, who is accountable for it; without one, that is the owner.
+ */
 export const KEYS = /** @type {Record<string, string[]>} */ ({
-  work: [...COMMON_KEYS, 'project', 'needs', 'claimed_by', 'reason'],
-  decision: [...COMMON_KEYS, 'project', 'needs', 'reason', 'decider', ...DECISION_ANSWER_KEYS],
-  external: [...COMMON_KEYS, 'project', 'needs', 'reason', 'waiting_on'],
-  project: [...COMMON_KEYS, 'initiative', 'owner', 'plan', 'reason'],
-  initiative: [...COMMON_KEYS, 'owner', 'reason'],
-  capability: MILESTONE_KEYS,
-  learning: MILESTONE_KEYS,
+  work: [...COMMON_KEYS, 'project', 'owner', 'needs', 'claimed_by', 'reason'],
+  decision: [
+    ...COMMON_KEYS,
+    'project',
+    'owner',
+    'needs',
+    'reason',
+    'decider',
+    ...DECISION_ANSWER_KEYS,
+  ],
+  external: [...COMMON_KEYS, 'project', 'owner', 'needs', 'reason', 'waiting_on'],
+  project: [...COMMON_KEYS, 'owner', 'plan', ...SHAPING_KEYS, 'reason'],
+  milestone: MILESTONE_KEYS,
 });
+
+/** Who `owner` is when a record names none: the person who holds the project's decision rights. */
+export const DEFAULT_OWNER = 'owner';
 
 /**
  * Keys the format no longer has, and why. `hitld work migrate` removes them (the migrations
- * milestone-entities and retire-priority); the check names them with this reason.
+ * milestone-entities, retire-priority and tracker-structure); the check names them with this
+ * reason.
  */
 export const RETIRED_KEYS = /** @type {Record<string, string>} */ ({
   milestone: 'milestones are their own files now (design part 3.2)',
   milestones: 'milestones are their own files now (design part 3.2)',
   priority: 'order is derived (design part 2.4, Q30)',
+  initiative:
+    'initiatives are milestones now: a long outcome is a milestone with no parent (design part 3.2)',
+  bet_by: "it is derived from the project's decision",
 });
 
 /** Keys some tool would run as code. Refused with their own message. */
@@ -106,7 +122,14 @@ export const CODE_KEYS = [
 const OPTIONAL_LISTS = ['opened_from', 'touches', 'serial', 'credit'];
 
 /** Stored keys that hold a list, whatever the settings. */
-const LIST_KEYS = ['needs', 'done_when', 'constraints', 'contributions', 'check_results'];
+const LIST_KEYS = [
+  'needs',
+  'done_when',
+  'constraints',
+  'contributions',
+  'check_results',
+  ...SHAPING_LIST_KEYS,
+];
 
 /**
  * The keys that hold a list, given the settings.
@@ -134,7 +157,7 @@ export const keyOrder = (
 ) => allowedKeys(kind, layout);
 
 /** The stored keys with no entity field of their own: carried through under the same names. */
-export const NATIVE_EXTRAS = ['created', 'claimed_by', 'reason', 'waiting_on', 'owner', 'plan'];
+export const NATIVE_EXTRAS = ['created', 'claimed_by', 'reason', 'waiting_on', 'plan'];
 
 /**
  * Names a declared field may not take: every key and entity field the format already uses, and
@@ -147,10 +170,12 @@ export const reservedFieldNames = (optionalNames) =>
     ...Object.values(KEYS).flat(),
     ...Object.keys(RETIRED_KEYS),
     ...Object.keys(RENAMED_KEYS),
+    ...Object.keys(OPPORTUNITY_RENAMED_KEYS),
     ...optionalNames,
     ...NATIVE_EXTRAS,
     ...CODE_KEYS,
     'parent',
+    'bet_by',
     'claimed',
     'body',
     'path',
@@ -232,9 +257,10 @@ export function fieldProblems(d, layout) {
 const intOrSame = (v) => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v);
 
 /**
- * The entity as the model names it, from a file's stored keys: the parent key becomes `parent`,
- * and a missing classification is the project's default. Keys the model has no field for are carried through under their own
- * names. `schema_version` is added so the schemas can validate it.
+ * The entity as the model names it, from a file's stored keys: the parent key becomes `parent`, a
+ * missing classification is the project's default, and a missing owner is the owner. Keys the
+ * model has no field for are carried through under their own names. `schema_version` is added so
+ * the schemas can validate it.
  * @param {Record<string, unknown>} d stored keys
  * @param {import('./config.mjs').Layout} layout
  * @returns {Record<string, unknown>}
@@ -245,16 +271,20 @@ export function toEntity(d, layout) {
   const kind = String(d.kind);
   const milestone = MILESTONE_KINDS.includes(kind);
   if ((ITEM_KINDS.includes(kind) || milestone) && d.project !== undefined) e.parent = d.project;
-  if ((kind === 'project' || milestone) && d.initiative !== undefined) e.parent = d.initiative;
+  e.owner = d.owner ?? DEFAULT_OWNER;
   if (milestone) Object.assign(e, milestoneFields(d));
   else if (d.needs !== undefined) e.needs = d.needs;
+  if (kind === 'project') {
+    Object.assign(e, projectFields(d));
+    if (d.plan !== undefined) e.plan = d.plan;
+  }
   if (d.decider !== undefined) e.decider = d.decider;
   if (kind === 'decision') {
     for (const k of DECISION_ANSWER_KEYS) if (d[k] !== undefined) e[k] = d[k];
   }
   e.classification = d.classification ?? layout.defaultClassification;
   for (const k of layout.optionalKeys) {
-    if (k === 'classification' || d[k] === undefined) continue;
+    if (k === 'classification' || k === 'owner' || d[k] === undefined) continue;
     e[k] = k === 'estimate_tokens' || k === 'tier_override' ? intOrSame(d[k]) : d[k];
   }
   for (const def of layout.fields) {
@@ -279,22 +309,17 @@ export function toStored(fields, kind, layout) {
   const allowed = new Set(allowedKeys(kind, layout));
   const milestone = MILESTONE_KINDS.includes(kind);
   for (const [k, v] of Object.entries(fields)) {
-    if (k === 'parent' && milestone) {
-      // A milestone's parent is a project unless parent_kind names an initiative.
-      const key = fields.parent_kind === 'initiative' ? 'initiative' : 'project';
-      stored[key] = v;
-      stored[key === 'project' ? 'initiative' : 'project'] = null;
-    } else if (k === 'parent_kind' && milestone) continue;
-    else if (k === 'parent') stored[ITEM_KINDS.includes(kind) ? 'project' : 'initiative'] = v;
+    // An item's or a milestone's parent is a project; a project has none.
+    if (k === 'parent' && kind !== 'project') stored.project = v;
     else if (k === 'schema_version' || k === 'body' || k === 'path' || k === 'version') continue;
     else if (allowed.has(k)) {
       const value = storedField(k, v, layout);
-      stored[k] = milestone ? storedMilestoneField(k, value) : value;
+      stored[k] = milestone
+        ? storedMilestoneField(k, value)
+        : kind === 'project'
+          ? storedProjectField(k, value)
+          : value;
     } else unsupported.push(k);
-  }
-  if (kind === 'initiative' && 'parent' in fields) {
-    unsupported.push('parent');
-    delete stored.initiative;
   }
   return { stored, unsupported };
 }
