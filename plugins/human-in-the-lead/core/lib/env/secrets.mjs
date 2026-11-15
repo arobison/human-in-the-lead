@@ -4,8 +4,9 @@
 // a secret from an agent is that the agent cannot choose the command. Nothing here writes a value
 // anywhere: not the registry, not the event log, not the result.
 
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
+import { keychain } from './keychain.mjs';
 import { logEvent } from './registry.mjs';
 
 /**
@@ -26,28 +27,9 @@ export function secretReader(options) {
   const platform = options.platform ?? process.platform;
   /** @type {SecretReader} */
   const fromEnv = (name) => options.env[ENV_PREFIX + name] ?? null;
+  const store = keychain({ service, platform });
   /** @type {SecretReader} */
-  const fromKeychain = (name) => {
-    try {
-      if (platform === 'darwin') {
-        const out = execFileSync(
-          'security',
-          ['find-generic-password', '-s', service, '-a', name, '-w'],
-          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-        );
-        return out.replace(/\r?\n$/, '');
-      }
-      if (platform === 'linux') {
-        return execFileSync('secret-tool', ['lookup', 'service', service, 'account', name], {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-        });
-      }
-    } catch {
-      // not found, or no keychain tool on this machine
-    }
-    return null;
-  };
+  const fromKeychain = (name) => store.read(name);
   if (options.provider === 'env') return fromEnv;
   if (options.provider === 'keychain') return fromKeychain;
   return (name) => fromKeychain(name) ?? fromEnv(name);
