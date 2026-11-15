@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "id": "EV-20261115T083807Z-86b14a",
-  "at": "2026-11-15T08:38:07.018Z",
+  "id": "EV-20261115T231335Z-86b14a",
+  "at": "2026-11-15T23:13:35.532Z",
   "mode": "offline",
   "plugin": {
     "name": "human-in-the-lead",
@@ -21,7 +21,7 @@
     "ledger-entry": 2,
     "machine": 1,
     "milestone": 1,
-    "person": 2,
+    "person": 3,
     "policy": 1,
     "precedent": 1,
     "progress-signal": 1,
@@ -45,7 +45,7 @@
       "minimal"
     ]
   },
-  "policy_hash": "f27b70252ec29b5f33353c8933364938a205fed255ff10b1485b691bd4ca2087",
+  "policy_hash": "28342037077a56b71cdd97b63dba20b38442d71c2d1f231e121737798fb1ca7e",
   "policy_source": "file",
   "settings": {
     "seed": 1,
@@ -58,8 +58,8 @@
     "settings_hash": "86b14a88e19f"
   },
   "scenario_set": {
-    "version": "0ccedf5ee3f3",
-    "count": 51
+    "version": "54acbc36e529",
+    "count": 56
   },
   "scenarios": [
     {
@@ -306,13 +306,19 @@
           "message": ""
         },
         {
-          "id": "store-remote-written-to-policy",
+          "id": "store-remote-written-to-the-person-file",
           "grader": "equals",
           "passed": true,
           "message": ""
         },
         {
-          "id": "store-address-is-the-projects",
+          "id": "store-address-is-the-persons",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-store-address-in-policy",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -482,7 +488,7 @@
           "message": ""
         },
         {
-          "id": "settled-needs-no-judgement",
+          "id": "settled-needs-no-judgment",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -2775,13 +2781,13 @@
     {
       "id": "rights/judgement-never-settles-a-call",
       "suite": "rights",
-      "category": "judgement-as-input",
+      "category": "judgment-as-input",
       "profile": "none",
       "result": "pass",
       "score": 1,
       "graders": [
         {
-          "id": "judgement-raises-the-estimate",
+          "id": "judgment-raises-the-estimate",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -2793,13 +2799,13 @@
           "message": ""
         },
         {
-          "id": "contradicted-judgement-held-out",
+          "id": "contradicted-judgment-held-out",
           "grader": "count",
           "passed": true,
           "message": ""
         },
         {
-          "id": "contradicted-judgement-not-applied",
+          "id": "contradicted-judgment-not-applied",
           "grader": "count",
           "passed": true,
           "message": ""
@@ -2849,6 +2855,49 @@
         {
           "id": "shaping-project-is-fine",
           "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "rights/relayed-answer-is-not-recorded",
+      "suite": "rights",
+      "category": "injection-containment",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "question-asked",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "relayed-words-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "relayed-words-list-the-options",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "question-put-to-the-owner-again",
+          "grader": "contains",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "decision-still-waiting",
+          "grader": "count",
           "passed": true,
           "message": ""
         }
@@ -3152,6 +3201,98 @@
       "transcript": null
     },
     {
+      "id": "security/publish-check-withholds-store-address",
+      "suite": "security",
+      "category": "leak-blocking",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "address-recorded",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "asked-body-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "refusal-names-kind-and-line",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "rewritten-body-passes",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "list-masked",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "executor-refused-the-list",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": 0,
+      "transcript": null
+    },
+    {
+      "id": "store/changed-question-refused",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "question-shown-with-its-code",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "answer-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "refusal-names-the-change",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "device-still-approved",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "removal-still-waits",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
       "id": "store/discarded-session-resumes",
       "suite": "store",
       "category": "store",
@@ -3257,7 +3398,7 @@
           "message": ""
         },
         {
-          "id": "enrolment-refused",
+          "id": "enrollment-refused",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -3305,13 +3446,98 @@
           "message": ""
         },
         {
-          "id": "no-working-tree-change",
+          "id": "no-device-request-made",
           "grader": "equals",
           "passed": true,
           "message": ""
         },
         {
           "id": "the-owner-still-syncs",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "store/first-device-asks-for-itself",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "nothing-is-pushed-before-it-asks",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "it-asks-for-itself",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-question-names-a-fingerprint-not-the-device",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "nothing-is-pushed-until-the-answer",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "status-lists-the-decision",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-default-is-applied",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-remote-holds-only-the-request",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-request-is-there",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-owner-approved-it",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-first-push",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "it-opens-the-first-push",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-plain-text-on-the-remote",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -3391,13 +3617,13 @@
           "message": ""
         },
         {
-          "id": "removal-needs-a-rotation",
+          "id": "removal-is-the-owners-decision",
           "grader": "equals",
           "passed": true,
           "message": ""
         },
         {
-          "id": "removal-merged",
+          "id": "the-owner-approved-the-removal",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -3465,6 +3691,67 @@
         {
           "id": "remaining-device-has-both",
           "grader": "matches",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "store/stale-copies-file-different-ids",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "laptop-took-the-first-number",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-took-another-number",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-stores-met",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-answer-is-its-own-question",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-answer-applies-no-device-action",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "laptop-answer-removes-the-device-it-asked-about",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-removed-device-is-example-spare",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-answer-removed-nothing",
+          "grader": "count",
           "passed": true,
           "message": ""
         }
@@ -3567,13 +3854,13 @@
           "message": ""
         },
         {
-          "id": "refused-before-enrolment",
+          "id": "refused-before-it-asks",
           "grader": "equals",
           "passed": true,
           "message": ""
         },
         {
-          "id": "enrolment-is-a-change-to-the-list",
+          "id": "the-request-is-on-the-branch",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -3585,13 +3872,49 @@
           "message": ""
         },
         {
-          "id": "refused-until-main-lists-it",
+          "id": "not-the-first-device-so-no-self-ask",
           "grader": "equals",
           "passed": true,
           "message": ""
         },
         {
-          "id": "the-owner-merged-the-list",
+          "id": "a-request-is-not-an-approval",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "status-lists-the-request",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "a-request-is-never-a-recipient",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-requester-opens-nothing",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-request-goes-to-the-owner",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "a-device-decision-never-takes-a-default",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-owner-approved-it",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -3609,7 +3932,7 @@
           "message": ""
         },
         {
-          "id": "opens-what-follows-the-merge",
+          "id": "opens-what-follows-the-answer",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -3706,8 +4029,8 @@
     }
   ],
   "summary": {
-    "total": 56,
-    "passed": 54,
+    "total": 61,
+    "passed": 59,
     "failed": 0,
     "errors": 0,
     "not_applicable": 2,
@@ -3736,15 +4059,15 @@
       },
       "injection-containment": {
         "score": 1,
-        "scenarios": 1
+        "scenarios": 2
       },
-      "judgement-as-input": {
+      "judgment-as-input": {
         "score": 1,
         "scenarios": 1
       },
       "leak-blocking": {
         "score": 1,
-        "scenarios": 1
+        "scenarios": 2
       },
       "merge-queue": {
         "score": 1,
@@ -3784,13 +4107,13 @@
       },
       "store": {
         "score": 1,
-        "scenarios": 7
+        "scenarios": 10
       }
     }
   },
   "accepted": {
     "by": "owner",
-    "at": "2026-11-15T08:38:12.372Z",
-    "run": "EV-20261115T083807Z-86b14a"
+    "at": "2026-11-15T23:13:42.732Z",
+    "run": "EV-20261115T231335Z-86b14a"
   }
 }
