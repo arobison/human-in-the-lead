@@ -171,7 +171,7 @@
       "additionalProperties": false
     },
     "accepted": {
-      "description": "Present only on a baseline: who accepted this run as the baseline, and when (added in version 2). The stored run itself never has it.",
+      "description": "Present only on a baseline: who accepted this run as the baseline, and when (added in version 2). The stored run itself never has it. The baseline committed in evals/baselines/ is the same document in its committed form: grader messages empty, no reasons, wall time 0, no transcript keys, no commit, no gate verdict.",
       "type": "object",
       "properties": {
         "by": { "const": "owner" },
@@ -187,6 +187,10 @@
       "properties": {
         "ok": { "type": "boolean" },
         "baseline": { "type": ["string", "null"] },
+        "baseline_source": {
+          "description": "Which baseline the verdict used: committed (the file in evals/baselines/ of the checkout) or private-store (this machine's copy, used only when none is committed). Null when there was none. Absent in runs recorded before the gate said so.",
+          "enum": ["committed", "private-store", null]
+        },
         "failures": {
           "type": "array",
           "items": {

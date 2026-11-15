@@ -6,11 +6,12 @@ import { openStore, privateStorePath } from '../../store/store.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
 import {
+  acceptBaseline,
   acceptRefusal,
+  findBaseline,
   fromLegacyResult,
-  readBaseline,
-  writeBaseline,
 } from '../../eval/results.mjs';
+import { ownerCheckoutOf } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
 import { renderEvalReport } from '../../eval/report.mjs';
 import { outputProblem, writeReportFiles } from '../../report-output.mjs';
@@ -90,7 +91,13 @@ export const commands = [
         name: 'offline',
         type: 'boolean',
         description:
-          'Deterministic scenarios only: fast and free. Records the run in the private store and compares it with the stored baseline',
+          "Deterministic scenarios only: fast and free. Records the run in the private store and compares it with the baseline: the one committed in evals/baselines/ first, the private store's second. The result says which it used",
+      },
+      {
+        name: 'require-baseline',
+        type: 'boolean',
+        description:
+          "Fail unless a baseline committed in evals/baselines/ matches these settings (mode, seed and profiles). The private store's baseline does not count. CI and the release use it; a scenario the baseline has not seen is still only a note",
       },
       {
         name: 'live',
@@ -113,7 +120,7 @@ export const commands = [
         name: 'accept-baseline',
         type: 'boolean',
         description:
-          "Record this full, passing run as the baseline the gate compares with. The owner's decision (design part 17.9): agents do not pass it. To accept a run you have already reviewed, use hitld eval accept --result <id> instead",
+          "Record this full, passing run as the baseline the gate compares with: in the private store, and as evals/baselines/<mode>-<settings hash>.json in the primary checkout, which the owner commits. The owner's decision (design part 17.9): agents do not pass it. To accept a run you have already reviewed, use hitld eval accept --result <id> instead",
       },
       {
         name: 'evals-dir',
@@ -142,6 +149,7 @@ export const commands = [
         scenarios: /** @type {string | undefined} */ (input.scenarios),
         seed: /** @type {number | undefined} */ (input.seed),
         acceptBaseline: input['accept-baseline'] === true,
+        requireBaseline: input['require-baseline'] === true,
         evalsDir: /** @type {string | undefined} */ (input['evals-dir']),
       });
     },
@@ -191,7 +199,8 @@ export const commands = [
       }
       const doc = readRun(store, String(id));
       if (!doc.ok) return doc;
-      const html = renderEvalReport(doc.run, readBaseline(store, doc.run));
+      const root = repoRoot ?? resolve(ctx.cwd);
+      const html = renderEvalReport(doc.run, findBaseline({ store, root }, doc.run).baseline);
       const dir =
         typeof input.out === 'string'
           ? isAbsolute(input.out)
@@ -216,7 +225,7 @@ export const commands = [
   {
     name: 'eval accept',
     summary:
-      "Accept exactly a stored eval run as the baseline for its settings, without running again. The owner's decision (design part 17.9): executors never run it",
+      "Accept exactly a stored eval run as the baseline for its settings, without running again: writes evals/baselines/<mode>-<settings hash>.json in the primary checkout, for the owner to commit, and keeps a copy in the private store. The owner's decision (design part 17.9): executors never run it",
     built_by: 'g',
     mcp: false,
     args: [
@@ -243,7 +252,10 @@ export const commands = [
       }
       const doc = readRun(store, id);
       if (!doc.ok) return doc;
-      const refusal = acceptRefusal(doc.run, readBaseline(store, doc.run));
+      // The committed baseline is written to the primary checkout, never to a linked worktree.
+      const root = ownerCheckoutOf(ctx.cwd) ?? resolve(ctx.cwd);
+      const current = findBaseline({ store, root }, doc.run);
+      const refusal = acceptRefusal(doc.run, current.baseline);
       if (refusal) {
         return {
           ok: false,
@@ -252,14 +264,24 @@ export const commands = [
           message: `run ${id} was not accepted: ${refusal}`,
         };
       }
-      const key = writeBaseline(store, doc.run);
-      const baseline = readBaseline(store, doc.run);
+      let written;
+      try {
+        written = acceptBaseline({ store, root, result: doc.run });
+      } catch (e) {
+        return {
+          ok: false,
+          error: 'refused',
+          run: id,
+          message: `run ${id} was not accepted: ${e instanceof Error ? e.message : String(e)}`,
+        };
+      }
       return {
         ok: true,
         run: id,
-        baseline: join(store.root, key),
-        accepted: baseline?.accepted ?? null,
-        text: `${id} is now the baseline for settings ${doc.run.settings.settings_hash}\n`,
+        baseline: join(store.root, written.key),
+        committed: written.file,
+        accepted: written.accepted,
+        text: `${id} is now the baseline for settings ${doc.run.settings.settings_hash}\nwrote ${written.file}: commit it, so CI and every machine gate on it\n`,
       };
     },
   },

@@ -5,9 +5,17 @@
 //   eval/results/<run ID>.json
 //   eval/baselines/<mode>-<settings hash>.json     a full run the owner accepted as the baseline
 //   eval/transcripts/<run ID>/<scenario>@<profile>.json
+//
+// The accepted baseline is also written, stripped of anything machine-specific, to
+// evals/baselines/<mode>-<settings hash>.json in the primary checkout, for the owner to commit
+// (design part 17.9). The gate reads that committed file first and the private store's copy second,
+// so CI and a cloud session, which have no private store, gate on the same baseline as a laptop.
 
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { hostname, homedir, userInfo } from 'node:os';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { schemas } from '../schema/registry.mjs';
 import { formatErrors } from '../schema/validate.mjs';
 import { canonicalJson } from '../policy/policy.mjs';
@@ -204,21 +212,83 @@ export function recordResult(store, result, transcripts) {
 }
 
 /** @param {string} mode @param {string} hash */
-export const baselineKey = (mode, hash) => `eval/baselines/${mode}-${hash}.json`;
+export const baselineFile = (mode, hash) => `${mode}-${hash}.json`;
+
+/** @param {string} mode @param {string} hash */
+export const baselineKey = (mode, hash) => `eval/baselines/${baselineFile(mode, hash)}`;
+
+/** Where the committed baselines live, relative to a checkout's root. */
+export const COMMITTED_BASELINES = 'evals/baselines';
+
+/** @param {string} mode @param {string} hash the committed baseline's path, relative to the root */
+export const committedBaselinePath = (mode, hash) =>
+  `${COMMITTED_BASELINES}/${baselineFile(mode, hash)}`;
 
 /**
- * The baseline for a run's settings, or null.
+ * Parse and check a stored or committed baseline.
+ * @param {string} text @param {string} where for the message
+ * @returns {EvalResult}
+ */
+function parseBaseline(text, where) {
+  const doc = fromLegacyResult(JSON.parse(text));
+  const errors = schemas().validateEntity('eval-result', doc);
+  if (errors.length) {
+    throw new Error(`${where} is not a valid eval result: ${formatErrors(errors)}`);
+  }
+  return doc;
+}
+
+/**
+ * The baseline in the private store for a run's settings, or null.
  * @param {PrivateStore} store @param {EvalResult} result @returns {EvalResult | null}
  */
 export function readBaseline(store, result) {
   const text = store.read(baselineKey(result.mode, result.settings.settings_hash));
-  if (text === null) return null;
-  const doc = fromLegacyResult(JSON.parse(text));
-  const errors = schemas().validateEntity('eval-result', doc);
-  if (errors.length) {
-    throw new Error(`the stored baseline is not a valid eval result: ${formatErrors(errors)}`);
+  return text === null ? null : parseBaseline(text, 'the stored baseline');
+}
+
+/**
+ * The baseline committed in a checkout for a run's settings, or null.
+ * @param {string} root the checkout's root @param {EvalResult} result @returns {EvalResult | null}
+ */
+export function readCommittedBaseline(root, result) {
+  const hash = result.settings.settings_hash;
+  const path = committedBaselinePath(result.mode, hash);
+  /** @type {string} */
+  let text;
+  try {
+    text = readFileSync(join(root, path), 'utf8');
+  } catch (e) {
+    if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT') return null;
+    throw e;
+  }
+  const doc = parseBaseline(text, `the committed baseline ${path}`);
+  if (doc.settings.settings_hash !== hash || doc.mode !== result.mode) {
+    throw new Error(
+      `the committed baseline ${path} holds settings ${doc.mode}-${doc.settings.settings_hash}, not ${result.mode}-${hash}`,
+    );
   }
   return doc;
+}
+
+/**
+ * The baseline the gate compares a run with: the one committed in the checkout, else the private
+ * store's, and which it was. `committedOnly` ignores the store, for CI and the release, which have
+ * none and must not pass on one.
+ * @param {{ store: PrivateStore | null, root: string, committedOnly?: boolean }} where
+ * @param {EvalResult} result
+ * @returns {{ baseline: EvalResult | null, source: 'committed' | 'private-store' | null, path: string }}
+ *   path: where a committed baseline for these settings is, relative to the root
+ */
+export function findBaseline(where, result) {
+  const path = committedBaselinePath(result.mode, result.settings.settings_hash);
+  const committed = readCommittedBaseline(where.root, result);
+  if (committed) return { baseline: committed, source: 'committed', path };
+  if (!where.committedOnly && where.store) {
+    const stored = readBaseline(where.store, result);
+    if (stored) return { baseline: stored, source: 'private-store', path };
+  }
+  return { baseline: null, source: null, path };
 }
 
 /**
@@ -246,13 +316,152 @@ export function acceptRefusal(run, baseline) {
 }
 
 /**
- * Make a run the baseline for its settings, and record who accepted it and when.
+ * The baseline document for an accepted run: the run, and who accepted it and when.
+ * @param {EvalResult} result @param {Date} now
+ * @returns {EvalResult}
+ */
+function baselineDocument(result, now) {
+  return { ...result, accepted: { by: 'owner', at: now.toISOString(), run: result.id } };
+}
+
+/**
+ * Make a run the baseline for its settings in the private store, and record who accepted it and
+ * when. The committed copy is written by acceptBaseline.
  * @param {PrivateStore} store @param {EvalResult} result @param {Date} [now]
  * @returns {string} the store key
  */
 export function writeBaseline(store, result, now = new Date()) {
   const key = baselineKey(result.mode, result.settings.settings_hash);
-  const doc = { ...result, accepted: { by: 'owner', at: now.toISOString(), run: result.id } };
-  store.write(key, `${JSON.stringify(doc, null, 2)}\n`);
+  store.write(key, `${JSON.stringify(baselineDocument(result, now), null, 2)}\n`);
   return key;
+}
+
+/** @param {{ id: string, profile: string }} s */
+const scenarioKey = (s) => `${s.id}@${s.profile}`;
+
+/**
+ * The committed form of a baseline (design part 17.9): what the gate needs and nothing else. Each
+ * scenario keeps its ID, suite, category, profile, result, score, tokens and the grader names and
+ * verdicts. Left out: the grader messages, expected and actual values (they quote fixture paths),
+ * the reasons, the transcript keys (private-store keys), wall time (it varies with the machine),
+ * the checkout's commit (a commit cannot hold its own ID) and the run's gate verdict. Scenarios are
+ * sorted, so the same results give the same file on any machine.
+ * @param {EvalResult} baseline @returns {EvalResult}
+ */
+export function committedForm(baseline) {
+  const { gate: _gate, ...doc } = fromLegacyResult(baseline);
+  const scenarios = [...doc.scenarios]
+    .sort((a, b) => (scenarioKey(a) < scenarioKey(b) ? -1 : 1))
+    .map((/** @type {any} */ s) => ({
+      id: s.id,
+      suite: s.suite,
+      category: s.category,
+      profile: s.profile,
+      result: s.result,
+      score: s.score,
+      graders: s.graders.map((/** @type {any} */ g) => ({
+        id: g.id,
+        grader: g.grader,
+        passed: g.passed,
+        message: '',
+      })),
+      wall_ms: 0,
+      tokens: s.tokens,
+      transcript: null,
+    }));
+  return {
+    ...doc,
+    plugin: { ...doc.plugin, commit: null },
+    scenarios,
+    summary: { ...doc.summary, wall_ms: 0 },
+  };
+}
+
+/** What must not be in a committed baseline, and what each pattern finds. */
+const MACHINE_SPECIFIC = /** @type {Array<[RegExp, string]>} */ ([
+  [/(?:^|[^\w.\-/:])\/[\w.@~+-]+(?:\/[\w.@~+-]*)*/, 'an absolute path'],
+  [/\b[A-Za-z]:\\/, 'a Windows path'],
+  [/(?:^|\W)~\//, 'a home-directory path'],
+  [/file:\/\//, 'a file URL'],
+  [/\beval\/(?:results|baselines|transcripts)\//, 'a private-store key'],
+  [/\.local\/share|XDG_[A-Z_]+|\.config\//, 'a private-store location'],
+  [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/, 'an email address or an account at a host'],
+  [/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|internal|corp|home|localdomain)\b/i, 'a hostname'],
+  [/\b\d{1,3}(?:\.\d{1,3}){3}\b/, 'an IP address'],
+]);
+
+/** @returns {string} the account name of this process, or '' */
+function accountName() {
+  try {
+    return userInfo().username;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * What in a baseline is machine-specific or confidential: paths, hostnames, account names,
+ * addresses and private-store content, found in any string of the document, keys included. The
+ * names of this machine (its host, its account, its home directory) are checked too, and so is
+ * anything in `extra` (the private store's path, the checkout's). It is the check acceptBaseline
+ * makes before it writes, and the test makes it over every baseline in the repository.
+ * @param {unknown} doc @param {string[]} [extra] more strings that must not appear
+ * @returns {string[]} one line per finding, with where it is; empty when the document is clean
+ */
+export function machineSpecificProblems(doc, extra = []) {
+  const here = [hostname(), accountName(), homedir(), ...extra].filter((t) => t && t.length >= 4);
+  /** @type {string[]} */
+  const found = [];
+  /** @param {unknown} v @param {string} at */
+  const walk = (v, at) => {
+    if (typeof v === 'string') {
+      for (const [re, what] of MACHINE_SPECIFIC) {
+        if (re.test(v)) found.push(`${at}: ${what} (${JSON.stringify(v.slice(0, 60))})`);
+      }
+      for (const t of here) {
+        // As a whole word, so an account named "root" does not match "root-cause".
+        const word = new RegExp(`(?<![\\w-])${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`);
+        if (word.test(v)) found.push(`${at}: a name from this machine (${JSON.stringify(t)})`);
+      }
+    } else if (Array.isArray(v)) {
+      v.forEach((x, i) => walk(x, `${at}[${i}]`));
+    } else if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v)) {
+        walk(k, `${at}.${k} (key)`);
+        walk(x, `${at}.${k}`);
+      }
+    }
+  };
+  walk(doc, '$');
+  return found;
+}
+
+/**
+ * Make a run the baseline: record it in the private store, and write its committed form to
+ * evals/baselines/ in `root`, the primary checkout, for the owner to commit. Nothing is written
+ * when the committed form would carry anything machine-specific.
+ * @param {{ store: PrivateStore, root: string, result: EvalResult, now?: Date }} a
+ * @returns {{ key: string, file: string, accepted: any }}
+ *   key: the store key; file: the committed baseline's path
+ */
+export function acceptBaseline({ store, root, result, now = new Date() }) {
+  const doc = baselineDocument(result, now);
+  const form = committedForm(doc);
+  const errors = schemas().validateEntity('eval-result', form);
+  if (errors.length) {
+    throw new Error(`the committed baseline is not a valid eval result: ${formatErrors(errors)}`);
+  }
+  const problems = machineSpecificProblems(form, [store.root, root]);
+  if (problems.length) {
+    throw new Error(
+      `the committed baseline would carry what stays on this machine; nothing was written: ${problems.slice(0, 5).join('; ')}`,
+    );
+  }
+  const key = writeBaseline(store, result, now);
+  const file = join(root, committedBaselinePath(result.mode, result.settings.settings_hash));
+  mkdirSync(join(root, COMMITTED_BASELINES), { recursive: true });
+  const part = `${file}.${process.pid}.part`;
+  writeFileSync(part, `${JSON.stringify(form, null, 2)}\n`);
+  renameSync(part, file);
+  return { key, file, accepted: doc.accepted };
 }

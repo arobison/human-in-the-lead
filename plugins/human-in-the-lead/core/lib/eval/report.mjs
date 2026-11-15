@@ -7,7 +7,7 @@
 // text, and nothing from it becomes markup, a URL or an attribute other than quoted text.
 // Accepting a baseline stays a command line act: the page only shows the command.
 
-import { acceptRefusal, fromLegacyResult } from './results.mjs';
+import { acceptRefusal, committedBaselinePath, fromLegacyResult } from './results.mjs';
 
 /**
  * @typedef {Record<string, any>} EvalResult
@@ -133,8 +133,14 @@ function verdict(run, baseline) {
       stale: null,
     };
   }
+  const from =
+    gate.baseline_source === 'committed'
+      ? ' (committed in evals/baselines/)'
+      : gate.baseline_source === 'private-store'
+        ? " (from this machine's private store; none is committed)"
+        : '';
   const against = gate.baseline
-    ? `Compared with baseline ${gate.baseline}.`
+    ? `Compared with baseline ${gate.baseline}${from}.`
     : 'No baseline yet: nothing to compare with. Floors and scenario results still applied.';
   if (gate.ok && bad === 0) {
     return { tone: 'ok', head: 'Gate passed', body: against, stale };
@@ -341,7 +347,7 @@ ${changesHtml}
 <section class="accept">
 ${
   accept.command
-    ? `<p>Accepting is the owner's decision, made on the command line. To record exactly this run as the baseline, run:</p><pre tabindex="0">${esc(accept.command)}</pre><p class="muted">This accepts the stored run you are reading, without running the suite again; it replaces the baseline for these settings.</p>`
+    ? `<p>Accepting is the owner's decision, made on the command line. To record exactly this run as the baseline, run:</p><pre tabindex="0">${esc(accept.command)}</pre><p class="muted">This accepts the stored run you are reading, without running the suite again; it replaces the baseline for these settings. It writes <code>${esc(committedBaselinePath(run.mode, run.settings.settings_hash))}</code> in the primary checkout and keeps a copy in the private store. Committing that file is a separate step, so CI and every machine gate on it.</p>`
     : `<p><strong>No accept command for this run.</strong> ${esc(accept.reason)}.</p>`
 }
 </section>

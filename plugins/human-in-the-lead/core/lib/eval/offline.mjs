@@ -6,17 +6,18 @@ import { fileURLToPath } from 'node:url';
 import { realpathSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadPolicy, policyHash, resolvePolicy, findRepoRoot } from '../policy/policy.mjs';
+import { ownerCheckoutOf } from '../env/primary.mjs';
 import { schemas } from '../schema/registry.mjs';
 import { openStore, privateStorePath } from '../store/store.mjs';
 import { NAME, VERSION } from '../version.mjs';
 import { compareToBaseline } from './gate.mjs';
 import { PROFILES } from './profiles.mjs';
 import {
+  acceptBaseline,
   buildResult,
   checkoutCommit,
-  readBaseline,
+  findBaseline,
   recordResult,
-  writeBaseline,
 } from './results.mjs';
 import { runCases } from './runner.mjs';
 import { discoverScenarios, loadActions, matchesFilter, scenarioSetVersion } from './scenario.mjs';
@@ -64,7 +65,8 @@ export function evalsDirs(cwd, override) {
  * @property {NodeJS.ProcessEnv} env
  * @property {string} [scenarios] filter: comma-separated IDs or ID prefixes
  * @property {number} [seed]
- * @property {boolean} [acceptBaseline] record this run as the baseline (the owner's act)
+ * @property {boolean} [acceptBaseline] record this run as the baseline (the owner's act): in the private store, and in evals/baselines/ of the primary checkout
+ * @property {boolean} [requireBaseline] fail unless a baseline committed in this checkout matches the run's settings; the private store's does not count (CI and the release)
  * @property {string} [evalsDir] use only this evals directory (relative to cwd, or absolute)
  * @property {Date} [now]
  */
@@ -150,25 +152,36 @@ export async function evalOffline(options) {
   const store = openStore(
     privateStorePath(policy.project.id, { env: options.env, repoRoot: options.cwd }),
   );
-  const baseline = readBaseline(store, result);
+  // The baseline committed in this checkout first, then the private store's.
+  const root = findRepoRoot(options.cwd) ?? resolve(options.cwd);
+  const found = findBaseline(
+    { store, root, committedOnly: options.requireBaseline === true },
+    result,
+  );
   const evalPolicy = policy.eval ?? {};
   const verdict = compareToBaseline(
     result,
-    baseline,
+    found.baseline,
     {
       category_floors: evalPolicy.category_floors ?? {},
       score_tolerance: evalPolicy.score_tolerance ?? 0,
       tokens_tolerance: evalPolicy.tokens_tolerance ?? 0.1,
     },
-    { inScope: (id) => matchesFilter(id, filter) },
+    { inScope: (id) => matchesFilter(id, filter), origin: found },
   );
+  // The gate judges regressions; a required baseline that is missing fails the command, not the
+  // verdict, so the run stays one the owner can accept.
+  const baselineMissing =
+    options.requireBaseline === true && found.source !== 'committed'
+      ? `no baseline is committed for these settings (mode offline, seed ${seed}): ${found.path} is missing. The owner runs hitld eval --offline, then hitld eval accept --result <run>, and commits the file it writes`
+      : null;
   result.gate = verdict;
 
   const s = result.summary;
   const failing = result.scenarios.filter(
     (/** @type {any} */ c) => c.result === 'fail' || c.result === 'error',
   );
-  /** @type {string | null} */
+  /** @type {{ key: string, file: string } | null} */
   let accepted = null;
   /** @type {string | null} */
   let acceptRefused = null;
@@ -179,12 +192,18 @@ export async function evalOffline(options) {
   }
   const key = recordResult(store, result, transcripts);
   if (options.acceptBaseline && !acceptRefused) {
-    accepted = writeBaseline(store, result, options.now);
+    // The committed copy goes to the primary checkout, never to a linked worktree.
+    const primary = ownerCheckoutOf(options.cwd) ?? root;
+    try {
+      accepted = acceptBaseline({ store, root: primary, result, now: options.now });
+    } catch (e) {
+      acceptRefused = e instanceof Error ? e.message : String(e);
+    }
   }
 
   const clean = failing.length === 0;
   return {
-    ok: clean && (accepted !== null || verdict.ok) && !acceptRefused,
+    ok: clean && (accepted !== null || (verdict.ok && baselineMissing === null)) && !acceptRefused,
     mode: 'offline',
     run: result.id,
     stored: join(store.root, key),
@@ -198,7 +217,16 @@ export async function evalOffline(options) {
     },
     categories: s.categories,
     gate: verdict,
-    ...(accepted ? { baseline_accepted: join(store.root, accepted) } : {}),
+    ...(baselineMissing && !accepted
+      ? { error: 'no_committed_baseline', message: baselineMissing }
+      : {}),
+    ...(accepted
+      ? {
+          baseline_accepted: join(store.root, accepted.key),
+          baseline_committed: accepted.file,
+          baseline_commit_note: `commit ${accepted.file} to make this the baseline CI and every machine gates on`,
+        }
+      : {}),
     ...(acceptRefused ? { baseline_refused: acceptRefused } : {}),
     problems: failing.map((/** @type {any} */ c) => ({
       scenario: c.id,
