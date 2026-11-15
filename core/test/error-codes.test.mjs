@@ -31,7 +31,7 @@ const WORD = /^[a-z][a-z0-9_-]*$/;
 
 /**
  * Every error code written as a literal in the library: `error: 'code'` (and each branch of a
- * conditional), the error classes and helpers that take a code first, and the lease codes the
+ * conditional), the error classes and helpers that take a code first, `code:` fields and `this.code =`, and the lease codes the
  * command prefixes with `lease-`.
  * @returns {Map<string, string[]>} code to the files that write it
  */
@@ -47,11 +47,14 @@ function codesInSource() {
       for (const lit of m[1].matchAll(/'([^'\n]*)'/g)) if (WORD.test(lit[1])) add(lit[1], rel);
     }
     for (const m of text.matchAll(
-      /\bnew (?:Refusal|GateRefusal|SealedError|StoreGitError|StoreRemoteError)\(\s*'([^'\n]*)'/g,
+      /\bnew (?:Refusal|GateRefusal|SealedError|StoreGitError|StoreRemoteError|AgeError)\(\s*'([^'\n]*)'/g,
     )) {
       add(m[1], rel);
     }
     for (const m of text.matchAll(/\b(?:fail|refuse)\(\s*'([^'\n]*)'/g)) {
+      if (WORD.test(m[1])) add(m[1], rel);
+    }
+    for (const m of text.matchAll(/\b(?:this\.code =|code:)\s*'([^'\n]*)'/g)) {
       if (WORD.test(m[1])) add(m[1], rel);
     }
     for (const m of text.matchAll(/\bnew LeaseError\(\s*'([^'\n]*)'/g)) add(`lease-${m[1]}`, rel);

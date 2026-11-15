@@ -22,13 +22,19 @@ import {
   mergeIncoming,
   snapshot,
 } from './git.mjs';
-import { open, seal } from './sealed.mjs';
+import { FORMAT, checkRecipients, open, seal } from './sealed.mjs';
 import { rebuildIndex } from './index-db.mjs';
 
 /**
- * @typedef {{ N: number, r: number, p: number }} ScryptCost
- * @typedef {{ root: string, projectId: string, passphrase: string, file: string, scrypt?: ScryptCost, now?: () => Date }} SyncOptions
- *   scrypt and now are for tests
+ * @typedef {object} SyncOptions
+ * @property {string} root the store directory
+ * @property {string} projectId
+ * @property {string} file the export file
+ * @property {string[]} [recipients] age public keys an export is encrypted to (format 2)
+ * @property {Array<string | import('./age.mjs').Identity>} [identities] age private keys an
+ *   import opens a format-2 file with
+ * @property {string} [passphrase] what an import opens a format-1 file with
+ * @property {() => Date} [now] for tests
  */
 
 /** The schema versions this release writes. */
@@ -38,10 +44,11 @@ function schemaVersions() {
 }
 
 /**
- * Write the store's text history to one encrypted file.
+ * Write the store's text history to one encrypted file, format 2, encrypted to the recipients.
  * @param {SyncOptions} options
  */
 export function exportStore(options) {
+  const recipients = checkRecipients(options.recipients);
   const file = resolve(options.file);
   const rel = relative(resolve(options.root), file);
   if (!rel.startsWith('..') && !isAbsolute(rel)) {
@@ -62,21 +69,32 @@ export function exportStore(options) {
     created_at: (options.now ?? (() => new Date()))().toISOString(),
     hitld_version: VERSION,
   };
-  const bytes = seal(manifest, bundle, options.passphrase, { scrypt: options.scrypt });
+  const bytes = seal(manifest, bundle, recipients);
   // The owner names the file. Written beside it, then renamed, readable by the owner only.
   const tmp = join(dirname(file), `.${process.pid}.hitld-export.tmp`);
   writeFileSync(tmp, bytes, { mode: 0o600 });
   renameSync(tmp, file);
-  return { file, project: options.projectId, head, bytes: bytes.length };
+  return {
+    file,
+    project: options.projectId,
+    head,
+    format: FORMAT,
+    recipients: recipients.length,
+    bytes: bytes.length,
+  };
 }
 
 /**
- * Bring another machine's store history in: open and check the file, verify and fetch its bundle,
- * merge, then rebuild the index. A conflict stops it with nothing written.
+ * Bring another machine's store history in: open and check the file (format 2 with an age private
+ * key, format 1 with a passphrase), verify and fetch its bundle, merge, then rebuild the index. A
+ * conflict stops it with nothing written.
  * @param {SyncOptions} options
  */
 export async function importStore(options) {
-  const { manifest, bundle } = open(readFileSync(resolve(options.file)), options.passphrase);
+  const { manifest, bundle, format } = open(readFileSync(resolve(options.file)), {
+    identities: options.identities,
+    passphrase: options.passphrase,
+  });
   if (manifest.project !== options.projectId) {
     throw new StoreGitError(
       'another-project',
@@ -105,6 +123,7 @@ export async function importStore(options) {
         error: 'conflict',
         message: `the import stopped on a conflict; nothing was merged. Resolve it in ${root} and import again`,
         project: manifest.project,
+        format,
         head: before,
         incoming: manifest.head,
         conflicts: merged.conflicts,
@@ -114,6 +133,7 @@ export async function importStore(options) {
     return {
       ok: true,
       project: manifest.project,
+      format,
       result: merged.result,
       head: merged.head,
       incoming: manifest.head,
@@ -126,11 +146,13 @@ export async function importStore(options) {
 }
 
 /**
- * Both directions through one file: import it if it exists, then export the merged store over it.
- * A conflict stops before the export, so the file is left as it was.
+ * Both directions through one file: import it if it exists (either format), then export the
+ * merged store over it, format 2. A conflict stops before the export, so the file is left as it
+ * was. The recipients are checked first, so a sync that could not write does not import.
  * @param {SyncOptions} options
  */
 export async function syncStore(options) {
+  checkRecipients(options.recipients);
   const had = existsSync(resolve(options.file));
   const imported = had ? await importStore(options) : null;
   if (imported && !imported.ok) return { ...imported, exported: null };

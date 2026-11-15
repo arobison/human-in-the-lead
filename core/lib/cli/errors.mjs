@@ -125,6 +125,18 @@ export const ERROR_CODES = Object.freeze({
 
   // The private store
   'no-passphrase': 'No passphrase was given, or it is empty.',
+  'no-identity': 'No age private key was given for a file that opens with one.',
+  'no-recipients': 'No age public key was given to encrypt the export to.',
+  'no-file': 'There is no export file at that path.',
+  'age-header-invalid': 'The age header does not parse, or breaks a rule of the format.',
+  'age-no-match': 'The header parses, but no key given opens it.',
+  'age-mac-mismatch': 'A key opens the header, but its MAC is wrong: the header was changed.',
+  'age-payload-invalid': 'The age payload does not decrypt and authenticate to its end.',
+  'age-bad-recipient': 'An age public key does not parse, or cannot be used.',
+  'age-bad-identity': 'An age private key does not parse.',
+  'age-no-recipients': 'There is no age public key to encrypt to.',
+  'age-no-identities': 'There is no age private key to decrypt with.',
+  'bad-bech32': 'A Bech32 string, such as an age key, is malformed.',
   'bad-header': "The export file's header is not one this version reads.",
   'not-export': 'The file is not a hitld store export.',
   'unknown-format': 'The export format is not one this version reads.',
