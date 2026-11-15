@@ -305,6 +305,9 @@ export function decisionProblem(id, entity) {
   if (entity.resolved_by_precedent) {
     return `${id} was resolved by a precedent; accepting a real risk is always the owner's own answer`;
   }
+  if (entity.answered_via === 'default') {
+    return `${id} took its default and no one answered it; accepting a real risk is always the owner's own answer`;
+  }
   if (entity.answered_by !== undefined && entity.answered_by !== 'owner') {
     return `${id} was answered by ${String(entity.answered_by)}; accepting a real risk is the owner's own answer`;
   }

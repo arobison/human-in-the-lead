@@ -15,7 +15,7 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 | **Critical-path progress** | For each active milestone: items done on its critical path over items on it; and the estimate tokens remaining on the path | Tracker, estimates |
 | **Slot utilization** | Busy executor-slot time over (concurrency cap × run time) | Ledger |
 | **Blocked time** | Time items spend ready-but-waiting: on a decision, a serial resource, or the merge queue, broken down by cause | Tracker history, ledger |
-| **Decision latency** | From a decision being asked to being answered, split into queue time (held for a digest: `asked` to `sent`) and owner time (shown, unanswered: `sent` to `answered`). Median and 90th percentile. A decision never recorded as shown has no queue time, and its owner time runs from `asked` | Ledger |
+| **Decision latency** | From a decision being asked to being answered, split into queue time (held for a digest: `asked` to `sent`) and owner time (shown, unanswered: `sent` to `answered`). Median and 90th percentile. A decision never recorded as shown has no queue time, and its owner time runs from `asked`. A decision that took its default (`answered` with `via: default`) is counted apart and left out | Ledger |
 
 ### Cost
 

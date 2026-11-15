@@ -335,6 +335,17 @@ test('records: accepting a risk needs an answered decision item, read through th
         id: 'W-9',
         kind: 'decision',
         state: 'done',
+        answer: 'Default applied (no answer by 2026-11-14): A',
+        answered_at: AT,
+        answered_via: 'default',
+      },
+      /took its default and no one answered it/,
+    ],
+    [
+      {
+        id: 'W-9',
+        kind: 'decision',
+        state: 'done',
         answer: 'A',
         answered_at: AT,
         answered_by: 'C-3',
