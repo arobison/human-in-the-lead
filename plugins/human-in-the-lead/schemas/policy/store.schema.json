@@ -1,18 +1,17 @@
 {
   "$id": "policy/store",
   "title": "policy.json: store",
-  "description": "The private store's remote (design 0003, section 11). It is committed so a fresh cloud container finds the remote without anyone running a command. The address is not a secret: no password goes in it, and credentials come from the session's own git access. A machine can override it with `hitld store remote set` (kept in that machine's private store, never committed).",
+  "description": "The private store's remote (design 0003, section 11). Only whether this project needs one is committed. The address and the device list never go in the project's repository, which may be public: the address comes from HITLD_STORE_REMOTE (a cloud environment) or the person file (hitld store remote set), and the device list is on the hitld-devices branch of the store repository. store.remote.url is refused, with a message saying where the address goes.",
   "type": "object",
   "properties": {
     "remote": {
-      "description": "Where the private store's encrypted bundles are kept between machines.",
+      "description": "The private store's remote: where its encrypted bundles are kept between machines.",
       "type": "object",
       "properties": {
-        "url": {
-          "description": "The store repository: https://host/owner/repo.git, ssh://git@host/owner/repo.git, user@host:path or an absolute path. Checked when it is used (core/lib/store/remote-git.mjs, checkRemoteUrl): no password, no plain http, no transport helper. Null: no remote is set here.",
-          "type": ["string", "null"],
-          "maxLength": 2048,
-          "default": null
+        "required": {
+          "description": "Whether this project expects a store remote on every machine and session. When true and no address is found, hitld run start, hitld run resume and hitld store status say so, naming HITLD_STORE_REMOTE and hitld store remote set, and the session hooks print one line. Nothing is refused: work goes on with the local store.",
+          "type": "boolean",
+          "default": false
         }
       },
       "additionalProperties": false

@@ -10,6 +10,10 @@
 // listed in policy project.private_paths is never public, whatever it says. Anything above the
 // ceiling (policy project.classification_ceiling) is refused, with the file and the rule named.
 //
+// Beside it, one more rule that holds whatever the ceiling: the store placement rule
+// (store-placement.mjs), which keeps the private store's address and device list out of the
+// repository.
+//
 // The hook can be skipped (`git commit --no-verify`); the merge check cannot, so it is the one
 // that enforces. File contents are only read as text and matched; nothing in them is run.
 
@@ -17,6 +21,7 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, lstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { matchesAny } from '../precedent/glob.mjs';
+import { judgePlacement } from './store-placement.mjs';
 
 /** The levels, lowest first (design part 3, classification levels). */
 export const LEVELS = Object.freeze(['public', 'internal', 'confidential', 'secret']);
@@ -30,7 +35,7 @@ export const READ_LIMIT = 1024 * 1024;
  * @property {string} defaultClassification the level of a file whose front matter does not say
  * @property {string[]} privatePaths globs of paths that are never public
  *
- * @typedef {'front-matter' | 'project-default' | 'private-path' | 'unreadable'} RuleName
+ * @typedef {'front-matter' | 'project-default' | 'private-path' | 'unreadable' | import('./store-placement.mjs').PlacementRule} RuleName
  * @typedef {{ path: string, rule: RuleName, classification: string | null, message: string }} Refused
  * @typedef {{ files: number, refused: Refused[] }} GuardResult
  */
@@ -152,6 +157,8 @@ export function judge(path, declared, rules) {
  * @param {string} path @param {Buffer} head @param {boolean} truncated @param {Rules} rules
  */
 export const judgeContent = (path, head, truncated, rules) => {
+  const placed = judgePlacement(path, head);
+  if (placed) return placed;
   const fm = frontMatterClassification(head, truncated);
   return judge(path, 'error' in fm ? fm : fm.values, rules);
 };

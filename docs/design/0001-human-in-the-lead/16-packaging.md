@@ -71,8 +71,8 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
-| `hitld store device init / list / remove` | Enrol, list and remove the devices the private store is encrypted to: the key pair, the private key in the OS keychain or a cloud environment variable, and `.human-in-the-lead/store-devices.json` ([0003 section 6](../0003-private-store-remote.md#6-enrolling-and-removing-a-device)) |
-| `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the devices on main's `store-devices.json`; the address is `store.remote.url` in `policy.json`, which a machine may override ([design 0003](../0003-private-store-remote.md)) |
+| `hitld store device init / ask / list / remove` | Enrol, list and remove the devices the private store is encrypted to: the key pair, the private key in the OS keychain or a cloud environment variable, the device's request on the store repository, and the device decisions only the owner's answer settles ([0003 section 6](../0003-private-store-remote.md#6-enrolling-and-removing-a-device)) |
+| `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the devices the owner approved; the address is `HITLD_STORE_REMOTE`, else the person file, else this machine's override, never `policy.json` ([design 0003](../0003-private-store-remote.md#8-when-sync-runs)) |
 | `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its reason, draft notes, items that changed public surface without a `release_note` line, unmet gates ([3.2](03-data-model.md#release)) |
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
@@ -246,22 +246,22 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 
 **Store devices**
 
-- `devices-invalid`: A store-devices.json does not parse or breaks its schema.
-- `devices-no-main`: The checkout has no main branch, local or remote-tracking, to read the device list from.
-- `devices-fetch-failed`: Fetching main from origin failed, so a push refuses rather than use a stale device list.
+- `devices-fetch-failed`: The device requests on the store repository's hitld-devices branch could not be read.
+- `device-ask-refused`: A device decision could not be put to the owner: the tracker refused it, or the rules do not route it to the owner alone.
 - `device-name-invalid`: A device name is not a short lower-case name.
 - `device-name-required`: No device name was given and none could be made from the host name.
-- `device-name-taken`: The device name is enrolled with another key.
-- `device-unknown`: No device in store-devices.json has that name.
+- `device-name-taken`: The device name is used by another key, approved or asking.
+- `device-unknown`: No device the owner approved has that name.
 - `device-no-keychain`: This machine has no OS keychain hitld can store the device key in.
-- `device-not-enrolled`: This device has no key, or its key is not on main's store-devices.json, so it may not push.
+- `device-not-enrolled`: This device has no key, or the owner has not approved its key (or removed it), so it may not push.
+
 
 **Pushing and pulling the store**
 
-- `no-remote`: No remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine.
+- `no-remote`: No store address is set: set HITLD_STORE_REMOTE in a cloud environment, or run hitld store remote set <url> on a machine.
 - `nothing-to-push`: The store holds no text to push yet.
 - `remote-not-format-2`: The remote's head is not an age file; nothing writes another format to a remote.
-- `remote-config-invalid`: This machine's remote override file is damaged.
+- `remote-config-invalid`: This machine's override of the store's address is damaged.
 - `sync-state-invalid`: The file that records what this store last merged from the remote is damaged.
 - `store-pull-refused`: hitld run start or run resume stopped: the store remote answered, but its head does not open or merge. An unreachable remote does not stop a run; --no-sync goes on with the local store.
 

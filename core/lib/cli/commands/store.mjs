@@ -1,9 +1,10 @@
 // Moving and syncing the private store between machines (design part 3.2, Q1). Owner only.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { privateStorePath } from '../../store/store.mjs';
+import { legacyWarnings } from '../../store/placement.mjs';
 import { executorSignal } from '../executor.mjs';
 import { deviceCommands } from './store-device.mjs';
 
@@ -190,6 +191,7 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
           'StoreRemoteError',
           'PushPullError',
           'DevicesError',
+          'StoreAddressError',
         ].includes(e.name));
     if (known && typeof code === 'string') {
       return { ok: false, error: code, message: /** @type {Error} */ (e).message };
@@ -260,7 +262,8 @@ export const commands = [
 /**
  * Moving the store through its remote (design 0003, sections 7, 8 and 11). Owner only. Keys come
  * only through `resolveDevices`. The private key is read from the environment or a file
- * descriptor, never an argument, and no result or message carries it.
+ * descriptor, never an argument, and no result or message carries it. The address comes from
+ * HITLD_STORE_REMOTE, the person file or this machine's override (address.mjs), never policy.json.
  */
 function remoteCommands() {
   /** @type {import('../args.mjs').ArgSpec} */
@@ -272,9 +275,16 @@ function remoteCommands() {
     description:
       'The store repository: https://host/owner/repo.git, ssh://git@host/owner/repo.git, user@host:path or an absolute path. No password in it: sign in through git',
   };
+  /** @type {import('../args.mjs').ArgSpec} */
+  const MACHINE = {
+    name: 'machine',
+    type: 'boolean',
+    description:
+      "This machine's override, kept inside its private store's .git, instead of the person file",
+  };
   /**
    * The environment the resolver reads, with the key from --identity-fd put where it reads it.
-   * There are no recipient flags: a push is encrypted to main's store-devices.json and nothing
+   * There are no recipient flags: a push is encrypted to the devices the owner approved and nothing
    * else, so a removed device never gets a later push (design 0003 section 6).
    * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
    */
@@ -292,35 +302,27 @@ function remoteCommands() {
   }
 
   /**
-   * The project and its store, and the remote address policy.json carries (store.remote.url).
+   * The project and its store, and whether policy.json says it expects a remote.
    * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
    */
   function projectRemote(input, ctx) {
     const p = project(input, ctx);
     const loaded = loadPolicy({ cwd: ctx.cwd });
-    /** @type {string | null} */
-    const policyUrl = loaded.policy?.store?.remote?.url ?? null;
-    return { ...p, policyUrl, loaded };
+    const required = loaded.policy?.store?.remote?.required === true;
+    return { ...p, required, loaded };
   }
 
   /**
-   * The project, the push and pull module, and this device as main's list sees it. For a push,
-   * main is fetched from origin first, and a device not on the list is refused.
+   * The project, the push and pull module, the address, and the lookup the device port takes.
    * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
-   * @param {{ forPush?: boolean }} [o]
    */
-  async function setUp(input, ctx, o = {}) {
+  async function setUp(input, ctx) {
     const p = projectRemote(input, ctx);
     const pp = await import('../../store/push-pull.mjs');
-    const lookup = {
-      checkout: findRepoRoot(ctx.cwd) ?? ctx.cwd,
-      store: p.root,
-      env: deviceEnv(input, ctx),
-      projectId: p.projectId,
-      mainBranch: p.loaded.policy?.merge?.main_branch ?? 'main',
-    };
-    const devices = o.forPush ? pp.devicesForPush(lookup) : pp.devicesHere(lookup);
-    return { ...p, pp, devices };
+    const env = deviceEnv(input, ctx);
+    const address = pp.chooseRemote({ store: p.root, projectId: p.projectId, env });
+    const lookup = { store: p.root, env, projectId: p.projectId };
+    return { ...p, pp, address, lookup };
   }
 
   /** @type {import('../table.mjs').Command[]} */
@@ -328,22 +330,16 @@ function remoteCommands() {
     {
       name: 'store push',
       summary:
-        "Push the private store's text history to its remote, encrypted to the enrolled devices: a compare and swap on the remote's head; when the remote has moved, pull, merge and try again (owner only)",
+        "Push the private store's text history to its remote, encrypted to the devices the owner approved: the remote's head is merged first, then a compare and swap on it; when the remote has moved, pull, merge and try again (owner only)",
       built_by: 'consumer-live',
       mcp: false,
       args: [IDENTITY_FD, STORE],
       run: ownerOnly('store push', async (input, ctx) => {
-        const {
-          projectId,
-          root,
-          policyUrl,
-          pp,
-          devices: d,
-        } = await setUp(input, ctx, {
-          forPush: true,
-        });
-        const { remote, url } = pp.openRemote(root, policyUrl);
-        return pp.pushStore({ root, projectId, remote, url, devices: d, now: ctx.now });
+        const { projectId, root, pp, address, lookup } = await setUp(input, ctx);
+        const { remote, url } = pp.openRemote(root, address);
+        const devices = pp.devicesForPush(lookup);
+        const refresh = () => pp.devicesHere(lookup);
+        return pp.pushStore({ root, projectId, remote, url, devices, refresh, now: ctx.now });
       }),
     },
     {
@@ -354,119 +350,115 @@ function remoteCommands() {
       mcp: false,
       args: [IDENTITY_FD, STORE],
       run: ownerOnly('store pull', async (input, ctx) => {
-        const { projectId, root, policyUrl, pp, devices: d } = await setUp(input, ctx);
-        const { remote, url } = pp.openRemote(root, policyUrl);
-        return pp.pullStore({ root, projectId, remote, url, devices: d });
+        const { projectId, root, pp, address, lookup } = await setUp(input, ctx);
+        const { remote, url } = pp.openRemote(root, address);
+        return pp.pullStore({ root, projectId, remote, url, devices: pp.devicesHere(lookup) });
       }),
     },
     {
       name: 'store status',
       summary:
-        "Report the remote and where its address came from, the local and remote versions, whether a push or a pull is due, and this device's enrolment; changes nothing in the store (owner only)",
+        "Report the remote and where its address came from, the local and remote versions, whether a push or a pull is due, this device's approval, the approved devices, the device requests waiting to be put to the owner and the device decisions waiting for the owner's answer; changes nothing in the store (owner only)",
       built_by: 'consumer-live',
       mcp: false,
       args: [STORE],
       run: ownerOnly('store status', async (input, ctx) => {
-        const { projectId, root, policyUrl, pp, devices: d } = await setUp(input, ctx);
-        const choice = pp.chooseRemote(root, policyUrl);
-        const opened = choice ? pp.openRemote(root, policyUrl) : null;
-        return pp.storeStatus({ root, projectId, opened, policyUrl, devices: d });
+        const { projectId, root, required, pp, address, lookup } = await setUp(input, ctx);
+        const opened = address ? pp.openRemote(root, address) : null;
+        const devices = pp.devicesHere(lookup);
+        const fetched = await pp.fetchRequests(root, address?.url ?? null);
+        return pp.storeStatus({
+          root,
+          projectId,
+          opened,
+          devices,
+          required,
+          requests: fetched.requests,
+          requestsError: fetched.error,
+          warnings: legacyWarnings(findRepoRoot(ctx.cwd)),
+        });
       }),
     },
     {
       name: 'store remote set',
       summary:
-        "Set the remote's address. By default it is recorded for this machine only, as an override of policy.json's store.remote.url, and the policy.json change to commit is printed. With --policy it is written to policy.json, for the owner to review and commit (owner only)",
+        "Set the store remote's address outside the repository: in the person file, under this project's ID (the default), or with --machine as this machine's override. Never in policy.json, which may be public. HITLD_STORE_REMOTE, when set, is used before either (owner only)",
       built_by: 'consumer-live',
       mcp: false,
-      args: [
-        URL_ARG,
-        {
-          name: 'policy',
-          type: 'boolean',
-          description:
-            "Write store.remote.url into policy.json (the project's address, which a fresh cloud container reads) instead of a machine override",
-        },
-        STORE,
-      ],
+      args: [URL_ARG, MACHINE, STORE],
       run: ownerOnly('store remote set', async (input, ctx) => {
         const p = projectRemote(input, ctx);
-        const pp = await import('../../store/push-pull.mjs');
+        const address = await import('../../store/address.mjs');
         const url = String(input.url);
         const { checkRemoteUrl } = await import('../../store/remote-git.mjs');
         checkRemoteUrl(url);
-        const change = {
-          file: p.loaded.path,
-          set: 'store.remote.url',
-          value: url,
-          json: { store: { remote: { url } } },
-        };
-        if (input.policy) {
-          if (!p.loaded.path || !p.loaded.raw) {
-            throw new Refusal(
-              'policy',
-              'policy.json is missing or invalid; run hitld check policy',
-            );
-          }
-          const raw = p.loaded.raw;
-          const next = { ...raw, store: { ...raw.store, remote: { ...raw.store?.remote, url } } };
-          // Trust boundary: the path is the policy.json loadPolicy found and read through trusted
-          // loading; the content is that file with one key set.
-          writeFileSync(p.loaded.path, JSON.stringify(next, null, 2) + '\n');
-          const override = pp.readRemoteConfig(p.root);
-          return {
-            ok: true,
-            project: p.projectId,
-            written: 'policy',
-            ...change,
-            message: override
-              ? `written; review the change to policy.json and commit it. This machine's override (${override.url}) still wins here: hitld store remote clear removes it`
-              : 'written; review the change to policy.json and commit it',
-          };
-        }
-        const set = pp.setRemote(p.root, url);
+        const set =
+          input.machine === true
+            ? { ...address.setRemote(p.root, url), written: 'machine' }
+            : {
+                ...address.setPersonRemote(p.projectId, url, { env: ctx.env, cwd: ctx.cwd }),
+                written: 'person',
+              };
+        const used = address.chooseRemote({ store: p.root, projectId: p.projectId, env: ctx.env });
         return {
           ok: true,
           project: p.projectId,
-          written: 'machine',
           ...set,
-          policy_change: change,
+          remote: used,
           message:
-            p.policyUrl === url
-              ? 'recorded for this machine; policy.json already has this address'
-              : 'recorded for this machine only. A fresh container reads policy.json: for it to find this remote, commit policy_change (or run again with --policy)',
+            used?.url === url
+              ? `recorded in the ${set.written === 'person' ? 'person file' : "machine's override"}; it is the address this machine uses`
+              : `recorded in the ${set.written === 'person' ? 'person file' : "machine's override"}, but ${used?.source === 'environment' ? address.REMOTE_ENV : 'the person file'} comes first here and gives ${used?.url}`,
         };
       }),
     },
     {
       name: 'store remote clear',
       summary:
-        "Remove this machine's override of the remote's address, so policy.json's store.remote.url is used again (owner only)",
+        "Take the store remote's address out of the person file (the default), or with --machine remove this machine's override (owner only)",
       built_by: 'consumer-live',
       mcp: false,
-      args: [STORE],
+      args: [MACHINE, STORE],
       run: ownerOnly('store remote clear', async (input, ctx) => {
         const p = projectRemote(input, ctx);
-        const { clearRemote } = await import('../../store/push-pull.mjs');
-        return { ok: true, project: p.projectId, ...clearRemote(p.root) };
+        const address = await import('../../store/address.mjs');
+        const cleared =
+          input.machine === true
+            ? { ...address.clearRemote(p.root), from: 'machine' }
+            : {
+                ...address.clearPersonRemote(p.projectId, { env: ctx.env, cwd: ctx.cwd }),
+                from: 'person',
+              };
+        return {
+          ok: true,
+          project: p.projectId,
+          ...cleared,
+          remote: address.chooseRemote({ store: p.root, projectId: p.projectId, env: ctx.env }),
+        };
       }),
     },
     {
       name: 'store remote show',
       summary:
-        "Show the remote's address and where it came from: this machine's override, else policy.json's store.remote.url (owner only)",
+        "Show the store remote's address and where it came from: HITLD_STORE_REMOTE, else the person file, else this machine's override (owner only)",
       built_by: 'consumer-live',
       mcp: false,
       args: [STORE],
       run: ownerOnly('store remote show', async (input, ctx) => {
         const p = projectRemote(input, ctx);
-        const pp = await import('../../store/push-pull.mjs');
+        const address = await import('../../store/address.mjs');
+        const l = { store: p.root, projectId: p.projectId, env: ctx.env };
+        const sources = address.addressSources(l);
         return {
           ok: true,
           project: p.projectId,
-          remote: pp.chooseRemote(p.root, p.policyUrl),
-          policy_url: p.policyUrl,
-          override_url: pp.readRemoteConfig(p.root)?.url ?? null,
+          remote: address.chooseRemote(l),
+          remote_required: p.required,
+          environment_url: sources.environment,
+          person_url: sources.person,
+          override_url: sources.machine,
+          person_file: sources.person_file,
+          ...(sources.person_problem ? { warnings: [sources.person_problem] } : {}),
         };
       }),
     },

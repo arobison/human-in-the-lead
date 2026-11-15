@@ -81,7 +81,8 @@ test('the adopt skill proposes in one message, waits for the yes and ends with t
   assert.match(text, /own message in this session/);
   assert.match(text, /## Project rules/);
   assert.match(text, /hitld store status/);
-  assert.match(text, /hitld store remote set <url> --policy/);
+  assert.match(text, /hitld store remote set <url>`/);
+  assert.doesNotMatch(text, /--policy/);
   assert.match(text, /docs\/guide\/store-remote\.md/);
   assert.match(text, /Never add `--statusline` here/);
   assert.match(text, /hitld check contract\n\s*hitld work check/);

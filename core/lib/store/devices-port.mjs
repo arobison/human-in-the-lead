@@ -3,36 +3,40 @@
 // key this device opens files with, whether it may push at all, and whether a removal still needs
 // the remote's older files pruned.
 //
-// The enrolled set is what main says, never the working tree: a device enrolled on a branch, or in
-// an uncommitted edit, is not enrolled. A push encrypts to main's list and nothing else, so a
-// removed device opens nothing pushed after its removal reached main (milestone c3).
+// The approved set comes from one place, `approvedList`: the owner's answers to device decisions,
+// recorded inside the private store (devices.mjs). A request on the store repository's branch, or
+// anything in the project's repository, is never part of it. A push brings in the remote's head
+// first (push-pull.mjs), so the set it encrypts to holds every answer any device has pushed: a
+// removed device opens nothing pushed after its removal (milestone c3).
 
 import { openStore } from './store.mjs';
 import { parseIdentities, recipientOf } from './age.mjs';
 import { findRepoRoot, loadPolicy } from '../policy/policy.mjs';
 import {
-  DEVICES_PATH,
   DevicesError,
   IDENTITY_ENV,
   KEYCHAIN_ACCOUNT,
+  approvedDevices,
   deviceKeychain,
-  enrolledOnMain,
+  deviceRemovals,
+  fingerprint,
   pendingRotations,
+  readApprovals,
   readRotations,
   recordRotation,
-  removalsOnMain,
 } from './devices.mjs';
 
 /**
  * @typedef {object} DeviceResolution
- * @property {string[]} recipients the public keys on main's list: everything a push encrypts to
+ * @property {string[]} recipients the approved public keys: everything a push encrypts to
  * @property {string | null} identity this device's private key (AGE-SECRET-KEY-1...), one line:
  *   from HITLD_STORE_IDENTITY when set, else the keychain; null when there is none. A secret: never
  *   print it or put it in a result
- * @property {boolean} enrolled whether that key's public key is on main's list
- * @property {string | null} device this device's name on main's list
+ * @property {string | null} recipient this device's public key, when it has one
+ * @property {boolean} enrolled whether the owner has approved that key
+ * @property {string | null} device this device's name in the approved set
  * @property {'environment' | 'keychain' | null} key_source where the identity came from
- * @property {string[]} refs the copies of main the list was read from
+ * @property {import('./devices.mjs').Device[]} approved the approved set
  * @property {string | null} problem why the device is not enrolled, in words; null when it is
  * @property {{ pending: import('./devices.mjs').Removal[] }} rotation removed devices whose
  *   rotation is not done: the remote may still hold files their keys open
@@ -41,28 +45,35 @@ import {
 /** The name the push and pull code uses for a resolution. @typedef {DeviceResolution} Devices */
 
 /**
- * Resolve this device against main's list. Never throws for a device that may not push: the
+ * The approved set and the removals the owner's answers made: the one source of who may read the
+ * store. Another source would be plugged in here.
+ * @param {import('./store.mjs').PrivateStore} store
+ */
+export function approvedList(store) {
+  const records = readApprovals(store);
+  return { devices: approvedDevices(records), removals: deviceRemovals(records) };
+}
+
+/**
+ * Resolve this device against the approved set. Never throws for a device that may not push: the
  * answer says so (enrolled false, problem), and `assertEnrolled` turns it into the refusal.
  * @param {{
- *   root: string,
- *   store?: string | import('./store.mjs').PrivateStore,
+ *   store: string | import('./store.mjs').PrivateStore,
  *   env?: NodeJS.ProcessEnv,
  *   keychain?: Pick<import('../env/keychain.mjs').Keychain, 'read'>,
  *   projectId?: string,
- *   mainBranch?: string,
- * }} options root is the project's checkout (any directory in it); store the private store, for
- *   the rotation records; keychain, projectId and mainBranch default to the real keychain and
- *   policy.json
+ *   root?: string,
+ * }} options store is the private store, whose records hold the approvals and the rotations;
+ *   keychain and projectId default to the real keychain and policy.json found from root
  * @returns {DeviceResolution}
  */
 export function resolveDevices(options) {
   const env = options.env ?? process.env;
-  const repoRoot = findRepoRoot(options.root) ?? options.root;
-  let { projectId, mainBranch } = options;
-  if (projectId === undefined || mainBranch === undefined) {
-    const policy = loadPolicy({ cwd: repoRoot }).policy;
-    projectId ??= policy?.project.id;
-    mainBranch ??= policy?.merge?.main_branch ?? 'main';
+  const store = typeof options.store === 'string' ? openStore(options.store) : options.store;
+  let { projectId } = options;
+  if (projectId === undefined && options.root) {
+    const repoRoot = findRepoRoot(options.root) ?? options.root;
+    projectId = loadPolicy({ cwd: repoRoot }).policy?.project.id;
   }
 
   // This device's private keys: the environment first (a cloud environment), then the keychain.
@@ -89,50 +100,37 @@ export function resolveDevices(options) {
     }
   }
 
-  /** @type {import('./devices.mjs').Device[]} */
-  let devices = [];
-  /** @type {string[]} */
-  let refs = [];
-  try {
-    ({ devices, refs } = enrolledOnMain(repoRoot, /** @type {string} */ (mainBranch)));
-  } catch (e) {
-    if (!(e instanceof DevicesError)) throw e;
-    problem = e.message;
-  }
-
+  const { devices, removals } = approvedList(store);
   /** @type {import('./devices.mjs').Device | undefined} */
   let mine;
   let identity = keys[0] ?? null;
   for (const key of keys) {
-    const recipient = recipientOf(key);
-    mine = devices.find((d) => d.recipient === recipient);
+    mine = devices.find((d) => d.recipient === recipientOf(key));
     if (mine) {
       identity = key;
       break;
     }
   }
+  const recipient = identity ? recipientOf(identity) : null;
   if (!mine && !problem) {
-    problem = `this device's key (${recipientOf(/** @type {string} */ (identity))}) is not on ${mainBranch}'s ${DEVICES_PATH}: enrol it with hitld store device init, commit the file, and have the owner merge it`;
+    problem = `the owner has not approved this device's key (fingerprint ${fingerprint(/** @type {string} */ (recipient))}) in the store this device holds: run hitld store device init, and the owner answers the device decision; a device that is new here pulls once an approved device has pushed the answer`;
   }
 
   const recipients = devices.map((d) => d.recipient);
-  const store =
-    typeof options.store === 'string' ? openStore(options.store) : (options.store ?? null);
-  const pending = refs.length
-    ? pendingRotations({
-        removals: refs.flatMap((ref) => removalsOnMain(repoRoot, ref)),
-        records: store ? readRotations(store) : [],
-        current: recipients,
-      })
-    : [];
+  const pending = pendingRotations({
+    removals,
+    records: readRotations(store),
+    current: recipients,
+  });
 
   return {
     recipients,
     identity,
+    recipient,
     enrolled: Boolean(mine),
     device: mine?.name ?? null,
     key_source: keySource,
-    refs,
+    approved: devices,
     problem: mine ? null : problem,
     rotation: { pending },
   };
@@ -155,7 +153,7 @@ function identityLines(text) {
 }
 
 /**
- * Refuse a push from a device that is not on main's list: `device-not-enrolled`. Call it before
+ * Refuse a push from a device that is not approved: `device-not-enrolled`. Call it before
  * anything is encrypted or sent.
  * @param {DeviceResolution} resolution
  * @returns {DeviceResolution & { identity: string, device: string }}
@@ -172,10 +170,10 @@ export function assertEnrolled(resolution) {
 
 /**
  * Finish a rotation after a push. When a removed device's rotation is pending, the push just made
- * was encrypted to main's list without it; every older file on the remote may still open with its
- * key, so all but the newest are pruned, and the rotation is recorded in the private store. Each
- * file holds the store's whole history, so pruning loses nothing. Call it after every successful
- * push; with nothing pending it does nothing.
+ * was encrypted to the approved set without it; every older file on the remote may still open
+ * with its key, so all but the newest are pruned, and the rotation is recorded in the private
+ * store. Each file holds the store's whole history, so pruning loses nothing. Call it after every
+ * successful push; with nothing pending it does nothing.
  * @param {{
  *   remote: Pick<import('./remote.mjs').StoreRemote, 'prune'>,
  *   store: import('./store.mjs').PrivateStore,

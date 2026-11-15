@@ -19,6 +19,12 @@
 // branch must not be protected against force pushes. The provider removes unreachable objects on
 // its own schedule; prune bounds the branch, it does not promise immediate erasure.
 //
+// Device requests. A second branch, `hitld-devices`, holds `proposals/<name>.json`: a new
+// device's name and public key, put there by `hitld store device init` for the owner to approve
+// (design 0003, section 6). The branch is not protected, and anyone who can write the store
+// repository can change it, so nothing on it is trusted: the devices a push is encrypted to are
+// the owner's answers, recorded inside the encrypted store. A request push is never forced.
+//
 // Trust boundary. Authentication is the session's own git access: plain `git` over the configured
 // URL, with no token handled here. Git runs as in git.mjs: an argument list, no shell, GIT_DIR
 // pinned to a bare repository inside the private store (never the project's checkout), hooks off,
@@ -35,6 +41,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { StoreRemoteError, remoteMoved } from './remote.mjs';
+import { DEVICES_BRANCH, PROPOSALS_DIR } from './placement.mjs';
+
+export { DEVICES_BRANCH, PROPOSALS_DIR };
 
 /** The branch on the remote unless another is named. */
 export const STORE_BRANCH = 'hitld-store';
@@ -134,43 +143,12 @@ export const remoteDir = (root) => join(resolve(root), '.git', 'hitld-remote');
 export function createGitRemote(options) {
   const url = checkRemoteUrl(options.url);
   const branch = options.branch ?? STORE_BRANCH;
-  if (
-    typeof branch !== 'string' ||
-    !/^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(branch) ||
-    branch.includes('..') ||
-    branch.endsWith('.lock')
-  ) {
+  if (!usableBranch(branch)) {
     throw new StoreRemoteError('remote-argument-invalid', `not a usable branch name: ${branch}`);
   }
   const dir = checkDir(options.dir);
   const ref = `refs/heads/${branch}`;
-
-  /** @type {Promise<[string, string][]> | undefined} */
-  let connection;
-  /** @type {Promise<void> | undefined} */
-  let ready;
-
-  /** @param {string[]} args @param {{ input?: Uint8Array, allowFail?: boolean }} [o] */
-  async function git(args, o = {}) {
-    const env = baseEnv(dir);
-    const pairs = await (connection ??= connectionConfig(dir));
-    env.GIT_CONFIG_COUNT = String(pairs.length);
-    pairs.forEach(([k, v], i) => {
-      env[`GIT_CONFIG_KEY_${i}`] = k;
-      env[`GIT_CONFIG_VALUE_${i}`] = v;
-    });
-    return run(dir, env, args, o);
-  }
-
-  /** The local bare repository, made once. */
-  const init = () =>
-    (ready ??= (async () => {
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      if (!existsSync(join(dir, 'HEAD'))) await git(['init', '-q', '--bare']);
-    })());
-
-  /** @param {string[]} args @param {{ input?: Uint8Array }} [o] */
-  const text = async (args, o) => (await git(args, o)).stdout.toString('utf8').trim();
+  const { git, init, text } = localRepo(dir);
 
   /** The remote branch's tip commit, or null when the branch does not exist yet. */
   async function remoteSha() {
@@ -346,6 +324,188 @@ export function createGitRemote(options) {
 }
 
 /** @typedef {{ id: string, sha: string }} Bundle a bundle's version id and its blob in git */
+
+/** @param {unknown} branch @returns {branch is string} */
+const usableBranch = (branch) =>
+  typeof branch === 'string' &&
+  /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(branch) &&
+  !branch.includes('..') &&
+  !branch.endsWith('.lock');
+
+/**
+ * The local bare repository a remote is read and written through, and git run against it, by the
+ * rules at the top of this file.
+ * @param {string} dir a checked directory (checkDir)
+ */
+function localRepo(dir) {
+  /** @type {Promise<[string, string][]> | undefined} */
+  let connection;
+  /** @type {Promise<void> | undefined} */
+  let ready;
+
+  /** @param {string[]} args @param {{ input?: Uint8Array, allowFail?: boolean }} [o] */
+  async function git(args, o = {}) {
+    const env = baseEnv(dir);
+    const pairs = await (connection ??= connectionConfig(dir));
+    env.GIT_CONFIG_COUNT = String(pairs.length);
+    pairs.forEach(([k, v], i) => {
+      env[`GIT_CONFIG_KEY_${i}`] = k;
+      env[`GIT_CONFIG_VALUE_${i}`] = v;
+    });
+    return run(dir, env, args, o);
+  }
+
+  /** The local bare repository, made once. */
+  const init = () =>
+    (ready ??= (async () => {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      if (!existsSync(join(dir, 'HEAD'))) await git(['init', '-q', '--bare']);
+    })());
+
+  /** @param {string[]} args @param {{ input?: Uint8Array }} [o] */
+  const text = async (args, o) => (await git(args, o)).stdout.toString('utf8').trim();
+
+  return { git, init, text };
+}
+
+/**
+ * Where the local bare repository keeps the last copy of a remote's device requests it fetched:
+ * one ref per address, so requests read from one address are never taken for another's.
+ * @param {string} url
+ */
+export const devicesRef = (url) =>
+  `refs/hitld/devices/${createHash('sha256').update(url).digest('hex').slice(0, 16)}`;
+
+/**
+ * @typedef {object} DevicesBranch
+ * @property {() => Promise<{ commit: string | null }>} fetch
+ *   Fetch the requests branch into devicesRef(url), or drop that ref when the remote has no such
+ *   branch (no device has asked). Throws remote-unreachable when the remote cannot be read.
+ * @property {(request: { name: string, text: string, message: string }) => Promise<{ commit: string, pushed: boolean, existing: string | null }>} propose
+ *   Put `text` at proposals/<name>.json on top of the branch and push it, never forced; when
+ *   another push lands first, fetch and try again. A request already there with the same text
+ *   pushes nothing. `existing` is the text the branch held at that path before, if any.
+ */
+
+/**
+ * The store repository's requests branch (design 0003, section 6): where a new device puts its
+ * name and public key for the owner to approve. Git runs as for the store's own branch: the same
+ * local bare repository, the same rules, no token of its own. What is on this branch is never
+ * trusted by itself; the approved set is the owner's answers, inside the encrypted store.
+ * @param {GitRemoteOptions} options `branch` is the requests branch (default hitld-devices)
+ * @returns {DevicesBranch}
+ */
+export function createDevicesBranch(options) {
+  const url = checkRemoteUrl(options.url);
+  const branch = options.branch ?? DEVICES_BRANCH;
+  if (!usableBranch(branch)) {
+    throw new StoreRemoteError('remote-argument-invalid', `not a usable branch name: ${branch}`);
+  }
+  const dir = checkDir(options.dir);
+  const { git, init, text } = localRepo(dir);
+  const local = devicesRef(url);
+  const ref = `refs/heads/${branch}`;
+
+  /** @returns {Promise<string | null>} */
+  async function remoteSha() {
+    const r = await git(['ls-remote', url, ref], { allowFail: true });
+    if (!r.ok) throw unreachable(r.stderr);
+    const line = r.stdout.toString('utf8').split('\n').find(Boolean);
+    return line ? line.split('\t')[0] : null;
+  }
+
+  /** @returns {Promise<{ commit: string | null }>} */
+  async function fetchBranch() {
+    await init();
+    if ((await remoteSha()) === null) {
+      await git(['update-ref', '-d', local], { allowFail: true });
+      return { commit: null };
+    }
+    const r = await git(
+      [
+        '-c',
+        'transfer.fsckObjects=true',
+        'fetch',
+        '-q',
+        '--no-tags',
+        '--no-write-fetch-head',
+        url,
+        `+${ref}:${local}`,
+      ],
+      { allowFail: true },
+    );
+    if (!r.ok) throw unreachable(r.stderr);
+    return { commit: await text(['rev-parse', '--verify', local]) };
+  }
+
+  /** The requests a commit holds: name to blob. @param {string} commit */
+  async function requestsAt(commit) {
+    const raw = (await git(['ls-tree', '-z', commit, `${PROPOSALS_DIR}/`])).stdout.toString('utf8');
+    /** @type {Map<string, string>} */
+    const out = new Map();
+    for (const rec of raw.split('\0')) {
+      const tab = rec.indexOf('\t');
+      if (tab < 0) continue;
+      const [mode, type, sha] = rec.slice(0, tab).split(' ');
+      const name = rec.slice(tab + 1).replace(`${PROPOSALS_DIR}/`, '');
+      if (mode === '100644' && type === 'blob' && /^[a-z0-9][a-z0-9._-]{0,63}\.json$/.test(name)) {
+        out.set(name, sha);
+      }
+    }
+    return out;
+  }
+
+  return {
+    fetch: fetchBranch,
+
+    async propose(request) {
+      if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(request.name)) {
+        throw new StoreRemoteError('remote-argument-invalid', `not a device name: ${request.name}`);
+      }
+      const file = `${request.name}.json`;
+      let last = '';
+      for (let i = 0; i < ATTEMPTS; i++) {
+        const { commit } = await fetchBranch();
+        const files = commit ? await requestsAt(commit) : new Map();
+        const was = files.get(file);
+        const existing = was
+          ? (await git(['cat-file', 'blob', was])).stdout.toString('utf8')
+          : null;
+        if (commit && existing === request.text) return { commit, pushed: false, existing };
+        const blob = await text(['hash-object', '-w', '--stdin'], {
+          input: Buffer.from(request.text),
+        });
+        files.set(file, blob);
+        const sub = await text(['mktree', '-z'], {
+          input: Buffer.from(
+            [...files.entries()]
+              .sort(([a], [b]) => (a < b ? -1 : 1))
+              .map(([n, sha]) => `100644 blob ${sha}\t${n}\0`)
+              .join(''),
+          ),
+        });
+        const tree = await text(['mktree', '-z'], {
+          input: Buffer.from(`040000 tree ${sub}\t${PROPOSALS_DIR}\0`),
+        });
+        const next = await text([
+          'commit-tree',
+          tree,
+          ...(commit ? ['-p', commit] : []),
+          '-m',
+          request.message,
+        ]);
+        const pushed = await git(['push', '-q', '--no-verify', url, `${next}:${ref}`], {
+          allowFail: true,
+        });
+        if (pushed.ok) return { commit: next, pushed: true, existing };
+        last = pushed.stderr;
+        // Refused because another request landed first: the next round builds on it.
+        if ((await remoteSha()) === commit) break;
+      }
+      throw new StoreRemoteError('remote-git-failed', `git push was refused: ${last}`);
+    },
+  };
+}
 
 /** @param {string} why */
 const unreachable = (why) =>

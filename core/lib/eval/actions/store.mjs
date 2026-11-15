@@ -1,9 +1,11 @@
 // Actions for the store remote scenarios (design 0003 section 13): a project with a checkout on
-// each device, a bare repository standing in for the store's host, and a bare repository standing
-// in for the project's own origin (where the owner's merge lands). Every device is a container: a
+// each device, a bare repository standing in for the store's host (its hitld-devices branch holds
+// the devices' requests), and a bare repository standing in for the project's own origin. Who may
+// read the store is the owner's answers to device decisions, inside each device's private store. Every device is a container: a
 // fresh clone of origin, a private store of its own (a data directory of its own) and its key.
-// A device's key arrives the way a cloud environment's does, in HITLD_STORE_IDENTITY; the
-// keychain is not used, so a scenario runs on any machine.
+// A device's key and the store's address arrive the way a cloud environment's do, in
+// HITLD_STORE_IDENTITY and HITLD_STORE_REMOTE; the keychain and the person file are not used, so
+// a scenario runs on any machine. The project's repository never holds the address.
 //
 // Everything is built inside the sandbox. No action prints a private key: `init --cloud` prints
 // one once, and `store.hitld` keeps it as the key of the device it names and leaves it out of the
@@ -11,11 +13,12 @@
 // what an owner runs.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateIdentity, decrypt, isAgeFile, parseIdentities } from '../../store/age.mjs';
-import { DEVICES_PATH, serializeDevices } from '../../store/devices.mjs';
-import { STORE_BRANCH } from '../../store/remote-git.mjs';
+import { APPROVALS_KEY, openDeviceAsks, readApprovals } from '../../store/devices.mjs';
+import { DEVICES_BRANCH, PROPOSALS_DIR, STORE_BRANCH } from '../../store/remote-git.mjs';
+import { openStore, privateStorePath } from '../../store/store.mjs';
 import { commitAll, fixtureGit, putFiles } from '../orchestrator-fixtures.mjs';
 
 const PROJECT_ID = 'sample-app';
@@ -68,16 +71,35 @@ function freshContainer(sandbox, name) {
   return checkout;
 }
 
-/** The devices that have a container, as directories. @param {string} sandbox */
-function containers(sandbox) {
-  const dir = join(sandbox, 'devices');
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((n) => existsSync(join(dir, n, 'checkout')));
+/** A device's private store. @param {string} sandbox @param {string} name */
+const storeOf = (sandbox, name) =>
+  openStore(privateStorePath(PROJECT_ID, { env: envFor(sandbox, name) }));
+
+/** The device names asking on the host's hitld-devices branch. @param {string} gitDir */
+function requestsOf(gitDir) {
+  try {
+    return bareGit(gitDir, [
+      'ls-tree',
+      '--name-only',
+      `refs/heads/${DEVICES_BRANCH}`,
+      `${PROPOSALS_DIR}/`,
+    ])
+      .toString('utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((p) => p.slice(PROPOSALS_DIR.length + 1).replace(/\.json$/, ''))
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
+/** Whether the scenario's project has a store remote: its host exists. @param {string} sandbox */
+const hasHost = (sandbox) => existsSync(join(hostDir(sandbox), 'HEAD'));
+
 /**
- * The environment a command runs in on a device: its own data directory, and its key as a cloud
- * environment carries it.
+ * The environment a command runs in on a device: its own data directory, and its key and the
+ * store's address as a cloud environment carries them.
  * @param {string} sandbox @param {string} name
  * @param {{ executor?: boolean, noKey?: boolean }} [o]
  * @returns {NodeJS.ProcessEnv}
@@ -91,6 +113,7 @@ function envFor(sandbox, name, o = {}) {
     XDG_DATA_HOME: join(dir, 'data'),
     XDG_CONFIG_HOME: join(dir, 'config'),
     HITLD_SESSION: `s-${name}`,
+    ...(hasHost(sandbox) ? { HITLD_STORE_REMOTE: `file://${hostDir(sandbox)}` } : {}),
     ...(key ? { HITLD_STORE_IDENTITY: key } : {}),
     ...(o.executor ? { HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' } : {}),
   };
@@ -152,7 +175,7 @@ function hasBranch(gitDir) {
 export const actions = {
   'store.fixture': {
     description:
-      "Build a project for the store remote: origin (a bare repository holding main, with policy.json and the list of enrolled devices), a bare repository standing in for the store's host (the project's store.remote.url, unless remote is false), and a container for each named device: a fresh clone, an empty private store and a key of its own. A device is enrolled when it is in `enrolled` (default: all of them). Returns { project, devices, enrolled, remote }.",
+      "Build a project for the store remote: origin (a bare repository holding main, with policy.json and a tracker project for device decisions, and neither the store's address nor its devices), a bare repository standing in for the store's host, unless remote is false, and a container for each named device: a fresh clone, an empty private store, a key of its own and the store's address in HITLD_STORE_REMOTE. A device is enrolled when it is in `enrolled` (default: all of them): its own store holds the owner's approvals of the enrolled devices, as if it had pulled them. Returns { project, devices, enrolled, remote }.",
     input: {
       type: 'object',
       properties: {
@@ -194,27 +217,39 @@ export const actions = {
         '.human-in-the-lead/policy.json': JSON.stringify({
           schema_version: 1,
           project: { id: PROJECT_ID, key: 'SAM' },
-          ...(withRemote ? { store: { remote: { url: `file://${host}` } } } : {}),
+          ...(withRemote ? { store: { remote: { required: true } } } : {}),
         }),
-        [DEVICES_PATH]: serializeDevices({
-          schema_version: 1,
-          devices: enrolled.map((name) => ({
-            name,
-            recipient: recipients[name],
-            added: '2026-11-15',
-          })),
-        }),
+        'work/projects/SAM-1-the-store-follows-the-owner.md':
+          '---\nid: SAM-1\ntitle: "The store follows the owner"\nkind: project\nstate: planned\ncreated: 2026-11-15\n---\n\nWhere device decisions are filed.\n',
       });
-      commitAll(seed, 'Set up the project and enrol its devices');
+      commitAll(seed, 'Set up the project');
       fixtureGit(ctx.sandbox, 'init', '-q', '--bare', '-b', 'main', originDir(ctx.sandbox));
       fixtureGit(seed, 'push', '-q', originDir(ctx.sandbox), 'main');
       rmSync(seed, { recursive: true, force: true });
       for (const name of devices) freshContainer(ctx.sandbox, name);
+      // The owner's earlier answers, which every enrolled device has pulled: its own store says
+      // which devices are approved.
+      const approvals = enrolled
+        .map((name, i) =>
+          JSON.stringify({
+            event: 'approved',
+            decision: `SAM-${100 + i}`,
+            action: 'enrol',
+            name,
+            recipient: recipients[name],
+            added: '2026-11-15',
+            at: `2026-11-15T09:0${i % 10}:00.000Z`,
+          }),
+        )
+        .join('\n');
+      for (const name of enrolled) {
+        storeOf(ctx.sandbox, name).write(APPROVALS_KEY, `${approvals}\n`);
+      }
       return {
         project: PROJECT_ID,
         devices,
         enrolled,
-        remote: withRemote ? 'policy' : 'none',
+        remote: withRemote ? 'environment' : 'none',
       };
     },
   },
@@ -302,38 +337,38 @@ export const actions = {
     },
   },
 
-  'store.owner-merge': {
+  'store.owner-answers': {
     description:
-      "The owner's merge: commit what a device changed under .human-in-the-lead (the device list, policy.json) to main, push it to origin, and bring every other container's main up to date, as a session does when it clones. Returns { merged, files }.",
+      'The owner, in their own turn on a device, answers every device decision waiting there with `hitld rights answer <decision> --answer <answer>` (A approves, B refuses). Returns { answered }: each decision, and what the answer did to the device.',
     input: {
       type: 'object',
-      properties: { device: DEVICE, message: { type: 'string', minLength: 1 } },
+      properties: { device: DEVICE, answer: { enum: ['A', 'B'] } },
       required: ['device'],
       additionalProperties: false,
     },
-    run: (input, ctx) => {
+    run: async (input, ctx) => {
       const name = checkName(input.device);
       const checkout = join(deviceDir(ctx.sandbox, name), 'checkout');
-      fixtureGit(checkout, 'add', '-A', '.human-in-the-lead');
-      const staged = fixtureGit(checkout, 'diff', '--cached', '--name-only')
-        .split('\n')
-        .filter(Boolean);
-      if (!staged.length) return { merged: false, files: [] };
-      fixtureGit(checkout, 'commit', '-q', '-m', input.message ?? 'Merge a store change');
-      fixtureGit(checkout, 'push', '-q', 'origin', 'main');
-      for (const other of containers(ctx.sandbox)) {
-        if (other === name) continue;
-        const dir = join(deviceDir(ctx.sandbox, other), 'checkout');
-        fixtureGit(dir, 'fetch', '-q', 'origin');
-        fixtureGit(dir, 'merge', '-q', '--ff-only', 'origin/main');
+      const { main } = await import('../../cli/main.mjs');
+      const answered = [];
+      for (const ask of openDeviceAsks(readApprovals(storeOf(ctx.sandbox, name)))) {
+        let out = '';
+        await main(['rights', 'answer', ask.decision, '--answer', input.answer ?? 'A'], {
+          out: (t) => (out += t),
+          err: () => {},
+          cwd: checkout,
+          env: envFor(ctx.sandbox, name),
+        });
+        const r = JSON.parse(out);
+        answered.push({ decision: ask.decision, ok: r.ok, device: r.device ?? null });
       }
-      return { merged: true, files: staged };
+      return { answered };
     },
   },
 
   'store.inspect-remote': {
     description:
-      "Look at everything the store's host holds, as its provider could: every object of the bare repository, reachable or not. Returns { versions, all_age_files, names_ok, plain_hits, opens }: the number of files kept on the store branch, whether each is an age file, whether each is named only by a sequence number and a hash, which of `markers` appear in any object as plain text, and, for each device in open_with, how many of the files its key opens.",
+      "Look at everything the store's host holds, as its provider could: every object of the bare repository, reachable or not. Returns { versions, all_age_files, names_ok, plain_hits, opens, requests }: the number of files kept on the store branch, whether each is an age file, whether each is named only by a sequence number and a hash, which of `markers` appear in any object as plain text, for each device in open_with how many of the files its key opens, and the device requests on the hitld-devices branch.",
     input: {
       type: 'object',
       properties: {
@@ -385,6 +420,7 @@ export const actions = {
           files.every((f) => /^bundles\/\d{8}-[0-9a-f]{64}\.bundle$/.test(f.name)),
         plain_hits: [...hits].sort(),
         opens,
+        requests: made ? requestsOf(host) : [],
       };
     },
   },

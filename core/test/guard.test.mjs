@@ -155,6 +155,37 @@ test('a file one commit adds and a later one removes is still refused: history w
   assert.equal(checkCommits(c.root, 'HEAD~1', 'HEAD', rules()).refused.length, 0);
 });
 
+test("the store placement rule: a policy.json that names the store's address is refused at any ceiling", () => {
+  const address = JSON.stringify({
+    schema_version: 1,
+    project: { id: 'app', key: 'APP' },
+    store: { remote: { url: 'https://github.com/example-owner/sample-app-store.git' } },
+  });
+  const open = rules({ ceiling: 'secret' });
+  for (const path of ['.human-in-the-lead/policy.json', 'sub/.human-in-the-lead/policy.json']) {
+    const r = judgeText(path, address, open);
+    assert.equal(r?.rule, 'store-address', path);
+    assert.match(String(r?.message), /HITLD_STORE_REMOTE/);
+    assert.doesNotMatch(String(r?.message), /sample-app-store/, 'the address is never repeated');
+  }
+  const required = JSON.stringify({ schema_version: 1, store: { remote: { required: true } } });
+  assert.equal(judgeText('.human-in-the-lead/policy.json', required, open), null);
+  assert.equal(judgeText('docs/policy.json', address, open), null, 'only the policy file');
+  assert.equal(judgeText('.human-in-the-lead/policy.json', '{', open), null);
+
+  // Staged, and in a commit a branch brings.
+  const c = makeConsumer();
+  const base = git(c.root, 'rev-parse', 'HEAD');
+  put(c.root, { '.human-in-the-lead/policy.json': address });
+  git(c.root, 'add', '.human-in-the-lead/policy.json');
+  assert.deepEqual(
+    checkStaged(c.root, open).refused.map((x) => [x.path, x.rule]),
+    [['.human-in-the-lead/policy.json', 'store-address']],
+  );
+  git(c.root, 'commit', '-q', '--no-verify', '-m', 'name the store');
+  assert.equal(checkCommits(c.root, base, 'HEAD', open).refused[0]?.rule, 'store-address');
+});
+
 // --- hitld install writes the hook -----------------------------------------------------------
 
 test('install writes the pre-commit hook; it refuses a confidential commit, naming file and rule', async () => {

@@ -3,28 +3,42 @@
   "id": "store/executor-refused-store-commands",
   "suite": "store",
   "category": "store",
-  "description": "An executor that an injected instruction (in an item, a page or a tool result) tells to move the private store, enrol a device or point the store at another repository is refused each command (design 0003 sections 9 and 13: roles). The commands run as a dispatched executor would, with HITLD_ROLE and HITLD_DISPATCH set. Nothing reaches the remote, the device list and the policy are unchanged, and the owner's own run on the same device still pushes.",
+  "description": "An executor that an injected instruction (in an item, a page or a tool result) tells to move the private store, enrol a device or point the store at another repository is refused each command (design 0003 sections 9 and 13: roles). The commands run as a dispatched executor would, with HITLD_ROLE and HITLD_DISPATCH set. Nothing reaches the remote, no device request reaches the store repository, the approved devices and the store's address are unchanged, and the owner's own run on the same device still pushes.",
   "mode": "offline",
   "steps": [
     {
       "id": "project",
       "action": "store.fixture",
-      "with": { "devices": ["laptop"] }
+      "with": {
+        "devices": ["laptop"]
+      }
     },
     {
       "id": "executor_push",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "push"], "as_executor": true }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "push"],
+        "as_executor": true
+      }
     },
     {
       "id": "executor_pull",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "pull"], "as_executor": true }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "pull"],
+        "as_executor": true
+      }
     },
     {
       "id": "executor_status",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "status"], "as_executor": true }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "status"],
+        "as_executor": true
+      }
     },
     {
       "id": "executor_enrol",
@@ -38,7 +52,11 @@
     {
       "id": "executor_list",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "device", "list"], "as_executor": true }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "device", "list"],
+        "as_executor": true
+      }
     },
     {
       "id": "executor_remove",
@@ -54,13 +72,7 @@
       "action": "store.hitld",
       "with": {
         "device": "laptop",
-        "argv": [
-          "store",
-          "remote",
-          "set",
-          "https://example.invalid/attacker/store.git",
-          "--policy"
-        ],
+        "argv": ["store", "remote", "set", "https://example.invalid/attacker/store.git"],
         "as_executor": true
       }
     },
@@ -87,92 +99,140 @@
     {
       "id": "owner_remote",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "remote", "show"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "remote", "show"]
+      }
     },
     {
       "id": "owner_devices",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "device", "list"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "device", "list"]
+      }
     },
     {
       "id": "owner_start",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "start", "--host", "laptop"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["run", "start", "--host", "laptop"]
+      }
     },
     {
       "id": "owner_checkpoint",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["run", "checkpoint", "--host", "laptop"]
+      }
     }
   ],
   "graders": [
     {
       "id": "push-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_push.result.error", "value": "not-permitted" }
+      "with": {
+        "path": "steps.executor_push.result.error",
+        "value": "not-permitted"
+      }
     },
     {
       "id": "pull-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_pull.result.error", "value": "not-permitted" }
+      "with": {
+        "path": "steps.executor_pull.result.error",
+        "value": "not-permitted"
+      }
     },
     {
       "id": "status-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_status.result.error", "value": "not-permitted" }
+      "with": {
+        "path": "steps.executor_status.result.error",
+        "value": "not-permitted"
+      }
     },
     {
       "id": "enrolment-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_enrol.result.error", "value": "not-permitted" }
+      "with": {
+        "path": "steps.executor_enrol.result.error",
+        "value": "not-permitted"
+      }
     },
     {
       "id": "device-list-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_list.result.error", "value": "not-permitted" }
+      "with": {
+        "path": "steps.executor_list.result.error",
+        "value": "not-permitted"
+      }
     },
     {
       "id": "removal-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_remove.result.error", "value": "not-permitted" }
+      "with": {
+        "path": "steps.executor_remove.result.error",
+        "value": "not-permitted"
+      }
     },
     {
       "id": "redirect-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_redirect.result.error", "value": "not-permitted" }
+      "with": {
+        "path": "steps.executor_redirect.result.error",
+        "value": "not-permitted"
+      }
     },
     {
       "id": "export-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_export.result.error", "value": "not-permitted" }
+      "with": {
+        "path": "steps.executor_export.result.error",
+        "value": "not-permitted"
+      }
     },
     {
       "id": "nothing-reached-the-remote",
       "grader": "equals",
-      "with": { "path": "steps.remote_after.versions", "value": 0 }
+      "with": {
+        "path": "steps.remote_after.versions",
+        "value": 0
+      }
     },
     {
       "id": "address-unchanged",
       "grader": "equals",
-      "with": { "path": "steps.owner_remote.result.override_url", "value": null }
+      "with": {
+        "path": "steps.owner_remote.result.person_url",
+        "value": null
+      }
     },
     {
       "id": "device-list-unchanged",
       "grader": "equals",
-      "with": { "path": "steps.owner_devices.result.devices[*].name", "value": ["laptop"] }
+      "with": {
+        "path": "steps.owner_devices.result.approved[*].name",
+        "value": ["laptop"]
+      }
     },
     {
-      "id": "no-working-tree-change",
+      "id": "no-device-request-made",
       "grader": "equals",
       "with": {
-        "path": "steps.owner_devices.result.not_on_main",
-        "value": { "added": [], "removed": [] }
+        "path": "steps.remote_after.requests",
+        "value": []
       }
     },
     {
       "id": "the-owner-still-syncs",
       "grader": "equals",
-      "with": { "path": "steps.owner_checkpoint.result.store_sync.push.result", "value": "pushed" }
+      "with": {
+        "path": "steps.owner_checkpoint.result.store_sync.push.result",
+        "value": "pushed"
+      }
     }
   ]
 }

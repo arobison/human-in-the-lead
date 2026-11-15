@@ -26,7 +26,7 @@ It proposes six decisions:
 |---|---|---|
 | 1 | The store stays a synced copy on each machine, merged as today, behind a small `StoreRemote` interface. A hosted database is a later backend for several people leading one project. | [4](#4-a-synced-copy-not-a-hosted-database) |
 | 2 | Each pushed file is encrypted to the project's enrolled devices. Each device has its own key pair; there is no shared passphrase. | [5](#5-keys-one-key-pair-per-device) |
-| 3 | A device is enrolled by committing its public key to the repository. The owner's merge is the approval. | [6](#6-enrolling-and-removing-a-device) |
+| 3 | A device is enrolled by the owner's own answer to a device decision, recorded inside the encrypted store. Neither the device list nor the store's address is in the project's repository. | [6](#6-enrolling-and-removing-a-device) |
 | 4 | The first transport is a private GitHub repository. Others (S3-compatible storage, a directory) follow behind the same interface. | [7](#7-transports) |
 | 5 | `hitld` pulls on run start and resume, and pushes at checkpoints, hand-overs and merges. Harness hooks are a backstop. The run lease is the lock. | [8](#8-when-sync-runs) |
 | 6 | The file format follows age, with its published test vectors, rather than a new format. | [10](#10-the-file-format) |
@@ -51,7 +51,7 @@ This is state shared across machines, kept on storage that cannot read it. Two w
 | Terraform remote state | One state file in a backend, with a lock so two writers cannot overwrite each other | The run lease is the lock ([13.1](0001-human-in-the-lead/13-operations.md#one-orchestrator-at-a-time)); the remote is the backend |
 | restic, borg, Kopia | Back up to S3, B2 or SFTP; the storage only ever holds ciphertext; pluggable backends | Encryption on the client; dumb storage; one interface, several transports |
 | age, SOPS | Encrypt a file to several recipients' public keys; each recipient opens it with its own private key | One key pair per device; no shared passphrase |
-| Signal linked devices, 1Password device enrolment | A new device gets access only when a trusted one approves it | Enrolment is a commit the owner merges |
+| Signal linked devices, 1Password device enrolment | A new device gets access only when a trusted one approves it | A new device asks; an approved device puts the request to the owner, whose answer enrols it |
 | Litestream | Copies a local database to object storage on every write | Push on every checkpoint, not when someone remembers |
 
 Two things HITLd already has make this simpler than a general sync system:
@@ -86,8 +86,8 @@ A hosted database gives fresh reads to many writers, which HITLd does not need y
 
 A **device** is anything that runs `hitld` for a project and keeps a store: a laptop, a GPU machine, or a cloud environment.
 
-- **Each device has its own key pair.** `hitld store device init` makes one. The private key stays on the device (section 9 says where). The public key is enrolled (section 6).
-- **Each pushed file is encrypted to every enrolled device.** As in age, each file has a fresh random file key; the payload is encrypted once with it; and the file key is wrapped once per recipient's public key. Any enrolled device opens the file with its own private key.
+- **Each device has its own key pair.** `hitld store device init` makes one. The private key stays on the device (section 9 says where). The public key is enrolled by the owner's answer (section 6).
+- **Each pushed file is encrypted to every device the owner approved.** As in age, each file has a fresh random file key; the payload is encrypted once with it; and the file key is wrapped once per recipient's public key. Any enrolled device opens the file with its own private key.
 - **No shared secret.** No passphrase is typed, stored or shared. Removing a device does not change any other device's key.
 
 ### The alternative not taken: one passphrase, as today
@@ -96,16 +96,25 @@ Format 1 ([3.2](0001-human-in-the-lead/03-data-model.md#private-store)) derives 
 
 ## 6. Enrolling and removing a device
 
-- **Enrol.** On the new device, `hitld store device init` makes the key pair and writes its public key to `.human-in-the-lead/store-devices.json` in the repository: a device name, the public key and when it was made. The orchestrator commits that change like any tracker change, and it reaches main only through the owner's merge. A public key is safe in a public repository.
-- **What enrolment gives.** From the next push, files are encrypted to the new device too. The new device can open what is pushed after its enrolment merges. Until then it can push nothing: `hitld` refuses to push from a device that is not on main's list.
-- **Remove.** Removing a device's entry is a commit the owner merges. From the next push, files are no longer encrypted to it. What the removed device already pulled, it keeps: removal protects what comes after, not what was already shared. The transport's old files are pruned (section 7) so the removed key opens nothing new from storage.
-- **Executors never enrol.** The `store device` commands refuse executors as the other store commands do ([3.2](0001-human-in-the-lead/03-data-model.md#private-store)), and the merge queue rejects a branch that changes the device list unless it is the orchestrator's enrolment commit.
+Who may read the store is the owner's own answer to a device decision, and nothing else. None of it is in the project's repository, which may be public: a device list there would tell anyone how many keys open the store.
 
-**As built.** `hitld store device init` makes an X25519 key pair. On a local machine the private key goes to the OS keychain (service `hitld-store-<project id>`, account `device-identity`), through standard input and never on a command line; where there is no keychain, init refuses and says to use `--cloud`. With `--cloud --name <n>`, nothing is written: the private key is printed once, for the owner to set as `HITLD_STORE_IDENTITY` in that cloud environment's settings. Run again, init changes nothing. It adds `{name, recipient, added}` to `store-devices.json` for the owner to commit. `hitld store device list` reads main's copy; when the checkout has both a local `main` and `origin/main`, a device counts only if both list it. `hitld store device remove <name>` edits the file and records the removal in the private store (`devices/rotations.jsonl`).
+- **Ask.** On the new device, `hitld store device init` makes the key pair and puts the device's request on the store repository's `hitld-devices` branch: its name, its public key and the date. The branch is not protected, and anyone who can write the store repository could change it, so a request is never trusted by itself.
+- **Decide.** On a device the owner already approved, `hitld store device ask` turns each waiting request into a decision, through `hitld rights ask`: the decider is the owner, it is reversible, and it carries no default. No precedent settles it and `hitld rights sweep` never applies one, so only the owner's own answer, recorded with `hitld rights answer` from the owner's own turn, enrols a device. The decision item names the device only by its key's fingerprint, because the tracker is in the project's repository.
+- **Record.** The answer is written inside the private store (`devices/approvals.jsonl`), which is encrypted with the rest of the store, so every device learns it on its next pull. The approved set is those answers: every key approved and not removed since.
+- **What enrolment gives.** From the next push, files are encrypted to the new device too. The new device can open what is pushed after the owner's answer. Until then it can push nothing: `hitld` refuses to push from a device the owner has not approved.
+- **Remove.** `hitld store device remove <name>` asks the owner the same way. Once the owner approves it, files are no longer encrypted to that device from the next push. What the removed device already pulled, it keeps: removal protects what comes after, not what was already shared. The transport's old files are pruned (section 7) so the removed key opens nothing new from storage.
+- **The first device.** When no device is approved and the remote holds nothing, `hitld store device init` asks the owner to approve its own key. Nothing is pushed until that answer.
+- **Executors never enrol.** The `store device` commands and `hitld rights answer` refuse executors, as the other store commands do ([3.2](0001-human-in-the-lead/03-data-model.md#private-store)).
 
-The push asks `resolveDevices` (`core/lib/store/devices-port.mjs`) for main's recipients and this device's key (`HITLD_STORE_IDENTITY` first, then the keychain), and `assertEnrolled` refuses a device that is not on main's list with `device-not-enrolled`. A push encrypts to main's list and nothing else, so a removed device opens nothing pushed after its removal reached main. After a removal, `completeRotation` prunes every older file on the remote and records the rotation; each file holds the store's whole history, so nothing is lost. The queue sends back any branch that changes `store-devices.json`.
+**As built.** `hitld store device init` makes an X25519 key pair. On a local machine the private key goes to the OS keychain (service `hitld-store-<project id>`, account `device-identity`), through standard input and never on a command line; where there is no keychain, init refuses and says to use `--cloud`. With `--cloud --name <n>`, nothing is written: the private key is printed once, for the owner to set as `HITLD_STORE_IDENTITY` in that cloud environment's settings; with `HITLD_STORE_IDENTITY` already set, init asks for that key and prints nothing secret. The request is `proposals/<name>.json` on `hitld-devices` (the `store-devices` schema, with one device), pushed through the same transport and rules as the store's own branch (`core/lib/store/remote-git.mjs`) and never forced. Init prints the key's fingerprint, which the decision shows too, so the owner can check that they are approving the device they set up. Run again, init changes nothing. `hitld store device list` shows the approved devices, the requests waiting and the decisions waiting for the owner, each marked.
 
-Each file's manifest names the recipients it is sealed to (`recipients`, public keys, sorted), and `<store>/.git/hitld-sync.json` records them with the version last merged or pushed, taken from the manifest on a pull. A push is up to date only when main's list is that set. After an enrolment or a removal reaches main, the next push by any enrolled device therefore seals and pushes again even with nothing new in the store, so the new device can open the head; only a removal also prunes. `store status` reports `push_due` with `push_reason`: `never-pushed`, `local-changes` or `recipients-changed`. A record or a file with no recipients (written before the field) counts as not matching, so it is re-sealed once.
+`hitld store device ask` refuses a device the owner has not approved (`device-not-enrolled`), since the answer is recorded in the store it pushes; the first device of an empty store asks from `init`. It skips a key that already has a decision, and a key the owner refused or removed: that device asks again with a new key. Each decision is asked with `ownerOnly` (`core/lib/rights/flow.mjs`): it is refused if the rules route it to anyone but the owner, no precedent is matched, it may not carry a default, and its ask record says `never_default`, so `rights pending` never offers it a default and `rights sweep` skips it. `hitld rights answer` then calls `applyDeviceAnswer` (`core/lib/store/devices.mjs`): option A approves the enrolment or the removal, any other answer refuses it, and it writes `approved`, `removed` or `refused` beside the `asked` line, with the decision's ID.
+
+The push asks `resolveDevices` (`core/lib/store/devices-port.mjs`) for the approved recipients and this device's key (`HITLD_STORE_IDENTITY` first, then the keychain); the approved set comes from one function there, `approvedList`. `assertEnrolled` refuses a device that is not in it with `device-not-enrolled`. A push first brings in the remote's head when this store has not merged it, then resolves the devices again, so it encrypts to every answer any device has pushed; a head that does not open with this device's key means the owner removed it, and the push is refused with `device-not-enrolled`. After a removal, `completeRotation` prunes every older file on the remote and records the rotation; each file holds the store's whole history, so nothing is lost.
+
+Each file's manifest names the recipients it is sealed to (`recipients`, public keys, sorted), and `<store>/.git/hitld-sync.json` records them with the version last merged or pushed, taken from the manifest on a pull. A push is up to date only when the approved set is that set. After an answer changes the set, the next push by any approved device therefore seals and pushes again, so the new device can open the head; only a removal also prunes. `store status` reports `push_due` with `push_reason`: `never-pushed`, `local-changes` or `recipients-changed`, and lists the approved devices, the requests waiting and the device decisions waiting for the owner (`devices`). A record or a file with no recipients (written before the field) counts as not matching, so it is re-sealed once.
+
+**A project that kept the device list in its repository.** Before, the list was `.human-in-the-lead/store-devices.json` on main. It is not read any more. `hitld check policy` and the commit guard refuse it, at commit and at merge, whatever the classification ceiling (`core/lib/guard/store-placement.mjs`), and `store status` and `store device list` warn about it. Each device runs `hitld store device init` again, which asks for the key it already has; the owner answers; then the file is removed with `git rm`. The project's history keeps the old list, and rewriting that history is the owner's choice.
 
 ## 7. Transports
 
@@ -158,18 +167,19 @@ Sync is part of `hitld` commands that already run at the right moments, so no ag
 
 **As built: push, pull and status.** The code is `core/lib/store/push-pull.mjs`.
 
-- **The address.** The project's address is `store.remote.url` in `policy.json` (schema `schemas/policy/store.schema.json`). It is committed, so a fresh cloud container finds the remote with the checkout and nothing is run first. It is not a secret: a password in it is refused, and credentials come from the session's own git access. Policy loading checks it with `checkRemoteUrl`, and a bad address is a policy error. A machine may override it, for a mirror say: `hitld store remote set <url>` records the override in `<store>/.git/hitld-remote.json`, which is machine-local (inside the store's `.git`, which no commit or bundle carries) and wins over the policy. `hitld store remote clear` removes it. `remote set` does not write `policy.json` by default; it prints the change to commit (`policy_change`), and `--policy` writes it into `policy.json` for the owner to review and commit. `remote show` and `status` say which source the address came from (`policy` or `machine`).
+- **The address.** It is never in the project's repository, which may be public: naming the store repository there tells anyone where the store is. It is read from, in this order (`core/lib/store/address.mjs`): the environment variable `HITLD_STORE_REMOTE`, which a cloud environment sets beside `HITLD_STORE_IDENTITY`, so a fresh container finds the remote with nothing run first; then the person file ([13.4](0001-human-in-the-lead/13-operations.md#134-settings-in-four-layers)), `projects.<project id>.store_remote`, on a local machine; then this machine's override, `<store>/.git/hitld-remote.json` (inside the store's `.git`, which no commit or bundle carries). It is not a secret: a password in it is refused, and credentials come from the session's own git access; `checkRemoteUrl` checks it wherever it is read. `hitld store remote set <url>` writes the person file, and `--machine` the override; `hitld store remote clear` takes it out of either. Neither ever writes `policy.json`. `remote show` and `status` say which source the address came from (`environment`, `person` or `machine`).
+- **What policy.json keeps.** Only `store.remote.required` (true or false, schema `schemas/policy/store.schema.json`): whether the project expects a remote on every machine and session. When it is true and no address is found, `run start`, `run resume` and `store status` say so, naming `HITLD_STORE_REMOTE` and `hitld store remote set`, and each hook prints one line; nothing is refused. `store.remote.url` in `policy.json` is refused by the policy check, with a message that says where the address goes, and the commit guard refuses a `policy.json` that sets it, at commit and at merge, whatever the classification ceiling (`core/lib/guard/store-placement.mjs`). A project that committed an address before has to take it out of `policy.json` and set it as above; its history keeps the old address, and rewriting that history is the owner's choice.
 - **What was merged.** Pull and push record the remote version they last merged or pushed, the local commit it holds and the address it was on, in `<store>/.git/hitld-sync.json`. It is machine-local and not in the policy: a fresh container has none, so its first `hitld store pull` fetches the head and merges it. The next push uses the recorded version as the head it expects. A record made against another address is not used.
-- **Push.** It commits the store's text, seals it as format 2 to the devices on main's `store-devices.json`, and pushes with compare and swap. It does nothing only when the remote's head is the version last merged, the store's text is unchanged and main's list is the set that head was sealed to (section 6). If the remote has moved, it fetches the new head, merges it as `store import` does, seals again and retries, up to four times. A real conflict stops it, names the paths and changes nothing.
-- **Which devices.** Before anything is sealed, push fetches the main branch from `origin` (hooks off, no prompt), so the list is current. If the fetch fails, the push is refused (`devices-fetch-failed`). A checkout with no `origin` uses its local main. A device not on main's list is refused (`device-not-enrolled`). There is no `--recipient` flag: a push never adds a key that is not on main. While a removal's rotation is pending, the push replaces the remote's head even with nothing new, then prunes every older file.
+- **Push.** It brings in the remote's head if this store has not merged it, commits the store's text, seals it as format 2 to the devices the owner approved, and pushes with compare and swap. It does nothing only when the remote's head is the version last merged, the store's text is unchanged and the approved set is the set that head was sealed to (section 6). If the remote has moved, it fetches the new head, merges it as `store import` does, seals again and retries, up to four times. A real conflict stops it, names the paths and changes nothing.
+- **Which devices.** The approved set in the store, after the remote's head is merged, so an answer another device pushed counts. A device the owner has not approved is refused (`device-not-enrolled`), and so is one whose key does not open the remote's head. A request on the `hitld-devices` branch is never a recipient. There is no `--recipient` flag: a push never adds a key the owner did not approve. While a removal's rotation is pending, the push replaces the remote's head even with nothing new, then prunes every older file.
 - **Pull.** It fetches the head and opens it with this device's key. An empty remote, or a head already merged, changes nothing. A key that does not open the file is refused and nothing is written.
-- **Status.** It reports the address and its source, the local commit and the remote version, the version last merged, whether a push or a pull is due, and this device's enrolment. A remote that cannot be reached is reported in the result, not raised. It commits nothing.
+- **Status.** It reports the address and its source, the local commit and the remote version, the version last merged, whether a push or a pull is due, this device's enrolment, the approved devices, the requests waiting on `hitld-devices` and the device decisions waiting for the owner. A remote that cannot be reached is reported in the result, not raised. It commits nothing.
 - **Keys.** Recipients and the private key come from `resolveDevices` (`core/lib/store/devices-port.mjs`) and nowhere else. The private key comes from `HITLD_STORE_IDENTITY`, `--identity-fd` or the keychain (`hitld store device init`), never an argument, and is never printed.
 
 **As built: sync in the run commands and the hooks.** The one module is `core/lib/store/auto-sync.mjs`; the run commands and the hooks call it, and a later step beside a pull or push goes there.
 
 - **When it runs.** `hitld run start` and `hitld run resume` pull. `hitld run checkpoint`, `hitld handover` and `hitld merge` push once they have run (a command that refused pushes nothing). `hitld handover` pushes after the note is written and the lease released, so a successor on another machine pulls a released lease and takes it without `--force`. Other commands that record (each `hitld` call writes a checkpoint) do not push by themselves. The orchestrate skill ends each turn with `hitld run checkpoint`, which does, and the SessionEnd hook is the backstop.
-- **What counts as configured.** A remote is configured when `store.remote.url` is set in `policy.json` or this machine has an override, and this device has a key (`HITLD_STORE_IDENTITY` or the keychain). Without either, nothing runs and nothing is said: the command's result has no `store_sync` entry and a hook prints nothing. A device with a remote but no key skips with `no-identity`, and says so.
+- **What counts as configured.** A remote is configured when an address is found (`HITLD_STORE_REMOTE`, the person file or this machine's override), and this device has a key (`HITLD_STORE_IDENTITY` or the keychain). Without either, nothing runs and nothing is said: the command's result has no `store_sync` entry and a hook prints nothing, unless `store.remote.required` is true, when the skip (`remote-required`) is reported and a hook prints its one line. A device with a remote but no key skips with `no-identity`, and says so.
 - **What a result says.** `store_sync.pull` or `store_sync.push` holds `status` (`done`, `skipped`, `unreachable` or `failed`), `result`, `error` (code, message, conflicting paths) and one `line`. Nothing is written to the ledger: a failed push is in the command's result and the next push carries the work.
 - **A failed pull at run start.** `unreachable` (the remote cannot be reached, or git fails against it) does not stop the run: it starts or resumes on the local store and says so, and the next push carries what was recorded. `failed` (the remote answered, but its head does not open with this device's key, is not an age file, or does not merge) refuses with `store-pull-refused`, with the cause in `cause`. Starting on a store that lacks what the remote holds would make the next push collide with it. `--no-sync` on `run start` and `run resume` goes on with the local store; a failed push after it is reported as usual.
 - **Resume on a machine that never ran the project.** The run state is machine-local, so a pulled store has a ledger and no state. When the pull succeeded and there is no state, `run resume` rebuilds it from the ledger (`store_sync.rebuilt_state`) and then takes the lease as usual. The ledger, the trust record and the open decisions are all in the pulled text.
@@ -185,6 +195,8 @@ Sync is part of `hitld` commands that already run at the right moments, so no ag
 | The storage provider reads the store | Ciphertext only; keys never leave devices | None, if encryption is on (Q2) |
 | A leaked token for the store repository | The repository holds ciphertext | The token still lets someone delete or replace files; compare and swap and a merge that never drops history make a replaced file fail to merge, but a deletion is a loss until another device pushes again |
 | A stolen laptop | Remove the device (section 6) | It keeps what it already pulled |
+| Someone who can write the store repository and holds no device key | A request on `hitld-devices` is never trusted: only the owner's own answer, inside the encrypted store, approves a key | They can add requests, which the owner sees as questions with a fingerprint to check. They cannot write an approval, which is inside the encrypted store |
+| A process that holds an approved device key | — | **It can write the store, approvals included, and so approve another key.** The owner's answer guards against anyone who can write the store repository but holds no key; it does not guard against a key already approved. Remove that device, and treat what it could open as read |
 | A prompt-injected executor | Executors cannot run store commands or read device keys through `hitld` ([10.2](0001-human-in-the-lead/10-security.md#102-least-privilege-per-role)); the network allowlist limits where data can go | See the next row |
 | Any process in a cloud container | — | **A cloud device's private key arrives as an environment variable, and any process in that container can read it.** Encryption protects the store at the provider and isolates devices from each other. It does not protect the store from a session that already holds a key. Inside a session, the network allowlist and least privilege are the defence |
 
@@ -204,28 +216,28 @@ Format 1 stays readable for `hitld store import`; nothing writes it to a remote.
 
 All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-and-compatibility):
 
-- **Commands:** `hitld store device init | list | remove`, `hitld store remote set | clear | show`, `hitld store push`, `hitld store pull` and `hitld store status`. Each refuses executors. Each is an entry in the command table, so the MCP server gets the read-only ones.
-- **Files:** `.human-in-the-lead/store-devices.json` (public keys, schema-checked, in the repository) and a `store.remote` section in `policy.json` (the transport and its address; no credentials).
+- **Commands:** `hitld store device init | ask | list | remove`, `hitld store remote set | clear | show`, `hitld store push`, `hitld store pull` and `hitld store status`. `hitld rights answer` applies the owner's answer to a device decision. Each refuses executors. Each is an entry in the command table, so the MCP server gets the read-only ones.
+- **Files:** none in the project's repository but a `store.remote` section in `policy.json` that holds only `required`. The address is in `HITLD_STORE_REMOTE`, the person file (`projects.<id>.store_remote`) or this machine's override. Device requests are `proposals/<name>.json` on the store repository's `hitld-devices` branch (the `store-devices` schema). The owner's answers are `devices/approvals.jsonl` in the private store.
 - **The store export format** gains format 2 (section 10).
 - **Run commands** (`run start`, `run resume`, checkpoints, `handover`) pull and push when a remote is set, and report what they did.
 - **`hitld install`** adds the two hooks (section 8).
 
 ## 12. Migration from today
 
-- **Nothing changes until a remote is set.** A project with no `store.remote` behaves as today.
-- **First push.** `hitld store remote set` checks that this device is enrolled on main and that the remote is empty or holds this project, then pushes the current store.
+- **Nothing changes until a remote is set.** A project with no store address behaves as today.
+- **First push.** The first device asks the owner to approve its own key (section 6), then pushes the current store once the owner has answered.
 - **A store moved by hand** with format 1 is imported with its passphrase as today, then pushed in format 2.
-- **A second device** enrols, its enrolment merges, then it runs `hitld store pull`.
+- **A second device** asks, an approved device puts its request to the owner, the owner answers, the approved device pushes, then the new device runs `hitld store pull`.
 
 ## 13. Evals and tests
 
 - **Format:** age's test vectors pass; files interoperate with the `age` program both ways; a tampered header, stanza or payload is refused.
 - **Sync:** two stores diverge and merge through a remote with the existing merge rules; a push against a moved remote pulls, merges and retries; a real conflict stops and changes nothing.
-- **Devices:** a device not on main's list cannot push; after removal, a new push does not open with the removed key.
+- **Devices:** a device the owner has not approved cannot push, and a request alone is never a recipient; after removal, a new push does not open with the removed key.
 - **Roles:** an executor is refused every store and device command, in a scenario where an injected instruction asks for one.
 - **Lifecycle:** a cloud session is discarded after a checkpoint, and a new session resumes with the ledger and trust record intact.
 
-**As built.** The format and sync tests are in `core/test/` (`age-vectors`, `age`, `store-sync`, `store-push-pull`, `store-devices`, `store-auto-sync`). The scenarios are the `store` suite in `evals/scenarios/store/`, run offline by `hitld eval --offline`. Each device in them is a container with a fresh clone of a bare origin, a private store of its own and a key in `HITLD_STORE_IDENTITY`, and a bare repository stands in for the store's host (`core/lib/eval/actions/store.mjs`):
+**As built.** The format and sync tests are in `core/test/` (`age-vectors`, `age`, `store-sync`, `store-push-pull`, `store-devices`, `store-auto-sync`). The scenarios are the `store` suite in `evals/scenarios/store/`, run offline by `hitld eval --offline`. Each device in them is a container with a fresh clone of a bare origin, a private store of its own, a key in `HITLD_STORE_IDENTITY` and the address in `HITLD_STORE_REMOTE`, and a bare repository stands in for the store's host (`core/lib/eval/actions/store.mjs`). The owner's answers are given with `hitld rights answer`, as the owner gives them:
 
 | Scenario | What it shows |
 |---|---|
@@ -234,7 +246,8 @@ All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-a
 | `removed-device-locked-out` | c3: a removed device's key opens nothing on the remote; its pull and push are refused |
 | `remote-holds-no-plain-text` | c4: a scan of every object on the host finds none of the store's text |
 | `unreleased-lease-refused` | another machine's unreleased lease is refused (`lease-held`) until a hand-over |
-| `unenrolled-device-cannot-push` | a device that is not on main's list cannot push; the owner's merge enrols it |
+| `unenrolled-device-cannot-push` | a device's request is never a recipient and it cannot push; an approved device asks, no sweep answers, the owner's answer enrols it |
+| `first-device-asks-for-itself` | the first device of an empty store asks the owner to approve its own key, and nothing is pushed before the answer |
 | `executor-refused-store-commands` | an executor is refused every store and device command |
 
 `core/test/store-prompts.test.mjs` is c5: it reads the skills, templates, agents and the executor briefs, and fails on a key, a passphrase, a store file or a store move that is not a `hitld` command. The setup guide is [`docs/guide/store-remote.md`](../guide/store-remote.md).
@@ -260,7 +273,7 @@ All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-a
 | Item | Needs |
 |---|---|
 | **Format 2**: age-compatible encryption to several recipients, with test vectors | — |
-| **Devices**: `store device init / list / remove`, `store-devices.json`, the push refusal for an unenrolled device | Format 2 |
+| **Devices**: `store device init / ask / list / remove`, device decisions the owner answers, the push refusal for an unapproved device | Format 2 |
 | **`StoreRemote` and the GitHub transport**: head, fetch, compare and swap, pruning | — |
 | **Push and pull**: `store push / pull / status`, `store remote set / show`, merge on pull | Format 2; StoreRemote |
 | **Sync in the run commands and hooks**: start, resume, checkpoint, hand-over, merge; the two hooks in `hitld install` | Push and pull |
@@ -284,7 +297,7 @@ All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-a
 
 ### Q3. Which transport first?
 
-**Decided by the owner (2026-11-15): a private GitHub repository first.**
+**Decided by the owner (2026-11-15): a private GitHub repository first.** The owner later moved its address out of the project's repository: it is `HITLD_STORE_REMOTE` in a cloud environment, or the person file on a machine (section 8).
 
 - **Recommend: a private GitHub repository** (section 7). Authentication is already solved for local machines and cloud sessions; push rejection gives compare and swap.
 - **Alternative: S3-compatible object storage first.** No GitHub dependency for the store, at the cost of a new credential to distribute to every device.
@@ -312,10 +325,12 @@ All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-a
 
 ### Q7. How is a device enrolled?
 
-**Decided by the owner (2026-11-15): a commit to `store-devices.json` that reaches main only through the owner's merge.**
+**Decided by the owner (2026-11-15): enrolment is the owner's answer to a device decision.** A new device's request travels through the store repository; an approved device puts it to the owner; the owner's own answer, recorded inside the encrypted store, enrols the key (section 6).
 
-- **Recommend: a commit to `store-devices.json` that reaches main only through the owner's merge** (section 6). Enrolment is reviewable and recorded like any decision.
-- **Alternative: approval from an already enrolled device** (as linked devices work), with no commit. Faster for a new session, at the cost of a record outside the repository's history.
+The owner changed this from a commit that reached main through their merge. The device list and the store's address left the project's repository, which may be public, and the store repository's host offered no branch protection on the owner's plan, so the approval is the owner's own answer.
+
+- **Decided first: a commit to `store-devices.json` that reaches main only through the owner's merge.** Reviewable and recorded like any decision, at the cost of naming every device in a repository that may be public.
+- **Alternative: approval from an already enrolled device** (as linked devices work). An approved device puts the request to the owner, and the owner's answer decides, which is what was built.
 
 ### Q8. Does v0.1.0-rc.1 wait for this?
 

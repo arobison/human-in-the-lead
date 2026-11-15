@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "id": "store/first-device-asks-for-itself",
+  "suite": "store",
+  "category": "store",
+  "description": "The first device of an empty store (design 0003 section 6, the bootstrap). No device is approved and the remote holds nothing, so the device asks the owner to approve its own key when it puts its request on the store repository's hitld-devices branch. Nothing is pushed until the owner answers: a push is refused, and the sweep applies no default to a device decision. The owner's own answer approves the key, and the next checkpoint makes the first push, encrypted to that one device.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "project",
+      "action": "store.fixture",
+      "with": {
+        "devices": ["laptop"],
+        "enrolled": []
+      }
+    },
+    {
+      "id": "start",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["run", "start", "--host", "laptop"]
+      }
+    },
+    {
+      "id": "log",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": [
+          "rights",
+          "log",
+          "--text",
+          "Recorded before any device was approved",
+          "--area",
+          "api"
+        ]
+      }
+    },
+    {
+      "id": "push_before",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "push"]
+      }
+    },
+    {
+      "id": "request",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "device", "init", "--cloud", "--name", "laptop"]
+      }
+    },
+    {
+      "id": "push_waiting",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "push"]
+      }
+    },
+    {
+      "id": "status_waiting",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "status"]
+      }
+    },
+    {
+      "id": "sweep",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["rights", "sweep"]
+      }
+    },
+    {
+      "id": "remote_waiting",
+      "action": "store.inspect-remote",
+      "with": {}
+    },
+    {
+      "id": "answer",
+      "action": "store.owner-answers",
+      "with": {
+        "device": "laptop",
+        "answer": "A"
+      }
+    },
+    {
+      "id": "checkpoint",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["run", "checkpoint", "--host", "laptop"]
+      }
+    },
+    {
+      "id": "remote_after",
+      "action": "store.inspect-remote",
+      "with": {
+        "markers": ["Recorded before any device was approved"],
+        "open_with": ["laptop"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "nothing-is-pushed-before-it-asks",
+      "grader": "equals",
+      "with": {
+        "path": "steps.push_before.result.error",
+        "value": "device-not-enrolled"
+      }
+    },
+    {
+      "id": "it-asks-for-itself",
+      "grader": "matches",
+      "with": {
+        "path": "steps.request.result.decision.decision",
+        "pattern": "^SAM-[0-9]+$"
+      }
+    },
+    {
+      "id": "the-question-names-a-fingerprint-not-the-device",
+      "grader": "matches",
+      "with": {
+        "path": "steps.request.result.decision.text",
+        "pattern": "^(?![\\s\\S]*\\blaptop\\b)[\\s\\S]*fingerprint"
+      }
+    },
+    {
+      "id": "nothing-is-pushed-until-the-answer",
+      "grader": "equals",
+      "with": {
+        "path": "steps.push_waiting.result.error",
+        "value": "device-not-enrolled"
+      }
+    },
+    {
+      "id": "status-lists-the-decision",
+      "grader": "equals",
+      "with": {
+        "path": "steps.status_waiting.result.devices.decisions[*].name",
+        "value": ["laptop"]
+      }
+    },
+    {
+      "id": "no-default-is-applied",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.applied",
+        "value": []
+      }
+    },
+    {
+      "id": "the-remote-holds-only-the-request",
+      "grader": "equals",
+      "with": {
+        "path": "steps.remote_waiting.versions",
+        "value": 0
+      }
+    },
+    {
+      "id": "the-request-is-there",
+      "grader": "equals",
+      "with": {
+        "path": "steps.remote_waiting.requests",
+        "value": ["laptop"]
+      }
+    },
+    {
+      "id": "the-owner-approved-it",
+      "grader": "equals",
+      "with": {
+        "path": "steps.answer.answered[0].device.event",
+        "value": "approved"
+      }
+    },
+    {
+      "id": "the-first-push",
+      "grader": "equals",
+      "with": {
+        "path": "steps.checkpoint.result.store_sync.push.result",
+        "value": "pushed"
+      }
+    },
+    {
+      "id": "it-opens-the-first-push",
+      "grader": "equals",
+      "with": {
+        "path": "steps.remote_after.opens.laptop",
+        "value": 1
+      }
+    },
+    {
+      "id": "no-plain-text-on-the-remote",
+      "grader": "equals",
+      "with": {
+        "path": "steps.remote_after.plain_hits",
+        "value": []
+      }
+    }
+  ]
+}

@@ -3,7 +3,7 @@
   "id": "adopt/no-tracker",
   "suite": "adopt",
   "category": "adoption",
-  "description": "Adopting an existing project that has no tracker (the adopt skill): inspecting changes nothing, the owner changes one numbered value and the rest stands, install adds the contract to a new AGENTS.md and an import to the existing CLAUDE.md, the project's rules go after the contract block and not inside it, the private store has no remote at first and the store step writes only store.remote.url into policy.json, the setup lands on a branch and not on main with the status line off, text planted in the repository is not obeyed, and the checks end the setup with an empty tracker that then takes its first project and item.",
+  "description": "Adopting an existing project that has no tracker (the adopt skill): inspecting changes nothing, the owner changes one numbered value and the rest stands, install adds the contract to a new AGENTS.md and an import to the existing CLAUDE.md, the project's rules go after the contract block and not inside it, the private store has no remote at first and the store step writes its address to the person file and never to policy.json, the setup lands on a branch and not on main with the status line off, text planted in the repository is not obeyed, and the checks end the setup with an empty tracker that then takes its first project and item.",
   "mode": "offline",
   "steps": [
     {
@@ -111,13 +111,7 @@
       "id": "store_remote",
       "action": "orchestrator.cli",
       "with": {
-        "argv": [
-          "store",
-          "remote",
-          "set",
-          "https://example.invalid/owner/sample-app-store.git",
-          "--policy"
-        ]
+        "argv": ["store", "remote", "set", "https://example.invalid/owner/sample-app-store.git"]
       }
     },
     {
@@ -335,19 +329,27 @@
       }
     },
     {
-      "id": "store-remote-written-to-policy",
+      "id": "store-remote-written-to-the-person-file",
       "grader": "equals",
       "with": {
-        "path": "steps.store_remote.result.ok",
-        "value": true
+        "path": "steps.store_remote.result.written",
+        "value": "person"
       }
     },
     {
-      "id": "store-address-is-the-projects",
+      "id": "store-address-is-the-persons",
       "grader": "equals",
       "with": {
-        "path": "steps.store_after.result.policy_url",
-        "value": "https://example.invalid/owner/sample-app-store.git"
+        "path": "steps.store_after.result.remote",
+        "value": { "url": "https://example.invalid/owner/sample-app-store.git", "source": "person" }
+      }
+    },
+    {
+      "id": "no-store-address-in-policy",
+      "grader": "equals",
+      "with": {
+        "path": "steps.policy.result.policy.store.remote",
+        "value": { "required": false }
       }
     },
     {

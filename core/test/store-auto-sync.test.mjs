@@ -26,7 +26,7 @@ import { VERSION } from '../lib/version.mjs';
 import { bumpVersion } from '../lib/release/semver.mjs';
 import { generateIdentity } from '../lib/store/age.mjs';
 import { createGitRemote } from '../lib/store/remote-git.mjs';
-import { DEVICES_PATH, serializeDevices } from '../lib/store/devices.mjs';
+import { approve, removeApproved } from './helpers/devices.mjs';
 import { loadState } from '../lib/run/checkpoint.mjs';
 import { readTrustEvents, recordTrustEvent } from '../lib/rights/trust.mjs';
 import {
@@ -45,9 +45,11 @@ const HOOK = fileURLToPath(new URL('../harness/claude-code/hooks/store-sync.mjs'
 const at = (/** @type {number} */ n) => `2026-11-14T10:${String(n).padStart(2, '0')}:00.000Z`;
 
 /**
- * A project checkout whose main enrols devices A and B, with an origin; and a bare repository
- * standing in for the store's host. `remote` false leaves policy.json without an address.
- * @param {{ remote?: boolean, onlyA?: boolean }} [o] onlyA: main enrols device A and no other
+ * A project checkout with an origin; and a bare repository standing in for the store's host. The
+ * owner has approved devices A and B: the first session's store holds those answers, and the
+ * others learn them when they pull. Each session gets the host's address in HITLD_STORE_REMOTE,
+ * as a cloud environment does; `remote` false gives it none.
+ * @param {{ remote?: boolean, onlyA?: boolean }} [o] onlyA: the owner approved device A and no other
  */
 function fixture(o = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'hitld-auto-sync-'));
@@ -65,30 +67,25 @@ function fixture(o = {}) {
     '.human-in-the-lead/policy.json': JSON.stringify({
       schema_version: 1,
       project: { id: 'fixture', key: 'W' },
-      ...(o.remote === false ? {} : { store: { remote: { url } } }),
-    }),
-    [DEVICES_PATH]: serializeDevices({
-      schema_version: 1,
-      devices: [
-        { name: 'device-a', recipient: DEVICE_A.recipient, added: '2026-11-15' },
-        ...(o.onlyA
-          ? []
-          : [{ name: 'device-b', recipient: DEVICE_B.recipient, added: '2026-11-15' }]),
-      ],
+      ...(o.remote === false ? {} : { store: { remote: { required: true } } }),
     }),
   });
-  commitAll(project, 'enrol a and b');
+  commitAll(project, 'start');
   const origin = join(dir, 'origin.git');
   fixtureGit(dir, 'init', '-q', '--bare', '-b', 'main', origin);
   fixtureGit(project, 'remote', 'add', 'origin', origin);
   fixtureGit(project, 'push', '-q', 'origin', 'main');
-  return { dir, project, bare, url };
+  /** @type {[string, { recipient: string }][]} */
+  const approved = [['device-a', DEVICE_A]];
+  if (!o.onlyA) approved.push(['device-b', DEVICE_B]);
+  return { dir, project, bare, url, remote: o.remote !== false, approved, seeded: false };
 }
 
 /**
  * One session: its own private store (a data directory of its own) and the commands run as it.
+ * The fixture's first session holds the owner's approvals (`seed` says otherwise).
  * @param {ReturnType<typeof fixture>} f @param {string} name
- * @param {{ identity?: string, env?: NodeJS.ProcessEnv }} [o]
+ * @param {{ identity?: string, env?: NodeJS.ProcessEnv, seed?: boolean }} [o]
  */
 function session(f, name, o = {}) {
   const data = join(f.dir, 'data', name);
@@ -98,10 +95,15 @@ function session(f, name, o = {}) {
     HOME: join(f.dir, 'home', name),
     XDG_DATA_HOME: data,
     XDG_CONFIG_HOME: join(f.dir, 'config', name),
+    ...(f.remote ? { HITLD_STORE_REMOTE: f.url } : {}),
     ...(o.identity ? { HITLD_STORE_IDENTITY: o.identity } : {}),
     ...o.env,
   };
   const store = openStore(privateStorePath('fixture', { env }));
+  if (o.seed ?? !f.seeded) {
+    approve(store, ...f.approved);
+    f.seeded = true;
+  }
   /** @param {string[]} argv @param {NodeJS.ProcessEnv} [more] */
   const hitld = async (argv, more = {}) => {
     let out = '';
@@ -318,15 +320,55 @@ test('a device with no key skips the sync without an error', async () => {
   assert.equal(await remoteHead(f), null);
 });
 
-test('a remote set only for this machine is synced too', async () => {
-  const f = fixture({ remote: false });
+for (const where of /** @type {const} */ (['person', 'machine'])) {
+  test(`an address in the ${where === 'person' ? 'person file' : "machine's override"} is synced too`, async () => {
+    const f = fixture({ remote: false });
+    const s = session(f, 's', { identity: DEVICE_A.identity });
+    const set = await s.hitld([
+      'store',
+      'remote',
+      'set',
+      f.url,
+      ...(where === 'machine' ? ['--machine'] : []),
+    ]);
+    assert.equal(set.code, EXIT.ok, JSON.stringify(set.json));
+    assert.equal(set.json.written, where);
+    await s.hitld(['run', 'start', '--session', 's-1', '--host', 'h']);
+    const cp = await s.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'h']);
+    assert.equal(cp.json.store_sync.push.result, 'pushed', JSON.stringify(cp.json.store_sync));
+    assert.equal(cp.json.store_sync.push.remote.source, where);
+  });
+}
+
+test('store.remote.required with no address: run start, status and the hooks say so, nothing stops', async () => {
+  const f = fixture();
   const s = session(f, 's', { identity: DEVICE_A.identity });
-  const set = await s.hitld(['store', 'remote', 'set', f.url]);
-  assert.equal(set.code, EXIT.ok, JSON.stringify(set.json));
-  await s.hitld(['run', 'start', '--session', 's-1', '--host', 'h']);
-  const cp = await s.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'h']);
-  assert.equal(cp.json.store_sync.push.result, 'pushed');
-  assert.equal(cp.json.store_sync.push.remote.source, 'machine');
+  const env = { ...s.env };
+  delete env.HITLD_STORE_REMOTE;
+  const started = await s.hitld(['run', 'start', '--session', 's-1', '--host', 'h'], {
+    HITLD_STORE_REMOTE: '',
+  });
+  assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
+  assert.deepEqual(
+    [started.json.store_sync.pull.status, started.json.store_sync.pull.reason],
+    ['skipped', 'remote-required'],
+  );
+  assert.match(started.json.store_sync.pull.line, /HITLD_STORE_REMOTE/);
+  assert.match(started.json.store_sync.pull.line, /hitld store remote set/);
+  const status = await s.hitld(['store', 'status'], { HITLD_STORE_REMOTE: '' });
+  assert.equal(status.json.remote, null);
+  assert.equal(status.json.remote_required, true);
+  assert.match(status.json.problems[0], /HITLD_STORE_REMOTE/);
+  for (const action of ['pull', 'push']) {
+    const r = spawnSync('node', [HOOK, action], {
+      input: JSON.stringify({ cwd: f.project }),
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim().split('\n').length, 1);
+    assert.match(r.stdout, /store\.remote\.required is true/);
+  }
 });
 
 test('executors never sync: the module and the hooks skip them', async () => {
@@ -620,25 +662,6 @@ test('a release refused at run start or resume pulls nothing and records nothing
   await refusedAll('newer-schema');
 });
 
-/**
- * Put these devices on main's list, as the owner's merge does.
- * @param {ReturnType<typeof fixture>} f @param {{ name: string, id: ReturnType<typeof generateIdentity> }[]} devices
- */
-function enrolOnMain(f, devices) {
-  putFiles(f.project, {
-    [DEVICES_PATH]: serializeDevices({
-      schema_version: 1,
-      devices: devices.map((d) => ({
-        name: d.name,
-        recipient: d.id.recipient,
-        added: '2026-11-15',
-      })),
-    }),
-  });
-  commitAll(f.project, `enrol ${devices.map((d) => d.name).join(' and ')}`);
-  fixtureGit(f.project, 'push', '-q', 'origin', 'main');
-}
-
 test('enrolment: with nothing new, the next push makes the store readable by the new device', async () => {
   const f = fixture({ onlyA: true });
   const A = { name: 'device-a', id: DEVICE_A };
@@ -651,17 +674,15 @@ test('enrolment: with nothing new, the next push makes the store readable by the
   assert.equal(first.json.push_due, false, JSON.stringify(first.json));
   assert.equal(first.json.push_reason, null);
 
-  // B is not on main's list: what the remote holds is not sealed to it.
+  // The owner has not approved B: what the remote holds is not sealed to it.
   const early = session(f, 'early', { identity: DEVICE_B.identity });
   assert.equal((await early.hitld(['store', 'pull'])).json.error, 'age-no-match');
 
-  // The owner's merge enrols B. Nothing new is in A's store, but the head on the remote was
-  // sealed to A alone.
-  enrolOnMain(f, [A, B]);
+  // The owner's answer on A approves B. The head on the remote was sealed to A alone.
+  approve(a.store, [B.name, B.id]);
   const due = await a.hitld(['store', 'status']);
-  assert.equal(due.json.local_changed, false);
   assert.equal(due.json.push_due, true);
-  assert.equal(due.json.push_reason, 'recipients-changed');
+  assert.equal(due.json.push_reason, 'local-changes');
   const pushed = await a.hitld(['store', 'push']);
   assert.equal(pushed.json.result, 'pushed', JSON.stringify(pushed.json));
   assert.equal(pushed.json.recipients, 2);
@@ -695,13 +716,13 @@ test('enrolment: a checkpoint with nothing new pushes once the device list has c
   assert.equal(first.json.store_sync.push.result, 'pushed');
   const same = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
   assert.equal(same.json.store_sync.push.result, 'up-to-date', JSON.stringify(same.json));
-  enrolOnMain(f, [A, B]);
+  approve(a.store, [B.name, B.id]);
   const cp = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
   assert.equal(cp.json.store_sync.push.result, 'pushed', JSON.stringify(cp.json));
   const b = session(f, 'b', { identity: DEVICE_B.identity });
   assert.equal((await b.hitld(['store', 'pull'])).json.ok, true);
   // A removal takes the same route, and locks the removed device out again.
-  enrolOnMain(f, [A]);
+  removeApproved(a.store, B.name, B.id);
   const gone = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
   assert.equal(gone.json.store_sync.push.result, 'pushed');
   assert.equal((await b.hitld(['store', 'pull'])).json.error, 'age-no-match');

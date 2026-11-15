@@ -1,6 +1,9 @@
 // Commands the foundation builds.
 
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { loadPolicy } from '../../policy/policy.mjs';
+import { DEVICES_MOVED } from '../../store/placement.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { NAME, VERSION } from '../../version.mjs';
@@ -29,7 +32,7 @@ export const commands = [
     name: 'check policy',
     aliases: ['policy check'],
     summary:
-      'Validate .human-in-the-lead/policy.json merged with the defaults: no unknown or code-running keys, values within bounds',
+      "Validate .human-in-the-lead/policy.json merged with the defaults: no unknown or code-running keys, values within bounds, and neither the private store's address nor its device list in the project's repository",
     built_by: 'foundation',
     args: [
       {
@@ -49,6 +52,14 @@ export const commands = [
         path: /** @type {string | undefined} */ (input.policy),
         cwd: ctx.cwd,
       });
+      // The device list never sits beside policy.json (design 0003, section 6).
+      const devicesFile = result.path ? join(dirname(result.path), 'store-devices.json') : null;
+      if (devicesFile && existsSync(devicesFile)) {
+        result.errors = [
+          ...result.errors,
+          { path: '.human-in-the-lead/store-devices.json', message: DEVICES_MOVED },
+        ];
+      }
       // Keys that moved to the person or machine file still load, with a warning (design 13.4).
       const warnings = result.policy
         ? loadEffectivePolicy({ env: ctx.env, policyResult: result }).warnings.map((w) => w.message)

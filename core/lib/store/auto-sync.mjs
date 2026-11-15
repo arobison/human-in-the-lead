@@ -6,12 +6,12 @@
 // Both functions answer with a report and never throw. The caller decides what a report means:
 //
 //   status 'done'         the pull or push ran; `result` says what it did
-//   status 'skipped'      nothing to do, and not an error: no remote is configured (`no-remote`),
+//   status 'skipped'      nothing to do, and not an error: no remote is configured (`no-remote`,
+//                         or `remote-required` when policy.json says the project expects one),
 //                         this device has no key (`no-identity`), the caller is an executor
 //                         (`executor`), the project has no valid policy (`no-project`), or the
 //                         store holds no text yet (`nothing-to-push`)
-//   status 'unreachable'  the remote could not be reached, or origin could not be fetched for the
-//                         device list; the local store is as it was
+//   status 'unreachable'  the remote could not be reached; the local store is as it was
 //   status 'failed'       the remote answered and what it holds could not be used, or a push was
 //                         refused: it does not decrypt or merge, the device is not enrolled, the
 //                         head is not an age file, a merge conflict
@@ -25,20 +25,18 @@
 //
 // The push and pull code (and node:sqlite behind it) is loaded only once a remote is configured.
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { executorSignal } from '../cli/executor.mjs';
 import { ownerCheckoutOf } from '../env/primary.mjs';
 import { loadPolicy } from '../policy/policy.mjs';
 import { privateStorePath } from './store.mjs';
+import { NO_ADDRESS, chooseRemote } from './address.mjs';
 
 /**
  * @typedef {object} SyncContext
  * @property {string} store the private store's directory
  * @property {string | null} projectId policy.json project.id; null when there is no valid policy
- * @property {string | null} remoteUrl policy.json store.remote.url, or null
- * @property {string} checkout the project's checkout, where main and store-devices.json are read
- * @property {string} mainBranch policy.json merge.main_branch
+ * @property {boolean} remoteRequired policy.json store.remote.required
+ * @property {string} checkout the project's checkout
  * @property {NodeJS.ProcessEnv} env
  * @property {string} cwd where the command or hook runs, for the executor check
  * @property {() => Date} [now] for tests
@@ -48,22 +46,17 @@ import { privateStorePath } from './store.mjs';
  * @property {'done' | 'skipped' | 'unreachable' | 'failed'} status
  * @property {string} [result] done: what happened (pull: empty, up-to-date, merged, fast-forward;
  *   push: pushed, up-to-date)
- * @property {'no-remote' | 'no-identity' | 'executor' | 'no-project' | 'nothing-to-push' | 'no-sync'} [reason]
- *   skipped: why (`no-sync`: the caller passed --no-sync)
+ * @property {'no-remote' | 'remote-required' | 'no-identity' | 'executor' | 'no-project' | 'nothing-to-push' | 'no-sync'} [reason]
+ *   skipped: why (`no-sync`: the caller passed --no-sync; `remote-required`: no address is set,
+ *   and policy.json store.remote.required is true)
  * @property {{ code: string, message: string, conflicts?: unknown }} [error] unreachable or
  *   failed: what went wrong
  * @property {{ url: string, source: string }} [remote]
  * @property {string} line one line saying what happened, for a hook to print
  */
 
-/**
- * The machine override's file, inside the store's `.git` (push-pull.mjs, CONFIG_FILE). Read here
- * only to tell whether a remote is configured without loading the push and pull code.
- */
-const OVERRIDE_FILE = join('.git', 'hitld-remote.json');
-
 /** Remote codes that mean the remote could not be reached, as opposed to it answering badly. */
-const UNREACHABLE = new Set(['remote-unreachable', 'remote-git-failed', 'devices-fetch-failed']);
+const UNREACHABLE = new Set(['remote-unreachable', 'remote-git-failed']);
 
 /**
  * The sync context of the project a command or hook runs in, from its policy.json.
@@ -80,17 +73,13 @@ export function contextFromCwd(cwd, env, now, store) {
   return {
     store: store ?? privateStorePath(projectId, { env, repoRoot: checkout }),
     projectId,
-    remoteUrl: loaded.policy.store?.remote?.url ?? null,
+    remoteRequired: loaded.policy.store?.remote?.required === true,
     checkout,
-    mainBranch: loaded.policy.merge?.main_branch ?? 'main',
     env,
     cwd,
     ...(now ? { now } : {}),
   };
 }
-
-/** @param {SyncContext} c */
-const configured = (c) => Boolean(c.remoteUrl) || existsSync(join(c.store, OVERRIDE_FILE));
 
 /**
  * @param {SyncReport['action']} action @param {NonNullable<SyncReport['reason']>} reason
@@ -143,21 +132,25 @@ const refused = (action, result) =>
  * @param {SyncReport['action']} action @param {SyncContext} c
  */
 async function prepare(action, c) {
-  if (!configured(c))
-    return { skip: skipped(action, 'no-remote', 'no store remote is configured') };
   const why = executorSignal(c.env, c.cwd);
   if (why) return { skip: skipped(action, 'executor', `${why}; executors never sync the store`) };
   if (!c.projectId) {
     return { skip: skipped(action, 'no-project', 'there is no valid policy.json here') };
   }
+  const address = chooseRemote({ store: c.store, projectId: c.projectId, env: c.env });
+  if (!address) {
+    return {
+      skip: c.remoteRequired
+        ? skipped(
+            action,
+            'remote-required',
+            `policy.json store.remote.required is true, and ${NO_ADDRESS}`,
+          )
+        : skipped(action, 'no-remote', 'no store remote is configured'),
+    };
+  }
   const pp = await import('./push-pull.mjs');
-  const lookup = {
-    checkout: c.checkout,
-    store: c.store,
-    env: c.env,
-    projectId: c.projectId,
-    mainBranch: c.mainBranch,
-  };
+  const lookup = { store: c.store, env: c.env, projectId: c.projectId };
   // A device with no key at all is not an error: a machine that never enrolled still works on its
   // own store. A key that is set but broken is, and the pull or push says so.
   const here = pp.devicesHere(lookup);
@@ -170,7 +163,7 @@ async function prepare(action, c) {
       ),
     };
   }
-  const { remote, url, source } = pp.openRemote(c.store, c.remoteUrl);
+  const { remote, url, source } = pp.openRemote(c.store, address);
   return { pp, lookup, here, remote, url, source, projectId: c.projectId };
 }
 
@@ -210,8 +203,8 @@ export async function autoPull(c) {
 }
 
 /**
- * Push the store to the remote, encrypted to the devices on main's list. Main is fetched from
- * origin first, so a removed device is not sealed to.
+ * Push the store to the remote, encrypted to the devices the owner approved. The remote's head is
+ * brought in first, so a device the owner removed elsewhere is not sealed to.
  * @param {SyncContext} c
  * @returns {Promise<SyncReport>}
  */
@@ -227,6 +220,7 @@ export async function autoPush(c) {
         remote,
         url,
         devices: pp.devicesForPush(lookup),
+        refresh: () => pp.devicesHere(lookup),
         ...(c.now ? { now: c.now } : {}),
       })
     );

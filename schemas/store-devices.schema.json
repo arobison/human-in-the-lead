@@ -1,7 +1,7 @@
 {
   "$id": "store-devices",
   "title": "store-devices.json",
-  "description": "The devices enrolled for the project's private store (design 0003, sections 5 and 6): each machine or cloud environment that may push the store, with its age X25519 public key. Every pushed file is encrypted to the devices on main's copy of this file, and a device that is not on it may not push. It lives in the repository at .human-in-the-lead/store-devices.json and holds public keys only, so it is safe in a public repository. A change reaches main only through the owner's merge; the merge queue refuses a branch that changes it.",
+  "description": "The devices enrolled for the project's private store (design 0003, sections 5 and 6): each machine or cloud environment that may push the store, with its age X25519 public key. A device's request is this document with one device, at proposals/<name>.json on the store repository's hitld-devices branch, put there by hitld store device init. A request is never trusted by itself: the devices a push is encrypted to are the ones the owner's own answers approved, recorded inside the encrypted store. Never in the project's repository: the commit guard refuses .human-in-the-lead/store-devices.json. It holds public keys only.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {

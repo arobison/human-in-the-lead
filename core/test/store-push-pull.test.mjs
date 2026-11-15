@@ -21,7 +21,8 @@ import { git, head, snapshot } from '../lib/store/git.mjs';
 import { createGitRemote, remoteDir } from '../lib/store/remote-git.mjs';
 import { pushStore, storeStatus } from '../lib/store/push-pull.mjs';
 import { resolveDevices } from '../lib/store/devices-port.mjs';
-import { DEVICES_PATH, readRotations, serializeDevices } from '../lib/store/devices.mjs';
+import { readRotations } from '../lib/store/devices.mjs';
+import { approve, removeApproved } from './helpers/devices.mjs';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { commitAll, fixtureGit, putFiles } from '../lib/eval/orchestrator-fixtures.mjs';
 
@@ -35,7 +36,7 @@ const at = (/** @type {number} */ n) => `2026-11-14T10:${String(n).padStart(2, '
 const SECRET_NOTE = 'the cache eviction rationale is confidential: tenant 4471 asked for it';
 
 /**
- * Put the project's remote address in its policy.json, as the owner commits it.
+ * Put a store address in the project's policy.json, as a project from before HITLD-113 has it.
  * @param {ReturnType<typeof fixture>} f @param {string | null} url
  */
 function setPolicyUrl(f, url) {
@@ -62,8 +63,8 @@ function otherHost(f, name) {
 }
 
 /**
- * A project checkout whose main enrols devices A and B in store-devices.json, with an origin it
- * was pushed to; a bare repository standing in for the store's host; and stores.
+ * A project checkout with an origin it was pushed to; a bare repository standing in for the
+ * store's host; and stores. The owner has approved devices A and B (device, below).
  */
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'hitld-push-pull-'));
@@ -78,9 +79,8 @@ function fixture() {
       schema_version: 1,
       project: { id: 'fixture', key: 'W' },
     }),
-    [DEVICES_PATH]: devicesFile(['device-a', DEVICE_A], ['device-b', DEVICE_B]),
   });
-  commitAll(project, 'enrol a and b');
+  commitAll(project, 'start');
   const origin = join(dir, 'origin.git');
   fixtureGit(dir, 'init', '-q', '--bare', '-b', 'main', origin);
   fixtureGit(project, 'remote', 'add', 'origin', origin);
@@ -90,29 +90,6 @@ function fixture() {
   const init = spawnSync('git', ['init', '-q', '--bare'], { cwd: bare, encoding: 'utf8' });
   assert.equal(init.status, 0, init.stderr);
   return { dir, project, origin, bare, url: `file://${bare}` };
-}
-
-/** @param {...[string, { recipient: string }]} devices */
-const devicesFile = (...devices) =>
-  serializeDevices({
-    schema_version: 1,
-    devices: devices.map(([name, d]) => ({ name, recipient: d.recipient, added: '2026-11-15' })),
-  });
-
-/**
- * The owner changes the device list on origin's main, as their merge would; this checkout's
- * local main is left behind, so only a fetch sees it.
- * @param {ReturnType<typeof fixture>} f @param {string} text
- */
-function mergeOnOrigin(f, text) {
-  const other = join(f.dir, `owner-${Math.random().toString(36).slice(2)}`);
-  fixtureGit(f.dir, 'clone', '-q', f.origin, other);
-  fixtureGit(other, 'config', 'user.name', 'Owner');
-  fixtureGit(other, 'config', 'user.email', 'owner@example.invalid');
-  fixtureGit(other, 'config', 'commit.gpgsign', 'false');
-  putFiles(other, { [DEVICES_PATH]: text });
-  commitAll(other, 'devices');
-  fixtureGit(other, 'push', '-q', 'origin', 'main');
 }
 
 /** @param {import('../lib/store/store.mjs').PrivateStore} store @param {string} id @param {number} n */
@@ -127,15 +104,19 @@ async function hitld(argv, cwd, env) {
 }
 
 /**
- * One device: its store, and the commands run as it.
+ * One device: its store, and the commands run as it. Its store holds the owner's approval of
+ * devices A and B, as if it had pulled them, unless `fresh` (a new container: an empty store).
  * @param {ReturnType<typeof fixture>} f @param {string} name @param {{ identity: string }} device
+ * @param {{ fresh?: boolean }} [o]
  */
-function device(f, name, device) {
+function device(f, name, device, o = {}) {
   const store = openStore(join(f.dir, 'stores', name));
+  if (!o.fresh) approve(store, ['device-a', DEVICE_A], ['device-b', DEVICE_B]);
   /** @param {string[]} argv @param {NodeJS.ProcessEnv} [env] */
   const run = (argv, env = {}) =>
     hitld(['store', ...argv, '--store', store.root], f.project, {
       HITLD_STORE_IDENTITY: device.identity,
+      XDG_CONFIG_HOME: join(f.dir, 'config', name),
       ...env,
     });
   return { store, run, device };
@@ -218,7 +199,7 @@ function fill(store) {
   store.write('index.sqlite', 'machine-local index');
 }
 
-test('remote set records the address on this machine only, remote show reads it back', async () => {
+test('remote set records the address outside the repository, remote show reads it back', async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
   const shown = await a.run(['remote', 'show']);
@@ -230,8 +211,10 @@ test('remote set records the address on this machine only, remote show reads it 
   assert.equal(set.json.url, f.url);
   assert.equal((await a.run(['remote', 'show'])).json.remote.url, f.url);
 
-  // The address is in the store's .git, which no commit or bundle carries; the project holds nothing new.
-  assert.equal(existsSync(join(a.store.root, '.git', 'hitld-remote.json')), true);
+  // The address is in the person file, outside the repository; no commit or bundle carries it,
+  // and the project holds nothing new.
+  assert.equal(set.json.written, 'person');
+  assert.equal(existsSync(join(f.dir, 'config', 'a', 'human-in-the-lead', 'person.json')), true);
   fill(a.store);
   const commit = snapshot(a.store.root, 'test');
   const tracked = git(a.store.root, ['ls-tree', '-r', '--name-only', commit]).stdout.toString();
@@ -254,7 +237,7 @@ test('remote set records the address on this machine only, remote show reads it 
 test('push then pull on a second store; status before and after', async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
-  const b = device(f, 'b', DEVICE_B);
+  const b = device(f, 'b', DEVICE_B, { fresh: true });
   fill(a.store);
 
   // No remote set: push and pull say so, status reports it.
@@ -298,7 +281,7 @@ test('push then pull on a second store; status before and after', async () => {
   assert.equal(again.json.result, 'up-to-date');
   assert.equal(again.json.version, pushed.json.version);
 
-  // b is behind: a pull is due until it pulls.
+  // b is behind: a pull is due until it pulls. It is a new container, with an empty store.
   const behind = await b.run(['status']);
   assert.equal(behind.json.pull_due, true);
   assert.equal(behind.json.push_due, false);
@@ -384,6 +367,7 @@ test('machine-local files are never pushed', async () => {
   // The bundle a device opens holds the text and nothing else.
   assert.deepEqual(await pushedPaths(f, DEVICE_B.identity), [
     '.gitignore',
+    'devices/approvals.jsonl',
     'ledger.jsonl',
     'notes/cache.md',
     'precedents/P-1.json',
@@ -396,7 +380,7 @@ test('machine-local files are never pushed', async () => {
   );
 
   // On the other side they stay absent, and its own machine-local files stay its own.
-  const b = device(f, 'b', DEVICE_B);
+  const b = device(f, 'b', DEVICE_B, { fresh: true });
   b.store.write('run-state.json', '{"b":true}\n');
   await b.run(['remote', 'set', f.url]);
   assert.equal((await b.run(['pull'])).code, EXIT.ok);
@@ -505,7 +489,7 @@ test('pull with the wrong identity, no identity or a malformed one is refused', 
   await a.run(['remote', 'set', f.url]);
   assert.equal((await a.run(['push'])).code, EXIT.ok);
 
-  const stranger = device(f, 'stranger', STRANGER);
+  const stranger = device(f, 'stranger', STRANGER, { fresh: true });
   await stranger.run(['remote', 'set', f.url]);
   const wrong = await stranger.run(['pull']);
   assert.equal(wrong.code, EXIT.failed);
@@ -563,7 +547,7 @@ test('every command is refused to executors', async () => {
     ['pull'],
     ['status'],
     ['remote', 'set', f.url],
-    ['remote', 'set', f.url, '--policy'],
+    ['remote', 'set', f.url, '--machine'],
     ['remote', 'clear'],
     ['remote', 'show'],
   ];
@@ -578,14 +562,13 @@ test('every command is refused to executors', async () => {
   assert.equal(existsSync(join(a.store.root, '.git', 'hitld-remote.json')), false);
 });
 
-test("a push needs a device on main's list, and some text", async () => {
+test('a push needs a device the owner approved, and some text', async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
   await a.run(['remote', 'set', f.url]);
   const remote = createGitRemote({ url: f.url, dir: remoteDir(a.store.root) });
   const base = { root: a.store.root, projectId: 'fixture', remote, url: f.url };
   const devices = resolveDevices({
-    root: f.project,
     store: a.store.root,
     env: { HITLD_STORE_IDENTITY: DEVICE_A.identity },
   });
@@ -594,12 +577,17 @@ test("a push needs a device on main's list, and some text", async () => {
   assert.equal(devices.enrolled, true);
   assert.equal(devices.device, 'device-a');
 
-  await assert.rejects(pushStore({ ...base, devices }), { code: 'nothing-to-push' });
+  // A store with no text at all (not even the owner's answers) has nothing to push.
+  const empty = openStore(join(f.dir, 'stores', 'empty'));
+  await assert.rejects(pushStore({ ...base, root: empty.root, devices }), {
+    code: 'nothing-to-push',
+  });
   question(a.store, 'E-1', 1);
   await assert.rejects(pushStore({ ...base, devices: { ...devices, enrolled: false } }), {
     code: 'device-not-enrolled',
   });
-  assert.equal(await remote.head(), null, 'nothing was pushed');
+  const reader = createGitRemote({ url: f.url, dir: join(f.dir, 'reader') });
+  assert.equal(await reader.head(), null, 'nothing was pushed');
   const pushed = await pushStore({ ...base, devices });
   assert.equal(pushed.result, 'pushed');
   assert.equal(pushed.device, 'device-a');
@@ -619,7 +607,7 @@ test("a push needs a device on main's list, and some text", async () => {
   });
 });
 
-test('push takes no recipient flag: it is encrypted to the keys on main and nothing else', async () => {
+test('push takes no recipient flag: it is encrypted to the approved keys and nothing else', async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
   fill(a.store);
@@ -638,7 +626,7 @@ test('push takes no recipient flag: it is encrypted to the keys on main and noth
   for (const d of [DEVICE_A, DEVICE_B]) open(bytes, { identities: [d.identity] });
 });
 
-test("a device not on main's list is refused by name, and nothing is pushed", async () => {
+test('a device the owner has not approved is refused by name, and nothing is pushed', async () => {
   const f = fixture();
   const s = device(f, 's', STRANGER);
   fill(s.store);
@@ -646,17 +634,20 @@ test("a device not on main's list is refused by name, and nothing is pushed", as
   const r = await s.run(['push']);
   assert.equal(r.code, EXIT.failed);
   assert.equal(r.json.error, 'device-not-enrolled');
-  assert.match(r.json.message, new RegExp(STRANGER.recipient));
-  // Enrolled in the working tree only: still refused.
+  assert.match(r.json.message, /fingerprint/);
+  // A device list in the project's repository counts for nothing.
   putFiles(f.project, {
-    [DEVICES_PATH]: devicesFile(['device-a', DEVICE_A], ['s', STRANGER]),
+    '.human-in-the-lead/store-devices.json': JSON.stringify({
+      schema_version: 1,
+      devices: [{ name: 's', recipient: STRANGER.recipient, added: '2026-11-15' }],
+    }),
   });
   assert.equal((await s.run(['push'])).json.error, 'device-not-enrolled');
   const remote = createGitRemote({ url: f.url, dir: join(f.dir, 'reader') });
   assert.equal(await remote.head(), null);
 });
 
-test('c3 through store push: a device removed on main opens nothing pushed after, and nothing older is left', async () => {
+test('c3 through store push: a device the owner removed opens nothing pushed after, and nothing older is left', async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
   const b = device(f, 'b', DEVICE_B);
@@ -668,9 +659,8 @@ test('c3 through store push: a device removed on main opens nothing pushed after
   assert.deepEqual(first.json.rotation, { rotated: [], removed: [] });
   assert.equal((await b.run(['pull'])).code, EXIT.ok, 'b reads it while enrolled');
 
-  // The owner removes b on origin's main; this checkout's local main has not moved. The push
-  // fetches main first, so it sees the removal anyway.
-  mergeOnOrigin(f, devicesFile(['device-a', DEVICE_A]));
+  // The owner's answer removes b, on a's store.
+  removeApproved(a.store, 'device-b', DEVICE_B);
   // Nothing new in the store, and still the push replaces the head the removed key opens.
   const second = await a.run(['push']);
   assert.equal(second.code, EXIT.ok, JSON.stringify(second.json));
@@ -711,21 +701,28 @@ test('c3 through store push: a device removed on main opens nothing pushed after
   assert.equal((await a.run(['push'])).json.result, 'up-to-date');
 });
 
-test('a push refuses when main cannot be fetched, rather than use a stale device list', async () => {
+test('a push brings in the remote first, so a removal another device pushed is not sealed to', async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
+  const b = device(f, 'b', DEVICE_B);
   fill(a.store);
   await a.run(['remote', 'set', f.url]);
-  fixtureGit(f.project, 'remote', 'set-url', 'origin', join(f.dir, 'gone.git'));
-  const r = await a.run(['push']);
-  assert.equal(r.code, EXIT.failed);
-  assert.equal(r.json.error, 'devices-fetch-failed');
+  await b.run(['remote', 'set', f.url]);
+  assert.equal((await a.run(['push'])).json.recipients, 2);
+  assert.equal((await b.run(['pull'])).code, EXIT.ok);
+  // The owner's answers on b remove a and approve another device; b pushes them.
+  removeApproved(b.store, 'device-a', DEVICE_A);
+  approve(b.store, ['c', STRANGER]);
+  const fromB = await b.run(['push']);
+  assert.equal(fromB.code, EXIT.ok, JSON.stringify(fromB.json));
+  assert.equal(fromB.json.recipients, 2);
+  // a has not pulled. Its store still lists itself, but its push brings in b's head first, which
+  // a's key no longer opens: it is refused, and nothing is sealed to the old set.
+  question(a.store, 'E-7', 7);
+  const fromA = await a.run(['push']);
+  assert.equal(fromA.json.error, 'device-not-enrolled');
   const remote = createGitRemote({ url: f.url, dir: join(f.dir, 'reader') });
-  assert.equal(await remote.head(), null);
-
-  // A checkout with no origin has nothing to fetch: its local main is the list.
-  fixtureGit(f.project, 'remote', 'remove', 'origin');
-  assert.equal((await a.run(['push'])).json.result, 'pushed');
+  assert.equal(await remote.head(), fromB.json.version);
 });
 
 test('status reports an unreachable remote instead of failing, and pull of an empty remote is a no-op', async () => {
@@ -751,139 +748,142 @@ test('status reports an unreachable remote instead of failing, and pull of an em
   assert.equal((await a.run(['push'])).json.error, 'remote-unreachable');
 });
 
-test('the remote comes from policy.json alone, with no remote set on this machine', async () => {
+test('the address comes from HITLD_STORE_REMOTE alone, with nothing set on this machine', async () => {
   const f = fixture();
-  setPolicyUrl(f, f.url);
   const a = device(f, 'a', DEVICE_A);
   fill(a.store);
+  const env = { HITLD_STORE_REMOTE: f.url };
 
-  const shown = await a.run(['remote', 'show']);
-  assert.deepEqual(shown.json.remote, { url: f.url, source: 'policy' });
-  assert.deepEqual([shown.json.policy_url, shown.json.override_url], [f.url, null]);
-  const before = await a.run(['status']);
-  assert.deepEqual(before.json.remote, { url: f.url, source: 'policy' });
+  const shown = await a.run(['remote', 'show'], env);
+  assert.deepEqual(shown.json.remote, { url: f.url, source: 'environment' });
+  assert.deepEqual(
+    [shown.json.environment_url, shown.json.person_url, shown.json.override_url],
+    [f.url, null, null],
+  );
+  const before = await a.run(['status'], env);
+  assert.deepEqual(before.json.remote, { url: f.url, source: 'environment' });
   assert.equal(before.json.push_due, true);
 
-  const pushed = await a.run(['push']);
+  const pushed = await a.run(['push'], env);
   assert.equal(pushed.code, EXIT.ok, JSON.stringify(pushed.json));
   assert.equal(pushed.json.result, 'pushed');
   assert.equal(existsSync(join(a.store.root, '.git', 'hitld-remote.json')), false);
-  const after = await a.run(['status']);
-  assert.equal(after.json.push_due, false);
-  assert.equal(after.json.remote_version, pushed.json.version);
-});
+  assert.equal(existsSync(join(f.dir, 'config', 'a', 'human-in-the-lead', 'person.json')), false);
 
-test('a fresh store with the policy set pulls without remote set', async () => {
-  const f = fixture();
-  setPolicyUrl(f, f.url);
-  const a = device(f, 'a', DEVICE_A);
-  fill(a.store);
-  assert.equal((await a.run(['push'])).code, EXIT.ok);
-
-  // A new container: an empty store directory, the checkout's policy.json, this device's key.
-  const fresh = device(f, 'fresh', DEVICE_B);
-  assert.deepEqual(fresh.store.list(), []);
-  const status = await fresh.run(['status']);
-  assert.equal(status.json.pull_due, true);
-  assert.equal(status.json.synced, null);
-  const pulled = await fresh.run(['pull']);
+  // A new container: an empty store, the checkout, this device's key and the variable.
+  const fresh = device(f, 'fresh', DEVICE_B, { fresh: true });
+  const pulled = await fresh.run(['pull'], env);
   assert.equal(pulled.code, EXIT.ok, JSON.stringify(pulled.json));
   assert.equal(pulled.json.result, 'fast-forward');
-  assert.equal(fresh.store.read('ledger.jsonl'), a.store.read('ledger.jsonl'));
   assert.equal(fresh.store.read('notes/cache.md'), `${SECRET_NOTE}\n`);
-  // What it merged is machine-local state, written by the pull.
-  assert.equal(existsSync(join(fresh.store.root, '.git', 'hitld-sync.json')), true);
-  assert.equal((await fresh.run(['pull'])).json.result, 'up-to-date');
+
+  // An unusable address in the variable is refused like any other.
+  const bad = await a.run(['push'], { HITLD_STORE_REMOTE: 'https://u:pw@host/x.git' });
+  assert.equal(bad.json.error, 'remote-url-invalid');
 });
 
-test('a machine override wins over policy.json and is reported; clear returns to the policy', async () => {
-  const f = fixture();
-  const mirror = otherHost(f, 'mirror.git');
-  setPolicyUrl(f, f.url);
-  const a = device(f, 'a', DEVICE_A);
-  fill(a.store);
-
-  const set = await a.run(['remote', 'set', mirror.url]);
-  assert.equal(set.code, EXIT.ok, JSON.stringify(set.json));
-  assert.equal(set.json.written, 'machine');
-  assert.deepEqual(set.json.policy_change.json, { store: { remote: { url: mirror.url } } });
-  const shown = await a.run(['remote', 'show']);
-  assert.deepEqual(shown.json.remote, { url: mirror.url, source: 'machine' });
-  assert.deepEqual([shown.json.policy_url, shown.json.override_url], [f.url, mirror.url]);
-  const status = await a.run(['status']);
-  assert.deepEqual(status.json.remote, { url: mirror.url, source: 'machine' });
-  assert.equal(status.json.policy_url, f.url);
-
-  // The push goes to the override; the policy's remote stays empty.
-  assert.equal((await a.run(['push'])).json.result, 'pushed');
-  assert.equal(await createGitRemote({ url: f.url, dir: join(f.dir, 'r1') }).head(), null);
-  assert.notEqual(await createGitRemote({ url: mirror.url, dir: join(f.dir, 'r2') }).head(), null);
-  // Policy.json was not touched by the override.
-  assert.equal(
-    JSON.parse(readFileSync(join(f.project, '.human-in-the-lead', 'policy.json'), 'utf8')).store
-      .remote.url,
-    f.url,
-  );
-
-  // Back on the policy's address, what was merged from the mirror does not count: the push is due.
-  const cleared = await a.run(['remote', 'clear']);
-  assert.deepEqual([cleared.json.ok, cleared.json.removed], [true, mirror.url]);
-  const back = await a.run(['status']);
-  assert.deepEqual(back.json.remote, { url: f.url, source: 'policy' });
-  assert.equal(back.json.synced, null);
-  assert.equal(back.json.push_due, true);
-  assert.equal((await a.run(['push'])).json.result, 'pushed');
-  assert.notEqual(await createGitRemote({ url: f.url, dir: join(f.dir, 'r3') }).head(), null);
-});
-
-test('remote set prints the policy.json change, and --policy writes it for the owner to commit', async () => {
+test('remote set writes the person file by default, never policy.json; --machine writes the override', async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
   const policyFile = join(f.project, '.human-in-the-lead', 'policy.json');
   const original = readFileSync(policyFile, 'utf8');
 
   const set = await a.run(['remote', 'set', f.url]);
-  assert.equal(set.json.policy_change.set, 'store.remote.url');
-  assert.equal(set.json.policy_change.value, f.url);
-  assert.equal(readFileSync(policyFile, 'utf8'), original, 'the default never writes policy.json');
-
-  const written = await a.run(['remote', 'set', f.url, '--policy']);
-  assert.equal(written.code, EXIT.ok, JSON.stringify(written.json));
-  assert.equal(written.json.written, 'policy');
-  assert.match(written.json.message, /override/);
-  const policy = JSON.parse(readFileSync(policyFile, 'utf8'));
-  assert.equal(policy.store.remote.url, f.url);
-  assert.equal(policy.project.id, 'fixture');
-  // It loads: a store with no override reads the address from it.
-  assert.deepEqual((await device(f, 'b', DEVICE_B).run(['remote', 'show'])).json.remote, {
+  assert.equal(set.code, EXIT.ok, JSON.stringify(set.json));
+  assert.equal(set.json.written, 'person');
+  assert.equal(set.json.url, f.url);
+  assert.equal(set.json.project, 'fixture');
+  assert.equal(readFileSync(policyFile, 'utf8'), original, 'policy.json is never written');
+  const person = JSON.parse(readFileSync(set.json.path, 'utf8'));
+  assert.deepEqual(person.projects, { fixture: { store_remote: f.url } });
+  assert.equal(person.schema_version, 3);
+  assert.deepEqual((await a.run(['remote', 'show'])).json.remote, {
     url: f.url,
-    source: 'policy',
+    source: 'person',
   });
-  // An unusable address is refused in both modes, and nothing is written.
-  const bad = await a.run(['remote', 'set', 'https://u:pw@host/x.git', '--policy']);
-  assert.equal(bad.json.error, 'remote-url-invalid');
-  assert.equal(JSON.parse(readFileSync(policyFile, 'utf8')).store.remote.url, f.url);
+
+  // The override is used only when neither the variable nor the person file gives an address.
+  const mirror = otherHost(f, 'mirror.git');
+  const machine = await a.run(['remote', 'set', mirror.url, '--machine']);
+  assert.equal(machine.json.written, 'machine');
+  assert.match(machine.json.message, /the person file comes first here/);
+  const shown = await a.run(['remote', 'show']);
+  assert.deepEqual(shown.json.remote, { url: f.url, source: 'person' });
+  assert.deepEqual([shown.json.person_url, shown.json.override_url], [f.url, mirror.url]);
+  // The variable comes before both.
+  const env = { HITLD_STORE_REMOTE: mirror.url };
+  assert.deepEqual((await a.run(['remote', 'show'], env)).json.remote, {
+    url: mirror.url,
+    source: 'environment',
+  });
+
+  // Taking it out of the person file leaves the override.
+  const cleared = await a.run(['remote', 'clear']);
+  assert.deepEqual([cleared.json.removed, cleared.json.from], [f.url, 'person']);
+  assert.deepEqual(cleared.json.remote, { url: mirror.url, source: 'machine' });
+  assert.equal(JSON.parse(readFileSync(set.json.path, 'utf8')).projects, undefined);
+  const gone = await a.run(['remote', 'clear', '--machine']);
+  assert.deepEqual([gone.json.removed, gone.json.remote], [mirror.url, null]);
+
+  // An unusable address is refused in both places, and nothing is written.
+  for (const extra of [[], ['--machine']]) {
+    const bad = await a.run(['remote', 'set', 'https://u:pw@host/x.git', ...extra]);
+    assert.equal(bad.json.error, 'remote-url-invalid');
+  }
+  assert.equal((await a.run(['remote', 'show'])).json.remote, null);
 });
 
-test('policy.json refuses an unusable store.remote.url when it loads', () => {
-  for (const url of ['http://host/x.git', 'https://u:pw@host/x.git', 'ext::sh -c x', '-oops']) {
+test('back on another address, what was merged from the first does not count: the push is due', async () => {
+  const f = fixture();
+  const mirror = otherHost(f, 'mirror.git');
+  const a = device(f, 'a', DEVICE_A);
+  fill(a.store);
+  await a.run(['remote', 'set', f.url]);
+  assert.equal((await a.run(['push'], { HITLD_STORE_REMOTE: mirror.url })).json.result, 'pushed');
+  assert.equal(await createGitRemote({ url: f.url, dir: join(f.dir, 'r1') }).head(), null);
+  const back = await a.run(['status']);
+  assert.deepEqual(back.json.remote, { url: f.url, source: 'person' });
+  assert.equal(back.json.synced, null);
+  assert.equal(back.json.push_due, true);
+  assert.equal((await a.run(['push'])).json.result, 'pushed');
+  assert.notEqual(await createGitRemote({ url: f.url, dir: join(f.dir, 'r2') }).head(), null);
+});
+
+test('policy.json refuses store.remote.url, any address, and says where it goes', async () => {
+  for (const url of [
+    'https://github.com/example-owner/sample-app-store.git',
+    'http://host/x.git',
+    null,
+  ]) {
     const { policy, errors } = resolvePolicy({
       schema_version: 1,
       project: { id: 'fixture', key: 'W' },
       store: { remote: { url } },
     });
-    assert.equal(policy, null, url);
-    assert.equal(errors[0].path, 'store.remote.url', url);
+    assert.equal(policy, null, String(url));
+    assert.equal(errors.length, 1, JSON.stringify(errors));
+    assert.equal(errors[0].path, 'store.remote.url');
+    assert.match(errors[0].message, /HITLD_STORE_REMOTE/);
+    assert.match(errors[0].message, /hitld store remote set/);
   }
-  const ok = resolvePolicy({
+  const required = resolvePolicy({
     schema_version: 1,
     project: { id: 'fixture', key: 'W' },
-    store: { remote: { url: 'https://github.com/owner/store.git' } },
+    store: { remote: { required: true } },
   });
-  assert.deepEqual(ok.errors, []);
+  assert.deepEqual(required.errors, []);
+  assert.equal(required.policy?.store?.remote?.required, true);
   assert.equal(
     resolvePolicy({ schema_version: 1, project: { id: 'fixture', key: 'W' } }).policy?.store?.remote
-      ?.url,
-    null,
+      ?.required,
+    false,
   );
+
+  // hitld check policy says the same about a committed address.
+  const f = fixture();
+  setPolicyUrl(f, 'https://github.com/example-owner/sample-app-store.git');
+  const checked = await hitld(['check', 'policy'], f.project, {});
+  assert.equal(checked.json.ok, false);
+  assert.equal(checked.json.errors[0].path, 'store.remote.url');
+  assert.match(checked.json.errors[0].message, /person file/);
 });

@@ -137,7 +137,7 @@ function briefs() {
   const { policy, errors } = resolvePolicy({
     schema_version: 1,
     project: { id: 'sample-app', key: 'SAM' },
-    store: { remote: { url: 'https://example.com/owner/sample-app-store.git' } },
+    store: { remote: { required: true } },
     dispatch: { owner_review_areas: ['ui'], brief_kb: { api: ['kb/areas/api.md'] } },
   });
   if (!policy) throw new Error(JSON.stringify(errors));

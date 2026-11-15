@@ -116,6 +116,9 @@ test('the version table ends at the schema version, and every row is a release t
 test('a file that sets no attention key is stamped 1, and one that sets any is stamped 2', () => {
   assert.equal(lowestVersion('person', { schema_version: 2, max_executors: 3 }), 1);
   assert.equal(lowestVersion('person', { schema_version: 1, attention: {} }), 2);
+  const remote = { projects: { app: { store_remote: '/srv/app-store.git' } } };
+  assert.equal(lowestVersion('person', { schema_version: 1, ...remote }), 3);
+  assert.equal(lowestVersion('person', { schema_version: 1, projects: { app: { share: 2 } } }), 1);
   assert.equal(lowestVersion('machine', { schema_version: 1, cores: 2 }), 1);
   assert.deepEqual(stampLowest('person', { schema_version: 2, max_executors: 3 }), {
     schema_version: 1,
@@ -155,7 +158,7 @@ test('a reader accepts its own version and older ones', () => {
 test('a newer version is refused with an upgrade message that names the project', () => {
   const { env } = home();
   for (const [kind, newer] of /** @type {const} */ ([
-    ['person', 3],
+    ['person', 4],
     ['machine', 2],
   ])) {
     // Keys this release does not know are not what is reported: the version is.
@@ -170,12 +173,12 @@ test('a newer version is refused with an upgrade message that names the project'
     assert.match(f.errors[0].message, /upgrade human-in-the-lead \(hitld\)/);
     assert.deepEqual(f.newer, { found: newer, known: schemas().currentVersion(kind) });
   }
-  assert.equal(newerRefusal('person', { schema_version: 2 }), null);
+  assert.equal(newerRefusal('person', { schema_version: 3 }), null);
 });
 
 test('a file a newer release wrote is never replaced or merged into', () => {
   const { env } = home();
-  const path = plant(env, 'person', { schema_version: 3, from_the_future: true });
+  const path = plant(env, 'person', { schema_version: 4, from_the_future: true });
   const before = readFileSync(path, 'utf8');
   assert.throws(
     () =>
@@ -188,7 +191,7 @@ test('a file a newer release wrote is never replaced or merged into', () => {
   );
   assert.equal(readFileSync(path, 'utf8'), before);
   assert.throws(
-    () => writeSettingsFile('person', { schema_version: 3 }, { env: home().env, cwd: tmpdir() }),
+    () => writeSettingsFile('person', { schema_version: 4 }, { env: home().env, cwd: tmpdir() }),
     /newer than this release knows/,
   );
 });
@@ -196,8 +199,8 @@ test('a file a newer release wrote is never replaced or merged into', () => {
 // What a pinned release reads
 
 test('a release reads the versions from its own first release on', () => {
-  assert.equal(readsUpTo('person', '0.1.0-rc.1'), 2);
-  assert.equal(readsUpTo('person', '0.1.0'), 2);
+  assert.equal(readsUpTo('person', '0.1.0-rc.1'), 3);
+  assert.equal(readsUpTo('person', '0.1.0'), 3);
   assert.equal(readsUpTo('person', '0.1.0-beta.1'), 0, 'a release from before the file');
   assert.equal(readsUpTo('machine', '1.0.0'), 1);
 });
@@ -282,7 +285,7 @@ test('config explain warns when a project pinned on this machine cannot read the
 test('config explain reports a newer person file as an error that says to upgrade', async () => {
   const { env } = home();
   const root = pinnedProject({ source: 'github', repo: 'o/r', ref: 'v0.1.0' });
-  plant(env, 'person', { schema_version: 3 });
+  plant(env, 'person', { schema_version: 4 });
   const out = await hitld(['config', 'explain', '--json'], root, env);
   assert.equal(out.result.ok, false);
   assert.match(out.result.errors[0].message, /upgrade human-in-the-lead/);

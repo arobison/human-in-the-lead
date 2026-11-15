@@ -78,7 +78,9 @@ export const OPEN_STATES = ['proposed', 'planned'];
  * Also kept: whether the question is a two-way door and the default it carries. A default is
  * applied only from this record, never from the decision item, so editing the item cannot make
  * one apply (design part 4.2).
- * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any>, text?: string, reversibility?: 'two-way' | 'one-way', default_if_unanswered?: { option: string, deadline: string } }} AskedRecord
+ * never_default: the owner's own answer is the only way it closes; no default, and no
+ * recommendation taken for one, is ever applied.
+ * @typedef {Authority & { options?: Record<string, any>[], recommendation?: Record<string, any>, text?: string, reversibility?: 'two-way' | 'one-way', default_if_unanswered?: { option: string, deadline: string }, never_default?: boolean }} AskedRecord
  */
 
 /** @param {string} id */
@@ -218,9 +220,12 @@ function citeCandidates(candidates, classification) {
  *   otherwise it waits for the next digest and `showQuestion` writes `sent` when it is shown.
  * @param {Deps} deps
  * @param {Record<string, any>} given as in schemas/question.schema.json (direction, its name before HITLD-82, is read as touches_direction)
- * @param {{ judged?: Record<string, boolean>, send?: boolean }} [options]
+ * @param {{ judged?: Record<string, boolean>, send?: boolean, ownerOnly?: boolean }} [options]
  *   judged: the holder's judgement, per candidate precedent ID, of whether its plain-language
- *   conditions and exceptions fit (design part 4.3, step 2).
+ *   conditions and exceptions fit (design part 4.3, step 2). ownerOnly: a question only the
+ *   owner's own answer settles (a store device's enrolment or removal, design 0003 section 6):
+ *   it goes to the owner whatever the rules say about areas, no precedent resolves it, it carries
+ *   no default, and the record says so, so `rights sweep` never applies one.
  * @returns {Result}
  */
 export function askQuestion(deps, given, options = {}) {
@@ -236,12 +241,26 @@ export function askQuestion(deps, given, options = {}) {
   }
   const question = normalized.question;
   const route = routeQuestion(question, deps.policy);
+  if (options.ownerOnly) {
+    if (route.deciders.length !== 1 || route.deciders[0] !== 'owner') {
+      return fail(
+        'invalid-question',
+        `this question is the owner's alone, and the rules route it to ${route.deciders.join(', ') || 'the system'}`,
+        { route },
+      );
+    }
+    if (question.default_if_unanswered) {
+      return fail('invalid-default', 'a question only the owner settles carries no default');
+    }
+  }
   if (route.decider === 'system') return { ok: true, outcome: 'system', route };
 
-  const match = matchPrecedents(factsOf(question, route), deps.precedents.list(), {
-    policy: deps.policy,
-    route,
-  });
+  const match = options.ownerOnly
+    ? { candidates: [] }
+    : matchPrecedents(factsOf(question, route), deps.precedents.list(), {
+        policy: deps.policy,
+        route,
+      });
   const { resolved, remaining } = resolveByPrecedent(match.candidates, options.judged);
   const at = nowOf(deps);
   const classification = question.classification ?? 'internal';
@@ -382,6 +401,7 @@ export function askQuestion(deps, given, options = {}) {
     recommendation: draft.recommendation,
     ...(draft.reversibility ? { reversibility: draft.reversibility } : {}),
     ...(draft.default_if_unanswered ? { default_if_unanswered: draft.default_if_unanswered } : {}),
+    ...(options.ownerOnly ? { never_default: true } : {}),
     text,
   };
   deps.store.write(askedKey(id), canonicalJson(record) + '\n');

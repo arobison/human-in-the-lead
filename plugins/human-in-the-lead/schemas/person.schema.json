@@ -1,8 +1,8 @@
 {
   "$id": "person",
   "title": "Person settings",
-  "description": "The person file (design part 13.4): a person's plans, limits and appetite, kept outside every repository at $XDG_CONFIG_HOME/human-in-the-lead/person.json (~/.config/human-in-the-lead/person.json when XDG_CONFIG_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps, reserves and thresholds take the strictest layer; a project may be stricter, never looser. Version 2 adds attention; a file that sets no attention key is written as version 1, the lowest version that expresses it (design part 16.5). Internal: never committed or synced.",
-  "x-hitld-schema-version": 2,
+  "description": "The person file (design part 13.4): a person's plans, limits and appetite, kept outside every repository at $XDG_CONFIG_HOME/human-in-the-lead/person.json (~/.config/human-in-the-lead/person.json when XDG_CONFIG_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps, reserves and thresholds take the strictest layer; a project may be stricter, never looser. Version 2 adds attention, version 3 adds projects.<id>.store_remote; a file is written with the lowest version that expresses it, so one that sets neither is version 1 (design part 16.5). Internal: never committed or synced.",
+  "x-hitld-schema-version": 3,
   "type": "object",
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
@@ -109,7 +109,7 @@
       "additionalProperties": false
     },
     "projects": {
-      "description": "Per project, keyed by policy.json project.id: the project's share of headroom near the reserve when several projects compete for it (design part 13.4, across projects). Equal by default.",
+      "description": "Per project, keyed by policy.json project.id: the project's share of headroom near the reserve when several projects compete for it (design part 13.4, across projects), equal by default; and the address of its private store's remote.",
       "type": "object",
       "additionalProperties": {
         "type": "object",
@@ -118,6 +118,12 @@
             "description": "A relative weight; shares are compared with each other, not with 1.",
             "type": "number",
             "exclusiveMinimum": 0
+          },
+          "store_remote": {
+            "description": "The store repository this project's private store moves through (design 0003, section 8): https://host/owner/repo.git, ssh://git@host/owner/repo.git, user@host:path or an absolute path, with no password. Written by hitld store remote set. It lives here, outside every repository, because policy.json may be public; HITLD_STORE_REMOTE, when set, is used before it. Added in schema version 3.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
           }
         },
         "additionalProperties": false
