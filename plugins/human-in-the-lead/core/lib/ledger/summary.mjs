@@ -151,6 +151,7 @@ export function summarize(allEvents) {
   // time runs from `asked`. Only the first of each event counts.
   /** @type {Map<string, { asked: number, sent?: number }>} */
   const waiting = new Map();
+  let defaulted = 0;
   /** @type {number[]} */
   const latencies = [];
   /** @type {number[]} */
@@ -164,7 +165,11 @@ export function summarize(allEvents) {
     const w = waiting.get(e.decision);
     if (!w) continue;
     if (e.event === 'sent' && w.sent === undefined) w.sent = at;
-    if (e.event === 'answered') {
+    if (e.event === 'answered' && e.via === 'default') {
+      // No one answered: a default took the question, so it says nothing about how long the person took.
+      waiting.delete(e.decision);
+      defaulted++;
+    } else if (e.event === 'answered') {
       latencies.push(at - w.asked);
       if (w.sent !== undefined) queues.push(w.sent - w.asked);
       owners.push(at - (w.sent ?? w.asked));
@@ -208,6 +213,7 @@ export function summarize(allEvents) {
     },
     decision_latency_ms: {
       answered: latencies.length,
+      defaulted,
       open: waiting.size,
       median: percentile(latencies, 0.5),
       p90: percentile(latencies, 0.9),

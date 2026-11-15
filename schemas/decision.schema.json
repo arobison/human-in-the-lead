@@ -118,7 +118,7 @@
       "enum": ["two-way", "one-way"]
     },
     "default_if_unanswered": {
-      "description": "Two-way doors only: the option taken, and logged, if the deadline passes.",
+      "description": "Two-way doors only: the option taken, and logged, if the deadline passes. The orchestrator sets one on every question that is easy to undo; `hitld rights sweep` applies it once the deadline has passed, and the owner can reverse it.",
       "type": "object",
       "properties": {
         "option": {
@@ -141,11 +141,11 @@
       "$ref": "common#/$defs/timestamp"
     },
     "answered_via": {
-      "description": "The channel the answer came through, or \"precedent\" when a precedent resolved it.",
+      "description": "The channel the answer came through, \"precedent\" when a precedent resolved it, or \"default\" when no one answered and the question took its default.",
       "$ref": "common#/$defs/text"
     },
     "answered_by": {
-      "description": "Who answered: \"owner\", or a decider's contributor ID once signed answers exist (Q21). Absent when a precedent resolved it.",
+      "description": "Who answered: \"owner\", or a decider's contributor ID once signed answers exist (Q21). Absent when a precedent resolved it or a default was applied.",
       "$ref": "common#/$defs/person"
     },
     "precedent": {

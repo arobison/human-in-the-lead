@@ -146,6 +146,14 @@
       "description": "The decision item a question, its showing or its answer is about.",
       "$ref": "common#/$defs/id"
     },
+    "delivery": {
+      "description": "On sent: interrupt when the question was sent at once, outside a digest, which uses one of the person's interrupts_per_day; digest when it went in a digest. A sent line without it counts as a digest.",
+      "enum": ["interrupt", "digest"]
+    },
+    "via": {
+      "description": "On answered: default when no one answered and the decision took its default (its default_if_unanswered passed its deadline, or the person's digest was full and it is easy to undo). The answer is not the person's, so it is left out of decision latency.",
+      "enum": ["default"]
+    },
     "text": {
       "description": "On logged: the call, in a sentence, as the orchestrator decided it without asking. The digest lists it, and the owner can reverse it by this event's ID.",
       "$ref": "common#/$defs/text"
