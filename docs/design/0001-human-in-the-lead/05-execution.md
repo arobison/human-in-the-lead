@@ -99,7 +99,7 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 
 | Field | Notes |
 |---|---|
-| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started` and `lease-taken`. Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
+| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started` and `lease-taken`. Two more record the owner's attention: `sent` (a question was first shown to its decider) and `logged` (a call the orchestrator made without asking). Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
 | `dispatch` | `D-<n>`, unique per dispatch |
 | `item` | Tracker ID |
 | `tier`, `model`, `effort` | As dispatched |
@@ -113,6 +113,8 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 | `tokens_before_first_edit` | Onboarding cost, from the harness's telemetry where it provides it; empty for now, because Claude Code provides it only through OpenTelemetry ([part 11](11-metrics-and-control.md#111-measures)) |
 | `estimate_tokens` | Copied from the item at dispatch |
 | `commit` | Final commit of the branch |
+| `decision` | On `asked`, `sent` and `answered`: the decision item. Each is written once per decision. A decision a precedent resolves has none of them: no one was asked |
+| `text`, `area` | On `logged`: the call in a sentence, and its area. The event's ID is the handle the digest gives for reversing the call |
 | `notes` | Short; never untrusted text |
 
 The table lists the main fields; `schemas/ledger-entry.schema.json` is the full reference. The ledger is append-only. Corrections are new events that reference the old. It is `internal`: it holds no product secrets, but it is the project's working record.

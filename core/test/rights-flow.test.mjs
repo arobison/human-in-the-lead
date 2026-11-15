@@ -466,6 +466,7 @@ test('trust-calibration data: reversals, worth-asking ratings, overrules, per ar
     dependency({ paths: ['docs/a.md'], tags: ['other'], precedent_offer: undefined }),
   );
   answerDecision(project, { decision: second.decision, answer: 'B', worth_asking: true });
+  // Rated again, the decision counts once, by its latest rating.
   assert.equal(rateWorthAsking(project, { decision: second.decision, worth: true }).ok, true);
 
   const events = readTrustEvents(project.store);
@@ -486,7 +487,7 @@ test('trust-calibration data: reversals, worth-asking ratings, overrules, per ar
   assert.equal(summary.cache.overrule_rate, 1);
   assert.deepEqual(
     [summary.docs.rated, summary.docs.worth_asking, summary.docs.escalation_worth],
-    [2, 2, 1],
+    [1, 1, 1],
   );
   assert.equal(summary.docs.generalizations['none-given'], 1);
   assert.equal(summary.cache.generalizations.yes, 1);

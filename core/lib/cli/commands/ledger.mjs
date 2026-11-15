@@ -98,7 +98,9 @@ async function guarded(fn) {
 /** @type {Record<string, string[]>} */
 const RAW_APPEND_FIELDS = {
   asked: ['decision', 'dispatch', 'notes'],
+  sent: ['decision', 'notes'],
   answered: ['decision', 'notes'],
+  logged: ['text', 'item', 'dispatch', 'area', 'notes', 'corrects'],
   verified: [
     'item',
     'result',
@@ -122,7 +124,7 @@ export const commands = [
   {
     name: 'ledger append',
     summary:
-      'Append an asked, answered, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
+      'Append an asked, sent, answered, logged, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
     built_by: 'b',
     args: [
       {

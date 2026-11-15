@@ -24,6 +24,12 @@ import { schemas } from '../schema/registry.mjs';
 
 export const LEDGER_KEY = 'ledger.jsonl';
 
+/**
+ * Events about a decision or a call, not about a dispatch's life: one may name a dispatch (the
+ * one whose report raised the question) after that dispatch has ended.
+ */
+export const DECISION_EVENTS = Object.freeze(['asked', 'sent', 'answered', 'logged']);
+
 /** Events that end a dispatch: nothing more is expected of its executor. */
 export const TERMINAL_EVENTS = Object.freeze(['reported', 'abandoned', 'unclaimed']);
 
@@ -92,6 +98,7 @@ const REQUIRED = {
   dispatched: ['dispatch', 'item'],
   started: ['dispatch', 'item'],
   asked: ['decision'],
+  sent: ['decision'],
   answered: ['decision'],
   reported: ['dispatch', 'item'],
   verified: ['item', 'result'],
@@ -99,6 +106,7 @@ const REQUIRED = {
   reverted: ['item'],
   unclaimed: ['item'],
   abandoned: ['dispatch', 'item'],
+  logged: ['text'],
 };
 
 /** @type {Record<string, string[]>} */
@@ -268,7 +276,7 @@ export function appendEvent(store, event, options = {}) {
     }
     if (entry.corrects === undefined) {
       const ended = mine.find((e) => TERMINAL_EVENTS.includes(e.event));
-      if (ended && !['verified', 'merged', 'reverted'].includes(entry.event)) {
+      if (ended && !['verified', 'merged', 'reverted', ...DECISION_EVENTS].includes(entry.event)) {
         throw new LedgerError(
           `${entry.dispatch} already ended with ${ended.event} (${ended.id}); record a correction instead`,
         );

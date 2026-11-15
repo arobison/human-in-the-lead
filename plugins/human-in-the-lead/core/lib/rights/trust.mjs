@@ -61,6 +61,9 @@ export function fromLegacyTrustEvent(e) {
   };
 }
 
+/** An answer counts as quick when it comes this soon after the question was shown (policy trust.rubber_stamp_seconds). */
+export const DEFAULT_RUBBER_STAMP_SECONDS = 60;
+
 /** @param {number} n @param {number} d */
 const share = (n, d) => (d === 0 ? null : Math.round((n / d) * 1000) / 1000);
 
@@ -71,11 +74,19 @@ const share = (n, d) => (d === 0 ? null : Math.round((n / d) * 1000) / 1000);
  *   sent despite candidate precedents, the share answered as a candidate would have;
  * - overturn: reversals and overrules, as counts;
  * - auto-resolution: the share of questions that precedent resolved, the Goodhart pair of the
- *   overrule share (design part 11.3).
+ *   overrule share (design part 11.3);
+ * - rubber stamp: of the answers that record both whether the recommendation was taken and how
+ *   long the decider took, the share that took it within `rubberStampSeconds`. Answers without
+ *   both are left out of the share, not counted as no. It is the cheapest sign that the decider is
+ *   not reading, and also what good recommendations look like, so it is a prompt to look, never a
+ *   finding. Its pair is the overturn count: a decider who stamps and later reverses is not reading.
+ * A decision rated more than once counts once, by its latest rating.
  * @param {readonly TrustEvent[]} events
+ * @param {{ rubberStampSeconds?: number }} [options]
  * @returns {Record<string, Record<string, any>>} by area
  */
-export function trustSummary(events) {
+export function trustSummary(events, options = {}) {
+  const quickMs = (options.rubberStampSeconds ?? DEFAULT_RUBBER_STAMP_SECONDS) * 1000;
   /** @type {Record<string, Record<string, any>>} */
   const areas = {};
   /** @param {string} name */
@@ -85,6 +96,10 @@ export function trustSummary(events) {
       answered: 0,
       rated: 0,
       worth_asking: 0,
+      recommendation_known: 0,
+      recommendation_taken: 0,
+      stamp_known: 0,
+      stamped: 0,
       applications: 0,
       overrules: 0,
       reversals: 0,
@@ -93,6 +108,9 @@ export function trustSummary(events) {
       generalizations: { yes: 0, narrowed: 0, 'just-this-one': 0, 'none-given': 0 },
       precedents_created: 0,
     });
+  /** @type {Map<string, TrustEvent>} */
+  const latestRating = new Map();
+  for (const e of events) if (e.kind === 'worth-asking') latestRating.set(e.subject, e);
   /** @type {Set<string>} */
   const overruled = new Set();
   /** @type {Set<string>} candidates cited, by decision */
@@ -109,7 +127,16 @@ export function trustSummary(events) {
       a.answered++;
       if (e.generalization) a.generalizations[e.generalization]++;
       if (cited.has(e.subject) && e.agrees_with?.length) a.answered_as_candidate++;
+      if (typeof e.took_recommendation === 'boolean') {
+        a.recommendation_known++;
+        if (e.took_recommendation) a.recommendation_taken++;
+        if (typeof e.latency_ms === 'number') {
+          a.stamp_known++;
+          if (e.took_recommendation && e.latency_ms <= quickMs) a.stamped++;
+        }
+      }
     } else if (e.kind === 'worth-asking') {
+      if (latestRating.get(e.subject) !== e) continue;
       a.rated++;
       if (e.worth_asking) a.worth_asking++;
     } else if (e.kind === 'application') {
@@ -128,7 +155,30 @@ export function trustSummary(events) {
     a.precedent_match_accuracy = share(a.applications - a.overrules, a.applications);
     a.candidate_agreement = share(a.answered_as_candidate, a.asked_with_candidates);
     a.overrule_rate = share(a.overrules, a.applications);
+    a.recommendation_taken_rate = share(a.recommendation_taken, a.recommendation_known);
+    a.rubber_stamp_rate = share(a.stamped, a.stamp_known);
     a.auto_resolution_rate = share(a.applications, a.applications + a.asked);
   }
   return areas;
+}
+
+/**
+ * The rubber-stamp indicator per area, for the digest: the areas with answers to count, the
+ * highest share first. It says where to look, not what is wrong (see trustSummary).
+ * @param {readonly TrustEvent[]} events
+ * @param {{ rubberStampSeconds?: number }} [options]
+ */
+export function rubberStamps(events, options = {}) {
+  const quickSeconds = options.rubberStampSeconds ?? DEFAULT_RUBBER_STAMP_SECONDS;
+  return Object.entries(trustSummary(events, options))
+    .filter(([, a]) => a.stamp_known > 0)
+    .map(([area, a]) => ({
+      area,
+      rubber_stamp_rate: a.rubber_stamp_rate,
+      quick_and_agreeing: a.stamped,
+      answers: a.stamp_known,
+      quick_seconds: quickSeconds,
+      recommendation_taken_rate: a.recommendation_taken_rate,
+    }))
+    .sort((x, y) => y.rubber_stamp_rate - x.rubber_stamp_rate || x.area.localeCompare(y.area));
 }
