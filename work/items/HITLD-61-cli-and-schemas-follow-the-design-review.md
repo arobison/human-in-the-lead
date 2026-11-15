@@ -6,6 +6,7 @@ status: Done
 created: 2026-11-14
 project: HITLD-15
 claimed: D-61
+changelog: "Commands are tagged by the milestone that builds them; `hitld migrate` is now `hitld data migrate`; public judgements carry only what, basis and by."
 ---
 
 ## Why

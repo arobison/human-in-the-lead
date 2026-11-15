@@ -6,6 +6,7 @@ status: Done
 created: 2026-11-14
 project: HITLD-15
 claimed: claude/HITLD-51-commit-guard
+changelog: "The commit guard refuses files above the repository's classification ceiling, at commit, at merge and in `hitld work check` (`hitld check classification`, policy `project.private_paths`)."
 ---
 
 ## Why

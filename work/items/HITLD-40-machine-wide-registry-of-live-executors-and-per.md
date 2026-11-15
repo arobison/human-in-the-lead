@@ -7,6 +7,7 @@ created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37]
 claimed: D-40
+changelog: "A machine-wide registry counts live executors from every project against the person's and the machine's caps, shares usage readings per account, and locks the merge queue per repository."
 ---
 
 ## Why

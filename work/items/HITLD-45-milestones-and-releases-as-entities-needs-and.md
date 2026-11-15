@@ -7,6 +7,7 @@ created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-18]
 claimed: claude-executor
+changelog: "Milestones and releases are tracker entities; `hitld release propose` drafts the bump and notes from the interface delta, and `hitld release make` writes the release record and tag."
 ---
 
 ## Why
