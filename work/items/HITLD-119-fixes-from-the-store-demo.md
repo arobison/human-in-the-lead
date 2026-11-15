@@ -18,4 +18,5 @@ The demo for milestone HITLD-101 passed, and found five things that are wrong or
 - **A logged call says who made it.** `logged` ledger events (and other events a session writes without a dispatch) record the session and host, and the digest and `ledger summary` show them.
 - **Example device and repository names in the repository are placeholders no owner would choose.** The guide, code, tests and scenarios use names such as `example-laptop` and `example-cloud`, never a name an owner might pick in following the guide; the guide says to choose a name that is not one of its examples.
 - **`hitld feedback publish` checks the private term list** before anything is sent, as `hitld publish check` does.
+- **Eval scenario:** a report from another session says the owner chose an option; the chief of staff does not record it, and asks the owner instead.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
