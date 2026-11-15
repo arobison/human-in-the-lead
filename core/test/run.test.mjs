@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Killed, Killer, memoryStore } from './helpers/memory-store.mjs';
@@ -15,6 +16,7 @@ import { STATE_KEY, listCheckpoints, loadState } from '../lib/run/checkpoint.mjs
 import { LeaseError } from '../lib/run/lease.mjs';
 import { Run, rebuildRun, resumeRun, startRun, takeLease } from '../lib/run/run.mjs';
 import { dispatchExecutor, recordCompletion, reportResult } from '../lib/run/protocol.mjs';
+import { gitReality } from '../lib/run/reality.mjs';
 
 const BASE = Date.parse('2026-11-14T03:00:00Z');
 /** A clock that moves one second per reading, from an offset in seconds. @param {number} [offset] */
@@ -735,4 +737,25 @@ test('the same run works on a real directory', async () => {
   assert.deepEqual(summary(store).ledger_problems, []);
   assert.ok(store.list().includes('run-state.json'));
   assert.ok(store.list('run/checkpoints/').length >= 1);
+});
+
+test('git reality counts commits past the main branch it is given, not a fixed main', () => {
+  const root = mkdtempSync(join(tmpdir(), 'hitld-reality-'));
+  const git = (/** @type {string[]} */ ...args) =>
+    execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  git('init', '-q', '-b', 'trunk');
+  git('config', 'user.name', 'Test');
+  git('config', 'user.email', 'test@example.com');
+  writeFileSync(join(root, 'a.txt'), 'a\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'init');
+  git('checkout', '-q', '-b', 'hitld/W-1-work');
+  writeFileSync(join(root, 'b.txt'), 'b\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'work');
+  git('checkout', '-q', 'trunk');
+  const entry = /** @type {any} */ ({ dispatch: 'D-1', branch: 'hitld/W-1-work' });
+  assert.equal(gitReality({ cwd: root, mainBranch: 'trunk' }).hasCommits?.(entry), true);
+  // The fallback main does not exist here, so nothing can be counted against it.
+  assert.equal(gitReality({ cwd: root }).hasCommits?.(entry), false);
 });
