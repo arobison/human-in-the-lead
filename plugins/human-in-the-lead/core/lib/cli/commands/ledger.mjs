@@ -29,6 +29,7 @@ import { executorSignal } from '../executor.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
 import { activePause } from '../../quota/pause.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
+import { CodedError } from '../errors.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const STORE = {
@@ -76,7 +77,8 @@ function setup(input, ctx) {
   } else {
     if (!loaded.policy) {
       const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
-      throw new Error(
+      throw new CodedError(
+        'policy',
         `cannot find the private store without a valid policy.json (${why}); or pass --store`,
       );
     }
@@ -199,7 +201,8 @@ export const commands = [
         const s = setup(input, ctx);
         const loaded = loadState(s.store);
         if (!loaded.state) {
-          throw new Error(
+          throw new CodedError(
+            'no-run',
             `no run state (${loaded.problems.join('; ')}); start a run with hitld run start`,
           );
         }
@@ -369,7 +372,10 @@ export const commands = [
         const s = setup(input, ctx);
         const loaded = loadState(s.store);
         if (!loaded.state)
-          throw new Error(`no run state (${loaded.problems.join('; ')}); run hitld run rebuild`);
+          throw new CodedError(
+            'no-run',
+            `no run state (${loaded.problems.join('; ')}); run hitld run rebuild`,
+          );
         const run = new Run(
           s.store,
           { ...who(input, ctx), kept: s.kept, expirySeconds: s.expirySeconds },

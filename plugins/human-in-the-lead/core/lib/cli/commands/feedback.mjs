@@ -21,6 +21,7 @@ import { SOURCES, routeFeedback } from '../../feedback/route.mjs';
 import { answerPublication, pending, recordDraft } from '../../feedback/publish.mjs';
 import { ghFiler } from '../../feedback/filer.mjs';
 import { GateRefusal, approvalRefusal } from '../../sendgate/gate.mjs';
+import { CodedError } from '../errors.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const STORE = {
@@ -43,7 +44,8 @@ function openPrivate(input, ctx) {
     const loaded = loadPolicy({ cwd: ctx.cwd });
     if (!loaded.policy) {
       const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
-      throw new Error(
+      throw new CodedError(
+        'policy',
         `cannot find the private store without a valid policy.json (${why}); or pass --store`,
       );
     }
@@ -76,7 +78,7 @@ function policyOf(ctx) {
   const loaded = loadPolicy({ cwd: ctx.cwd });
   if (!loaded.policy) {
     const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
-    throw new Error(`publishing needs a valid policy.json (${why})`);
+    throw new CodedError('policy', `publishing needs a valid policy.json (${why})`);
   }
   return loaded.policy;
 }
