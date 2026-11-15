@@ -29,20 +29,20 @@ const minimal = { schema_version: 1, project: { id: 'fixture', key: 'W' } };
 
 test('defaults: tiers 0 to 3', () => {
   const { tiers } = policyDefaults();
-  assert.deepEqual(tiers['0'], { executor: 'orchestrator', model: 'own', effort: 'own' });
-  assert.deepEqual(tiers['1'], { executor: 'background', model: 'small', effort: 'medium' });
-  assert.deepEqual(tiers['2'], { executor: 'background', model: 'small', effort: 'high' });
-  assert.deepEqual(tiers['3'], { executor: 'session', model: 'large', effort: 'high' });
+  assert.deepEqual(tiers['0'], { runs_as: 'orchestrator', model: 'own', effort: 'own' });
+  assert.deepEqual(tiers['1'], { runs_as: 'background', model: 'small', effort: 'medium' });
+  assert.deepEqual(tiers['2'], { runs_as: 'background', model: 'small', effort: 'high' });
+  assert.deepEqual(tiers['3'], { runs_as: 'session', model: 'large', effort: 'high' });
 });
 
 test('defaults: the concurrency cap with its bounds', () => {
-  assert.deepEqual(policyDefaults().execution.concurrency, { value: 3, min: 1, max: 6 });
+  assert.deepEqual(policyDefaults().execution.max_executors, { value: 3, min: 1, max: 6 });
 });
 
 test("defaults: quotas keep the owner's reserve; plan windows are soft", () => {
   const { quota } = policyDefaults();
-  assert.equal(quota.owner_reserve, 0.25);
-  assert.ok(quota.critical_at < quota.economize_at);
+  assert.equal(quota.reserve, 0.25);
+  assert.ok(quota.critical_below < quota.economize_below);
   assert.deepEqual(
     quota.limits.map((/** @type {any} */ l) => [l.id, l.window, l.hard]),
     [
@@ -69,7 +69,7 @@ test('defaults: rights rules route to the owner unless an area owner is allowed'
     owner_when: ['cross-area'],
   });
   assert.deepEqual(rights.areas, []);
-  assert.equal(rights.agent_spend_max, 100000);
+  assert.equal(rights.agent_spend_max_tokens, 100000);
 });
 
 test("defaults: the owner's gut checks start high", () => {
@@ -106,7 +106,7 @@ test('every default is documented beside it', () => {
 test('the defaults with a project ID and key form a valid policy', () => {
   const { policy, errors } = resolvePolicy(minimal);
   assert.deepEqual(errors, []);
-  assert.equal(policy?.execution.concurrency.value, 3);
+  assert.equal(policy?.execution.max_executors.value, 3);
 });
 
 test('templates/policy.json is valid', () => {
@@ -123,7 +123,7 @@ test('objects merge with the defaults; arrays replace them', () => {
     judgement: { weights: { 'C-3': { 'gut-check': 0.5, considered: 0.7 } } },
     quota: { limits: [] },
   });
-  assert.deepEqual(policy?.execution.concurrency, { value: 5, min: 1, max: 6 });
+  assert.deepEqual(policy?.execution.max_executors, { value: 5, min: 1, max: 6 });
   assert.equal(policy?.judgement.weights.owner['gut-check'], 0.8);
   assert.equal(policy?.judgement.weights['C-3'].considered, 0.7);
   assert.deepEqual(policy?.quota.limits, []);
@@ -132,14 +132,14 @@ test('objects merge with the defaults; arrays replace them', () => {
 test('a value outside its bounds is refused', () => {
   const { errors } = resolvePolicy({ ...minimal, execution: { concurrency: { value: 9 } } });
   assert.deepEqual(errors, [
-    { path: 'execution.concurrency', message: 'value 9 is above its bound max 6' },
+    { path: 'execution.max_executors', message: 'value 9 is above its bound max 6' },
   ]);
 });
 
 test('unknown keys are refused, with a suggestion', () => {
-  const { errors } = resolvePolicy({ ...minimal, execution: { concurency: { value: 2 } } });
-  assert.equal(errors[0].path, 'execution.concurency');
-  assert.match(errors[0].message, /did you mean "concurrency"/);
+  const { errors } = resolvePolicy({ ...minimal, execution: { max_executor: { value: 2 } } });
+  assert.equal(errors[0].path, 'execution.max_executor');
+  assert.match(errors[0].message, /did you mean "max_executors"/);
 });
 
 test('code-running keys are refused in policy too', () => {

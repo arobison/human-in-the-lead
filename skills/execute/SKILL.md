@@ -12,9 +12,9 @@ metadata:
 
 The brief names your item, your dispatch ID and your branch. It points to the item and the plan instead of restating them: read those, and the knowledge-base pages it names. The executor contract in `AGENTS.md` is the rule; this is the procedure.
 
-Prefix every `hitld` command with the environment the brief gives (`HITLD_DISPATCH=D-<n> HITLD_PROJECT=<id> HITLD_ROLE=executor`). It is how `hitld` knows your dispatch and role.
+Prefix every `hitld` command with the environment the brief gives (`HITLD_DISPATCH=D-<n> HITLD_PROJECT_ID=<id> HITLD_ROLE=executor`). It is how `hitld` knows your dispatch and role.
 
-1. **Set up.** If the brief says so (a background agent in its own worktree): `hitld env setup --holder D-<n> --adopt "$PWD"`, then `git branch -m <branch>`. A failed setup is a `blocked` report, not something to work around.
+1. **Set up.** If the brief says so (a background agent in its own worktree): `hitld env setup --dispatch D-<n> --adopt "$PWD"`, then `git branch -m <branch>`. A failed setup is a `blocked` report, not something to work around.
 2. **Claim.** `hitld work claim <ID> --claimant D-<n> --branch <branch>`. That commit changes only the item file.
 3. **Work.** Stay inside the item's `touches`; if you must go outside, note why for `deviations`. Measure only through the project's benchmark tool. Secrets only through `hitld env exec <task>` (owner-declared tasks); never read secret files.
 4. **Calls.** Decide cheap-to-undo calls within the plan yourself and note each, marked `(reversible)`. A call the contract says is not yours: do not block. Do the parts that do not depend on it, and put the question under `questions` with your recommendation.

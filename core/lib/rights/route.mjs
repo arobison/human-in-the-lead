@@ -1,6 +1,6 @@
 // Which decider a question goes to, and by which rule (design parts 4.2, 4.4 and 4.5).
 //
-// The rules are data in policy.json (`rights.rules`, `rights.areas`, `rights.agent_spend_max`).
+// The rules are data in policy.json (`rights.rules`, `rights.areas`, `rights.agent_spend_max_tokens`).
 // This is a script, not a judgement: it takes a question's attributes and returns the decider and
 // the rule that fired, so every call that was or was not sent to a person can be traced to a rule.
 
@@ -105,7 +105,7 @@ function firedBases(question, policy, areas) {
     if (!found.has(basis)) found.set(basis, { reason, source: 'checked' });
   };
   if (question.reversibility === 'one-way') check('one-way-door', 'it is a one-way door');
-  const max = policy.rights?.agent_spend_max;
+  const max = policy.rights?.agent_spend_max_tokens;
   if (typeof question.spend_tokens === 'number' && question.spend_tokens > max) {
     check(
       'budget',

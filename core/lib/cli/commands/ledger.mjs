@@ -60,9 +60,9 @@ function setup(input, ctx) {
     store: openStore(root),
     hash: loaded.hash,
     projectId: loaded.policy?.project.id ?? null,
-    concurrency: policy.execution?.concurrency?.value,
+    concurrency: policy.execution?.max_executors?.value,
     kept: policy.run?.checkpoints_kept,
-    expirySeconds: policy.run?.lease_expiry,
+    expirySeconds: policy.run?.lease_expiry_seconds,
     cwd: ctx.cwd,
   };
 }
@@ -250,7 +250,7 @@ export const commands = [
         name: 'scope',
         type: 'string',
         description:
-          'What the run covers, as JSON: items, milestones, token_budget, concurrency_cap, stop_when. concurrency_cap defaults to policy execution.concurrency',
+          'What the run covers, as JSON: items, milestones, budget_tokens, max_executors, stop_when. max_executors defaults to policy execution.max_executors',
       },
       {
         name: 'replace',
@@ -278,8 +278,8 @@ export const commands = [
             };
           }
         }
-        if (scope.concurrency_cap === undefined && s.concurrency !== undefined) {
-          scope.concurrency_cap = s.concurrency;
+        if (scope.max_executors === undefined && s.concurrency !== undefined) {
+          scope.max_executors = s.concurrency;
         }
         const run = startRun(s.store, {
           ...who(input, ctx),

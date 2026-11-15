@@ -25,7 +25,7 @@ import { reportedEvent } from './protocol.mjs';
  * @property {string} host the machine it runs on
  * @property {() => Date} [now] a clock, for tests
  * @property {number} [kept] policy run.checkpoints_kept
- * @property {number} [expirySeconds] policy run.lease_expiry
+ * @property {number} [expirySeconds] policy run.lease_expiry_seconds
  *
  * @typedef {object} Reality what exists outside the files; each part is optional
  * @property {string} [harness] the adapter ID, for adopting an executor found running

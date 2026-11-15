@@ -7,22 +7,22 @@
     "0": {
       "description": "The orchestrator, inline: a handful of tool calls.",
       "$ref": "#/$defs/tier",
-      "default": { "executor": "orchestrator", "model": "own", "effort": "own" }
+      "default": { "runs_as": "orchestrator", "model": "own", "effort": "own" }
     },
     "1": {
       "description": "A background agent: mechanical, fully specified work.",
       "$ref": "#/$defs/tier",
-      "default": { "executor": "background", "model": "small", "effort": "medium" }
+      "default": { "runs_as": "background", "model": "small", "effort": "medium" }
     },
     "2": {
       "description": "A background agent: implementation inside a known design.",
       "$ref": "#/$defs/tier",
-      "default": { "executor": "background", "model": "small", "effort": "high" }
+      "default": { "runs_as": "background", "model": "small", "effort": "high" }
     },
     "3": {
       "description": "Its own session: design-heavy, risky or long work, or work the owner reviews in person.",
       "$ref": "#/$defs/tier",
-      "default": { "executor": "session", "model": "large", "effort": "high" }
+      "default": { "runs_as": "session", "model": "large", "effort": "high" }
     }
   },
   "additionalProperties": false,
@@ -30,14 +30,17 @@
     "tier": {
       "type": "object",
       "properties": {
-        "executor": { "enum": ["orchestrator", "background", "session"] },
+        "runs_as": {
+          "description": "Who runs an item of this tier: the orchestrator inline, a background agent, or its own session.",
+          "enum": ["orchestrator", "background", "session"]
+        },
         "model": {
           "description": "own (the orchestrator's), small or large.",
           "enum": ["own", "small", "large"]
         },
         "effort": { "enum": ["own", "low", "medium", "high", "xhigh", "max"] }
       },
-      "required": ["executor", "model", "effort"],
+      "required": ["runs_as", "model", "effort"],
       "additionalProperties": false
     }
   }

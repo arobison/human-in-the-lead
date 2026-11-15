@@ -49,7 +49,7 @@ const FIXTURES = {
       env: { DISPLAY: ':0', XDG_SESSION_TYPE: 'x11', PATH: '/usr/bin' },
       files: { '/usr/bin/firefox': '' },
     }),
-  cloud_vm: () =>
+  'cloud-vm': () =>
     fake({
       env: { PATH: '/usr/bin' },
       files: { '/sys/class/dmi/id/sys_vendor': 'Amazon EC2\n', '/var/lib/cloud/instance': '' },
@@ -75,7 +75,7 @@ function home() {
   return { XDG_CONFIG_HOME: join(base, 'config'), XDG_DATA_HOME: join(base, 'data') };
 }
 
-for (const role of /** @type {const} */ (['dedicated', 'workstation', 'cloud_vm', 'ci'])) {
+for (const role of /** @type {const} */ (['dedicated', 'workstation', 'cloud-vm', 'ci'])) {
   test(`fixture: a ${role} machine detects as ${role} and gets its defaults`, () => {
     const probe = probeMachine(FIXTURES[role]());
     assert.equal(probe.role, role);
@@ -84,7 +84,7 @@ for (const role of /** @type {const} */ (['dedicated', 'workstation', 'cloud_vm'
     const expected = {
       dedicated: { cores: 7, memory: 14745, confirm: true },
       workstation: { cores: 4, memory: 8192, confirm: true },
-      cloud_vm: { cores: 8, memory: 14745, confirm: false },
+      'cloud-vm': { cores: 8, memory: 14745, confirm: false },
       ci: { cores: 8, memory: 14745, confirm: false },
     }[role];
     assert.equal(d.cores, expected.cores);
@@ -92,7 +92,7 @@ for (const role of /** @type {const} */ (['dedicated', 'workstation', 'cloud_vm'
     assert.equal(d.confirm, expected.confirm);
     const { profile } = proposeProfile(probe);
     assert.deepEqual(validateSettings('machine', profile), []);
-    assert.equal(profile.role, role);
+    assert.equal(profile.kind, role);
   });
 }
 
@@ -172,16 +172,16 @@ test('a later probe that finds less warns and uses the smaller value', () => {
   assert.equal(again.profile.detected.cores, 4);
 });
 
-test('the person set role wins over the detected one', () => {
+test('the kind the person set wins over the detected one', () => {
   const p = proposeProfile(probeMachine(FIXTURES.workstation()), {
     schema_version: 1,
-    role: 'dedicated',
+    kind: 'dedicated',
     cores: 3,
   });
   assert.equal(p.role, 'dedicated');
   assert.equal(p.role_source, 'machine file');
   assert.equal(p.profile.cores, 3);
-  assert.equal(p.profile.detected.role, 'workstation');
+  assert.equal(p.profile.detected.kind, 'workstation');
 });
 
 test('hitld machine detect prints a proposal and writes nothing until --write', async () => {
@@ -189,7 +189,7 @@ test('hitld machine detect prints a proposal and writes nothing until --write', 
   const r = await hitld(['machine', 'detect'], env, FIXTURES.workstation());
   assert.equal(r.code, 0);
   assert.equal(r.result.written, false);
-  assert.equal(r.result.role, 'workstation');
+  assert.equal(r.result.kind, 'workstation');
   assert.equal(r.result.proposed.cores, 4);
   assert.equal(existsSync(settingsLocation('machine', { env }).path), false);
 
@@ -197,21 +197,21 @@ test('hitld machine detect prints a proposal and writes nothing until --write', 
   assert.equal(w.result.written, true);
   const file = loadSettingsFile('machine', { env });
   assert.deepEqual(file.errors, []);
-  assert.equal(file.data?.role, 'workstation');
+  assert.equal(file.data?.kind, 'workstation');
   assert.ok(file.data?.detected.at);
 
   // A second detect starts from the file: the person's edits stay, the record refreshes.
   const again = await hitld(['machine', 'detect'], env, FIXTURES.workstation());
-  assert.equal(again.result.role_source, 'machine file');
+  assert.equal(again.result.kind_source, 'machine file');
 });
 
 test('a cloud VM or CI session gets its own profile at start, without asking', async () => {
-  for (const role of /** @type {const} */ (['cloud_vm', 'ci'])) {
+  for (const role of /** @type {const} */ (['cloud-vm', 'ci'])) {
     const env = home();
     const r = await hitld(['machine', 'detect', '--write'], env, FIXTURES[role]());
     assert.equal(r.result.written, true);
     assert.match(r.result.confirmation, /without asking/);
-    assert.equal(loadSettingsFile('machine', { env }).data?.role, role);
+    assert.equal(loadSettingsFile('machine', { env }).data?.kind, role);
   }
 });
 

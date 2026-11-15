@@ -54,7 +54,7 @@
         "rule": { "$ref": "common#/$defs/rightsBasis" },
         "precedent": { "$ref": "common#/$defs/precedentId" },
         "precedent_version": { "type": "integer", "minimum": 1 },
-        "plugin_version": { "$ref": "common#/$defs/text" }
+        "hitld_version": { "$ref": "common#/$defs/text" }
       },
       "additionalProperties": false
     },

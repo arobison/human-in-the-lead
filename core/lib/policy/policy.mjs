@@ -19,13 +19,14 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { schemas } from '../schema/registry.mjs';
+import { renameSettings } from '../settings/renamed.mjs';
 
 /**
  * @typedef {import('../schema/validate.mjs').ValidationError} ValidationError
  * @typedef {import('../schema/validate.mjs').Schema} Schema
  * @typedef {import('../schema/registry.mjs').SchemaRegistry} SchemaRegistry
  * @typedef {Record<string, any>} Policy
- * @typedef {{ path: string | null, policy: Policy | null, errors: ValidationError[], hash: string | null, raw?: Record<string, any> }} PolicyResult
+ * @typedef {{ path: string | null, policy: Policy | null, errors: ValidationError[], hash: string | null, raw?: Record<string, any>, renamed?: import('../settings/renamed.mjs').RenamedSetting[] }} PolicyResult
  *   raw: the file as written, before the defaults, when it loaded
  */
 
@@ -84,20 +85,30 @@ export function mergePolicy(base, over) {
 }
 
 /**
- * Merge a project's policy with the defaults and validate the result.
+ * Merge a project's policy with the defaults and validate the result. A setting under its name
+ * before HITLD-82 is read under the new one (settings/renamed.mjs) and named in `renamed`.
  * @param {unknown} raw the parsed policy.json
  * @param {SchemaRegistry} [registry]
- * @returns {{ policy: Policy | null, errors: ValidationError[] }}
+ * @returns {{ policy: Policy | null, errors: ValidationError[], renamed: import('../settings/renamed.mjs').RenamedSetting[], raw: unknown }}
+ *   raw: the input in the current names
  */
 export function resolvePolicy(raw, registry = schemas()) {
   if (!isObject(raw)) {
-    return { policy: null, errors: [{ path: '(top level)', message: 'must be a JSON object' }] };
+    return {
+      policy: null,
+      errors: [{ path: '(top level)', message: 'must be a JSON object' }],
+      renamed: [],
+      raw,
+    };
   }
-  const merged = /** @type {Policy} */ (mergePolicy(policyDefaults(registry), raw));
+  const { data: current, renamed } = renameSettings('policy', raw);
+  const merged = /** @type {Policy} */ (mergePolicy(policyDefaults(registry), current));
   // The file must say which schema version it was written for; the defaults do not supply it.
-  if (!Object.hasOwn(raw, 'schema_version')) delete merged.schema_version;
+  if (!Object.hasOwn(current, 'schema_version')) delete merged.schema_version;
   const errors = registry.validateEntity('policy', merged);
-  return errors.length ? { policy: null, errors } : { policy: merged, errors };
+  return errors.length
+    ? { policy: null, errors, renamed, raw: current }
+    : { policy: merged, errors, renamed, raw: current };
 }
 
 // Policy sets decision rights and quotas, so it is read only from places the current user controls.
@@ -277,13 +288,13 @@ export function loadPolicy(options = {}) {
       errors: [{ path, message: `cannot be read: ${message}` }],
     };
   }
-  const { policy, errors } = resolvePolicy(raw, registry);
+  const { policy, errors, renamed, raw: current } = resolvePolicy(raw, registry);
   return {
     path,
     policy,
     errors,
     hash: policy ? policyHash(policy) : null,
-    ...(policy ? { raw: /** @type {Record<string, any>} */ (raw) } : {}),
+    ...(policy ? { raw: /** @type {Record<string, any>} */ (current), renamed } : {}),
   };
 }
 

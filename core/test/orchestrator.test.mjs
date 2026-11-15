@@ -183,7 +183,7 @@ test('the brief points rather than restates', () => {
   });
   assert.match(brief, /Read work\/items\/W-7-x.md and the plan it points to \(docs\/d.md#3\)/);
   assert.match(brief, /kb\/areas\/cache.md/);
-  assert.match(brief, /HITLD_DISPATCH=D-4 HITLD_PROJECT=test HITLD_ROLE=executor/);
+  assert.match(brief, /HITLD_DISPATCH=D-4 HITLD_PROJECT_ID=test HITLD_ROLE=executor/);
   assert.doesNotMatch(brief, /secret paragraph/);
 });
 
@@ -265,13 +265,13 @@ test('the Claude Code adapter: a valid adapter whose calls are instructions for 
       worktree: '/w/D 3',
       briefPath: '/s/b.md',
       resultPath: '/s/r.json',
-      env: { HITLD_PROJECT: 'p', HITLD_ROLE: 'executor' },
+      env: { HITLD_PROJECT_ID: 'p', HITLD_ROLE: 'executor' },
     },
   );
   assert.equal(headless.tool, 'Bash');
   assert.match(
     String(headless.input.command),
-    /^cd '\/w\/D 3' && HITLD_DISPATCH=D-3 HITLD_PROJECT=p HITLD_ROLE=executor claude -p --output-format json --model opus --effort high --permission-mode acceptEdits < \/s\/b.md > \/s\/r.json$/,
+    /^cd '\/w\/D 3' && HITLD_DISPATCH=D-3 HITLD_PROJECT_ID=p HITLD_ROLE=executor claude -p --output-format json --model opus --effort high --permission-mode acceptEdits < \/s\/b.md > \/s\/r.json$/,
   );
 
   /** @type {string[]} */
@@ -413,8 +413,8 @@ test('hooks: the report check blocks an executor without a report, once; the gua
   for (const allowed of [
     'hitld work claim W-3 --claimant D-2 --branch b',
     'hitld work close W-3',
-    'hitld env setup --holder D-2 --adopt "$PWD"',
-    'hitld env port lease --holder D-2',
+    'hitld env setup --dispatch D-2 --adopt "$PWD"',
+    'hitld env port lease --dispatch D-2',
     'npm test && hitld check contract',
   ]) {
     assert.equal(asExecutor(allowed), '', allowed);
@@ -634,7 +634,7 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
   assert.equal(git(start.result.worktree, 'branch', '--show-current'), start.result.branch);
   assert.match(
     start.result.instruction.input.command,
-    /HITLD_DISPATCH=D-1 HITLD_PROJECT=orch-fixture HITLD_ROLE=executor claude -p/,
+    /HITLD_DISPATCH=D-1 HITLD_PROJECT_ID=orch-fixture HITLD_ROLE=executor claude -p/,
   );
   await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'bash-7']);
   const resultFile = start.result.on_complete.split('--result-file ')[1];

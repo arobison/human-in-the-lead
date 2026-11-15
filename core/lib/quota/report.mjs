@@ -44,7 +44,7 @@ function ledgerSummary(entries) {
 }
 
 /**
- * Threshold lines for the digest: the highest `notify_at` share each quota has passed.
+ * Threshold lines for the digest: the highest `notify_used` share each quota has passed.
  * @param {import('./quota.mjs').QuotaState[]} quotas @param {number[]} levels
  */
 function thresholds(quotas, levels) {
@@ -120,7 +120,7 @@ export function buildReport({
       unread: gate.unread,
     },
     quotas: gate.quotas,
-    thresholds: thresholds(gate.quotas, policy.quota.notify_at),
+    thresholds: thresholds(gate.quotas, policy.quota.notify_used),
     ledger: ledgerSummary(ledger),
     waiting_for_owner: ownerWaiting(policy, ledger, now),
   };
@@ -201,7 +201,7 @@ function bar(s, q) {
     return `<line x1="${at}" x2="${at}" y1="0" y2="16" class="mark"><title>${esc(label)}</title></line>`;
   };
   const text = `${s.id}: ${Math.round((s.used / s.limit) * 100)}% used, reserve from ${Math.round((1 - s.reserve_share) * 100)}%`;
-  return `<svg viewBox="0 0 ${W} 16" role="img" aria-label="${esc(text)}" class="bar"><rect width="${W}" height="16" class="track"/><rect x="${reserveX}" width="${W - reserveX}" height="16" class="reserve"/><rect width="${usedW}" height="16" class="used"/>${mark(q.economize_at, 'economize')}${mark(q.critical_at, 'critical path only')}<line x1="${reserveX}" x2="${reserveX}" y1="0" y2="16" class="stop"><title>reserve: stop</title></line></svg>`;
+  return `<svg viewBox="0 0 ${W} 16" role="img" aria-label="${esc(text)}" class="bar"><rect width="${W}" height="16" class="track"/><rect x="${reserveX}" width="${W - reserveX}" height="16" class="reserve"/><rect width="${usedW}" height="16" class="used"/>${mark(q.economize_below, 'economize')}${mark(q.critical_below, 'critical path only')}<line x1="${reserveX}" x2="${reserveX}" y1="0" y2="16" class="stop"><title>reserve: stop</title></line></svg>`;
 }
 
 /**

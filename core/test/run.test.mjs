@@ -49,7 +49,7 @@ test('start: run-started goes to the ledger, then the first checkpoint, and the 
   const run = startRun(store, {
     ...A,
     now: clock(),
-    scope: { items: ['W-1'], concurrency_cap: 3 },
+    scope: { items: ['W-1'], max_executors: 3 },
     policyHash: 'a'.repeat(64),
   });
   const { events } = readLedger(store);

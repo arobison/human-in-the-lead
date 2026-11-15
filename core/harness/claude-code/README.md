@@ -8,7 +8,7 @@ Claude Code's tools (Agent, SendMessage, background Bash, messages in the main s
 |---|---|---|
 | Dispatch, write-ahead | `hitld dispatch start <ID>` records `dispatched`, writes the brief | prints the call |
 | Tier 1-2 | | `Agent`: `subagent_type human-in-the-lead:executor-tier<N>`, `name D-<n>`, `isolation worktree`, model and effort from policy, in the background |
-| Tier 3, headless | | background `Bash`: `claude -p --output-format json` in a worktree from `hitld env`, with `HITLD_DISPATCH`, `HITLD_PROJECT`, `HITLD_ROLE=executor` |
+| Tier 3, headless | | background `Bash`: `claude -p --output-format json` in a worktree from `hitld env`, with `HITLD_DISPATCH`, `HITLD_PROJECT_ID`, `HITLD_ROLE=executor` |
 | Tier 3, interactive | | the owner starts a session in the prepared worktree with the brief file |
 | Harness reference | `hitld dispatch handle --dispatch D-<n> --harness-ref <id>` records `started` | |
 | Completion | `hitld dispatch complete` records `reported`, checks the report, queues the branch, plans the refill | the notification, or the background Bash exit |

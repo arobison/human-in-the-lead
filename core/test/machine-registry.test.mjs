@@ -281,7 +281,7 @@ test('check 11: two projects stay within the person cap, see the same usage, and
 
   const person = settingsLocation('person', { env });
   mkdirSync(person.dir, { recursive: true });
-  writeFileSync(person.path, JSON.stringify({ schema_version: 1, executors_max: 2 }), {
+  writeFileSync(person.path, JSON.stringify({ schema_version: 1, max_executors: 2 }), {
     mode: 0o600,
   });
 
@@ -360,7 +360,7 @@ test('check 11: two projects dispatching at the same moment cannot pass the cap 
   const env = { ...a.env };
   const person = settingsLocation('person', { env });
   mkdirSync(person.dir, { recursive: true });
-  writeFileSync(person.path, JSON.stringify({ schema_version: 1, executors_max: 1 }), {
+  writeFileSync(person.path, JSON.stringify({ schema_version: 1, max_executors: 1 }), {
     mode: 0o600,
   });
   for (const c of [a, b]) assert.equal((await c.hitld(['run', 'start'], { env })).exit, 0);

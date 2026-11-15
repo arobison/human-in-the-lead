@@ -46,7 +46,7 @@
           "draft",
           "FB-1",
           "--draft",
-          "{\"title\": \"The digest listed every check for one item\", \"area\": \"decision rights\", \"what_happened\": \"After one merge the digest listed every check that ran, which made it long to read.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "{\"title\": \"The digest listed every check for one item\", \"loop\": \"decision rights\", \"what_happened\": \"After one merge the digest listed every check that ran, which made it long to read.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
           "--store",
           "store"
         ]

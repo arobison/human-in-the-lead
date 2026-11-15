@@ -54,12 +54,12 @@ test('a one-way door is found from the reversibility without being asserted', ()
   assert.equal(r.fired[0].source, 'checked');
 });
 
-test('the budget rule compares spend with agent_spend_max', () => {
+test('the budget rule compares spend with agent_spend_max_tokens', () => {
   assert.equal(routeQuestion({ spend_tokens: 100000 }, policy).decider, 'system');
   const over = routeQuestion({ spend_tokens: 100001 }, policy);
   assert.equal(over.basis, 'budget');
   assert.match(over.fired[0].reason, /100001 tokens.*agents may commit 100000/);
-  const raised = policyWith({ agent_spend_max: 200000 });
+  const raised = policyWith({ agent_spend_max_tokens: 200000 });
   assert.equal(routeQuestion({ spend_tokens: 150000 }, raised).decider, 'system');
 });
 

@@ -111,7 +111,7 @@ export function openEnv(options) {
     /**
      * Release everything a holder has: its worktree, its port (stopping only a server the
      * manager started), and any locks it holds.
-     * @param {{ holder: string, outcome: 'merged' | 'abandoned' | 'failed' }} r
+     * @param {{ holder: string, result: 'merged' | 'abandoned' | 'failed' }} r
      */
     async releaseHolder(r) {
       const worktree = await releaseWorktree(wt, r);

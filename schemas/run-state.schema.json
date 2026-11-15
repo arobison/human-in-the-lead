@@ -12,7 +12,7 @@
       "properties": {
         "id": { "$ref": "common#/$defs/text" },
         "started_at": { "$ref": "common#/$defs/timestamp" },
-        "plugin_version": { "$ref": "common#/$defs/text" },
+        "hitld_version": { "$ref": "common#/$defs/text" },
         "policy_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       },
       "required": ["id", "started_at"],
@@ -132,8 +132,8 @@
       "properties": {
         "items": { "$ref": "common#/$defs/ids" },
         "milestones": { "$ref": "common#/$defs/texts" },
-        "token_budget": { "type": ["integer", "null"], "minimum": 0 },
-        "concurrency_cap": { "type": "integer", "minimum": 1 },
+        "budget_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "max_executors": { "type": "integer", "minimum": 1 },
         "stop_when": { "$ref": "common#/$defs/text" }
       },
       "additionalProperties": false

@@ -189,7 +189,7 @@ export const commands = [
   {
     name: 'config migrate',
     summary:
-      'Propose person and machine files from the settings that moved out of policy.json; with --yes, write them and remove the keys from policy.json',
+      'Propose person and machine files from the settings that moved out of policy.json, and rename settings that HITLD-82 renamed in all three files; with --yes, write them and remove the moved keys from policy.json',
     piece: 'settings-hold',
     args: [
       {
@@ -220,6 +220,18 @@ export const commands = [
         person: person.data,
         machine: machine.data,
       });
+      // Settings read under their names before HITLD-82: the files are rewritten in the new names.
+      for (const [file, renamed] of /** @type {const} */ ([
+        ['policy.json', loaded.renamed ?? []],
+        ['person', person.renamed ?? []],
+        ['machine', machine.renamed ?? []],
+      ])) {
+        for (const r of renamed) {
+          plan.moves.push({ path: r.from, to: file, value: r.to, note: `renamed to ${r.to}` });
+        }
+      }
+      if (!plan.person && person.renamed?.length) plan.person = person.data;
+      if (!plan.machine && machine.renamed?.length) plan.machine = machine.data;
       const proposal = {
         moves: plan.moves,
         person: plan.person && { path: person.path, data: plan.person },

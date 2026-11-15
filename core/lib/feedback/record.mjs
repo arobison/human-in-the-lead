@@ -130,7 +130,7 @@ export function parseRefs(text) {
   return [...new Set(refs)];
 }
 
-/** The loop each ledger event belongs to, for an area the person did not give. */
+/** The loop each ledger event belongs to, for a loop the person did not give. */
 const LOOP_OF = Object.freeze({
   dispatched: 'dispatch',
   started: 'dispatch',
@@ -165,7 +165,7 @@ const short = (e) =>
  */
 export function ledgerContext(store, refs) {
   if (!refs.length)
-    return { evidence: [], what_happened: undefined, area: undefined, unmatched: [] };
+    return { evidence: [], what_happened: undefined, loop: undefined, unmatched: [] };
   const { events } = readLedger(store);
   const named = (/** @type {Record<string, any>} */ e) =>
     [e.id, e.dispatch, e.item, e.decision].filter(Boolean);
@@ -182,7 +182,7 @@ export function ledgerContext(store, refs) {
   return {
     evidence: hits.map(short),
     what_happened,
-    area: loops.length ? loops.join(', ') : undefined,
+    loop: loops.length ? loops.join(', ') : undefined,
     unmatched,
   };
 }
@@ -200,7 +200,7 @@ function nextId(store) {
 /**
  * Record feedback. Offline: reads the ledger and writes one file.
  * @param {PrivateStore} store
- * @param {{ cwd: string, kind: string, words: string, refs?: string, area?: string, expected?: string,
+ * @param {{ cwd: string, kind: string, words: string, refs?: string, loop?: string, expected?: string,
  *   harness?: string, harnessVersion?: string, defaultHarness: string, now?: () => Date }} o
  */
 export function recordFeedback(store, o) {
@@ -212,19 +212,19 @@ export function recordFeedback(store, o) {
   assertPrivate(store, o.cwd);
   const id = nextId(store);
   assertPrivate(store, o.cwd, keyOf(id));
-  const { evidence, what_happened, area, unmatched } = ledgerContext(store, refs);
-  const areaOf = o.area || area;
+  const { evidence, what_happened, loop, unmatched } = ledgerContext(store, refs);
+  const loopOf = o.loop || loop;
   /** @type {FeedbackRecord} */
   const record = {
-    schema_version: 1,
+    schema_version: schemas().currentVersion('feedback'),
     id,
     kind: o.kind,
     words: o.words,
     created_at: (o.now?.() ?? new Date()).toISOString(),
-    version: VERSION,
+    hitld_version: VERSION,
     // The core cannot learn a harness's version offline; the caller may pass what its session knows.
     harness: { name: o.harness ?? o.defaultHarness, version: o.harnessVersion ?? 'unknown' },
-    ...(areaOf ? { area: areaOf } : {}),
+    ...(loopOf ? { loop: loopOf } : {}),
     refs,
     ...(what_happened ? { what_happened } : {}),
     ...(o.expected ? { expected: o.expected } : {}),
@@ -237,6 +237,26 @@ export function recordFeedback(store, o) {
   // Trust boundary: the private store, outside every checkout (assertPrivate above).
   store.write(keyOf(id), `${JSON.stringify(record, null, 2)}\n`);
   return { record, unmatched };
+}
+
+/**
+ * A record of schema version 1 in the names of version 2 (HITLD-82), read until the next minor
+ * release: `version` is `hitld_version`, and `area` (the record's and its draft's) is `loop`. The
+ * next save writes it in the new names.
+ * @param {any} data
+ */
+export function fromLegacyRecord(data) {
+  if (!data || typeof data !== 'object' || data.schema_version !== 1) return data;
+  const { version, area, draft, ...rest } = data;
+  /** @type {Record<string, any>} */
+  const out = { ...rest, schema_version: schemas().currentVersion('feedback') };
+  if (version !== undefined) out.hitld_version = version;
+  if (area !== undefined) out.loop = area;
+  if (draft && typeof draft === 'object') {
+    const { area: draftArea, ...d } = draft;
+    out.draft = draftArea === undefined ? d : { ...d, loop: draftArea };
+  }
+  return out;
 }
 
 /**
@@ -253,7 +273,7 @@ export function readRecords(store) {
     if (!/^feedback\/FB-[1-9][0-9]*\.json$/.test(key)) continue;
     let data;
     try {
-      data = JSON.parse(store.read(key) ?? '');
+      data = fromLegacyRecord(JSON.parse(store.read(key) ?? ''));
     } catch {
       problems.push({ key, message: 'is not JSON' });
       continue;
@@ -278,7 +298,7 @@ export function readRecord(store, id) {
   if (text === null) throw new Error(`no feedback record ${id} in the private store`);
   let data;
   try {
-    data = JSON.parse(text);
+    data = fromLegacyRecord(JSON.parse(text));
   } catch {
     throw new Error(`${id} is not JSON`);
   }

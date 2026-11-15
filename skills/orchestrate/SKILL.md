@@ -24,10 +24,10 @@ Keep each question short and self-contained, so it can be answered from a phone.
 
 1. Run `hitld machine detect` (it writes nothing) and read any existing settings with `hitld config explain --json`. Tell the owner in one line what it found: the role, the cores and the memory.
 2. Ask these, each with the detected value or the default as your recommendation:
-   - The machine's role (`role_hints` says why it guessed): dedicated, workstation, cloud_vm or ci. Recommend the detected one.
-   - How much of the machine to use: `cores`, `memory_ceiling_mb` and `executors_max` from `proposed`. Recommend the proposed values.
-   - How many agents at once across all their projects (`executors_max` in the person file). Recommend the machine's `executors_max`.
-   - The reserve: the share of each limit kept for the owner's own use (`quota.owner_reserve`). Recommend 0.25.
+   - The kind of machine (`kind_hints` says why it guessed): dedicated, workstation, cloud-vm or ci. Recommend the detected one.
+   - How much of the machine to use: `cores`, `memory_ceiling_mb` and `max_executors` from `proposed`. Recommend the proposed values.
+   - How many agents at once across all their projects (`max_executors` in the person file). Recommend the machine's `max_executors`.
+   - The reserve: the share of each limit kept for the owner's own use (`quota.reserve`). Recommend 0.25.
    - Their account and plan, only if they want limits declared instead of measured. Without the status-line capture (below), limits are declared and estimated.
 3. Offer the status-line usage capture. It is opt-in. Say exactly this: "It adds a `statusLine` command to `.claude/settings.local.json` in this project, which is git-ignored. The command reads the usage figures Claude Code gives the status line and records them on this machine only, so the quota gate can read your plan limits. It changes nothing else in your harness settings. If that file already sets a status line, I leave it and tell you to pipe its input to `hitld-statusline`. Without it, limits are declared and estimated, and the default quotas have no readings, so dispatch stops at the gate. Install it?" Run `hitld install --statusline` only on a yes in the owner's own message. On a no, or no answer, do not run it, and do not run `hitld install --no-statusline` either.
 4. Write the files only through `hitld config write`: `hitld config write machine --data '<json>'` and `hitld config write person --data '<json>'`, each built from the answers (the machine file may start from `proposed`; add `--merge` to change one value). It validates and refuses a bad value with the reason: ask again. Do not write the files any other way.
@@ -37,7 +37,7 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
 
 ## 1. Start or resume
 
-- **New run:** `hitld run start --scope '{"items": [...], "token_budget": N}'` (scope optional). It records the primary checkout and takes the lease.
+- **New run:** `hitld run start --scope '{"items": [...], "budget_tokens": N}'` (scope optional). It records the primary checkout and takes the lease.
 - **Resume:** `hitld run resume --live <the dispatch IDs Claude Code still shows running, comma separated, or none>`. Name your running background agents by their dispatch IDs (they were started with `name: D-<n>`). Act on its output: `follow_up` entries get a follow-up (step 5), `abandoned` items are free again. If the lease is held and fresh, stop and tell the owner; take over with `--force` only when the owner says so.
 
 ## 2. Plan
@@ -62,7 +62,7 @@ Then do useful work between notices: merge, answer questions, triage. Do not wai
 
 ## 4. On each completion notice
 
-1. Save the notification text to a temporary file. `hitld dispatch complete --dispatch D-<n> --report-file <file>`, adding `--tokens`, `--tool-uses` and `--duration-ms` when the notification shows them. For a headless run: `--result-file <the path in on_complete>`.
+1. Save the notification text to a temporary file. `hitld dispatch complete --dispatch D-<n> --report-file <file>`, adding `--tokens`, `--tool-calls` and `--duration-ms` when the notification shows them. For a headless run: `--result-file <the path in on_complete>`.
 2. Read `status`, `questions`, `calls`, `deviations` and `report_errors`. A `done` report is queued to merge. In owner merge mode (policy `merge.mode` is `owner`) it waits there for the owner: see step 6.
 3. The output's `refill` is the new plan: start its items (step 3). This is the only way slots are refilled.
 
@@ -112,7 +112,7 @@ In this repository, HITLd is the project, so feedback about HITLd is a note.
 ## 8. Checkpoints and the hand-over
 
 - Every `hitld` call that records something writes a checkpoint. At a clean point with nothing to record, and before you end a turn: `hitld run checkpoint`.
-- When your context passes the share in `orchestrator.context_handoff`, or the owner asks: `hitld handover`. Give the owner its `text` and the file path; a fresh session resumes from it (step 1).
+- When your context passes the share in `orchestrator.handover_context_share`, or the owner asks: `hitld handover`. Give the owner its `text` and the file path; a fresh session resumes from it (step 1).
 
 ## The digest, at merge-batch boundaries or when the owner next writes
 

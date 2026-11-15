@@ -84,7 +84,7 @@ test('hitld policy check is the same command, and --effective prints the merged 
   const root = fixture({ schema_version: 1, project: { id: 'fixture', key: 'W' } });
   const { code, out } = await run(['policy', 'check', '--effective'], root);
   assert.equal(code, EXIT.ok);
-  assert.equal(parse(out).policy.execution.concurrency.value, 3);
+  assert.equal(parse(out).policy.execution.max_executors.value, 3);
 });
 
 test('hitld check policy fails with readable errors', async () => {
@@ -100,7 +100,7 @@ test('hitld check policy fails with readable errors', async () => {
   assert.equal(result.ok, false);
   assert.deepEqual(
     result.errors.map((/** @type {any} */ e) => e.path),
-    ['execution.concurrency', 'hooks'],
+    ['execution.max_executors', 'hooks'],
   );
 });
 

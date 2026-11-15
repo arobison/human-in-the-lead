@@ -26,7 +26,7 @@
           "write",
           "person",
           "--data",
-          "{\"schema_version\":1,\"executors_max\":2}"
+          "{\"schema_version\":1,\"max_executors\":2}"
         ],
         "as_executor": true
       }
@@ -40,7 +40,7 @@
           "write",
           "machine",
           "--data",
-          "{\"schema_version\":1,\"role\":\"workstation\",\"cores\":4}"
+          "{\"schema_version\":1,\"kind\":\"workstation\",\"cores\":4}"
         ],
         "as_executor": true
       }
@@ -59,7 +59,7 @@
           "write",
           "person",
           "--data",
-          "{\"schema_version\":1,\"executors_max\":2,\"quota\":{\"owner_reserve\":0.3}}"
+          "{\"schema_version\":1,\"max_executors\":2,\"quota\":{\"reserve\":0.3}}"
         ]
       }
     },
@@ -72,7 +72,7 @@
           "write",
           "machine",
           "--data",
-          "{\"schema_version\":1,\"role\":\"workstation\",\"executors_max\":2,\"cores\":4,\"memory_ceiling_mb\":8192}"
+          "{\"schema_version\":1,\"kind\":\"workstation\",\"max_executors\":2,\"cores\":4,\"memory_ceiling_mb\":8192}"
         ]
       }
     },
@@ -101,7 +101,7 @@
     {
       "id": "detect-proposes",
       "grader": "equals",
-      "with": { "path": "steps.detect.result.role", "value": "workstation" }
+      "with": { "path": "steps.detect.result.kind", "value": "workstation" }
     },
     {
       "id": "detect-writes-nothing",
@@ -141,7 +141,7 @@
     {
       "id": "reserve-from-person",
       "grader": "matches",
-      "with": { "path": "steps.text.result.text", "pattern": "owner_reserve.*0\\.3.*\\[person\\]" }
+      "with": { "path": "steps.text.result.text", "pattern": "reserve.*0\\.3.*\\[person\\]" }
     }
   ]
 }

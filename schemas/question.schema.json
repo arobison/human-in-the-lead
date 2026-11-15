@@ -31,7 +31,7 @@
     "item_kind": { "enum": ["work", "decision", "external"] },
     "tags": { "$ref": "common#/$defs/names" },
     "triggers": {
-      "description": "The rule bases the holder says hold, each with the reason in a sentence. Some rules are also checked here without the holder's say: a one-way door, spending beyond agent_spend_max, a call that spans areas.",
+      "description": "The rule bases the holder says hold, each with the reason in a sentence. Some rules are also checked here without the holder's say: a one-way door, spending beyond agent_spend_max_tokens, a call that spans areas.",
       "type": "array",
       "items": {
         "type": "object",
@@ -48,7 +48,7 @@
       "type": "boolean"
     },
     "spend_tokens": {
-      "description": "Tokens the call commits beyond an approved appetite, compared with rights.agent_spend_max.",
+      "description": "Tokens the call commits beyond an approved appetite, compared with rights.agent_spend_max_tokens.",
       "$ref": "common#/$defs/tokens"
     },
     "reversibility": { "$ref": "decision#/properties/reversibility" },

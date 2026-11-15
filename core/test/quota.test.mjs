@@ -304,7 +304,7 @@ test('confidence falls with a reading’s age, and a stated confidence is a ceil
       limits: [
         {
           id: 'c',
-          unit: 'plan_percent',
+          unit: 'plan-percent',
           window: 'rolling_5h',
           limit: 100,
           source: 'measured',
@@ -320,7 +320,7 @@ test('confidence falls with a reading’s age, and a stated confidence is a ceil
 });
 
 test('a declared limit is estimated from the ledger, and a per-limit reserve overrides the policy', () => {
-  const policy = policyWith({ owner_reserve: 0.25, limits: [tokenLimit({ reserve: 0.2 })] });
+  const policy = policyWith({ reserve: 0.25, limits: [tokenLimit({ reserve: 0.2 })] });
   const ledger = [entry('E-1', T0 - 3 * HOUR, 300), entry('E-2', T0 - HOUR, 100)];
   const [q] = evaluateQuotas({ policy, ledger, now: T0 });
   assert.equal(q.used_from, 'ledger');
@@ -413,9 +413,9 @@ test('the worst limit binds, and a limit that cannot be read stops dispatch', ()
 
 test('the gate follows the owner’s thresholds and reserve', () => {
   const policy = policyWith({
-    owner_reserve: 0.1,
-    economize_at: 0.2,
-    critical_at: 0.05,
+    reserve: 0.1,
+    economize_below: 0.2,
+    critical_below: 0.05,
     limits: [tokenLimit()],
   });
   const at = (/** @type {number} */ used) =>
@@ -451,7 +451,7 @@ test('the report: the digest and page state the gate, forecast and ledger, and t
   assert.match(html, /<svg [^>]*aria-label=/);
 });
 
-test('threshold lines name the highest notify_at share a quota has passed', () => {
+test('threshold lines name the highest notify_used share a quota has passed', () => {
   const policy = policyWith({ limits: [tokenLimit()] });
   const report = buildReport({ policy, ledger: [entry('E-1', T0 - HOUR, 800)], now: T0 });
   assert.deepEqual(report.thresholds, ['tok is past 75% used']);

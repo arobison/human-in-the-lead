@@ -46,7 +46,7 @@
           "draft",
           "FB-1",
           "--draft",
-          "{\"title\": \"The digest was long for a single merge\", \"area\": \"decision rights\", \"what_happened\": \"The orchestrator asked about a choice that was cheap to undo and inside the plan. The person rated it not worth asking.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
+          "{\"title\": \"The digest was long for a single merge\", \"loop\": \"decision rights\", \"what_happened\": \"The orchestrator asked about a choice that was cheap to undo and inside the plan. The person rated it not worth asking.\", \"expected\": \"A call made and logged, as the decision rules allow.\", \"classification\": \"public\"}",
           "--store",
           "store"
         ]

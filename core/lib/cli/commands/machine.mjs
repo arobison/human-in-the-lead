@@ -13,7 +13,7 @@ export const commands = [
   {
     name: 'machine detect',
     summary:
-      'Probe this machine (cores, memory, GPUs, browsers, operating system, role) from local sources only and print a proposed profile; writes nothing unless --write',
+      'Probe this machine (cores, memory, GPUs, browsers, operating system, kind of machine) from local sources only and print a proposed profile; writes nothing unless --write',
     piece: 'settings-hold',
     args: [
       {
@@ -38,11 +38,11 @@ export const commands = [
       const path = settingsLocation('machine', { env: ctx.env }).path;
       const base = {
         path,
-        role: p.role,
-        role_source: p.role_source,
-        role_hints: probe.role_hints,
+        kind: p.role,
+        kind_source: p.role_source,
+        kind_hints: probe.role_hints,
         confirmation: p.confirm
-          ? 'a person confirms the role and each value; run again with --write to accept, or edit the values and use config write'
+          ? 'a person confirms the kind of machine and each value; run again with --write to accept, or edit the values and use config write'
           : `${p.role} sessions record the profile without asking: run with --write at session start`,
         proposed: p.profile,
         warnings: p.warnings,

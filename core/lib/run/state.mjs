@@ -50,7 +50,7 @@ export function applyEvent(state, e) {
         id: e.run,
         started_at: e.at,
         ...(e.skill_versions?.plugin !== undefined
-          ? { plugin_version: e.skill_versions.plugin }
+          ? { hitld_version: e.skill_versions.plugin }
           : {}),
         ...(e.policy_hash !== undefined ? { policy_hash: e.policy_hash } : {}),
       };

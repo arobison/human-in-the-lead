@@ -1,8 +1,8 @@
 {
   "$id": "feedback",
   "title": "Feedback record",
-  "description": "One piece of feedback about HITLd, recorded by `hitld feedback` in the consuming project's private store as feedback/FB-<n> (design part 18.4). It holds the person's own words and the project's IDs, so it is confidential and is refused anywhere but the private store. Publishing it is a separate, approved step. A filed record carries the issue's URL in `url` and the person's approval in `approval`; a withheld one carries the reason in `reason`. Only the generalized `draft` is ever published.",
-  "x-hitld-schema-version": 1,
+  "description": "One piece of feedback about HITLd, recorded by `hitld feedback` in the consuming project's private store as feedback/FB-<n> (design part 18.4). It holds the person's own words and the project's IDs, so it is confidential and is refused anywhere but the private store. Publishing it is a separate, approved step. A filed record carries the issue's URL in `url` and the person's approval in `approval`; a withheld one carries the reason in `reason`. Only the generalized `draft` is ever published. A withheld record can take a new draft. Records of schema version 1 (area, version) are read in the new names until the next minor release.",
+  "x-hitld-schema-version": 2,
   "type": "object",
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
@@ -13,8 +13,8 @@
       "$ref": "common#/$defs/text"
     },
     "created_at": { "$ref": "common#/$defs/timestamp" },
-    "version": {
-      "description": "The HITLd plugin version.",
+    "hitld_version": {
+      "description": "The HITLd version (was version before schema version 2).",
       "$ref": "common#/$defs/text"
     },
     "harness": {
@@ -27,8 +27,8 @@
       "required": ["name", "version"],
       "additionalProperties": false
     },
-    "area": {
-      "description": "The loop or command concerned, from --area or taken from the refs.",
+    "loop": {
+      "description": "The loop or command concerned, from --loop or taken from the refs (was area before schema version 2).",
       "$ref": "common#/$defs/text"
     },
     "refs": {
@@ -61,7 +61,7 @@
       "type": "object",
       "properties": {
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "area": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "loop": { "type": "string", "minLength": 1, "maxLength": 120 },
         "what_happened": { "type": "string", "minLength": 1, "maxLength": 4000 },
         "expected": { "type": "string", "minLength": 1, "maxLength": 2000 },
         "evidence": { "type": "string", "minLength": 1, "maxLength": 4000 },
@@ -98,7 +98,7 @@
     "kind",
     "words",
     "created_at",
-    "version",
+    "hitld_version",
     "harness",
     "refs",
     "state",

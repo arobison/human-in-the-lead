@@ -22,7 +22,7 @@
         "**/auth/**"
       ]
     },
-    "in_person_areas": {
+    "owner_review_areas": {
       "description": "Areas whose output the owner reviews in person, such as UI: their items go to tier 3, their own session.",
       "$ref": "common#/$defs/names",
       "default": []
@@ -33,7 +33,7 @@
       "minimum": 1,
       "default": 3
     },
-    "familiar_yield": {
+    "familiar_min_yield": {
       "description": "Down one tier for familiar ground: the share of first-pass successes the lower tier must have had on this area and item kind.",
       "type": "number",
       "exclusiveMinimum": 0,
@@ -57,13 +57,13 @@
       "additionalProperties": false,
       "default": { "1": 60000, "2": 150000, "3": 400000 }
     },
-    "report_at": {
+    "report_at_budget_multiple": {
       "description": "The brief asks the executor to report at this multiple of its token budget, even if unfinished.",
       "type": "number",
       "minimum": 1,
       "default": 1.5
     },
-    "overlap_serialize": {
+    "serialize_overlap_share": {
       "description": "Hold an item back while running items already cover at least this share of its touches globs. Below it, overlapping items run in parallel and the later one rebases.",
       "type": "number",
       "exclusiveMinimum": 0,

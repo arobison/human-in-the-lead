@@ -28,14 +28,14 @@ const examples = {
   },
   // Design part 18.4: a feedback record, as `hitld feedback` writes it to the private store.
   feedback: {
-    schema_version: 1,
+    schema_version: 2,
     id: 'FB-1',
     kind: 'friction',
     words: 'That question was not worth asking.',
     created_at: '2026-11-14T12:00:00Z',
-    version: '0.1.0',
+    hitld_version: '0.1.0',
     harness: { name: 'claude-code', version: 'unknown' },
-    area: 'decision rights',
+    loop: 'decision rights',
     refs: ['W-3'],
     state: 'local',
     classification: 'confidential',
@@ -53,9 +53,9 @@ const examples = {
   // Part 13.4: the person file, with a declared limit and a share between projects.
   person: {
     schema_version: 1,
-    executors_max: 4,
+    max_executors: 4,
     quota: {
-      owner_reserve: 0.3,
+      reserve: 0.3,
       limits: [
         {
           id: 'api-monthly',
@@ -72,8 +72,8 @@ const examples = {
   // Part 13.4: the machine file.
   machine: {
     schema_version: 1,
-    role: 'workstation',
-    executors_max: 2,
+    kind: 'workstation',
+    max_executors: 2,
     cores: 4,
     memory_ceiling_mb: 8192,
     capacity: { gpu: 4 },
@@ -268,7 +268,7 @@ const examples = {
   'run-state': {
     schema_version: 1,
     run: { id: '2026-11-14-1', started_at: '2026-11-14T03:00:00Z' },
-    scope: { items: ['W-214'], concurrency_cap: 3 },
+    scope: { items: ['W-214'], max_executors: 3 },
     in_flight: [],
     ledger_position: null,
     decisions_open: [],

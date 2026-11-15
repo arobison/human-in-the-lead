@@ -39,7 +39,7 @@ import { parseReport } from '../contract/report.mjs';
  */
 export async function runDispatchLoop(r) {
   const caps = r.adapter.capabilities();
-  const cap = r.cap ?? r.policy.execution?.concurrency?.value ?? 3;
+  const cap = r.cap ?? r.policy.execution?.max_executors?.value ?? 3;
   const gate = r.gate ?? (() => ({ mode: 'normal', allow: true, reason: 'no gate' }));
   const branchPrefix = r.policy.env?.branch_prefix ?? 'hitld';
   /** @type {TraceStep[]} */
@@ -86,7 +86,7 @@ export async function runDispatchLoop(r) {
       cap,
       capabilities: caps,
       gate,
-      overlapSerialize: r.policy.dispatch?.overlap_serialize,
+      overlapSerialize: r.policy.dispatch?.serialize_overlap_share,
       critical: criticalPath(readyItems, unblocks),
     });
 

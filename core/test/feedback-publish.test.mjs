@@ -90,7 +90,7 @@ async function record(words, kind = 'friction') {
 
 const clean = {
   title: 'A low-stakes question reached the person instead of being decided',
-  area: 'decision rights',
+  loop: 'decision rights',
   what_happened:
     'The orchestrator asked about a choice that was cheap to undo and inside the plan. The person rated it not worth asking.',
   expected: 'A call made and logged, as the decision rules allow.',

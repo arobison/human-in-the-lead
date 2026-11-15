@@ -139,8 +139,8 @@ function project(ctx) {
     machineRoot,
     person: layered.layers?.person ?? null,
     max: {
-      person: /** @type {number | undefined} */ (layered.layers?.person?.executors_max),
-      machine: /** @type {number | undefined} */ (layered.layers?.machine?.executors_max),
+      person: /** @type {number | undefined} */ (layered.layers?.person?.max_executors),
+      machine: /** @type {number | undefined} */ (layered.layers?.machine?.max_executors),
     },
   };
 }
@@ -161,7 +161,7 @@ function runOf(p, input, ctx) {
       session,
       host: /** @type {string | undefined} */ (input.host) ?? hostname(),
       kept: p.policy.run?.checkpoints_kept,
-      expirySeconds: p.policy.run?.lease_expiry,
+      expirySeconds: p.policy.run?.lease_expiry_seconds,
     },
     p.state,
   );
@@ -240,7 +240,7 @@ function plan(p, ctx, byHand) {
       const holder = locks.get(resource) ?? null;
       return holder && !ours.has(holder) ? holder : null;
     },
-    overlapSerialize: p.policy.dispatch.overlap_serialize,
+    overlapSerialize: p.policy.dispatch.serialize_overlap_share,
     critical: q.critical,
     setup: { ...p.setup, byHand },
   });
@@ -335,7 +335,7 @@ export const commands = [
               id: i.id,
               title: i.title,
               tier: s.tier,
-              executor: s.executor,
+              runs_as: s.runs_as,
               model: s.model,
               effort: s.effort,
               estimate_tokens: s.estimate_tokens,
@@ -546,7 +546,7 @@ export const commands = [
           on_complete:
             call.tool === 'Bash'
               ? `hitld dispatch complete --dispatch ${dispatch} --result-file ${resultPath}`
-              : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-uses N --duration-ms N]`,
+              : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-calls N --duration-ms N]`,
         };
       }),
   },
@@ -609,7 +609,7 @@ export const commands = [
         type: 'integer',
         description: 'Tokens from the notification, where it shows them (undocumented)',
       },
-      { name: 'tool-uses', type: 'integer', description: 'Tool uses from the notification' },
+      { name: 'tool-calls', type: 'integer', description: 'Tool calls from the notification' },
       { name: 'duration-ms', type: 'integer', description: 'Duration from the notification' },
       SESSION,
       HOST,
@@ -637,7 +637,7 @@ export const commands = [
             text: readInput(input['report-file'], ctx),
             usage: {
               tokens: /** @type {number | undefined} */ (input.tokens) ?? null,
-              toolCalls: /** @type {number | undefined} */ (input['tool-uses']) ?? null,
+              toolCalls: /** @type {number | undefined} */ (input['tool-calls']) ?? null,
               durationMs: /** @type {number | undefined} */ (input['duration-ms']) ?? null,
             },
           };
@@ -961,7 +961,7 @@ export const commands = [
             // The worktrees hitld env made for this branch (tier 3) go; adopted ones are the harness's.
             for (const w of Object.values(env.registry().worktrees)) {
               if (w.branch === m.branch && !w.adopted) {
-                await env.releaseHolder({ holder: w.holder, outcome: 'merged' }).catch(() => null);
+                await env.releaseHolder({ holder: w.holder, result: 'merged' }).catch(() => null);
               }
             }
           }

@@ -123,10 +123,10 @@ test('an absent settings file is not an error: that layer is not set', () => {
 
 test('a valid person file loads', () => {
   const { env } = home();
-  plant(env, 'person', { schema_version: 1, executors_max: 2 });
+  plant(env, 'person', { schema_version: 1, max_executors: 2 });
   const f = loadSettingsFile('person', { env });
   assert.deepEqual(f.errors, []);
-  assert.equal(f.data?.executors_max, 2);
+  assert.equal(f.data?.max_executors, 2);
 });
 
 test('unknown and code-running keys are refused', () => {
@@ -146,7 +146,7 @@ test('a key in the wrong layer is refused with its home named', () => {
     loadSettingsFile('person', { env }).errors[0].message,
     /is a machine setting; it belongs in machine\.json/,
   );
-  plant(env, 'machine', { schema_version: 1, quota: { owner_reserve: 0.3 } });
+  plant(env, 'machine', { schema_version: 1, quota: { reserve: 0.3 } });
   assert.match(
     loadSettingsFile('machine', { env }).errors[0].message,
     /is a person setting; it belongs in person\.json/,
@@ -213,10 +213,10 @@ function dotfilesLink(base, env, data) {
 
 test('a symlink into a dotfiles git repository loads', () => {
   const { base, env } = home();
-  dotfilesLink(base, env, { schema_version: 1, executors_max: 2 });
+  dotfilesLink(base, env, { schema_version: 1, max_executors: 2 });
   const f = loadSettingsFile('person', { env });
   assert.deepEqual(f.errors, []);
-  assert.equal(f.data?.executors_max, 2);
+  assert.equal(f.data?.max_executors, 2);
 });
 
 test('a symlink whose target is group- or world-writable is refused', posixOnly, () => {
@@ -288,10 +288,10 @@ test('a settings file in another git repository loads', () => {
 
 test('cap: the smallest of person, machine, project and run wins', () => {
   const all = layers({
-    person: { schema_version: 1, executors_max: 5 },
-    machine: { schema_version: 1, executors_max: 4 },
-    raw: { execution: { concurrency: { value: 3, min: 1, max: 6 } } },
-    run: { concurrency_cap: 2 },
+    person: { schema_version: 1, max_executors: 5 },
+    machine: { schema_version: 1, max_executors: 4 },
+    raw: { execution: { max_executors: { value: 3, min: 1, max: 6 } } },
+    run: { max_executors: 2 },
   });
   assert.equal(all.cap, 2);
   assert.equal(entry(all, 'executors.cap').layer, 'run');
@@ -299,10 +299,10 @@ test('cap: the smallest of person, machine, project and run wins', () => {
     entry(all, 'executors.cap').overridden.map((o) => o.layer),
     ['person', 'machine', 'project'],
   );
-  assert.equal(layers({ person: { schema_version: 1, executors_max: 1 } }).cap, 1);
-  assert.equal(layers({ machine: { schema_version: 1, executors_max: 2 } }).cap, 2);
+  assert.equal(layers({ person: { schema_version: 1, max_executors: 1 } }).cap, 1);
+  assert.equal(layers({ machine: { schema_version: 1, max_executors: 2 } }).cap, 2);
   // The project's own cap (its default, 3) always counts: a looser person has no effect.
-  const looser = layers({ person: { schema_version: 1, executors_max: 8 } });
+  const looser = layers({ person: { schema_version: 1, max_executors: 8 } });
   assert.equal(looser.cap, 3);
   assert.equal(entry(looser, 'executors.cap').layer, 'default');
   assert.equal(entry(looser, 'executors.cap').overridden[0].layer, 'person');
@@ -314,7 +314,7 @@ test('cap: executors already running elsewhere count against the person and mach
   const eff = effectiveSettings({
     project: /** @type {Record<string, any>} */ (policy),
     raw,
-    person: { schema_version: 1, executors_max: 3 },
+    person: { schema_version: 1, max_executors: 3 },
     machine: null,
     running: { person: 2 },
   });
@@ -323,17 +323,17 @@ test('cap: executors already running elsewhere count against the person and mach
 
 test('reserve: the largest of person and project wins; a looser project has no effect', () => {
   const stricter = layers({
-    person: { schema_version: 1, quota: { owner_reserve: 0.2 } },
-    raw: { quota: { owner_reserve: 0.3 } },
+    person: { schema_version: 1, quota: { reserve: 0.2 } },
+    raw: { quota: { reserve: 0.3 } },
   });
-  assert.equal(entry(stricter, 'quota.owner_reserve').value, 0.3);
-  assert.equal(entry(stricter, 'quota.owner_reserve').layer, 'project');
-  assert.equal(stricter.policy.quota.owner_reserve, 0.3);
+  assert.equal(entry(stricter, 'quota.reserve').value, 0.3);
+  assert.equal(entry(stricter, 'quota.reserve').layer, 'project');
+  assert.equal(stricter.policy.quota.reserve, 0.3);
   const looser = layers({
-    person: { schema_version: 1, quota: { owner_reserve: 0.2 } },
-    raw: { quota: { owner_reserve: 0.1 } },
+    person: { schema_version: 1, quota: { reserve: 0.2 } },
+    raw: { quota: { reserve: 0.1 } },
   });
-  const e = entry(looser, 'quota.owner_reserve');
+  const e = entry(looser, 'quota.reserve');
   assert.equal(e.value, 0.2);
   assert.equal(e.layer, 'person');
   assert.deepEqual(
@@ -341,13 +341,13 @@ test('reserve: the largest of person and project wins; a looser project has no e
     [['project', 0.1]],
   );
   // The person may set a reserve below the default for themselves.
-  const own = layers({ person: { schema_version: 1, quota: { owner_reserve: 0.1 } } });
-  assert.equal(own.policy.quota.owner_reserve, 0.1);
-  assert.equal(entry(layers({}), 'quota.owner_reserve').layer, 'default');
+  const own = layers({ person: { schema_version: 1, quota: { reserve: 0.1 } } });
+  assert.equal(own.policy.quota.reserve, 0.1);
+  assert.equal(entry(layers({}), 'quota.reserve').layer, 'default');
 });
 
-test('thresholds: economize_at and critical_at take the earlier (larger) threshold', () => {
-  for (const k of ['economize_at', 'critical_at']) {
+test('thresholds: economize_below and critical_below take the earlier (larger) threshold', () => {
+  for (const k of ['economize_below', 'critical_below']) {
     const p = { schema_version: 1, quota: { [k]: 0.3 } };
     const stricter = layers({ person: p, raw: { quota: { [k]: 0.35 } } });
     assert.equal(stricter.policy.quota[k], 0.35, k);
@@ -359,10 +359,10 @@ test('thresholds: economize_at and critical_at take the earlier (larger) thresho
 
 test('thresholds: notification shares from every layer apply', () => {
   const eff = layers({
-    person: { schema_version: 1, quota: { notify_at: [0.5, 0.9] } },
-    raw: { quota: { notify_at: [0.25, 0.5] } },
+    person: { schema_version: 1, quota: { notify_used: [0.5, 0.9] } },
+    raw: { quota: { notify_used: [0.25, 0.5] } },
   });
-  assert.deepEqual(eff.policy.quota.notify_at, [0.25, 0.5, 0.9]);
+  assert.deepEqual(eff.policy.quota.notify_used, [0.25, 0.5, 0.9]);
 });
 
 test('limits: a project limit with the same id only tightens the person limit', () => {
@@ -465,47 +465,47 @@ test('secret provider: a project may narrow auto, never widen or change it', () 
 
 test('moved keys in policy.json still load, with a warning naming their new home', () => {
   const raw = {
-    quota: { owner_reserve: 0.3, forecast_hours: 3 },
+    quota: { reserve: 0.3, forecast_hours: 3 },
     env: { port_range: { min: 5000, max: 5010 }, worktree_root: '/srv/wt' },
   };
   const eff = layers({ raw });
-  assert.equal(eff.policy.quota.owner_reserve, 0.3);
+  assert.equal(eff.policy.quota.reserve, 0.3);
   assert.deepEqual(eff.policy.env.port_range, { min: 5000, max: 5010 });
   const homes = eff.warnings.map((w) => [w.path, w.home]);
   assert.deepEqual(homes, [
-    ['quota.owner_reserve', 'person'],
+    ['quota.reserve', 'person'],
     ['quota.forecast_hours', 'person'],
     ['env.port_range', 'machine'],
     ['env.worktree_root', 'machine'],
   ]);
   assert.match(eff.warnings[0].message, /moved to the person file \(person\.json\)/);
   // Once the person file sets the reserve, the project's larger one is a legitimate tightening.
-  const later = layers({ raw, person: { schema_version: 1, quota: { owner_reserve: 0.25 } } });
-  assert.ok(!later.warnings.some((w) => w.path === 'quota.owner_reserve'));
+  const later = layers({ raw, person: { schema_version: 1, quota: { reserve: 0.25 } } });
+  assert.ok(!later.warnings.some((w) => w.path === 'quota.reserve'));
 });
 
 test('hitld check policy shows the moved-key warnings', async () => {
-  const root = projectRepo({ quota: { owner_reserve: 0.3 } });
+  const root = projectRepo({ quota: { reserve: 0.3 } });
   const { env } = home();
   const { code, result } = await hitld(['check', 'policy'], root, env);
   assert.equal(code, 0);
-  assert.match(result.warnings[0], /quota\.owner_reserve, which moved to the person file/);
+  assert.match(result.warnings[0], /quota\.reserve, which moved to the person file/);
 });
 
 // The effective policy reaches the consumers
 
 test('loadEffectivePolicy layers the files over policy.json; an invalid file refuses', () => {
-  const root = projectRepo({ quota: { owner_reserve: 0.3 } });
+  const root = projectRepo({ quota: { reserve: 0.3 } });
   const { env } = home();
-  plant(env, 'person', { schema_version: 1, quota: { owner_reserve: 0.4 }, executors_max: 2 });
+  plant(env, 'person', { schema_version: 1, quota: { reserve: 0.4 }, max_executors: 2 });
   plant(env, 'machine', { schema_version: 1, env: { port_range: { min: 6000, max: 6009 } } });
   const r = loadEffectivePolicy({ cwd: root, env });
   assert.deepEqual(r.errors, []);
-  assert.equal(r.policy?.quota.owner_reserve, 0.4);
+  assert.equal(r.policy?.quota.reserve, 0.4);
   assert.deepEqual(r.policy?.env.port_range, { min: 6000, max: 6009 });
   assert.equal(r.settings?.cap, 2);
   // The project policy itself, and its hash, are unchanged.
-  assert.equal(r.project?.quota.owner_reserve, 0.3);
+  assert.equal(r.project?.quota.reserve, 0.3);
   plant(env, 'person', { schema_version: 1, on_change: 'x' });
   const bad = loadEffectivePolicy({ cwd: root, env });
   assert.equal(bad.policy, null);
@@ -515,7 +515,7 @@ test('loadEffectivePolicy layers the files over policy.json; an invalid file ref
 test('hitld quota status uses the person reserve', async () => {
   const root = projectRepo();
   const { env } = home();
-  plant(env, 'person', { schema_version: 1, quota: { owner_reserve: 0.5 } });
+  plant(env, 'person', { schema_version: 1, quota: { reserve: 0.5 } });
   const { code, result } = await hitld(['quota', 'status'], root, env);
   assert.equal(code, 0, JSON.stringify(result));
   assert.ok(result.quotas.every((/** @type {any} */ q) => q.reserve_share === 0.5));
@@ -524,12 +524,12 @@ test('hitld quota status uses the person reserve', async () => {
 // config explain
 
 test('hitld config explain --json: each value, its layer, and what it overrode', async () => {
-  const root = projectRepo({ quota: { owner_reserve: 0.1 } });
+  const root = projectRepo({ quota: { reserve: 0.1 } });
   const { env } = home();
-  plant(env, 'person', { schema_version: 1, quota: { owner_reserve: 0.25 }, executors_max: 2 });
+  plant(env, 'person', { schema_version: 1, quota: { reserve: 0.25 }, max_executors: 2 });
   const { code, result } = await hitld(['config', 'explain', '--json'], root, env);
   assert.equal(code, 0, JSON.stringify(result));
-  const reserve = result.values.find((/** @type {any} */ v) => v.key === 'quota.owner_reserve');
+  const reserve = result.values.find((/** @type {any} */ v) => v.key === 'quota.reserve');
   assert.deepEqual(
     { value: reserve.value, layer: reserve.layer, over: reserve.overridden[0].value },
     { value: 0.25, layer: 'person', over: 0.1 },
@@ -540,14 +540,14 @@ test('hitld config explain --json: each value, its layer, and what it overrode',
   const text = await hitld(['config', 'explain'], root, env);
   assert.match(
     text.result.text,
-    /quota\.owner_reserve\s+0\.25 {2}\[person\]\n\s+over project 0\.1: looser/,
+    /quota\.reserve\s+0\.25 {2}\[person\]\n\s+over project 0\.1: looser/,
   );
 });
 
 test('hitld config explain works outside a project, from the defaults', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'hitld-settings-nowhere-'));
   const { env } = home();
-  plant(env, 'machine', { schema_version: 1, executors_max: 1 });
+  plant(env, 'machine', { schema_version: 1, max_executors: 1 });
   const { code, result } = await hitld(['config', 'explain', '--json'], cwd, env);
   assert.equal(code, 0, JSON.stringify(result));
   assert.equal(result.cap, 1);
@@ -559,7 +559,7 @@ test('hitld config explain works outside a project, from the defaults', async ()
 test('hitld config write refuses executors', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'hitld-settings-cwd-'));
   const { env } = home();
-  const data = JSON.stringify({ schema_version: 1, executors_max: 9 });
+  const data = JSON.stringify({ schema_version: 1, max_executors: 9 });
   for (const extra of [
     { HITLD_ROLE: 'executor' },
     { HITLD_DISPATCH: 'D-4' },
@@ -607,7 +607,7 @@ test('hitld config write validates, then writes a private file', posixOnly, asyn
       'write',
       'machine',
       '--data',
-      '{"schema_version":1,"role":"workstation","executors_max":2}',
+      '{"schema_version":1,"kind":"workstation","max_executors":2}',
     ],
     cwd,
     env,
@@ -630,8 +630,8 @@ test('hitld config write validates, then writes a private file', posixOnly, asyn
   assert.equal(merged.code, 0, JSON.stringify(merged.result));
   assert.deepEqual(JSON.parse(readFileSync(loc.path, 'utf8')), {
     schema_version: 1,
-    role: 'workstation',
-    executors_max: 2,
+    kind: 'workstation',
+    max_executors: 2,
     env: { secret_provider: 'keychain' },
   });
 });
@@ -674,7 +674,7 @@ test('config migrate proposes the files, and with --yes moves the keys without l
     hard: true,
   };
   const root = projectRepo({
-    quota: { owner_reserve: 0.3, limits: [api, run] },
+    quota: { reserve: 0.3, limits: [api, run] },
     env: { port_range: { min: 5000, max: 5010 }, secret_provider: 'keychain', branch_prefix: 'w' },
   });
   const { env } = home();
@@ -682,7 +682,7 @@ test('config migrate proposes the files, and with --yes moves the keys without l
   const proposal = await hitld(['config', 'migrate'], root, env);
   assert.equal(proposal.code, 0, JSON.stringify(proposal.result));
   assert.equal(proposal.result.written, false);
-  assert.deepEqual(proposal.result.person.data.quota, { owner_reserve: 0.3, limits: [api] });
+  assert.deepEqual(proposal.result.person.data.quota, { reserve: 0.3, limits: [api] });
   assert.deepEqual(proposal.result.machine.data.env, {
     port_range: { min: 5000, max: 5010 },
     secret_provider: 'keychain',
@@ -703,6 +703,48 @@ test('config migrate proposes the files, and with --yes moves the keys without l
   assert.deepEqual(after.policy, before.policy);
   const again = await hitld(['config', 'migrate'], root, env);
   assert.match(again.result.message, /nothing to move/);
+});
+
+test('settings under their names before HITLD-82 load with a warning, and config migrate renames them', async () => {
+  const root = projectRepo({
+    dispatch: { report_at: 2 },
+    tiers: { 1: { executor: 'background', model: 'small', effort: 'low' } },
+  });
+  const { env } = home();
+  plant(env, 'person', { schema_version: 1, executors_max: 2, quota: { economize_at: 0.4 } });
+  plant(env, 'machine', { schema_version: 1, role: 'cloud_vm', executors_max: 3 });
+  const before = loadEffectivePolicy({ cwd: root, env });
+  assert.deepEqual(before.errors, []);
+  assert.equal(before.policy?.dispatch.report_at_budget_multiple, 2);
+  assert.equal(before.policy?.tiers['1'].runs_as, 'background');
+  assert.equal(before.settings?.cap, 2);
+  assert.deepEqual(
+    before.warnings.map((w) => [w.home, w.path]),
+    [
+      ['project', 'dispatch.report_at'],
+      ['project', 'tiers.1.executor'],
+      ['person', 'executors_max'],
+      ['person', 'quota.economize_at'],
+      ['machine', 'executors_max'],
+      ['machine', 'role'],
+      ['machine', 'kind=cloud_vm'],
+    ],
+  );
+  const done = await hitld(['config', 'migrate', '--yes'], root, env);
+  assert.equal(done.code, 0, JSON.stringify(done.result));
+  assert.deepEqual(loadSettingsFile('person', { env }).data, {
+    schema_version: 1,
+    max_executors: 2,
+    quota: { economize_below: 0.4 },
+  });
+  assert.deepEqual(loadSettingsFile('machine', { env }).data, {
+    schema_version: 1,
+    kind: 'cloud-vm',
+    max_executors: 3,
+  });
+  const policy = JSON.parse(readFileSync(join(root, '.human-in-the-lead', 'policy.json'), 'utf8'));
+  assert.deepEqual(policy.dispatch, { report_at_budget_multiple: 2 });
+  assert.deepEqual(loadEffectivePolicy({ cwd: root, env }).warnings, []);
 });
 
 test('migration keeps the stricter value when the person file already sets one', () => {
@@ -749,10 +791,10 @@ test('migration keeps the stricter value when the person file already sets one',
 test('the defaults are unchanged when no settings file exists', () => {
   const eff = layers({});
   const d = policyDefaults();
-  assert.equal(eff.policy.quota.owner_reserve, d.quota.owner_reserve);
+  assert.equal(eff.policy.quota.reserve, d.quota.reserve);
   assert.deepEqual(eff.policy.quota.limits, d.quota.limits);
   assert.deepEqual(eff.policy.env.port_range, d.env.port_range);
   assert.equal(eff.policy.env.worktree_root, undefined);
-  assert.equal(eff.cap, d.execution.concurrency.value);
+  assert.equal(eff.cap, d.execution.max_executors.value);
   assert.deepEqual(eff.warnings, []);
 });

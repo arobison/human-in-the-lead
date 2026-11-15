@@ -21,7 +21,7 @@ import { MODEL_CLASSES } from './capabilities.mjs';
  * @property {string} [resultPath] where a headless run writes its JSON result
  * @property {'headless' | 'interactive'} [tier3Mode]
  * @property {string} [permissionMode] for a headless run
- * @property {Record<string, string>} [env] the executor's environment (HITLD_DISPATCH, HITLD_PROJECT, HITLD_ROLE)
+ * @property {Record<string, string>} [env] the executor's environment (HITLD_DISPATCH, HITLD_PROJECT_ID, HITLD_ROLE)
  */
 
 /** The plugin's agent for a tier. @param {number} tier */

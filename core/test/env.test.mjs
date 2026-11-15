@@ -271,7 +271,7 @@ test('three leases at once get distinct worktrees and ports, and release cleanly
   assert.equal((await env.leasePort({ holder: 'D-1' })).lease.port, got[0].port.lease.port);
 
   for (const g of got) {
-    const r = await env.releaseHolder({ holder: g.holder, outcome: 'merged' });
+    const r = await env.releaseHolder({ holder: g.holder, result: 'merged' });
     assert.equal(r.worktree.branch_deleted, true);
     assert.equal(r.port.released, true);
     assert.ok(!existsSync(g.wt.lease.path));
@@ -298,8 +298,8 @@ test('setup failure is reported, stops at the first failing command, and keeps t
   );
   assert.match(setup.steps[1].output_tail, /broke/);
   assert.ok(!existsSync(join(lease.path, 'three.txt')));
-  assert.equal(env.registry().worktrees['D-9'].status, 'setup_failed');
-  await env.releaseHolder({ holder: 'D-9', outcome: 'abandoned' });
+  assert.equal(env.registry().worktrees['D-9'].state, 'setup-failed');
+  await env.releaseHolder({ holder: 'D-9', result: 'abandoned' });
 });
 
 test('setup runs only the commands policy declares; a request cannot add its own', async () => {
@@ -316,7 +316,7 @@ test('setup runs only the commands policy declares; a request cannot add its own
   );
   assert.ok(existsSync(join(lease.path, 'owner.txt')));
   assert.ok(!existsSync(join(lease.path, 'injected.txt')));
-  await env.releaseHolder({ holder: 'D-8', outcome: 'abandoned' });
+  await env.releaseHolder({ holder: 'D-8', result: 'abandoned' });
 });
 
 test('cleanup never loses uncommitted work; failed worktrees are kept up to the limit', async () => {
@@ -326,7 +326,7 @@ test('cleanup never loses uncommitted work; failed worktrees are kept up to the 
   // abandoned with uncommitted changes: removed, the changes saved on the branch
   const a = await env.createWorktree({ holder: 'D-1', itemId: 'W-1', slug: 'dirty' });
   writeFileSync(join(a.lease.path, 'wip.txt'), 'unsaved\n');
-  const r = await env.releaseWorktree({ holder: 'D-1', outcome: 'abandoned' });
+  const r = await env.releaseWorktree({ holder: 'D-1', result: 'abandoned' });
   assert.equal(r.saved_uncommitted, true);
   assert.equal(r.branch_deleted, false);
   assert.ok(!existsSync(a.lease.path));
@@ -334,18 +334,18 @@ test('cleanup never loses uncommitted work; failed worktrees are kept up to the 
 
   // failed: kept, then the oldest beyond the limit removed
   const first = await env.createWorktree({ holder: 'D-2', itemId: 'W-2' });
-  const k1 = await env.releaseWorktree({ holder: 'D-2', outcome: 'failed' });
+  const k1 = await env.releaseWorktree({ holder: 'D-2', result: 'failed' });
   assert.equal(k1.kept, true);
   assert.ok(existsSync(first.lease.path));
   await sleep(5);
   const second = await env.createWorktree({ holder: 'D-3', itemId: 'W-3' });
   writeFileSync(join(first.lease.path, 'evidence.txt'), 'x');
-  const k2 = await env.releaseWorktree({ holder: 'D-3', outcome: 'failed' });
+  const k2 = await env.releaseWorktree({ holder: 'D-3', result: 'failed' });
   assert.deepEqual(k2.pruned, ['D-2']);
   assert.ok(!existsSync(first.lease.path));
   assert.ok(existsSync(second.lease.path));
   assert.equal(git(['show', `${first.lease.branch}:evidence.txt`], repoRoot), 'x');
-  await env.releaseWorktree({ holder: 'D-3', outcome: 'abandoned' });
+  await env.releaseWorktree({ holder: 'D-3', result: 'abandoned' });
 });
 
 test('a harness-created worktree is adopted, set up, and never removed by cleanup', async () => {
@@ -357,7 +357,7 @@ test('a harness-created worktree is adopted, set up, and never removed by cleanu
   assert.equal(lease.adopted, true);
   assert.equal(lease.branch, 'harness/own');
   assert.ok((await env.runSetup({ holder: 'D-4' })).ok);
-  const r = await env.releaseWorktree({ holder: 'D-4', outcome: 'merged' });
+  const r = await env.releaseWorktree({ holder: 'D-4', result: 'merged' });
   assert.equal(r.kept, true);
   assert.ok(existsSync(path));
   git(['worktree', 'remove', '--force', path], repoRoot);
@@ -398,7 +398,7 @@ test('a port in use by another process is skipped and the process is left alone'
   const owner = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
   children.add(owner);
   const pid = /** @type {number} */ (owner.pid);
-  const file = join(store.root, 'env', 'registry.json');
+  const file = join(store.root, 'env', 'holders.json');
   const reg = JSON.parse(readFileSync(file, 'utf8'));
   reg.ports[String(lease.lease.port)].server = {
     pid,
@@ -492,7 +492,7 @@ test('registry entries whose server process is gone are reaped', async () => {
   const pid = /** @type {number} */ (child.pid);
   const { processInfo } = await import('../lib/env/proc.mjs');
   const info = /** @type {any} */ (processInfo(pid));
-  const reg = JSON.parse(readFileSync(join(store.root, 'env', 'registry.json'), 'utf8'));
+  const reg = JSON.parse(readFileSync(join(store.root, 'env', 'holders.json'), 'utf8'));
   reg.ports[String(first)].server = {
     pid,
     start: info.start,
@@ -500,7 +500,7 @@ test('registry entries whose server process is gone are reaped', async () => {
     command: 'x',
     started_at: '',
   };
-  writeFileSync(join(store.root, 'env', 'registry.json'), JSON.stringify(reg));
+  writeFileSync(join(store.root, 'env', 'holders.json'), JSON.stringify(reg));
   child.kill('SIGKILL');
   for (let i = 0; i < 40 && isAlive(pid); i++) await sleep(25);
   // another holder leasing reaps the dead entry, so the freed port can be handed out again
@@ -1178,25 +1178,34 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   );
   /** The environment and directory an executor's call has. @param {string} id */
   const executor = (id) => ({
-    env: { HITLD_DISPATCH: id, HITLD_PROJECT: 'cli-fixture' },
+    env: { HITLD_DISPATCH: id, HITLD_PROJECT_ID: 'cli-fixture' },
     cwd: /** @type {string} */ (wtPaths.get(`${store.root}|${id}`)),
   });
   /** @param {string[]} argv @param {string} id */
   const asExecutor = (argv, id) => hitld(argv, executor(id).env, executor(id).cwd);
 
-  const setup = await hitld(['env', 'setup', '--holder', 'D-7', '--item', 'W-7', '--slug', 'cli']);
+  const setup = await hitld([
+    'env',
+    'setup',
+    '--dispatch',
+    'D-7',
+    '--item',
+    'W-7',
+    '--slug',
+    'cli',
+  ]);
   assert.equal(setup.code, 0, setup.out);
   assert.ok(existsSync(join(setup.json.path, 'ready.txt')));
   assert.equal(setup.json.branch, 'hitld/W-7-cli');
   assert.ok(setup.json.path.startsWith(realpathSync(xdg)));
 
-  const port = await hitld(['env', 'port', 'lease', '--holder', 'D-7']);
+  const port = await hitld(['env', 'port', 'lease', '--dispatch', 'D-7']);
   assert.equal(port.code, 0, port.out);
   assert.ok(port.json.port >= range.min && port.json.port <= range.max);
 
-  const lock = await hitld(['env', 'lock', '--resource', 'gpu', '--holder', 'D-7']);
+  const lock = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7']);
   assert.equal(lock.code, 0, lock.out);
-  const busy = await hitld(['env', 'lock', '--resource', 'gpu', '--holder', 'D-8']);
+  const busy = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-8']);
   assert.equal(busy.code, 1);
   assert.equal(busy.json.held_by, 'D-7');
 
@@ -1226,8 +1235,13 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
     'task_not_granted',
   );
   assert.equal(
-    (await hitld(['env', 'exec', 'publish'], { HITLD_PROJECT: 'cli-fixture' }, executor('D-7').cwd))
-      .json.error,
+    (
+      await hitld(
+        ['env', 'exec', 'publish'],
+        { HITLD_PROJECT_ID: 'cli-fixture' },
+        executor('D-7').cwd,
+      )
+    ).json.error,
     'dispatch_refused',
   );
 
@@ -1294,7 +1308,7 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   const again = await asExecutor(['env', 'exec', 'publish'], 'D-7');
   assert.equal(again.code, 0, again.out);
 
-  const cleanup = await hitld(['env', 'cleanup', '--holder', 'D-7', '--outcome', 'merged']);
+  const cleanup = await hitld(['env', 'cleanup', '--dispatch', 'D-7', '--result', 'merged']);
   assert.equal(cleanup.code, 0, cleanup.out);
   assert.deepEqual(cleanup.json.locks, ['gpu']);
   assert.equal(cleanup.json.worktree.branch_deleted, true);
@@ -1336,7 +1350,7 @@ test('a dependency directory linked from another checkout is flagged at setup an
   ]);
   assert.deepEqual(env.registry().worktrees['D-1'].setup?.links_out, setup.links_out);
 
-  const r = await env.releaseWorktree({ holder: 'D-1', outcome: 'abandoned' });
+  const r = await env.releaseWorktree({ holder: 'D-1', result: 'abandoned' });
   assert.deepEqual(r.links_unlinked, ['node_modules']);
   assert.ok(!existsSync(lease.path));
   assert.ok(otherIntact(other), 'the other checkout is untouched');
@@ -1359,7 +1373,7 @@ test('cleanup leaves the target of a nested, dangling or file link alone, and ke
   // a relative link that climbs out of the worktree, and a link to a directory inside it
   symlinkSync(wt + '/..', join(wt, 'packages', 'app', 'up'), 'dir');
   symlinkSync(join(wt, 'packages'), join(wt, 'inside'), 'dir');
-  const r = await env.releaseWorktree({ holder: 'D-2', outcome: 'abandoned' });
+  const r = await env.releaseWorktree({ holder: 'D-2', result: 'abandoned' });
   assert.deepEqual(r.links_unlinked.sort(), [
     'dangling',
     'packages/app/deep/node_modules',
@@ -1380,11 +1394,11 @@ test('a worktree path that is itself a link is refused, not cleaned through', as
   const moved = `${lease.path}.moved`;
   renameSync(lease.path, moved);
   symlinkSync(other, lease.path, 'dir');
-  await assert.rejects(env.releaseWorktree({ holder: 'D-3', outcome: 'abandoned' }));
+  await assert.rejects(env.releaseWorktree({ holder: 'D-3', result: 'abandoned' }));
   assert.ok(otherIntact(other));
   rmSync(lease.path);
   renameSync(moved, lease.path);
-  await env.releaseWorktree({ holder: 'D-3', outcome: 'abandoned' });
+  await env.releaseWorktree({ holder: 'D-3', result: 'abandoned' });
 });
 
 test('a directory swapped for a link after the walk is not acted on', () => {
@@ -1442,5 +1456,21 @@ test('a directory on another device is a mount point: not descended, and the wor
   assert.ok(existsSync(join(mnt, 'data.txt')));
   assert.ok(lstatSync(join(mnt, 'link')).isSymbolicLink(), 'nothing was unlinked');
   assert.ok(otherIntact(other));
-  await env.releaseWorktree({ holder: 'D-4', outcome: 'abandoned' });
+  await env.releaseWorktree({ holder: 'D-4', result: 'abandoned' });
+});
+
+test('a holders file under its name before HITLD-82 (registry.json, with status) is still read', async () => {
+  const { readRegistry } = await import('../lib/env/registry.mjs');
+  const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-env-legacy-')));
+  store.write(
+    'env/registry.json',
+    JSON.stringify({
+      version: 1,
+      worktrees: { 'D-1': { holder: 'D-1', path: '/x', status: 'setup_failed' } },
+      ports: {},
+    }),
+  );
+  const reg = readRegistry(store);
+  assert.equal(reg.worktrees['D-1'].state, 'setup-failed');
+  assert.equal('status' in reg.worktrees['D-1'], false);
 });
