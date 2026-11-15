@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { VERSION } from '../lib/version.mjs';
 import {
   existsSync,
   mkdirSync,
@@ -118,7 +119,7 @@ test('a run is recorded with the plugin version, schema versions, policy hash an
   assert.deepEqual(schemas().validateEntity('eval-result', doc), []);
   assert.equal(doc.mode, 'offline');
   assert.equal(doc.plugin.name, 'human-in-the-lead');
-  assert.equal(doc.plugin.version, '0.0.0');
+  assert.equal(doc.plugin.version, VERSION);
   assert.equal(doc.schema_versions.item, 1);
   assert.equal(doc.schema_versions['eval-result'], 2);
   assert.match(doc.policy_hash, /^[0-9a-f]{64}$/);
