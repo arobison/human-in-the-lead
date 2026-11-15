@@ -1,7 +1,7 @@
 // Which decider a question goes to, and by which rule (design parts 4.2, 4.4 and 4.5).
 //
 // The rules are data in policy.json (`rights.rules`, `rights.areas`, `rights.agent_spend_max_tokens`).
-// This is a script, not a judgement: it takes a question's attributes and returns the decider and
+// This is a script, not a judgment: it takes a question's attributes and returns the decider and
 // the rule that fired, so every call that was or was not sent to a person can be traced to a rule.
 
 import { matchesAny, safePaths } from '../precedent/glob.mjs';
@@ -26,7 +26,7 @@ import { matchesAny, safePaths } from '../precedent/glob.mjs';
  * @property {Fired[]} fired every rule basis that holds, in BASIS_ORDER
  * @property {string[]} areas the areas involved, named or found from paths
  * @property {string} reason one sentence for the digest
- * @property {string | null} addressed who a judgement conflict is also put to, besides the rule's deciders
+ * @property {string | null} addressed who a judgment conflict is also put to, besides the rule's deciders
  * @property {boolean} addressed_ignored the question named an addressee it may not
  */
 
@@ -88,7 +88,7 @@ export function areasOf(question, policy) {
 }
 
 /**
- * Who a question is addressed to, if that is allowed: only a genuine judgement conflict, whose one
+ * Who a question is addressed to, if that is allowed: only a genuine judgment conflict, whose one
  * asserted trigger is conflicting evidence (design part 3.2, Not infallible), may be put to one
  * person. Any other question that names an addressee is routed as if it did not.
  * @param {Question} question @returns {string | null}
@@ -208,7 +208,7 @@ export function routeQuestion(raw, policy) {
     ? ['owner']
     : [...new Set(fired.flatMap((f) => f.deciders))].sort();
   const rule = policy.rights.rules[deciding.basis];
-  // A judgement conflict is also put to the person whose judgement it is, as well as to whoever
+  // A judgment conflict is also put to the person whose judgment it is, as well as to whoever
   // the rules name: addressing a question adds a decider and never takes one away.
   const addressee = addresseeOf(question);
   if (addressee && !deciders.includes(addressee)) deciders.push(addressee);

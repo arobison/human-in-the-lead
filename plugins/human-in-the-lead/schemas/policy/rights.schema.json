@@ -19,7 +19,7 @@
           "default": { "decider": "owner" }
         },
         "blast-radius": {
-          "description": "It changes more than one area, behaviour users rely on, or the build and release pipeline.",
+          "description": "It changes more than one area, behavior users rely on, or the build and release pipeline.",
           "$ref": "#/$defs/rule",
           "default": { "decider": "area-owner", "owner_when": ["cross-area"] }
         },

@@ -75,8 +75,8 @@
         "rule-change"
       ]
     },
-    "judgement": {
-      "description": "A person's judgement on a signal or a project being shaped: an input to prioritization, never a decision (design part 3.2). The public entity carries what was judged, the basis and who. The time, confidence, expectation, evidence and outcomes live in the private store, and the weight is derived.",
+    "judgment": {
+      "description": "A person's judgment on a signal or a project being shaped: an input to prioritization, never a decision (design part 3.2). The public entity carries what was judged, the basis and who. The time, confidence, expectation, evidence and outcomes live in the private store, and the weight is derived.",
       "type": "object",
       "properties": {
         "what": { "$ref": "#/$defs/text" },
@@ -86,7 +86,7 @@
       "required": ["what", "basis", "by"],
       "additionalProperties": false
     },
-    "judgements": { "type": "array", "items": { "$ref": "#/$defs/judgement" } },
+    "judgments": { "type": "array", "items": { "$ref": "#/$defs/judgment" } },
     "untrustedText": {
       "description": "Text from outside the project's trust boundary. Agents read it as quoted data only (design part 3.1).",
       "type": "string",

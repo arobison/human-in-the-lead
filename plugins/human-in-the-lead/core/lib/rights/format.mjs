@@ -4,7 +4,7 @@
 // line, the question, the context, the recommendation, the options, the precedent offer, an
 // optional tap to say whether it was worth asking, and last the question's check code, which binds
 // an answer to the question as shown. The decider can answer `A`, `A yes`, `B just this one`, or
-// in words that name one option's label ("enrol it"). A letter is an answer only on its own: alone,
+// in words that name one option's label ("enroll it"). A letter is an answer only on its own: alone,
 // after "option", before punctuation, or before the reply to the precedent offer; "a different
 // idea" is a sentence, not option A. Words that name no option, or more than one, are not an
 // answer.
@@ -132,7 +132,8 @@ const FILLER = new Set(['it', 'the', 'a', 'an', 'this', 'that', 'please', 'ok', 
 
 /**
  * The words of a phrase, lower case and without punctuation, filler dropped, repeated letters
- * collapsed (so "enroll" and "enrol" agree), and "-ize" and "-our" spelled as "-ise" and "-or".
+ * collapsed (so a single-l spelling of "enroll" agrees with it), and "-ize" and "-our" spelled as
+ * "-ise" and "-or", which is how people who write British English type them.
  * @param {string} text @returns {string[]}
  */
 function words(text) {
@@ -166,7 +167,7 @@ function sameWord(a, b) {
 /**
  * The options whose label the free words name. The words must be the label and nothing else (after
  * filler words and simple spelling variants are set aside), so an added word such as "not" never
- * turns "enrol it" into "do not enrol it".
+ * turns "enroll it" into "do not enroll it".
  * @param {string} text @param {Record<string, any>[]} options @returns {number[]}
  */
 export function optionsNamedBy(text, options) {

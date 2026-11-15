@@ -1,7 +1,7 @@
 // Matching a question against precedents by structured conditions (design part 4.3, Applying a
 // precedent). Step 1 is a script, so it costs few tokens: it narrows the precedents to those whose
 // structured conditions the question meets. Step 2, whether the plain-language conditions and
-// exceptions fit, is a judgement the agent holding the question makes; the script only says which
+// exceptions fit, is a judgment the agent holding the question makes; the script only says which
 // candidates need it.
 
 import { matchesAny } from './glob.mjs';
@@ -19,8 +19,8 @@ import { matchesAny } from './glob.mjs';
  * @typedef {object} Candidate
  * @property {string} id
  * @property {Precedent} precedent
- * @property {boolean} needs_judgement plain-language conditions or exceptions remain
- * @property {string[]} judge what the judgement must settle
+ * @property {boolean} needs_judgment plain-language conditions or exceptions remain
+ * @property {string[]} judge what the judgment must settle
  *
  * @typedef {object} MatchResult
  * @property {Candidate[]} candidates
@@ -173,7 +173,7 @@ export function matchPrecedents(facts, precedents, options) {
     result.candidates.push({
       id: p.id,
       precedent: p,
-      needs_judgement: judge.length > 0,
+      needs_judgment: judge.length > 0,
       judge,
     });
   }
@@ -182,16 +182,16 @@ export function matchPrecedents(facts, precedents, options) {
 
 /**
  * Decide whether the candidates resolve the question. One precedent resolves it when it is the
- * only candidate left and either needs no judgement or has been judged to fit. Any other case,
+ * only candidate left and either needs no judgment or has been judged to fit. Any other case,
  * several candidates or an uncertain fit, goes to the decider with the candidates cited
  * (design part 4.3).
  * @param {Candidate[]} candidates
- * @param {Record<string, boolean>} [judged] the agent's judgement per precedent ID: does the plain-language fit hold?
+ * @param {Record<string, boolean>} [judged] the agent's judgment per precedent ID: does the plain-language fit hold?
  * @returns {{ resolved: Candidate | null, remaining: Candidate[], undecided: Candidate[] }}
  */
 export function resolveByPrecedent(candidates, judged = {}) {
   const remaining = candidates.filter((c) => judged[c.id] !== false);
-  const undecided = remaining.filter((c) => c.needs_judgement && judged[c.id] !== true);
+  const undecided = remaining.filter((c) => c.needs_judgment && judged[c.id] !== true);
   const resolved = remaining.length === 1 && undecided.length === 0 ? remaining[0] : null;
   return { resolved, remaining, undecided };
 }

@@ -2,7 +2,7 @@
 // by settings and item files, inside a repository another party may have written to, so a link
 // planted at one of those paths must not redirect a read or a write outside the repository.
 //
-// Two defences, used together: every directory component below the repository root is checked
+// Two defenses, used together: every directory component below the repository root is checked
 // with lstat and a symbolic link is refused (`insidePath`), and files are opened with O_NOFOLLOW
 // so the last component cannot be swapped for a link between the check and the open.
 

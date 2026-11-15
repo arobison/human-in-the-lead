@@ -65,7 +65,7 @@ export function renderBrief({ item, sizing, dispatch, branch, policy, isolation,
     `Serial: ${serial.join(', ') || 'none'}. Budget: ~${k(sizing.estimate_tokens)} tokens; report at ${k(reportAt)} even if unfinished.`,
     ...(sizing.owner_review
       ? [
-          `Owner review: the owner reviews ${sizing.owner_review} in person. Prepare a review pack: what changed in two or three lines, screens or samples where you can make them (under the item's classification), and each judgement call as a question with your recommendation. Say under evidence where the pack is.`,
+          `Owner review: the owner reviews ${sizing.owner_review} in person. Prepare a review pack: what changed in two or three lines, screens or samples where you can make them (under the item's classification), and each judgment call as a question with your recommendation. Say under evidence where the pack is.`,
         ]
       : []),
     '',

@@ -3,7 +3,7 @@
   "id": "store/changed-question-refused",
   "suite": "store",
   "category": "store",
-  "description": "Design part 4.2, an answer is bound to the question as shown. example-laptop asks the owner to remove example-spare and shows the question with its check code. Then the question under that ID changes: the decision item becomes another session's enrolment question, as when two sessions file under one ID. The owner's A is refused (answer-question-changed), with the right code too, and nothing is recorded: example-spare stays approved and the removal still waits for the owner.",
+  "description": "Design part 4.2, an answer is bound to the question as shown. example-laptop asks the owner to remove example-spare and shows the question with its check code. Then the question under that ID changes: the decision item becomes another session's enrollment question, as when two sessions file under one ID. The owner's A is refused (answer-question-changed), with the right code too, and nothing is recorded: example-spare stays approved and the removal still waits for the owner.",
   "mode": "offline",
   "steps": [
     {
@@ -29,7 +29,7 @@
       "action": "file.write",
       "with": {
         "path": "devices/example-laptop/checkout/work/items/SAM-2-remove-a-store-device.md",
-        "content": "---\nid: SAM-2\ntitle: Approve a store device\nkind: decision\nstate: planned\ncreated: 2026-11-15\nproject: SAM-1\ndecider: owner\n---\n\n## Question\n\nEnrol the store device whose key fingerprint is 0000-1111-2222-3333?\n\nA device asked to read and write this project's private store.\n\n## Options and recommendation\n\n- A. Enrol it: Every push from now on is encrypted to this device too, and it may push.\n- B. Do not enrol it: Nothing is encrypted to it, and it may not push.\n\n## Answer\n\nRecorded in the front matter once answered.\n"
+        "content": "---\nid: SAM-2\ntitle: Approve a store device\nkind: decision\nstate: planned\ncreated: 2026-11-15\nproject: SAM-1\ndecider: owner\n---\n\n## Question\n\nEnroll the store device whose key fingerprint is 0000-1111-2222-3333?\n\nA device asked to read and write this project's private store.\n\n## Options and recommendation\n\n- A. Enroll it: Every push from now on is encrypted to this device too, and it may push.\n- B. Do not enroll it: Nothing is encrypted to it, and it may not push.\n\n## Answer\n\nRecorded in the front matter once answered.\n"
       }
     },
     {
