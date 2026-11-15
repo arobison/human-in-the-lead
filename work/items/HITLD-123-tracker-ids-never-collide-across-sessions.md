@@ -2,9 +2,11 @@
 id: HITLD-123
 title: "Tracker IDs never collide across sessions, and an answer applies only to the question it answers"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-123
+release_note: "Tracker IDs come from a counter on the store repository (branch `hitld-ids`, moved with compare-and-swap) when a store remote is set, and are always checked against the remote's main and open branches, so two sessions never take the same ID (`hitld work new` reports `id_source`). Each question carries a check code; `hitld rights answer` refuses an answer whose question changed (`answer-question-changed`) and accepts `--code`. A lone letter names an option only when it is the whole answer. The merge queue and CI refuse duplicate IDs. The skills ask decisions with the harness's question tool."
 ---
 
 ## Why
