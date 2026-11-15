@@ -16,10 +16,10 @@ const SKILL = join(ROOT, 'skills/adopt/SKILL.md');
 /** Commands the pages name as planned or as absent from some releases; they need not exist. */
 const PLANNED = ['work import', 'store device'];
 
-/** The pages written by this item. store-remote.md is another item's and may not exist yet. */
+/** Every page of the guide. */
 const pages = () =>
   readdirSync(GUIDE)
-    .filter((f) => f.endsWith('.md') && f !== 'store-remote.md')
+    .filter((f) => f.endsWith('.md'))
     .map((f) => join(GUIDE, f));
 
 /**
@@ -61,6 +61,7 @@ test('the guide has one page per situation, linked from the README', () => {
     'existing-tracker',
     'hosted-tracker',
     'dashboard',
+    'store-remote',
   ]) {
     assert.ok(existsSync(join(GUIDE, `${page}.md`)), page);
     assert.ok(readme.includes(`docs/guide/${page}.md`), `README links ${page}`);

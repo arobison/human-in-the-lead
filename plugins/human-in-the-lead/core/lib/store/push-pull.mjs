@@ -143,8 +143,10 @@ export function chooseRemote(root, policyUrl) {
 
 /**
  * What this store last merged from the remote at `url` or pushed to it: the remote's version id,
- * and the local commit that version holds. A record made against another address is not used.
- * @typedef {{ version: string, head: string }} Synced
+ * and the local commit that version holds, and the devices that version is sealed to (null: not
+ * known, as for a file written before manifests named them). A record made against another
+ * address is not used.
+ * @typedef {{ version: string, head: string, recipients: string[] | null }} Synced
  */
 
 /** @param {string} root @param {string} url @returns {Synced | null} */
@@ -155,12 +157,30 @@ export function readSynced(root, url) {
   if (
     typeof s.version !== 'string' ||
     typeof s.url !== 'string' ||
-    !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(s.head)
+    !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(s.head) ||
+    (s.recipients !== undefined &&
+      !(
+        Array.isArray(s.recipients) &&
+        s.recipients.every((/** @type {unknown} */ r) => typeof r === 'string')
+      ))
   ) {
     throw new PushPullError('sync-state-invalid', `${filePath(root, STATE_FILE)} is damaged`);
   }
-  return s.url === url ? { version: s.version, head: s.head } : null;
+  return s.url === url
+    ? {
+        version: s.version,
+        head: s.head,
+        recipients: s.recipients ? [...s.recipients].sort() : null,
+      }
+    : null;
 }
+
+/**
+ * Whether the devices a version was sealed to are these.
+ * @param {string[] | null} sealedTo sorted, or null when not known @param {string[]} now sorted
+ */
+const sameSet = (sealedTo, now) =>
+  sealedTo !== null && sealedTo.length === now.length && sealedTo.every((r, i) => r === now[i]);
 
 /** @param {string} root @param {string} url @param {Synced} synced */
 const writeSynced = (root, url, synced) =>
@@ -234,7 +254,11 @@ async function mergeVersion(o, version) {
   }
   const merged = await importStore({ root: o.root, projectId: o.projectId, bytes, identities });
   if (merged.ok) {
-    writeSynced(o.root, o.url, { version, head: /** @type {string} */ (merged.incoming) });
+    writeSynced(o.root, o.url, {
+      version,
+      head: /** @type {string} */ (merged.incoming),
+      recipients: /** @type {string[] | null} */ (merged.sealed_to ?? null),
+    });
   }
   return merged;
 }
@@ -277,6 +301,7 @@ export async function pushStore(o) {
   assertEnrolled(o.devices);
   const recipients = checkRecipients(o.devices.recipients);
   const rotating = o.devices.rotation.pending.length > 0;
+  const mine = [...recipients].sort();
   ensureRepo(o.root);
   if (!hasText(o.root)) {
     throw new PushPullError('nothing-to-push', 'the store holds no text to push yet');
@@ -285,9 +310,16 @@ export async function pushStore(o) {
   let sealed = sealStore(sealOptions);
   const synced = readSynced(o.root, o.url);
   const remoteHead = await o.remote.head();
-  // Nothing new is still pushed while a rotation is pending: the remote's head was encrypted to
-  // the removed key, and must be replaced by one that is not.
-  if (!rotating && synced && remoteHead === synced.version && sealed.head === synced.head) {
+  // Nothing new is still pushed while a rotation is pending (the remote's head was encrypted to
+  // the removed key, and must be replaced by one that is not) and when main's device list is not
+  // the one the head was sealed to (an enrolled device could not open it).
+  if (
+    !rotating &&
+    synced &&
+    sameSet(synced.recipients, mine) &&
+    remoteHead === synced.version &&
+    sealed.head === synced.head
+  ) {
     return {
       ok: true,
       result: 'up-to-date',
@@ -318,7 +350,7 @@ export async function pushStore(o) {
   if (version instanceof Conflict) {
     return { ...version.merged, remote_version: version.version };
   }
-  writeSynced(o.root, o.url, { version, head: sealed.head });
+  writeSynced(o.root, o.url, { version, head: sealed.head, recipients: mine });
   const rotation = await completeRotation({
     remote: o.remote,
     store: openStore(o.root),
@@ -467,6 +499,16 @@ export async function storeStatus(o) {
     }
   }
   const holdsText = local !== null || changed;
+  const now = [...o.devices.recipients].sort();
+  /** @type {'never-pushed' | 'local-changes' | 'recipients-changed' | null} */
+  let pushReason = null;
+  if (o.opened && holdsText) {
+    if (!synced) pushReason = 'never-pushed';
+    else if (changed || synced.head !== local) pushReason = 'local-changes';
+    else if (o.devices.enrolled && !sameSet(synced.recipients, now)) {
+      pushReason = 'recipients-changed';
+    }
+  }
   return {
     ok: true,
     project: o.projectId,
@@ -477,8 +519,9 @@ export async function storeStatus(o) {
     local_changed: changed,
     remote_version: remoteVersion,
     remote_error: remoteError,
-    synced: synced,
-    push_due: o.opened ? holdsText && (changed || !synced || synced.head !== local) : false,
+    synced: synced && { version: synced.version, head: synced.head },
+    push_due: pushReason !== null,
+    push_reason: pushReason,
     pull_due:
       o.opened && !remoteError ? remoteVersion !== null && remoteVersion !== synced?.version : null,
     device: {

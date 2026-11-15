@@ -189,6 +189,7 @@ A system that grades its own work can learn to game the grade, so stage 2 has gu
 - [An existing in-repo tracker](docs/guide/existing-tracker.md): coexist, cross-check, switch
 - [An existing hosted tracker](docs/guide/hosted-tracker.md) (Linear, Jira, GitHub Issues): what works today and what is planned
 - [Building your own dashboard](docs/guide/dashboard.md) on `hitld dashboard --json`
+- [Moving the private store between machines and cloud sessions](docs/guide/store-remote.md): a private repository, a key for each machine and cloud environment, and how to remove one
 
 Each gives the commands, what to commit, how to check it worked and how to undo it. Or ask Claude Code to use the `adopt` skill: it inspects the repository, proposes the whole setup in one message, and changes nothing until you say yes.
 

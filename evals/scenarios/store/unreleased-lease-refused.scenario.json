@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "id": "store/unreleased-lease-refused",
+  "suite": "store",
+  "category": "store",
+  "description": "The run lease is the lock across machines (design 0003 section 8). The laptop starts a run and pushes at a checkpoint without handing over. A cloud device pulls that ledger, sees a lease taken on another machine and never released, and refuses to start or resume (lease-held), however old the lease is, naming the holder. Once the laptop hands over, which pushes after releasing, the cloud device takes the run without force.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "project",
+      "action": "store.fixture",
+      "with": { "devices": ["cloud-main", "laptop"] }
+    },
+    {
+      "id": "laptop_start",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "start", "--id", "R-1", "--host", "laptop"] }
+    },
+    {
+      "id": "laptop_checkpoint",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+    },
+    {
+      "id": "cloud_resume",
+      "action": "store.hitld",
+      "with": { "device": "cloud-main", "argv": ["run", "resume", "--host", "cloud-1"] }
+    },
+    {
+      "id": "cloud_start",
+      "action": "store.hitld",
+      "with": { "device": "cloud-main", "argv": ["run", "start", "--host", "cloud-1"] }
+    },
+    {
+      "id": "laptop_still_holds_it",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+    },
+    {
+      "id": "laptop_handover",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["handover", "--host", "laptop"] }
+    },
+    {
+      "id": "cloud_resume_after",
+      "action": "store.hitld",
+      "with": { "device": "cloud-main", "argv": ["run", "resume", "--host", "cloud-1"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "laptop-pushed-its-lease",
+      "grader": "equals",
+      "with": { "path": "steps.laptop_checkpoint.result.store_sync.push.result", "value": "pushed" }
+    },
+    {
+      "id": "resume-refused",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_resume.result.error", "value": "lease-held" }
+    },
+    {
+      "id": "start-refused",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_start.result.error", "value": "lease-held" }
+    },
+    {
+      "id": "names-the-holder",
+      "grader": "equals",
+      "with": {
+        "path": "steps.cloud_resume.result.holder.session",
+        "value": "s-laptop"
+      }
+    },
+    {
+      "id": "names-the-machine",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_resume.result.holder.host", "value": "laptop" }
+    },
+    {
+      "id": "says-how-to-go-on",
+      "grader": "matches",
+      "with": {
+        "path": "steps.cloud_resume.result.message",
+        "pattern": "hitld run retire --holder s-laptop.*--force"
+      }
+    },
+    {
+      "id": "the-holder-is-undisturbed",
+      "grader": "equals",
+      "with": { "path": "steps.laptop_still_holds_it.result.ok", "value": true }
+    },
+    {
+      "id": "handover-pushed",
+      "grader": "equals",
+      "with": { "path": "steps.laptop_handover.result.store_sync.push.result", "value": "pushed" }
+    },
+    {
+      "id": "released-lease-taken-without-force",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_resume_after.result.took_over.reason", "value": "handover" }
+    }
+  ]
+}

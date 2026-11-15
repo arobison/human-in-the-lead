@@ -105,6 +105,8 @@ Format 1 ([3.2](0001-human-in-the-lead/03-data-model.md#private-store)) derives 
 
 The push asks `resolveDevices` (`core/lib/store/devices-port.mjs`) for main's recipients and this device's key (`HITLD_STORE_IDENTITY` first, then the keychain), and `assertEnrolled` refuses a device that is not on main's list with `device-not-enrolled`. A push encrypts to main's list and nothing else, so a removed device opens nothing pushed after its removal reached main. After a removal, `completeRotation` prunes every older file on the remote and records the rotation; each file holds the store's whole history, so nothing is lost. The queue sends back any branch that changes `store-devices.json`.
 
+Each file's manifest names the recipients it is sealed to (`recipients`, public keys, sorted), and `<store>/.git/hitld-sync.json` records them with the version last merged or pushed, taken from the manifest on a pull. A push is up to date only when main's list is that set. After an enrolment or a removal reaches main, the next push by any enrolled device therefore seals and pushes again even with nothing new in the store, so the new device can open the head; only a removal also prunes. `store status` reports `push_due` with `push_reason`: `never-pushed`, `local-changes` or `recipients-changed`. A record or a file with no recipients (written before the field) counts as not matching, so it is re-sealed once.
+
 ## 7. Transports
 
 A transport stores opaque files and offers compare and swap on a head. It never sees plain text.
@@ -158,7 +160,7 @@ Sync is part of `hitld` commands that already run at the right moments, so no ag
 
 - **The address.** The project's address is `store.remote.url` in `policy.json` (schema `schemas/policy/store.schema.json`). It is committed, so a fresh cloud container finds the remote with the checkout and nothing is run first. It is not a secret: a password in it is refused, and credentials come from the session's own git access. Policy loading checks it with `checkRemoteUrl`, and a bad address is a policy error. A machine may override it, for a mirror say: `hitld store remote set <url>` records the override in `<store>/.git/hitld-remote.json`, which is machine-local (inside the store's `.git`, which no commit or bundle carries) and wins over the policy. `hitld store remote clear` removes it. `remote set` does not write `policy.json` by default; it prints the change to commit (`policy_change`), and `--policy` writes it into `policy.json` for the owner to review and commit. `remote show` and `status` say which source the address came from (`policy` or `machine`).
 - **What was merged.** Pull and push record the remote version they last merged or pushed, the local commit it holds and the address it was on, in `<store>/.git/hitld-sync.json`. It is machine-local and not in the policy: a fresh container has none, so its first `hitld store pull` fetches the head and merges it. The next push uses the recorded version as the head it expects. A record made against another address is not used.
-- **Push.** It commits the store's text, seals it as format 2 to the devices on main's `store-devices.json`, and pushes with compare and swap. If the remote has moved, it fetches the new head, merges it as `store import` does, seals again and retries, up to four times. A real conflict stops it, names the paths and changes nothing.
+- **Push.** It commits the store's text, seals it as format 2 to the devices on main's `store-devices.json`, and pushes with compare and swap. It does nothing only when the remote's head is the version last merged, the store's text is unchanged and main's list is the set that head was sealed to (section 6). If the remote has moved, it fetches the new head, merges it as `store import` does, seals again and retries, up to four times. A real conflict stops it, names the paths and changes nothing.
 - **Which devices.** Before anything is sealed, push fetches the main branch from `origin` (hooks off, no prompt), so the list is current. If the fetch fails, the push is refused (`devices-fetch-failed`). A checkout with no `origin` uses its local main. A device not on main's list is refused (`device-not-enrolled`). There is no `--recipient` flag: a push never adds a key that is not on main. While a removal's rotation is pending, the push replaces the remote's head even with nothing new, then prunes every older file.
 - **Pull.** It fetches the head and opens it with this device's key. An empty remote, or a head already merged, changes nothing. A key that does not open the file is refused and nothing is written.
 - **Status.** It reports the address and its source, the local commit and the remote version, the version last merged, whether a push or a pull is due, and this device's enrolment. A remote that cannot be reached is reported in the result, not raised. It commits nothing.
@@ -222,6 +224,20 @@ All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-a
 - **Devices:** a device not on main's list cannot push; after removal, a new push does not open with the removed key.
 - **Roles:** an executor is refused every store and device command, in a scenario where an injected instruction asks for one.
 - **Lifecycle:** a cloud session is discarded after a checkpoint, and a new session resumes with the ledger and trust record intact.
+
+**As built.** The format and sync tests are in `core/test/` (`age-vectors`, `age`, `store-sync`, `store-push-pull`, `store-devices`, `store-auto-sync`). The scenarios are the `store` suite in `evals/scenarios/store/`, run offline by `hitld eval --offline`. Each device in them is a container with a fresh clone of a bare origin, a private store of its own and a key in `HITLD_STORE_IDENTITY`, and a bare repository stands in for the store's host (`core/lib/eval/actions/store.mjs`):
+
+| Scenario | What it shows |
+|---|---|
+| `two-devices-take-turns` | c2: each device sees the other's records and open decisions after its next pull |
+| `discarded-session-resumes` | c1: a run resumes in a new session with its ledger, trust record and open decisions |
+| `removed-device-locked-out` | c3: a removed device's key opens nothing on the remote; its pull and push are refused |
+| `remote-holds-no-plain-text` | c4: a scan of every object on the host finds none of the store's text |
+| `unreleased-lease-refused` | another machine's unreleased lease is refused (`lease-held`) until a hand-over |
+| `unenrolled-device-cannot-push` | a device that is not on main's list cannot push; the owner's merge enrols it |
+| `executor-refused-store-commands` | an executor is refused every store and device command |
+
+`core/test/store-prompts.test.mjs` is c5: it reads the skills, templates, agents and the executor briefs, and fails on a key, a passphrase, a store file or a store move that is not a `hitld` command. The setup guide is [`docs/guide/store-remote.md`](../guide/store-remote.md).
 
 ## 14. The milestone and its build items
 

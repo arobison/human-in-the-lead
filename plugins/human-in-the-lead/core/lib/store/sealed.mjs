@@ -47,6 +47,9 @@ export class SealedError extends Error {
  * @property {string} branch
  * @property {string} created_at
  * @property {string} hitld_version
+ * @property {string[]} [recipients] the age public keys the file is encrypted to, sorted (public
+ *   keys, safe to carry); a puller learns from it whether the head is sealed to today's devices.
+ *   Files written before this field have none
  */
 
 /**

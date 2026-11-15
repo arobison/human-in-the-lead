@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "id": "store/remote-holds-no-plain-text",
+  "suite": "store",
+  "category": "store",
+  "description": "Milestone c4 (design 0003 section 14). After several pushes of records that carry confidential words, a scan of everything the store's host holds, every object of the repository, finds none of the store's text: no record, no decision ID, no event name, no file name of the store. Every file kept is an age file named only by a sequence number and a hash. The scan is not blind: it does find a word that is plain on the host (the files' extension in the tree).",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "project",
+      "action": "store.fixture",
+      "with": { "devices": ["laptop"] }
+    },
+    {
+      "id": "start",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "start", "--host", "laptop"] }
+    },
+    {
+      "id": "log_first",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": [
+          "rights",
+          "log",
+          "--text",
+          "Confidential: the vendor quote was 41200 and we countered",
+          "--area",
+          "pricing"
+        ]
+      }
+    },
+    {
+      "id": "ask",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": [
+          "ledger",
+          "append",
+          "{\"event\":\"asked\",\"decision\":\"SAM-4711\"}",
+          "--host",
+          "laptop"
+        ]
+      }
+    },
+    {
+      "id": "checkpoint_first",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+    },
+    {
+      "id": "log_second",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": [
+          "rights",
+          "log",
+          "--text",
+          "Confidential: we will not renew the supplier in March",
+          "--area",
+          "pricing"
+        ]
+      }
+    },
+    {
+      "id": "checkpoint_second",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+    },
+    {
+      "id": "local",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["ledger", "tail", "--limit", "20"] }
+    },
+    {
+      "id": "remote",
+      "action": "store.inspect-remote",
+      "with": {
+        "markers": [
+          "vendor quote was 41200",
+          "will not renew the supplier",
+          "SAM-4711",
+          "run-started",
+          "ledger.jsonl",
+          "sample-app",
+          "pricing",
+          ".bundle"
+        ],
+        "open_with": ["laptop"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "pushed-twice",
+      "grader": "equals",
+      "with": { "path": "steps.checkpoint_second.result.store_sync.push.result", "value": "pushed" }
+    },
+    {
+      "id": "the-store-holds-the-words",
+      "grader": "matches",
+      "with": {
+        "path": "steps.local.result.events[*].text",
+        "pattern": "vendor quote was 41200"
+      }
+    },
+    {
+      "id": "more-than-one-file",
+      "grader": "equals",
+      "with": { "path": "steps.remote.versions", "value": 2 }
+    },
+    {
+      "id": "every-file-is-age",
+      "grader": "equals",
+      "with": { "path": "steps.remote.all_age_files", "value": true }
+    },
+    {
+      "id": "names-reveal-nothing",
+      "grader": "equals",
+      "with": { "path": "steps.remote.names_ok", "value": true }
+    },
+    {
+      "id": "only-the-files-extension-is-plain",
+      "grader": "equals",
+      "with": { "path": "steps.remote.plain_hits", "value": [".bundle"] }
+    },
+    {
+      "id": "the-enrolled-device-opens-every-file",
+      "grader": "equals",
+      "with": { "path": "steps.remote.opens.laptop", "value": 2 }
+    }
+  ]
+}

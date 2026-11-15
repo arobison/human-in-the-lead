@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "id": "store/two-devices-take-turns",
+  "suite": "store",
+  "category": "store",
+  "description": "Milestone c2 (design 0003 section 14). A laptop and a cloud environment, both enrolled, work on one project in turn. Each one's run start or resume pulls the other's records through the store remote, and each hand-over or checkpoint pushes them: after its next pull, each device sees the other's records, decisions and all.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "project",
+      "action": "store.fixture",
+      "with": { "devices": ["cloud-main", "laptop"] }
+    },
+    {
+      "id": "laptop_start",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "start", "--host", "laptop"] }
+    },
+    {
+      "id": "laptop_log",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": [
+          "rights",
+          "log",
+          "--text",
+          "Chose the second vendor for the export step",
+          "--area",
+          "api"
+        ]
+      }
+    },
+    {
+      "id": "laptop_ask",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": [
+          "ledger",
+          "append",
+          "{\"event\":\"asked\",\"decision\":\"SAM-9\"}",
+          "--host",
+          "laptop"
+        ]
+      }
+    },
+    {
+      "id": "laptop_handover",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["handover", "--host", "laptop"] }
+    },
+    {
+      "id": "cloud_resume",
+      "action": "store.hitld",
+      "with": { "device": "cloud-main", "argv": ["run", "resume", "--host", "cloud-1"] }
+    },
+    {
+      "id": "cloud_sees_laptop",
+      "action": "store.hitld",
+      "with": { "device": "cloud-main", "argv": ["ledger", "tail", "--limit", "20"] }
+    },
+    {
+      "id": "cloud_log",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": ["rights", "log", "--text", "Kept the retry limit at three", "--area", "api"]
+      }
+    },
+    {
+      "id": "cloud_ask",
+      "action": "store.hitld",
+      "with": {
+        "device": "cloud-main",
+        "argv": [
+          "ledger",
+          "append",
+          "{\"event\":\"asked\",\"decision\":\"SAM-10\"}",
+          "--host",
+          "cloud-1"
+        ]
+      }
+    },
+    {
+      "id": "cloud_handover",
+      "action": "store.hitld",
+      "with": { "device": "cloud-main", "argv": ["handover", "--host", "cloud-1"] }
+    },
+    {
+      "id": "laptop_resume",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["run", "resume", "--host", "laptop"] }
+    },
+    {
+      "id": "laptop_sees_cloud",
+      "action": "store.hitld",
+      "with": { "device": "laptop", "argv": ["ledger", "tail", "--limit", "20"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "both-enrolled",
+      "grader": "equals",
+      "with": { "path": "steps.project.enrolled", "value": ["cloud-main", "laptop"] }
+    },
+    {
+      "id": "laptop-handover-pushed",
+      "grader": "equals",
+      "with": { "path": "steps.laptop_handover.result.store_sync.push.result", "value": "pushed" }
+    },
+    {
+      "id": "cloud-pulled",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_resume.result.store_sync.pull.status", "value": "done" }
+    },
+    {
+      "id": "cloud-takes-the-released-lease",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_resume.result.took_over.reason", "value": "handover" }
+    },
+    {
+      "id": "cloud-sees-the-open-decision",
+      "grader": "equals",
+      "with": {
+        "path": "steps.cloud_resume.result.handover.decisions_open[*].decision",
+        "value": ["SAM-9"]
+      }
+    },
+    {
+      "id": "cloud-sees-the-laptops-record",
+      "grader": "matches",
+      "with": {
+        "path": "steps.cloud_sees_laptop.result.events[*].text",
+        "pattern": "second vendor for the export step"
+      }
+    },
+    {
+      "id": "cloud-handover-pushed",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_handover.result.store_sync.push.result", "value": "pushed" }
+    },
+    {
+      "id": "laptop-pulled",
+      "grader": "equals",
+      "with": { "path": "steps.laptop_resume.result.store_sync.pull.status", "value": "done" }
+    },
+    {
+      "id": "laptop-sees-both-open-decisions",
+      "grader": "equals",
+      "with": {
+        "path": "steps.laptop_resume.result.handover.decisions_open[*].decision",
+        "value": ["SAM-9", "SAM-10"]
+      }
+    },
+    {
+      "id": "laptop-sees-the-clouds-record",
+      "grader": "matches",
+      "with": {
+        "path": "steps.laptop_sees_cloud.result.events[*].text",
+        "pattern": "retry limit at three"
+      }
+    },
+    {
+      "id": "laptop-still-has-its-own",
+      "grader": "matches",
+      "with": {
+        "path": "steps.laptop_sees_cloud.result.events[*].text",
+        "pattern": "second vendor for the export step"
+      }
+    }
+  ]
+}

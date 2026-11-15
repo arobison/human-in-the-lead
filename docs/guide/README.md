@@ -10,7 +10,7 @@ One page for each situation you may start from. Each gives the commands, what to
 | Existing code and a tracker in Linear, Jira or GitHub Issues | [An existing hosted tracker](hosted-tracker.md) |
 | You want a view of the numbers of your own | [Building your own dashboard](dashboard.md) |
 
-Planned page: [Moving the private store between machines and cloud sessions](store-remote.md). It is written separately, so it may not be in your checkout yet. Read it when you work from more than one machine, or from cloud sessions.
+Whichever you start from, read [Moving the private store between machines and cloud sessions](store-remote.md) after it when you work from more than one machine, or from cloud sessions.
 
 ## Before any of them
 
