@@ -43,7 +43,7 @@ Milestone: first-release
 
 - [ ] HITLD-18 Tracker read API: versioned JSON output and declared extension fields. Needs nothing.
 - [ ] HITLD-24 Release v0.1.0: version, tag, notes. Needs HITLD-22, HITLD-23, HITLD-16, HITLD-39, HITLD-40, HITLD-45, HITLD-51, HITLD-58, HITLD-59 and HITLD-63.
-- [ ] HITLD-45 Milestones and releases as entities: needs and serves, independent checks, release records and `hitld release propose`. Needs HITLD-18.
+- [ ] HITLD-45 Milestones and releases as entities: needs and contributions, independent checks, release records and `hitld release propose`. Needs HITLD-18.
 - [ ] HITLD-58 Symlink-safe worktree teardown. Needs nothing.
 - [ ] HITLD-59 DCO check in CI. Needs nothing.
 - [ ] HITLD-63 Security in done when: diff-aware scanning against a baseline, triage records, accepted risk with expiry. Needs nothing.

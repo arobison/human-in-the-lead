@@ -98,7 +98,7 @@ test('entries parse from one line each, and bad ones are named', () => {
   const m = readMilestone({
     done_when: ['c1: one', 'c1: again'],
     needs: ['W-4 c3'],
-    serves: ['W-4 value=3 confidence=0.5'],
+    contributions: ['W-4 value=3 confidence=0.5'],
     deadline: '2027-01-01',
   });
   assert.deepEqual(m.problems, [
@@ -118,7 +118,7 @@ test('a milestone file passes the check, and its entity validates against the mi
   const root = makeRepo({
     files: {
       'work/milestones/W-7-config-errors-explained.md': milestone({
-        serves: ['W-6 value=3 confidence=0.5'],
+        contributions: ['W-6 value=3 confidence=0.5'],
         appetite_tokens: '400000',
         deadline: '2027-03-01 the conference demo',
         check: 'integration-test test/config/errors.test.ts',
@@ -172,7 +172,7 @@ test('the check: clauses exist, contributions are scored, references resolve, no
   const found = problems({
     'work/milestones/W-7-config-errors-explained.md': milestone({
       needs: ['W-4 c9', 'W-99 c1', 'W-1 c2'],
-      serves: ['W-6 value=0 confidence=0.5', 'W-2 value=3 confidence=0.5'],
+      contributions: ['W-6 value=0 confidence=0.5', 'W-2 value=3 confidence=0.5'],
       status: 'In progress',
     }),
     'work/milestones/W-8-other.md': itemText({
@@ -196,7 +196,7 @@ test('the check: clauses exist, contributions are scored, references resolve, no
   for (const p of [
     'work/milestones/W-7-config-errors-explained.md: a milestone is never In progress: items are claimed, milestones are not',
     "work/milestones/W-7-config-errors-explained.md: needs W-4 names clause c9, which done_when doesn't have",
-    "work/milestones/W-7-config-errors-explained.md: serves: W-6: value 0 isn't a number above 0",
+    "work/milestones/W-7-config-errors-explained.md: contributions: W-6: value 0 isn't a number above 0",
     'work/milestones/W-8-other.md: a milestone needs one parent: project or initiative',
   ]) {
     assert.ok(found.includes(p), `missing: ${p}\n${found.join('\n')}`);
@@ -204,7 +204,7 @@ test('the check: clauses exist, contributions are scored, references resolve, no
   const refs = problems({
     'work/milestones/W-7-config-errors-explained.md': milestone({
       needs: ['W-99 c1', 'W-1 c2'],
-      serves: ['W-2 value=3 confidence=0.5'],
+      contributions: ['W-2 value=3 confidence=0.5'],
     }),
     'work/milestones/W-8-other.md': itemText({
       id: 'W-8',
@@ -226,7 +226,7 @@ test('the check: clauses exist, contributions are scored, references resolve, no
   for (const p of [
     "work/milestones/W-7-config-errors-explained.md: needs W-99, which doesn't exist",
     'work/milestones/W-7-config-errors-explained.md: needs W-1, a initiative; needs name items and milestones only',
-    'work/milestones/W-7-config-errors-explained.md: serves W-2, a project; contributions are items',
+    'work/milestones/W-7-config-errors-explained.md: contributions W-2, a project; contributions are items',
     'cycle: W-9 → W-8 → W-9',
   ]) {
     assert.ok(refs.includes(p), `missing: ${p}\n${refs.join('\n')}`);
@@ -298,7 +298,11 @@ test('derived: error, check_due, scope, to_shape and tokens_spent are computed, 
     status: 'Planned',
     done_when: ['c1: one', 'c2: two'],
     needs: ['W-4 c1', 'W-5 c2', 'W-10 c?'],
-    serves: ['W-6 value=8 confidence=0.5', 'W-8 value=3 confidence=1', 'W-9 value=1 confidence=1'],
+    contributions: [
+      'W-6 value=8 confidence=0.5',
+      'W-8 value=3 confidence=1',
+      'W-9 value=1 confidence=1',
+    ],
     appetite_tokens: '400',
   };
   const ctx = {
@@ -390,7 +394,7 @@ test('views: milestones with their error and scope, and the merged-but-unrelease
     files: {
       'work/milestones/W-7-config-errors-explained.md': milestone({
         needs: ['W-3 c1', 'W-4 c?'],
-        serves: ['W-5 value=3 confidence=0.5'],
+        contributions: ['W-5 value=3 confidence=0.5'],
         appetite_tokens: '1000',
       }),
     },
@@ -526,7 +530,7 @@ test('scope ranks contributions by value times confidence per estimate token, fo
     id: 'W-7',
     kind: 'capability',
     status: 'Planned',
-    serves: [
+    contributions: [
       'W-4 value=4 confidence=1',
       'W-5 value=0.5 confidence=1',
       'W-6 value=40 confidence=0.2',

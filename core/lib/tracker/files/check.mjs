@@ -179,9 +179,9 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
       const m = readMilestone(d);
       for (const c of m.contributions) {
         const target = g.get(c.id);
-        if (!target) say(it, `serves ${c.id}, which doesn't exist`);
+        if (!target) say(it, `contributions ${c.id}, which doesn't exist`);
         else if (!g.isItem(target)) {
-          say(it, `serves ${c.id}, a ${target.data.kind}; contributions are items`);
+          say(it, `contributions ${c.id}, a ${target.data.kind}; contributions are items`);
         }
       }
       if (d.status === 'Done') {
