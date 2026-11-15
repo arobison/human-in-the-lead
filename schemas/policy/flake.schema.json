@@ -1,0 +1,68 @@
+{
+  "$id": "policy/flake",
+  "title": "policy.json: flake",
+  "description": "Flaky tests (design 14.7): how a failing full suite is told apart from a flaky test, how new tests are burned in, and how long a quarantine lasts.",
+  "type": "object",
+  "properties": {
+    "compare_runs": {
+      "description": "How many times the full suite runs on the batch's base, and then on the candidate, to tell a pre-existing flake from an intermittent failure the change introduced. Fails on the base: a pre-existing flake, and nobody is blamed. Fails only on the candidate: the batch is bisected and the culprit goes back to its executor. Fails on neither: inconclusive, nobody is blamed and it is counted. More runs make a comparison clearer and cost suite time. The most that run is compare_runs_max.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 10
+    },
+    "compare_runs_max": {
+      "description": "The ceiling on compare_runs, which a controller that raises it for inconclusive comparisons may not pass (design 11.4). The queue never runs more.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 30
+    },
+    "burn_in_runs": {
+      "description": "How many times the tests a branch adds or changes run in the fast checks, before the branch joins a batch. One failure sends the branch back. Needs burn_in_command. A branch that changes no file in test_globs is not burned in.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 5
+    },
+    "burn_in_command": {
+      "description": "Runs the tests the branch adds or changes, through the shell in the queue's worktree, once per call; the queue calls it burn_in_runs times. HITLD_BURN_IN_FILES holds the changed test files, one path per line. HITLD_BURN_IN_SEED differs on each run, for shuffling the order and varying seeds, and HITLD_BURN_IN_RUN is the run number from 1. A non-zero exit fails the run. With none, new tests are not burned in.",
+      "type": "string",
+      "minLength": 1,
+      "x-hitld-executes": "run through the shell in the merge queue's worktree"
+    },
+    "test_globs": {
+      "description": "Which files are tests. A branch that adds or changes one is burned in, and a failing test defined in one of them is the branch's to fix, never quarantined while the branch is under test.",
+      "$ref": "common#/$defs/globs",
+      "default": [
+        "test/**",
+        "tests/**",
+        "**/test/**",
+        "**/tests/**",
+        "**/*.test.*",
+        "**/*.spec.*",
+        "**/*_test.*"
+      ]
+    },
+    "environments": {
+      "description": "Labels for this machine's test environment beyond the operating system, such as a database version or a browser, which a quarantine entry's scope may name. The queue's environment is its operating system (linux, darwin or win32) and these labels.",
+      "$ref": "common#/$defs/names",
+      "default": []
+    },
+    "quarantine_days": {
+      "description": "How long a quarantine entry lasts. At expiry the test gates again, and a still-flaky test is a decision for the owner.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 90,
+      "default": 14
+    },
+    "fixed_runs": {
+      "description": "How many stress runs under load a fixed flaky test must pass before its fix item is done and its entry is removed.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 100
+    }
+  },
+  "additionalProperties": false
+}
