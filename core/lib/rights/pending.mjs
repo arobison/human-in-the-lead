@@ -40,7 +40,7 @@ const nowOf = (deps) => (deps.now ?? (() => new Date().toISOString()))();
  * @param {Deps} deps @param {string} id
  * @returns {AskedRecord | null}
  */
-function askedRecord(deps, id) {
+export function askedRecord(deps, id) {
   const text = deps.store.read(askedKey(id));
   if (!text) return null;
   try {
