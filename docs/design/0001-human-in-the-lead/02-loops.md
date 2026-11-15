@@ -17,6 +17,8 @@ The loops run at different speeds, and **slower loops set the setpoints for fast
 
 The rules are strictest on the slow loops because their mistakes last longest: a wrong concurrency setting costs one batch, a wrong autonomy grant costs many decisions, and a wrong strategy costs the whole portfolio.
 
+**Loops run on evidence, not on the calendar.** Agents keep no office hours, so nothing recurs because a day or a week has passed. What matters is how much has changed and whether the owner is there. A report or digest is due when enough merges, decisions or value have accumulated, when the owner writes, or when the machine is idle; a calendar ceiling only limits how long the owner may hear nothing. A calibration review is due when enough new outcomes have arrived. Baselines and offline evals run when the integration branch has moved and the machine is idle. `hitld cadence due` works this out from the ledger and the machine's state, and the chief of staff runs what it lists ([13.3](13-operations.md#133-the-scheduler-later-milestone)).
+
 ```mermaid
 flowchart TB
   subgraph Slowest
@@ -356,6 +358,8 @@ The system never grants itself autonomy; every change is the owner's decision, r
 
 **Calibrating inputs, not grading people.** The same method weighs inputs. Judgements ([part 3](03-data-model.md#judgement)) are compared with outcomes per area, and each person's weight tunes itself from the record; the owner's gut checks start high. A weight is an estimate, not a setting, so it is the one slow-loop value that changes without an owner decision: it shrinks toward the default, moves only as far as its evidence supports, and two fixed rules bound it ([part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)). This adjusts how much an input counts in prioritization; it does not score the person who gave it.
 
+**The calibration review is due on evidence.** Each person's review ([23.4](23-people-in-the-lead.md#234-feedback-to-the-person-the-calibration-review)) is due after `review.every_outcomes` new outcomes of their calls, or after `review.first_after_outcomes` for a person who has had none yet. No calendar date makes it due.
+
 ## 2.16 Security
 
 **Purpose.** Keep security a continuous loop, not a one-time design ([part 10](10-security.md) sets the boundaries; this loop tests and maintains them).
@@ -383,7 +387,7 @@ The system never grants itself autonomy; every change is the owner's decision, r
 |---|---|
 | **Inputs** | Budgets declared in `policy.json` (`budgets`: metric, threshold, scope, the benchmark or measurement that senses it); measurements from the project's benchmark tool through the evidence source ([part 3](03-data-model.md#evidence-source)), and from build output (bundle size), test runs (memory) and billing (running cost) |
 | **Queue** | Budget regressions and trends approaching a budget |
-| **Sensors** | Each metric's value per merge batch and nightly baseline, its trend, and its distance from budget |
+| **Sensors** | Each metric's value per merge batch and per baseline (run on an idle machine once the branch has moved, [13.3](13-operations.md#133-the-scheduler-later-milestone)), its trend, and its distance from budget |
 | **Controller** | A regression beyond a budget, or beyond the measured run-to-run noise of a metric with no budget, opens an item linked to the merge batch that caused it (by bisection over benchmark runs where needed). A trend projected to cross a budget within `budgets.lookahead_batches` opens a lower-priority item |
 | **Escalation** | Changing a budget is the owner's; accepting a regression above budget is a decision with the trade stated |
 
@@ -395,7 +399,7 @@ The consumer's benchmark tool is the sensor, and its run IDs are the evidence; t
 
 - An executor's report lists **deviations** from the plan ([part 5](05-execution.md#56-the-report-shape)). Each deviation that changes what the design says (an interface, an approach, a data format, a decision) must either update the design document in the same branch, or be flagged as a **plan drift** item for the design's owner.
 - The merge queue checks that a branch whose item points at a design section either touches that section or carries no design-changing deviation.
-- A periodic drift pass compares each active design's claims (interfaces, file layouts, decisions) with the code, and files drift items where they disagree.
+- A drift pass, run on an idle machine once enough has merged, compares each active design's claims (interfaces, file layouts, decisions) with the code, and files drift items where they disagree.
 - Design changes that alter a decision the owner made are decisions again, not edits.
 
 ## 2.19 Experimentation and rollout
@@ -425,7 +429,7 @@ The consumer's benchmark tool is the sensor, and its run IDs are the evidence; t
 The owner's attention is the scarcest input, so it is budgeted like tokens.
 
 - **Decision budget.** `attention.decisions_per_digest` and `attention.interrupts_per_period` set how many decisions the system may put in front of the owner. When the decision backlog exceeds the budget, the system must reduce it before asking more: batch similar questions into one, resolve by precedent, let questions that are easy to undo default to the recommendation, each logged and listed in the next digest (a call that is hard to undo always waits for the owner), or hold questions whose cost of delay is low.
-- **Digests.** Non-urgent questions and the record of logged calls and precedent applications go into digests at times the owner sets. Each question stands alone (context, recommendation, choices), so the owner can read it on a phone and answer in the main session.
+- **Digests.** Non-urgent questions and the record of logged calls and precedent applications go into digests. A digest is due when enough has accumulated (`digests.every_merges`, `digests.every_decisions`), when the owner writes, when the machine is idle, or when the owner would otherwise hear nothing for `digests.silence_max_hours`; quiet hours hold it unless the owner is the one who wrote ([13.3](13-operations.md#133-the-scheduler-later-milestone)). Each question stands alone (context, recommendation, choices), so the owner can read it on a phone and answer in the main session.
 - **Interrupts.** Sent at once only when a question blocks the critical path or leaves executor slots idle, or for a sev-1. The question-timing controller ([part 11](11-metrics-and-control.md)) adapts to how quickly the owner is responding.
 - **Quiet hours.** Set by the owner. Only sev-1 pages break them.
 - **Reads.** A request for the owner to read code or a document costs attention too, and counts against the same budget ([part 6](06-verification.md)).
