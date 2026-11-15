@@ -41,7 +41,7 @@ import { commands as later } from './commands/later.mjs';
  * @property {string} name the words after `hitld`, such as "check policy"
  * @property {string[]} [aliases]
  * @property {string} summary one line for help and the MCP tool description
- * @property {keyof typeof PIECES} piece who builds it
+ * @property {keyof typeof BUILT_BY} built_by who builds it
  * @property {ArgSpec[]} [args]
  * @property {boolean} [mcp] false for commands that make no sense as an MCP tool; default true
  * @property {string[]} [output] the top-level fields of the JSON it prints, where it declares them;
@@ -50,7 +50,7 @@ import { commands as later } from './commands/later.mjs';
  */
 
 /** Who builds what. Letters are the pieces of "Usable in a consuming project"; the other tags are milestones, named by outcome (design part 21). */
-export const PIECES = Object.freeze({
+export const BUILT_BY = Object.freeze({
   foundation: 'the foundation',
   a: 'piece (a), the files tracker backend',
   b: 'piece (b), the ledger and orchestrator continuity',

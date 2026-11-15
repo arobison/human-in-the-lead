@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "h-orchestrator/merge-flake",
-  "piece": "h-orchestrator",
+  "id": "orchestrator/merge-flake",
+  "suite": "orchestrator",
   "category": "merge-queue",
   "description": "A full suite that fails and then passes on the same commit is a flake candidate: it is recorded, not blamed on the branch, and the batch is held, not merged (One signal end to end has no base comparison, design 14.7).",
   "mode": "offline",

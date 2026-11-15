@@ -1,7 +1,7 @@
 {
   "$id": "release",
   "title": "Release record",
-  "description": "The record of what reached users, written by `hitld release make` when the owner makes a release (design part 3.2, Milestones and releases): one file per release, work/releases/<tag>.md, named by its tag. The body holds the notes. In the files backend each interface_delta entry is one line of text, \"<impact> <area>: <what>\"; this schema covers the entity as the read API returns it.",
+  "description": "The record of what reached users, written by `hitld release make` when the owner makes a release (design part 3.2, Milestones and releases): one file per release, work/releases/<tag>.md, named by its tag. The body holds the notes. In the files backend each interface_delta entry is one line of text, \"<impact> <surface>: <what>\"; this schema covers the entity as the read API returns it.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
@@ -31,12 +31,12 @@
         "type": "object",
         "properties": {
           "impact": { "enum": ["breaking", "additive", "fix"] },
-          "area": {
+          "surface": {
             "enum": ["schemas", "cli", "contract", "report", "trailers", "read-api", "adapters"]
           },
           "what": { "$ref": "common#/$defs/text" }
         },
-        "required": ["impact", "area", "what"],
+        "required": ["impact", "surface", "what"],
         "additionalProperties": false
       }
     },

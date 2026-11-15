@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "security/expired-risk-is-a-decision",
-  "piece": "security",
+  "suite": "security",
   "category": "security-gate",
   "description": "Accepting a real finding needs an answered decision item. A finding the owner accepted merges until its expiry; past the expiry it becomes a decision for the owner, without blocking unrelated changes.",
   "mode": "offline",
@@ -53,7 +53,7 @@
         "decision": {
           "id": "W-9",
           "kind": "decision",
-          "state": "Planned"
+          "state": "planned"
         },
         "now": "2030-01-01T00:00:00Z"
       }
@@ -68,7 +68,7 @@
         "decision": {
           "id": "W-9",
           "kind": "decision",
-          "state": "Done",
+          "state": "done",
           "answer": "B",
           "answered_at": "2030-01-01T00:00:00Z",
           "answered_by": "owner"

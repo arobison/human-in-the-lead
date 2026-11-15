@@ -8,7 +8,7 @@
  * @typedef {string} Id a tracker ID, <KEY>-<n>
  * @typedef {string} DispatchId D-<n>
  * @typedef {string} Version an opaque version for optimistic concurrency (for files: a blob hash)
- * @typedef {'Proposed' | 'Planned' | 'In progress' | 'Done' | 'Dropped'} State
+ * @typedef {'proposed' | 'planned' | 'in-progress' | 'done' | 'dropped'} State
  * @typedef {'needs' | 'parent' | 'duplicate_of' | 'opened_from'} Relation
  * @typedef {Record<string, unknown>} Entity front matter as validated by the kind's schema, plus `body`
  * @typedef {Record<string, unknown>} EntityDraft an entity without its ID
@@ -22,8 +22,8 @@
  * @property {string} [text] case-insensitive, in the title and body
  * @property {Record<string, unknown>} [fields] declared project fields to match: a list field
  *   matches when it holds the value, any other field when it equals it
- * @property {boolean} [ready] derived: Planned, every need Done, not claimed (design part 3.2)
- * @property {boolean} [blocked] derived: Planned or Proposed with a need not Done
+ * @property {boolean} [ready] derived: planned, every need done, not claimed (design part 3.2)
+ * @property {boolean} [blocked] derived: planned with a need not done
  * @property {boolean} [claimed] derived: a live branch has a claim for it
  * @typedef {{ commit?: string, branch?: string }} ChangeRef where a change was recorded
  * @typedef {{ at: string, from: State | null, to: State, ref: ChangeRef }} Change

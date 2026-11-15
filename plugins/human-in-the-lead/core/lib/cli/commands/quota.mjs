@@ -65,10 +65,10 @@ export const commands = [
   {
     name: 'quota status',
     summary: 'Each quota with its headroom and forecast, and what the dispatch gate says now',
-    piece: 'f',
+    built_by: 'f',
     args: [
       {
-        name: 'critical',
+        name: 'critical-path',
         type: 'boolean',
         description: 'Ask the gate about an item on the critical path',
       },
@@ -84,7 +84,7 @@ export const commands = [
       const gate = dispatchGate(
         g.policy,
         g.snapshots,
-        { critical_path: input.critical === true },
+        { critical_path: input['critical-path'] === true },
         { now: g.now, ledger: g.ledger },
       );
       return {
@@ -96,9 +96,9 @@ export const commands = [
     },
   },
   {
-    name: 'report',
-    summary: 'Write the static HTML report and the text digest from the ledger and the quotas',
-    piece: 'f',
+    name: 'dashboard',
+    summary: 'Write the static HTML dashboard and the text digest from the ledger and the quotas',
+    built_by: 'f',
     args: [
       {
         name: 'out',

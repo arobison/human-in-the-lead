@@ -1,7 +1,7 @@
 {
   "$id": "tracker",
   "title": "tracker.json",
-  "description": "The tracker backend choice and its paths, in .human-in-the-lead/tracker.json (design parts 3.4 and 16.6). Every setting has a default, so a project that keeps the reference layout needs only schema_version. A project with an existing tracker in another place maps onto the layout here by configuration, not migration (design part 16.7). The ID key is policy.json's project.key.",
+  "description": "The tracker backend choice and its paths, in .human-in-the-lead/tracker.json (design parts 3.4 and 16.6). Every setting has a default, so a project that keeps the reference layout needs only schema_version. A project with an existing tracker in another place maps onto the layout here by configuration, not migration (design part 16.7). The ID key is policy.json's project.key, and the main branch is policy.json's merge.main_branch. Until the next minor release, the names before HITLD-82 are still read, with a warning: lists_readme (now lists_file), main_branch (now policy.json merge.main_branch), and the optional keys tier_hint (now tier_override) and changelog (now release_note).",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
@@ -35,14 +35,9 @@
       "$ref": "#/$defs/path",
       "default": "views"
     },
-    "lists_readme": {
-      "description": "A file under work_dir that holds the generated item lists between the markers <!-- work:lists:begin ... --> and <!-- work:lists:end -->. When set, `hitld work views` rewrites the text between them. Unset by default: the lists are written as a view file only. A relative path of plain segments, like work_dir.",
+    "lists_file": {
+      "description": "A file under work_dir (a README, for example) that holds the generated item lists between the markers <!-- work:lists:begin ... --> and <!-- work:lists:end -->. When set, `hitld work views` rewrites the text between them. Unset by default: the lists are written as a view file only. A relative path of plain segments, like work_dir.",
       "$ref": "#/$defs/path"
-    },
-    "main_branch": {
-      "description": "The branch the orchestrator creates items on and where claims are released. Claims are read from every other branch.",
-      "$ref": "#/$defs/branch",
-      "default": "main"
     },
     "bundle_refs": {
       "description": "Ref prefixes where bundles from another machine are fetched. Claim branches under them count as claims, so a second machine's claims show once its bundle is fetched (design part 3.2, Lifecycle).",
@@ -64,8 +59,8 @@
           "touches",
           "serial",
           "estimate_tokens",
-          "tier_hint",
-          "changelog",
+          "tier_override",
+          "release_note",
           "credit"
         ]
       },

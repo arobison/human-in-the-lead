@@ -7,12 +7,12 @@
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
     "id": {
-      "description": "<piece>/<name>, equal to the file's directory and its name before .scenario.json.",
+      "description": "<suite>/<name>, equal to the file's directory and its name before .scenario.json.",
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$"
     },
-    "piece": {
-      "description": "The directory under evals/scenarios/ this scenario sits in: the area of the plugin it gates.",
+    "suite": {
+      "description": "The directory under evals/scenarios/ this scenario sits in: the part of the plugin it gates (was piece before HITLD-82; a scenario that still says piece is read as suite until the next minor release).",
       "$ref": "common#/$defs/name"
     },
     "category": {
@@ -105,7 +105,7 @@
   "required": [
     "schema_version",
     "id",
-    "piece",
+    "suite",
     "category",
     "description",
     "mode",

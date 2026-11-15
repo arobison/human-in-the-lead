@@ -1,7 +1,7 @@
 {
-  "$id": "run",
-  "title": "Run",
-  "description": "One execution of a measurement (design part 3.2). Owned by the benchmark tool; this schema is for process runs and for summaries the evidence source returns. Configuration and results are free-form JSON data, still checked for code-running keys.",
+  "$id": "bench-run",
+  "title": "Benchmark run",
+  "description": "One execution of a measurement, a benchmark run (design part 3.2; the schema was named run before HITLD-82). Owned by the benchmark tool; this schema is for process runs and for summaries the evidence source returns. Configuration and results are free-form JSON data, still checked for code-running keys.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "foundation/schema-refuses-code-running-keys",
-  "piece": "foundation",
+  "suite": "foundation",
   "category": "security",
   "description": "Data files never run code: a key that names code (a command, a script, a lifecycle hook) is refused in a tracker item and in policy.json, with a message that says why, while the same data without it is valid. The keys are set by path because a scenario file is data and cannot hold such a key itself.",
   "mode": "offline",
@@ -18,7 +18,7 @@
           "id": "FX-1",
           "kind": "work",
           "title": "A work item",
-          "state": "Proposed",
+          "state": "proposed",
           "classification": "public"
         }
       }
@@ -34,7 +34,7 @@
           "id": "FX-1",
           "kind": "work",
           "title": "A work item",
-          "state": "Proposed",
+          "state": "proposed",
           "classification": "public"
         },
         "set": [{ "key_path": ["on_merge"], "value": "deploy.sh" }]
@@ -51,7 +51,7 @@
           "id": "FX-1",
           "kind": "work",
           "title": "A work item",
-          "state": "Proposed",
+          "state": "proposed",
           "classification": "public"
         },
         "set": [{ "key_path": ["command"], "value": "echo hello" }]
@@ -61,7 +61,7 @@
       "id": "free-form-nested-key",
       "action": "schema.validate",
       "with": {
-        "schema": "run",
+        "schema": "bench-run",
         "entity": true,
         "data": {
           "schema_version": 1,

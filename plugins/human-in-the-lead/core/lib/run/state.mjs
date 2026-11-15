@@ -28,8 +28,8 @@ export function blankState() {
     scope: {},
     in_flight: [],
     ledger_position: null,
-    open_questions: [],
-    decisions_this_run: [],
+    decisions_open: [],
+    decisions_answered: [],
     controllers: {},
     quotas: null,
     merge_queue: { waiting: [], batch: null },
@@ -50,20 +50,20 @@ export function applyEvent(state, e) {
         id: e.run,
         started_at: e.at,
         ...(e.skill_versions?.plugin !== undefined
-          ? { plugin_version: e.skill_versions.plugin }
+          ? { hitld_version: e.skill_versions.plugin }
           : {}),
         ...(e.policy_hash !== undefined ? { policy_hash: e.policy_hash } : {}),
       };
       state.scope = e.scope ? structuredClone(e.scope) : {};
-      state.decisions_this_run = [];
+      state.decisions_answered = [];
       state.lease = { host: e.host, session: e.session, renewed_at: e.at };
       break;
     case 'lease-taken':
       state.lease = { host: e.host, session: e.session, renewed_at: e.at };
       break;
-    case 'question':
-      if (!state.open_questions.some((/** @type {any} */ q) => q.decision === e.decision)) {
-        state.open_questions.push({
+    case 'asked':
+      if (!state.decisions_open.some((/** @type {any} */ q) => q.decision === e.decision)) {
+        state.decisions_open.push({
           decision: e.decision,
           ...(e.dispatch !== undefined ? { dispatch: e.dispatch } : {}),
           asked_at: e.at,
@@ -71,17 +71,17 @@ export function applyEvent(state, e) {
       }
       break;
     case 'answered': {
-      state.open_questions = state.open_questions.filter(
+      state.decisions_open = state.decisions_open.filter(
         (/** @type {any} */ q) => q.decision !== e.decision,
       );
-      if (state.run) state.decisions_this_run.push({ decision: e.decision, answered_at: e.at });
+      if (state.run) state.decisions_answered.push({ decision: e.decision, answered_at: e.at });
       break;
     }
     case 'verified':
       state.merge_queue.waiting = state.merge_queue.waiting.filter(
         (/** @type {any} */ w) => w.item !== e.item,
       );
-      if (e.outcome === 'pass') {
+      if (e.result === 'pass') {
         state.merge_queue.waiting.push({ item: e.item, branch: e.branch ?? null });
       }
       break;

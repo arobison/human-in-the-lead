@@ -1,6 +1,6 @@
 // The dispatch cycle (design part 5.2), as one library function: dispatch from the head of the
 // ready queue up to the cap, then wait for the next completion notice and refill the slot it
-// freed. Never polling: with backgroundCompletion each wait is one onComplete per dispatch, raced;
+// freed. Never polling: with background_completion each wait is one onComplete per dispatch, raced;
 // without it, completions are collected at a defined point, right after each dispatch returns.
 //
 // The orchestrator skill runs the same cycle across turns with `hitld dispatch plan / start /
@@ -39,7 +39,7 @@ import { parseReport } from '../contract/report.mjs';
  */
 export async function runDispatchLoop(r) {
   const caps = r.adapter.capabilities();
-  const cap = r.cap ?? r.policy.execution?.concurrency?.value ?? 3;
+  const cap = r.cap ?? r.policy.execution?.max_executors?.value ?? 3;
   const gate = r.gate ?? (() => ({ mode: 'normal', allow: true, reason: 'no gate' }));
   const branchPrefix = r.policy.env?.branch_prefix ?? 'hitld';
   /** @type {TraceStep[]} */
@@ -62,7 +62,7 @@ export async function runDispatchLoop(r) {
     const id = /** @type {string} */ (itemOf.get(dispatch));
     const { report } = parseReport(completion.report);
     const item = r.items.find((i) => String(i.id) === id);
-    if (item) item.state = report?.status === 'done' ? 'Done' : 'Planned';
+    if (item) item.state = report?.result === 'done' ? 'done' : 'planned';
     trace.push({ step: 'complete', dispatch, item: id, running: pending.size });
   };
 
@@ -86,13 +86,13 @@ export async function runDispatchLoop(r) {
       cap,
       capabilities: caps,
       gate,
-      overlapSerialize: r.policy.dispatch?.overlap_serialize,
+      overlapSerialize: r.policy.dispatch?.serialize_overlap_share,
       critical: criticalPath(readyItems, unblocks),
     });
 
     for (const p of plan.inline) {
       const item = /** @type {Item} */ (r.items.find((i) => String(i.id) === p.item));
-      item.state = 'Done';
+      item.state = 'done';
       trace.push({ step: 'inline', item: p.item, running: pending.size });
     }
 
@@ -144,7 +144,7 @@ export async function runDispatchLoop(r) {
       );
       maxRunning = Math.max(maxRunning, pending.size);
       trace.push({ step: 'dispatch', dispatch, item: String(item.id), running: pending.size });
-      if (!caps.backgroundCompletion) {
+      if (!caps.background_completion) {
         // No completion events: collect this one now, at the point the dispatch returned.
         const done = /** @type {Promise<{ dispatch: string, completion: Completion }>} */ (
           pending.get(dispatch)
@@ -167,6 +167,6 @@ export async function runDispatchLoop(r) {
     trace,
     dispatches,
     maxRunning,
-    remaining: r.items.filter((i) => i.state !== 'Done').map((i) => String(i.id)),
+    remaining: r.items.filter((i) => i.state !== 'done').map((i) => String(i.id)),
   };
 }

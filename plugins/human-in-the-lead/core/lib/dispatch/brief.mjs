@@ -18,7 +18,7 @@ import { planRef } from './item.mjs';
  */
 export const executorEnv = (dispatch, projectId) => ({
   HITLD_DISPATCH: dispatch,
-  HITLD_PROJECT: projectId,
+  HITLD_PROJECT_ID: projectId,
   HITLD_ROLE: 'executor',
 });
 
@@ -47,11 +47,13 @@ export function renderBrief({ item, sizing, dispatch, branch, policy, isolation,
   const kb = sizing.areas.flatMap((a) => policy.dispatch?.brief_kb?.[a] ?? []);
   const touches = /** @type {string[]} */ (item.touches ?? []);
   const serial = /** @type {string[]} */ (item.serial ?? []);
-  const reportAt = Math.round(sizing.estimate_tokens * (policy.dispatch?.report_at ?? 1.5));
+  const reportAt = Math.round(
+    sizing.estimate_tokens * (policy.dispatch?.report_at_budget_multiple ?? 1.5),
+  );
   const k = (/** @type {number} */ n) => `${Math.round(n / 1000)}k`;
   const setup =
     isolation === 'worktree'
-      ? `First, in your worktree: ${prefix} hitld env setup --holder ${dispatch} --adopt "$PWD", then name your branch: git branch -m ${branch}.`
+      ? `First, in your worktree: ${prefix} hitld env setup --dispatch ${dispatch} --adopt "$PWD", then name your branch: git branch -m ${branch}.`
       : `Your worktree is ${worktree ?? 'prepared for you'}, on branch ${branch}.`;
   return [
     `You are implementing ${id} as dispatch ${dispatch}. ${planLine}`,

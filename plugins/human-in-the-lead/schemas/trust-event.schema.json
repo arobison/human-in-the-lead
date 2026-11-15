@@ -52,9 +52,12 @@
       "description": "asked and application: the question's structured attributes, kept so an overrule can narrow the precedent to cases like it.",
       "$ref": "precedent#/properties/conditions"
     },
-    "worth": { "description": "worth-asking: the rating.", "type": "boolean" },
-    "what": {
-      "description": "reversal: the kind of call reversed.",
+    "worth_asking": {
+      "description": "worth-asking: the rating (was worth before HITLD-82).",
+      "type": "boolean"
+    },
+    "subject_kind": {
+      "description": "reversal: the kind of call reversed (was what before HITLD-82).",
       "enum": ["logged-call", "triage-route", "controller-move", "other"]
     },
     "note": { "$ref": "common#/$defs/text" }

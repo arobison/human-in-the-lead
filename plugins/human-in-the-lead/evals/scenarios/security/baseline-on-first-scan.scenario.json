@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "security/baseline-on-first-scan",
-  "piece": "security",
+  "suite": "security",
   "category": "security-gate",
   "description": "An existing codebase with a finding gets a baseline from the first scan of main, and a clean change merges: old findings never block.",
   "mode": "offline",

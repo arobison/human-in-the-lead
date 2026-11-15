@@ -5,6 +5,13 @@
 // line (no trailing newline, not valid JSON). Reading ignores it and the next append cuts it off.
 // Every event has a unique ID, so appending the same event twice (a retry after a crash) is a
 // no-op, which is what makes applying an event idempotent (design part 13.1).
+//
+// The ledger is never rewritten, so its reader takes every name it ever held (design part 16.5).
+// Schema version 1 named three events and two fields differently: `claimed` (now `started`: the
+// harness started the executor), `question` (now `asked`), `released` (now `unclaimed`: a claim
+// given up), `outcome` (now `result`: how the attempt ended) and `handle` (now `harness_ref`). A
+// line in the old names is read in the new ones, permanently; new lines are written in the new
+// names, at version 2.
 
 import { schemas } from '../schema/registry.mjs';
 
@@ -18,7 +25,46 @@ import { schemas } from '../schema/registry.mjs';
 export const LEDGER_KEY = 'ledger.jsonl';
 
 /** Events that end a dispatch: nothing more is expected of its executor. */
-export const TERMINAL_EVENTS = Object.freeze(['reported', 'abandoned', 'released']);
+export const TERMINAL_EVENTS = Object.freeze(['reported', 'abandoned', 'unclaimed']);
+
+/** Event names before schema version 2, and what each is now. Read permanently. */
+export const LEGACY_EVENTS = Object.freeze(
+  /** @type {Record<string, string>} */ ({
+    claimed: 'started',
+    question: 'asked',
+    released: 'unclaimed',
+  }),
+);
+
+/** Field names before schema version 2. */
+const LEGACY_FIELDS = /** @type {Record<string, string>} */ ({
+  outcome: 'result',
+  handle: 'harness_ref',
+});
+
+/**
+ * A ledger line in the current names: an event in the names of schema version 1 is read as
+ * version 2 names (`claimed` → `started`, `question` → `asked`, `released` → `unclaimed`,
+ * `outcome` → `result`, `handle` → `harness_ref`). Its schema_version stays as written.
+ * @param {unknown} data
+ * @returns {unknown}
+ */
+export function fromLegacyEvent(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  const e = /** @type {Record<string, unknown>} */ (data);
+  const event = typeof e.event === 'string' ? LEGACY_EVENTS[e.event] : undefined;
+  const fields = Object.keys(LEGACY_FIELDS).filter((k) => Object.hasOwn(e, k));
+  if (!event && !fields.length) return data;
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const [k, v] of Object.entries(e)) {
+    const to = LEGACY_FIELDS[k];
+    if (to !== undefined) {
+      if (!Object.hasOwn(e, to)) out[to] = v;
+    } else out[k] = k === 'event' && event ? event : v;
+  }
+  return out;
+}
 
 export class LedgerError extends Error {
   /** @param {string} message @param {{ path: string, message: string }[]} [errors] */
@@ -37,19 +83,19 @@ const REQUIRED = {
   'run-started': ['run', 'session', 'host'],
   'lease-taken': ['run', 'session', 'host'],
   dispatched: ['dispatch', 'item'],
-  claimed: ['dispatch', 'item'],
-  question: ['decision'],
+  started: ['dispatch', 'item'],
+  asked: ['decision'],
   answered: ['decision'],
   reported: ['dispatch', 'item'],
-  verified: ['item', 'outcome'],
+  verified: ['item', 'result'],
   merged: ['item'],
   reverted: ['item'],
-  released: ['item'],
+  unclaimed: ['item'],
   abandoned: ['dispatch', 'item'],
 };
 
 /** @type {Record<string, string[]>} */
-const OUTCOMES = { reported: ['done', 'partial', 'blocked'], verified: ['pass', 'fail'] };
+const RESULTS = { reported: ['done', 'partial', 'blocked'], verified: ['pass', 'fail'] };
 
 /**
  * Semantic checks the schema cannot express.
@@ -61,14 +107,14 @@ function checkEventRules(e) {
   for (const f of REQUIRED[e.event] ?? []) {
     if (e[f] === undefined) errors.push({ path: f, message: `is required for ${e.event}` });
   }
-  if (e.outcome !== undefined) {
-    const allowed = OUTCOMES[e.event];
-    if (!allowed) errors.push({ path: 'outcome', message: `is not used by ${e.event}` });
-    else if (!allowed.includes(e.outcome)) {
-      errors.push({ path: 'outcome', message: `must be ${allowed.join(' or ')} for ${e.event}` });
+  if (e.result !== undefined) {
+    const allowed = RESULTS[e.event];
+    if (!allowed) errors.push({ path: 'result', message: `is not used by ${e.event}` });
+    else if (!allowed.includes(e.result)) {
+      errors.push({ path: 'result', message: `must be ${allowed.join(' or ')} for ${e.event}` });
     }
   }
-  if (e.defects !== undefined && !(e.event === 'verified' && e.outcome === 'fail')) {
+  if (e.defects !== undefined && !(e.event === 'verified' && e.result === 'fail')) {
     errors.push({ path: 'defects', message: 'is only for a failed verification' });
   }
   return errors;
@@ -94,7 +140,7 @@ export function readLedger(store) {
     if (raw.trim() === '') return;
     let data;
     try {
-      data = JSON.parse(raw);
+      data = /** @type {any} */ (fromLegacyEvent(JSON.parse(raw)));
     } catch (e) {
       problems.push({ line: i + 1, message: `is not JSON: ${/** @type {Error} */ (e).message}` });
       return;
@@ -170,7 +216,7 @@ const sameEvent = (a, b) => {
  * Append one event: fill in schema_version, id and time; validate; then write one line.
  * - An event whose ID is already in the ledger and is otherwise identical is not appended again
  *   (`appended: false`); with different content it is an error.
- * - A dispatch takes at most one terminal event (reported, abandoned or released), and nothing
+ * - A dispatch takes at most one terminal event (reported, abandoned or unclaimed), and nothing
  *   else after it, so a stale session cannot revive or double-finish a dispatch.
  * @param {PrivateStore} store
  * @param {LedgerEntry} event

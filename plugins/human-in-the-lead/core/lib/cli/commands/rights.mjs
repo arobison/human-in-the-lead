@@ -27,7 +27,12 @@ import {
   rateWorthAsking,
   recordReversal,
 } from '../../rights/flow.mjs';
-import { factsOf, normalizeQuestion, routeQuestion } from '../../rights/route.mjs';
+import {
+  factsOf,
+  fromLegacyQuestion,
+  normalizeQuestion,
+  routeQuestion,
+} from '../../rights/route.mjs';
 import { readTrustEvents, trustSummary } from '../../rights/trust.mjs';
 
 /**
@@ -162,7 +167,7 @@ export function makeCommands({ openTracker }) {
 
   /** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
   const questionOf = (input, ctx) => {
-    const question = jsonInput(input, 'question', ctx);
+    const question = fromLegacyQuestion(jsonInput(input, 'question', ctx));
     const errors = schemas().validate('question', question);
     if (errors.length) throw new Error(`the question is invalid:\n${formatErrors(errors)}`);
     const paths = normalizeQuestion(question);
@@ -183,10 +188,10 @@ export function makeCommands({ openTracker }) {
   /** @type {import('../table.mjs').Command[]} */
   const commands = [
     {
-      name: 'rights',
+      name: 'rights who',
       summary:
         "Classify a call as the owner's, an area owner's or the system's, with the rule that decided it",
-      piece: 'e',
+      built_by: 'e',
       args: questionArgs,
       run: async (input, ctx) => {
         const o = await open(ctx);
@@ -199,7 +204,7 @@ export function makeCommands({ openTracker }) {
       name: 'rights ask',
       summary:
         'Route a question; resolve it by precedent if one fits, otherwise create a decision item and print the question to send',
-      piece: 'e',
+      built_by: 'e',
       args: [
         ...questionArgs,
         {
@@ -223,7 +228,7 @@ export function makeCommands({ openTracker }) {
       name: 'rights answer',
       summary:
         'Record the answer to a decision item, with what the decider said to the precedent offer; a confirmed generalization becomes a precedent',
-      piece: 'e',
+      built_by: 'e',
       args: [
         {
           name: 'decision',
@@ -272,7 +277,7 @@ export function makeCommands({ openTracker }) {
       name: 'rights overrule',
       summary:
         'Reverse an application of a precedent: it is narrowed to exclude cases like this one, or retired',
-      piece: 'e',
+      built_by: 'e',
       args: [
         {
           name: 'decision',
@@ -311,7 +316,7 @@ export function makeCommands({ openTracker }) {
       name: 'rights reverse',
       summary:
         'Record that the owner reversed a call the system made without a precedent (trust-calibration data)',
-      piece: 'e',
+      built_by: 'e',
       args: [
         {
           name: 'subject',
@@ -321,9 +326,9 @@ export function makeCommands({ openTracker }) {
           required: true,
         },
         {
-          name: 'what',
+          name: 'subject-kind',
           type: 'string',
-          description: 'logged-call, triage-route, controller-move or other',
+          description: 'The kind of call: logged-call, triage-route, controller-move or other',
         },
         { name: 'area', type: 'string', description: 'The area it belongs to' },
         { name: 'note', type: 'string', description: 'Why' },
@@ -331,13 +336,17 @@ export function makeCommands({ openTracker }) {
       run: async (input, ctx) => {
         const o = await open(ctx);
         if (o.failure) return o.failure;
-        return recordReversal(o.deps, /** @type {any} */ (input));
+        const { 'subject-kind': subjectKind, ...rest } = input;
+        return recordReversal(
+          o.deps,
+          /** @type {any} */ ({ ...rest, ...(subjectKind ? { subject_kind: subjectKind } : {}) }),
+        );
       },
     },
     {
       name: 'rights rate',
       summary: 'Record whether an answered question was worth asking (trust-calibration data)',
-      piece: 'e',
+      built_by: 'e',
       args: [
         {
           name: 'decision',
@@ -346,14 +355,19 @@ export function makeCommands({ openTracker }) {
           positional: true,
           required: true,
         },
-        { name: 'worth', type: 'string', description: 'yes or no', required: true },
+        {
+          name: 'worth-asking',
+          type: 'string',
+          description: 'yes or no: was it worth asking',
+          required: true,
+        },
       ],
       run: async (input, ctx) => {
         const o = await open(ctx, { tracker: true });
         if (o.failure) return o.failure;
         return rateWorthAsking(o.deps, {
           decision: /** @type {string} */ (input.decision),
-          worth: /** @type {boolean} */ (yesNo(input.worth, 'worth')),
+          worth: /** @type {boolean} */ (yesNo(input['worth-asking'], 'worth-asking')),
         });
       },
     },
@@ -361,7 +375,7 @@ export function makeCommands({ openTracker }) {
       name: 'rights digest',
       summary:
         'Applications of precedent for the digest, with those the owner overruled, and precedents due for review',
-      piece: 'e',
+      built_by: 'e',
       args: [
         {
           name: 'since',
@@ -405,7 +419,7 @@ export function makeCommands({ openTracker }) {
       name: 'rights trust',
       summary:
         'The trust-calibration record per area: escalation worth, precedent-match accuracy, overrules, reversals',
-      piece: 'e',
+      built_by: 'e',
       args: [],
       run: async (_input, ctx) => {
         const o = await open(ctx);
@@ -416,7 +430,7 @@ export function makeCommands({ openTracker }) {
     {
       name: 'precedent match',
       summary: 'Candidate precedents for a question, and which still need a judgement of fit',
-      piece: 'e',
+      built_by: 'e',
       args: questionArgs,
       run: async (input, ctx) => {
         const o = await open(ctx);
@@ -446,7 +460,7 @@ export function makeCommands({ openTracker }) {
       name: 'judgement weigh',
       summary:
         'Apply judgements as priors to an estimate; a judgement that evidence contradicts is held out and returned as a conflict',
-      piece: 'e',
+      built_by: 'e',
       args: [
         {
           name: 'subject',
@@ -466,7 +480,7 @@ export function makeCommands({ openTracker }) {
       name: 'judgement conflict',
       summary:
         'The question that puts contradicting evidence to the person whose judgement it contradicts',
-      piece: 'e',
+      built_by: 'e',
       args: [
         {
           name: 'conflict',

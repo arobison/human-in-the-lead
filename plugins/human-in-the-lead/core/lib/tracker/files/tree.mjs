@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseItem } from './frontmatter.mjs';
+import { fromLegacy } from './legacy.mjs';
 import { insidePath, isRegularFile, readNoFollow } from './safe.mjs';
 
 /**
@@ -199,7 +200,10 @@ export function refPlaces(root, layout, { remotes = true, skipBranches = new Set
 }
 
 /**
- * Read every item in every place. Branch contents are read in one batch.
+ * Read every item in every place. Branch contents are read in one batch. Files in the format
+ * before HITLD-82 (a branch made before the migration) are read in the current form (legacy.mjs).
+ * The working tree itself is read by loadWorkTree as it is, so the check and the migration see
+ * what the files hold.
  * @param {string} root @param {Layout} layout @param {Place[]} places
  * @returns {{ where: string, ref?: string, items: Entry[] }[]}
  */
@@ -211,7 +215,8 @@ export function loadPlaces(root, layout, places) {
   const wanted = [];
   for (const p of places) {
     if (p.path) {
-      out.push({ where: p.where, items: loadWorkTree(p.path, layout) });
+      const items = loadWorkTree(p.path, layout).map((e) => ({ ...e, data: fromLegacy(e.data) }));
+      out.push({ where: p.where, items });
       continue;
     }
     const listing = git(root, ['ls-tree', '-r', p.ref ?? '', '--', layout.workDir], {
@@ -235,12 +240,15 @@ export function loadPlaces(root, layout, places) {
         path: w.path,
         file: w.file,
         folder: w.folder,
-        ...parseItem(blobs.get(w.sha) ?? ''),
+        ...legacyParsed(parseItem(blobs.get(w.sha) ?? '')),
       });
     }
   }
   return out;
 }
+
+/** @param {ReturnType<typeof parseItem>} parsed */
+const legacyParsed = (parsed) => ({ ...parsed, data: fromLegacy(parsed.data) });
 
 /**
  * Read blobs by ID in one `git cat-file --batch`. Sizes are bytes, so this works on buffers.

@@ -13,7 +13,7 @@ export const commands = [
     name: 'check contract',
     summary:
       'The executor contract block is present and current in AGENTS.md, and CLAUDE.md imports it if present',
-    piece: 'd',
+    built_by: 'd',
     run: (_input, ctx) =>
       checkContract(rootOf(ctx), undefined, loadPolicy({ cwd: ctx.cwd }).policy?.project?.key),
   },

@@ -54,8 +54,12 @@
     "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
     "tokens": { "type": "integer", "minimum": 0 },
     "itemState": {
-      "description": "The lifecycle every tracker entity uses (design part 3.2). main never shows \"In progress\".",
-      "enum": ["Proposed", "Planned", "In progress", "Done", "Dropped"]
+      "description": "The core lifecycle (design part 3.2), lowercase kebab-case. Only a work item uses in-progress, and only on its claim branch: main never shows it. dropped always carries a reason.",
+      "enum": ["proposed", "planned", "in-progress", "done", "dropped"]
+    },
+    "plannedState": {
+      "description": "The core lifecycle without in-progress, for what is never claimed: decisions, external items, milestones, projects and initiatives (design part 3.2). A project or initiative being active is derived from its items.",
+      "enum": ["proposed", "planned", "done", "dropped"]
     },
     "rightsBasis": {
       "description": "The decision-rights rule that made a question someone's (design part 4.2).",

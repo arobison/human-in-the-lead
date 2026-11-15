@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "foundation/policy-check",
-  "piece": "foundation",
+  "suite": "foundation",
   "category": "policy",
   "description": "hitld check policy accepts a project's policy, and refuses a value beyond its bound and a misspelled key, naming each.",
   "mode": "offline",
@@ -13,7 +13,7 @@
       "action": "file.set-json",
       "with": {
         "path": ".human-in-the-lead/policy.json",
-        "key_path": ["execution", "concurrency", "value"],
+        "key_path": ["execution", "max_executors", "value"],
         "value": 9
       }
     },
@@ -23,7 +23,7 @@
       "action": "file.set-json",
       "with": {
         "path": ".human-in-the-lead/policy.json",
-        "key_path": ["execution", "concurrency", "value"],
+        "key_path": ["execution", "max_executors", "value"],
         "value": 3
       }
     },
@@ -32,7 +32,7 @@
       "action": "file.set-json",
       "with": {
         "path": ".human-in-the-lead/policy.json",
-        "key_path": ["quota", "owner_resrve"],
+        "key_path": ["quota", "resrve"],
         "value": 0.3
       }
     },
@@ -69,7 +69,7 @@
       "grader": "matches",
       "with": {
         "path": "steps.over-bound.result.errors[*].path",
-        "pattern": "^execution\\.concurrency$"
+        "pattern": "^execution\\.max_executors$"
       }
     },
     {
@@ -90,7 +90,7 @@
       "grader": "matches",
       "with": {
         "path": "steps.misspelled.result.errors[*].message",
-        "pattern": "did you mean \"owner_reserve\""
+        "pattern": "did you mean \"reserve\""
       }
     }
   ]

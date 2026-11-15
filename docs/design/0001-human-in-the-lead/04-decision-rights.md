@@ -10,7 +10,7 @@ Each role has a purpose, the decisions it may make, and the privileges it runs w
 |---|---|---|---|---|
 | **Owner** | A human | Identity and policy: direction, principles, non-goals, decision rights, weights, budgets | Everything the rules in 4.2 route to them; every rule change; every bet | Approve routine work or read code, except in owner merge mode, where the owner names each merge ([part 14](14-integration.md#142-the-queue)); otherwise code is read only on the triggers in [part 6](06-verification.md#66-when-a-human-reads-the-code) |
 | **Area owner** | A human with delegated rights | Judgement within an area | Decisions routed to the area by 4.2 that are not reserved to the owner; verification disputes in the area | Change policy or decision rights |
-| **Orchestrator** | The main Claude Code session | Control plane: plans, sizes, dispatches, merges (in owner merge mode, only what the owner names), asks, keeps the ledger | Ordering within a bet project; tier assignment; concurrency inside policy bounds; `Proposed` → `Planned` for items inside a bet project; logged calls within its rights | Implement beyond tier-0 tasks; read diffs in full; send anything external |
+| **Orchestrator** | The main Claude Code session | Control plane: plans, sizes, dispatches, merges (in owner merge mode, only what the owner names), asks, keeps the ledger | Ordering within a bet project; tier assignment; concurrency inside policy bounds; `proposed` → `planned` for items inside a bet project; logged calls within its rights | Implement beyond tier-0 tasks; read diffs in full; send anything external |
 | **Executor** | Background agent (tiers 1–2) or session (tier 3) | Implement one item in its own worktree | Logged calls: cheap-to-undo choices inside the item's plan | Create tracker entities; touch files outside the item's `touches` without recording why; add dependencies; contact the network beyond the allowlist; record, overrule, reverse, rate or trust a decision (refused by the Bash guard and by `hitld` when `HITLD_ROLE=executor` or `HITLD_DISPATCH` is set; [Q21](22-open-questions.md)) |
 | **Acceptance author** | Background agent | Write the executable acceptance checks for an item from its spec, before or independently of implementation | How to test the stated behaviour | See the implementation while writing the checks |
 | **Adversary** | Background agent | Try to break the invariants of changed code; turn each break into a failing test | Which attacks to try within its budget | Fix what it breaks (that is a new item) |
@@ -37,7 +37,7 @@ A question goes to the owner (or the area owner, where the rules allow) when **a
 | **Novelty** | No precedent matches, and the principles do not settle it | The first time a contributor asks for a capability outside every non-goal and every roadmap item | Owner if it touches direction; area owner otherwise |
 | **Conflicting evidence** | Studies, measurements or credible sources disagree, and the choice depends on which is right | Two benchmark studies with opposite verdicts on an approach | Area owner; owner if cross-area |
 | **Relationship** | A person outside the system will read it as coming from the owner or the project, and it is sensitive: a decline, a criticism, a conflict, a promise, anything to a partner organization, a code-of-conduct matter | Declining a large external PR | Owner (or the area owner the owner names for routine contributor matters) |
-| **Budget** | It commits more than `rights.agent_spend_max` tokens beyond an approved appetite, or bets a new appetite | An item at 2.5× its estimate that needs another full attempt | Owner |
+| **Budget** | It commits more than `rights.agent_spend_max_tokens` tokens beyond an approved appetite, or bets a new appetite | An item at 2.5× its estimate that needs another full attempt | Owner |
 | **Security** | It adds a dependency, widens a privilege, changes a trust boundary, handles a vulnerability report, or touches secrets | Adding a new third-party package | Owner |
 | **Rule change** | It changes policy bounds, decision rights, a skill, an invariant, or the executor contract | Raising the concurrency ceiling; changing the report shape | Owner |
 
@@ -101,7 +101,7 @@ When any agent holds a question that would go to a decider:
 
 ## 4.4 Decision rights are data
 
-The rules in 4.2 are encoded in `policy.json` (`rights.*`): thresholds (`agent_spend_max`), the area map, which areas have area owners, and which rule bases area owners may decide. The orchestrator's skill applies them through a script that takes a question's attributes and returns the decider and the rule that fired. Changing any of it is itself a rule change: the owner's decision.
+The rules in 4.2 are encoded in `policy.json` (`rights.*`): thresholds (`agent_spend_max_tokens`), the area map, which areas have area owners, and which rule bases area owners may decide. The orchestrator's skill applies them through a script that takes a question's attributes and returns the decider and the rule that fired. Changing any of it is itself a rule change: the owner's decision.
 
 ## 4.5 Several humans in the lead
 

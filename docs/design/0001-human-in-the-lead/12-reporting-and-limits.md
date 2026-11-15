@@ -41,11 +41,11 @@ Rules:
 
 The milestone graph shows progress at the level people plan at. It complements the item dependency graph (`work/views/items-graph.md`); it does not replace it. Items stay in the item graph.
 
-- **Nodes** are milestones, labelled by name ([3.2](03-data-model.md#milestones-and-releases)). Each shows its outcome in one sentence; its constraints `Done` out of all its constraints; `tokens_spent` against `appetite_tokens`; and its independent check: passed, due (`check_due`) or not yet due.
+- **Nodes** are milestones, labelled by name ([3.2](03-data-model.md#milestones-and-releases)). Each shows its outcome in one sentence; its constraints `done` out of all its constraints; `tokens_spent` against `appetite_tokens`; and its independent check: passed, due (`check_due`) or not yet due.
 - **Edges** are `needs` between milestones. A `needs` from a milestone to an item is not an edge; it counts toward the node's progress.
-- **The critical path** is highlighted: the chain of milestones not yet `Done` with the most estimate tokens remaining, the same rule items use ([3.2](03-data-model.md#initiative-project-item)).
+- **The critical path** is highlighted: the chain of milestones not yet `done` with the most estimate tokens remaining, the same rule items use ([3.2](03-data-model.md#initiative-project-item)).
 - **Drilling in.** Opening a milestone lists its constraints and contributions with their state and critical-path flag, and links to the item graph for them.
-- **Two forms.** A generated view, `work/views/milestones.md`, with a mermaid graph and a table of the same fields, readable on GitHub and on a phone ([3.4](03-data-model.md#generated-views)). And a section of the HTML page `hitld report` writes (12.4), where each node opens to its items without scripts from elsewhere.
+- **Two forms.** A generated view, `work/views/milestones.md`, with a mermaid graph and a table of the same fields, readable on GitHub and on a phone ([3.4](03-data-model.md#generated-views)). And a section of the HTML page `hitld dashboard` writes (12.4), where each node opens to its items without scripts from elsewhere.
 
 ## 12.2 Progress reports
 
@@ -65,8 +65,8 @@ Every controller ([part 11](11-metrics-and-control.md#114-feedback-controllers))
 ## 12.4 A portable build
 
 - **A local metrics store.** The core writes everything the readouts need to the private store: the ledger, the controller step log, usage snapshots (12.5), and quota declarations. These files follow a **versioned data contract** (`metrics_schema_version`), like every other data format ([part 16](16-packaging.md#165-releases-and-compatibility)).
-- **`hitld report`** renders a static, self-contained HTML dashboard (charts as inline SVG, no scripts from elsewhere, no server, no network requests) and the digests, from that store. The page includes the milestone graph (12.1.2). It runs anywhere Node runs, under any harness.
-- **`hitld report --json`** emits the data contract itself, so **richer views** can read the same data: a published dashboard page in Claude, or another app the owner builds on the same data. A view that publishes data off the machine gets aggregates only, at or below its classification limit, and publishing it is the owner's decision.
+- **`hitld dashboard`** renders a static, self-contained HTML dashboard (charts as inline SVG, no scripts from elsewhere, no server, no network requests) and the digests, from that store. The page includes the milestone graph (12.1.2). It runs anywhere Node runs, under any harness.
+- **`hitld dashboard --json`** emits the data contract itself, so **richer views** can read the same data: a published dashboard page in Claude, or another app the owner builds on the same data. A view that publishes data off the machine gets aggregates only, at or below its classification limit, and publishing it is the owner's decision.
 - **The dashboard with safe intents** ([part 5](05-execution.md#57-control-plane-and-readout)) is a later milestone built on the same contract.
 
 ## 12.5 Quotas and budgets
@@ -81,7 +81,7 @@ Each limit is a **quota**:
 
 | Field | Meaning |
 |---|---|
-| `unit` | `tokens`, `requests`, `usd`, `credits`, or `plan_percent` (a vendor's "usage" percentage with no published unit) |
+| `unit` | `tokens`, `requests`, `usd`, `credits`, or `plan-percent` (a vendor's "usage" percentage with no published unit) |
 | `window` | `rolling_5h`, `weekly`, `monthly_utc` (calendar month, UTC), `run`, or a custom period |
 | `limit` | The amount per window, where known |
 | `scope` | Which account, harness and models it covers |
@@ -118,12 +118,12 @@ Quotas are **constraints for the controllers**. The budget controller ([part 11]
 | Headroom above the reserve | Action |
 |---|---|
 | Ample | Normal dispatch |
-| Below `quota.economize_at` | Prefer cheaper models and tiers where the sizing rules allow it (never below the tier blast radius requires; such items wait instead); lower concurrency |
-| Below `quota.critical_at` | Dispatch only critical-path items |
+| Below `quota.economize_below` | Prefer cheaper models and tiers where the sizing rules allow it (never below the tier blast radius requires; such items wait instead); lower concurrency |
+| Below `quota.critical_below` | Dispatch only critical-path items |
 | At the reserve | Stop autonomous dispatch; in-flight executors finish or checkpoint; the owner is told |
 
 - **The owner's reserve is never spent by autonomous work.** The default reserve is 25% of each window, set in the person file ([13.4](13-operations.md#134-settings-in-four-layers)); it stays available so an autonomous run never locks the owner out of their own interactive use (decided: [Q11](22-open-questions.md#q11-how-large-is-the-owners-reserve-on-each-account-limit)).
-- **Threshold notifications** at `quota.notify_at` levels go into the digest; a projected exhaustion before reset, or reaching the reserve, is an interrupt.
+- **Threshold notifications** at `quota.notify_used` levels go into the digest; a projected exhaustion before reset, or reaching the reserve, is an interrupt.
 - **Hard budgets need a yes.** Limits that cost money are hard: before any action that would exceed one (paid overage, API spend), the system asks the person and waits. Plan windows are soft, with the reserve (decided: [Q12](22-open-questions.md#q12-which-limits-are-hard)).
 
 ### Privacy
@@ -153,6 +153,6 @@ In "One signal end to end" ([part 21](21-scope.md)):
 - quotas declared in the person's settings, including the owner's reserve, and the run budget in `policy.json` ([part 13](13-operations.md#134-settings-in-four-layers));
 - opt-in status-line snapshots of window percentages, where the harness provides them;
 - a forecast per quota, and the reserve rule enforced at dispatch;
-- `hitld report` producing a static HTML report and a text digest.
+- `hitld dashboard` producing a static HTML report and a text digest.
 
 Explorable dashboards, controller replay, per-audience reports and vendor API readers come later ([part 21](21-scope.md)).

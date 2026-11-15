@@ -4,7 +4,7 @@ Scenarios, fixtures, graders and the runner ([design part 17](../docs/design/000
 
 ```bash
 node core/bin/hitld.mjs eval --offline                       # everything
-node core/bin/hitld.mjs eval --offline --scenarios ledger    # one piece, or one ID, or an ID prefix
+node core/bin/hitld.mjs eval --offline --scenarios ledger    # one suite, or one ID, or an ID prefix
 node core/bin/hitld.mjs eval --offline --seed 7              # other fixtures; its own baseline
 ```
 
@@ -14,13 +14,13 @@ The command prints JSON and exits 0 only when every scenario passes and the gate
 
 | Path | What |
 |---|---|
-| `evals/scenarios/<piece>/<name>.scenario.json` | One scenario. Its ID is `<piece>/<name>`, and the file's path must say so |
+| `evals/scenarios/<suite>/<name>.scenario.json` | One scenario. Its ID is `<suite>/<name>`, and the file's path must say so |
 | `evals/fixtures/<name>/` | A fixture directory a scenario copies fresh (`copy` generator). Synthetic and `public` only |
-| `core/lib/eval/actions/<piece>.mjs` | Actions your scenarios need, exporting `actions` (see below) |
+| `core/lib/eval/actions/<suite>.mjs` | Actions your scenarios need, exporting `actions` (see below) |
 | `schemas/eval-scenario.schema.json`, `schemas/eval-result.schema.json` | The scenario and result formats |
 | `schemas/policy/eval.schema.json` | The gate's thresholds: category floors and tolerances |
 
-`<piece>` is the area name, matching your command file in `core/lib/cli/commands/`: `foundation`, `tracker`, `ledger`, `env`, `contract`, `rights`, `quota`, `eval`, `orchestrator`, `security`, `release`. Make the directory when you add your first scenario. A consuming project adds its own scenarios under its own `evals/`, in the same format; `hitld eval` runs both.
+`<suite>` is the area name, matching your command file in `core/lib/cli/commands/`: `foundation`, `tracker`, `ledger`, `env`, `contract`, `rights`, `quota`, `eval`, `orchestrator`, `security`, `release`. Make the directory when you add your first scenario. A consuming project adds its own scenarios under its own `evals/`, in the same format; `hitld eval` runs both.
 
 ## A scenario
 
@@ -30,7 +30,7 @@ JSON, validated by `schemas/eval-scenario.schema.json`. The design names YAML; t
 {
   "schema_version": 1,
   "id": "foundation/policy-check",
-  "piece": "foundation",
+  "suite": "foundation",
   "category": "policy",
   "description": "What behaviour this protects, in a sentence.",
   "mode": "offline",
@@ -60,7 +60,7 @@ Scenarios are data and never run code. A scenario cannot contain a key that name
 | `adapter.dispatch` | Dispatches to the profile's fake adapter and completes it. A refusal is data: `{ accepted, refusal, completion }` |
 | `adapter.capabilities` | The profile's capabilities |
 
-**To add an action**, add `core/lib/eval/actions/<piece>.mjs` exporting `actions`: each has a `description`, an `input` (a JSON Schema for `with`, which the loader checks) and `run(input, ctx)`, which calls your piece's library and returns plain JSON. `ctx` gives `sandbox`, `seed`, `profile`, `adapter()` (the fake adapter for the profile) and `recordTokens(n)`. Never call a harness: use `ctx.adapter()`.
+**To add an action**, add `core/lib/eval/actions/<suite>.mjs` exporting `actions`: each has a `description`, an `input` (a JSON Schema for `with`, which the loader checks) and `run(input, ctx)`, which calls your piece's library and returns plain JSON. `ctx` gives `sandbox`, `seed`, `profile`, `adapter()` (the fake adapter for the profile) and `recordTokens(n)`. Never call a harness: use `ctx.adapter()`.
 
 ### Graders
 

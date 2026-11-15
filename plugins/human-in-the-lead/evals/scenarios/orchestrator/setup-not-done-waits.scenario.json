@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "h-orchestrator/setup-not-done-waits",
-  "piece": "h-orchestrator",
+  "id": "orchestrator/setup-not-done-waits",
+  "suite": "orchestrator",
   "category": "settings",
   "description": "Until the first-run setup is done (design 13.4), dispatch plan holds all autonomous work with the reason, dispatch start refuses an item the person did not start by hand, and a hand-started item runs with a cap of one.",
   "mode": "offline",

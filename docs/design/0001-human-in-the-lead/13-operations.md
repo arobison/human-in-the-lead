@@ -20,8 +20,8 @@ Each run has one `run-state.json` in the private store:
 | `scope` | Which items or milestones the run covers, its token budget, its concurrency cap, its stopping condition |
 | `in_flight` | Each executor running: dispatch ID, item, harness and its handle, host, worktree, branch, serial resources held, start time |
 | `ledger_position` | The ID of the last ledger event the orchestrator has processed |
-| `open_questions` | Decision IDs asked and not answered; questions held for the next digest |
-| `decisions_this_run` | Answers received, precedents applied, logged calls made |
+| `decisions_open` | Decision IDs asked and not answered; questions held for the next digest (`held_for_digest`) |
+| `decisions_answered` | Answers received, precedents applied, logged calls made |
 | `controllers` | Each controller's current setting and its last step ([part 11](11-metrics-and-control.md#114-feedback-controllers)) |
 | `quotas` | The last usage snapshot and forecast ([part 12](12-reporting-and-limits.md)) |
 | `merge_queue` | Branches waiting, the batch under test |
@@ -42,7 +42,7 @@ Because the ledger is written first, a crash between the two steps leaves a ledg
 
 ### One orchestrator at a time
 
-The `lease` stops two orchestrators from driving one run. A session renews the lease at every checkpoint. On the same machine, a new session takes over automatically once the lease is older than `run.lease_expiry`. Across machines it needs the owner's OK, because clock skew between machines could otherwise let two sessions drive one run. Taking over is a ledger event.
+The `lease` stops two orchestrators from driving one run. A session renews the lease at every checkpoint. On the same machine, a new session takes over automatically once the lease is older than `run.lease_expiry_seconds`. Across machines it needs the owner's OK, because clock skew between machines could otherwise let two sessions drive one run. Taking over is a ledger event.
 
 ### Resuming, on any machine
 
@@ -55,7 +55,7 @@ A fresh orchestrator session runs `hitld run resume`, which:
 
 **On another machine**, the private store's text history arrives through `hitld store sync`, an encrypted bundle exchanged the same way as the code ([part 3](03-data-model.md#private-store)). The run state is rebuilt from it, and the ledger index is rebuilt locally. Executors still running on the first machine cannot be adopted remotely: they stay `in_flight` with their host named, and their reports arrive with the next bundle. If the first machine is gone, the owner decides whether to abandon them.
 
-**Context hygiene.** The orchestrator keeps its own context small on purpose: it reads the run-state summary, reports in their fixed shape, and script output, never diffs or logs. When its context passes `orchestrator.context_handoff`, it checkpoints and hands over to a fresh session (with the owner's standing permission, Q10).
+**Context hygiene.** The orchestrator keeps its own context small on purpose: it reads the run-state summary, reports in their fixed shape, and script output, never diffs or logs. When its context passes `orchestrator.handover_context_share`, it checkpoints and hands over to a fresh session (with the owner's standing permission, Q10).
 
 **Eval.** The eval suite includes a kill-and-resume scenario: an orchestrator is killed at random points in a fixture run (including between a ledger append and the run-state write), a fresh session resumes, and the scenario checks that no dispatch was lost or duplicated and that the final repository, tracker and ledger match an uninterrupted run ([part 17](17-evals.md#171-what-it-evaluates)).
 
@@ -91,7 +91,7 @@ A fresh orchestrator session runs `hitld run resume`, which:
 ### Secrets
 
 - **The default is no secrets.** `env.secret_tasks` is empty until the owner declares a task, and executors get no secret any other way.
-- **Agents never see secret values, and never choose what runs with one.** A secret is usable only through a named task that the owner declared in `policy.json` (`env.secret_tasks`): an exact command (an absolute program path and its arguments, or a fixed script inside the primary checkout), the roles that may run it, and the secrets it receives. A script that needs a secret runs as `hitld env exec <task>`: the manager reads the values from the operating system's keychain or a secret manager and injects them into that child process's environment only, in an environment it builds itself (a fixed `PATH`, no `NODE_OPTIONS`, `LD_PRELOAD` or similar). `env exec` takes a task name and nothing else; a name that is not declared is refused. **The owner reviews every `secret_tasks` entry like code**: it is a command that runs with secrets, so a task that takes the agent's input (a shell, an interpreter, a script that runs files from the worktree) hands the secret to the agent. `env exec` reads `policy.json` only from the primary checkout, and finds that checkout from a record, not from git: when the orchestrator starts a run (`hitld run start`) it writes the primary checkout's canonical path to `primary-checkout.json` in the project's private store, where executors cannot write (the first record wins, so a later run from another path is refused). Moving the checkout therefore needs a reset: `hitld env primary --reset`, for the owner only and refused for executors (planned, not built). The orchestrator gives the executor `HITLD_PROJECT` and `HITLD_DISPATCH`; `env exec` refuses unless the record exists, the policy it loads from that path is for the same project, the dispatch's recorded worktree is a linked worktree of that checkout (judged from the checkout's own metadata, so a rewritten `.git` file in the worktree gains nothing), and the caller is inside it. There is no fallback to the working directory.
+- **Agents never see secret values, and never choose what runs with one.** A secret is usable only through a named task that the owner declared in `policy.json` (`env.secret_tasks`): an exact command (an absolute program path and its arguments, or a fixed script inside the primary checkout), the roles that may run it, and the secrets it receives. A script that needs a secret runs as `hitld env exec <task>`: the manager reads the values from the operating system's keychain or a secret manager and injects them into that child process's environment only, in an environment it builds itself (a fixed `PATH`, no `NODE_OPTIONS`, `LD_PRELOAD` or similar). `env exec` takes a task name and nothing else; a name that is not declared is refused. **The owner reviews every `secret_tasks` entry like code**: it is a command that runs with secrets, so a task that takes the agent's input (a shell, an interpreter, a script that runs files from the worktree) hands the secret to the agent. `env exec` reads `policy.json` only from the primary checkout, and finds that checkout from a record, not from git: when the orchestrator starts a run (`hitld run start`) it writes the primary checkout's canonical path to `primary-checkout.json` in the project's private store, where executors cannot write (the first record wins, so a later run from another path is refused). Moving the checkout therefore needs a reset: `hitld env primary --reset`, for the owner only and refused for executors (planned, not built). The orchestrator gives the executor `HITLD_PROJECT_ID` and `HITLD_DISPATCH`; `env exec` refuses unless the record exists, the policy it loads from that path is for the same project, the dispatch's recorded worktree is a linked worktree of that checkout (judged from the checkout's own metadata, so a rewritten `.git` file in the worktree gains nothing), and the caller is inside it. There is no fallback to the working directory.
 - **Scoped by role, from the dispatch record.** The caller's role is not asserted by the caller. The orchestrator passes the executor's environment `HITLD_DISPATCH`, the dispatch ID; the manager looks it up in the run state the run module wrote and takes the role from there. A request is refused, and logged, when the task is not declared, the dispatch is missing, is not live (claimed and not yet reported), or its role has no grant for the task. **Known gap:** this does not stop an agent that can read another live dispatch's ID from borrowing it, and so borrowing that role's tasks; closing that is the harness sandbox's job (a later milestone). It also relies on the ledger refusing raw appends of dispatch records from anyone but the run module.
 - **Never printed.** Output from a process given a secret is filtered for the secret's value before it reaches any agent, log or report.
 - **Never committed.** Secret files never live in a worktree; the commit guard scans every commit ([part 10](10-security.md#102-least-privilege-per-role)).
@@ -112,9 +112,9 @@ Some work recurs and nobody prompts it. The scheduler runs it.
 | Job | Typical cadence | Runs |
 |---|---|---|
 | Intake pull and triage | Several times a day | `hitld intake pull`, then a triage dispatch if anything arrived |
-| Digest | At the owner's set times | `hitld report digest` through the notification channel ([part 12](12-reporting-and-limits.md)) |
+| Digest | At the owner's set times | `hitld dashboard digest` through the notification channel ([part 12](12-reporting-and-limits.md)) |
 | Nightly baselines | Nightly | Benchmark runs on `main` through the evidence source, holding the benchmark resource's lock |
-| Stale-item sweep | Daily | Orphaned claims, `Proposed` items older than `sweep.proposed_max_age`, blocked items whose blockers resolved |
+| Stale-item sweep | Daily | Orphaned claims, `proposed` items older than `sweep.proposed_max_age`, blocked items whose blockers resolved |
 | Stale-knowledge sweep | After merge batches, or daily | `hitld kb stale`, then gardening dispatches |
 | Flaky-test sweep | Daily | Rerun recent failures on unchanged code; quarantine and file items for confirmed flakes |
 | Quota check | Hourly while a run is active | Usage snapshot and forecast ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)) |
@@ -162,11 +162,11 @@ The machine profile says how much of the machine `hitld` may use, not just what 
 |---|---|---|
 | `cores` | 2 of 4 | The most cores heavy work started by `hitld` may keep busy |
 | `memory_ceiling` | 8 GB | Heavy work is not admitted when its expected use would pass this |
-| `executors_max` | 3 | The most executors on this machine, from every project |
+| `max_executors` | 3 | The most executors on this machine, from every project |
 | `capacity` | `gpu`: 4 | How many weight units each resource takes (see below) |
 | `load` | `max_per_core`: 0.7 | Above this, heavy work waits |
 
-**Machine roles.** The machine profile has a role, and the role sets the defaults (decided, [Q26](22-open-questions.md#q26-what-share-of-a-machine-may-hitld-use-by-default-affects-the-machine-profile-hitld-machine-detect-proposes)):
+**Kinds of machine.** The machine profile has a `kind` (`role` before HITLD-82), and the kind sets the defaults (decided, [Q26](22-open-questions.md#q26-what-share-of-a-machine-may-hitld-use-by-default-affects-the-machine-profile-hitld-machine-detect-proposes)):
 
 | Role | Default share | Behaviour |
 |---|---|---|
@@ -240,12 +240,12 @@ Until then, conservative defaults apply (one executor, the default reserve, no h
 | Key today | Moves to | A project may still |
 |---|---|---|
 | `quota.limits` | Person | Set run budgets (`window: run`) |
-| `quota.owner_reserve`, `economize_at`, `critical_at`, `notify_at`, `forecast_hours` | Person | Set a larger reserve or earlier thresholds |
+| `quota.reserve`, `economize_below`, `critical_below`, `notify_used`, `forecast_hours` | Person | Set a larger reserve or earlier thresholds |
 | `env.port_range` | Machine | Narrow it to a sub-range |
 | `env.worktree_root` | Machine | Name a subdirectory under it |
 | `env.secret_provider` | Machine | Narrow it (`auto` to `keychain`), never widen it |
 | `env.serial_resources` | Stays, as the names of what work needs | Capacities and holders are machine settings |
-| `execution.concurrency` | Stays, as the project's own cap | The person's and machine's caps apply on top |
+| `execution.max_executors` | Stays, as the project's own cap | The person's and machine's caps apply on top |
 | Per-person interface settings ([part 23](23-people-in-the-lead.md#235-the-interface-as-a-design-surface)) | Person | Keep each person's decision rights and decision budget ceiling |
 | `judgement.weights` (starting weights per person, [part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)) | Person | Nothing: weights are personal |
 

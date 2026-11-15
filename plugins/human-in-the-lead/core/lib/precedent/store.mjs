@@ -62,11 +62,30 @@ export function renderPrecedent(p) {
 export function parsePrecedent(text, where) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   if (!m) throw new Error(`${where}: no front matter between --- lines`);
+  /** @type {unknown} */
+  let data;
   try {
-    return JSON.parse(m[1]);
+    data = JSON.parse(m[1]);
   } catch {
     throw new Error(`${where}: the front matter is not JSON data`);
   }
+  return fromLegacyPrecedent(data);
+}
+
+/**
+ * A precedent in the names before HITLD-82, read until the next minor release: the state
+ * `narrowed` is `active` (its exceptions hold the narrowing), and the scope `project` is `all`.
+ * @param {any} p
+ * @returns {Precedent}
+ */
+export function fromLegacyPrecedent(p) {
+  if (!p || typeof p !== 'object') return p;
+  if (p.state !== 'narrowed' && p.scope !== 'project') return p;
+  return {
+    ...p,
+    ...(p.state === 'narrowed' ? { state: 'active' } : {}),
+    ...(p.scope === 'project' ? { scope: 'all' } : {}),
+  };
 }
 
 /**
@@ -116,7 +135,7 @@ export function openPrecedentStore({
         id: key.slice(PRIVATE_PREFIX.length, -'.json'.length),
         place: 'private store',
         file: key,
-        precedent: JSON.parse(/** @type {string} */ (store.read(key))),
+        precedent: fromLegacyPrecedent(JSON.parse(/** @type {string} */ (store.read(key)))),
       });
     }
     return out.sort((a, b) => numberOf(a.id) - numberOf(b.id));

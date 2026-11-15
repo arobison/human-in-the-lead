@@ -8,12 +8,12 @@
     "schema_version": {
       "$ref": "common#/$defs/schemaVersion"
     },
-    "role": {
-      "description": "What kind of machine this is; the role sets the defaults for shares and load checks (design part 13.4, machine roles).",
-      "enum": ["dedicated", "workstation", "cloud_vm", "ci"]
+    "kind": {
+      "description": "What kind of machine this is; the kind sets the defaults for shares and load checks (design part 13.4, kinds of machine). Was role before HITLD-82.",
+      "enum": ["dedicated", "workstation", "cloud-vm", "ci"]
     },
-    "executors_max": {
-      "description": "The most executors on this machine, from every project. The effective cap is the smallest of this, the person's executors_max, the project's execution.concurrency and the run's cap.",
+    "max_executors": {
+      "description": "The most executors on this machine, from every project. The effective cap is the smallest of this, the person's max_executors, the project's execution.max_executors and the run's cap.",
       "type": "integer",
       "minimum": 1
     },
@@ -55,12 +55,12 @@
           "description": "When the probe ran.",
           "$ref": "common#/$defs/timestamp"
         },
-        "role": {
-          "description": "The role the local hints pointed to. The role above wins when the person set it.",
-          "enum": ["dedicated", "workstation", "cloud_vm", "ci"]
+        "kind": {
+          "description": "The kind the local hints pointed to. The kind above wins when the person set it.",
+          "enum": ["dedicated", "workstation", "cloud-vm", "ci"]
         },
-        "role_hints": {
-          "description": "The local hints behind the detected role.",
+        "kind_hints": {
+          "description": "The local hints behind the detected kind.",
           "type": "array",
           "items": {
             "type": "string",

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "id": "h-orchestrator/kill-and-resume",
-  "piece": "h-orchestrator",
+  "id": "orchestrator/kill-and-resume",
+  "suite": "orchestrator",
   "category": "continuity",
   "description": "Through the orchestrator skill's commands: a session killed after recording two dispatches (one before its harness call, one after) is resumed by a fresh session, which abandons the one that never started, adopts the live one, re-plans the abandoned item and never dispatches the live one twice; the killed session can no longer record.",
   "mode": "offline",

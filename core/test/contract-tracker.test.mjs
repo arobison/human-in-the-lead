@@ -89,3 +89,21 @@ test("the contract's claim and close steps, written by hand, are what the files 
   assert.equal(t.get('W-4').state, 'done');
   assert.deepEqual(t.claims(), []);
 });
+
+test('hitld install rewrites a contract block from before HITLD-82 (state: In progress, status, runs)', async () => {
+  const { installBlock, renderBlock } = await import('../lib/contract/block.mjs');
+  const { mkdtempSync: mk, readFileSync: rd, writeFileSync: wr } = await import('node:fs');
+  const { tmpdir: td } = await import('node:os');
+  const { join: jn } = await import('node:path');
+  const dir = mk(jn(td(), 'hitld-contract-old-'));
+  const old = renderBlock()
+    .replace('`state: in-progress`', '`state: In progress`')
+    .replace('result: done | partial | blocked', 'status: done | partial | blocked')
+    .replace('bench_runs: <run ID>', 'runs: <run ID>');
+  wr(jn(dir, 'AGENTS.md'), `# Agents\n\nOwn text.\n\n${old}`);
+  assert.equal(installBlock(dir).action, 'updated');
+  const text = rd(jn(dir, 'AGENTS.md'), 'utf8');
+  assert.ok(text.startsWith('# Agents\n\nOwn text.\n'), 'text outside the markers is kept');
+  assert.ok(text.includes('`state: in-progress`') && text.includes('\nresult: done'));
+  assert.equal(text.includes('status:'), false);
+});
