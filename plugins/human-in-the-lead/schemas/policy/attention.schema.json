@@ -1,0 +1,21 @@
+{
+  "$id": "policy/attention",
+  "title": "policy.json: attention",
+  "description": "The ceiling the owner sets on each person's attention budget (design part 23.5). The budget itself is the person's own, in the person file (attention.*); the lower of the person's value and the ceiling applies, so a project may be stricter than a person and never looser.",
+  "type": "object",
+  "properties": {
+    "decisions_per_digest_max": {
+      "description": "The most decisions that may be in front of one person at once through digests, whatever their own setting.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 10
+    },
+    "interrupts_per_day_max": {
+      "description": "The most questions that may be sent at once to one person in any 24 hours, whatever their own setting.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 6
+    }
+  },
+  "additionalProperties": false
+}
