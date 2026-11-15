@@ -170,6 +170,16 @@
       ],
       "additionalProperties": false
     },
+    "checkout": {
+      "description": "The checkout the suite ran in: its commit and whether its working tree had changes (tracked or untracked files; ignored ones left out). Null when it was not a git checkout. A run is accepted as the baseline only when its commit is on the main branch and its tree was clean (design part 17.9). Absent in runs recorded before this was kept, which cannot be accepted. A stored baseline and the committed one never have it.",
+      "type": "object",
+      "properties": {
+        "commit": { "type": ["string", "null"] },
+        "dirty": { "type": ["boolean", "null"] }
+      },
+      "required": ["commit", "dirty"],
+      "additionalProperties": false
+    },
     "accepted": {
       "description": "Present only on a baseline: who accepted this run as the baseline, and when (added in version 2). The stored run itself never has it. The baseline committed in evals/baselines/ is the same document in its committed form: grader messages empty, no reasons, wall time 0, no transcript keys, no commit, no gate verdict.",
       "type": "object",
@@ -187,10 +197,6 @@
       "properties": {
         "ok": { "type": "boolean" },
         "baseline": { "type": ["string", "null"] },
-        "baseline_source": {
-          "description": "Which baseline the verdict used: committed (the file in evals/baselines/ of the checkout) or private-store (this machine's copy, used only when none is committed). Null when there was none. Absent in runs recorded before the gate said so.",
-          "enum": ["committed", "private-store", null]
-        },
         "failures": {
           "type": "array",
           "items": {

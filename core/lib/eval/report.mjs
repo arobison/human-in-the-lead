@@ -133,14 +133,8 @@ function verdict(run, baseline) {
       stale: null,
     };
   }
-  const from =
-    gate.baseline_source === 'committed'
-      ? ' (committed in evals/baselines/)'
-      : gate.baseline_source === 'private-store'
-        ? " (from this machine's private store; none is committed)"
-        : '';
   const against = gate.baseline
-    ? `Compared with baseline ${gate.baseline}${from}.`
+    ? `Compared with baseline ${gate.baseline}.`
     : 'No baseline yet: nothing to compare with. Floors and scenario results still applied.';
   if (gate.ok && bad === 0) {
     return { tone: 'ok', head: 'Gate passed', body: against, stale };
@@ -254,16 +248,19 @@ details.scenario>summary{cursor:pointer;padding:.65rem 1rem;display:flex;flex-wr
 /**
  * Render the page for a stored run.
  * @param {EvalResult} given @param {EvalResult | null} givenBaseline the baseline now stored for the run's settings
+ * @param {string | null} [blocked] why the run's commit rules it out as a baseline (not on main, or
+ *   a dirty tree), which only git can say: the accept command is then not offered
  * @returns {string}
  */
-export function renderEvalReport(given, givenBaseline) {
+export function renderEvalReport(given, givenBaseline, blocked = null) {
   // A run stored before HITLD-82 says status and not_applicable: read it in the new names.
   const run = fromLegacyResult(given);
   const baseline = givenBaseline && fromLegacyResult(givenBaseline);
   const s = run.summary;
   const v = verdict(run, baseline);
   const changes = changesAgainst(run, baseline);
-  const accept = acceptCommand(run, baseline);
+  const asked = acceptCommand(run, baseline);
+  const accept = asked.command && blocked ? { command: null, reason: blocked } : asked;
   const scenarios = [...run.scenarios].sort(
     (a, b) =>
       ORDER[/** @type {keyof typeof ORDER} */ (a.result)] -

@@ -10,6 +10,7 @@ import {
   acceptRefusal,
   findBaseline,
   fromLegacyResult,
+  provenanceRefusal,
 } from '../../eval/results.mjs';
 import { ownerCheckoutOf } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
@@ -61,6 +62,12 @@ function openEvalStore(ctx) {
     .filter((id) => RUN_ID.test(id));
   return { ok: /** @type {const} */ (true), store, stored };
 }
+
+/**
+ * The main branch of the project in a checkout: policy.json merge.main_branch, or main.
+ * @param {string} root
+ */
+const mainBranchOf = (root) => loadPolicy({ cwd: root }).policy?.merge?.main_branch ?? 'main';
 
 /**
  * A stored run, checked against its schema.
@@ -200,7 +207,13 @@ export const commands = [
       const doc = readRun(store, String(id));
       if (!doc.ok) return doc;
       const root = repoRoot ?? resolve(ctx.cwd);
-      const html = renderEvalReport(doc.run, findBaseline({ store, root }, doc.run).baseline);
+      const primary = ownerCheckoutOf(ctx.cwd) ?? root;
+      const html = renderEvalReport(
+        doc.run,
+        findBaseline({ store, root }, doc.run).baseline,
+        provenanceRefusal(doc.run, { root: primary, mainBranch: mainBranchOf(primary) })?.message ??
+          null,
+      );
       const dir =
         typeof input.out === 'string'
           ? isAbsolute(input.out)
@@ -262,6 +275,16 @@ export const commands = [
           error: 'refused',
           run: id,
           message: `run ${id} was not accepted: ${refusal}`,
+        };
+      }
+      // A baseline judges main: the run must be of a commit on main, with a clean tree.
+      const provenance = provenanceRefusal(doc.run, { root, mainBranch: mainBranchOf(root) });
+      if (provenance) {
+        return {
+          ok: false,
+          error: provenance.error,
+          run: id,
+          message: `run ${id} was not accepted: ${provenance.message}`,
         };
       }
       let written;

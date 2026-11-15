@@ -4,7 +4,6 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -19,6 +18,7 @@ import {
 import { hostname, tmpdir, userInfo } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { commitAll, git, repoOnMain } from './eval-git.mjs';
 import { main } from '../lib/cli/main.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { openStore } from '../lib/store/store.mjs';
@@ -75,12 +75,14 @@ function putScenario(dir, name, valid = true) {
 
 /**
  * A directory with its own evals, and a private store of its own. `hitld` runs a command in it.
- * @param {{ cwd?: string, data?: string, env?: Record<string, string> }} [where]
+ * A repository on main with everything committed, unless it is given a directory or `git: false`.
+ * @param {{ cwd?: string, data?: string, env?: Record<string, string>, git?: boolean }} [where]
  */
 function workspace(where = {}) {
   const cwd = where.cwd ?? tmp();
   const data = where.data ?? tmp();
   putScenario(cwd, 'a');
+  if (where.cwd === undefined && where.git !== false) repoOnMain(cwd);
   /** @param {string[]} argv @param {Record<string, string>} [more] */
   const hitld = async (argv, more = {}) => {
     /** @type {string[]} */
@@ -105,22 +107,6 @@ function workspace(where = {}) {
   };
   return { cwd, data, hitld, store, offline };
 }
-
-/** @param {string} cwd @param {...string} args */
-const git = (cwd, ...args) =>
-  execFileSync(
-    'git',
-    [
-      '-c',
-      'user.name=Test',
-      '-c',
-      'user.email=test@example.com',
-      '-c',
-      'commit.gpgsign=false',
-      ...args,
-    ],
-    { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-  );
 
 /** The stored run `id` in a workspace's private store. @param {ReturnType<typeof workspace>} w @param {string} id */
 const stored = (w, id) => JSON.parse(w.store().read(`eval/results/${id}.json`) ?? 'null');
@@ -285,11 +271,8 @@ test('every baseline committed in this repository is valid, clean and in its com
 });
 
 test('eval accept writes the committed baseline and keeps the private copy; it does not commit', async () => {
-  const root = tmp();
-  git(root, 'init', '-q');
-  const w = workspace({ cwd: root });
-  git(root, 'add', '-A');
-  git(root, 'commit', '-q', '-m', 'scenarios');
+  const w = workspace();
+  const root = w.cwd;
   const head = git(root, 'rev-parse', 'HEAD');
   const ran = await w.offline();
   const run = stored(w, ran.json.run);
@@ -306,6 +289,24 @@ test('eval accept writes the committed baseline and keeps the private copy; it d
   const kept = JSON.parse(w.store().read(baselineKey('offline', key)) ?? 'null');
   assert.equal(kept.id, ran.json.run);
   assert.notEqual(kept.scenarios[0].graders[0].message, '');
+  // What reaches the shared private store has only keys that code from before this change knows:
+  // not the run's checkout, and not the gate's baseline source. Nor does the recorded run.
+  for (const doc of [kept, run]) {
+    assert.equal(doc.gate.baseline_source, undefined);
+  }
+  assert.equal(kept.checkout, undefined);
+  const before = Object.keys(schemas().get('eval-result').properties).filter(
+    (k) => k !== 'checkout',
+  );
+  assert.deepEqual(
+    Object.keys(kept).filter((k) => !before.includes(k)),
+    [],
+  );
+  assert.deepEqual(
+    Object.keys(kept.gate).filter((k) => !['ok', 'baseline', 'failures', 'notes'].includes(k)),
+    [],
+  );
+  assert.deepEqual(run.checkout, { commit: head, dirty: false });
   // The committed one is the stripped form, and carries the acceptance.
   const doc = JSON.parse(readFileSync(file, 'utf8'));
   assert.equal(doc.id, ran.json.run);
@@ -318,11 +319,8 @@ test('eval accept writes the committed baseline and keeps the private copy; it d
 });
 
 test('the baseline goes to the primary checkout, never to a linked worktree; executors are refused', async () => {
-  const primary = tmp();
-  git(primary, 'init', '-q');
-  const w = workspace({ cwd: primary });
-  git(primary, 'add', '-A');
-  git(primary, 'commit', '-q', '-m', 'scenarios');
+  const w = workspace();
+  const primary = w.cwd;
   const linked = join(tmp(), 'linked');
   git(primary, 'worktree', 'add', '-q', '-b', 'work', linked);
   const inLinked = workspace({ cwd: linked, data: w.data });
@@ -384,9 +382,10 @@ test('the gate reads the committed baseline first, the private store second, and
       n.includes(`evals/baselines/offline-${key}.json`),
     ),
   );
-  // The result recorded in the store says so too, and still validates.
+  // The result recorded in the store keeps the note, not the new key, and still validates.
   const recorded = stored(w, fromFile.json.run);
-  assert.equal(recorded.gate.baseline_source, 'committed');
+  assert.equal(recorded.gate.baseline_source, undefined);
+  assert.ok(recorded.gate.notes.some((/** @type {string} */ n) => /committed in evals/.test(n)));
   assert.deepEqual(schemas().validateEntity('eval-result', recorded), []);
 
   // With the file gone the store's is used again.
@@ -491,4 +490,130 @@ test('the plugin build leaves the committed baselines out', async () => {
   for (const path of expectedFiles().keys()) {
     assert.ok(!path.startsWith(join('evals', 'baselines')), path);
   }
+});
+
+// A baseline judges main: only a run of a commit on main with a clean tree is accepted.
+
+/** @param {ReturnType<typeof workspace>} w @param {string} id */
+const accept = (w, id) => w.hitld(['eval', 'accept', '--result', id]);
+
+test('accept: a run on main’s head is accepted, and so is a run on an older main commit', async () => {
+  const w = workspace();
+  const older = await w.offline();
+  assert.equal(stored(w, older.json.run).checkout.commit, git(w.cwd, 'rev-parse', 'HEAD'));
+  // Main moves on; the run is of a commit that is still on main.
+  writeFileSync(join(w.cwd, 'notes.txt'), 'later');
+  commitAll(w.cwd, 'main moves on');
+  const accepted = await accept(w, older.json.run);
+  assert.equal(accepted.code, 0, JSON.stringify(accepted.json));
+  // And the run on the new head, too.
+  const head = await w.offline();
+  assert.equal(stored(w, head.json.run).checkout.commit, git(w.cwd, 'rev-parse', 'HEAD'));
+  assert.equal((await accept(w, head.json.run)).code, 0);
+});
+
+test('accept: a run on a branch commit that is not on main is refused as not-on-main', async () => {
+  const w = workspace();
+  git(w.cwd, 'switch', '-q', '-c', 'feature');
+  writeFileSync(join(w.cwd, 'notes.txt'), 'only on the branch');
+  commitAll(w.cwd, 'branch work');
+  const ran = await w.offline();
+  assert.equal(stored(w, ran.json.run).checkout.dirty, false);
+  const refused = await accept(w, ran.json.run);
+  assert.equal(refused.code, 1);
+  assert.equal(refused.json.error, 'not-on-main');
+  assert.match(refused.json.message, /not on main/);
+  assert.match(refused.json.message, /run the suite on main/);
+  assert.deepEqual(committedFiles(w.cwd), []);
+  assert.equal(w.store().list('eval/baselines/').length, 0);
+  // The owner's --accept-baseline on the branch is refused the same way, and writes nothing.
+  const direct = await w.offline(['--accept-baseline']);
+  assert.equal(direct.code, 1);
+  assert.equal(direct.json.error, 'not-on-main');
+  assert.equal(direct.json.baseline_accepted, undefined);
+  assert.deepEqual(committedFiles(w.cwd), []);
+  assert.equal(w.store().list('eval/baselines/').length, 0);
+  // Once the branch is on main, the same kind of run is accepted.
+  git(w.cwd, 'switch', '-q', 'main');
+  git(w.cwd, 'merge', '-q', '--ff-only', 'feature');
+  const onMain = await w.offline();
+  assert.equal((await accept(w, onMain.json.run)).code, 0);
+});
+
+test('accept: a run with uncommitted changes is refused as dirty-tree, tracked or untracked', async () => {
+  const w = workspace();
+  const clean = await w.offline();
+  assert.equal(stored(w, clean.json.run).checkout.dirty, false);
+
+  const scenarioFile = join(w.cwd, 'evals', 'scenarios', 't', 'a.scenario.json');
+  writeFileSync(scenarioFile, JSON.stringify(scenario('a', true), null, 1));
+  const tracked = await w.offline();
+  assert.equal(stored(w, tracked.json.run).checkout.dirty, true);
+  const refused = await accept(w, tracked.json.run);
+  assert.equal(refused.code, 1);
+  assert.equal(refused.json.error, 'dirty-tree');
+  assert.match(refused.json.message, /uncommitted changes/);
+  assert.match(refused.json.message, /run the suite on main/);
+  git(w.cwd, 'checkout', '--', '.');
+
+  writeFileSync(join(w.cwd, 'scratch.txt'), 'not committed');
+  const untracked = await w.offline();
+  assert.equal(stored(w, untracked.json.run).checkout.dirty, true);
+  assert.equal((await accept(w, untracked.json.run)).json.error, 'dirty-tree');
+  const direct = await w.offline(['--accept-baseline']);
+  assert.equal(direct.json.error, 'dirty-tree');
+  assert.deepEqual(committedFiles(w.cwd), []);
+
+  // A baseline file left uncommitted by an earlier accept does not make the tree dirty.
+  rmSync(join(w.cwd, 'scratch.txt'));
+  assert.equal((await accept(w, clean.json.run)).code, 0);
+  assert.equal(committedFiles(w.cwd).length, 1);
+  const after = await w.offline();
+  assert.equal(stored(w, after.json.run).checkout.dirty, false);
+});
+
+test('accept: a run that recorded no commit (not a git checkout, or an older run) is refused as no-commit', async () => {
+  const w = workspace({ git: false });
+  const ran = await w.offline();
+  assert.deepEqual(stored(w, ran.json.run).checkout, { commit: null, dirty: null });
+  const refused = await accept(w, ran.json.run);
+  assert.equal(refused.json.error, 'no-commit');
+  assert.equal((await w.offline(['--accept-baseline'])).json.error, 'no-commit');
+
+  const old = workspace();
+  const made = await old.offline();
+  const doc = stored(old, made.json.run);
+  delete doc.checkout;
+  old.store().write(`eval/results/${made.json.run}.json`, JSON.stringify(doc));
+  assert.equal((await accept(old, made.json.run)).json.error, 'no-commit');
+});
+
+test('accept: a commit only on the main branch’s upstream counts as on main', async () => {
+  const w = workspace();
+  const remote = tmp();
+  git(remote, 'init', '-q', '--bare', '-b', 'main');
+  git(w.cwd, 'remote', 'add', 'origin', remote);
+  git(w.cwd, 'push', '-q', '-u', 'origin', 'main');
+  // A commit that reached the remote's main, while the local main branch is behind it.
+  writeFileSync(join(w.cwd, 'notes.txt'), 'merged remotely');
+  commitAll(w.cwd, 'remote main moves on');
+  git(w.cwd, 'push', '-q', 'origin', 'main');
+  const ran = await w.offline();
+  git(w.cwd, 'switch', '-q', '--detach', 'HEAD');
+  git(w.cwd, 'branch', '-q', '-f', 'main', 'HEAD~1');
+  git(w.cwd, 'switch', '-q', 'main');
+  assert.notEqual(git(w.cwd, 'rev-parse', 'main'), stored(w, ran.json.run).checkout.commit);
+  assert.equal((await accept(w, ran.json.run)).code, 0);
+});
+
+test('the results page offers no accept command for a run that is not on main', async () => {
+  const w = workspace();
+  git(w.cwd, 'switch', '-q', '-c', 'feature');
+  writeFileSync(join(w.cwd, 'notes.txt'), 'only on the branch');
+  commitAll(w.cwd, 'branch work');
+  const ran = await w.offline();
+  const page = await w.hitld(['eval', 'report', '--result', ran.json.run]);
+  const html = readFileSync(page.json.html, 'utf8');
+  assert.doesNotMatch(html, /hitld eval accept --result/);
+  assert.match(html, /is not on main/);
 });

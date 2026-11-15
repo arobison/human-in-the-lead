@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { repoOnMain } from './eval-git.mjs';
 import { main } from '../lib/cli/main.mjs';
 import { COMMANDS } from '../lib/cli/table.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
@@ -387,6 +388,7 @@ function workspace() {
       graders: [{ grader: 'equals', with: { path: 'steps.v.valid', value: true } }],
     }),
   );
+  repoOnMain(cwd); // a baseline is accepted only from a run on main with a clean tree
   const env = { XDG_DATA_HOME: tmp() };
   /** @param {string[]} argv */
   const hitld = async (argv) => {

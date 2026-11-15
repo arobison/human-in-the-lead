@@ -16,7 +16,9 @@ import {
   acceptBaseline,
   buildResult,
   checkoutCommit,
+  checkoutState,
   findBaseline,
+  provenanceRefusal,
   recordResult,
 } from './results.mjs';
 import { runCases } from './runner.mjs';
@@ -132,6 +134,9 @@ export async function evalOffline(options) {
 
   const seed = options.seed ?? DEFAULT_SEED;
   const profiles = Object.keys(PROFILES).sort();
+  // The checkout the suite runs in: where the committed baseline is read, and whose commit and
+  // tree state the run records.
+  const root = findRepoRoot(options.cwd) ?? resolve(options.cwd);
   const cases = await runCases(chosen, { seed, actions, profiles });
   const { result, transcripts } = buildResult({
     cases,
@@ -139,6 +144,7 @@ export async function evalOffline(options) {
     version: VERSION,
     name: NAME,
     commit: checkoutCommit(PLUGIN_ROOT),
+    checkout: checkoutState(root),
     mode: 'offline',
     seed,
     profiles,
@@ -153,7 +159,6 @@ export async function evalOffline(options) {
     privateStorePath(policy.project.id, { env: options.env, repoRoot: options.cwd }),
   );
   // The baseline committed in this checkout first, then the private store's.
-  const root = findRepoRoot(options.cwd) ?? resolve(options.cwd);
   const found = findBaseline(
     { store, root, committedOnly: options.requireBaseline === true },
     result,
@@ -175,7 +180,10 @@ export async function evalOffline(options) {
     options.requireBaseline === true && found.source !== 'committed'
       ? `no baseline is committed for these settings (mode offline, seed ${seed}): ${found.path} is missing. The owner runs hitld eval --offline, then hitld eval accept --result <run>, and commits the file it writes`
       : null;
-  result.gate = verdict;
+  // The stored run holds only keys older code knows; which baseline was used is in the notes and
+  // in the command's output.
+  const { baseline_source: _source, ...storedVerdict } = verdict;
+  result.gate = storedVerdict;
 
   const s = result.summary;
   const failing = result.scenarios.filter(
@@ -191,9 +199,22 @@ export async function evalOffline(options) {
       acceptRefused = 'a run with failing scenarios cannot become the baseline';
   }
   const key = recordResult(store, result, transcripts);
+  // The committed copy goes to the primary checkout, never to a linked worktree. A baseline judges
+  // main, so only a run of a commit on main with a clean tree becomes one.
+  const primary = ownerCheckoutOf(options.cwd) ?? root;
+  /** @type {string | null} */
+  let acceptError = null;
   if (options.acceptBaseline && !acceptRefused) {
-    // The committed copy goes to the primary checkout, never to a linked worktree.
-    const primary = ownerCheckoutOf(options.cwd) ?? root;
+    const refusal = provenanceRefusal(result, {
+      root: primary,
+      mainBranch: loadPolicy({ cwd: primary }).policy?.merge?.main_branch ?? 'main',
+    });
+    if (refusal) {
+      acceptError = refusal.error;
+      acceptRefused = refusal.message;
+    }
+  }
+  if (options.acceptBaseline && !acceptRefused) {
     try {
       accepted = acceptBaseline({ store, root: primary, result, now: options.now });
     } catch (e) {
@@ -228,6 +249,7 @@ export async function evalOffline(options) {
         }
       : {}),
     ...(acceptRefused ? { baseline_refused: acceptRefused } : {}),
+    ...(acceptError ? { error: acceptError, message: acceptRefused } : {}),
     problems: failing.map((/** @type {any} */ c) => ({
       scenario: c.id,
       profile: c.profile,

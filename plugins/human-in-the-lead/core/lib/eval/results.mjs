@@ -87,6 +87,82 @@ export function checkoutCommit(dir) {
   }
 }
 
+/**
+ * What the checkout the suite ran in was: its commit, and whether its working tree had changes
+ * (tracked or untracked, ignored files left out). Both null when it is not a git checkout. A
+ * baseline is accepted only from a clean run of a commit on main (design part 17.9).
+ * @param {string} dir @returns {{ commit: string | null, dirty: boolean | null }}
+ */
+export function checkoutState(dir) {
+  const commit = checkoutCommit(dir);
+  if (commit === null) return { commit: null, dirty: null };
+  try {
+    // The committed baselines are what accepting a run writes; they change nothing a run measures.
+    const status = execFileSync(
+      'git',
+      ['-C', dir, 'status', '--porcelain', '--', '.', `:(exclude)${COMMITTED_BASELINES}`],
+      {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        encoding: 'utf8',
+      },
+    );
+    return { commit, dirty: status.trim() !== '' };
+  } catch {
+    return { commit, dirty: null };
+  }
+}
+
+/**
+ * Why a stored run may not become the baseline because of the commit it ran on, or null. A
+ * baseline judges main, so the run must be of a commit reachable from the main branch (the local
+ * branch, or its upstream remote-tracking ref when it has one) with a clean working tree.
+ * @param {EvalResult} run
+ * @param {{ root: string, mainBranch: string }} where root: the primary checkout, whose git answers
+ * @returns {{ error: 'no-commit' | 'dirty-tree' | 'not-on-main', message: string } | null}
+ */
+export function provenanceRefusal(run, { root, mainBranch }) {
+  const c = run.checkout;
+  const on = `run the suite on ${mainBranch} in the primary checkout with a clean tree, then accept that run`;
+  if (!c || !c.commit) {
+    return {
+      error: 'no-commit',
+      message: `this run did not record the commit it ran on (a run before this was recorded, or not in a git checkout); ${on}`,
+    };
+  }
+  if (c.dirty !== false) {
+    return {
+      error: 'dirty-tree',
+      message: `this run was made with ${c.dirty ? 'uncommitted changes' : 'a working tree whose state is unknown'}; a baseline judges ${mainBranch}, so ${on}`,
+    };
+  }
+  /** @param {string[]} args */
+  const git = (args) =>
+    execFileSync('git', ['-C', root, ...args], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    }).trim();
+  const refs = [`refs/heads/${mainBranch}`];
+  try {
+    const upstream = git(['rev-parse', '--symbolic-full-name', `${mainBranch}@{upstream}`]);
+    if (upstream) refs.push(upstream);
+  } catch {
+    // No upstream is configured: the local branch alone.
+  }
+  for (const ref of refs) {
+    try {
+      git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+      git(['merge-base', '--is-ancestor', c.commit, ref]);
+      return null;
+    } catch {
+      // This ref is missing, or does not hold the commit; the next one may.
+    }
+  }
+  return {
+    error: 'not-on-main',
+    message: `this run's commit ${c.commit.slice(0, 12)} is not on ${mainBranch}; a baseline judges ${mainBranch}, so ${on}`,
+  };
+}
+
 /** @param {Date} d "20261114T031500Z" */
 const compact = (d) =>
   d
@@ -131,7 +207,7 @@ export function summarize(cases) {
  *   cases: CaseResult[], now: Date, version: string, name: string, commit: string | null,
  *   mode: 'offline' | 'live', seed: number, profiles: string[], filter: string | null,
  *   policyHash: string | null, policySource: 'file' | 'defaults', scenarioSetVersion: string,
- *   scenarioCount: number,
+ *   scenarioCount: number, checkout?: { commit: string | null, dirty: boolean | null },
  * }} run
  * @returns {{ result: EvalResult, transcripts: Map<string, unknown> }} transcripts by store key
  */
@@ -192,6 +268,7 @@ export function buildResult(run) {
     scenario_set: { version: run.scenarioSetVersion, count: run.scenarioCount },
     scenarios,
     summary: summarize(run.cases),
+    ...(run.checkout ? { checkout: run.checkout } : {}),
   };
   return { result, transcripts };
 }
@@ -321,7 +398,16 @@ export function acceptRefusal(run, baseline) {
  * @returns {EvalResult}
  */
 function baselineDocument(result, now) {
-  return { ...result, accepted: { by: 'owner', at: now.toISOString(), run: result.id } };
+  // The private store is shared by every checkout on the machine, some running older code that
+  // refuses keys it does not know. The stored baseline keeps only keys that code knows: not the
+  // run's `checkout` (the commit and tree state it ran on) and not the gate's `baseline_source`.
+  const { checkout: _checkout, gate, ...rest } = result;
+  const { baseline_source: _source, ...knownGate } = gate ?? {};
+  return {
+    ...rest,
+    ...(gate ? { gate: knownGate } : {}),
+    accepted: { by: 'owner', at: now.toISOString(), run: result.id },
+  };
 }
 
 /**
@@ -344,12 +430,12 @@ const scenarioKey = (s) => `${s.id}@${s.profile}`;
  * scenario keeps its ID, suite, category, profile, result, score, tokens and the grader names and
  * verdicts. Left out: the grader messages, expected and actual values (they quote fixture paths),
  * the reasons, the transcript keys (private-store keys), wall time (it varies with the machine),
- * the checkout's commit (a commit cannot hold its own ID) and the run's gate verdict. Scenarios are
+ * the checkout's commit and tree state (a commit cannot hold its own ID) and the run's gate verdict. Scenarios are
  * sorted, so the same results give the same file on any machine.
  * @param {EvalResult} baseline @returns {EvalResult}
  */
 export function committedForm(baseline) {
-  const { gate: _gate, ...doc } = fromLegacyResult(baseline);
+  const { gate: _gate, checkout: _checkout, ...doc } = fromLegacyResult(baseline);
   const scenarios = [...doc.scenarios]
     .sort((a, b) => (scenarioKey(a) < scenarioKey(b) ? -1 : 1))
     .map((/** @type {any} */ s) => ({
