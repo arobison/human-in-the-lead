@@ -22,10 +22,13 @@ import {
   answerDecision,
   askQuestion,
   listApplications,
+  listLoggedCalls,
+  logCall,
   overrule,
   precedentHealth,
   rateWorthAsking,
   recordReversal,
+  showQuestion,
 } from '../../rights/flow.mjs';
 import {
   factsOf,
@@ -33,7 +36,7 @@ import {
   normalizeQuestion,
   routeQuestion,
 } from '../../rights/route.mjs';
-import { readTrustEvents, trustSummary } from '../../rights/trust.mjs';
+import { readTrustEvents, rubberStamps, trustSummary } from '../../rights/trust.mjs';
 
 /**
  * @typedef {import('../../tracker/interface.mjs').TrackerAdapter} TrackerAdapter
@@ -126,6 +129,8 @@ const FILE_ARG = {
  */
 const EXECUTOR_REFUSED = new Map([
   ['rights ask', "the orchestrator's"],
+  ['rights show', "the orchestrator's"],
+  ['rights log', "the orchestrator's"],
   ['rights answer', "the owner's"],
   ['rights overrule', "the owner's"],
   ['rights reverse', "the owner's"],
@@ -213,6 +218,12 @@ export function makeCommands({ openTracker }) {
           description:
             'JSON object: per candidate precedent ID, true if its plain-language conditions and exceptions fit this question, false if not',
         },
+        {
+          name: 'send',
+          type: 'boolean',
+          description:
+            'The question goes to its decider now, so it is recorded as sent; without it, it waits for the next digest and rights show records the sending',
+        },
       ],
       run: async (input, ctx) => {
         const o = await open(ctx, { tracker: true });
@@ -221,7 +232,49 @@ export function makeCommands({ openTracker }) {
           input.judged === undefined
             ? undefined
             : parseJson(/** @type {string} */ (input.judged), '--judged');
-        return askQuestion(o.deps, questionOf(input, ctx), { judged });
+        return askQuestion(o.deps, questionOf(input, ctx), { judged, send: input.send === true });
+      },
+    },
+    {
+      name: 'rights show',
+      summary:
+        'The text of an open question to send to its decider; the first time, it is recorded as sent, which ends its queue time',
+      built_by: 'e',
+      args: [
+        {
+          name: 'decision',
+          type: 'string',
+          description: 'The decision item ID',
+          positional: true,
+          required: true,
+        },
+      ],
+      run: async (input, ctx) => {
+        const o = await open(ctx, { tracker: true });
+        if (o.failure) return o.failure;
+        return showQuestion(o.deps, { decision: /** @type {string} */ (input.decision) });
+      },
+    },
+    {
+      name: 'rights log',
+      summary:
+        'Record a call you made without asking, so the digest lists it and the owner can reverse it',
+      built_by: 'e',
+      args: [
+        {
+          name: 'text',
+          type: 'string',
+          description: 'The call, in a sentence: what you decided',
+          required: true,
+        },
+        { name: 'item', type: 'string', description: 'The work item it was about' },
+        { name: 'dispatch', type: 'string', description: 'The dispatch it came up in (D-<n>)' },
+        { name: 'area', type: 'string', description: 'The area it belongs to' },
+      ],
+      run: async (input, ctx) => {
+        const o = await open(ctx);
+        if (o.failure) return o.failure;
+        return logCall(o.deps, /** @type {any} */ (input));
       },
     },
     {
@@ -315,13 +368,14 @@ export function makeCommands({ openTracker }) {
     {
       name: 'rights reverse',
       summary:
-        'Record that the owner reversed a call the system made without a precedent (trust-calibration data)',
+        'Record that the owner reversed a call the system made without a precedent (trust-calibration data); a logged call is reversed by its ID from the digest',
       built_by: 'e',
       args: [
         {
           name: 'subject',
           type: 'string',
-          description: 'What was reversed: a decision, a logged call, a route',
+          description:
+            "What was reversed: a logged call's ID (E-<n>, from the digest), a decision, a route",
           positional: true,
           required: true,
         },
@@ -345,15 +399,15 @@ export function makeCommands({ openTracker }) {
     },
     {
       name: 'rights rate',
-      summary: 'Record whether an answered question was worth asking (trust-calibration data)',
+      summary:
+        'Record whether an answered question was worth asking (trust-calibration data); without a decision, the one answered last',
       built_by: 'e',
       args: [
         {
           name: 'decision',
           type: 'string',
-          description: 'The decision item ID',
+          description: 'The decision item ID. Default: the decision answered last',
           positional: true,
-          required: true,
         },
         {
           name: 'worth-asking',
@@ -366,7 +420,7 @@ export function makeCommands({ openTracker }) {
         const o = await open(ctx, { tracker: true });
         if (o.failure) return o.failure;
         return rateWorthAsking(o.deps, {
-          decision: /** @type {string} */ (input.decision),
+          decision: /** @type {string | undefined} */ (input.decision),
           worth: /** @type {boolean} */ (yesNo(input['worth-asking'], 'worth-asking')),
         });
       },
@@ -374,7 +428,7 @@ export function makeCommands({ openTracker }) {
     {
       name: 'rights digest',
       summary:
-        'Applications of precedent for the digest, with those the owner overruled, and precedents due for review',
+        'For the digest: applications of precedent (with those the owner overruled), precedents due for review, calls logged without asking (each with how to reverse it), and the rubber-stamp indicator per area',
       built_by: 'e',
       args: [
         {
@@ -397,13 +451,12 @@ export function makeCommands({ openTracker }) {
           /** @type {string | undefined} */ (input.since) ??
           (cursor ? JSON.parse(cursor).through : null);
         const applications = listApplications(o.deps, { since });
+        const logged = listLoggedCalls(o.deps, { since });
         const health = precedentHealth(o.deps);
         if (input.mark) {
           const latest =
-            applications
-              .map((a) => String(a.at))
-              .sort()
-              .at(-1) ?? since;
+            [...applications.map((a) => String(a.at)), ...logged.map((c) => c.at)].sort().at(-1) ??
+            since;
           if (latest) store.write(DIGEST_KEY, JSON.stringify({ through: latest }) + '\n');
         }
         return {
@@ -412,19 +465,28 @@ export function makeCommands({ openTracker }) {
           applications,
           overruled: applications.filter((a) => a.overruled).length,
           review: health.filter((h) => h.needs_review),
+          logged_calls: logged,
+          rubber_stamp: rubberStamps(readTrustEvents(store), {
+            rubberStampSeconds: o.deps.policy.trust?.rubber_stamp_seconds,
+          }),
         };
       },
     },
     {
       name: 'rights trust',
       summary:
-        'The trust-calibration record per area: escalation worth, precedent-match accuracy, overrules, reversals',
+        'The trust-calibration record per area: escalation worth, precedent-match accuracy, overrules, reversals, the rubber-stamp indicator',
       built_by: 'e',
       args: [],
       run: async (_input, ctx) => {
         const o = await open(ctx);
         if (o.failure) return o.failure;
-        return { ok: true, areas: trustSummary(readTrustEvents(o.deps.store)) };
+        return {
+          ok: true,
+          areas: trustSummary(readTrustEvents(o.deps.store), {
+            rubberStampSeconds: o.deps.policy.trust?.rubber_stamp_seconds,
+          }),
+        };
       },
     },
     {

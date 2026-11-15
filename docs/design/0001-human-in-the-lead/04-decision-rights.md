@@ -45,7 +45,7 @@ Three notes on applying these:
 
 - **Hard is not a rule.** A difficult problem that falls under none of these rules goes up a tier ([part 5](05-execution.md#51-sizing-tiers)), not to the owner.
 - **Volume is not a rule.** A hundred similar questions are one question with a precedent, not a hundred escalations. The orchestrator batches similar questions before asking (this is requisite variety applied, after Ashby, *An Introduction to Cybernetics*, 1956: the system matches the variety of the questions with rules and precedent, and spends the owner's limited variety only on genuinely new kinds of question).
-- **Two-way doors default to action.** When a question is a two-way door and in no other way the owner's, the holder decides it and logs it, even if unsure. The owner sees logged calls in the digest and can reverse any of them, from the main session, prompted by the digest; a reversal becomes precedent.
+- **Two-way doors default to action.** When a question is a two-way door and in no other way the owner's, the holder decides it and logs it, even if unsure. Each logged call is a ledger event (`hitld rights log`: what was decided, and the item, dispatch and area it belongs to). The owner sees them in the digest, each with the command that reverses it (`hitld rights reverse <ID>`), and can reverse any of them from the main session, prompted by the digest; a reversal becomes precedent.
 
 ### The decision question
 

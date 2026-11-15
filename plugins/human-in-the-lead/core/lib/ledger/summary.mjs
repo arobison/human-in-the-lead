@@ -11,8 +11,8 @@
 // - Waste: tokens on dispatches that were abandoned, whose work failed verification (a `verified`
 //   fail naming the dispatch) or whose merge was reverted (a `reverted` naming the dispatch).
 //   Speculation cost is not separate yet: nothing in the ledger marks a speculative dispatch.
-// - Decision latency: from a `question` to the `answered` for the same decision. The design also
-//   splits queue time from owner time; the ledger has no "sent" event, so it is one figure.
+// - Decision latency: from an `asked` to the `answered` for the same decision, and split at the
+//   `sent` event into queue time (held for a digest) and owner time (shown, unanswered).
 
 import { correctsValidly, readLedger } from './ledger.mjs';
 
@@ -146,20 +146,41 @@ export function summarize(allEvents) {
     byCause[causes[0][0]] += d.tokens; // each dispatch counted once, under its first cause
   }
 
-  // Decision latency.
-  /** @type {Map<string, number>} */
-  const asked = new Map();
+  // Decision latency: from `asked` to `answered`, split at `sent` into queue time (asked to sent)
+  // and owner time (sent to answered). A decision never shown has no queue time, and its owner
+  // time runs from `asked`. Only the first of each event counts.
+  /** @type {Map<string, { asked: number, sent?: number }>} */
+  const waiting = new Map();
   /** @type {number[]} */
   const latencies = [];
+  /** @type {number[]} */
+  const queues = [];
+  /** @type {number[]} */
+  const owners = [];
   for (const e of events) {
     if (e.decision === undefined) continue;
-    if (e.event === 'asked') asked.set(e.decision, Date.parse(e.at));
-    if (e.event === 'answered' && asked.has(e.decision)) {
-      latencies.push(Date.parse(e.at) - /** @type {number} */ (asked.get(e.decision)));
-      asked.delete(e.decision);
+    const at = Date.parse(e.at);
+    if (e.event === 'asked' && !waiting.has(e.decision)) waiting.set(e.decision, { asked: at });
+    const w = waiting.get(e.decision);
+    if (!w) continue;
+    if (e.event === 'sent' && w.sent === undefined) w.sent = at;
+    if (e.event === 'answered') {
+      latencies.push(at - w.asked);
+      if (w.sent !== undefined) queues.push(w.sent - w.asked);
+      owners.push(at - (w.sent ?? w.asked));
+      waiting.delete(e.decision);
     }
   }
   latencies.sort((a, b) => a - b);
+  queues.sort((a, b) => a - b);
+  owners.sort((a, b) => a - b);
+  /** @param {number[]} xs */
+  const spread = (xs) => ({
+    count: xs.length,
+    median: percentile(xs, 0.5),
+    p90: percentile(xs, 0.9),
+    mean: mean(xs),
+  });
 
   const verifiedItems = [...byItem].filter(([, evs]) => evs.some((e) => e.event === 'verified'));
   return {
@@ -187,10 +208,12 @@ export function summarize(allEvents) {
     },
     decision_latency_ms: {
       answered: latencies.length,
-      open: asked.size,
+      open: waiting.size,
       median: percentile(latencies, 0.5),
       p90: percentile(latencies, 0.9),
       mean: mean(latencies),
+      queue: spread(queues),
+      owner: spread(owners),
     },
   };
 }

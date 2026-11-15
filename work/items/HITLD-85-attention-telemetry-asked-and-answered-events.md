@@ -2,9 +2,10 @@
 id: HITLD-85
 title: "Attention telemetry: asked and answered events, open decisions in run state, logged calls, trust signals for rubber stamps"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-85
 ---
 
 ## Why

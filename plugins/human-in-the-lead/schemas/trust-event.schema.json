@@ -48,6 +48,15 @@
       "description": "answered: what the decider said to the precedent offer.",
       "enum": ["yes", "narrowed", "just-this-one", "none-given"]
     },
+    "took_recommendation": {
+      "description": "answered: whether the answer chose the option the question recommended. Absent when the answer named no option or the question made no recommendation.",
+      "type": "boolean"
+    },
+    "latency_ms": {
+      "description": "answered: how long the decider took, from the question being shown to them (the ledger's sent event) or, when it was never recorded as shown, from its being asked. Absent when neither time is known.",
+      "type": "integer",
+      "minimum": 0
+    },
     "facts": {
       "description": "asked and application: the question's structured attributes, kept so an overrule can narrow the precedent to cases like it.",
       "$ref": "precedent#/properties/conditions"
