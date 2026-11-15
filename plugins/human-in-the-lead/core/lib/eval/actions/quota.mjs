@@ -61,7 +61,7 @@ export const actions = {
   },
   'quota.report': {
     description:
-      'Write report.html and digest.txt under a sandbox directory for the quotas at a time. Returns the digest, the gate it shows, the forecast of each quota, and checks on the page: scripts, external references, dark-mode support.',
+      'Write dashboard.html and digest.txt under a sandbox directory for the quotas at a time. Returns the digest, the gate it shows, the forecast of each quota, and checks on the page: scripts, external references, dark-mode support.',
     input: {
       type: 'object',
       properties: { ...COMMON, dir: { type: 'string', minLength: 1 } },
@@ -78,9 +78,9 @@ export const actions = {
       });
       const html = renderHtml(report, policy);
       const digest = renderDigest(report);
-      writeSandboxFile(sandboxPath(ctx.sandbox, `${input.dir}/report.html`), html);
+      writeSandboxFile(sandboxPath(ctx.sandbox, `${input.dir}/dashboard.html`), html);
       writeSandboxFile(sandboxPath(ctx.sandbox, `${input.dir}/digest.txt`), digest);
-      const onDisk = readFileSync(sandboxPath(ctx.sandbox, `${input.dir}/report.html`), 'utf8');
+      const onDisk = readFileSync(sandboxPath(ctx.sandbox, `${input.dir}/dashboard.html`), 'utf8');
       return {
         digest,
         gate: report.gate,

@@ -55,7 +55,9 @@ function gather(ctx, input) {
   };
 }
 
-const KIND = { marker: '.hitld-report.json', files: ['report.html', 'digest.txt'] };
+const KIND = { marker: '.hitld-report.json', files: ['dashboard.html', 'digest.txt'] };
+/** The page's name before it matched the command. A directory written under it is still accepted, and the old file is removed. */
+const RETIRED = ['report.html'];
 
 /** @type {import('../table.mjs').Command[]} */
 export const commands = [
@@ -102,7 +104,7 @@ export const commands = [
         type: 'string',
         mcp: false,
         description:
-          'The directory to write report.html and digest.txt in (inside the repository or the private store; default: reports/ in the private store)',
+          'The directory to write dashboard.html and digest.txt in (inside the repository or the private store; default: reports/ in the private store)',
       },
       {
         name: 'json',
@@ -148,13 +150,15 @@ export const commands = [
       const roots = [g.store.root, findRepoRoot(ctx.cwd) ?? ctx.cwd];
       const problem = outputProblem(dir, roots, KIND);
       if (problem) return { ok: false, error: 'output-path', message: problem };
-      const real = writeReportFiles(dir, KIND.marker, {
-        'report.html': html,
-        'digest.txt': digest,
-      });
+      const real = writeReportFiles(
+        dir,
+        KIND.marker,
+        { 'dashboard.html': html, 'digest.txt': digest },
+        RETIRED,
+      );
       return {
         ok: true,
-        html: join(real, 'report.html'),
+        html: join(real, 'dashboard.html'),
         digest: join(real, 'digest.txt'),
         mode: report.gate.mode,
         text: digest,
