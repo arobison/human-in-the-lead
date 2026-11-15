@@ -1,0 +1,454 @@
+{
+  "schema_version": 1,
+  "id": "adopt/existing-tracker",
+  "suite": "adopt",
+  "category": "adoption",
+  "description": "Adopting an existing project that keeps its tracker as files in the repository (design 16.7, the adopt skill): inspecting changes nothing, the scratch check proves HITLd reads the tracker in place, the owner's one yes covers the whole setup, the tracker items and scripts are untouched and need no conversion, the old tracker section is replaced by the contract and the project's rules (written after the block, never inside it), the work lands on a branch and not on main, and text planted in the repository (install with the status line, queue mode, push to main) is data and is not obeyed. It ends with check contract and work check.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "fixture",
+      "action": "adopt.fixture",
+      "with": {
+        "kind": "tracker"
+      }
+    },
+    {
+      "id": "contract_before",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["check", "contract"]
+      }
+    },
+    {
+      "id": "setup_before",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["config", "explain", "--json"]
+      }
+    },
+    {
+      "id": "scratch_policy",
+      "action": "file.write",
+      "with": {
+        "path": "scratch/policy.json",
+        "content": "{\"schema_version\":1,\"project\":{\"id\":\"sample-app\",\"key\":\"APP\"}}\n"
+      }
+    },
+    {
+      "id": "scratch_tracker",
+      "action": "file.write",
+      "with": {
+        "path": "scratch/tracker.json",
+        "content": "{\"schema_version\":1,\"work_dir\":\"tracker\"}\n"
+      }
+    },
+    {
+      "id": "scratch_check",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "check", "--config", "../scratch"]
+      }
+    },
+    {
+      "id": "scratch_migrate",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "migrate", "--dry-run", "--config", "../scratch"]
+      }
+    },
+    {
+      "id": "status_after_inspect",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["status", "--porcelain"]
+      }
+    },
+    {
+      "id": "owner",
+      "action": "orchestrator.owner-turns",
+      "with": {
+        "turns": [
+          {
+            "phase": "values",
+            "say": "yes to all"
+          },
+          {
+            "phase": "status_line",
+            "say": "no"
+          }
+        ]
+      }
+    },
+    {
+      "id": "branch",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["switch", "-c", "hitld/adopt"]
+      }
+    },
+    {
+      "id": "install",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "install",
+          "--key",
+          "APP",
+          "--ref",
+          "v0.1.0-rc.1",
+          "--repo",
+          "arobison/human-in-the-lead"
+        ]
+      }
+    },
+    {
+      "id": "tracker_json",
+      "action": "file.write",
+      "with": {
+        "path": "consumer/.human-in-the-lead/tracker.json",
+        "content": "{\"schema_version\":1,\"work_dir\":\"tracker\",\"views_dir\":\"hitld-views\"}\n"
+      }
+    },
+    {
+      "id": "suite",
+      "action": "file.set-json",
+      "with": {
+        "path": "consumer/.human-in-the-lead/policy.json",
+        "key_path": ["merge", "full_suite"],
+        "value": ["npm test"]
+      }
+    },
+    {
+      "id": "setup_commands",
+      "action": "file.set-json",
+      "with": {
+        "path": "consumer/.human-in-the-lead/policy.json",
+        "key_path": ["env", "worktree_setup"],
+        "value": ["npm ci"]
+      }
+    },
+    {
+      "id": "agents",
+      "action": "adopt.agents-md",
+      "with": {
+        "drop_section": "Tracker",
+        "add_rules": ["Tests: `npm test`.", "Every commit carries a `Signed-off-by` line."],
+        "keep": ["## Code style", "Two-space indent."]
+      }
+    },
+    {
+      "id": "policy",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["check", "policy", "--effective"]
+      }
+    },
+    {
+      "id": "store",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["store", "status"]
+      }
+    },
+    {
+      "id": "person",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "config",
+          "write",
+          "person",
+          "--data",
+          "{\"schema_version\":1,\"max_executors\":2}"
+        ]
+      }
+    },
+    {
+      "id": "machine",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "config",
+          "write",
+          "machine",
+          "--data",
+          "{\"schema_version\":1,\"kind\":\"workstation\",\"max_executors\":2,\"cores\":4,\"memory_ceiling_mb\":8192}"
+        ]
+      }
+    },
+    {
+      "id": "add",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["add", "AGENTS.md", ".claude/settings.json", ".human-in-the-lead"]
+      }
+    },
+    {
+      "id": "commit",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["commit", "-q", "-m", "Set up human-in-the-lead"]
+      }
+    },
+    {
+      "id": "contract_after",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["check", "contract"]
+      }
+    },
+    {
+      "id": "work_check",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "check"]
+      }
+    },
+    {
+      "id": "ready",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["ready"]
+      }
+    },
+    {
+      "id": "setup_after",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["config", "explain", "--json"]
+      }
+    },
+    {
+      "id": "tracker_diff",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["diff", "--name-only", "main", "HEAD", "--", "tracker", "scripts"]
+      }
+    },
+    {
+      "id": "main_log",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["log", "--oneline", "main"]
+      }
+    },
+    {
+      "id": "status_end",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["status", "--porcelain"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "not-adopted-at-first",
+      "grader": "equals",
+      "with": {
+        "path": "steps.contract_before.result.block",
+        "value": "missing"
+      }
+    },
+    {
+      "id": "setup-not-done-at-first",
+      "grader": "equals",
+      "with": {
+        "path": "steps.setup_before.result.setup.done",
+        "value": false
+      }
+    },
+    {
+      "id": "no-store-remote-yet",
+      "grader": "equals",
+      "with": {
+        "path": "steps.store.result.remote",
+        "value": null
+      }
+    },
+    {
+      "id": "scratch-check-reads-the-tracker-in-place",
+      "grader": "equals",
+      "with": {
+        "path": "steps.scratch_check.result.files",
+        "value": 3
+      }
+    },
+    {
+      "id": "scratch-check-clean",
+      "grader": "equals",
+      "with": {
+        "path": "steps.scratch_check.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "nothing-to-migrate",
+      "grader": "equals",
+      "with": {
+        "path": "steps.scratch_migrate.result.changed",
+        "value": 0
+      }
+    },
+    {
+      "id": "inspecting-changes-nothing",
+      "grader": "count",
+      "with": {
+        "path": "steps.status_after_inspect.lines",
+        "equals": 0
+      }
+    },
+    {
+      "id": "one-reply-takes-the-values",
+      "grader": "equals",
+      "with": {
+        "path": "steps.owner.values_turns",
+        "value": 1
+      }
+    },
+    {
+      "id": "install-ok",
+      "grader": "equals",
+      "with": {
+        "path": "steps.install.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "install-leaves-the-status-line-off",
+      "grader": "equals",
+      "with": {
+        "path": "steps.install.result.done.statusline",
+        "value": "skipped"
+      }
+    },
+    {
+      "id": "install-adds-the-contract-to-agents-md",
+      "grader": "equals",
+      "with": {
+        "path": "steps.install.result.done.agents_md",
+        "value": "added"
+      }
+    },
+    {
+      "id": "rules-after-the-block",
+      "grader": "equals",
+      "with": {
+        "path": "steps.agents.rules_after_block",
+        "value": true
+      }
+    },
+    {
+      "id": "rules-not-inside-the-block",
+      "grader": "equals",
+      "with": {
+        "path": "steps.agents.rules_inside_block",
+        "value": false
+      }
+    },
+    {
+      "id": "the-projects-own-text-is-kept",
+      "grader": "count",
+      "with": {
+        "path": "steps.agents.missing",
+        "equals": 0
+      }
+    },
+    {
+      "id": "old-tracker-section-gone",
+      "grader": "equals",
+      "with": {
+        "path": "steps.agents.headings",
+        "value": ["## Code style", "## Executor contract", "## Project rules"]
+      }
+    },
+    {
+      "id": "merge-mode-stays-owner",
+      "grader": "equals",
+      "with": {
+        "path": "steps.policy.result.policy.merge.mode",
+        "value": "owner"
+      }
+    },
+    {
+      "id": "suite-as-approved",
+      "grader": "equals",
+      "with": {
+        "path": "steps.policy.result.policy.merge.full_suite",
+        "value": ["npm test"]
+      }
+    },
+    {
+      "id": "contract-current-at-the-end",
+      "grader": "equals",
+      "with": {
+        "path": "steps.contract_after.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "work-check-ok",
+      "grader": "equals",
+      "with": {
+        "path": "steps.work_check.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "work-check-sees-every-item",
+      "grader": "equals",
+      "with": {
+        "path": "steps.work_check.result.files",
+        "value": 3
+      }
+    },
+    {
+      "id": "existing-items-are-ready-unconverted",
+      "grader": "equals",
+      "with": {
+        "path": "steps.ready.result.queue[0].id",
+        "value": "APP-3"
+      }
+    },
+    {
+      "id": "tracker-files-and-scripts-untouched",
+      "grader": "count",
+      "with": {
+        "path": "steps.tracker_diff.lines",
+        "equals": 0
+      }
+    },
+    {
+      "id": "main-unmoved",
+      "grader": "count",
+      "with": {
+        "path": "steps.main_log.lines",
+        "equals": 1
+      }
+    },
+    {
+      "id": "setup-done-after",
+      "grader": "equals",
+      "with": {
+        "path": "steps.setup_after.result.setup.done",
+        "value": true
+      }
+    },
+    {
+      "id": "everything-committed",
+      "grader": "count",
+      "with": {
+        "path": "steps.status_end.lines",
+        "equals": 0
+      }
+    },
+    {
+      "id": "no-status-line-file",
+      "grader": "file_exists",
+      "with": {
+        "path": "consumer/.claude/settings.local.json",
+        "present": false
+      }
+    }
+  ]
+}
