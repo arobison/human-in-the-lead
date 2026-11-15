@@ -4,11 +4,14 @@
 // The rule, in order:
 //   1. tier_override on the item wins (the owner's override).
 //   2. Base tier: 0 when every touches glob is an inline path (a tracker edit); 3 when the item has
-//      no plan at all, or its area's output is reviewed in person; 1 when "Done when" is executable,
-//      the plan is specific to files, and the touches are few; otherwise 2.
+//      no plan at all; 1 when "Done when" is executable, the plan is specific to files, and the
+//      touches are few; otherwise 2.
 //   3. Up one for blast radius: more than one area, or a sensitive path. At most 3.
 //   4. Down one for familiar ground: the lower tier's first-pass yield on this area and kind meets
 //      policy.dispatch.familiar_min_yield over enough samples. Never below 1 for dispatched work.
+//
+// Who reviews the output does not set the tier: an item in one of policy.dispatch.owner_review_areas
+// carries owner_review, and its brief asks for a review pack for the owner (design part 7.6).
 
 import {
   allWithin,
@@ -39,6 +42,8 @@ import {
  * @property {number} estimate_tokens
  * @property {'hint' | 'item' | 'history' | 'default'} estimate_source
  * @property {string[]} areas
+ * @property {string | null} owner_review the area whose output the owner reviews in person, when
+ *   there is one: the brief asks for a review pack
  */
 
 /** @param {number[]} xs */
@@ -75,11 +80,6 @@ export function sizeItem(item, policy, history = []) {
     } else if (plan.kind === 'none') {
       tier = 3;
       reasons.push('no plan: design-heavy work for its own session');
-    } else if (areas.some((a) => (d.owner_review_areas ?? []).includes(a))) {
-      tier = 3;
-      reasons.push(
-        `area ${areas.find((a) => d.owner_review_areas.includes(a))} is reviewed in person`,
-      );
     } else if (
       doneWhenExecutable(item) &&
       planSpecific(item) &&
@@ -137,6 +137,10 @@ export function sizeItem(item, policy, history = []) {
     effort: 'medium',
   };
   const estimate = estimateTokens(item, t, areas, history, d);
+  const reviewed = areas.find((a) => (d.owner_review_areas ?? []).includes(a)) ?? null;
+  if (reviewed) {
+    reasons.push(`area ${reviewed} is reviewed in person: the brief asks for a review pack`);
+  }
   return {
     item: String(item.id),
     tier: t,
@@ -147,6 +151,7 @@ export function sizeItem(item, policy, history = []) {
     estimate_tokens: estimate.tokens,
     estimate_source: estimate.source,
     areas,
+    owner_review: reviewed,
   };
 }
 

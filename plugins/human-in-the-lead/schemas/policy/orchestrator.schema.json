@@ -1,7 +1,7 @@
 {
   "$id": "policy/orchestrator",
   "title": "policy.json: orchestrator",
-  "description": "The orchestrator session itself (design parts 5.4 and 13.1).",
+  "description": "The orchestrator session itself: when it hands over to a fresh one (design parts 5.4 and 13.1).",
   "type": "object",
   "properties": {
     "handover_context_share": {
@@ -10,6 +10,12 @@
       "exclusiveMinimum": 0,
       "maximum": 1,
       "default": 0.7
+    },
+    "handover_after_completions": {
+      "description": "How many completions an orchestrator session processes before it hands over to a fresh session, whatever its context says. Short-lived sessions keep each context small.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 20
     }
   },
   "additionalProperties": false

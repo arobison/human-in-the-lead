@@ -40,8 +40,22 @@ export const MATRIX = Object.freeze([
   },
   {
     function: 'tier 3 dispatch, interactive',
-    how: 'The owner (or the desktop app) starts a session in the prepared worktree with the brief file; it reports back in the fixed shape',
+    how: 'The chief of staff starts a session in the prepared worktree with the brief file, as it starts orchestrator sessions (the owner, when one session is both and cannot start sessions); it reports back in the fixed shape',
     source: 'contract',
+  },
+  {
+    function: 'orchestrator sessions',
+    how: 'The chief of staff starts each orchestrator session and its successor: on Claude Code on the web, a new cloud session with the orchestrate skill and the hand-over; locally, a headless claude -p run in the primary checkout, resumed with claude -p --resume <session_id> for the next wake. The outgoing session writes the hand-over (hitld handover) and gives up the lease; a session that ended without one is retired (hitld run retire)',
+    source: 'contract',
+    notes:
+      'Session creation and messages between sessions are tools of Claude Code on the web; claude -p --resume is documented. Whether background subagents outlive a headless turn is not documented, so a session hands over only once its own dispatches have reported',
+  },
+  {
+    function: 'wakes',
+    how: 'GitHub events (a pull-request subscription), completion notices and scheduled tasks, all owned by the chief of staff, which sends each to the session hitld run status names (wake_to). Background-agent notices reach the session that dispatched them directly',
+    source: 'contract',
+    notes:
+      'Scheduled tasks are cloud scheduled tasks or reminders bound to the chief of staff, desktop scheduled tasks, or the operating system scheduler; an orchestrator session creates none, so a retired one leaves none behind',
   },
   {
     function: 'completion',

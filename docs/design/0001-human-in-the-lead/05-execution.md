@@ -2,7 +2,7 @@
 
 [Back to the index](../0001-human-in-the-lead.md)
 
-The orchestrator (the main session) manages execution. It sizes ready items into tiers, dispatches them in parallel up to a cap, merges results through a queue, records everything in the ledger, and routes questions. It implements only tier-0 tasks itself.
+The orchestrator manages execution: the session that holds the run lease, started by the chief of staff, the session the owner talks to ([part 13](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)). It sizes ready items into tiers, dispatches them in parallel up to a cap, merges results through a queue, records everything in the ledger, and routes questions. It implements only tier-0 tasks itself.
 
 ## 5.1 Sizing tiers
 
@@ -11,13 +11,14 @@ The orchestrator (the main session) manages execution. It sizes ready items into
 | **0** | The orchestrator, inline | Its own | A handful of tool calls: a one-line fix, a tracker edit, a view regeneration |
 | **1** | Background agent | Small model, low or medium effort | Mechanical, fully specified work: the plan says exactly what to change, and "done when" is a test that exists or is trivial to write |
 | **2** | Background agent | Small model at high effort, or large model at medium | Implementation inside a known design: the plan settles the approach; the executor works out the code |
-| **3** | Its own session | Large model | Design-heavy, risky or long work; anything whose output the owner will review in person, such as UI |
+| **3** | Its own session | Large model | Design-heavy, risky or long work |
 
 **Adjustments.**
 
 - **Up one tier for blast radius:** the item touches more than one area, public surface, the build or release pipeline, or security-sensitive paths.
 - **Down one tier for familiar ground:** the area has a high first-pass yield at the lower tier for this item type (the sizing controller tracks this, [part 11](11-metrics-and-control.md#114-feedback-controllers)).
 - **Owner override:** `tier_override` on the item wins.
+- **Who reviews does not set the tier.** An item in an area whose output the owner reviews in person, such as UI (`dispatch.owner_review_areas`), is sized like any other. Its brief asks the executor for a review pack ([part 7](07-ux.md#76-owner-review-made-phone-friendly)): what changed in a few lines, screens or samples, and the judgement calls as questions.
 
 **Sizing inputs**, all from the item file and the ledger: item kind; whether "done when" is executable; whether the plan is specific to files and functions; area and its reliability; `touches` breadth; novelty (no similar item done before); the token estimate.
 
@@ -99,7 +100,7 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 
 | Field | Notes |
 |---|---|
-| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started` and `lease-taken`. Two more record the owner's attention: `sent` (a question was first shown to its decider) and `logged` (a call the orchestrator made without asking). Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
+| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started`, `lease-taken` and `lease-released` (a hand-over, or a session the chief of staff retired). `merge-approved` records the owner's answer to a batch presented in owner merge mode, bound to that presentation, by the session the owner said it in ([part 14](14-integration.md#142-the-queue)). Two more record the owner's attention: `sent` (a question was first shown to its decider) and `logged` (a call the orchestrator made without asking). Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
 | `dispatch` | `D-<n>`, unique per dispatch |
 | `item` | Tracker ID |
 | `tier`, `model`, `effort` | As dispatched |
@@ -120,7 +121,7 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 
 The table lists the main fields; `schemas/ledger-entry.schema.json` is the full reference. The ledger is append-only. Corrections are new events that reference the old. It is `internal`: it holds no product secrets, but it is the project's working record.
 
-**The orchestrator is restartable from files** (mechanics in [part 13](13-operations.md#131-orchestrator-continuity)). Everything the orchestrator needs to resume a run is in the tracker, the ledger and git: what is in flight (dispatches without a terminal event, cross-checked against claim branches), what is queued, what questions are open. When the orchestrator's context grows past `orchestrator.handover_context_share` (measured from its own usage), it writes a hand-over note (generated from the ledger, not from memory) and the system starts a fresh orchestrator session from it, with the owner's standing permission ([Q10](22-open-questions.md)), a message to the owner and the hand-over note linked.
+**The orchestrator is restartable from files** (mechanics in [part 13](13-operations.md#131-orchestrator-continuity)). Everything the orchestrator needs to resume a run is in the tracker, the ledger and git: what is in flight (dispatches without a terminal event, cross-checked against claim branches), what is queued, what questions are open. When the orchestrator's context grows past `orchestrator.handover_context_share` (measured from its own usage), or after `orchestrator.handover_after_completions` completions, it writes a hand-over note (generated from the ledger, not from memory) and gives up the lease, and the chief of staff starts a fresh orchestrator session from it, with the owner's standing permission ([Q10](22-open-questions.md)), a message to the owner and the hand-over note linked.
 
 ## 5.5 The question protocol
 
@@ -168,7 +169,7 @@ questions: none
 
 ## 5.7 Control plane and readout
 
-The main session is the **control plane**: every change to the system's state goes through it, so there is one writer and one ledger.
+The session that holds the run lease is the **control plane**: every change to the run's state goes through it, so there is one writer and one ledger. The chief of staff adds to the ledger only what the owner said in their own messages: answers, ratings and merge approvals ([part 13](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)).
 
 A **dashboard** (later; [part 21](21-scope.md)) is **readout plus safe intents**:
 

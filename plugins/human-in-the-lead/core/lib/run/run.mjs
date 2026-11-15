@@ -1,5 +1,5 @@
 // Orchestrator continuity (design part 13.1): starting a run, recording events at clean points,
-// taking the lease, resuming and rebuilding.
+// taking and releasing the lease, resuming and rebuilding, and when a session should hand over.
 //
 // Every write follows one rule: the ledger first (it is the truth), then the run state as the
 // next checkpoint. The state is then always the ledger folded up to `ledger_position`, and
@@ -26,6 +26,8 @@ import { reportedEvent } from './protocol.mjs';
  * @property {() => Date} [now] a clock, for tests
  * @property {number} [kept] policy run.checkpoints_kept
  * @property {number} [expirySeconds] policy run.lease_expiry_seconds
+ * @property {string} [harnessRef] this session's own reference in its harness, where it has one:
+ *   recorded with the lease, so wakes for the run can be sent to it
  *
  * @typedef {object} Reality what exists outside the files; each part is optional
  * @property {string} [harness] the adapter ID, for adopting an executor found running
@@ -127,6 +129,7 @@ export function startRun(store, options) {
       run: id,
       session: options.session,
       host: options.host,
+      ...(options.harnessRef ? { harness_ref: options.harnessRef } : {}),
       skill_versions: { hitld_version: VERSION },
       ...(options.policyHash ? { policy_hash: options.policyHash } : {}),
       ...(options.scope ? { scope: options.scope } : {}),
@@ -149,12 +152,13 @@ function defaultRunId(events, now) {
 }
 
 /**
- * Hold the lease on the persisted run: renew it if this session holds it, take it over if it has
- * expired or `force` says the owner wants it, refuse otherwise. Taking over is a ledger event,
- * recorded before the state changes. Anything the ledger holds beyond the state is absorbed.
+ * Hold the lease on the persisted run: renew it if this session holds it, take it over if it was
+ * released (a hand-over, or a session the chief of staff retired), has expired, or `force` says the
+ * owner wants it, and refuse otherwise. Taking over is a ledger event, recorded before the state
+ * changes. Anything the ledger holds beyond the state is absorbed.
  * @param {PrivateStore} store
  * @param {RunOptions & { force?: boolean }} options
- * @returns {{ run: Run, tookOver: { from: { session: string, host: string }, reason: 'expired' | 'owner' } | null, recoveredFrom: string | null, problems: string[] }}
+ * @returns {{ run: Run, tookOver: { from: { session: string, host: string }, reason: 'expired' | 'owner' | 'handover' | 'ended' } | null, recoveredFrom: string | null, problems: string[] }}
  */
 export function takeLease(store, options) {
   const now = options.now ?? (() => new Date());
@@ -172,20 +176,23 @@ export function takeLease(store, options) {
   absorb(state, read.events);
 
   const previousHolder = { session: state.lease.session, host: state.lease.host };
-  const mine = state.lease.session === options.session && state.lease.host === options.host;
-  /** @type {'expired' | 'owner' | null} */
+  const released = state.lease.released ?? null;
+  // A released lease is taken afresh, even by the session that gave it up.
+  const mine =
+    state.lease.session === options.session && state.lease.host === options.host && !released;
+  /** @type {'expired' | 'owner' | 'handover' | 'ended' | null} */
   let reason = null;
   let events = read.events;
   if (!mine) {
     const expired = leaseExpired(state, now(), expiry);
-    if (!expired && !options.force) {
+    if (!released && !expired && !options.force) {
       throw new LeaseError(
         'held',
         `run ${state.run.id} is held by session ${state.lease.session} on ${state.lease.host}, renewed ${Math.round(leaseAgeSeconds(state, now()))}s ago; it expires after ${expiry}s. Wait, or take it over deliberately with force`,
         state.lease,
       );
     }
-    reason = expired ? 'expired' : 'owner';
+    reason = released ? released.reason : expired ? 'expired' : 'owner';
     ({ events } = appendEvent(
       store,
       {
@@ -193,6 +200,7 @@ export function takeLease(store, options) {
         run: state.run.id,
         session: options.session,
         host: options.host,
+        ...(options.harnessRef ? { harness_ref: options.harnessRef } : {}),
         notes: `from ${state.lease.session} on ${state.lease.host}; ${reason}`,
       },
       { now },
@@ -211,6 +219,139 @@ export function takeLease(store, options) {
     tookOver: reason ? { from: previousHolder, reason } : null,
     recoveredFrom: loaded.source === 'run-state.json' ? null : loaded.source,
     problems: loaded.problems,
+  };
+}
+
+/**
+ * Release the lease before it expires (design part 13.1, disposable orchestrators). Two reasons:
+ *   handover  the holder itself, after writing the hand-over: it stops driving the run
+ *   ended     the chief of staff, which saw the holder's session end without a hand-over
+ * A released lease is free for a successor at once (takeLease), and the released session can no
+ * longer record (assertHolds). The release is a ledger event, then a checkpoint; the lease's renewal
+ * time is left as it was. Releasing a lease already released is a no-op.
+ * @param {PrivateStore} store
+ * @param {RunOptions & { reason: 'handover' | 'ended', holder?: { session: string, host?: string }, notes?: string }} options
+ *   `session` and `host` are the caller's; `holder` is the session to retire (reason ended)
+ * @returns {{ released: { at: string, reason: string, by: string }, appended: boolean, state: RunState }}
+ */
+export function releaseLease(store, options) {
+  const now = options.now ?? (() => new Date());
+  const loaded = loadState(store);
+  if (!loaded.state) {
+    throw new Error(`no run state (${loaded.problems.join('; ')}); run hitld run rebuild`);
+  }
+  const persisted = loaded.state;
+  const state = structuredClone(persisted);
+  absorb(state, readLedger(store).events);
+  const l = state.lease;
+  const self = options.reason === 'handover';
+  const holder = self
+    ? { session: options.session, host: options.host }
+    : {
+        session: options.holder?.session ?? '',
+        host: options.holder?.host ?? (options.holder?.session === l.session ? l.host : ''),
+      };
+  if (!self && holder.session === options.session && holder.host === options.host) {
+    throw new LeaseError('held', 'a session does not retire itself: it hands over', l);
+  }
+  if (l.session !== holder.session || l.host !== holder.host) {
+    throw new LeaseError(
+      'lost',
+      `the lease on run ${state.run.id} is held by session ${l.session} on ${l.host}, not by ${holder.session}${holder.host ? ` on ${holder.host}` : ''}`,
+      l,
+    );
+  }
+  if (l.released) return { released: l.released, appended: false, state };
+  const { events } = appendEvent(
+    store,
+    {
+      event: 'lease-released',
+      run: state.run.id,
+      session: holder.session,
+      host: holder.host,
+      reason: options.reason,
+      by: options.session,
+      ...(options.notes ? { notes: options.notes } : {}),
+    },
+    { now },
+  );
+  const next = structuredClone(persisted);
+  absorb(next, events);
+  const written = saveCheckpoint(store, persisted, next, {
+    kept: options.kept ?? DEFAULTS.kept,
+  });
+  return { released: written.lease.released, appended: true, state: written };
+}
+
+/**
+ * Whether the session holding the lease should hand over to a fresh one (design part 13.1): after
+ * `afterCompletions` completions since it took the lease, or once the share of its context it has
+ * used (which only the session itself can read from its harness) reaches `contextShare`.
+ * @param {RunState} state @param {LedgerEntry[]} events
+ * @param {{ afterCompletions?: number, contextShare?: number, contextUsed?: number | null }} [limits]
+ */
+export function handoverDue(state, events, limits = {}) {
+  const after = limits.afterCompletions ?? 20;
+  const share = limits.contextShare ?? 0.7;
+  const used = typeof limits.contextUsed === 'number' ? limits.contextUsed : null;
+  const l = state.lease;
+  const took = events.findLastIndex(
+    (e) =>
+      (e.event === 'run-started' || e.event === 'lease-taken') &&
+      e.session === l.session &&
+      e.host === l.host,
+  );
+  const completions = events.slice(took + 1).filter((e) => e.event === 'reported').length;
+  /** @type {string[]} */
+  const reasons = [];
+  if (completions >= after) {
+    reasons.push(`${completions} completions since this session took the lease (limit ${after})`);
+  }
+  if (used !== null && used >= share) {
+    reasons.push(
+      `${Math.round(used * 100)}% of the context used (limit ${Math.round(share * 100)}%)`,
+    );
+  }
+  return {
+    due: reasons.length > 0,
+    reasons,
+    completions,
+    after_completions: after,
+    context_used: used,
+    context_share: share,
+  };
+}
+
+/**
+ * The dispatches whose completion notice reaches the session that dispatched them: background
+ * agents and headless runs, on this host. A session that hands over waits for these first, since
+ * no successor would hear of them. An interactive tier-3 session reports through the chief of
+ * staff, which started it, so it does not hold a hand-over up.
+ * @param {RunState} state @param {string} host
+ * @returns {InFlight[]}
+ */
+export const reportingHere = (state, host) =>
+  state.in_flight.filter(
+    (/** @type {InFlight} */ d) => d.mode !== 'interactive' && (d.host === null || d.host === host),
+  );
+
+/**
+ * The lease as the chief of staff reads it to route a wake: who holds it, and whether it is free
+ * for a successor (released, or expired).
+ * @param {RunState} state @param {Date} now @param {number} [expirySeconds]
+ */
+export function leaseStatus(state, now, expirySeconds = DEFAULTS.expirySeconds) {
+  const l = state.lease;
+  const expired = leaseExpired(state, now, expirySeconds);
+  return {
+    session: l.session,
+    host: l.host,
+    harness_ref: l.harness_ref ?? null,
+    renewed_at: l.renewed_at,
+    age_seconds: Math.round(leaseAgeSeconds(state, now)),
+    expired,
+    released: l.released ?? null,
+    free: Boolean(l.released) || expired,
   };
 }
 
@@ -374,6 +515,24 @@ export function rebuildRun(store, options = {}) {
   };
 }
 
+/** Where a hand-over note lives in the private store. @param {string} run @param {number} checkpoint */
+export const handoverKey = (run, checkpoint) => `orchestrator/handover-${run}-${checkpoint}.md`;
+
+/**
+ * The latest hand-over note of a run, as a store key, or null.
+ * @param {PrivateStore} store @param {string} run
+ */
+export function latestHandover(store, run) {
+  const prefix = `orchestrator/handover-${run}-`;
+  /** @param {string} k */
+  const n = (k) => Number(k.slice(prefix.length, -'.md'.length));
+  const keys = store
+    .list('orchestrator/')
+    .filter((k) => k.startsWith(prefix) && /^\d+\.md$/.test(k.slice(prefix.length)))
+    .sort((a, b) => n(b) - n(a));
+  return keys[0] ?? null;
+}
+
 /**
  * The hand-over summary, generated from the state and the ledger, never from memory.
  * @param {RunState} state @param {LedgerEntry[]} events
@@ -388,7 +547,7 @@ export function handOver(state, events) {
   }));
   const lines = [
     `Run ${state.run.id}, started ${state.run.started_at}. Checkpoint ${state.checkpoint.number}, ledger at ${state.ledger_position}.`,
-    `Lease: session ${state.lease.session} on ${state.lease.host}, renewed ${state.lease.renewed_at}.`,
+    `Lease: session ${state.lease.session} on ${state.lease.host}, renewed ${state.lease.renewed_at}${state.lease.released ? `; released (${state.lease.released.reason}) by ${state.lease.released.by} at ${state.lease.released.at}` : ''}.`,
     `In flight (${state.in_flight.length}): ${
       state.in_flight
         .map(

@@ -58,6 +58,40 @@ test('sizing: tier 1 for mechanical work, 2 inside a plan, 3 without one, 0 for 
   assert.match(hinted.reasons[0], /tier_override/);
 });
 
+test('sizing: an owner-review area asks for a review pack and does not force tier 3', () => {
+  const p = policy({ dispatch: { owner_review_areas: ['ui'] } });
+  const base = { kind: 'work', state: 'planned', classification: 'public', area: 'ui' };
+  const s = sizeItem({ ...base, id: 'W-1', touches: ['src/a.js'], body: BODY1 }, p);
+  assert.equal(s.tier, 1, 'mechanical work stays tier 1');
+  assert.equal(s.owner_review, 'ui');
+  assert.match(s.reasons.at(-1) ?? '', /reviewed in person: the brief asks for a review pack/);
+  const brief = renderBrief({
+    item: { ...base, id: 'W-1', touches: ['src/a.js'], body: BODY1 },
+    sizing: s,
+    dispatch: 'D-1',
+    branch: 'hitld/W-1-x',
+    policy: p,
+    isolation: 'worktree',
+  });
+  assert.match(brief, /Owner review: the owner reviews ui in person\. Prepare a review pack/);
+  const other = sizeItem(
+    { ...base, area: 'api', id: 'W-2', touches: ['src/a.js'], body: BODY1 },
+    p,
+  );
+  assert.equal(other.owner_review, null);
+  assert.doesNotMatch(
+    renderBrief({
+      item: { ...base, id: 'W-2', touches: ['src/a.js'], body: BODY1 },
+      sizing: other,
+      dispatch: 'D-2',
+      branch: 'hitld/W-2-x',
+      policy: p,
+      isolation: 'worktree',
+    }),
+    /Owner review/,
+  );
+});
+
 test('sizing: up one for blast radius, down one for familiar ground, estimates from history', () => {
   const p = policy({
     rights: {

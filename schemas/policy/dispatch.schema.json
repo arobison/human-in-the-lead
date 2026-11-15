@@ -23,7 +23,7 @@
       ]
     },
     "owner_review_areas": {
-      "description": "Areas whose output the owner reviews in person, such as UI: their items go to tier 3, their own session.",
+      "description": "Areas whose output the owner reviews in person, such as UI: the brief asks the executor for a review pack. The tier still comes from sizing.",
       "$ref": "common#/$defs/names",
       "default": []
     },

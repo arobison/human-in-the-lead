@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "id": "orchestrator/chief-of-staff-resumes-killed",
+  "suite": "orchestrator",
+  "category": "continuity",
+  "description": "An orchestrator session is killed mid-run, holding a fresh lease, with one dispatch recorded before its harness call and one started. The chief of staff, not the owner, reads where wakes go, retires the ended session on the harness's word, and a successor it starts resumes from the run state and the hand-over summary without --force: it abandons the dispatch that never started, adopts the live one, re-plans the abandoned item once, and becomes where wakes go. The killed session can no longer record.",
+  "mode": "offline",
+  "steps": [
+    { "id": "consumer", "action": "orchestrator.consumer", "with": {} },
+    {
+      "id": "start",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "start", "--harness-ref", "cloud-orch-1"], "session": "orch-1" }
+    },
+    {
+      "id": "d1",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-1"], "session": "orch-1" }
+    },
+    {
+      "id": "d2",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-2"], "session": "orch-1" }
+    },
+    {
+      "id": "d2_handle",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "handle", "--dispatch", "D-2", "--harness-ref", "agent-2"],
+        "session": "orch-1"
+      }
+    },
+    {
+      "id": "before",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "status"], "session": "cos" }
+    },
+    {
+      "id": "too_early",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "resume", "--live", "D-2"], "session": "orch-2" }
+    },
+    {
+      "id": "retire",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "retire", "--holder", "orch-1"], "session": "cos" }
+    },
+    {
+      "id": "free",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "status"], "session": "cos" }
+    },
+    {
+      "id": "resume",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["run", "resume", "--live", "D-2", "--harness-ref", "cloud-orch-2"],
+        "session": "orch-2"
+      }
+    },
+    {
+      "id": "plan",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "plan"], "session": "orch-2" }
+    },
+    {
+      "id": "after",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "status"], "session": "cos" }
+    },
+    {
+      "id": "stale",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-1"], "session": "orch-1" }
+    }
+  ],
+  "graders": [
+    {
+      "id": "snapshot",
+      "grader": "equals",
+      "with": { "path": "steps.consumer.snapshot", "value": true }
+    },
+    {
+      "id": "wakes-to-the-holder",
+      "grader": "equals",
+      "with": { "path": "steps.before.result.wake_to", "value": "cloud-orch-1" }
+    },
+    {
+      "id": "fresh-lease-not-taken",
+      "grader": "equals",
+      "with": { "path": "steps.too_early.result.error", "value": "lease_held" }
+    },
+    {
+      "id": "retired-as-ended",
+      "grader": "equals",
+      "with": { "path": "steps.retire.result.released.reason", "value": "ended" }
+    },
+    {
+      "id": "retired-by-chief-of-staff",
+      "grader": "equals",
+      "with": { "path": "steps.retire.result.released.by", "value": "cos" }
+    },
+    {
+      "id": "free-for-a-successor",
+      "grader": "equals",
+      "with": { "path": "steps.free.result.lease.free", "value": true }
+    },
+    {
+      "id": "no-wakes-while-free",
+      "grader": "equals",
+      "with": { "path": "steps.free.result.wake_to", "value": null }
+    },
+    {
+      "id": "taken-without-the-owner",
+      "grader": "equals",
+      "with": { "path": "steps.resume.result.took_over.reason", "value": "ended" }
+    },
+    {
+      "id": "hand-over-summary",
+      "grader": "matches",
+      "with": {
+        "path": "steps.resume.result.handover.text",
+        "pattern": "In flight \\(1\\): D-2 W-2"
+      }
+    },
+    {
+      "id": "abandoned",
+      "grader": "equals",
+      "with": { "path": "steps.resume.result.abandoned", "value": ["D-1"] }
+    },
+    {
+      "id": "adopted",
+      "grader": "equals",
+      "with": { "path": "steps.resume.result.adopted", "value": ["D-2"] }
+    },
+    {
+      "id": "replanned",
+      "grader": "matches",
+      "with": { "path": "steps.plan.result.start[*].item", "pattern": "^W-1$" }
+    },
+    {
+      "id": "not-twice",
+      "grader": "matches",
+      "with": { "path": "steps.plan.result.start[*].item", "pattern": "^W-1$", "mode": "all" }
+    },
+    {
+      "id": "wakes-to-the-successor",
+      "grader": "equals",
+      "with": { "path": "steps.after.result.wake_to", "value": "cloud-orch-2" }
+    },
+    {
+      "id": "killed-session-refused",
+      "grader": "equals",
+      "with": { "path": "steps.stale.result.error", "value": "lease_lost" }
+    }
+  ]
+}
