@@ -2,9 +2,10 @@
 id: HITLD-111
 title: "Fixes found writing the guides: refusal codes, a silent empty work check, dashboard --json, a pointer to adopt"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-111
 ---
 
 ## Why
