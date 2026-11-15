@@ -588,7 +588,7 @@ test('the command: a mode is required, --live is a marked seam, and the help lis
   assert.equal(none.code, EXIT.failed);
   assert.equal(JSON.parse(none.out).error, 'usage');
   const live = await go(['eval', '--live']);
-  assert.equal(JSON.parse(live.out).error, 'not_built');
+  assert.equal(JSON.parse(live.out).error, 'not-built');
   assert.match(JSON.parse(live.out).message, /live.mjs/);
   await assert.rejects(() => runLive([], { harness: 'x', models: {}, k: 3 }), LiveNotBuilt);
   const help = await go(['eval', '--help']);
@@ -603,7 +603,7 @@ test('the command: a mode is required, --live is a marked seam, and the help lis
     assert.ok(help.out.includes(opt), opt);
   }
   const empty = await go(['eval', '--offline', '--scenarios', 'no-such-piece']);
-  assert.equal(JSON.parse(empty.out).error, 'no_scenarios');
+  assert.equal(JSON.parse(empty.out).error, 'no-scenarios');
 });
 
 test('filters match an ID or the start of one', () => {

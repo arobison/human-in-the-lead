@@ -169,7 +169,7 @@
     {
       "id": "retired-session-refused",
       "grader": "equals",
-      "with": { "path": "steps.retired.result.error", "value": "lease_lost" }
+      "with": { "path": "steps.retired.result.error", "value": "lease-lost" }
     }
   ]
 }

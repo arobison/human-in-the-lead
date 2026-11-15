@@ -164,7 +164,7 @@ In this repository, HITLd is the project, so feedback about HITLd is a note.
 
 - Every `hitld` call that records something writes a checkpoint. At a clean point with nothing to record, and before you end a turn: `hitld run checkpoint`.
 - This session is disposable. Hand over when `handover.due` is true in `hitld dispatch complete` (after `orchestrator.handover_after_completions` completions), when your context passes the share in `orchestrator.handover_context_share` (`hitld run status --context-percent <N>` tells you), or when the owner asks.
-  1. Start nothing new. `hitld dispatch start` refuses with `handover_due` once the count is reached.
+  1. Start nothing new. `hitld dispatch start` refuses with `handover-due` once the count is reached.
   2. Process the completions of the background agents and headless runs you started: no successor would hear of them. Follow-ups keep their agent in flight, so send only those that cannot wait.
   3. `hitld handover`. It refuses with `draining` while work you started still reports to you; `--now` hands over anyway, only when your context cannot wait or the owner says so. It writes the note and gives up the lease.
   4. End your turn with `handover: <the file>` in your message, and stop. Anything this session tries to record after that is refused. When you are both, give the owner the text and the file instead; a fresh session resumes from it (step 1).

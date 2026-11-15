@@ -116,7 +116,7 @@ test('eval accept: a full, passing run becomes the baseline, recorded as the own
   // A second time: already the baseline.
   const again = await w.hitld(['eval', 'accept', '--result', ran.json.run]);
   assert.equal(again.code, 1);
-  assert.equal(again.json.error, 'refused');
+  assert.equal(again.json.error, 'not-accepted');
   assert.match(again.json.message, /already the baseline/);
 });
 
@@ -124,7 +124,7 @@ test('eval accept: refuses a partial run, a failing run, a run that failed the g
   const w = workspace({ a: GOOD, b: GOOD });
   const partial = await w.offline(['--scenarios', 't/a']);
   const refusedPartial = await w.hitld(['eval', 'accept', '--result', partial.json.run]);
-  assert.equal(refusedPartial.json.error, 'refused');
+  assert.equal(refusedPartial.json.error, 'not-accepted');
   assert.match(refusedPartial.json.message, /only some scenarios/);
 
   const full = await w.offline();
@@ -134,18 +134,18 @@ test('eval accept: refuses a partial run, a failing run, a run that failed the g
   const gated = await w.offline();
   assert.equal(gated.json.gate.ok, false);
   const refusedGate = await w.hitld(['eval', 'accept', '--result', gated.json.run]);
-  assert.equal(refusedGate.json.error, 'refused');
+  assert.equal(refusedGate.json.error, 'not-accepted');
   assert.match(refusedGate.json.message, /regression gate/);
 
   const w2 = workspace({ a: BAD });
   const failing = await w2.offline();
   const refusedFail = await w2.hitld(['eval', 'accept', '--result', failing.json.run]);
-  assert.equal(refusedFail.json.error, 'refused');
+  assert.equal(refusedFail.json.error, 'not-accepted');
   assert.match(refusedFail.json.message, /failing scenarios/);
   assert.equal(w2.store().list('eval/baselines/').length, 0);
 
   for (const bad of ['EV-20000101T000000Z-000000', '../../etc/passwd']) {
-    assert.equal((await w.hitld(['eval', 'accept', '--result', bad])).json.error, 'no_run');
+    assert.equal((await w.hitld(['eval', 'accept', '--result', bad])).json.error, 'no-eval-run');
   }
 });
 
@@ -170,9 +170,9 @@ test('eval accept: executors are refused, by HITLD_ROLE and by HITLD_DISPATCH, a
   for (const env of executors) {
     const accept = await w.hitld(['eval', 'accept', '--result', ran.json.run], env);
     assert.equal(accept.code, 1);
-    assert.equal(accept.json.error, 'not_allowed');
+    assert.equal(accept.json.error, 'not-permitted');
     const flag = await w.offline(['--accept-baseline'], env);
-    assert.equal(flag.json.error, 'not_allowed');
+    assert.equal(flag.json.error, 'not-permitted');
   }
   assert.equal(w.store().list('eval/baselines/').length, 0);
 });

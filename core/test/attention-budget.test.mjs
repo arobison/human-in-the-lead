@@ -565,17 +565,17 @@ test('asking refuses a default on a door that is hard to undo, or one that names
     deps,
     question({ reversibility: 'one-way', default_if_unanswered: soon }),
   );
-  assert.equal(oneWay.error, 'invalid_default');
+  assert.equal(oneWay.error, 'invalid-default');
   assert.match(oneWay.message, /two-way door only/);
   const unsaid = /** @type {Record<string, any>} */ (question({ default_if_unanswered: soon }));
   delete unsaid.reversibility;
   const noReversibility = askQuestion(deps, unsaid);
-  assert.equal(noReversibility.error, 'invalid_default');
+  assert.equal(noReversibility.error, 'invalid-default');
   const noOption = askQuestion(
     deps,
     question({ default_if_unanswered: { option: 'Z', deadline: soon.deadline } }),
   );
-  assert.equal(noOption.error, 'invalid_default');
+  assert.equal(noOption.error, 'invalid-default');
   assert.match(noOption.message, /must name one of the options/);
   assert.equal(
     askQuestion(
@@ -718,7 +718,7 @@ test('a default can be reversed once, counted in the trust record, and tells the
     r.next,
     /Undo what that default started and apply the owner's choice \(their note: use the library after all\)/,
   );
-  assert.equal(recordReversal(deps, { subject: asked.decision }).error, 'already_reversed');
+  assert.equal(recordReversal(deps, { subject: asked.decision }).error, 'already-reversed');
   const summary = Object.values(trustSummary(readTrustEvents(deps.store)))[0];
   assert.equal(summary.defaults, 1);
   assert.equal(summary.defaults_reversed, 1);
@@ -858,7 +858,7 @@ test('rights pending and rights sweep are the orchestrator’s: an executor is r
       await c?.run?.({}, { cwd: project.root, env: { ...project.env, HITLD_ROLE: 'executor' } })
     );
     assert.equal(r.ok, false);
-    assert.equal(r.error, 'not_permitted');
+    assert.equal(r.error, 'not-permitted');
   }
 });
 

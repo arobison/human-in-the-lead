@@ -301,13 +301,13 @@ test('a question that cannot be answered from a phone is refused, and says what 
     }),
   );
   assert.equal(r.ok, false);
-  assert.equal(r.error, 'incomplete_question');
+  assert.equal(r.error, 'incomplete-question');
   assert.deepEqual(r.missing, ['context', 'options (at least two)', 'recommendation']);
   const lost = askQuestion(project, dependency({ recommendation: { option: 'Z', why: 'x' } }));
   assert.match(String(lost.missing), /recommendation\.option/);
   assert.equal(project.tracker.items.size, 0);
   const unknown = askQuestion(project, { ...dependency(), surprise: 1 });
-  assert.equal(unknown.error, 'invalid_question');
+  assert.equal(unknown.error, 'invalid-question');
 });
 
 test('only an open decision takes an answer', () => {
@@ -316,9 +316,9 @@ test('only an open decision takes an answer', () => {
   assert.equal(answerDecision(project, { decision: asked.decision, answer: 'A' }).ok, true);
   assert.equal(
     answerDecision(project, { decision: asked.decision, answer: 'B' }).error,
-    'not_open',
+    'not-open',
   );
-  assert.equal(answerDecision(project, { decision: 'W-99', answer: 'A' }).error, 'not_found');
+  assert.equal(answerDecision(project, { decision: 'W-99', answer: 'A' }).error, 'not-found');
   const work = project.tracker.create({
     schema_version: 1,
     kind: 'work',
@@ -326,7 +326,7 @@ test('only an open decision takes an answer', () => {
     state: 'planned',
     classification: 'public',
   });
-  assert.equal(answerDecision(project, { decision: work, answer: 'A' }).error, 'not_a_decision');
+  assert.equal(answerDecision(project, { decision: work, answer: 'A' }).error, 'not-a-decision');
 });
 
 test('a confidential decision makes a confidential precedent in the private store, cited by ID only', () => {
@@ -346,7 +346,7 @@ test('a confidential decision makes a confidential precedent in the private stor
 
 test('overruling something that was not an application, twice, or with no tell-tale attribute', () => {
   const project = makeProject();
-  assert.equal(overrule(project, { decision: 'W-1', why: 'x' }).error, 'not_an_application');
+  assert.equal(overrule(project, { decision: 'W-1', why: 'x' }).error, 'not-an-application');
   const asked = askQuestion(
     project,
     dependency({
@@ -369,7 +369,7 @@ test('overruling something that was not an application, twice, or with no tell-t
   assert.equal(project.precedents.get('P-1')?.state, 'retired');
   assert.equal(
     overrule(project, { decision: later.decision, why: 'again' }).error,
-    'already_overruled',
+    'already-overruled',
   );
   assert.equal(
     askQuestion(

@@ -121,12 +121,12 @@
     {
       "id": "executor-person-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_person.result.error", "value": "refused" }
+      "with": { "path": "steps.executor_person.result.error", "value": "not-permitted" }
     },
     {
       "id": "executor-machine-refused",
       "grader": "equals",
-      "with": { "path": "steps.executor_machine.result.error", "value": "refused" }
+      "with": { "path": "steps.executor_machine.result.error", "value": "not-permitted" }
     },
     {
       "id": "refused-writes-nothing",

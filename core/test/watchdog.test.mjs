@@ -216,7 +216,7 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   ]);
   assert.ok(!c.events().some((e) => e.event === 'stalled'), 'a read records nothing');
   const refused = await c.hitld(['dispatch', 'watch', '--act'], { HITLD_SESSION: 'cos' });
-  assert.equal(refused.result.error, 'lease_lost', 'only the lease holder acts');
+  assert.equal(refused.result.error, 'lease-lost', 'only the lease holder acts');
 
   const poke = await c.hitld(['dispatch', 'watch', '--act']);
   assert.equal(poke.exit, 0, JSON.stringify(poke.result));

@@ -52,7 +52,7 @@ const fail = (error, message, more = {}) => ({ ok: false, error, message, ...mor
 function project(ctx) {
   const repoRoot = ownerCheckoutOf(ctx.cwd);
   if (!repoRoot)
-    return { failure: fail('not_a_repository', `${ctx.cwd} is not in a git repository`) };
+    return { failure: fail('not-a-repository', `${ctx.cwd} is not in a git repository`) };
   const loaded = loadPolicy({ cwd: repoRoot });
   if (!loaded.policy) {
     return {
@@ -75,7 +75,7 @@ const notForExecutors = (name, whose, run) => (input, ctx) => {
   const why = executorSignal(ctx.env, ctx.cwd);
   if (why) {
     return fail(
-      'not_permitted',
+      'not-permitted',
       `hitld ${name} is ${whose}, through the main session in the primary checkout (${why}); an executor proposes verdicts in its report`,
     );
   }
@@ -157,13 +157,13 @@ export const commands = [
       }
       if (branch !== main) {
         return fail(
-          'not_on_main',
+          'not-on-main',
           `the primary checkout is not on ${main}: the baseline is made from main`,
         );
       }
       if (git(p.repoRoot, ['status', '--porcelain'])) {
         return fail(
-          'dirty',
+          'dirty-tree',
           'the primary checkout has uncommitted changes: the baseline is made from main as committed',
         );
       }

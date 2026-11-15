@@ -221,7 +221,7 @@ test('executors never write the profile, but may look at the proposal', async ()
   assert.equal(look.result.ok, true);
   const write = await hitld(['machine', 'detect', '--write'], env, FIXTURES.ci());
   assert.equal(write.code, 1);
-  assert.equal(write.result.error, 'refused');
+  assert.equal(write.result.error, 'not-permitted');
   assert.equal(existsSync(settingsLocation('machine', { env }).path), false);
 });
 

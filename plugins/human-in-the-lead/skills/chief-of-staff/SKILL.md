@@ -37,7 +37,7 @@ Run the first-run setup with the owner here (the orchestrate skill, step 0), bec
 
 ## 1. Start an orchestrator
 
-1. `hitld run status`. On `no_run`, the orchestrator starts the run. When `lease.free` is false, an orchestrator holds the run: send wakes to `wake_to` (step 2), and start nothing.
+1. `hitld run status`. On `no-run`, the orchestrator starts the run. When `lease.free` is false, an orchestrator holds the run: send wakes to `wake_to` (step 2), and start nothing.
 2. Pick its session ID: `orch-` and a number one above the last you used. Start it with this prompt, filled in:
 
    ```

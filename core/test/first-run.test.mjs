@@ -58,12 +58,12 @@ test('before setup, only a hand-started item runs, and one at a time', async () 
   recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
   await c.hitld(['run', 'start']);
   const auto = await c.hitld(['dispatch', 'start', 'W-1']);
-  assert.equal(auto.result.error, 'not_planned');
+  assert.equal(auto.result.error, 'not-planned');
   assert.match(auto.result.message, /setup not done/);
   const hand = await c.hitld(['dispatch', 'start', 'W-1', '--by-hand']);
   assert.equal(hand.result.ok, true);
   const second = await c.hitld(['dispatch', 'start', 'W-2', '--by-hand']);
-  assert.equal(second.result.error, 'not_planned');
+  assert.equal(second.result.error, 'not-planned');
   assert.match(second.result.message, /cap 1/);
 });
 
@@ -82,11 +82,11 @@ test('a dispatched executor cannot run the setup, whichever command writes', asy
   for (const env of [{ HITLD_DISPATCH: 'D-1' }, { HITLD_ROLE: 'executor' }]) {
     for (const kind of ['person', 'machine']) {
       const r = await c.hitld(['config', 'write', kind, '--data', '{"schema_version":1}'], { env });
-      assert.equal(r.result.error, 'refused');
+      assert.equal(r.result.error, 'not-permitted');
       assert.match(r.result.message, /executors never write settings/);
     }
     const detect = await c.hitld(['machine', 'detect', '--write'], { env });
-    assert.equal(detect.result.error, 'refused');
+    assert.equal(detect.result.error, 'not-permitted');
     assert.equal(detect.result.written, false);
   }
   for (const kind of /** @type {const} */ (['person', 'machine'])) {

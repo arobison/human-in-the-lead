@@ -233,11 +233,11 @@ test('format 1: a file an earlier version wrote still imports with its passphras
   const b = join(dir, 'b');
   // Without the passphrase, or with the wrong one, it is refused.
   await assert.rejects(importStore({ ...opts(b, FORMAT_1_FIXTURE), identities: undefined }), {
-    code: 'no_passphrase',
+    code: 'no-passphrase',
   });
   await assert.rejects(
     importStore({ ...opts(b, FORMAT_1_FIXTURE), passphrase: 'not the passphrase' }),
-    (/** @type {any} */ e) => e.code === 'cannot_open' && /passphrase is wrong/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'cannot-open' && /passphrase is wrong/.test(e.message),
   );
   assert.equal(existsSync(join(b, 'ledger.jsonl')), false);
   const r = await importStore({ ...opts(b, FORMAT_1_FIXTURE), passphrase: PASS });
@@ -267,7 +267,7 @@ test('format 1: one changed byte refuses the file, wherever the byte is', async 
     writeFileSync(tampered, bad);
     await assert.rejects(
       importStore({ ...opts(join(dir, `b-${where}`), tampered), passphrase: PASS }),
-      (/** @type {any} */ e) => ['cannot_open', 'bad_header'].includes(e.code),
+      (/** @type {any} */ e) => ['cannot-open', 'bad-header'].includes(e.code),
       where,
     );
   }
@@ -301,7 +301,7 @@ test("another project's file is refused", async () => {
   exportStore(opts(a.root, file, 'other-project'));
   await assert.rejects(
     importStore(opts(join(dir, 'b'), file, 'fixture')),
-    (/** @type {any} */ e) => e.code === 'another_project' && /other-project/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'another-project' && /other-project/.test(e.message),
   );
   assert.equal(existsSync(join(dir, 'b', 'ledger.jsonl')), false);
 });
@@ -320,13 +320,13 @@ test('a newer schema, an unknown export format, or a costly format-1 header is r
   writeFileSync(file, seal(manifest, Buffer.from('bundle'), [DEVICE.recipient]));
   await assert.rejects(
     importStore(opts(join(dir, 'b'), file)),
-    (/** @type {any} */ e) => e.code === 'newer_schema' && /ledger-entry/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'newer-schema' && /ledger-entry/.test(e.message),
   );
   // The same check holds for format 1.
   writeFileSync(file, sealFormat1(manifest, Buffer.from('bundle'), PASS, scrypt));
   await assert.rejects(
     importStore({ ...opts(join(dir, 'b'), file), passphrase: PASS }),
-    (/** @type {any} */ e) => e.code === 'newer_schema',
+    (/** @type {any} */ e) => e.code === 'newer-schema',
   );
 
   const sealed = sealFormat1(
@@ -342,7 +342,7 @@ test('a newer schema, an unknown export format, or a costly format-1 header is r
   writeFileSync(file, future);
   await assert.rejects(
     importStore({ ...opts(join(dir, 'b'), file), passphrase: PASS }),
-    (/** @type {any} */ e) => e.code === 'unknown_format' && /format 3/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'unknown-format' && /format 3/.test(e.message),
   );
 
   // A header asking for a key derivation too costly to run is refused before it runs.
@@ -353,7 +353,7 @@ test('a newer schema, an unknown export format, or a costly format-1 header is r
   writeFileSync(file, costly);
   await assert.rejects(
     importStore({ ...opts(join(dir, 'b'), file), passphrase: PASS }),
-    (/** @type {any} */ e) => e.code === 'bad_header' && /scrypt N/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'bad-header' && /scrypt N/.test(e.message),
   );
   // An age file whose payload is not an export is refused as damaged.
   const { encrypt } = await import('../lib/store/age.mjs');
@@ -503,7 +503,7 @@ test('the commands refuse executors, want their keys, and never take a secret as
         },
       );
       assert.equal(r.code, EXIT.failed, sub);
-      assert.equal(r.json.error, 'not_permitted', sub);
+      assert.equal(r.json.error, 'not-permitted', sub);
     }
     for (const secret of ['--passphrase', '--identity']) {
       const arg = await hitld(['store', sub, file, secret, 'x'], project, {});
@@ -537,7 +537,7 @@ test('the commands refuse executors, want their keys, and never take a secret as
   const noPass = await hitld(['store', 'import', FORMAT_1_FIXTURE, '--store', store], project, {
     HITLD_STORE_IDENTITY: DEVICE.identity,
   });
-  assert.equal(noPass.json.error, 'no_passphrase');
+  assert.equal(noPass.json.error, 'no-passphrase');
   const syncNoKey = await hitld(['store', 'sync', file, '--store', store, ...to], project, {});
   assert.equal(syncNoKey.json.error, 'no-identity');
 });
