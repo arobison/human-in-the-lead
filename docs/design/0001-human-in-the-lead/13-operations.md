@@ -87,6 +87,8 @@ The owner's conversation does not move: the chief of staff tells the owner in on
 | Completion notices | The session that dispatched the work: background agents and headless runs report to the orchestrator itself; tier-3 sessions report to the chief of staff | Directly, or relayed by the chief of staff |
 | Scheduled tasks | The chief of staff, which owns them all | It runs the job's `hitld` command, or sends the wake to `wake_to` |
 
+On every wake the chief of staff also runs `hitld cadence due` ([13.3](#133-the-scheduler-later-milestone)) and runs what it lists: a digest, a report, baselines, evals or a calibration review. Recurring work is due on evidence, so the wake needs no schedule of its own.
+
 `hitld run status` reads the lease without taking it: who holds it, the session's harness reference (`--harness-ref` on `run start` and `run resume`), whether it is free, whether its hand-over is due, and the latest hand-over note. When the lease is free, the chief of staff starts a successor instead of waking anyone.
 
 **Only the chief of staff owns scheduled tasks.** An orchestrator creates no scheduled task, reminder or subscription. So a retired orchestrator leaves none behind, and a successor inherits the schedule without doing anything. A command result that asks for a later wake (for example, dispatch paused until a usage window resets) goes to the chief of staff, which schedules it. The watchdog for stalled executors (planned) runs on the same schedule.
@@ -160,29 +162,40 @@ The core records state, the lease and the hand-over, and never calls a harness (
 
 ## 13.3 The scheduler (later milestone)
 
-Some work recurs and nobody prompts it. The scheduler runs it.
+Some work recurs and nobody prompts it. It recurs on evidence, not on the calendar: agents keep no office hours, so what matters is how much has changed and whether the owner is there. A job is due on a threshold of what it measures (merges, decisions, value, outcomes), on the owner's presence, or on an idle machine. A calendar appears only as a ceiling on how long the owner may hear nothing.
 
-| Job | Typical cadence | Runs |
-|---|---|---|
-| Intake pull and triage | Several times a day | `hitld intake pull`, then a triage dispatch if anything arrived |
-| Digest | At the owner's set times | `hitld dashboard digest` through the notification channel ([part 12](12-reporting-and-limits.md)) |
-| Nightly baselines | Nightly | Benchmark runs on `main` through the evidence source, holding the benchmark resource's lock |
-| Stale-item sweep | Daily | Orphaned claims, `proposed` items older than `sweep.proposed_max_age`, blocked items whose blockers resolved |
-| Stale-knowledge sweep | After merge batches, or daily | `hitld kb stale`, then gardening dispatches |
-| Flaky-test sweep | Daily | Rerun recent failures on unchanged code; quarantine and file items for confirmed flakes |
-| Quota check | Hourly while a run is active | Usage snapshot and forecast ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)) |
-| Maintenance scan | Daily | Dependency updates and security advisories ([part 2](02-loops.md#29-maintenance)) |
-| Eval runs | Nightly (offline), per release (live) | `hitld eval` |
+**`hitld cadence due`** is the decision, as deterministic code. The chief of staff runs it at every wake ([13.1](#131-orchestrator-continuity)). It reads the ledger, the trust record, the marks left by `hitld cadence done`, the machine's state and the clock, and returns what is due and why, what quiet hours hold, and what is waiting for what. It reads only, starts nothing and keeps no timer, so asking twice changes nothing. The chief of staff runs what it lists, then runs the entry's last step, `hitld cadence done <job>`, which records how far into the ledger the job read. The next `due` counts only what is newer.
 
-**Rules for every job:** it is declared in `policy.json` (`schedule`, with cron expressions); it is idempotent, so a missed or doubled run is harmless; it has a token budget and respects the quota reserve and quiet hours; it writes to the ledger; its results reach the owner only through digests unless a threshold is crossed; and it is owned by the chief of staff, never by an orchestrator session, so replacing an orchestrator leaves the schedule as it was (13.1).
+- `--owner-present` says the owner has just written in the chief of staff's session. Only the owner's own message sets it.
+- An idle machine has no executor running from any project and a load average per core below `load.idle_per_core` in the machine file (0.25 when unset, and never above `load.max_per_core`).
+- `ceiling_at` is the earliest time a silence ceiling is reached. The chief of staff may schedule one wake for it.
 
-**Deterministic jobs need no agent.** Intake pulls, sweeps, quota checks and offline evals are `hitld` commands; only the follow-up (triage, gardening, a fix) dispatches an agent. So most jobs cost no model tokens.
+| Job | Due when | Settings | Runs |
+|---|---|---|---|
+| **Digest** | Enough merges or decisions since the last one; or the owner writes, or the machine is idle, with something to report; or the ceiling on silence | `digests.every_merges`, `every_decisions`, `when_owner_writes`, `when_idle`, `min_changes`, `silence_max_hours` | `hitld rights digest`, `hitld ledger summary`, sent through the notification channel ([part 2](02-loops.md#the-owners-attention-as-a-budget)) |
+| **Progress report** | The same triggers, and the value of merged work | `reports.*`, as in [12.2](12-reporting-and-limits.md#122-progress-reports) | `hitld dashboard` through the notification channel |
+| **Baselines** | The integration branch has moved by `baselines.every_merges` and the machine is idle | `baselines.every_merges` | Benchmark runs on `main` through the evidence source, holding the benchmark resource's lock and a quiet-machine hold ([13.4](#capacities-and-quiet-holds)) |
+| **Offline evals** | The branch has moved by `eval.every_merges` and the machine is idle | `eval.every_merges` | `hitld eval --offline`; live evals run per release ([part 17](17-evals.md)) |
+| **Calibration review** | A person has `review.every_outcomes` new outcomes of their calls since their last review, or `review.first_after_outcomes` if they have had none | `review.every_outcomes`, `review.first_after_outcomes` | The review for that person alone ([23.4](23-people-in-the-lead.md#234-feedback-to-the-person-the-calibration-review)) |
+| Intake pull and triage (planned) | At a wake, when a source has something new; a triage dispatch if anything arrived | | `hitld intake pull` |
+| Stale-item and flaky-test sweeps (planned) | After merge batches, on an idle machine | | Orphaned claims, `proposed` items older than `sweep.proposed_max_age`, blocked items whose blockers resolved; reruns of recent failures on unchanged code, quarantining and filing items for confirmed flakes |
+| Stale-knowledge sweep (planned) | After merge batches | | `hitld kb stale`, then gardening dispatches |
+| Quota check (planned) | At a wake while a run is active | | Usage snapshot and forecast ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)) |
+| Maintenance scan (planned) | On an idle machine, when a feed reports something new | | Dependency updates and security advisories ([part 2](02-loops.md#29-maintenance)) |
 
-**Where it runs, per harness:**
+The first five rows are built (`hitld cadence due` and `done`); the rows marked planned are the later milestone.
 
-- **Locally:** the operating system's scheduler (launchd on macOS, cron or systemd timers on Linux) running `hitld` commands, which start agents through the harness adapter when a job needs one. This works with any harness and keeps everything on the owner's machine.
-- **Claude Code:** desktop scheduled tasks (local, while the app is open) and cloud scheduled tasks (a fresh cloud clone), both with a minimum interval the product sets, where they fit; in-session `/loop` tasks only for checks during a run, since they end with the session.
-- **GitHub:** Actions `schedule` triggers for jobs that run in CI (nightly offline evals, baselines on a runner with the right hardware), and Copilot cloud agent automations for agent work on a schedule, which GitHub documents as limited to some repository types (check before relying on it).
+An outcome, for a review, is a recorded fact about how a call turned out: an overruled precedent application, a call the owner reversed, a merge the owner approved that was later reverted, or a rating of whether a question was worth asking. A review counts as a read against the person's attention budget, and quiet hours hold it.
+
+**Rules for every job:** its triggers are declared in `policy.json` as thresholds on what they measure, and a threshold of 0 is off. A key does not start with `after_`, which the schema validator keeps for lifecycle hooks, so thresholds read `every_<thing counted>`. A job is idempotent, so a missed or doubled run is harmless. It has a token budget and respects the quota reserve and quiet hours. It writes to the ledger. Its results reach the owner only through digests unless a threshold is crossed. It is owned by the chief of staff, never by an orchestrator session, so replacing an orchestrator leaves the jobs as they were (13.1).
+
+**Deterministic jobs need no agent.** Offline evals, sweeps, quota checks and `cadence due` itself are `hitld` commands; only the follow-up (triage, gardening, a fix) dispatches an agent. So most jobs cost no model tokens.
+
+**What each harness needs to provide** is wakes, not a list of timed jobs. The wake only lets the chief of staff ask what is due; it does not decide when work happens.
+
+- **Claude Code:** the wakes the chief of staff already has (the owner's message, an orchestrator's message, a completion, a GitHub event), one scheduled check-in while a run is active, and a one-off reminder at `ceiling_at`. Both use the cloud or desktop scheduled tasks, with the minimum interval the product sets; in-session `/loop` tasks only for checks during a run, since they end with the session.
+- **Locally, with no chief of staff session:** the operating system's scheduler (launchd on macOS, cron or systemd timers on Linux) may run `hitld cadence due` and the deterministic jobs it lists. Its interval sets how soon a change is noticed, not when work happens. Jobs that need an agent wait for a session.
+- **GitHub:** Actions workflows triggered by a push to the integration branch, where a job runs in CI (offline evals, baselines on a runner with the right hardware), since a merge is the event; Copilot cloud agent automations for agent work, which GitHub documents as limited to some repository types (check before relying on it). An Actions `schedule` trigger is only a ceiling.
 
 Hosted schedulers carry only work at or below their classification limit; jobs touching `confidential` material run locally.
 

@@ -1,0 +1,15 @@
+{
+  "$id": "policy/baselines",
+  "title": "policy.json: baselines",
+  "description": "When benchmark baselines on the integration branch are due (design part 13.3). They run on an idle machine, once the branch has moved enough to have something new to measure. `hitld cadence due` reads this, the ledger and the machine's state.",
+  "type": "object",
+  "properties": {
+    "every_merges": {
+      "description": "Due, on an idle machine, once this many items have merged since the last baseline.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 1
+    }
+  },
+  "additionalProperties": false
+}
