@@ -86,8 +86,8 @@ Reply `yes to all`, or `change N to X` for any number of them.
 - **Item 10, the private store.** When `hitld store status` shows `remote: null`, or the device is not enrolled, include the steps, marked by who does them. The store remote is optional for one machine; recommend it when the owner works from more than one machine or from cloud sessions.
   - The owner creates a private repository for the store. This is theirs: you never create a repository or hold credentials. Ask them for its URL.
   - `hitld store remote set <url> --policy` writes `store.remote.url` into `policy.json`.
-  - `hitld store device init` enrols this device (add `--cloud` for a cloud environment). Only when `hitld store device --help` exists in this release.
-  - Commit `.human-in-the-lead/store-devices.json` through the owner's merge, as in item 9.
+  - `hitld store device init` enrols this device. Only when `hitld store device --help` exists in this release. A cloud environment's device is the owner's own step, from the guide, in their own terminal: never run `hitld store device init --cloud` yourself, because its result is not for a session to read.
+  - Commit the file that `hitld store device init` reports as `file` through the owner's merge, as in item 9.
   - Point to `docs/guide/store-remote.md` for the details. Run the store commands only after the owner has created the repository and given its URL in their own message.
 - **Items 12 onward: the first-run setup**, only when `setup.done` is false: the numbered values of the orchestrate skill, step 0 (machine kind, `cores`, `memory_ceiling_mb`, `max_executors` for this machine, `max_executors` across projects, the reserve). Use the same wording and sources, so one answer covers the setup too.
 - **The status-line usage capture is not in the message.** After the values are agreed, ask it as its own question, exactly as orchestrate step 0 says, and run `hitld install --statusline` only on a yes in the owner's own message.
