@@ -165,19 +165,31 @@ export const ERROR_CODES = Object.freeze({
   'remote-dir-invalid': 'The local directory for the remote is not usable.',
   'remote-git-failed': 'A git command against the remote failed.',
 
+  // Store devices
+  'devices-invalid': 'A store-devices.json does not parse or breaks its schema.',
+  'devices-no-main':
+    'The checkout has no main branch, local or remote-tracking, to read the device list from.',
+  'devices-fetch-failed':
+    'Fetching main from origin failed, so a push refuses rather than use a stale device list.',
+  'device-name-invalid': 'A device name is not a short lower-case name.',
+  'device-name-required': 'No device name was given and none could be made from the host name.',
+  'device-name-taken': 'The device name is enrolled with another key.',
+  'device-unknown': 'No device in store-devices.json has that name.',
+  'device-no-keychain': 'This machine has no OS keychain hitld can store the device key in.',
+  'device-not-enrolled':
+    "This device has no key, or its key is not on main's store-devices.json, so it may not push.",
+
   // Pushing and pulling the store
   'no-remote':
     'No remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine.',
-  'not-enrolled':
-    "This device is not on the project's device list, so it cannot push until its enrolment is merged.",
-  'not-a-recipient':
-    "The push would not be encrypted to this device's own key, so this device could not open it afterwards.",
   'nothing-to-push': 'The store holds no text to push yet.',
   'remote-not-format-2':
     "The remote's head is not an age file; nothing writes another format to a remote.",
   'remote-config-invalid': "This machine's remote override file is damaged.",
   'sync-state-invalid':
     'The file that records what this store last merged from the remote is damaged.',
+  'store-pull-refused':
+    'hitld run start or run resume stopped: the store remote answered, but its head does not open or merge. An unreachable remote does not stop a run; --no-sync goes on with the local store.',
 
   // Secrets and the environment
   'secret-missing': 'No value is stored for a secret the task needs.',
@@ -189,6 +201,16 @@ export const ERROR_CODES = Object.freeze({
   'primary-unrecorded': 'No primary checkout is recorded for the project.',
   'primary-mismatch': 'The recorded primary checkout is not the one this process is in.',
 });
+
+/** An error that carries its design 16.2 code, so the command line prints it instead of `failed`. */
+export class CodedError extends Error {
+  /** @param {string} code @param {string} message */
+  constructor(code, message) {
+    super(message);
+    this.name = 'CodedError';
+    this.code = code;
+  }
+}
 
 /** @param {string} code */
 export const isErrorCode = (code) => Object.hasOwn(ERROR_CODES, code);

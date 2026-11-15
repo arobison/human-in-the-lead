@@ -76,6 +76,7 @@ import { followUpInstruction, instructionFor } from '../../../harness/claude-cod
 import { completionOf } from '../../../harness/claude-code/adapter.mjs';
 import { install } from '../../install/install.mjs';
 import { dispatchedOn, reportVersion } from '../../install/drift.mjs';
+import { pushingAfter } from '../../store/auto-sync.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} Ctx
@@ -535,7 +536,7 @@ function securitySentBack(x, main) {
 }
 
 /** @type {import('../table.mjs').Command[]} */
-export const commands = [
+const table = [
   {
     name: 'ready',
     summary: 'The ready queue in priority order, with tiers and estimates',
@@ -1702,3 +1703,6 @@ export const commands = [
     run: (input, ctx) => install(input, ctx),
   },
 ];
+
+/** A merge and a hand-over end by pushing the store (design 0003, section 8). */
+export const commands = pushingAfter(table, ['merge', 'handover']);

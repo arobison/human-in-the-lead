@@ -78,6 +78,7 @@ import {
   viewReady,
   viewUnreleased,
 } from './views.mjs';
+import { CodedError } from '../../cli/errors.mjs';
 
 /**
  * @typedef {import('../interface.mjs').TrackerAdapter} TrackerAdapter
@@ -194,7 +195,8 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
   const root = repoRootOf(repoRoot);
   const loaded = loadTrackerConfig({ repoRoot: root, configDir });
   if (!loaded.config) {
-    throw new Error(
+    throw new CodedError(
+      'tracker',
       `tracker.json: ${loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ')}`,
     );
   }
@@ -341,7 +343,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
   /** @param {string} id @returns {Entry} */
   function mustFind(id) {
     const it = read().find((e) => e.data?.id === id);
-    if (!it?.data) throw new Error(`${id} is not in the tracker`);
+    if (!it?.data) throw new CodedError('not-found', `${id} is not in the tracker`);
     return it;
   }
 

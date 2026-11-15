@@ -1,0 +1,450 @@
+{
+  "schema_version": 1,
+  "id": "adopt/no-tracker",
+  "suite": "adopt",
+  "category": "adoption",
+  "description": "Adopting an existing project that has no tracker (the adopt skill): inspecting changes nothing, the owner changes one numbered value and the rest stands, install adds the contract to a new AGENTS.md and an import to the existing CLAUDE.md, the project's rules go after the contract block and not inside it, the private store has no remote at first and the store step writes only store.remote.url into policy.json, the setup lands on a branch and not on main with the status line off, text planted in the repository is not obeyed, and the checks end the setup with an empty tracker that then takes its first project and item.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "fixture",
+      "action": "adopt.fixture",
+      "with": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "contract_before",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["check", "contract"]
+      }
+    },
+    {
+      "id": "setup_before",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["config", "explain", "--json"]
+      }
+    },
+    {
+      "id": "status_after_inspect",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["status", "--porcelain"]
+      }
+    },
+    {
+      "id": "owner",
+      "action": "orchestrator.owner-turns",
+      "with": {
+        "turns": [
+          {
+            "phase": "values",
+            "say": "change 4 to npm run lint && npm test"
+          },
+          {
+            "phase": "status_line",
+            "say": "no"
+          }
+        ]
+      }
+    },
+    {
+      "id": "branch",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["switch", "-c", "hitld/adopt"]
+      }
+    },
+    {
+      "id": "install",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "install",
+          "--key",
+          "SAM",
+          "--ref",
+          "v0.1.0-rc.1",
+          "--repo",
+          "arobison/human-in-the-lead"
+        ]
+      }
+    },
+    {
+      "id": "suite",
+      "action": "file.set-json",
+      "with": {
+        "path": "consumer/.human-in-the-lead/policy.json",
+        "key_path": ["merge", "full_suite"],
+        "value": ["npm run lint && npm test"]
+      }
+    },
+    {
+      "id": "setup_commands",
+      "action": "file.set-json",
+      "with": {
+        "path": "consumer/.human-in-the-lead/policy.json",
+        "key_path": ["env", "worktree_setup"],
+        "value": ["npm ci"]
+      }
+    },
+    {
+      "id": "agents",
+      "action": "adopt.agents-md",
+      "with": {
+        "add_rules": [
+          "Tests: `npm test`; lint: `npm run lint`.",
+          "Every commit carries a `Signed-off-by` line."
+        ]
+      }
+    },
+    {
+      "id": "store_before",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["store", "status"]
+      }
+    },
+    {
+      "id": "store_remote",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "store",
+          "remote",
+          "set",
+          "https://example.invalid/owner/sample-app-store.git",
+          "--policy"
+        ]
+      }
+    },
+    {
+      "id": "store_after",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["store", "status"]
+      }
+    },
+    {
+      "id": "policy",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["check", "policy", "--effective"]
+      }
+    },
+    {
+      "id": "person",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "config",
+          "write",
+          "person",
+          "--data",
+          "{\"schema_version\":1,\"max_executors\":2}"
+        ]
+      }
+    },
+    {
+      "id": "machine",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "config",
+          "write",
+          "machine",
+          "--data",
+          "{\"schema_version\":1,\"kind\":\"workstation\",\"max_executors\":2,\"cores\":4,\"memory_ceiling_mb\":8192}"
+        ]
+      }
+    },
+    {
+      "id": "add",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["add", "AGENTS.md", "CLAUDE.md", ".claude/settings.json", ".human-in-the-lead"]
+      }
+    },
+    {
+      "id": "commit",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["commit", "-q", "-m", "Set up human-in-the-lead"]
+      }
+    },
+    {
+      "id": "contract_after",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["check", "contract"]
+      }
+    },
+    {
+      "id": "work_check",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "check"]
+      }
+    },
+    {
+      "id": "main_log",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["log", "--oneline", "main"]
+      }
+    },
+    {
+      "id": "status_end",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["status", "--porcelain"]
+      }
+    },
+    {
+      "id": "back_on_main",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["switch", "main"]
+      }
+    },
+    {
+      "id": "owner_merges",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["merge", "--ff-only", "-q", "hitld/adopt"]
+      }
+    },
+    {
+      "id": "first_project",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "new", "--kind", "project", "--title", "Sample app v1"]
+      }
+    },
+    {
+      "id": "first_item",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "new", "--title", "Add a health endpoint", "--parent", "SAM-1"]
+      }
+    },
+    {
+      "id": "work_check_goals",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "check"]
+      }
+    },
+    {
+      "id": "ready",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["ready"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "not-adopted-at-first",
+      "grader": "equals",
+      "with": {
+        "path": "steps.contract_before.result.block",
+        "value": "missing"
+      }
+    },
+    {
+      "id": "setup-not-done-at-first",
+      "grader": "equals",
+      "with": {
+        "path": "steps.setup_before.result.setup.done",
+        "value": false
+      }
+    },
+    {
+      "id": "inspecting-changes-nothing",
+      "grader": "count",
+      "with": {
+        "path": "steps.status_after_inspect.lines",
+        "equals": 0
+      }
+    },
+    {
+      "id": "one-reply-changes-one-value",
+      "grader": "equals",
+      "with": {
+        "path": "steps.owner.values_turns",
+        "value": 1
+      }
+    },
+    {
+      "id": "install-ok",
+      "grader": "equals",
+      "with": {
+        "path": "steps.install.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "install-leaves-the-status-line-off",
+      "grader": "equals",
+      "with": {
+        "path": "steps.install.result.done.statusline",
+        "value": "skipped"
+      }
+    },
+    {
+      "id": "agents-md-created",
+      "grader": "equals",
+      "with": {
+        "path": "steps.install.result.done.agents_md",
+        "value": "created"
+      }
+    },
+    {
+      "id": "claude-md-imports-it",
+      "grader": "equals",
+      "with": {
+        "path": "steps.install.result.done.claude_md",
+        "value": "import added"
+      }
+    },
+    {
+      "id": "rules-after-the-block",
+      "grader": "equals",
+      "with": {
+        "path": "steps.agents.rules_after_block",
+        "value": true
+      }
+    },
+    {
+      "id": "rules-not-inside-the-block",
+      "grader": "equals",
+      "with": {
+        "path": "steps.agents.rules_inside_block",
+        "value": false
+      }
+    },
+    {
+      "id": "no-store-remote-at-first",
+      "grader": "equals",
+      "with": {
+        "path": "steps.store_before.result.remote",
+        "value": null
+      }
+    },
+    {
+      "id": "store-remote-written-to-policy",
+      "grader": "equals",
+      "with": {
+        "path": "steps.store_remote.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "store-address-is-the-projects",
+      "grader": "equals",
+      "with": {
+        "path": "steps.store_after.result.policy_url",
+        "value": "https://example.invalid/owner/sample-app-store.git"
+      }
+    },
+    {
+      "id": "merge-mode-stays-owner",
+      "grader": "equals",
+      "with": {
+        "path": "steps.policy.result.policy.merge.mode",
+        "value": "owner"
+      }
+    },
+    {
+      "id": "suite-as-the-owner-changed-it",
+      "grader": "equals",
+      "with": {
+        "path": "steps.policy.result.policy.merge.full_suite",
+        "value": ["npm run lint && npm test"]
+      }
+    },
+    {
+      "id": "contract-current-at-the-end",
+      "grader": "equals",
+      "with": {
+        "path": "steps.contract_after.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "work-check-ok-with-no-items",
+      "grader": "equals",
+      "with": {
+        "path": "steps.work_check.result.files",
+        "value": 0
+      }
+    },
+    {
+      "id": "main-unmoved",
+      "grader": "count",
+      "with": {
+        "path": "steps.main_log.lines",
+        "equals": 1
+      }
+    },
+    {
+      "id": "everything-committed",
+      "grader": "count",
+      "with": {
+        "path": "steps.status_end.lines",
+        "equals": 0
+      }
+    },
+    {
+      "id": "first-goals-wait-for-main",
+      "grader": "equals",
+      "with": {
+        "path": "steps.back_on_main.exit",
+        "value": 0
+      }
+    },
+    {
+      "id": "first-project-gets-the-key",
+      "grader": "equals",
+      "with": {
+        "path": "steps.first_project.result.id",
+        "value": "SAM-1"
+      }
+    },
+    {
+      "id": "first-item-follows",
+      "grader": "equals",
+      "with": {
+        "path": "steps.first_item.result.id",
+        "value": "SAM-2"
+      }
+    },
+    {
+      "id": "work-check-ok-with-the-first-items",
+      "grader": "equals",
+      "with": {
+        "path": "steps.work_check_goals.result.files",
+        "value": 2
+      }
+    },
+    {
+      "id": "first-item-is-ready",
+      "grader": "equals",
+      "with": {
+        "path": "steps.ready.result.queue[0].id",
+        "value": "SAM-2"
+      }
+    },
+    {
+      "id": "no-status-line-file",
+      "grader": "file_exists",
+      "with": {
+        "path": "consumer/.claude/settings.local.json",
+        "present": false
+      }
+    }
+  ]
+}

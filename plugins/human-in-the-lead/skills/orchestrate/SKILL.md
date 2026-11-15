@@ -42,6 +42,8 @@ When no chief of staff runs (nothing can start sessions, or the owner prefers on
 
 ## 0. First run: set up the person and the machine
 
+If the project is not set up for HITLd (no `.human-in-the-lead/policy.json`, so `hitld` commands fail with `policy`), stop and use the `adopt` skill (`skills/adopt`) first.
+
 Before anything else, run `hitld config explain --json` and read `setup`. When `setup.done` is true, go to step 1. When it is false, the person file or the machine file is missing (`setup.missing` names them). With a chief of staff, it runs the setup with the owner: say so in your message and stop. Until both exist, `hitld dispatch plan` holds all autonomous work (reason `setup`) with a cap of one, and `hitld dispatch start` refuses items except `--by-hand`. Walk the owner through the setup now, in this session. Never delegate it: executors are refused by `hitld config write`, and so are you if you are running as one.
 
 Keep the messages short and self-contained, so they can be answered from a phone. Show all the values in one message, not one question per message.
@@ -66,7 +68,7 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
 ## 1. Start or resume
 
 - **New run:** `hitld run start --scope '{"items": [...], "budget_tokens": N}'` (scope optional). It records the primary checkout and takes the lease.
-- **Resume:** `hitld run resume --live <the dispatch IDs still running, comma separated, or none>`. In a session that dispatched them, name your running background agents by their dispatch IDs (they were started with `name: D-<n>`). As a successor, use the IDs the chief of staff gave you: background work of an earlier session reported to it alone. Act on its output: `follow_up` entries get a follow-up (step 5), `abandoned` items are free again. A lease that was handed over or retired is taken without `--force`. If the lease is held and fresh, stop and say so; take over with `--force` only when the owner says so.
+- **Resume:** `hitld run resume --live <the dispatch IDs still running, comma separated, or none>`. In a session that dispatched them, name your running background agents by their dispatch IDs (they were started with `name: D-<n>`). As a successor, use the IDs the chief of staff gave you: background work of an earlier session reported to it alone. Act on its output: `follow_up` entries get a follow-up (step 5), `abandoned` items are free again. A lease that was handed over or retired is taken without `--force`. If the lease is held and fresh, or `lease-held` says another machine's session holds it and never released it, stop and say so; take over with `--force` only when the owner says so.
 - On either command, add `--harness-ref <your own session ID>` when your harness gives you one, so wakes reach you.
 - Both commands check the release first: the one this session runs, the one the project pins, and the one that last wrote the run's data. On `version-not-pinned` or `newer-schema`, nothing was recorded: stop, and put the `message` in your message to the chief of staff (when you are both, tell the owner). It says the fix. The pin and the plugin are the owner's, so change neither.
 - When `version.upgrade.due` is true, this is the first session on a new release. Run `hitld upgrade plan` and do the orchestrator steps after the hand-over, in order: the migrations it lists, then `hitld check contract` and `hitld work check`. Then plan.
@@ -166,6 +168,7 @@ In this repository, HITLd is the project, so feedback about HITLd is a note.
 ## 8. Checkpoints and the hand-over
 
 - Every `hitld` call that records something writes a checkpoint. At a clean point with nothing to record, and before you end a turn: `hitld run checkpoint`.
+- When the project has a store remote, `hitld run start` and `hitld run resume` pull the private store first, and `hitld run checkpoint`, `hitld handover` and `hitld merge` push it. Each result carries `store_sync`. If it says a push `failed` or was `unreachable`, tell the owner; the next checkpoint tries again. A `store-pull-refused` stops the run from starting: tell the owner, and use `--no-sync` only when they say so.
 - This session is disposable. Hand over when `handover.due` is true in `hitld dispatch complete` (after `orchestrator.handover_after_completions` completions), when your context passes the share in `orchestrator.handover_context_share` (`hitld run status --context-percent <N>` tells you), or when the owner asks.
   1. Start nothing new. `hitld dispatch start` refuses with `handover-due` once the count is reached.
   2. Process the completions of the background agents and headless runs you started: no successor would hear of them. Follow-ups keep their agent in flight, so send only those that cannot wait.

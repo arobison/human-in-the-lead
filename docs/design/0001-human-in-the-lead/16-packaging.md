@@ -24,7 +24,8 @@ human-in-the-lead/
     harness/                      # layer 3: claude-code/ (built); copilot and others planned
   schemas/                        # versioned JSON Schemas
   skills/                         # layer 2: SKILL.md sources with portable front matter only
-    chief-of-staff/ orchestrate/  # built; the rest of the design's skills are planned
+    adopt/ chief-of-staff/        # built; the rest of the design's skills are planned
+    orchestrate/
     execute/
   agents/                         # agent definitions beyond the executors (the generalizer),
                                   # portable front matter only; the build adds the harness's
@@ -70,12 +71,13 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
-| `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the project's devices; the address is `store.remote.url` in `policy.json`, which a machine may override ([design 0003](../0003-private-store-remote.md)) |
+| `hitld store device init / list / remove` | Enrol, list and remove the devices the private store is encrypted to: the key pair, the private key in the OS keychain or a cloud environment variable, and `.human-in-the-lead/store-devices.json` ([0003 section 6](../0003-private-store-remote.md#6-enrolling-and-removing-a-device)) |
+| `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the devices on main's `store-devices.json`; the address is `store.remote.url` in `policy.json`, which a machine may override ([design 0003](../0003-private-store-remote.md)) |
 | `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its reason, draft notes, items that changed public surface without a `release_note` line, unmet gates ([3.2](03-data-model.md#release)) |
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
-| `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
+| `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin (the plugin it enables carries the store-sync hooks: SessionStart pulls the private store, SessionEnd pushes it), the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
 | `hitld upgrade plan [--to v] [--from v] [--records dir]` | What upgrading to the pinned release takes: the notes and interface delta of the releases on the way, the migrations, the restart, and what each role does, in order; reads only ([16.5, Upgrades](#upgrades)) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
@@ -242,15 +244,26 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `remote-dir-invalid`: The local directory for the remote is not usable.
 - `remote-git-failed`: A git command against the remote failed.
 
+**Store devices**
+
+- `devices-invalid`: A store-devices.json does not parse or breaks its schema.
+- `devices-no-main`: The checkout has no main branch, local or remote-tracking, to read the device list from.
+- `devices-fetch-failed`: Fetching main from origin failed, so a push refuses rather than use a stale device list.
+- `device-name-invalid`: A device name is not a short lower-case name.
+- `device-name-required`: No device name was given and none could be made from the host name.
+- `device-name-taken`: The device name is enrolled with another key.
+- `device-unknown`: No device in store-devices.json has that name.
+- `device-no-keychain`: This machine has no OS keychain hitld can store the device key in.
+- `device-not-enrolled`: This device has no key, or its key is not on main's store-devices.json, so it may not push.
+
 **Pushing and pulling the store**
 
 - `no-remote`: No remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine.
-- `not-enrolled`: This device is not on the project's device list, so it cannot push until its enrolment is merged.
-- `not-a-recipient`: The push would not be encrypted to this device's own key, so this device could not open it afterwards.
 - `nothing-to-push`: The store holds no text to push yet.
 - `remote-not-format-2`: The remote's head is not an age file; nothing writes another format to a remote.
 - `remote-config-invalid`: This machine's remote override file is damaged.
 - `sync-state-invalid`: The file that records what this store last merged from the remote is damaged.
+- `store-pull-refused`: hitld run start or run resume stopped: the store remote answered, but its head does not open or merge. An unreachable remote does not stop a run; --no-sync goes on with the local store.
 
 **Secrets and the environment**
 
@@ -329,7 +342,7 @@ The consumer commits `.claude/settings.json`:
   claude plugin install human-in-the-lead@human-in-the-lead --scope project
   ```
 
-  `hitld check contract` (or the adopt skill) reports a machine where the pinned version is not installed.
+  The adopt skill reports a machine where the pinned version is not installed (it reads `claude plugin list`); `hitld check contract` checks the repository only.
 - **First run.** The person's first session runs the orchestrator's setup: `hitld machine detect`, one message with every proposed value for the person to accept or change, then `hitld config write` for the person and machine files ([13.4](13-operations.md#134-settings-in-four-layers)). Until then defaults are conservative and autonomous dispatch waits. The setup also offers the status-line usage capture, which is opt-in: it changes the person's own harness settings, so it is installed only on a yes (`hitld install --statusline`).
 - **Before any tag exists**, `hitld install` pins a local checkout path, which puts a machine path in the committed `.claude/settings.json`. It warns; switch to `--ref <tag> --repo <owner/name>` before others clone the project.
 - **Pinning.** The marketplace `ref` pins the catalog to a tag; the plugin's `version` in `plugin.json` is set equal to that tag by the release step, so the version a session loads is the version the tag names. A commit SHA can be used as `ref` for an exact pin.
@@ -384,7 +397,7 @@ Compatibility rules for data:
 
 A project runs the release its pin names, and only a commit the owner merges moves the pin. A harness that updated the plugin on its own would change the running release under the project without anyone deciding it, so `hitld` checks.
 
-**The drift check.** `hitld` compares three releases: the one this session runs, the one the pin in `.claude/settings.json` names (a tag, or a checkout's own `package.json` version), and the one that last wrote the run's data (the ledger's `run-started` and `lease-taken` events record it). The check is `core/lib/install/drift.mjs`. It runs at session start, in a SessionStart hook that only speaks, and at `hitld run start` and `run resume`, before anything is recorded:
+**The drift check.** `hitld` compares three releases: the one this session runs, the one the pin in `.claude/settings.json` names (a tag, or a checkout's own `package.json` version), and the one that last wrote the run's data (the ledger's `run-started` and `lease-taken` events record it). The check is `core/lib/install/drift.mjs`. It runs at session start, in a SessionStart hook that only speaks and comes before the store pull, and at `hitld run start` and `run resume`, before anything is recorded: first, so a refused release pulls nothing, and again after the store pull, which may bring data a newer release wrote. The held-elsewhere check comes after the pull:
 
 - A session on another release than the pin is refused with `version-not-pinned`. When the pin is ahead, this machine has not caught up: `claude plugin marketplace update human-in-the-lead`, `claude plugin update human-in-the-lead@human-in-the-lead --scope project`, then a restart. When the running release is ahead, the plugin moved without the pin: move the pin by a pull request the owner merges, or turn off automatic updates for the marketplace and install the pinned release again.
 - Data at a schema version this release does not read is refused with `newer-schema`, the no-writing-ahead rule above.
@@ -481,7 +494,7 @@ A project may already run an in-repo tracker: one file per item with global `<KE
 
 Migration, step by step, each depending on the one before:
 
-1. **Coexist, read-only.** Install the plugin pinned to a release. Set the key and paths in `tracker.json`. Run `hitld work check` and `hitld work views` to a scratch directory and compare with the project's own scripts' output. Any difference is a bug in the backend, fixed upstream, until the outputs agree.
+1. **Coexist, read-only.** Install the plugin pinned to a release. Set the key in `policy.json` (`project.key`) and the paths in `tracker.json`. Run `hitld work check` and `hitld work views` to a scratch directory and compare with the project's own scripts' output. Any difference is a bug in the backend, fixed upstream, until the outputs agree.
 2. **Plugin writes, project scripts check.** Agents create and claim items with `hitld`; the project's own check still runs in its tests as a cross-check.
 3. **Contract.** Replace the tracker section of `AGENTS.md` with the executor contract block; `hitld check contract` passes.
 4. **Move upstream and delete.** Anything the project's scripts or skills do that the plugin does not is added to the plugin. Then the project deletes its tracker scripts, skills and their tests, keeping only its data and settings.
@@ -490,3 +503,5 @@ Migration, step by step, each depending on the one before:
 **Setup through the project's package manager.** Once releases are tagged, the project declares the `hitld` command line as a development dependency pinned to a release tag of this repository, and adds an explicit setup script (for npm, `npm run hitld:setup`) that runs `hitld install --ref <tag>` and the two `claude plugin` commands. Never an install hook that runs on every package install: that would run for every contributor and every CI job. The plugin itself still comes from the marketplace, pinned to the same tag.
 
 Where the plugin and the project's scripts disagree during coexistence, the project's scripts win until the owner decides otherwise.
+
+The steps as commands, with what to commit, how to check and how to undo, are in [the setup guides](../../guide/existing-tracker.md); the `adopt` skill runs them after the owner's yes.

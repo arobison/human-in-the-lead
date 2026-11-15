@@ -24,12 +24,15 @@ import {
 import { absorb } from '../../run/state.mjs';
 import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
+import { refuseHeldElsewhere, restoreState } from '../../run/pulled.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
+import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
 import { activePause } from '../../quota/pause.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
-import { VersionDriftError } from '../../install/drift.mjs';
+import { VersionDriftError, runVersionCheck } from '../../install/drift.mjs';
+import { CodedError } from '../errors.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const STORE = {
@@ -59,6 +62,14 @@ const HARNESS_REF = {
     "This session's own reference in its harness, where it has one (a cloud session's ID): recorded with the lease, so the chief of staff sends wakes there",
 };
 
+/** @type {import('../args.mjs').ArgSpec} */
+const NO_SYNC = {
+  name: 'no-sync',
+  type: 'boolean',
+  description:
+    "Do not pull the private store from its remote first (the owner's way past a remote whose head does not open or merge). Without a remote, nothing is pulled either way",
+};
+
 /** --context-percent as a share, or null. @param {Record<string, unknown>} input */
 const contextShareOf = (input) =>
   typeof input['context-percent'] === 'number' ? input['context-percent'] / 100 : null;
@@ -77,7 +88,8 @@ function setup(input, ctx) {
   } else {
     if (!loaded.policy) {
       const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
-      throw new Error(
+      throw new CodedError(
+        'policy',
         `cannot find the private store without a valid policy.json (${why}); or pass --store`,
       );
     }
@@ -140,6 +152,15 @@ async function guarded(fn) {
     if (e instanceof VersionDriftError) {
       return { ok: false, error: e.code, message: e.message, version: versionOut(e.drift) };
     }
+    if (e instanceof SyncRefused) {
+      return {
+        ok: false,
+        error: e.code,
+        message: e.message,
+        cause: e.report.error,
+        store_sync: { pull: e.report },
+      };
+    }
     throw e;
   }
 }
@@ -174,7 +195,7 @@ const RAW_APPEND_EVENTS = Object.keys(RAW_APPEND_FIELDS);
 const SYSTEM_FIELDS = ['id', 'run', 'at', 'schema_version'];
 
 /** @type {import('../table.mjs').Command[]} */
-export const commands = [
+const table = [
   {
     name: 'ledger append',
     summary:
@@ -218,7 +239,8 @@ export const commands = [
         const s = setup(input, ctx);
         const loaded = loadState(s.store);
         if (!loaded.state) {
-          throw new Error(
+          throw new CodedError(
+            'no-run',
             `no run state (${loaded.problems.join('; ')}); start a run with hitld run start`,
           );
         }
@@ -320,14 +342,26 @@ export const commands = [
         description:
           'Start even though the last run still holds a fresh lease or has work in flight',
       },
+      NO_SYNC,
       SESSION,
       HOST,
       HARNESS_REF,
       STORE,
     ],
     run: (input, ctx) =>
-      guarded(() => {
+      guarded(async () => {
         const s = setup(input, ctx);
+        runVersionCheck(s.store, who(input, ctx)); // before the pull: a refused release fetches nothing
+        const pull = await pullBeforeRun('run start', input, ctx);
+        if (input.replace !== true) {
+          refuseHeldElsewhere({
+            ...who(input, ctx),
+            store: s.store,
+            kept: s.kept,
+            pull,
+            override: '--replace',
+          });
+        }
         /** @type {Record<string, unknown>} */
         let scope = {};
         if (typeof input.scope === 'string') {
@@ -375,6 +409,7 @@ export const commands = [
           primary_checkout: primary,
           version: versionOut(run.drift),
           handover: handOver(run.state, readLedger(s.store).events),
+          ...(pull ? { store_sync: { pull } } : {}),
         };
       }),
   },
@@ -389,7 +424,10 @@ export const commands = [
         const s = setup(input, ctx);
         const loaded = loadState(s.store);
         if (!loaded.state)
-          throw new Error(`no run state (${loaded.problems.join('; ')}); run hitld run rebuild`);
+          throw new CodedError(
+            'no-run',
+            `no run state (${loaded.problems.join('; ')}); run hitld run rebuild`,
+          );
         const run = new Run(
           s.store,
           { ...who(input, ctx), kept: s.kept, expirySeconds: s.expirySeconds },
@@ -420,6 +458,7 @@ export const commands = [
         description:
           'Take the lease although it has not expired and was not released (the owner says so, for example when moving machines)',
       },
+      NO_SYNC,
       SESSION,
       HOST,
       HARNESS_REF,
@@ -428,6 +467,18 @@ export const commands = [
     run: (input, ctx) =>
       guarded(async () => {
         const s = setup(input, ctx);
+        runVersionCheck(s.store, who(input, ctx)); // before the pull: a refused release fetches nothing
+        const pull = await pullBeforeRun('run resume', input, ctx);
+        const rebuilt = pull?.status === 'done' && restoreState(s.store, s.kept);
+        if (input.force !== true) {
+          refuseHeldElsewhere({
+            ...who(input, ctx),
+            store: s.store,
+            kept: s.kept,
+            pull,
+            override: '--force',
+          });
+        }
         const live =
           typeof input.live === 'string'
             ? input.live
@@ -459,6 +510,7 @@ export const commands = [
           unverified: r.unverified,
           version: versionOut(r.drift),
           handover: handOver(r.run.state, readLedger(s.store).events),
+          ...(pull ? { store_sync: { pull, rebuilt_state: rebuilt } } : {}),
         };
       }),
   },
@@ -619,3 +671,6 @@ export const commands = [
       }),
   },
 ];
+
+/** `run checkpoint` and `run retire` end by pushing the store (design 0003, section 8). */
+export const commands = pushingAfter(table, ['run checkpoint', 'run retire']);
