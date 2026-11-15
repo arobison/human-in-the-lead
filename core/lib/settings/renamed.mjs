@@ -83,6 +83,23 @@ function find(data, parts) {
 }
 
 /**
+ * The new path for a concrete hit: each `*` in `to` takes, in order, the key the matching `*` in
+ * `from` stood for, so a pattern with several wildcards renames every one of them.
+ * @param {string} from @param {string} to @param {string[]} path
+ */
+export function fillWildcards(from, to, path) {
+  const stars = from
+    .split('.')
+    .map((part, i) => (part === '*' ? path[i] : null))
+    .filter((k) => k !== null);
+  let n = 0;
+  return to
+    .split('.')
+    .map((part) => (part === '*' ? (stars[n++] ?? '*') : part))
+    .join('.');
+}
+
+/**
  * The settings in their current names, from a file that may hold the names before HITLD-82. A
  * value under the new name wins over one under the old. The input is not changed.
  * @template T
@@ -96,8 +113,7 @@ export function renameSettings(layer, data) {
   const renamed = [];
   for (const [from, to] of RENAMED_SETTINGS[layer]) {
     for (const hit of find(out, from.split('.'))) {
-      const star = hit.path.find((_, i) => from.split('.')[i] === '*');
-      const target = to.replace('*', star ?? '*');
+      const target = fillWildcards(from, to, hit.path);
       const newKey = target.split('.').at(-1) ?? target;
       if (!Object.hasOwn(hit.parent, newKey)) hit.parent[newKey] = hit.parent[hit.key];
       delete hit.parent[hit.key];

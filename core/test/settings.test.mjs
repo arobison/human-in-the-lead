@@ -798,3 +798,17 @@ test('the defaults are unchanged when no settings file exists', () => {
   assert.equal(eff.cap, d.execution.max_executors.value);
   assert.deepEqual(eff.warnings, []);
 });
+
+test('fillWildcards replaces every wildcard in a renamed path, in order', async () => {
+  const { fillWildcards } = await import('../lib/settings/renamed.mjs');
+  assert.equal(
+    fillWildcards('tiers.*.executor', 'tiers.*.runs_as', ['tiers', '2', 'executor']),
+    'tiers.2.runs_as',
+  );
+  assert.equal(
+    fillWildcards('a.*.b.*.c', 'a.*.x.*.y', ['a', 'k1', 'b', 'k2', 'c']),
+    'a.k1.x.k2.y',
+    'both wildcards take their own key',
+  );
+  assert.equal(fillWildcards('plain.key', 'plain.new_key', ['plain', 'key']), 'plain.new_key');
+});
