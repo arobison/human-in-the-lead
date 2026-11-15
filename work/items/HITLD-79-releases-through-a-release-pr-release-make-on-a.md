@@ -2,9 +2,10 @@
 id: HITLD-79
 title: "Releases through a release PR: release make on a branch, tag and release in CI behind the owner's approval"
 kind: work
-status: Planned
+status: In progress
 created: 2026-11-15
 project: HITLD-15
+claimed: D-79
 ---
 
 ## Why
