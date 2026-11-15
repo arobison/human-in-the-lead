@@ -6,7 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-121
-release_note: "American English throughout: docs, skills, messages and identifiers, and `npm run check` refuses British spellings. Renamed to the American spelling with no fallback: the commands `hitld judgment weigh` and `judgment conflict`, their input keys `judgments` and `judgment`, the result fields `needs_judgment` and `conflicts[].judgment`, and the eval action `judgment.weigh`. The `policy.json` section `judgment` is still read under its old spelling, with a warning, for one minor release, and store device approvals written with the old spelling of `enroll` are still read."
+release_note: "American English throughout: docs, skills, messages and identifiers. `npm run spelling` lists any British spellings left; it is not part of `npm run check`. Renamed to the American spelling with no fallback: the commands `hitld judgment weigh` and `judgment conflict`, their input keys `judgments` and `judgment`, the result fields `needs_judgment` and `conflicts[].judgment`, and the eval action `judgment.weigh`. The `policy.json` section `judgment` is still read under its old spelling, with a warning, for one minor release, and store device approvals written with the old spelling of `enroll` are still read."
 needs: [HITLD-119]
 ---
 
