@@ -15,6 +15,7 @@ import { commands as rights } from './commands/rights.mjs';
 import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
+import { commands as watchdog } from './commands/watchdog.mjs';
 import { commands as release } from './commands/release.mjs';
 import { commands as store } from './commands/store.mjs';
 import { commands as security } from './commands/security.mjs';
@@ -33,6 +34,8 @@ import { commands as later } from './commands/later.mjs';
  *   dispatcher, or anything else that builds a context, leaves it unset, so what needs it is denied by default
  * @property {import('../machine/detect.mjs').Sources} [machine] what the machine probes read; tests
  *   pass fakes, everything else leaves it unset for this machine
+ * @property {() => Date} [now] the clock, for tests and offline evals that judge time (the
+ *   watchdog, a quota reset); everything else leaves it unset for the real one
  *
  * @typedef {{ ok: boolean } & Record<string, unknown>} CommandResult
  *   JSON out. ok false means the command ran and found a problem (exit code 1).
@@ -85,6 +88,7 @@ export const COMMANDS = Object.freeze([
   ...quota,
   ...evals,
   ...orchestrator,
+  ...watchdog,
   ...release,
   ...store,
   ...security,

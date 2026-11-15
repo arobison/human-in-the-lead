@@ -6,7 +6,7 @@
 // the window-average rate, because two honest estimates of a rate disagree by about as much as
 // the rate is uncertain.
 
-import { HOUR, resetsAtMs, windowBounds } from './window.mjs';
+import { HOUR, declaredReset, resetsAtMs, windowBounds } from './window.mjs';
 import { ledgerUsage, readingFor } from './usage.mjs';
 
 /** A snapshot older than this, in a window that has not reset, is a reading but a weak one. */
@@ -115,11 +115,14 @@ export function evaluateQuotas({
     const live = last && (last.resetsAt == null || last.resetsAt > now) ? last : null;
     if (last && !live) notes.push('the latest snapshot is from a window that has since reset');
 
+    // A reading's reset time wins; the person's declared reset stands in where there is none.
+    const declared = live?.resetsAt == null ? declaredReset(limit, now) : null;
     const bounds = windowBounds(limit.window, now, {
-      resetsAt: live?.resetsAt,
+      resetsAt: live?.resetsAt ?? declared,
       runStartedAt,
     });
-    const hasFixedStart = live?.resetsAt != null || ['monthly_utc', 'run'].includes(limit.window);
+    const hasFixedStart =
+      live?.resetsAt != null || declared != null || ['monthly_utc', 'run'].includes(limit.window);
 
     /** @type {{ at: number, used: number }[]} */
     let points = [];

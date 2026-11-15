@@ -18,6 +18,10 @@ import { explainText, loadEffectivePolicy, setupState } from '../../settings/lay
 import { proposeMigration } from '../../settings/migrate.mjs';
 import { pinnedProjects } from '../../settings/pins.mjs';
 import { pinWarnings } from '../../settings/versions.mjs';
+import { readLedger } from '../../ledger/ledger.mjs';
+import { activePause, pauseGate } from '../../quota/pause.mjs';
+import { machineRootFor } from '../../env/manager.mjs';
+import { runningElsewhere } from '../../registry/machine.mjs';
 
 const MAX_FILE_BYTES = 1_000_000;
 
@@ -31,6 +35,54 @@ function runScope(policy, ctx) {
     const repoRoot = findRepoRoot(ctx.cwd) ?? undefined;
     const store = openStore(privateStorePath(policy.project.id, { env: ctx.env, repoRoot }));
     return loadState(store).state?.scope ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * After a settings write: when this project's run is paused at the quota gate, whether the new
+ * settings let dispatch go again (a raised limit or a smaller reserve). The orchestrator re-plans
+ * at once instead of waiting for the reset; this session does not hold the lease, so it records
+ * nothing (design part 12.5). Null when there is no paused run here.
+ * @param {import('../table.mjs').CommandContext} ctx
+ */
+function replanAfterWrite(ctx) {
+  try {
+    const loaded = loadPolicy({ cwd: ctx.cwd });
+    if (!loaded.policy) return null;
+    const repoRoot = findRepoRoot(ctx.cwd) ?? undefined;
+    const projectId = loaded.policy.project.id;
+    const store = openStore(privateStorePath(projectId, { env: ctx.env, repoRoot }));
+    const state = loadState(store).state;
+    if (!state) return null;
+    const active = activePause(readLedger(store).events);
+    if (!active) return null;
+    const machineRoot = machineRootFor(store.root);
+    const layered = loadEffectivePolicy({
+      env: ctx.env,
+      policyResult: loaded,
+      run: state.scope,
+      running: runningElsewhere(machineRoot, projectId),
+    });
+    if (!layered.policy) return null;
+    const gate = pauseGate({
+      policy: layered.policy,
+      store,
+      machineRoot,
+      person: layered.layers?.person ?? null,
+      state,
+      now: (ctx.now ?? (() => new Date()))().getTime(),
+    });
+    const lifts = gate.mode !== 'stop';
+    return {
+      paused: { limit: active.limit, resets_at: active.resets_at, since: active.at },
+      gate: { mode: gate.mode, reason: gate.reason },
+      lifts,
+      next: lifts
+        ? 'the new settings let dispatch go again: wake the session holding the lease now (hitld run status names wake_to) with "budget raised"; its hitld dispatch plan re-plans and records the resume'
+        : `dispatch stays paused: ${gate.reason}`,
+    };
   } catch {
     return null;
   }
@@ -208,7 +260,8 @@ export const commands = [
         cwd: ctx.cwd,
         merge: input.merge === true,
       });
-      return { ok: true, written: true, ...written };
+      const replan = replanAfterWrite(ctx);
+      return { ok: true, written: true, ...written, ...(replan ? { replan } : {}) };
     },
   },
   {

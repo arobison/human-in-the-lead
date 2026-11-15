@@ -80,6 +80,47 @@
       "enum": ["default", "acceptEdits", "auto", "dontAsk"],
       "default": "acceptEdits"
     },
+    "stall_after": {
+      "description": "Seconds a dispatch may show no progress before the watchdog (hitld dispatch watch) calls it stalled. Progress is what the executor does not have to send: commits and file changes in its worktree, tool calls and tokens from the harness, a headless run's output. This is the time for a tier-1 dispatch at its tier's default estimate; it is scaled by stall_tier_scale and by the dispatch's estimate.",
+      "type": "integer",
+      "minimum": 60,
+      "default": 1800
+    },
+    "deadline": {
+      "description": "Seconds from a dispatch's start to its finish, for a tier-1 dispatch at its tier's default estimate, scaled as stall_after is. A dispatch past it climbs the watchdog's ladder even while it shows progress.",
+      "type": "integer",
+      "minimum": 60,
+      "default": 14400
+    },
+    "stall_tier_scale": {
+      "description": "How much longer stall_after and deadline are per tier.",
+      "type": "object",
+      "properties": {
+        "1": { "type": "number", "exclusiveMinimum": 0 },
+        "2": { "type": "number", "exclusiveMinimum": 0 },
+        "3": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false,
+      "default": { "1": 1, "2": 1.5, "3": 3 }
+    },
+    "stall_estimate_max": {
+      "description": "stall_after and deadline grow with the dispatch's token estimate over its tier's default estimate, up to this many times. A smaller estimate never shortens them.",
+      "type": "number",
+      "minimum": 1,
+      "default": 3
+    },
+    "poke_wait": {
+      "description": "Seconds the watchdog waits after poking a stalled dispatch before it takes the next step of the ladder, if nothing has progressed since.",
+      "type": "integer",
+      "minimum": 60,
+      "default": 600
+    },
+    "redispatch_max": {
+      "description": "How many times the watchdog abandons a stalled item and dispatches it afresh before the next failure becomes a question for the owner instead.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 1
+    },
     "brief_kb": {
       "description": "Knowledge-base pages a brief points to, per area: page paths with an optional #section.",
       "type": "object",

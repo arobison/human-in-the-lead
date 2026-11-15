@@ -40,6 +40,7 @@ import {
 } from '../../registry/machine.mjs';
 import { ownerCheckoutOf } from '../../env/primary.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
+import { activePause, pauseGate, pauseTransition } from '../../quota/pause.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
 import { parseReport } from '../../contract/report.mjs';
 import { readWorkItems } from '../../dispatch/items.mjs';
@@ -126,7 +127,7 @@ const dueFor = (run, policy, input) =>
     contextUsed: contextShareOf(input),
   });
 
-class Refusal extends Error {
+export class Refusal extends Error {
   /** @param {string} code @param {string} message @param {Record<string, unknown>} [more] */
   constructor(code, message, more = {}) {
     super(message);
@@ -175,7 +176,7 @@ function refuseSelection(r, presentation, what) {
 }
 
 /** @param {() => Result | Promise<Result>} fn @returns {Promise<Result>} */
-async function guarded(fn) {
+export async function guarded(fn) {
   try {
     return await fn();
   } catch (e) {
@@ -191,7 +192,7 @@ async function guarded(fn) {
  * The project the command runs in: repository, policy, store and run state.
  * @param {Ctx} ctx
  */
-function project(ctx) {
+export function project(ctx) {
   // The primary checkout, even from inside a linked worktree: policy, tracker and main are the
   // owner's there, never an executor's copy (as piece (c) does for env exec).
   const repoRoot = ownerCheckoutOf(ctx.cwd);
@@ -238,7 +239,7 @@ function project(ctx) {
  * This session's handle on the run; every record through it is refused unless it holds the lease.
  * @param {ReturnType<typeof project>} p @param {Record<string, unknown>} input @param {Ctx} ctx
  */
-function runOf(p, input, ctx) {
+export function runOf(p, input, ctx) {
   if (!p.state) throw new Refusal('no_run', 'no run has started: hitld run start');
   const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
   if (!session) {
@@ -251,16 +252,20 @@ function runOf(p, input, ctx) {
       host: /** @type {string | undefined} */ (input.host) ?? hostname(),
       kept: p.policy.run?.checkpoints_kept,
       expirySeconds: p.policy.run?.lease_expiry_seconds,
+      ...(ctx.now ? { now: ctx.now } : {}),
     },
     p.state,
   );
 }
 
+/** The time as the command judges it. @param {Ctx} ctx */
+export const nowOf = (ctx) => (ctx.now ?? (() => new Date()))().getTime();
+
 /**
  * The ready queue, sized and ordered, and what the planner needs.
  * @param {ReturnType<typeof project>} p @param {Ctx} ctx
  */
-function readyQueue(p, ctx) {
+export function readyQueue(p, ctx) {
   const inFlight = /** @type {any[]} */ (p.state?.in_flight ?? []);
   const work = readWorkItems({
     repoRoot: p.repoRoot,
@@ -284,7 +289,7 @@ function readyQueue(p, ctx) {
  * `byHand`: the item the person started by hand; it is the only one that runs before setup is done.
  * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand]
  */
-function plan(p, ctx, byHand) {
+export function plan(p, ctx, byHand) {
   const q = readyQueue(p, ctx);
   // Snapshots: this project's own, and every account's from the machine registry, so all projects
   // on the machine see the same use.
@@ -323,7 +328,7 @@ function plan(p, ctx, byHand) {
           critical_path: q.critical.has(String(item.id)),
           estimate_tokens: q.sizes.get(String(item.id))?.estimate_tokens,
         },
-        { ledger, runStartedAt: runStarted, share },
+        { ledger, runStartedAt: runStarted, share, ...(ctx.now ? { now: nowOf(ctx) } : {}) },
       ),
     heldElsewhere: (resource) => {
       const holder = locks.get(resource) ?? null;
@@ -340,7 +345,7 @@ function plan(p, ctx, byHand) {
  * A plan as JSON for the skill.
  * @param {ReturnType<typeof plan>['result']} r @param {ReturnType<typeof setupState>} setup
  */
-const planJson = (r, setup) => ({
+export const planJson = (r, setup) => ({
   setup,
   cap: r.cap,
   running: r.running,
@@ -370,9 +375,81 @@ const planJson = (r, setup) => ({
 });
 
 /** Where a dispatch's files live in the private store. @param {string} d */
-const briefKey = (d) => `dispatch/briefs/${d}.md`;
+export const briefKey = (d) => `dispatch/briefs/${d}.md`;
 /** @param {string} d */
-const resultKey = (d) => `dispatch/results/${d}.json`;
+export const resultKey = (d) => `dispatch/results/${d}.json`;
+/** Where a headless run writes its process ID, for the watchdog. @param {string} d */
+export const pidKey = (d) => `dispatch/pids/${d}.pid`;
+
+/**
+ * Whether the quota gate pauses dispatch now, and the change to record: a pause when the gate
+ * stops dispatch for any item (with the limit and when it resets), a resume when it no longer does
+ * (design part 12.5). Recorded only by the session holding the lease; anyone else just reads it.
+ * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {Run | null} run
+ */
+export function notePause(p, ctx, run) {
+  const now = nowOf(ctx);
+  const gate = pauseGate({
+    policy: p.policy,
+    store: p.store,
+    machineRoot: p.machineRoot,
+    person: p.person,
+    state: p.state,
+    now,
+  });
+  const active = activePause(readLedger(p.store).events);
+  const change = p.state ? pauseTransition(gate, active, now) : null;
+  /** @type {Record<string, any> | null} */
+  let recorded = null;
+  if (change && run) {
+    try {
+      recorded = run.record(change).event;
+    } catch (e) {
+      if (!(e instanceof LeaseError)) throw e;
+    }
+  }
+  /** @type {Record<string, any> | null} */
+  const pause =
+    recorded?.event === 'paused'
+      ? recorded
+      : recorded?.event === 'resumed'
+        ? null
+        : gate.mode === 'stop' && !active
+          ? { limit: gate.binding, resets_at: gate.resets_at, notes: gate.reason }
+          : active;
+  return {
+    paused: pause
+      ? {
+          limit: pause.limit ?? null,
+          resets_at: pause.resets_at ?? null,
+          since: pause.at ?? null,
+          reason: pause.notes ?? pause.reason ?? null,
+        }
+      : null,
+    recorded: recorded ? { event: recorded.event, id: recorded.id } : null,
+    resumed: recorded?.event === 'resumed' ? { reason: recorded.reason, id: recorded.id } : null,
+  };
+}
+
+/**
+ * A plan's JSON with the pause, and the wake the orchestrator asks for when dispatch is paused.
+ * @param {ReturnType<typeof plan>} planned @param {ReturnType<typeof notePause>} pause
+ */
+export const planWithPause = (planned, pause) => {
+  const out = planJson(planned.result, planned.setup);
+  const wakeAt = pause.paused?.resets_at ?? null;
+  return {
+    ...out,
+    paused: pause.paused,
+    ...(pause.resumed ? { resumed: pause.resumed } : {}),
+    wake_at: wakeAt,
+    ...(pause.paused
+      ? {
+          next: `${out.next}; dispatch is paused at ${pause.paused.limit}${wakeAt ? `: put "wake_at: ${wakeAt} quota reset" in your message, so the chief of staff wakes the run then` : ': its reset time is not known, so the chief of staff looks again at each check-in'}`,
+        }
+      : {}),
+  };
+};
 
 /** @param {string} path @param {Ctx} ctx */
 const readInput = (path, ctx) =>
@@ -494,14 +571,17 @@ export const commands = [
   },
   {
     name: 'dispatch plan',
-    summary: 'Choose items for free slots and serial resources, within the cap and the reserve',
+    summary:
+      'Choose items for free slots and serial resources, within the cap and the reserve; the session holding the lease also records a quota pause or resume',
     built_by: 'h',
-    args: [],
-    run: (_input, ctx) =>
+    args: [SESSION, HOST],
+    run: (input, ctx) =>
       guarded(() => {
         const p = project(ctx);
-        const { result, setup } = plan(p, ctx);
-        return { ok: true, ...planJson(result, setup) };
+        const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
+        const run = p.state && session ? runOf(p, input, ctx) : null;
+        const pause = notePause(p, ctx, run);
+        return { ok: true, ...planWithPause(plan(p, ctx), pause) };
       }),
   },
   {
@@ -589,6 +669,7 @@ export const commands = [
           brief_hash: createHash('sha256').update(briefFor(null)).digest('hex'),
           skill_versions: { hitld_version: VERSION },
           estimate_tokens: sizing.estimate_tokens,
+          ...(sizing.areas[0] ? { area: sizing.areas[0] } : {}),
           host: run.host,
           ...(tier === 3 ? { mode } : {}),
           ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
@@ -656,6 +737,7 @@ export const commands = [
         const brief = briefFor(worktree);
         p.store.write(briefKey(dispatch), brief);
         mkdirSync(dirname(resultPath), { recursive: true });
+        mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
 
         const call = instructionFor(
           {
@@ -675,6 +757,7 @@ export const commands = [
             worktree: worktree ?? undefined,
             briefPath,
             resultPath,
+            pidPath: join(p.store.root, pidKey(dispatch)),
             tier3Mode: mode,
             permissionMode: p.policy.dispatch.headless_permission_mode,
             env: xenv,
@@ -842,8 +925,8 @@ export const commands = [
               'for each question: if it is your call (ordering, scope inside the project, which in-plan approach), answer it with hitld dispatch follow-up; otherwise write a question file and run hitld rights ask (precedent first, then a decision item and a message to the decider)';
           }
         }
-        const again = plan(project(ctx), ctx);
-        const refill = planJson(again.result, again.setup);
+        const fresh = project(ctx);
+        const refill = planWithPause(plan(fresh, ctx), notePause(fresh, ctx, run));
         out.refill = refill;
         // A session whose hand-over is due starts nothing new: it lets what it started report to
         // it, then hands over, and its successor refills the slots (design part 13.1).
@@ -914,6 +997,7 @@ export const commands = [
           ...(first.branch ? { branch: first.branch } : {}),
           ...(first.worktree ? { worktree: first.worktree } : {}),
           ...(first.mode ? { mode: first.mode } : {}),
+          ...(first.area ? { area: first.area } : {}),
           brief_hash: createHash('sha256').update(message).digest('hex'),
           skill_versions: { hitld_version: VERSION },
           host: run.host,
@@ -930,6 +1014,7 @@ export const commands = [
           host: run.host,
         });
         p.store.write(briefKey(dispatch), message);
+        mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
         let sessionId = null;
         try {
           sessionId = JSON.parse(p.store.read(resultKey(from)) ?? 'null')?.session_id ?? null;
@@ -955,6 +1040,7 @@ export const commands = [
           sessionId,
           briefPath: join(p.store.root, briefKey(dispatch)),
           resultPath: join(p.store.root, resultKey(dispatch)),
+          pidPath: join(p.store.root, pidKey(dispatch)),
           permissionMode: p.policy.dispatch.headless_permission_mode,
           env: xenv,
         });

@@ -2,8 +2,9 @@
 // The build step that makes the Claude Code plugin self-contained (design part 16.1). Installed
 // plugins are copied to a cache and cannot reach files outside their directory, so the plugin gets
 // its own copy of core/ (without tests), schemas/, templates/ and evals/, the skills from skills/
-// with Claude Code front matter added, the agents from agents/ with the same, and the executor
-// agents generated from the tier defaults.
+// with Claude Code front matter added, the agents from agents/ with the same, the executor
+// agents generated from the tier defaults, and hooks/hooks.json from the Claude Code adapter's
+// hooks (core/harness/claude-code/hooks/hooks.json).
 //
 //   node core/lib/packaging/build.mjs          write the plugin
 //   node core/lib/packaging/build.mjs --check  only say what is out of date (exit 1 if anything)
@@ -31,7 +32,9 @@ export const PLUGIN = join(REPO, 'plugins', 'human-in-the-lead');
 /** Copied as they are, relative to the repository root. */
 const COPIED = ['core/bin', 'core/lib', 'core/harness', 'schemas', 'templates', 'evals'];
 /** Generated directories the build owns entirely. */
-const OWNED = [...COPIED, 'skills', 'agents'];
+const OWNED = [...COPIED, 'skills', 'agents', 'hooks'];
+/** The plugin's hook declarations, kept beside the hook scripts they name. */
+const HOOKS_SOURCE = 'core/harness/claude-code/hooks/hooks.json';
 
 /** Claude Code front matter added to each skill (design part 15.2: harness fields come from packaging). */
 const SKILL_EXTRAS = /** @type {Record<string, Record<string, string>>} */ ({
@@ -118,6 +121,7 @@ export function expectedFiles() {
   }
   files.set(join('agents', 'executor-tier1.md'), agent(1));
   files.set(join('agents', 'executor-tier2.md'), agent(2));
+  files.set(join('hooks', 'hooks.json'), readFileSync(join(REPO, HOOKS_SOURCE)));
   return files;
 }
 

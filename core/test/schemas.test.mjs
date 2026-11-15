@@ -50,6 +50,17 @@ const examples = {
       seven_day: { used_percentage: 17, resets_at: 1794900000 },
     },
   },
+  // Part 5.2: a progress signal the watchdog reads, here a sample of the executor's worktree.
+  'progress-signal': {
+    schema_version: 1,
+    at: '2026-11-14T12:05:00Z',
+    dispatch: 'D-3',
+    source: 'worktree',
+    head: 'abc1234',
+    commits: 2,
+    dirty: 1,
+    changed: 'a'.repeat(64),
+  },
   // Part 13.4: the person file, with a declared limit and a share between projects.
   person: {
     schema_version: 1,
