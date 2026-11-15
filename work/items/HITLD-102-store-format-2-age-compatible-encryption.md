@@ -2,9 +2,10 @@
 id: HITLD-102
 title: "Store format 2: age-compatible encryption to several recipients, with test vectors"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-102
 ---
 
 ## Why
