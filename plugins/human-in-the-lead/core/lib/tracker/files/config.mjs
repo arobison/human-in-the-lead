@@ -24,7 +24,7 @@ import { reservedFieldNames } from './format.mjs';
  * @property {string} workDir relative to the repository root, with "/" separators
  * @property {{ initiative: string, project: string, item: string, milestone: string, release: string }} folders
  * @property {string} viewsDir relative to workDir
- * @property {string | undefined} listsReadme relative to workDir
+ * @property {string | undefined} listsFile relative to workDir
  * @property {string} mainBranch
  * @property {string[]} bundleRefs
  * @property {string[]} optionalKeys
@@ -40,6 +40,56 @@ const SAFE_PATH = /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/;
 
 /** Where the project's tracker settings live, relative to the repository root. */
 export const TRACKER_CONFIG_PATH = join('.human-in-the-lead', 'tracker.json');
+
+/** tracker.json settings renamed by HITLD-82, read under the old name until the next minor. */
+const LEGACY_SETTINGS = /** @type {Record<string, string>} */ ({ lists_readme: 'lists_file' });
+
+/** optional_keys names renamed by HITLD-82. */
+const LEGACY_OPTIONAL_KEYS = /** @type {Record<string, string>} */ ({
+  tier_hint: 'tier_override',
+  changelog: 'release_note',
+});
+
+/**
+ * tracker.json in the current names, from the names before HITLD-82, with a warning for each old
+ * name. `main_branch` moved to policy.json `merge.main_branch`; an old value is kept aside so the
+ * layout still uses it.
+ * @param {Record<string, any>} raw
+ * @returns {{ raw: Record<string, any>, warnings: string[], mainBranch: string | undefined }}
+ */
+function fromLegacySettings(raw) {
+  /** @type {string[]} */
+  const warnings = [];
+  const out = { ...raw };
+  for (const [from, to] of Object.entries(LEGACY_SETTINGS)) {
+    if (!Object.hasOwn(out, from)) continue;
+    warnings.push(`tracker.json "${from}" is now "${to}"; rename it`);
+    if (!Object.hasOwn(out, to)) out[to] = out[from];
+    delete out[from];
+  }
+  /** @type {string | undefined} */
+  let mainBranch;
+  // A value that is not a branch name stays, so the schema refuses it as an unknown key.
+  const branch = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$/;
+  if (typeof out.main_branch === 'string' && branch.test(out.main_branch)) {
+    warnings.push(
+      'tracker.json "main_branch" moved to policy.json merge.main_branch, the one main-branch setting; move it there',
+    );
+    mainBranch = out.main_branch;
+    delete out.main_branch;
+  }
+  if (Array.isArray(out.optional_keys)) {
+    out.optional_keys = out.optional_keys.map((/** @type {unknown} */ k) => {
+      const to = LEGACY_OPTIONAL_KEYS[String(k)];
+      if (!to) return k;
+      warnings.push(
+        `tracker.json optional_keys "${k}" is now "${to}"; rename it (and run hitld work migrate)`,
+      );
+      return to;
+    });
+  }
+  return { raw: out, warnings, mainBranch };
+}
 
 /** The default settings, read from the `default` values in schemas/tracker.schema.json. */
 /** @returns {Record<string, any>} */
@@ -65,7 +115,8 @@ export function trackerDefaults() {
  *   configDir overrides where tracker.json is looked for (default: <repoRoot>/.human-in-the-lead),
  *   so a tracker can be read with settings kept outside its repository. Only read-only commands
  *   may use it (see core/lib/cli/commands/tracker.mjs).
- * @returns {{ path: string | null, config: Record<string, any> | null, errors: ValidationError[] }}
+ * Names from before HITLD-82 are read with a warning (`warnings`).
+ * @returns {{ path: string | null, config: Record<string, any> | null, errors: ValidationError[], warnings: string[] }}
  */
 export function loadTrackerConfig({ repoRoot, configDir }) {
   const path = configDir ? join(configDir, 'tracker.json') : join(repoRoot, TRACKER_CONFIG_PATH);
@@ -89,24 +140,32 @@ export function loadTrackerConfig({ repoRoot, configDir }) {
         'policy sets decision rights, so it is not read',
         'tracker.json sets where the tracker reads and writes, so it is not read',
       );
-      return { path, config: null, errors: [{ path, message }] };
+      return { path, config: null, errors: [{ path, message }], warnings: [] };
     }
     try {
       raw = JSON.parse(read.text);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      return { path, config: null, errors: [{ path, message: `cannot be read: ${message}` }] };
+      return {
+        path,
+        config: null,
+        errors: [{ path, message: `cannot be read: ${message}` }],
+        warnings: [],
+      };
     }
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       return {
         path,
         config: null,
         errors: [{ path: '(top level)', message: 'must be a JSON object' }],
+        warnings: [],
       };
     }
   } else {
     raw = { schema_version: defaults.schema_version };
   }
+  const legacy = fromLegacySettings(raw);
+  raw = legacy.raw;
   /** @type {Record<string, any>} */
   const merged = {
     ...defaults,
@@ -118,7 +177,13 @@ export function loadTrackerConfig({ repoRoot, configDir }) {
   if (!Object.hasOwn(raw, 'schema_version')) delete merged.schema_version;
   const errors = schemas().validateEntity('tracker', merged);
   if (!errors.length) errors.push(...fieldDeclarationErrors(merged));
-  return errors.length ? { path, config: null, errors } : { path, config: merged, errors };
+  const { warnings } = legacy;
+  if (errors.length) return { path, config: null, errors, warnings };
+  // Not a tracker.json setting any more: the layout reads it before policy.json merge.main_branch.
+  if (legacy.mainBranch !== undefined) {
+    Object.defineProperty(merged, 'legacy_main_branch', { value: legacy.mainBranch });
+  }
+  return { path, config: merged, errors, warnings };
 }
 
 /**
@@ -196,7 +261,7 @@ export function resolveLayout(config, policy) {
   for (const rel of [
     config.work_dir,
     config.views_dir,
-    ...(config.lists_readme === undefined ? [] : [config.lists_readme]),
+    ...(config.lists_file === undefined ? [] : [config.lists_file]),
     ...Object.values(config.folders),
   ]) {
     if (!SAFE_PATH.test(String(rel)) || String(rel).includes('..')) {
@@ -217,8 +282,8 @@ export function resolveLayout(config, policy) {
     workDir: config.work_dir.replace(/\/+$/, ''),
     folders: config.folders,
     viewsDir: config.views_dir,
-    listsReadme: config.lists_readme,
-    mainBranch: config.main_branch,
+    listsFile: config.lists_file,
+    mainBranch: String(config.legacy_main_branch ?? policy.merge?.main_branch ?? 'main'),
     bundleRefs: config.bundle_refs,
     optionalKeys: config.optional_keys,
     fields: config.fields ?? [],

@@ -62,7 +62,7 @@ test('the question stands alone: title line, question, context, recommendation, 
   // The offer is spelled out from its structured parts, after the summary the asker wrote.
   assert.ok(flat.includes('If yes, this becomes a precedent: "r"'));
   assert.ok(flat.includes('It applies when: tags t.'));
-  assert.ok(flat.includes('Scope: project. Made by: the decider.'));
+  assert.ok(flat.includes('Scope: all. Made by: the decider.'));
   assert.ok(lines.every((l) => l.length <= 100));
 });
 

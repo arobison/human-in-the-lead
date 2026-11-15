@@ -55,7 +55,7 @@ export function proposeMigration({ raw, person, machine }) {
     movedKeyWarnings({ raw, person, machine, project: {} }).map((w) => w.path),
   );
 
-  for (const k of ['owner_reserve', 'economize_at', 'critical_at', 'notify_at']) {
+  for (const k of ['reserve', 'economize_below', 'critical_below', 'notify_used']) {
     if (!flagged.has(`quota.${k}`)) continue;
     const value = take(policy, 'quota', k);
     put(p, 'quota', k, value);

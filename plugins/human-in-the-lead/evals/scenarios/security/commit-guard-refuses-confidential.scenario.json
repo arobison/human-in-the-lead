@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "security/commit-guard-refuses-confidential",
-  "piece": "security",
+  "suite": "security",
   "category": "leak-blocking",
   "description": "Check 5 of One signal end to end: in a public repository, a commit adding a confidential file is refused by the pre-commit hook hitld install writes, naming the file and the rule; the same file committed with --no-verify is refused at merge in owner mode and in queue mode, main does not move, and hitld work check names it.",
   "mode": "offline",

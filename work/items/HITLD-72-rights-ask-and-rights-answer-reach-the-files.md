@@ -2,11 +2,11 @@
 id: HITLD-72
 title: rights ask and rights answer reach the files tracker from the command line
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-72
-changelog: "`hitld rights ask` and `rights answer` work from the command line, and answered decisions are recorded in the tracker files."
+claimed_by: D-72
+release_note: "`hitld rights ask` and `rights answer` work from the command line, and answered decisions are recorded in the tracker files."
 ---
 
 ## Why

@@ -23,14 +23,14 @@ import { idNumber } from './tree.mjs';
  * @property {(it: Node) => boolean} isItem
  * @property {(it: Node) => boolean} isMilestone
  * @property {(it: Node) => boolean} isOpen
- * @property {(it: Node) => string[]} openNeeds needs that are not Done
- * @property {(it: Node) => boolean} isReady Planned, every need Done
- * @property {(it: Node) => boolean} isBlocked Planned or Proposed with an open need
+ * @property {(it: Node) => string[]} openNeeds needs that are not done
+ * @property {(it: Node) => boolean} isReady planned, every need done
+ * @property {(it: Node) => boolean} isBlocked planned with an open need (design part 3.2)
  * @property {(projectId: string) => Node[]} itemsOf
  * @property {(initiativeId: string) => Node[]} projectsOf
  * @property {(id: string) => Node[]} dependents open items that need `id`
  * @property {(containerId: string) => Node[]} milestonesOf milestones under a project or initiative
- * @property {(id: string) => Node[]} constraintOf milestones whose needs name `id`
+ * @property {(id: string) => Node[]} constraintOf milestones whose constraints name `id`
  * @property {(id: string) => Node[]} contributesTo milestones whose contributions name `id`
  */
 
@@ -77,11 +77,10 @@ export function buildGraph(entries) {
       g.isMilestone(it) ? constraintIds(readMilestone(it.data)) : list(it.data.needs),
     isItem: (it) => ITEM_KINDS.includes(String(it.data.kind)),
     isMilestone: (it) => MILESTONE_KINDS.includes(String(it.data.kind)),
-    isOpen: (it) => !['Done', 'Dropped'].includes(String(it.data.status)),
-    openNeeds: (it) => g.needs(it).filter((id) => byId.get(id)?.data.status !== 'Done'),
-    isReady: (it) => it.data.status === 'Planned' && g.openNeeds(it).length === 0,
-    isBlocked: (it) =>
-      ['Planned', 'Proposed'].includes(String(it.data.status)) && g.openNeeds(it).length > 0,
+    isOpen: (it) => !['done', 'dropped'].includes(String(it.data.state)),
+    openNeeds: (it) => g.needs(it).filter((id) => byId.get(id)?.data.state !== 'done'),
+    isReady: (it) => it.data.state === 'planned' && g.openNeeds(it).length === 0,
+    isBlocked: (it) => it.data.state === 'planned' && g.openNeeds(it).length > 0,
     itemsOf: (projectId) => g.items.filter((it) => it.data.project === projectId),
     projectsOf: (initiativeId) => g.projects.filter((p) => p.data.initiative === initiativeId),
     dependents: (id) => g.items.filter((it) => g.isOpen(it) && g.needs(it).includes(id)),
@@ -113,13 +112,13 @@ export function progress(g, items) {
   const c = { total: 0, done: 0, dropped: 0, ready: 0, blocked: 0, inProgress: 0, proposed: 0 };
   for (const it of items) {
     c.total++;
-    const s = it.data.status;
-    if (s === 'Done') c.done++;
-    else if (s === 'Dropped') c.dropped++;
-    else if (s === 'In progress') c.inProgress++;
+    const s = it.data.state;
+    if (s === 'done') c.done++;
+    else if (s === 'dropped') c.dropped++;
+    else if (s === 'in-progress') c.inProgress++;
+    else if (s === 'proposed') c.proposed++;
     else if (g.isReady(it)) c.ready++;
     else if (g.isBlocked(it)) c.blocked++;
-    if (s === 'Proposed') c.proposed++;
   }
   return c;
 }

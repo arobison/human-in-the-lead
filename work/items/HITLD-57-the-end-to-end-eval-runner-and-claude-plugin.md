@@ -2,7 +2,7 @@
 id: HITLD-57
 title: "The end-to-end eval runner and `claude plugin eval` scenarios for skills"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

@@ -2,7 +2,7 @@
 id: HITLD-7
 title: Executor contract block and hitld check contract (piece d)
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

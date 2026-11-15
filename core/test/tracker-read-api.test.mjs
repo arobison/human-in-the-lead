@@ -33,7 +33,7 @@ function repo(files = {}) {
         id: 'W-4',
         title: 'Second step',
         kind: 'work',
-        status: 'Planned',
+        state: 'planned',
         project: 'W-2',
         needs: ['W-3'],
         team: 'core',
@@ -68,7 +68,7 @@ test('work show --json carries api_version, the entity with typed declared field
   const { code, json } = await hitld(['work', 'show', 'W-4', '--json'], root);
   assert.equal(code, 0);
   assert.equal(json.api_version, API_VERSION);
-  assert.equal(API_VERSION, 1);
+  assert.equal(API_VERSION, 2);
   assert.equal(json.entity.team, 'core');
   assert.equal(json.entity.points, 3);
   assert.deepEqual(json.entity.labels, ['a', 'b']);
@@ -87,7 +87,7 @@ test('work show --json carries api_version, the entity with typed declared field
 test('work query --json carries api_version and leaves bodies out unless asked', async () => {
   const root = repo();
   const { json } = await hitld(['work', 'query', '--json', '--kind', 'work'], root);
-  assert.equal(json.api_version, 1);
+  assert.equal(json.api_version, 2);
   assert.equal(json.count, json.entities.length);
   assert.ok(json.entities.every((/** @type {any} */ e) => e.body === undefined));
   const withBodies = await hitld(['work', 'query', '--json', '--bodies'], root);
@@ -155,7 +155,7 @@ test('work check validates declared fields against their types and values', () =
       id: 'W-4',
       title: 'Second step',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       needs: ['W-3'],
       team: 'ops',
@@ -178,7 +178,7 @@ test('an undeclared key is still rejected', () => {
       id: 'W-4',
       title: 'Second step',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       needs: ['W-3'],
       stray: 'x',
@@ -297,9 +297,9 @@ test('migrate: can create and delete item files, and --only picks a step', () =>
             id: 'W-7',
             title: 'Waiting',
             kind: 'external',
-            status: 'Planned',
+            state: 'planned',
             project: 'W-2',
-            party: 'vendor',
+            waiting_on: 'vendor',
           }),
         },
       ];
@@ -320,7 +320,7 @@ test('migrate: can create and delete item files, and --only picks a step', () =>
       id: 'W-5',
       title: 'Third step',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       needs: ['W-4'],
     }),
@@ -378,9 +378,9 @@ test('migrate: only the orchestrator applies one, and not over uncommitted chang
       id: 'W-6',
       title: 'Which way?',
       kind: 'decision',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
-      'decided-by': 'owner',
+      decider: 'owner',
       priority: 'low',
     }),
   });
@@ -400,7 +400,7 @@ test('work check names files a registered migration still needs', () => {
       id: 'W-3',
       title: 'First step',
       kind: 'work',
-      status: 'Done',
+      state: 'done',
       project: 'W-2',
       priority: 'high',
     }),
@@ -416,7 +416,11 @@ test('work migrate on a tracker already in the format changes nothing', async ()
   const out = await hitld(['work', 'migrate', '--dry-run'], root);
   assert.equal(out.code, 0);
   assert.equal(out.json.changed, 0);
-  assert.deepEqual(out.json.registered, ['milestone-entities', 'retire-priority']);
+  assert.deepEqual(out.json.registered, [
+    'milestone-entities',
+    'retire-priority',
+    'names-and-states',
+  ]);
   assert.equal(out.json.summary, 'nothing to migrate');
   const real = await hitld(['work', 'migrate'], root);
   assert.equal(real.code, 0);

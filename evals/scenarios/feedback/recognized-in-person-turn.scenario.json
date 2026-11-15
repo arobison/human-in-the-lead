@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/recognized-in-person-turn",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "Feedback about HITLd in the person's own turn is recognized: the route says record it with a guessed kind, and hitld feedback keeps the person's words verbatim.",
   "mode": "offline",

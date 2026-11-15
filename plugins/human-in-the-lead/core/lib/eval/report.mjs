@@ -7,11 +7,11 @@
 // text, and nothing from it becomes markup, a URL or an attribute other than quoted text.
 // Accepting a baseline stays a command line act: the page only shows the command.
 
-import { acceptRefusal } from './results.mjs';
+import { acceptRefusal, fromLegacyResult } from './results.mjs';
 
 /**
  * @typedef {Record<string, any>} EvalResult
- * @typedef {{ id: string, key: string, status: string, was: string | null, note?: string }} Change
+ * @typedef {{ id: string, key: string, result: string, was: string | null, note?: string }} Change
  */
 
 /** The label shown for each status. Not applicable is never called a pass. */
@@ -19,11 +19,11 @@ export const STATUS_LABEL = Object.freeze({
   pass: 'Pass',
   fail: 'Fail',
   error: 'Error',
-  not_applicable: 'Not applicable',
+  'not-applicable': 'Not applicable',
 });
 
 /** Failures first, then passes, then what did not apply. */
-const ORDER = { error: 0, fail: 1, pass: 2, not_applicable: 3 };
+const ORDER = { error: 0, fail: 1, pass: 2, 'not-applicable': 3 };
 
 /** @param {unknown} v @returns {string} */
 export const esc = (v) =>
@@ -66,16 +66,16 @@ export function changesAgainst(run, baseline) {
   const notApplicable = [];
   for (const [key, s] of now) {
     const was = before.get(key);
-    const base = { id: s.id, key, status: s.status, was: was ? was.status : null };
-    const bad = s.status === 'fail' || s.status === 'error';
+    const base = { id: s.id, key, result: s.result, was: was ? was.result : null };
+    const bad = s.result === 'fail' || s.result === 'error';
     if (!was) {
       if (bad) newFailures.push(base);
-      else if (s.status === 'pass') added.push(base);
-    } else if (bad && was.status !== s.status) {
-      if (was.status === 'pass' || was.status === 'not_applicable') newFailures.push(base);
-    } else if (s.status === 'pass' && (was.status === 'fail' || was.status === 'error')) {
+      else if (s.result === 'pass') added.push(base);
+    } else if (bad && was.result !== s.result) {
+      if (was.result === 'pass' || was.result === 'not-applicable') newFailures.push(base);
+    } else if (s.result === 'pass' && (was.result === 'fail' || was.result === 'error')) {
       fixed.push(base);
-    } else if (s.status === 'not_applicable' && was.status !== 'not_applicable') {
+    } else if (s.result === 'not-applicable' && was.result !== 'not-applicable') {
       notApplicable.push(base);
     }
   }
@@ -84,8 +84,8 @@ export function changesAgainst(run, baseline) {
     removed.push({
       id: was.id,
       key,
-      status: was.status,
-      was: was.status,
+      result: was.result,
+      was: was.result,
       ...(partial ? { note: 'not run: this run covered only part of the scenarios' } : {}),
     });
   }
@@ -113,7 +113,7 @@ export function acceptCommand(run, baseline) {
   const reason = acceptRefusal(run, baseline);
   return reason
     ? { command: null, reason }
-    : { command: `hitld eval accept --run ${run.id}`, reason: null };
+    : { command: `hitld eval accept --result ${run.id}`, reason: null };
 }
 
 /** @param {string} status */
@@ -156,7 +156,7 @@ function changeList(list, title, empty) {
   const items = list
     .map(
       (c) =>
-        `<li><code>${esc(c.key)}</code> <span class="muted">${c.was ? `${esc(STATUS_LABEL[/** @type {keyof typeof STATUS_LABEL} */ (c.was)] ?? c.was)} then, ` : 'new, '}${esc(STATUS_LABEL[/** @type {keyof typeof STATUS_LABEL} */ (c.status)] ?? c.status)} now</span>${c.note ? ` <small>${esc(c.note)}</small>` : ''}</li>`,
+        `<li><code>${esc(c.key)}</code> <span class="muted">${c.was ? `${esc(STATUS_LABEL[/** @type {keyof typeof STATUS_LABEL} */ (c.was)] ?? c.was)} then, ` : 'new, '}${esc(STATUS_LABEL[/** @type {keyof typeof STATUS_LABEL} */ (c.result)] ?? c.result)} now</span>${c.note ? ` <small>${esc(c.note)}</small>` : ''}</li>`,
     )
     .join('');
   return `<div class="change"><h3>${esc(title)} <span class="count">${list.length}</span></h3>${list.length ? `<ul>${items}</ul>` : `<p class="muted">${esc(empty)}</p>`}</div>`;
@@ -164,7 +164,7 @@ function changeList(list, title, empty) {
 
 /** @param {EvalResult['scenarios'][number]} s */
 function scenarioRow(s) {
-  const open = s.status === 'fail' || s.status === 'error';
+  const open = s.result === 'fail' || s.result === 'error';
   const graders = (s.graders ?? [])
     .map(
       (/** @type {any} */ g) =>
@@ -183,16 +183,16 @@ function scenarioRow(s) {
     .join('');
   const detail = [
     s.reason
-      ? `<p class="reason"><strong>${s.status === 'not_applicable' ? 'Why not applicable' : 'Reason'}:</strong> ${esc(s.reason)}</p>`
+      ? `<p class="reason"><strong>${s.result === 'not-applicable' ? 'Why not applicable' : 'Reason'}:</strong> ${esc(s.reason)}</p>`
       : '',
     graders
       ? `<h4>Graders</h4><ul class="graders">${graders}</ul>`
-      : s.status === 'not_applicable'
+      : s.result === 'not-applicable'
         ? ''
         : '<p class="muted">No graders ran.</p>',
     `<p class="muted meta">Profile ${esc(s.profile)}. ${esc(s.wall_ms)} ms${s.tokens == null ? '' : `, ${esc(s.tokens)} tokens`}${s.transcript ? `. Transcript kept in the private store at <code>${esc(s.transcript)}</code>` : ''}.</p>`,
   ].join('');
-  return `<details class="scenario ${esc(s.status)}"${open ? ' open' : ''}><summary><span class="sid">${esc(s.id)}</span> <span class="cat">${esc(s.category)}</span> ${badge(s.status)}</summary><div class="body">${detail}</div></details>`;
+  return `<details class="scenario ${esc(s.result)}"${open ? ' open' : ''}><summary><span class="sid">${esc(s.id)}</span> <span class="cat">${esc(s.category)}</span> ${badge(s.result)}</summary><div class="body">${detail}</div></details>`;
 }
 
 const CSS = `
@@ -230,10 +230,10 @@ dl.id div{min-width:0}dl.id dt{font-size:.8rem;color:var(--muted)}dl.id dd{margi
 .change ul{margin:0;padding-left:1.1rem}.change li{margin:.2rem 0}
 .count{display:inline-block;min-width:1.5rem;text-align:center;font-size:.8rem;background:var(--na-bg);color:var(--na);border-radius:99px;padding:0 .4rem}
 .badge{display:inline-block;font-size:.78rem;font-weight:700;border-radius:4px;padding:.05rem .5rem;white-space:nowrap}
-.badge.pass{background:var(--ok-bg);color:var(--ok)}.badge.fail,.badge.error{background:var(--bad-bg);color:var(--bad)}.badge.not_applicable{background:var(--na-bg);color:var(--na)}
+.badge.pass{background:var(--ok-bg);color:var(--ok)}.badge.fail,.badge.error{background:var(--bad-bg);color:var(--bad)}.badge.not-applicable{background:var(--na-bg);color:var(--na)}
 .scenarios{display:grid;gap:.5rem}
 details.scenario{background:var(--card);border:1px solid var(--line);border-left-width:6px;border-radius:8px}
-details.scenario.fail,details.scenario.error{border-left-color:var(--bad)}details.scenario.pass{border-left-color:var(--ok)}details.scenario.not_applicable{border-left-color:var(--na)}
+details.scenario.fail,details.scenario.error{border-left-color:var(--bad)}details.scenario.pass{border-left-color:var(--ok)}details.scenario.not-applicable{border-left-color:var(--na)}
 details.scenario>summary{cursor:pointer;padding:.65rem 1rem;display:flex;flex-wrap:wrap;gap:.25rem .75rem;align-items:center;list-style-position:inside}
 .sid{font-weight:600}.cat{color:var(--muted);font-size:.9rem}
 .body{padding:0 1rem 1rem}
@@ -247,18 +247,21 @@ details.scenario>summary{cursor:pointer;padding:.65rem 1rem;display:flex;flex-wr
 
 /**
  * Render the page for a stored run.
- * @param {EvalResult} run @param {EvalResult | null} baseline the baseline now stored for the run's settings
+ * @param {EvalResult} given @param {EvalResult | null} givenBaseline the baseline now stored for the run's settings
  * @returns {string}
  */
-export function renderEvalReport(run, baseline) {
+export function renderEvalReport(given, givenBaseline) {
+  // A run stored before HITLD-82 says status and not_applicable: read it in the new names.
+  const run = fromLegacyResult(given);
+  const baseline = givenBaseline && fromLegacyResult(givenBaseline);
   const s = run.summary;
   const v = verdict(run, baseline);
   const changes = changesAgainst(run, baseline);
   const accept = acceptCommand(run, baseline);
   const scenarios = [...run.scenarios].sort(
     (a, b) =>
-      ORDER[/** @type {keyof typeof ORDER} */ (a.status)] -
-        ORDER[/** @type {keyof typeof ORDER} */ (b.status)] ||
+      ORDER[/** @type {keyof typeof ORDER} */ (a.result)] -
+        ORDER[/** @type {keyof typeof ORDER} */ (b.result)] ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : a.profile < b.profile ? -1 : 1),
   );
   const tile = (/** @type {string} */ cls, /** @type {number} */ n, /** @type {string} */ label) =>

@@ -32,6 +32,7 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import { schemas } from '../schema/registry.mjs';
 import { mergePolicy, ownershipProblem, readTrustedFile } from '../policy/policy.mjs';
 import { executorSignal } from '../cli/executor.mjs';
+import { renameSettings } from './renamed.mjs';
 
 /**
  * @typedef {import('../schema/validate.mjs').ValidationError} ValidationError
@@ -51,6 +52,8 @@ import { executorSignal } from '../cli/executor.mjs';
  * @property {boolean} present
  * @property {Record<string, any> | null} data the validated file, or null when absent or refused
  * @property {ValidationError[]} errors
+ * @property {import('./renamed.mjs').RenamedSetting[]} [renamed] names from before HITLD-82, read
+ *   under the new ones
  */
 
 export const SETTINGS_KINDS = /** @type {const} */ (['person', 'machine']);
@@ -304,6 +307,10 @@ export function loadSettingsFile(kind, options = {}) {
     });
     return out;
   }
+  // Names from before HITLD-82 are read under the new ones, with a warning, until the next minor.
+  const current = renameSettings(kind, data);
+  out.renamed = current.renamed;
+  data = current.data;
   const errors = validateSettings(kind, data, options.registry);
   if (errors.length) {
     out.errors.push(...errors.map((e) => ({ path: `${loc.path}: ${e.path}`, message: e.message })));

@@ -96,7 +96,7 @@ export function evaluateQuotas({
   return q.limits.map((/** @type {any} */ limit) => {
     /** @type {string[]} */
     const notes = [];
-    const reserveShare = limit.reserve ?? q.owner_reserve;
+    const reserveShare = limit.reserve ?? q.reserve;
     const reserve = limit.limit == null ? null : reserveShare * limit.limit;
 
     // The freshest reading for this limit that belongs to a window not yet reset.

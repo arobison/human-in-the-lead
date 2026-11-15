@@ -4,7 +4,7 @@
   "description": "The orchestrator session itself (design parts 5.4 and 13.1).",
   "type": "object",
   "properties": {
-    "context_handoff": {
+    "handover_context_share": {
       "description": "The share of its context window the orchestrator may use before it checkpoints and hands over to a fresh session, measured from its own usage.",
       "type": "number",
       "exclusiveMinimum": 0,

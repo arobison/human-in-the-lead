@@ -17,7 +17,7 @@ These rules decide what the model holds and how. Each rests on an idea in [part 
 | 5 | **Viable system model** | Milestones belong to intelligence: future states set with strategy. Releases are the boundary to the environment. Commitments at that boundary are policy, the owner's. | Each function needs a named owner, and the boundary is where promises to users are made ([20.1](20-prior-art.md#201-cybernetics-and-systems-theory), [part 19](19-viable-system-model.md)). |
 | 6 | **Leverage and delays** | A release closes the outer feedback loop through users; a shorter delay from merge to release means faster learning. | Delays make loops slow or unstable ([20.1](20-prior-art.md#201-cybernetics-and-systems-theory)). |
 | 7 | **Batch size** | Releases and milestones are batches: keep both thin. | Small batches cut waiting and bring feedback sooner ([20.3](20-prior-art.md#203-queueing-and-flow)). |
-| 8 | **Goodhart** | "Every constraint item `Done`" is a proxy; a milestone's "done when" is checked independently (a demo, an integration test, a study verdict). | A measure used as a target stops measuring, and authors share blind spots ([20.5](20-prior-art.md#205-measurement), [part 6](06-verification.md#62-independent-verification)). |
+| 8 | **Goodhart** | "Every constraint item `done`" is a proxy; a milestone's "done when" is checked independently (a demo, an integration test, a study verdict). | A measure used as a target stops measuring, and authors share blind spots ([20.5](20-prior-art.md#205-measurement), [part 6](06-verification.md#62-independent-verification)). |
 | 9 | **Reversibility** | A release is a one-way door for the public interface: a breaking bump is the owner's. Milestone contributions are two-way: agents may cut them within the appetite. Changing a milestone's outcome or its constraints is a decision. | Care goes where undoing is costly, speed where it is cheap ([20.4](20-prior-art.md#204-management)). |
 | 10 | **Boundaries** | The version is a message about the interface: the bump is proposed from the interface delta (schemas, CLI JSON, the contract, the report shape), never from internal change. | Users depend on the interface, not the internals ([20.8](20-prior-art.md#208-software-verification-and-delivery)). |
 | 11 | **Probes** | A learning milestone is true when its question is answered (a study verdict), not when a feature exists. | Under uncertainty, a probe that settles a choice is worth more than a build that assumes it ([20.3](20-prior-art.md#203-queueing-and-flow), [20.6](20-prior-art.md#206-decision-science-and-human-factors)). |
@@ -114,54 +114,55 @@ The work hierarchy. Initiatives group projects toward an outcome; projects group
 | Field | Notes |
 |---|---|
 | `kind` | `work`, `decision`, `external` |
-| `needs` | IDs that must be `Done` before this item is ready |
+| `needs` | IDs that must be `done` before this item is ready |
 | `touches` | Path globs the item is expected to change. Used to predict merge conflicts and serial-file contention |
 | `serial` | Serial resources the item needs (`gpu`, a named fixture) |
 | `estimate_tokens` | Set at sizing |
-| `tier_hint` | Optional override from the owner or the shaper |
-| `changelog` | One line for release notes, if the item changes public surface |
+| `tier_override` | Optional override from the owner or the shaper |
+| `release_note` | One line for release notes, if the item changes public surface |
 | `credit` | Contributor IDs to credit |
-| `claim` | Set by the claim commit. Stored as `claimed: <dispatch, session or handle>`; the branch and time come from git |
+| `claimed_by` | Set by the claim commit, on work items only: the dispatch, session or person holding it; the branch and time come from git |
 
-**Lifecycle (stored).** The five states of the reference tracker format:
+**Lifecycle (stored).** The core lifecycle, stored as `state` in lowercase kebab-case (views show display labels such as "In progress"). Work items use all five states, `in-progress` only on the claim branch. Decisions, external items, milestones, projects and initiatives use the four without `in-progress`; whether a project or initiative is active is derived from its items. `dropped` always carries a reason:
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Proposed
-  Proposed --> Planned: committed by a decider
-  Proposed --> Dropped
-  Planned --> InProgress: claim commit
-  InProgress --> Done: merge of the closing change
-  InProgress --> Planned: claim released
-  Planned --> Dropped
-  InProgress --> Dropped
-  Done --> [*]
-  Dropped --> [*]
+  [*] --> proposed
+  proposed --> planned: committed by a decider
+  proposed --> dropped
+  planned --> in_progress: claim commit (work items)
+  in_progress --> done: merge of the closing change
+  in_progress --> planned: unclaimed
+  planned --> done
+  planned --> dropped
+  in_progress --> dropped
+  done --> [*]
+  dropped --> [*]
 ```
 
-- `Proposed` → `Planned` is a commitment to do the work. Who may make it is set by decision rights ([part 4](04-decision-rights.md)): the owner for new projects and anything with a public commitment; the orchestrator for items inside a bet project; triage for `auto-fix` bugs within precedent.
-- `Planned` → `In progress` happens in the **first commit of the executor's branch** (the claim commit). Because branches are visible across worktrees and, through bundles, across machines, a claim is visible to everyone once the branch exists.
-- `In progress` → `Done` rides in **the same change as the work**. Merging the branch is closing the item. There is no separate "close" step to forget.
-- **`main` never shows `In progress`.** The claim commit and the closing commit merge together, so on `main` an item goes from `Planned` straight to `Done`. `In progress` exists only on the executor's branch. Which items are claimed is therefore read from branches, not from `main`: `hitld work claims` scans local branches and fetched bundle refs for claim commits. The ledger is the second source: every claim branch should match a dispatch without a terminal event, and every such dispatch should have a claim branch. A mismatch either way is flagged as orphaned (an abandoned branch, or a dispatch that never claimed).
-- `Dropped` records a reason.
+- `proposed` → `planned` is a commitment to do the work. Who may make it is set by decision rights ([part 4](04-decision-rights.md)): the owner for new projects and anything with a public commitment; the orchestrator for items inside a bet project; triage for `auto-fix` bugs within precedent.
+- `planned` → `in-progress` happens in the **first commit of the executor's branch** (the claim commit). Because branches are visible across worktrees and, through bundles, across machines, a claim is visible to everyone once the branch exists.
+- `in-progress` → `done` rides in **the same change as the work**. Merging the branch is closing the item. There is no separate "close" step to forget.
+- **`main` never shows `in-progress`.** The claim commit and the closing commit merge together, so on `main` an item goes from `planned` straight to `done`. `in-progress` exists only on the executor's branch. Which items are claimed is therefore read from branches, not from `main`: `hitld work claims` scans local branches and fetched bundle refs for claim commits. The ledger is the second source: every claim branch should match a dispatch without a terminal event, and every such dispatch should have a claim branch. A mismatch either way is flagged as orphaned (an abandoned branch, or a dispatch that never claimed).
+- `dropped` records a reason.
 
 **Derived states and fields:**
 
 | Derived | Rule |
 |---|---|
 | `claimed` | A live branch has a claim commit for it (`hitld work claims`) |
-| `ready` | `Planned`, every `needs` entry `Done`, no open decision in `needs`, not `claimed` |
-| `blocked` | `Planned` with at least one `needs` entry not `Done`; `blocked_on` lists them |
-| `stage` | From the ledger, for items `In progress`: `briefed`, `claimed`, `implementing`, `verifying`, `reporting`, `in review`, `merged` (the fleet view) |
+| `ready` | `planned`, every `needs` entry `done`, no open decision in `needs`, not `claimed` |
+| `blocked` | `planned` with at least one `needs` entry not `done`; `blocked_on` lists them |
+| `stage` | From the ledger, for items `in-progress`: `briefed`, `started`, `implementing`, `verifying`, `reporting`, `in-review`, `merged` (the fleet view) |
 | `critical_path` | Whether the item is on the longest dependency chain (by estimate tokens) to a milestone that needs it |
 | `cost_of_delay_rate` | Inherited from the opportunity, plus the rates of everything that `needs` it, milestones included |
-| `constraint_of`, `contributes_to` | The milestones whose `needs` or `contributions` name it. The milestone holds the edge; the item stores nothing |
+| `constraint_of`, `contributes_to` | The milestones whose `constraints` or `contributions` name it. The milestone holds the edge; the item stores nothing |
 | `released_in` | The first full release whose record lists it ([Release](#release)); a pre-release does not set it |
 | `lead_time`, `blocked_time` | From git history of the item file and the ledger |
 
 ### Decision
 
-An item of kind `decision`. It sits in the same tracker, uses the same lifecycle (`Proposed` while being framed, `Planned` once asked, `Done` when answered, `Dropped` if mooted), and can appear in any item's `needs`. Open decisions form the **decision backlog**.
+An item of kind `decision`. It sits in the same tracker, uses the same lifecycle (`proposed` while being framed, `planned` once asked, `done` when answered, `dropped` if mooted), and can appear in any item's `needs`. Open decisions form the **decision backlog**.
 
 | Field | Notes |
 |---|---|
@@ -198,13 +199,13 @@ A checkable future state with its own "done when" (principle 2 in [3.0](#30-prin
 | `kind` | stored | `capability` (users can do something new) or `learning` (a question gets answered) |
 | `outcome` | stored | One sentence: the state for users, or the question answered |
 | `done_when` | stored | Clauses, each with a short ID (`c1`, `c2`). Outcome predicates for users where possible ("a new user installs the plugin and dispatches a first item without help"), not lists of outputs. A learning milestone's clause names the study whose verdict settles it |
-| `needs` | stored | **Constraints**: items, or other milestones, without which a clause cannot be true, each linked to that clause. Logical necessity derived from the outcome, not a priority label |
+| `constraints` | stored | **Constraints** (stored as `needs` before HITLD-82): items, or other milestones, without which a clause cannot be true, each linked to that clause. Logical necessity derived from the outcome, not a priority label |
 | `contributions` | stored | **Contributions**: items that add to the outcome, each with a `value` and a `confidence`. The value is a positive number in the project's value units ([2.3](02-loops.md#23-shaping), [Q18](22-open-questions.md#q18-what-unit-is-value-measured-in-blocks-shaping-and-prioritization)), the same unit as an opportunity's value, so the milestone's scope can rank contributions by value per token. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering it, not the only values. A learning item's value is the value of information |
 | `appetite_tokens` | stored | What the milestone is worth. A project's milestones share its appetite; an item counted in several counts once |
 | `deadline` | stored, optional | An external date (an event, a dependency's end of support) with its source, held as a fixed-date cost-of-delay profile. Never an internal estimate ([1.5](../0001-human-in-the-lead.md#15-durations)) |
 | `check` | stored | The independent check that the outcome holds: `demo` (a script run by someone other than the items' authors), `integration-test` (a test path) or `study` (a study ID). Each result is recorded with its evidence |
-| `error` | derived | The unmet clauses: those with a constraint not `Done`, and those the check has not passed. What the system works down |
-| `check_due` | derived | Every constraint is `Done` and the check has not yet passed |
+| `unmet_clauses` | derived | The unmet clauses (named `error` before HITLD-82): those with a constraint not `done`, and those the check has not passed. What the system works down |
+| `check_due` | derived | Every constraint is `done` and the check has not yet passed |
 | `scope` | derived | The contributions that fit the appetite, by value per token (below) |
 | `tokens_spent` | derived | From the ledger, over its constraints and contributions |
 | `cost_of_delay_rate` | derived | From the value of its outcome and its deadline profile; passed to every constraint |
@@ -216,12 +217,12 @@ A checkable future state with its own "done when" (principle 2 in [3.0](#30-prin
 
 | Change | Who |
 |---|---|
-| Commit a milestone (`Proposed` → `Planned`) | The owner. Design review proposes a bet's milestones, and the owner commits them in the same batched review ([Q31](22-open-questions.md#q31-who-commits-a-bet-projects-milestones-affects-milestones)) |
+| Commit a milestone (`proposed` → `planned`) | The owner. Design review proposes a bet's milestones, and the owner commits them in the same batched review ([Q31](22-open-questions.md#q31-who-commits-a-bet-projects-milestones-affects-milestones)) |
 | Change its outcome, a clause, a constraint or the appetite | A decision |
 | Add or cut contributions within the appetite | The orchestrator, as a logged call |
-| Mark it `Done` | Only a passing check, recorded with its evidence |
+| Mark it `done` | Only a passing check, recorded with its evidence |
 
-**Done means checked** (principle 8). Every constraint `Done` is a proxy: it moves the milestone to `check_due`, never to `Done`. The check is independent of the items' authors, like an acceptance check ([6.2](06-verification.md#62-independent-verification)): an acceptance author writes it from the outcome and the clauses, before the work starts. A learning milestone is `Done` when its study has a verdict, whatever the verdict says (principle 11). The states are `Proposed`, `Planned`, `Done` and `Dropped` (with a reason). There is no `In progress`: items are claimed, milestones are not.
+**Done means checked** (principle 8). Every constraint `done` is a proxy: it moves the milestone to `check_due`, never to `done`. The check is independent of the items' authors, like an acceptance check ([6.2](06-verification.md#62-independent-verification)): an acceptance author writes it from the outcome and the clauses, before the work starts. A learning milestone is `done` when its study has a verdict, whatever the verdict says (principle 11). The states are `proposed`, `planned`, `done` and `dropped` (with a reason). There is no `in-progress`: items are claimed, milestones are not.
 
 #### Release
 
@@ -235,7 +236,7 @@ The record of what reached users, written when the release is made, as one file 
 | `interface_delta` | stored | The changes to the public interface ([16.5](16-packaging.md#165-releases-and-compatibility)) since `previous` that justify the bump: schemas, CLI and MCP JSON, the executor contract, the report shape, trailers, adapter interfaces. Each is marked breaking, additive or fix |
 | `decision` | stored | The decision or the precedent under which it was made |
 | `items` | derived | Items whose closing commits lie between `previous` and this tag, from `Work-Item` trailers. Written into the record when it is made, so readers need no git |
-| `notes` | derived | Generated from those items' `changelog` lines, with credit. Written into the record when it is made |
+| `notes` | derived | Generated from those items' `release_note` lines, with credit. Written into the record when it is made |
 | `milestones` | derived | Milestones whose check passed on the released code |
 | `classification` | stored | `public` for a public project |
 
@@ -259,8 +260,8 @@ A rule generalized from one or more answered decisions ([part 4](04-decision-rig
 | `exceptions` | Cases explicitly not covered |
 | `sources` | The decisions it came from |
 | `decider` | Who confirmed the generalization |
-| `scope` | `project`, `area:<name>` |
-| `state` | `active`, `narrowed`, `retired` |
+| `scope` | `all` (the whole project), `area:<name>` |
+| `state` | `active`, `retired`. A narrowed precedent stays `active` with its exceptions; the trust event `precedent-narrowed` records the narrowing |
 | `applications` | Derived from decisions that cite it |
 | `overrules` | Derived: applications the owner later reversed |
 | `checked` | Date and policy version when last confirmed still valid |
@@ -284,7 +285,7 @@ A person who interacts with the project. Detail in [part 9](09-contributors.md).
 |---|---|
 | `id` | `C-<n>` |
 | `identities` | Handles per source (for example a GitHub login). Emails are stored hashed unless the contributor has a reason to be contacted by email |
-| `trust_level` | `T0` to `T4` ([part 9](09-contributors.md#92-trust-levels)) |
+| `trust_level` | `L0` to `L4` ([part 9](09-contributors.md#92-trust-levels)) |
 | `areas` | Areas they own or regularly contribute to |
 | `legal` | DCO sign-off seen; CLA if the project uses one |
 | `credit` | Derived: items, signals and reviews credited to them |
@@ -307,7 +308,7 @@ Who or what decided each thing, on what evidence, under which rules. One append-
 | `what` | The kind (`decision-answered`, `logged-call`, `precedent-applied`, `precedent-changed`, `controller-move`, `merge`, `release`, `classification-change`, `rule-change`, `quota-exceeded-approval`) and the subject's ID |
 | `who` | A human (contributor ID and channel) or an agent (role, dispatch ID, harness, model) |
 | `evidence` | Run, study, eval and test IDs; the decision items and precedents cited |
-| `rule_version` | The `policy.json` hash, the decision-rights rule that applied, the precedent ID and version, the plugin version |
+| `under` | The rules it was decided under (named `rule_version` before HITLD-82): the `policy.json` hash, the decision-rights rule that applied, the precedent ID and version, the plugin version |
 | `at` | Time |
 | `prev_hash` | Hash of the previous line, so any edit to the history is detectable (the chain is hash-linked, not tamper-proof) |
 
@@ -388,14 +389,14 @@ interface RawSignal {
 ```ts
 interface NotificationChannel {
   id: string                               // 'remote-control', 'slack:#channel', 'push', 'digest-file'
-  capabilities(): { buttons: boolean, threads: boolean, maxClassification: Classification }
+  capabilities(): { buttons: boolean, threads: boolean, max_classification: Classification }
   send(message: Message, urgency: 'interrupt' | 'digest' | 'page'): MessageRef
   ask(question: DecisionQuestion): MessageRef   // answers come back through the main session
 }
 ```
 
 - **Remote Control** is the first channel: the main session is the channel. A question is a message in that session; the owner's answer is the next user turn.
-- `maxClassification` caps what a channel may carry. A third-party chat service defaults to `internal`; a `confidential` question goes out as a pointer ("a confidential decision is waiting: W-412") rather than its content.
+- `max_classification` caps what a channel may carry. A third-party chat service defaults to `internal`; a `confidential` question goes out as a pointer ("a confidential decision is waiting: W-412") rather than its content.
 - Quiet hours are enforced by the caller (the question-timing controller), not by each channel.
 
 ### Evidence source
@@ -481,20 +482,20 @@ The plugin owns the file format; a project that uses it depends on the format, n
 - **Reads go through a versioned JSON read API**: `hitld work query --json` and `hitld work show --json` carry an `api_version` in every response, with the entities and the declared fields (`declared_fields`: name, type, list, description). Anything else that reads the tracker (a board, custom views, reports) reads this output, never the files, so a change to the files that keeps the API stable breaks no reader. Without `--json` the commands print the same JSON without the version promise. **The rule for `api_version`:** it starts at 1; removing, renaming or retyping a field raises it; adding a field does not, so readers ignore fields they do not know. The version is `API_VERSION` in `core/lib/tracker/files/api.mjs`.
 - **Extension by declaration.** `optional_keys` in `tracker.json` turns on a fixed list of extra keys. For a project's own fields, `tracker.json` also takes `fields`: each has a `name`, a `type` (`string`, `integer`, `number` or `boolean`), `list` (true for a list of that type), optional `values` (the allowed texts of a string field) and a `description`. A declared field is validated against its type by `hitld work check` and by every write, kept when the tool rewrites a file, returned typed in the read API and matched in queries (`hitld work query --field name=value`; a list field matches when it holds the value). A name the format already uses, or a key that names code to run, is refused. The file holds the value as text; the read API types it. An undeclared key is still an error.
 
-Structural changes (a new state, a new kind, different claim or readiness rules) are plugin changes: a schema version bump with a migration. `hitld work migrate` applies the migrations to the tracker's files. A migration is a registered, named step: a function from the files to the changes that bring them to the new format, which returns no changes for a file already in it, so a second run does nothing. `--dry-run` prints each file's diff and writes nothing; a real run checks the result, writes it and commits it as one commit (`--no-commit` leaves the files in the working tree); `--only <name>` runs one step; only the orchestrator runs it. When a registered migration still has work, `hitld work check` names the files. The registered migrations are `milestone-entities` (each project's `milestones` list and each item's `milestone` key become milestone files, with those items as constraints marked `c?` for shaping to link to clauses) and `retire-priority` (removes `priority`, [Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)). A step that creates a file takes its number above every ID in the tracker and every number another branch, worktree or bundle ref of the clone already holds. A conformance suite (`core/lib/tracker/conformance.mjs`) checks any backend against the tracker interface through the interface alone, with declared fields: a backend that drops, retypes or refuses a declared field fails. The files backend runs it in the test suite; another backend (a hosted tracker, an adapter behind the same interface) runs the same module.
+Structural changes (a new state, a new kind, different claim or readiness rules) are plugin changes: a schema version bump with a migration. `hitld work migrate` applies the migrations to the tracker's files. A migration is a registered, named step: a function from the files to the changes that bring them to the new format, which returns no changes for a file already in it, so a second run does nothing. `--dry-run` prints each file's diff and writes nothing; a real run checks the result, writes it and commits it as one commit (`--no-commit` leaves the files in the working tree); `--only <name>` runs one step; only the orchestrator runs it. When a registered migration still has work, `hitld work check` names the files. The registered migrations are `milestone-entities` (each project's `milestones` list and each item's `milestone` key become milestone files, with those items as constraints marked `c?` for shaping to link to clauses), `retire-priority` (removes `priority`, [Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)) and `names-and-states` (HITLD-82: the lifecycle key is `state` with lowercase kebab-case values, and the other renamed keys in [File format](#file-format)). A step that creates a file takes its number above every ID in the tracker and every number another branch, worktree or bundle ref of the clone already holds. A conformance suite (`core/lib/tracker/conformance.mjs`) checks any backend against the tracker interface through the interface alone, with declared fields: a backend that drops, retypes or refuses a declared field fails. The files backend runs it in the test suite; another backend (a hosted tracker, an adapter behind the same interface) runs the same module.
 
 ### File format
 
 Markdown with YAML front matter. The front matter is **data only**: the schema lists every allowed key, and the check script rejects unknown keys. No key is ever executed. Some trackers support fields or hooks that run commands when an item changes; this format excludes executable keys by schema ([part 10](10-security.md)), and the check refuses keys such as `hooks`, `script` and `run` by name.
 
-The model's entity fields and the stored keys differ in name. The files backend stores `status` (the model's `state`), `project` (an item's parent; a milestone's when it sits under a project), `initiative` (a project's parent; a milestone's when it sits under an initiative), `decided-by` (a decision's `decider`) and `claimed`. It also stores `created`, which the model does not list. The keys `milestone` (on items), `milestones` (a project's list of names) and `priority` are retired: milestones are their own files, and order is derived, with an owner's direct reorder a recorded decision ([Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)). The check names a retired key and points to `hitld work migrate`. These keys are always allowed:
+The stored keys take the model's names (HITLD-82), except the parent: the files backend stores `project` (an item's parent; a milestone's when it sits under a project) and `initiative` (a project's parent; a milestone's when it sits under an initiative), which the read API returns as `parent`. It also stores `claimed_by` (who holds a claim) and `created`, which the model does not list. Before HITLD-82 the format stored `status` (with the values `Proposed`, `Planned`, `In progress`, `Done`, `Dropped`), `claimed`, `decided-by`, `lead`, `party`, `tier_hint`, `changelog`, a milestone's `needs` and the check result `verdict`; the migration `names-and-states` moves them, the check names a file that still holds one, and claim branches, file history and release tags from before are read in the new names. The keys `milestone` (on items), `milestones` (a project's list of names) and `priority` are retired: milestones are their own files, and order is derived, with an owner's direct reorder a recorded decision ([Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)). The check names a retired key and points to `hitld work migrate`. These keys are always allowed:
 
 | Kinds | Keys |
 |---|---|
-| work, decision, external | `id`, `title`, `kind`, `status`, `created`, `project`, `needs`, `claimed`, `reason`; decisions add `decided-by` and, once answered, `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by`, `precedent` and `resolved_by_precedent`; external items add `party`. An item's `needs` may name items and milestones |
-| project | the common keys plus `initiative`, `lead`, `plan`, `reason` |
-| initiative | the common keys plus `lead`, `reason` |
-| capability, learning (milestones) | the common keys plus `project` or `initiative` (one), `outcome`, `done_when`, `needs`, `contributions`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
+| work, decision, external | `id`, `title`, `kind`, `state`, `created`, `project`, `needs`, `reason`; work items add `claimed_by`; decisions add `decider` and, once answered, `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by`, `precedent` and `resolved_by_precedent`; external items add `waiting_on`. An item's `needs` may name items and milestones |
+| project | the common keys plus `initiative`, `owner`, `plan`, `reason` |
+| initiative | the common keys plus `owner`, `reason` |
+| capability, learning (milestones) | the common keys plus `project` or `initiative` (one), `outcome`, `done_when`, `constraints`, `contributions`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
 | release record (`releases/<tag>.md`) | `id`, `version`, `previous`, `bump`, `interface_delta`, `decision`, `items`, `milestones`, `classification`; the body holds the notes |
 
 The front matter holds strings and lists of strings only, so each structured milestone entry is one line of text in a fixed form, and the read API returns it typed:
@@ -502,18 +503,18 @@ The front matter holds strings and lists of strings only, so each structured mil
 | Key | One entry |
 |---|---|
 | `done_when` | `c1: <text>` |
-| `needs` | `<ID> c1` (a constraint linked to clause `c1`), or `<ID> c?` (to be linked at shaping) |
+| `constraints` | `<ID> c1` (a constraint linked to clause `c1`), or `<ID> c?` (to be linked at shaping) |
 | `contributions` | `<ID> value=<number above 0> confidence=<0 to 1>` |
 | `check` | `<demo, integration-test or study> <target>` |
-| `check_results` | `<pass, fail or verdict> <YYYY-MM-DD> <role>: <evidence>`, oldest first |
+| `check_results` | `<pass, fail or answered> <YYYY-MM-DD> <role>: <evidence>`, oldest first (`answered`: a learning milestone's study has a verdict) |
 | `deadline` | `<YYYY-MM-DD> <source>` |
 | `interface_delta` (release) | `<breaking, additive or fix> <area>: <what>`, where the area is `schemas`, `cli`, `contract`, `report`, `trailers`, `read-api` or `adapters` |
 
 A decision's question, context, options, recommendation, precedent offer, rule basis and reversibility are text for the decider, so `hitld rights ask` writes them into its body under the reference sections (Question; Options and recommendation; Answer), not into the front matter. The private store keeps the options it was asked with, so an answer such as "A" is read against them. A decision item is filed under a project like any item: the question names it as `parent`. A question classified above the tracker's `default_classification` is refused unless `classification` is in `optional_keys`, so it is never written as public.
 
-A milestone is `Done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone, when a `verdict` is recorded by such a role. The check and the tracker refuse anything else.
+A milestone is `done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone, when `answered` is recorded by such a role. The check and the tracker refuse anything else.
 
-Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#initiative-project-item) (`owner`, `area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_hint`, `changelog`, `credit`) are off until `optional_keys` in `tracker.json` lists them. An item with no `classification` key takes `default_classification`.
+Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#initiative-project-item) (`owner`, `area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_override`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them. An item with no `classification` key takes `default_classification`.
 
 ```markdown
 ---
@@ -521,7 +522,7 @@ id: W-214
 kind: work
 title: Reject unknown keys in the config file
 project: W-201
-status: Planned
+state: planned
 created: 2026-03-02
 needs: [W-209, W-213]
 ---
@@ -543,12 +544,12 @@ With `optional_keys` set to include `area`, `touches` and `estimate_tokens`, the
 
 ### Claims and closing
 
-- **Claim.** The executor's branch starts with one commit that changes only the item file: `status: In progress` and `claimed: <dispatch, session or handle>`. Commit message: `claim: W-214`. The branch and the time of the claim are read from git, not stored in the file. Two executors cannot both claim one item without one of the claim commits failing to merge cleanly, because both change the same lines.
-- **Close.** The final commit of the branch (or any commit in it) sets `status: Done`. Merging the branch closes the item. If a branch is abandoned, the orchestrator releases the claim with a commit on `main` whose message starts `release:` and carries `Claim-Branch:` and `Claim-Commit:` trailers and the reason. The commit may be empty, because `main` already shows the item `Planned`. A claim whose commit a release names stops counting.
+- **Claim.** The executor's branch starts with one commit that changes only the item file: `state: in-progress` and `claimed_by: <dispatch, session or handle>`. Commit message: `claim: W-214`. The branch and the time of the claim are read from git, not stored in the file. Two executors cannot both claim one item without one of the claim commits failing to merge cleanly, because both change the same lines.
+- **Close.** The final commit of the branch (or any commit in it) sets `state: done`. Merging the branch closes the item. If a branch is abandoned, the orchestrator gives up the claim (`hitld work unclaim`) with a commit on `main` whose message starts `unclaim:` and carries `Claim-Branch:` and `Claim-Commit:` trailers and the reason. The commit may be empty, because `main` already shows the item `planned`. A claim whose commit an unclaim commit names stops counting; the scan still reads the `release:` commits made before HITLD-82.
 - **Trailers.** Every commit an executor makes carries git trailers: `Work-Item: W-214` and `Dispatch: D-…`, plus `Agent-Role`, `Agent-Model` and `Agent-Effort` (decided: [Q5](22-open-questions.md)), and the other provenance trailers in [part 6](06-verification.md#64-provenance). Hosted backends use the same trailers to emulate close-on-merge.
 
-- **Work that does not come through an executor** (a person fixes something by hand and merges it). Closing still rides with the work, but it can be asked for with a structured trailer instead of an edit: a commit carrying `Closes: W-214` has the merge add the `status: Done` edit to the item file in the same merge, in either merge mode, so the close is as atomic and as revertable as an executor's. `Refs: W-214` links a commit to an item without closing it. Free text in commit messages is never parsed for keywords ("fixes", "closes"): prose misfires, and a trailer is explicit. *(Planned: HITLD-49.)*
-- **Consistency on `main`.** `hitld work check` flags two mismatches: a commit on `main` carries `Work-Item:` or `Closes:` for an item that is still open, and an item went to `Done` with no commit referencing it. It warns rather than fixing silently, and the orchestrator offers the fix. A commit that reached `main` outside the merge path (a direct push) is caught the same way, at the next check. *(Planned: HITLD-49.)*
+- **Work that does not come through an executor** (a person fixes something by hand and merges it). Closing still rides with the work, but it can be asked for with a structured trailer instead of an edit: a commit carrying `Closes: W-214` has the merge add the `state: done` edit to the item file in the same merge, in either merge mode, so the close is as atomic and as revertable as an executor's. `Refs: W-214` links a commit to an item without closing it. Free text in commit messages is never parsed for keywords ("fixes", "closes"): prose misfires, and a trailer is explicit. *(Planned: HITLD-49.)*
+- **Consistency on `main`.** `hitld work check` flags two mismatches: a commit on `main` carries `Work-Item:` or `Closes:` for an item that is still open, and an item went to `done` with no commit referencing it. It warns rather than fixing silently, and the orchestrator offers the fix. A commit that reached `main` outside the merge path (a direct push) is caught the same way, at the next check. *(Planned: HITLD-49.)*
 - **Why not keyword closing.** Hosted trackers parse commit messages because their state lives outside the repository. Here the state is in the repository, so the close is part of the diff: it happens exactly when the work merges, it is reviewed with the work, and reverting the merge reopens the item.
 
 ### ID allocation
@@ -565,17 +566,17 @@ Sequential IDs are decided ([Q2](22-open-questions.md)): people say and type the
 
 `views/` is regenerated by a script from the item files. **Only a merge commits views**, on `main`: the merge queue after each batch, or, in owner merge mode (`merge.mode: owner`), the merge the owner approves; executor branches never touch `views/`, so parallel branches do not conflict there, and the per-branch check skips view freshness. The batch check fails if any item references an ID that does not exist. Views are committed so they can be read on GitHub and on a phone without running anything.
 
-Once milestones are entities, the views include `milestones.md`: a mermaid graph with milestones as nodes and `needs` between milestones as edges, each node showing its outcome, progress against its constraints, appetite spent and whether its check has passed, with the critical path highlighted, and a table that lists each milestone's items ([12.1.2](12-reporting-and-limits.md#1212-the-milestone-graph-planned)). It complements `items-graph.md`, which shows items and their `needs`.
+Once milestones are entities, the views include `milestones.md`: a mermaid graph with milestones as nodes and `constraints` between milestones as edges, each node showing its outcome, progress against its constraints, appetite spent and whether its check has passed, with the critical path highlighted, and a table that lists each milestone's items ([12.1.2](12-reporting-and-limits.md#1212-the-milestone-graph-planned)). It complements `items-graph.md`, which shows items and their `needs`.
 
 ### Validation
 
 The check script verifies, on every merge batch:
 
 - every file matches the schema for its kind, with no unknown keys;
-- every reference (`parent`, `needs`, `contributions`, `opened_from`, `precedent`, and a release record's `previous`, `items` and `milestones`) resolves;
-- every milestone constraint names a clause that exists (or `c?`), every contribution has a value and a confidence, and a `Done` milestone has its passing check;
+- every reference (`parent`, `needs`, `constraints`, `contributions`, `opened_from`, `precedent`, and a release record's `previous`, `items` and `milestones`) resolves;
+- every milestone constraint names a clause that exists (or `c?`), every contribution has a value and a confidence, and a `done` milestone has its passing check;
 - no dependency cycles, through items and milestones;
 - no entity above `public` classification in a public repository;
-- no item on `main` is `In progress` (a claim committed directly to `main` is an error);
+- no item on `main` is `in-progress` (a claim committed directly to `main` is an error);
 - claim branches and open ledger dispatches match, or the mismatch is flagged as orphaned;
 - views are current (batch check on `main` only).

@@ -170,7 +170,7 @@ const ANSWERED = {
     get: () => ({
       id: 'W-9',
       kind: 'decision',
-      state: 'Done',
+      state: 'done',
       answer: 'B',
       answered_at: '2030-01-01T00:00:00Z',
       answered_by: 'owner',
@@ -307,22 +307,22 @@ test('records: accepting a risk needs an answered decision item, read through th
   const AT = '2029-12-31T09:00:00Z';
   for (const [entity, why] of /** @type {[Record<string, unknown> | null, RegExp][]} */ ([
     [null, /not in the tracker/],
-    [{ id: 'W-9', kind: 'work', state: 'Done' }, /not a decision/],
-    [{ id: 'W-9', kind: 'decision', state: 'Planned' }, /not answered/],
-    [{ id: 'W-9', kind: 'decision', state: 'Dropped' }, /not answered/],
-    [{ id: 'W-9', kind: 'decision', state: 'Done', answer: '' }, /not answered/],
+    [{ id: 'W-9', kind: 'work', state: 'done' }, /not a decision/],
+    [{ id: 'W-9', kind: 'decision', state: 'planned' }, /not answered/],
+    [{ id: 'W-9', kind: 'decision', state: 'dropped' }, /not answered/],
+    [{ id: 'W-9', kind: 'decision', state: 'done', answer: '' }, /not answered/],
     // Done by hand, with no answer recorded: not an answered decision.
-    [{ id: 'W-9', kind: 'decision', state: 'Done' }, /not answered/],
-    [{ id: 'W-9', kind: 'decision', state: 'Done', answer: 'A' }, /not answered/],
+    [{ id: 'W-9', kind: 'decision', state: 'done' }, /not answered/],
+    [{ id: 'W-9', kind: 'decision', state: 'done', answer: 'A' }, /not answered/],
     [
-      { id: 'W-9', kind: 'decision', state: 'Planned', answer: 'A', answered_at: AT },
+      { id: 'W-9', kind: 'decision', state: 'planned', answer: 'A', answered_at: AT },
       /not answered/,
     ],
     [
       {
         id: 'W-9',
         kind: 'decision',
-        state: 'Done',
+        state: 'done',
         answer: 'A',
         answered_at: AT,
         answered_via: 'precedent',
@@ -334,7 +334,7 @@ test('records: accepting a risk needs an answered decision item, read through th
       {
         id: 'W-9',
         kind: 'decision',
-        state: 'Done',
+        state: 'done',
         answer: 'A',
         answered_at: AT,
         answered_by: 'C-3',
@@ -576,13 +576,13 @@ test('commands: the merge scans with the primary checkout policy, never the bran
     );
   const c = makeConsumer({
     files: {
-      'work/items/W-4-accept-a-risk.md': decisionItem('W-4', { status: 'Planned' }),
+      'work/items/W-4-accept-a-risk.md': decisionItem('W-4', { state: 'planned' }),
       // Set Done by hand, with no answer recorded: not the owner's answered decision.
       'work/items/W-5-accept-a-risk.md': decisionItem('W-5', {
-        status: 'Done',
+        state: 'done',
       }),
       'work/initiatives/W-6-keep-it-safe.md': item(
-        { id: 'W-6', title: 'Keep it safe', kind: 'initiative', status: 'Planned', lead: 'owner' },
+        { id: 'W-6', title: 'Keep it safe', kind: 'initiative', state: 'planned', owner: 'owner' },
         '\n## Goal\n\n',
       ),
       'work/projects/W-7-security-findings.md': item(
@@ -590,9 +590,9 @@ test('commands: the merge scans with the primary checkout policy, never the bran
           id: 'W-7',
           title: 'Security findings',
           kind: 'project',
-          status: 'Planned',
+          state: 'planned',
           initiative: 'W-6',
-          lead: 'owner',
+          owner: 'owner',
         },
         '\n## Summary\n\n',
       ),
@@ -605,7 +605,7 @@ test('commands: the merge scans with the primary checkout policy, never the bran
   assert.equal((await c.hitld(['run', 'start'])).exit, 0);
   const start = await c.hitld(['dispatch', 'start', 'W-1']);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
-  await c.hitld(['dispatch', 'started', '--dispatch', 'D-1', '--handle', 'agent-1']);
+  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
   const branch = start.result.branch;
   git(c.root, 'switch', '-q', '-c', branch);
   put(c.root, {
@@ -613,7 +613,7 @@ test('commands: the merge scans with the primary checkout policy, never the bran
       id: 'W-1',
       title: 'Add numbers',
       kind: 'work',
-      status: 'Done',
+      state: 'done',
       priority: 'medium',
       touches: ['src/calc.js'],
     }),
@@ -709,10 +709,10 @@ test('commands: the merge scans with the primary checkout policy, never the bran
   assert.match(work.result.message, /W-2 is a work item, not a decision/);
   const open = await accept('W-4');
   assert.equal(open.result.error, 'decision');
-  assert.match(open.result.message, /W-4 is Planned and not answered/);
+  assert.match(open.result.message, /W-4 is planned and not answered/);
   const handClosed = await accept('W-5');
   assert.equal(handClosed.result.error, 'decision');
-  assert.match(handClosed.result.message, /W-5 is Done and not answered/);
+  assert.match(handClosed.result.message, /W-5 is done and not answered/);
 
   // The owner's decision, asked and answered through the command line into the files tracker.
   const question = {
@@ -734,11 +734,11 @@ test('commands: the merge scans with the primary checkout policy, never the bran
   assert.equal(asked.result.outcome, 'asked');
   const decision = asked.result.decision;
   const early = await accept(decision);
-  assert.match(early.result.message, new RegExp(`${decision} is Planned and not answered`));
+  assert.match(early.result.message, new RegExp(`${decision} is planned and not answered`));
   const answered = await c.hitld(['rights', 'answer', decision, '--answer', 'A']);
   assert.equal(answered.exit, 0, JSON.stringify(answered.result));
   const shown = await c.hitld(['work', 'show', decision, '--json']);
-  assert.equal(shown.result.entity.state, 'Done');
+  assert.equal(shown.result.entity.state, 'done');
   assert.equal(shown.result.entity.answered_by, 'owner');
   assert.equal(shown.result.entity.answered_via, 'main-session');
   const ok = await accept(decision);

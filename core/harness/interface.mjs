@@ -12,16 +12,16 @@ import { schemas } from '../lib/schema/registry.mjs';
  * @typedef {'public' | 'internal' | 'confidential' | 'secret'} Classification
  *
  * @typedef {object} HarnessCapabilities
- * @property {boolean} parallelSubagents several executors at once under one orchestrator
- * @property {boolean} persistentSessions a separate long-running session (tier 3)
+ * @property {boolean} parallel_subagents several executors at once under one orchestrator
+ * @property {boolean} persistent_sessions a separate long-running session (tier 3)
  * @property {boolean} worktrees an isolated checkout per executor
- * @property {boolean} backgroundCompletion completion arrives as an event, without polling
- * @property {boolean} remoteHumanChannel the human can answer away from the machine
+ * @property {boolean} background_completion completion arrives as an event, without polling
+ * @property {boolean} remote_human_channel the human can answer away from the machine
  * @property {'full' | 'subset' | 'none'} hooks lifecycle hooks such as pre-tool-use
- * @property {boolean} modelSelection
- * @property {boolean} effortSelection
- * @property {'tokens' | 'requests' | 'none'} usageReporting
- * @property {Classification} maxClassification the highest level it may process
+ * @property {boolean} model_selection
+ * @property {boolean} effort_selection
+ * @property {'tokens' | 'requests' | 'none'} usage_reporting
+ * @property {Classification} max_classification the highest level it may process
  *
  * @typedef {object} DispatchRequest
  * @property {string} dispatch the dispatch ID, D-<n>

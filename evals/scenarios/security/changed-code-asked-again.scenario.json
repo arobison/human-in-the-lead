@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "security/changed-code-asked-again",
-  "piece": "security",
+  "suite": "security",
   "category": "security-gate",
   "description": "A verdict holds where the code is unchanged, even when it moves to other lines; when the code at that place changes, the finding is asked again.",
   "mode": "offline",

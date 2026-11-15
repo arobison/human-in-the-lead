@@ -14,7 +14,7 @@ import { foldLedger, hashState } from '../lib/run/state.mjs';
 import { STATE_KEY, listCheckpoints, loadState } from '../lib/run/checkpoint.mjs';
 import { LeaseError } from '../lib/run/lease.mjs';
 import { Run, rebuildRun, resumeRun, startRun, takeLease } from '../lib/run/run.mjs';
-import { dispatchExecutor, recordCompletion, reportStatus } from '../lib/run/protocol.mjs';
+import { dispatchExecutor, recordCompletion, reportResult } from '../lib/run/protocol.mjs';
 
 const BASE = Date.parse('2026-11-14T03:00:00Z');
 /** A clock that moves one second per reading, from an offset in seconds. @param {number} [offset] */
@@ -49,7 +49,7 @@ test('start: run-started goes to the ledger, then the first checkpoint, and the 
   const run = startRun(store, {
     ...A,
     now: clock(),
-    scope: { items: ['W-1'], concurrency_cap: 3 },
+    scope: { items: ['W-1'], max_executors: 3 },
     policyHash: 'a'.repeat(64),
   });
   const { events } = readLedger(store);
@@ -106,7 +106,7 @@ test('every record appends to the ledger first, then writes a checkpoint', () =>
 test('checkpoints chain by hash, and only the last `kept` are kept', () => {
   const store = memoryStore();
   const run = startRun(store, { ...A, now: clock(), kept: 3 });
-  for (let i = 1; i <= 6; i++) run.record({ event: 'question', decision: `W-${100 + i}` });
+  for (let i = 1; i <= 6; i++) run.record({ event: 'asked', decision: `W-${100 + i}` });
   const kept = listCheckpoints(store);
   assert.deepEqual(
     kept.map((c) => c.state.checkpoint.number),
@@ -138,18 +138,18 @@ test('the state is always the ledger folded to its position: rebuild gives the s
     serial_resources: ['gpu'],
   });
   run.record({
-    event: 'claimed',
+    event: 'started',
     dispatch: 'D-1',
     item: 'W-1',
     harness: 'fake',
-    handle: 'fake-1',
+    harness_ref: 'fake-1',
     host: 'laptop',
   });
-  run.record({ event: 'question', decision: 'W-50', dispatch: 'D-2' });
-  run.record({ event: 'question', decision: 'W-51' });
+  run.record({ event: 'asked', decision: 'W-50', dispatch: 'D-2' });
+  run.record({ event: 'asked', decision: 'W-51' });
   run.record({ event: 'answered', decision: 'W-50' });
-  run.record({ event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'done', tokens: 10 });
-  run.record({ event: 'verified', item: 'W-1', outcome: 'pass', branch: 'hitld/W-1-a' });
+  run.record({ event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done', tokens: 10 });
+  run.record({ event: 'verified', item: 'W-1', result: 'pass', branch: 'hitld/W-1-a' });
   run.record({ event: 'abandoned', dispatch: 'D-2', item: 'W-2' });
   const live = /** @type {Record<string, any>} */ (loadState(store).state);
   const rebuilt = foldLedger(readLedger(store).events);
@@ -157,10 +157,10 @@ test('the state is always the ledger folded to its position: rebuild gives the s
   assert.deepEqual(rebuilt.in_flight, inflight(store));
   assert.deepEqual(live.merge_queue.waiting, [{ item: 'W-1', branch: 'hitld/W-1-a' }]);
   assert.deepEqual(
-    live.open_questions.map((/** @type {any} */ q) => q.decision),
+    live.decisions_open.map((/** @type {any} */ q) => q.decision),
     ['W-51'],
   );
-  assert.equal(live.decisions_this_run.length, 1);
+  assert.equal(live.decisions_answered.length, 1);
 });
 
 test('a lease that has not expired is not taken; an expired one is, and that is a ledger event', () => {
@@ -229,12 +229,12 @@ test('the owner can take the lease before it expires; a session that lost it can
   assert.equal(tookOver?.reason, 'owner');
   const before = readLedger(store).events.length;
   assert.throws(
-    () => first.record({ event: 'question', decision: 'W-1' }),
+    () => first.record({ event: 'asked', decision: 'W-1' }),
     (e) => e instanceof LeaseError && e.code === 'lost',
   );
   assert.throws(() => first.checkpoint(), LeaseError);
   assert.equal(readLedger(store).events.length, before, 'the stale session wrote nothing');
-  assert.doesNotThrow(() => second.record({ event: 'question', decision: 'W-1' }));
+  assert.doesNotThrow(() => second.record({ event: 'asked', decision: 'W-1' }));
 });
 
 test('taking the lease again as the same session just renews it', () => {
@@ -251,7 +251,7 @@ test('a damaged run-state.json falls back to the newest checkpoint; a lost one i
   const store = memoryStore(files);
   const run = startRun(store, { ...A, now: clock() });
   run.record({ event: 'dispatched', dispatch: 'D-1', item: 'W-1', role: 'executor', tier: 2 });
-  run.record({ event: 'question', decision: 'W-7' });
+  run.record({ event: 'asked', decision: 'W-7' });
 
   files.set(STATE_KEY, '{ not json');
   const loaded = loadState(store);
@@ -269,7 +269,7 @@ test('a damaged run-state.json falls back to the newest checkpoint; a lost one i
     ['D-1'],
   );
   assert.deepEqual(
-    rebuilt.state.open_questions.map((/** @type {any} */ q) => q.decision),
+    rebuilt.state.decisions_open.map((/** @type {any} */ q) => q.decision),
     ['W-7'],
   );
   assert.equal(rebuilt.state.lease.session, 's-1', 'the lease comes from the ledger');
@@ -279,15 +279,15 @@ test('a damaged run-state.json falls back to the newest checkpoint; a lost one i
 test('rebuild keeps what only the state knew (controllers, quotas) and says what changed', () => {
   const store = memoryStore();
   const run = startRun(store, { ...A, now: clock() });
-  run.record({ event: 'question', decision: 'W-7' });
+  run.record({ event: 'asked', decision: 'W-7' });
   const state = structuredClone(/** @type {Record<string, any>} */ (loadState(store).state));
   state.controllers = { sizing: { step: 1 } };
   state.in_flight = [];
-  state.open_questions = []; // an edit the ledger disagrees with
+  state.decisions_open = []; // an edit the ledger disagrees with
   store.write(STATE_KEY, JSON.stringify(state));
   const r = rebuildRun(store);
   assert.deepEqual(r.state.controllers, { sizing: { step: 1 } });
-  assert.deepEqual(r.previous.changed, ['open_questions']);
+  assert.deepEqual(r.previous.changed, ['decisions_open']);
 });
 
 test('rebuild cross-checks claim branches', () => {
@@ -306,9 +306,9 @@ test('rebuild cross-checks claim branches', () => {
 });
 
 test('the report status line is read, and absent when there is none', () => {
-  assert.equal(reportStatus('item: W-1\nstatus: partial\ncommit: abc1234'), 'partial');
-  assert.equal(reportStatus('Status: Done'), 'done');
-  assert.equal(reportStatus('all good!'), undefined);
+  assert.equal(reportResult('item: W-1\nresult: partial\ncommit: abc1234'), 'partial');
+  assert.equal(reportResult('Status: Done'), 'done');
+  assert.equal(reportResult('all good!'), undefined);
 });
 
 // ---- kill and resume (design part 13.1, the eval) ------------------------------------------
@@ -330,7 +330,7 @@ function makeWorld({ autoFinish }) {
   const finish = (/** @type {string} */ dispatch) => {
     if (harness.inFlight().includes(dispatch)) {
       harness.complete(dispatch, {
-        report: `item: ${dispatch}\nstatus: done\ncommit: abc1234`,
+        report: `item: ${dispatch}\nresult: done\ncommit: abc1234`,
         commit: 'abc1234',
         usage: { tokens: 100, toolCalls: 3, durationMs: 1000 },
       });
@@ -374,31 +374,31 @@ async function orchestrate(run, adapter, world) {
           'verified',
           'reported',
           'abandoned',
-          'released',
+          'unclaimed',
           'dispatched',
-          'claimed',
+          'started',
         ].includes(e.event),
       );
       if (last?.event === 'merged') continue;
       pending++;
-      if (!last || last.event === 'abandoned' || last.event === 'released') {
+      if (!last || last.event === 'abandoned' || last.event === 'unclaimed') {
         await dispatchExecutor(run, adapter, request({ item, branch: `hitld/${item}-x` }), {
           worktree: `/wt/${item}`,
         });
-      } else if (last.event === 'dispatched' || last.event === 'claimed') {
+      } else if (last.event === 'dispatched' || last.event === 'started') {
         const entry = run.state.in_flight.find((/** @type {any} */ d) => d.item === item);
         world.finish(entry.dispatch);
         await recordCompletion(run, adapter, {
           dispatch: entry.dispatch,
           harness: 'fake',
-          ref: entry.handle ?? '',
+          ref: entry.harness_ref ?? '',
         });
       } else if (last.event === 'reported') {
         run.record({
           id: `verified-${item}`,
           event: 'verified',
           item,
-          outcome: 'pass',
+          result: 'pass',
           branch: `hitld/${item}-x`,
         });
       } else if (last.event === 'verified') {
@@ -592,10 +592,10 @@ test('kill and resume: a kill between a ledger append and its checkpoint resumes
     reality: world.reality,
   });
   assert.deepEqual(resumed.abandoned, ['D-1']);
-  assert.deepEqual(resumed.released_items, ['W-1']);
+  assert.deepEqual(resumed.unclaimed_items, ['W-1']);
   assert.equal(world.started.length, 0, 'the harness was never called');
   const events = readLedger(memoryStore(world.files)).events.map((e) => e.event);
-  assert.deepEqual(events, ['run-started', 'dispatched', 'lease-taken', 'abandoned', 'released']);
+  assert.deepEqual(events, ['run-started', 'dispatched', 'lease-taken', 'abandoned', 'unclaimed']);
 });
 
 test('kill and resume: an executor started but not yet on file is adopted, not started again', async () => {
@@ -619,9 +619,9 @@ test('kill and resume: an executor started but not yet on file is adopted, not s
   assert.deepEqual(resumed.adopted, ['D-1']);
   assert.deepEqual(resumed.abandoned, []);
   assert.equal(
-    resumed.run.state.in_flight[0].handle,
+    resumed.run.state.in_flight[0].harness_ref,
     'ref-D-1',
-    'its handle is recorded on adoption',
+    'its harness_ref is recorded on adoption',
   );
   assert.equal(world.started.length, 1, 'no second executor');
 });
@@ -670,12 +670,12 @@ test('resume: a completion that arrived while no orchestrator ran is recorded; f
   );
   const reported = readLedger(store).events.find((e) => e.event === 'reported');
   assert.deepEqual(
-    [reported?.outcome, reported?.tokens, reported?.commit],
+    [reported?.result, reported?.tokens, reported?.commit],
     ['partial', 42, 'abc1234'],
   );
   assert.match(
     r.handover.text,
-    /In flight \(2\): D-3 W-3 executor on other-box \(no handle yet\); D-4 W-4/,
+    /In flight \(2\): D-3 W-3 executor on other-box \(no harness_ref yet\); D-4 W-4/,
   );
 });
 
@@ -702,7 +702,7 @@ test('the harness refusing a dispatch ends it in the ledger', async () => {
   await dispatchExecutor(run, adapter, request(), {});
   await assert.rejects(
     () => dispatchExecutor(run, adapter, request({ item: 'W-2' }), {}),
-    /parallelSubagents/,
+    /parallel_subagents/,
   );
   const events = readLedger(store).events;
   assert.deepEqual(

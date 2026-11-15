@@ -19,5 +19,5 @@ export {
 } from './policy/policy.mjs';
 export { privateStorePath, openStore } from './store/store.mjs';
 export { TRACKER_METHODS } from './tracker/interface.mjs';
-export { COMMANDS, PIECES, findCommand, toolName } from './cli/table.mjs';
+export { COMMANDS, BUILT_BY, findCommand, toolName } from './cli/table.mjs';
 export { inputSchema, parseArgs, UsageError } from './cli/args.mjs';

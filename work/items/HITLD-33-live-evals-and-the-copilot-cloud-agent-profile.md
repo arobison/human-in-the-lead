@@ -2,7 +2,7 @@
 id: HITLD-33
 title: Live evals and the Copilot cloud agent profile
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-52]

@@ -2,7 +2,7 @@
 id: HITLD-25
 title: Consumer setup through a package script
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-24]

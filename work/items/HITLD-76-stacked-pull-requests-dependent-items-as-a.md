@@ -2,7 +2,7 @@
 id: HITLD-76
 title: "Stacked pull requests: dependent items as a GitHub stack, merged in order by the merge queue"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

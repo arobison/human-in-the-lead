@@ -2,10 +2,10 @@
 id: HITLD-19
 title: Fix the environment test flake under parallel load
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-HITLD-19
+claimed_by: D-HITLD-19
 ---
 
 ## Why

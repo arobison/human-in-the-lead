@@ -2,10 +2,10 @@
 id: HITLD-27
 title: Interactive merging alongside the merge queue
 kind: decision
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
-decided-by: owner
+decider: owner
 ---
 
 ## Question

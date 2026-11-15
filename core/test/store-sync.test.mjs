@@ -44,7 +44,7 @@ function fixture(projectId = 'fixture') {
 
 /** @param {import('../lib/store/store.mjs').PrivateStore} store @param {string} id @param {number} n */
 const question = (store, id, n) =>
-  appendEvent(store, { event: 'question', decision: `W-${n}`, id, at: at(n) });
+  appendEvent(store, { event: 'asked', decision: `W-${n}`, id, at: at(n) });
 
 /** @param {string} root @param {string} file @param {string} [projectId] */
 const opts = (root, file, projectId = 'fixture') => ({

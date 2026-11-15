@@ -133,7 +133,7 @@ export const commands = [
     name: 'store export',
     summary:
       "Write the private store's text history to one encrypted file: a git bundle and a manifest (owner only)",
-    piece: 'consumer-live',
+    built_by: 'consumer-live',
     mcp: false,
     args: [FILE, PASSPHRASE_FD, STORE],
     run: ownerOnly('store export', async (input, ctx) => {
@@ -150,7 +150,7 @@ export const commands = [
     name: 'store import',
     summary:
       'Bring in an exported store: verify it, refuse another project or a newer schema, merge append-only history (a conflict stops it), rebuild the index (owner only)',
-    piece: 'consumer-live',
+    built_by: 'consumer-live',
     mcp: false,
     args: [FILE, PASSPHRASE_FD, STORE],
     run: ownerOnly('store import', async (input, ctx) => {
@@ -164,7 +164,7 @@ export const commands = [
     name: 'store sync',
     summary:
       'Both directions through one file: import it if it exists, then export the merged store over it (owner only)',
-    piece: 'consumer-live',
+    built_by: 'consumer-live',
     mcp: false,
     args: [FILE, PASSPHRASE_FD, STORE],
     run: ownerOnly('store sync', async (input, ctx) => {

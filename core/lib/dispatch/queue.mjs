@@ -34,8 +34,8 @@ export function deriveReady(items, options = {}) {
   const out = new Set();
   for (const i of items) {
     if (!ITEM_KINDS.includes(i.kind) || i.kind === 'decision') continue;
-    if (i.state !== 'Planned' || i.claim || i.claimed || busy.has(String(i.id))) continue;
-    if (list(i.needs).every((n) => byId.get(n)?.state === 'Done')) out.add(String(i.id));
+    if (i.state !== 'planned' || i.claim || i.claimed_by || busy.has(String(i.id))) continue;
+    if (list(i.needs).every((n) => byId.get(n)?.state === 'done')) out.add(String(i.id));
   }
   return out;
 }
@@ -48,7 +48,7 @@ export function unblockCounts(items) {
   /** @type {Map<string, string[]>} who needs me */
   const dependents = new Map();
   for (const i of items) {
-    if (i.state === 'Done' || i.state === 'Dropped') continue;
+    if (i.state === 'done' || i.state === 'dropped') continue;
     for (const n of list(i.needs)) {
       if (!dependents.has(n)) dependents.set(n, []);
       dependents.get(n)?.push(String(i.id));

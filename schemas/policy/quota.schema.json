@@ -4,28 +4,28 @@
   "description": "Account limits and the owner's reserve (design part 12.5). Autonomous work never spends the reserve. Headroom is the share of a window's limit above the reserve that remains unused.",
   "type": "object",
   "properties": {
-    "owner_reserve": {
+    "reserve": {
       "description": "The share of each limit kept for the owner's own interactive use, unless a limit sets its own reserve (design part 22, Q11). Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it, and after that only a larger reserve has effect.",
       "type": "number",
       "minimum": 0,
       "maximum": 1,
       "default": 0.25
     },
-    "economize_at": {
+    "economize_below": {
       "description": "Below this headroom: prefer cheaper models and tiers where sizing allows, and lower concurrency. Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it, and after that only an earlier threshold has effect.",
       "type": "number",
       "minimum": 0,
       "maximum": 1,
       "default": 0.4
     },
-    "critical_at": {
+    "critical_below": {
       "description": "Below this headroom: dispatch only critical-path items. Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it, and after that only an earlier threshold has effect.",
       "type": "number",
       "minimum": 0,
       "maximum": 1,
       "default": 0.15
     },
-    "notify_at": {
+    "notify_used": {
       "description": "Shares of a limit used at which a line goes into the digest. Moved to the person file (design part 13.4); shares set here are added to the person's, with a warning until the person file sets its own.",
       "type": "array",
       "items": {
@@ -45,7 +45,7 @@
       "default": [
         {
           "id": "claude-five-hour",
-          "unit": "plan_percent",
+          "unit": "plan-percent",
           "window": "rolling_5h",
           "limit": 100,
           "scope": {
@@ -56,7 +56,7 @@
         },
         {
           "id": "claude-weekly",
-          "unit": "plan_percent",
+          "unit": "plan-percent",
           "window": "weekly",
           "limit": 100,
           "scope": {
@@ -84,7 +84,7 @@
           "$ref": "common#/$defs/name"
         },
         "unit": {
-          "enum": ["tokens", "requests", "usd", "credits", "plan_percent"]
+          "enum": ["tokens", "requests", "usd", "credits", "plan-percent"]
         },
         "window": {
           "description": "rolling_5h, weekly, monthly_utc, run, or a custom period such as P14D.",
@@ -120,7 +120,7 @@
           "type": "boolean"
         },
         "reserve": {
-          "description": "Overrides owner_reserve for this limit.",
+          "description": "Overrides reserve for this limit.",
           "type": "number",
           "minimum": 0,
           "maximum": 1

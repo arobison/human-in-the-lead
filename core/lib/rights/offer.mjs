@@ -95,6 +95,6 @@ export function describeOffer(offer, decider) {
     `  If yes, this becomes a precedent: "${offer.rule}"`,
     `  It applies when: ${applies.length ? applies.join('; ') : 'nothing narrows it'}.`,
     ...(except.length ? [`  Except: ${except.join('; ')}.`] : []),
-    `  Scope: ${offer.scope ?? 'project'}. Made by: ${decider || 'the decider'}.`,
+    `  Scope: ${offer.scope ?? 'all'}. Made by: ${decider || 'the decider'}.`,
   ];
 }

@@ -2,7 +2,7 @@
 id: HITLD-30
 title: "Reproducer: reported bugs to failing tests"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

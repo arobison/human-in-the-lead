@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "feedback/project-feedback-to-note",
-  "piece": "feedback",
+  "suite": "feedback",
   "category": "feedback",
   "description": "Feedback about the project's own work is a project note, not HITLd feedback; when it is unclear whom feedback is for, the route asks the one line \"For HITLd, or for this project?\".",
   "mode": "offline",

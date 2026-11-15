@@ -2,7 +2,7 @@
 id: HITLD-50
 title: "hitld env primary --reset: the owner moves the recorded primary checkout"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
 ---

@@ -2,7 +2,7 @@
 id: HITLD-16
 title: "Merge owner mode: the owner decides each merge"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 ---

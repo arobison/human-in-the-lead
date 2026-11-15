@@ -122,7 +122,7 @@ export const commands = [
   {
     name: 'work new',
     summary: 'Create a tracker entity (orchestrator only; allocates the ID)',
-    piece: 'a',
+    built_by: 'a',
     args: [
       { name: 'title', type: 'string', description: 'One line', required: true },
       {
@@ -141,13 +141,13 @@ export const commands = [
         name: 'state',
         type: 'string',
         description:
-          'Planned (default) or Proposed (the default for a milestone, which the owner commits)',
+          'planned (default) or proposed (the default for a milestone, which the owner commits)',
       },
       {
         name: 'needs',
         type: 'string',
         description:
-          'Comma-separated IDs that must be Done first (items and milestones). A milestone links each constraint to a clause in its file',
+          'Comma-separated IDs that must be done first (items and milestones). For a milestone, its constraints: each is linked to a clause in its file ("<ID> c1")',
       },
       {
         name: 'outcome',
@@ -156,11 +156,11 @@ export const commands = [
           "A milestone's outcome: one sentence, the state for users or the question answered",
       },
       { name: 'decider', type: 'string', description: 'Who decides a decision (default owner)' },
-      { name: 'party', type: 'string', description: 'Who an external item waits on' },
+      { name: 'waiting-on', type: 'string', description: 'Who an external item waits on' },
       {
-        name: 'lead',
+        name: 'owner',
         type: 'string',
-        description: 'Who leads a project or initiative (default owner)',
+        description: 'Who is accountable for a project or initiative (default owner)',
       },
       {
         name: 'plan',
@@ -185,8 +185,8 @@ export const commands = [
         needs: csv(input.needs),
         outcome: input.outcome,
         decider: input.decider,
-        party: input.party,
-        lead: input.lead,
+        waiting_on: input['waiting-on'],
+        owner: input.owner,
         plan: input.plan,
       });
       return { ok: true, id: made.id, path: made.path, block: made.block };
@@ -196,7 +196,7 @@ export const commands = [
     name: 'work show',
     summary:
       'Show one tracker entity: an item, project, initiative or milestone, or a release record by its tag',
-    piece: 'a',
+    built_by: 'a',
     output: ['ok', 'api_version', 'entity', 'declared_fields'],
     args: [idArg, jsonArg, ...where],
     run(input, ctx) {
@@ -208,7 +208,7 @@ export const commands = [
   {
     name: 'work query',
     summary: 'Query tracker entities by kind, state, area, needs, parent or text',
-    piece: 'a',
+    built_by: 'a',
     output: ['ok', 'api_version', 'count', 'entities', 'declared_fields'],
     args: [
       {
@@ -220,7 +220,7 @@ export const commands = [
       {
         name: 'state',
         type: 'string',
-        description: 'Proposed, Planned, In progress, Done or Dropped',
+        description: 'proposed, planned, in-progress, done or dropped',
       },
       { name: 'area', type: 'string', description: 'An area (needs the area key turned on)' },
       { name: 'needs', type: 'string', description: 'Entities that need this ID' },
@@ -259,13 +259,13 @@ export const commands = [
   {
     name: 'work claim',
     summary: 'Write the claim commit for an item on the executor branch',
-    piece: 'a',
+    built_by: 'a',
     args: [
       idArg,
       {
-        name: 'claimant',
+        name: 'dispatch',
         type: 'string',
-        description: "The executor's dispatch ID, such as D-12",
+        description: "The executor's dispatch ID, such as D-12 (stored as claimed_by)",
         required: true,
       },
       {
@@ -277,23 +277,28 @@ export const commands = [
     ],
     run(input, ctx) {
       const t = open(input, ctx);
-      const ref = t.claim(idOf(input), String(input.claimant), String(input.branch ?? ''));
-      return { ok: true, id: idOf(input), claimant: input.claimant, ...ref };
+      const ref = t.claim(idOf(input), String(input.dispatch), String(input.branch ?? ''));
+      return { ok: true, id: idOf(input), dispatch: input.dispatch, ...ref };
     },
   },
   {
-    name: 'work release',
-    summary: 'Release an abandoned claim on main, with the reason',
-    piece: 'a',
+    name: 'work unclaim',
+    summary: 'Give up an abandoned claim on main, with the reason (commit message unclaim:)',
+    built_by: 'a',
     args: [
       idArg,
-      { name: 'reason', type: 'string', description: 'Why the claim is released', required: true },
-      { name: 'branch', type: 'string', description: 'Release only the claim on this branch' },
+      {
+        name: 'reason',
+        type: 'string',
+        description: 'Why the claim is given up',
+        required: true,
+      },
+      { name: 'branch', type: 'string', description: 'Unclaim only the claim on this branch' },
       ...where,
     ],
     run(input, ctx) {
       const t = open(input, ctx);
-      const done = t.release(
+      const done = t.unclaim(
         idOf(input),
         String(input.reason),
         typeof input.branch === 'string' ? input.branch : undefined,
@@ -303,8 +308,8 @@ export const commands = [
   },
   {
     name: 'work close',
-    summary: 'Set an item to Done in the branch that does the work',
-    piece: 'a',
+    summary: 'Set an item to done in the branch that does the work',
+    built_by: 'a',
     args: [
       idArg,
       { name: 'no-commit', type: 'boolean', description: 'Change the file but do not commit it' },
@@ -320,7 +325,7 @@ export const commands = [
     name: 'work migrate',
     summary:
       'Apply the tracker format migrations to every file (idempotent; --dry-run shows the diff)',
-    piece: 'a',
+    built_by: 'a',
     args: [
       {
         name: 'dry-run',
@@ -356,7 +361,7 @@ export const commands = [
   {
     name: 'work claims',
     summary: 'List claimed items, read from local branches and fetched bundle refs',
-    piece: 'a',
+    built_by: 'a',
     args: where,
     run(input, ctx) {
       const claims = open(input, ctx, { readOnly: true }).claims();
@@ -372,7 +377,7 @@ export const commands = [
     name: 'work check',
     summary:
       'Check schema, references, cycles, classification and orphaned claims; view freshness on main',
-    piece: 'a',
+    built_by: 'a',
     args: [
       {
         name: 'branches',
@@ -381,7 +386,7 @@ export const commands = [
           'Also check every worktree and branch for ID collisions, and branches for double claims',
       },
       {
-        name: 'inflight',
+        name: 'in-flight',
         type: 'string',
         description:
           'Dispatch IDs without a terminal event (from the ledger), comma-separated, to match against claim branches',
@@ -390,12 +395,14 @@ export const commands = [
     ],
     run(input, ctx) {
       const t = open(input, ctx, { readOnly: true });
-      const inflight = csv(input.inflight);
+      const inflight = csv(input['in-flight']);
       const { problems, files } = t.check({ branches: Boolean(input.branches), inflight });
+      const warnings = t.warnings();
       return {
         ok: problems.length === 0,
         files,
         problems,
+        ...(warnings.length ? { warnings } : {}),
         summary: problems.length ? `${problems.length} problem(s)` : `${files} files, no problems`,
       };
     },
@@ -403,7 +410,7 @@ export const commands = [
   {
     name: 'work views',
     summary: 'Regenerate the views (merge queue only, on main)',
-    piece: 'a',
+    built_by: 'a',
     args: [
       {
         name: 'out',

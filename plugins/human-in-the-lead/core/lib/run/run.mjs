@@ -25,7 +25,7 @@ import { reportedEvent } from './protocol.mjs';
  * @property {string} host the machine it runs on
  * @property {() => Date} [now] a clock, for tests
  * @property {number} [kept] policy run.checkpoints_kept
- * @property {number} [expirySeconds] policy run.lease_expiry
+ * @property {number} [expirySeconds] policy run.lease_expiry_seconds
  *
  * @typedef {object} Reality what exists outside the files; each part is optional
  * @property {string} [harness] the adapter ID, for adopting an executor found running
@@ -127,7 +127,7 @@ export function startRun(store, options) {
       run: id,
       session: options.session,
       host: options.host,
-      skill_versions: { plugin: VERSION },
+      skill_versions: { hitld_version: VERSION },
       ...(options.policyHash ? { policy_hash: options.policyHash } : {}),
       ...(options.scope ? { scope: options.scope } : {}),
     },
@@ -221,9 +221,9 @@ export function takeLease(store, options) {
  *
  * For each dispatch in flight on this host:
  *   a completion arrived  -> its `reported` event is recorded
- *   an executor is live   -> adopted (its handle recorded if the crash lost it)
+ *   an executor is live   -> adopted (its harness_ref recorded if the crash lost it)
  *   neither, with commits -> offered as a follow-up (left in flight)
- *   neither               -> abandoned, and its item released
+ *   neither               -> abandoned, and its item unclaimed
  * Dispatches on another host cannot be adopted from here and stay in flight. Without `reality.live`
  * nothing can be called dead, so nothing is abandoned and the dispatches are listed as unverified.
  * @param {PrivateStore} store
@@ -246,12 +246,12 @@ export async function resumeRun(store, options) {
  * @param {Run} run @param {Reality} [reality]
  */
 async function reconcile(run, reality) {
-  /** @type {{ reported: string[], adopted: string[], abandoned: string[], released_items: string[], follow_up: InFlight[], foreign: InFlight[], unverified: string[] }} */
+  /** @type {{ reported: string[], adopted: string[], abandoned: string[], unclaimed_items: string[], follow_up: InFlight[], foreign: InFlight[], unverified: string[] }} */
   const out = {
     reported: [],
     adopted: [],
     abandoned: [],
-    released_items: [],
+    unclaimed_items: [],
     follow_up: [],
     foreign: [],
     unverified: [],
@@ -282,14 +282,14 @@ async function reconcile(run, reality) {
     }
     const found = live.find((l) => l.dispatch === entry.dispatch);
     if (found) {
-      if (entry.handle === null && found.ref) {
+      if (entry.harness_ref === null && found.ref) {
         run.record({
-          id: `claimed-${entry.dispatch}`,
-          event: 'claimed',
+          id: `started-${entry.dispatch}`,
+          event: 'started',
           dispatch: entry.dispatch,
           item: entry.item,
           harness: found.harness ?? reality?.harness ?? 'unknown',
-          handle: found.ref,
+          harness_ref: found.ref,
           host: run.host,
         });
       }
@@ -308,13 +308,13 @@ async function reconcile(run, reality) {
       notes: 'no live executor and no report at resume',
     });
     run.record({
-      id: `released-${entry.dispatch}`,
-      event: 'released',
+      id: `unclaimed-${entry.dispatch}`,
+      event: 'unclaimed',
       item: entry.item,
       notes: `after abandoning ${entry.dispatch}`,
     });
     out.abandoned.push(entry.dispatch);
-    out.released_items.push(entry.item);
+    out.unclaimed_items.push(entry.item);
   }
   return out;
 }
@@ -393,13 +393,13 @@ export function handOver(state, events) {
       state.in_flight
         .map(
           (/** @type {InFlight} */ d) =>
-            `${d.dispatch} ${d.item}${d.role ? ` ${d.role}` : ''}${d.host ? ` on ${d.host}` : ''}${d.handle ? '' : ' (no handle yet)'}`,
+            `${d.dispatch} ${d.item}${d.role ? ` ${d.role}` : ''}${d.host ? ` on ${d.host}` : ''}${d.harness_ref ? '' : ' (no harness_ref yet)'}`,
         )
         .join('; ') || 'none'
     }.`,
-    `Open questions (${state.open_questions.length}): ${state.open_questions.map((/** @type {any} */ q) => q.decision).join(', ') || 'none'}.`,
+    `Decisions open (${state.decisions_open.length}): ${state.decisions_open.map((/** @type {any} */ q) => q.decision).join(', ') || 'none'}.`,
     `Waiting to merge (${state.merge_queue.waiting.length}): ${state.merge_queue.waiting.map((/** @type {any} */ w) => w.item).join(', ') || 'none'}.`,
-    `Decisions answered this run: ${state.decisions_this_run.length}.`,
+    `Decisions answered this run: ${state.decisions_answered.length}.`,
     `Last events: ${recent.map((e) => `${e.event}${e.dispatch ? ` ${e.dispatch}` : e.item ? ` ${e.item}` : ''}`).join(', ') || 'none'}.`,
   ];
   return {
@@ -408,9 +408,9 @@ export function handOver(state, events) {
     ledger_position: state.ledger_position,
     lease: state.lease,
     in_flight: state.in_flight,
-    open_questions: state.open_questions,
+    decisions_open: state.decisions_open,
     merge_queue: state.merge_queue,
-    decisions_this_run: state.decisions_this_run.length,
+    decisions_answered: state.decisions_answered.length,
     recent_events: recent,
     text: lines.join('\n'),
   };

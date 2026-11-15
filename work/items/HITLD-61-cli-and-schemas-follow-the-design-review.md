@@ -2,11 +2,11 @@
 id: HITLD-61
 title: "CLI and schemas follow the design review: command names, milestone tags, public judgement fields"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-61
-changelog: "Commands are tagged by the milestone that builds them; `hitld migrate` is now `hitld data migrate`; public judgements carry only what, basis and by."
+claimed_by: D-61
+release_note: "Commands are tagged by the milestone that builds them; `hitld migrate` is now `hitld data migrate`; public judgements carry only what, basis and by."
 ---
 
 ## Why

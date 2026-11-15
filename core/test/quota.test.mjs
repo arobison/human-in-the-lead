@@ -304,7 +304,7 @@ test('confidence falls with a reading’s age, and a stated confidence is a ceil
       limits: [
         {
           id: 'c',
-          unit: 'plan_percent',
+          unit: 'plan-percent',
           window: 'rolling_5h',
           limit: 100,
           source: 'measured',
@@ -320,7 +320,7 @@ test('confidence falls with a reading’s age, and a stated confidence is a ceil
 });
 
 test('a declared limit is estimated from the ledger, and a per-limit reserve overrides the policy', () => {
-  const policy = policyWith({ owner_reserve: 0.25, limits: [tokenLimit({ reserve: 0.2 })] });
+  const policy = policyWith({ reserve: 0.25, limits: [tokenLimit({ reserve: 0.2 })] });
   const ledger = [entry('E-1', T0 - 3 * HOUR, 300), entry('E-2', T0 - HOUR, 100)];
   const [q] = evaluateQuotas({ policy, ledger, now: T0 });
   assert.equal(q.used_from, 'ledger');
@@ -413,9 +413,9 @@ test('the worst limit binds, and a limit that cannot be read stops dispatch', ()
 
 test('the gate follows the owner’s thresholds and reserve', () => {
   const policy = policyWith({
-    owner_reserve: 0.1,
-    economize_at: 0.2,
-    critical_at: 0.05,
+    reserve: 0.1,
+    economize_below: 0.2,
+    critical_below: 0.05,
     limits: [tokenLimit()],
   });
   const at = (/** @type {number} */ used) =>
@@ -451,7 +451,7 @@ test('the report: the digest and page state the gate, forecast and ledger, and t
   assert.match(html, /<svg [^>]*aria-label=/);
 });
 
-test('threshold lines name the highest notify_at share a quota has passed', () => {
+test('threshold lines name the highest notify_used share a quota has passed', () => {
   const policy = policyWith({ limits: [tokenLimit()] });
   const report = buildReport({ policy, ledger: [entry('E-1', T0 - HOUR, 800)], now: T0 });
   assert.deepEqual(report.thresholds, ['tok is past 75% used']);
@@ -499,24 +499,24 @@ test('hitld quota status reads the store; a snapshot near the reserve limits dis
   assert.equal(status.json.mode, 'critical_path_only');
   assert.equal(status.json.allow, false);
   assert.equal(status.json.binding, 'claude-five-hour');
-  const critical = await hitld(['quota', 'status', '--critical', '--now', iso(T0)], p);
+  const critical = await hitld(['quota', 'status', '--critical-path', '--now', iso(T0)], p);
   assert.equal(critical.json.allow, true);
   const bad = await hitld(['quota', 'status', '--now', 'tomorrow-ish'], p);
   assert.equal(bad.json.error, 'usage');
 });
 
-test('hitld report writes report.html and digest.txt, and --json gives the data', async () => {
+test('hitld dashboard writes report.html and digest.txt, and --json gives the data', async () => {
   const p = project();
   p.store.append('usage/snapshots.jsonl', `${JSON.stringify(snap(T0 - 60_000, 80))}\n`);
   const out = join(p.repo, 'out');
-  const r = await hitld(['report', '--out', 'out', '--json', '--now', iso(T0)], p);
+  const r = await hitld(['dashboard', '--out', 'out', '--json', '--now', iso(T0)], p);
   assert.equal(r.code, 0);
   assert.equal(r.json.mode, 'stop');
   assert.equal(r.json.report.metrics_schema_version, 1);
   assert.ok(existsSync(join(out, 'report.html')));
   assert.match(readFileSync(join(out, 'digest.txt'), 'utf8'), /Dispatch: Stopped at the reserve\./);
   // Without --out the report goes under the private store, not the repository.
-  const d = await hitld(['report', '--now', iso(T0)], p);
+  const d = await hitld(['dashboard', '--now', iso(T0)], p);
   assert.equal(d.json.html, join(p.store.root, 'reports', 'report.html'));
   assert.ok(existsSync(d.json.html));
   assert.equal(d.json.report, undefined);
@@ -535,9 +535,9 @@ test('the gate fails closed on a quota whose figures are not finite numbers', ()
   assert.match(noLimit.reason, /tok: its use, limit or headroom is unknown/);
 });
 
-test('hitld report --out stays inside the repository or the private store, and never overwrites others\u2019 files', async () => {
+test('hitld dashboard --out stays inside the repository or the private store, and never overwrites others\u2019 files', async () => {
   const p = project();
-  const args = (/** @type {string} */ out) => ['report', '--out', out, '--now', iso(T0)];
+  const args = (/** @type {string} */ out) => ['dashboard', '--out', out, '--now', iso(T0)];
   const outside = join(tmp, `outside-${Math.random().toString(36).slice(2)}`);
   const refused = await hitld(args(outside), p);
   assert.equal(refused.code, 1);
@@ -569,7 +569,7 @@ test('hitld report --out stays inside the repository or the private store, and n
 });
 
 test('--out is a command-line option only: the MCP input schema leaves it out', () => {
-  const cmd = COMMANDS.find((c) => c.name === 'report');
+  const cmd = COMMANDS.find((c) => c.name === 'dashboard');
   const schema = inputSchema(cmd?.args ?? []);
   assert.equal('out' in schema.properties, false);
   assert.ok('json' in schema.properties);

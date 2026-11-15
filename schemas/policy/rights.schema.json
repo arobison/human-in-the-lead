@@ -4,7 +4,7 @@
   "description": "Decision rights as data (design parts 4.2, 4.4 and 4.5). Changing any of it is a rule change: the owner's decision.",
   "type": "object",
   "properties": {
-    "agent_spend_max": {
+    "agent_spend_max_tokens": {
       "description": "Tokens an agent may commit beyond an approved appetite before the question becomes the owner's (the budget rule).",
       "$ref": "common#/$defs/tokens",
       "default": 100000
@@ -44,7 +44,7 @@
           "default": { "decider": "owner" }
         },
         "budget": {
-          "description": "It commits more than agent_spend_max tokens beyond an approved appetite, or bets a new appetite.",
+          "description": "It commits more than agent_spend_max_tokens tokens beyond an approved appetite, or bets a new appetite.",
           "$ref": "#/$defs/rule",
           "default": { "decider": "owner" }
         },

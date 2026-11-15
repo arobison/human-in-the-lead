@@ -2,10 +2,10 @@
 id: HITLD-23
 title: Design review of 0001, guided, before the repository goes public
 kind: decision
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-decided-by: owner
+decider: owner
 ---
 
 ## Question

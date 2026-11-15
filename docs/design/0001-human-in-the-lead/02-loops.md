@@ -133,8 +133,8 @@ These apply to every loop.
 2. **Classify.** Kind (bug, feature, idea, question, incident, research finding, test failure), area (from [part 9](09-contributors.md)'s area map), severity (for bugs and incidents), reach (how many users or contributors are affected, from duplicate count and source), and classification level.
 3. **Reproduce bugs into failing tests.** For a bug with enough information, a **reproducer** agent writes a failing test that captures it. A reproduced bug is worth more than an unreproduced one: it has an executable acceptance criterion ([part 6](06-verification.md)). If it cannot reproduce, it drafts a request for the missing information. The reproducer must read the reporter's steps and error text, which are untrusted, and must write and run code, so it is confined accordingly: it works in a sandboxed scratch worktree with no network, no secrets and no private data, may write only under the test directories, cannot commit to any branch the merge queue takes, and its output (a test file and a verdict) is checked by script before an item uses it ([part 10](10-security.md#102-least-privilege-per-role)). It holds untrusted input and the ability to run code, but no private data and no outbound channel, so a successful injection has nothing to steal and nowhere to send it.
 4. **Route** to exactly one of:
-   - **auto-fix**: a reproduced bug becomes a `Planned` work item and goes straight to the ready queue, but only when a confirmed precedent allows auto-fix for its area, blast radius and the reporter's trust level ([part 9](09-contributors.md#92-trust-levels)). Until the owner confirms such a precedent, a reproduced bug becomes a `Proposed` item with its failing test attached, and committing it to `Planned` needs a person to commit it, in the main session (an area owner may do so later, once signed answers exist; HITLD-36). Reproduced bugs from unknown (T0) reporters always wait for a person, even when a precedent allows auto-fix for known reporters;
-   - **backlog**: a `Proposed` item or a signal attached to an existing opportunity, for shaping;
+   - **auto-fix**: a reproduced bug becomes a `planned` work item and goes straight to the ready queue, but only when a confirmed precedent allows auto-fix for its area, blast radius and the reporter's trust level ([part 9](09-contributors.md#92-trust-levels)). Until the owner confirms such a precedent, a reproduced bug becomes a `proposed` item with its failing test attached, and committing it to `planned` needs a person to commit it, in the main session (an area owner may do so later, once signed answers exist; HITLD-36). Reproduced bugs from unknown (T0) reporters always wait for a person, even when a precedent allows auto-fix for known reporters;
+   - **backlog**: a `proposed` item or a signal attached to an existing opportunity, for shaping;
    - **owner**: a decision item, under the rules above;
    - **contributor reply**: a drafted answer to a question, a request for information, a thank-you, or a polite decline that cites a non-goal ([part 9](09-contributors.md));
    - **closed, no action**: spam, abuse, or out of scope by an existing precedent, with the reason recorded.
@@ -175,7 +175,7 @@ These apply to every loop.
 
 | | |
 |---|---|
-| **Queue** | Bet opportunities waiting to become projects and items; `Planned` milestones with unmet clauses (planned); and `Planned` items not yet ready or not yet dispatched. |
+| **Queue** | Bet opportunities waiting to become projects and items; `planned` milestones with unmet clauses (planned); and `planned` items not yet ready or not yet dispatched. |
 | **WIP limit** | Active projects at once (`prioritization.active_projects_max`), and, once milestones are built, active milestones per project (`prioritization.active_milestones_max`). Many half-done projects deliver nothing; few finished ones deliver value. |
 | **Sensors** | Cost of delay accumulating in the queue (sum over waiting items of their cost-of-delay rate); each active milestone's error (its unmet clauses) and critical-path progress; appetite spent against scope per milestone; portfolio mix (share of tokens per category against the owner's target shares). |
 | **Controller** | Ordering by the rule below, recomputed on every change to the queue. Portfolio drift beyond `prioritization.portfolio_tolerance` reorders within ties to pull the mix back. When a milestone's spend runs ahead of its appetite, the orchestrator cuts its lowest-value contributions. |
@@ -197,8 +197,8 @@ The owner can always reorder directly, in the main session. A direct reorder is 
 
 | | |
 |---|---|
-| **Queue** | Ready items: state `Planned`, every `needs` entry `Done`, no open blocking decision. |
-| **WIP limit** | The concurrency cap: executors in flight (`execution.concurrency`), plus one per serial resource (GPU, merge queue). |
+| **Queue** | Ready items: state `planned`, every `needs` entry `done`, no open blocking decision. |
+| **WIP limit** | The concurrency cap: executors in flight (`execution.max_executors`), plus one per serial resource (GPU, merge queue). |
 | **Sensors** | Slot utilization; first-pass yield per tier and item type; tokens per dispatch against estimate; merge conflicts; serial-resource waits; questions raised; the orchestrator's own context use. |
 | **Controller** | Concurrency by additive increase and multiplicative decrease; sizing by first-pass yield; the run token budget ([part 11](11-metrics-and-control.md)). |
 | **Escalation** | Executors make cheap-to-undo calls and log them. Calls that are not theirs become decision items; work continues elsewhere. The question protocol is in [part 5](05-execution.md). |

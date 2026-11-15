@@ -2,11 +2,11 @@
 id: HITLD-63
 title: "Security in done when: diff-aware scanning against a baseline, triage records, accepted risk with expiry"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-63
-changelog: "Security scanners declared in `merge.scanners` run in the merge queue against a baseline; only new, untriaged findings send a branch back (`hitld security status`, `baseline`, `verdict`, `accept`)."
+claimed_by: D-63
+release_note: "Security scanners declared in `merge.scanners` run in the merge queue against a baseline; only new, untriaged findings send a branch back (`hitld security status`, `baseline`, `verdict`, `accept`)."
 ---
 
 ## Why

@@ -8,9 +8,29 @@
 //   - Adding a field does not. Readers ignore fields they do not know.
 // The version starts at 1. A plugin release that raises it says so in its notes and ships
 // `hitld work migrate` steps where the files change too.
+//
+// Version 2 (HITLD-82): state values are lowercase kebab-case (`in-progress`); `claimed` is
+// `claimed_by`, `party` is `waiting_on`, `lead` is `owner`, `tier_hint` is `tier_override`,
+// `changelog` is `release_note`; a milestone's `needs` is `constraints`, its derived `error` is
+// `unmet_clauses`, and a check result `verdict` is `answered`. Every entity carries `entity`: the
+// entity type (`item`, `project`, `initiative`, `milestone` or `release`), since a milestone's
+// `kind` is `capability` or `learning`.
 
 /** The version of the read API's response shapes. */
-export const API_VERSION = 1;
+export const API_VERSION = 2;
+
+/** The entity type of a kind, for the read API's `entity` field. @param {unknown} kind */
+export const entityType = (kind) =>
+  ({
+    work: 'item',
+    decision: 'item',
+    external: 'item',
+    project: 'project',
+    initiative: 'initiative',
+    capability: 'milestone',
+    learning: 'milestone',
+    release: 'release',
+  })[String(kind)] ?? String(kind);
 
 /**
  * The declared project fields, as the read API lists them, so a reader knows each one's type.

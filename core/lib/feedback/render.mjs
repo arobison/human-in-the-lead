@@ -45,6 +45,13 @@ export function harnessText(h) {
 export function renderIssueBody(r) {
   const happened = [r.words, r.what_happened].filter(Boolean).join('\n\n');
   const evidence = r.evidence?.length ? `\`\`\`\n${r.evidence.join('\n')}\n\`\`\`` : EMPTY;
-  const sections = [r.version, harnessText(r.harness), r.area, happened, r.expected, evidence];
+  const sections = [
+    r.hitld_version,
+    harnessText(r.harness),
+    r.loop,
+    happened,
+    r.expected,
+    evidence,
+  ];
   return HEADINGS.map((h, i) => `### ${h}\n\n${sections[i] || EMPTY}\n`).join('\n');
 }

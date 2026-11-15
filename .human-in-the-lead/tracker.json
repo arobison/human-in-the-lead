@@ -1,4 +1,4 @@
 {
   "schema_version": 1,
-  "optional_keys": ["changelog"]
+  "optional_keys": ["release_note"]
 }

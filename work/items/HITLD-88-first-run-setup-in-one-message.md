@@ -2,7 +2,7 @@
 id: HITLD-88
 title: First-run setup in one message
 kind: work
-status: Planned
+state: planned
 created: 2026-11-15
 project: HITLD-15
 ---

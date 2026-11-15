@@ -24,7 +24,7 @@ curl -fLO https://github.com/github/codeql-action/releases/download/codeql-bundl
 echo '89ed56c8ec6bfccef6a0d2e7fe86da0469ca24b4db08b88016ec134b942c17a4  codeql-bundle-linux64.tar.gz' | sha256sum -c
 mkdir -p ~/.cache/hitld-codeql/v2.27.4
 tar -xzf codeql-bundle-linux64.tar.gz -C ~/.cache/hitld-codeql/v2.27.4
-export HITLD_CODEQL=~/.cache/hitld-codeql/v2.27.4/codeql/codeql   # in the shell that runs hitld merge
+export HITLD_CODEQL_PATH=~/.cache/hitld-codeql/v2.27.4/codeql/codeql   # in the shell that runs hitld merge
 ```
 
 The checksum is the one the release publishes (`codeql-bundle-linux64.tar.gz.checksum.txt`). The bundle holds its own query packs and needs no network to scan. Raising the version changes `scripts/codeql-scan.mjs`, this section and the baseline: the new version's first run on main extends it. The CodeQL licence allows this use because the repository is open source on GitHub.com; it does not cover private code.

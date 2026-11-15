@@ -78,7 +78,7 @@ export function draftPrecedent({
     rule,
     conditions,
     sources: [decisionId],
-    scope: offer.scope ?? 'project',
+    scope: offer.scope ?? 'all',
     decider,
     state: 'active',
     checked: { at, ...(policyHash ? { policy_hash: policyHash } : {}) },
@@ -110,7 +110,9 @@ export function exceptionFromFacts(facts) {
 }
 
 /**
- * Narrow a precedent: add an exception, so it no longer covers cases like the one reversed.
+ * Narrow a precedent: add an exception, so it no longer covers cases like the one reversed. It stays
+ * active; the trust event precedent-narrowed records the narrowing (HITLD-82 retired the state
+ * narrowed).
  * @param {Precedent} p
  * @param {{ when: Record<string, any>, why?: string, policyHash?: string | null, at: string }} change
  * @returns {Precedent}
@@ -118,7 +120,7 @@ export function exceptionFromFacts(facts) {
 export function narrowPrecedent(p, { when, why, policyHash, at }) {
   return {
     ...structuredClone(p),
-    state: 'narrowed',
+    state: 'active',
     exceptions: [...(p.exceptions ?? []), { when, ...(why ? { why } : {}) }],
     checked: { at, ...(policyHash ? { policy_hash: policyHash } : {}) },
   };

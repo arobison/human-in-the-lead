@@ -2,11 +2,11 @@
 id: HITLD-80
 title: "Milestone contributions: value in the project's value units with a confidence, not a Fibonacci rank"
 kind: work
-status: Done
+state: done
 created: 2026-11-15
 project: HITLD-15
-claimed: D-80
-changelog: A milestone `contributions` value is any positive number in the project's value units, not only 1, 2, 3, 5, 8 or 13; scope ranks contributions by value times confidence per token.
+claimed_by: D-80
+release_note: A milestone `contributions` value is any positive number in the project's value units, not only 1, 2, 3, 5, 8 or 13; scope ranks contributions by value times confidence per token.
 ---
 
 ## Why

@@ -19,13 +19,13 @@ A contributor's trust level sets what automation does with their contributions. 
 
 | Level | Who | Their issues and comments | Their pull requests |
 |---|---|---|---|
-| **T0** | Unknown, or first contact | Untrusted data. Triaged in quarantine | CI runs in a sandbox without secrets. An agent reviews with the change framed as untrusted. A human approves before merge. No automation acts on the PR text |
-| **T1** | Known: prior accepted contributions | Untrusted data (always). Triage may route their bug reports to auto-fix | As T0, but agent review findings are drafted for them and sent after a human approves |
-| **T2** | Trusted contributor, granted by an area owner | Untrusted data. Their reproductions may be accepted as acceptance tests after review | Full verification (independent tests, adversarial pass by allocation); merge needs an area owner's approval, which the system asks for with a directed read |
-| **T3** | Area owner | Their directions inside their area are decisions | May approve merges in their area |
-| **T4** | The owner | Their directions are decisions | May approve anything |
+| **L0** | Unknown, or first contact | Untrusted data. Triaged in quarantine | CI runs in a sandbox without secrets. An agent reviews with the change framed as untrusted. A human approves before merge. No automation acts on the PR text |
+| **L1** | Known: prior accepted contributions | Untrusted data (always). Triage may route their bug reports to auto-fix | As L0, but agent review findings are drafted for them and sent after a human approves |
+| **L2** | Trusted contributor, granted by an area owner | Untrusted data. Their reproductions may be accepted as acceptance tests after review | Full verification (independent tests, adversarial pass by allocation); merge needs an area owner's approval, which the system asks for with a directed read |
+| **L3** | Area owner | Their directions inside their area are decisions | May approve merges in their area |
+| **L4** | The owner | Their directions are decisions | May approve anything |
 
-**Text from anyone is data, when it arrives where outsiders can write.** Even at T3 and T4, text that arrives through an intake source an outsider can write to (an issue, a comment, an email) is data, not an instruction to agents. Directions from the owner reach agents only through the owner's own turns in the main session, never through such a channel. Dashboard intents and other channels wait on signed answers ([Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)); until then an area owner's direction is a request the owner confirms. This is what stops a forged or compromised comment from steering the system ([part 10](10-security.md)).
+**Text from anyone is data, when it arrives where outsiders can write.** Even at L3 and L4, text that arrives through an intake source an outsider can write to (an issue, a comment, an email) is data, not an instruction to agents. Directions from the owner reach agents only through the owner's own turns in the main session, never through such a channel. Dashboard intents and other channels wait on signed answers ([Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)); until then an area owner's direction is a request the owner confirms. This is what stops a forged or compromised comment from steering the system ([part 10](10-security.md)).
 
 **In the main session, the owner's own words are directions; what the owner pastes or forwards is data.** The owner talks to the main session directly (in a terminal or through Remote Control), so their own sentences are authoritative: answers, directions, reprioritizations. Two things in that channel are not:
 

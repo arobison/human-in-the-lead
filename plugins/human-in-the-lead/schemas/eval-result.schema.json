@@ -2,7 +2,7 @@
   "$id": "eval-result",
   "title": "Eval result",
   "description": "One eval run, written to the private store as eval/results/<id>.json (design part 17.5). It records what a later person or run needs to tell a real change from a different setup: the plugin version and commit, the schema versions, the harness profiles, the policy hash, the scenario set and the seed. A run is the baseline for the regression gate only when its settings match.",
-  "x-hitld-schema-version": 2,
+  "x-hitld-schema-version": 3,
   "type": "object",
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
@@ -74,15 +74,15 @@
         "type": "object",
         "properties": {
           "id": { "$ref": "common#/$defs/text" },
-          "piece": { "$ref": "common#/$defs/text" },
+          "suite": { "$ref": "common#/$defs/text" },
           "category": { "$ref": "common#/$defs/text" },
           "profile": {
             "description": "The adapter profile, or none for a scenario that drives no harness.",
             "$ref": "common#/$defs/text"
           },
-          "status": {
-            "description": "pass, fail (a grader failed), error (the scenario or the runner broke), or not_applicable (never counted as a pass).",
-            "enum": ["pass", "fail", "error", "not_applicable"]
+          "result": {
+            "description": "How the scenario ended: pass, fail (a grader failed), error (the scenario or the runner broke), or not-applicable (never counted as a pass). Version 3 (HITLD-82) renamed status to result, not_applicable to not-applicable and piece to suite; an older result or baseline is read in the new names.",
+            "enum": ["pass", "fail", "error", "not-applicable"]
           },
           "score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
           "reason": { "type": "string" },
@@ -121,10 +121,10 @@
         },
         "required": [
           "id",
-          "piece",
+          "suite",
           "category",
           "profile",
-          "status",
+          "result",
           "score",
           "graders",
           "wall_ms",

@@ -29,11 +29,40 @@ function parseState(text) {
   } catch (e) {
     return { state: null, problem: `is not JSON: ${/** @type {Error} */ (e).message}` };
   }
+  data = fromLegacyState(data);
   const errors = schemas().validateEntity('run-state', data);
   if (errors.length) {
     return { state: null, problem: errors.map((e) => `${e.path} ${e.message}`).join('; ') };
   }
   return { state: data, problem: null };
+}
+
+/**
+ * A run state of schema version 1 in the names of version 2 (HITLD-82), read until the next
+ * minor release: open_questions → decisions_open (each held → held_for_digest),
+ * decisions_this_run → decisions_answered, an in-flight entry's handle → harness_ref. The state
+ * is derived, so the next checkpoint writes it in the new names.
+ * @param {any} data
+ */
+export function fromLegacyState(data) {
+  if (!data || typeof data !== 'object' || data.schema_version !== 1) return data;
+  const { open_questions, decisions_this_run, ...rest } = data;
+  return {
+    ...rest,
+    schema_version: schemas().currentVersion('run-state'),
+    in_flight: Array.isArray(rest.in_flight)
+      ? rest.in_flight.map((/** @type {any} */ { handle, ...d }) => ({
+          ...d,
+          harness_ref: handle ?? null,
+        }))
+      : rest.in_flight,
+    decisions_open: Array.isArray(open_questions)
+      ? open_questions.map((/** @type {any} */ { held, ...q }) =>
+          held === undefined ? q : { ...q, held_for_digest: held },
+        )
+      : open_questions,
+    decisions_answered: decisions_this_run,
+  };
 }
 
 /**

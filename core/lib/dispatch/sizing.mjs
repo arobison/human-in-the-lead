@@ -2,13 +2,13 @@
 // input comes from the item, the policy and the history the caller derives from the ledger.
 //
 // The rule, in order:
-//   1. tier_hint on the item wins (the owner's override).
+//   1. tier_override on the item wins (the owner's override).
 //   2. Base tier: 0 when every touches glob is an inline path (a tracker edit); 3 when the item has
 //      no plan at all, or its area's output is reviewed in person; 1 when "Done when" is executable,
 //      the plan is specific to files, and the touches are few; otherwise 2.
 //   3. Up one for blast radius: more than one area, or a sensitive path. At most 3.
 //   4. Down one for familiar ground: the lower tier's first-pass yield on this area and kind meets
-//      policy.dispatch.familiar_yield over enough samples. Never below 1 for dispatched work.
+//      policy.dispatch.familiar_min_yield over enough samples. Never below 1 for dispatched work.
 
 import {
   allWithin,
@@ -33,7 +33,7 @@ import {
  * @property {string} item
  * @property {0 | 1 | 2 | 3} tier
  * @property {string[]} reasons why, in order, one line each
- * @property {'orchestrator' | 'background' | 'session'} executor
+ * @property {'orchestrator' | 'background' | 'session'} runs_as
  * @property {string} model the model class from policy.tiers: own, small or large
  * @property {string} effort
  * @property {number} estimate_tokens
@@ -64,9 +64,9 @@ export function sizeItem(item, policy, history = []) {
   /** @type {number} */
   let tier;
 
-  if (Number.isInteger(item.tier_hint)) {
-    tier = item.tier_hint;
-    reasons.push(`tier_hint ${tier} on the item (the owner's override)`);
+  if (Number.isInteger(item.tier_override)) {
+    tier = item.tier_override;
+    reasons.push(`tier_override ${tier} on the item (the owner's override)`);
   } else {
     const plan = planRef(item);
     if (allWithin(touches, d.inline_globs ?? [])) {
@@ -75,10 +75,10 @@ export function sizeItem(item, policy, history = []) {
     } else if (plan.kind === 'none') {
       tier = 3;
       reasons.push('no plan: design-heavy work for its own session');
-    } else if (areas.some((a) => (d.in_person_areas ?? []).includes(a))) {
+    } else if (areas.some((a) => (d.owner_review_areas ?? []).includes(a))) {
       tier = 3;
       reasons.push(
-        `area ${areas.find((a) => d.in_person_areas.includes(a))} is reviewed in person`,
+        `area ${areas.find((a) => d.owner_review_areas.includes(a))} is reviewed in person`,
       );
     } else if (
       doneWhenExecutable(item) &&
@@ -120,7 +120,7 @@ export function sizeItem(item, policy, history = []) {
       const min = d.familiar_min_samples ?? 5;
       if (areas.length === 1 && same.length >= min) {
         const yieldShare = same.filter((h) => h.firstPass).length / same.length;
-        if (yieldShare >= (d.familiar_yield ?? 0.9)) {
+        if (yieldShare >= (d.familiar_min_yield ?? 0.9)) {
           tier = lower;
           reasons.push(
             `down one for familiar ground: ${Math.round(yieldShare * 100)}% first-pass yield at tier ${lower} over ${same.length} items in ${areas[0]}`,
@@ -132,7 +132,7 @@ export function sizeItem(item, policy, history = []) {
 
   const t = /** @type {0 | 1 | 2 | 3} */ (tier);
   const config = policy.tiers?.[String(t)] ?? {
-    executor: 'background',
+    runs_as: 'background',
     model: 'small',
     effort: 'medium',
   };
@@ -141,7 +141,7 @@ export function sizeItem(item, policy, history = []) {
     item: String(item.id),
     tier: t,
     reasons,
-    executor: config.executor,
+    runs_as: config.runs_as,
     model: config.model,
     effort: config.effort,
     estimate_tokens: estimate.tokens,
@@ -193,7 +193,7 @@ export function historyFromLedger(events, itemOf) {
   for (const e of events) {
     if (e.event === 'dispatched') dispatched.set(e.dispatch, e);
     if (e.event === 'verified' && !firstVerdict.has(e.item))
-      firstVerdict.set(e.item, e.outcome === 'pass');
+      firstVerdict.set(e.item, e.result === 'pass');
   }
   /** @type {HistoryEntry[]} */
   const out = [];

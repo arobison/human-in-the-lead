@@ -9,7 +9,7 @@ import { buildReport, renderDigest, renderHtml } from '../../quota/report.mjs';
 import { sandboxPath, writeSandboxFile } from '../util.mjs';
 
 const COMMON = {
-  quota: { type: 'object', description: 'Extra policy.quota settings: limits, owner_reserve, ...' },
+  quota: { type: 'object', description: 'Extra policy.quota settings: limits, reserve, ...' },
   snapshots: { type: 'array', items: { type: 'object' } },
   ledger: { type: 'array', items: { type: 'object' } },
   now: { type: 'string', minLength: 1 },

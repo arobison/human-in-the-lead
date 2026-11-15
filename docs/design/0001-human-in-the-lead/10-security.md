@@ -8,7 +8,7 @@
 |---|---|---|
 | **Prompt injection** | Text in issues, PR descriptions, comments, commit messages from outsiders, code comments, test fixtures, web pages, dependency READMEs, tool output | Quarantine: an agent that reads untrusted text never also has the means to act on it (10.2) |
 | **Data exfiltration** | An injected instruction asks an agent to send private data somewhere | No agent holds all three of: private data, untrusted input, and an outbound channel (the "lethal trifecta", [Willison](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/); [part 20](20-prior-art.md)) |
-| **Malicious contribution** | A PR that adds a backdoor, weakens a check, or runs code in CI | Sandboxed CI without secrets for T0–T1; human-read trigger on security-sensitive paths; adversarial verification |
+| **Malicious contribution** | A PR that adds a backdoor, weakens a check, or runs code in CI | Sandboxed CI without secrets for L0–L1; human-read trigger on security-sensitive paths; adversarial verification |
 | **Supply chain** | A new or updated dependency | Human gate on new dependencies; lockfiles; dependency changes are human-read triggers |
 | **Executable data** | A tracker or config file field that a tool executes | Data files are schema-checked data only; unknown keys are rejected; no field is ever executed |
 | **Over-privileged agents** | An executor with network, secrets or write access it does not need | Least privilege per role, enforced by agent definitions and hooks (10.2) |

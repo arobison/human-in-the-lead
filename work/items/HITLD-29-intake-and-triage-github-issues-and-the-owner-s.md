@@ -2,7 +2,7 @@
 id: HITLD-29
 title: "Intake and triage: GitHub Issues and the owner's notes"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

@@ -37,7 +37,7 @@ const precedent = (more = {}) => ({
   rule: 'When a new dependency has a permissive licence, allow it.',
   conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
   sources: ['W-3'],
-  scope: 'project',
+  scope: 'all',
   decider: 'owner',
   state: 'active',
   classification: 'public',
@@ -188,7 +188,7 @@ test('creating a precedent: the offer, the decision, the policy it was checked u
   });
   assert.deepEqual(schemas().validateEntity('precedent', p), []);
   assert.deepEqual(p.sources, ['W-12']);
-  assert.equal(p.scope, 'project');
+  assert.equal(p.scope, 'all');
   assert.equal(p.state, 'active');
   assert.deepEqual(p.checked, { at: '2026-11-14T10:00:00Z', policy_hash: 'a'.repeat(64) });
   assert.equal(p.classification, 'internal');
@@ -235,7 +235,7 @@ test('an overrule narrows by an exception, or retires when no attribute tells th
     why: 'native build',
     at: '2026-11-15',
   });
-  assert.equal(narrowed.state, 'narrowed');
+  assert.equal(narrowed.state, 'active');
   assert.deepEqual(narrowed.exceptions, [{ when, why: 'native build' }]);
   assert.deepEqual(schemas().validateEntity('precedent', narrowed), []);
   const retired = retirePrecedent(p, { why: 'wrong', at: '2026-11-15' });
@@ -293,9 +293,9 @@ test('an invalid precedent is not stored, and updating one keeps its file', () =
   const project = makeProject();
   assert.throws(() => project.precedents.put(precedent({ scope: 'everywhere' })), /scope/);
   project.precedents.put(precedent());
-  project.precedents.put({ ...precedent(), state: 'narrowed' });
+  project.precedents.put({ ...precedent(), state: 'retired' });
   assert.equal(readdirSync(join(project.root, 'precedents')).length, 1);
-  assert.equal(project.precedents.get('P-1')?.state, 'narrowed');
+  assert.equal(project.precedents.get('P-1')?.state, 'retired');
 });
 
 test('a symbolic link at a precedent file is refused, never written through', () => {

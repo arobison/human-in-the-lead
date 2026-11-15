@@ -3,7 +3,8 @@
 // released.
 
 import { milestoneEntities } from './milestone-entities.mjs';
+import { namesAndStates } from './names-and-states.mjs';
 import { retirePriority } from './retire-priority.mjs';
 
 /** @type {readonly import('../migrate.mjs').Migration[]} */
-export const MIGRATIONS = Object.freeze([milestoneEntities, retirePriority]);
+export const MIGRATIONS = Object.freeze([milestoneEntities, retirePriority, namesAndStates]);

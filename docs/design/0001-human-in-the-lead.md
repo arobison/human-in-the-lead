@@ -64,7 +64,7 @@ and they make the calls that need judgement. Agents do the labour: intake, triag
 
 The difference from the loop shows in what people spend attention on. In the loop, attention goes to approvals, roughly in proportion to volume. In the lead, it goes to the calls that need judgement, which is the requisite-variety rule this design applies throughout: the system absorbs the variety it can handle by rule and precedent, and passes on only what needs a person.
 
-The person in front is called **the owner** in this design. A project may have more than one human: area owners hold delegated decision rights over parts of it ([part 9](0001-human-in-the-lead/09-contributors.md)).
+The person in front is called **the owner** in this design: the person who holds the project's decision rights. A project may have more than one human: area owners hold delegated decision rights over parts of it. The owner talks to their chief of staff, the front-desk session that hands work to an orchestrator ([part 9](0001-human-in-the-lead/09-contributors.md)).
 
 ### 1.2 What is scarce
 
@@ -178,9 +178,10 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 
 | Term | Meaning |
 |---|---|
-| **Owner** | The human in the lead. Holds identity and policy: direction, decision rights, weights, budgets. |
+| **Owner** | The person who holds the project's decision rights: identity and policy, direction, weights, budgets. "The owner" always means this person. A record's `owner` field is different: whoever is accountable for that record, which defaults to the owner. |
 | **Area owner** | A human with delegated decision rights over an area (paths and topics). |
-| **Orchestrator** | The main session in the agent harness (in Claude Code, the session the owner talks to). Plans, sizes, dispatches, merges, asks. Implements only tiny tasks. |
+| **Chief of staff** | The owner's front-desk session: the session the owner talks to, which takes their requests and answers, keeps their attention budget and hands work to an orchestrator. `chief-of-staff` where code needs a role value. Distinct from the orchestrator. |
+| **Orchestrator** | The session that runs the work: plans, sizes, dispatches, merges, asks. Implements only tiny tasks. Until the chief of staff is built (HITLD-86), the main session in the harness is both. |
 | **Executor** | An agent that implements one item in its own worktree. A background agent (tiers 1–2) or its own session (tier 3). |
 | **Signal** | Anything that arrives: a bug report, feature request, idea, question, failing test, research finding. Has provenance. |
 | **Opportunity** | A shaped cluster of signals: problem, evidence, options, value, confidence, appetite. |
@@ -196,9 +197,11 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 | **Appetite** | The token budget a piece of work is worth (Shape Up's appetite, in tokens). |
 | **Tier** | The size class that sets who executes an item and with which model and effort. |
 | **Dispatch** | One assignment of an item to an executor. An item may have several (retries, follow-ups). |
-| **Ledger** | The append-only record of dispatches and their outcomes, kept outside the repo. |
+| **State, result** | `state` is where a record is in its lifecycle (`proposed`, `planned`, `in-progress`, `done`, `dropped`; only work items are ever `in-progress`). `result` is how an attempt ended (a report's `done`, `partial` or `blocked`; a check's `pass`, `fail`, `error` or `not-applicable`). Every value is lowercase kebab-case. Ready, blocked, claimed and stage are derived, never stored. |
+| **Claim, unclaim** | A claim is the first commit of an executor's branch, setting a work item `in-progress` with `claimed_by`. Unclaiming gives up an abandoned claim with an `unclaim:` commit on main. Releasing is shipping: a release is what reached users. |
+| **Ledger** | The append-only record of dispatches and their results, kept outside the repo. |
 | **Brief** | The short instruction an executor receives. Points at the item file; does not restate it. |
-| **Report** | The fixed-shape message an executor returns. |
+| **Report** | The fixed-shape message an executor returns; its `result` says how the attempt ended. The HTML page of run measures is the dashboard (`hitld dashboard`). |
 | **Logged call** | A cheap-to-undo decision an executor makes itself and records in its report. |
 | **Classification** | `public`, `internal`, `confidential`, `secret`. Sets where an artifact may live. |
 | **Private store** | Where non-public artifacts live: the ledger, confidential research, relationship notes. Outside the public repo. |

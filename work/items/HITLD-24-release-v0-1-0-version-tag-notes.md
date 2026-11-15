@@ -2,7 +2,7 @@
 id: HITLD-24
 title: "Release v0.1.0: version, tag, notes"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-22, HITLD-23, HITLD-16, HITLD-39, HITLD-40, HITLD-45, HITLD-51, HITLD-58, HITLD-59, HITLD-61, HITLD-63, HITLD-72, HITLD-73, HITLD-79, HITLD-80, HITLD-82, HITLD-83, HITLD-84, HITLD-85, HITLD-86, HITLD-87, HITLD-88, HITLD-89, HITLD-21, HITLD-35]

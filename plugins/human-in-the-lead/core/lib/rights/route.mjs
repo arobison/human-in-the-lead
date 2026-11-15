@@ -1,6 +1,6 @@
 // Which decider a question goes to, and by which rule (design parts 4.2, 4.4 and 4.5).
 //
-// The rules are data in policy.json (`rights.rules`, `rights.areas`, `rights.agent_spend_max`).
+// The rules are data in policy.json (`rights.rules`, `rights.areas`, `rights.agent_spend_max_tokens`).
 // This is a script, not a judgement: it takes a question's attributes and returns the decider and
 // the rule that fired, so every call that was or was not sent to a person can be traced to a rule.
 
@@ -45,6 +45,17 @@ export const BASIS_ORDER = Object.freeze([
   'conflicting-evidence',
   'novelty',
 ]);
+
+/**
+ * A question in the names before HITLD-82: `direction` is `touches_direction`. Read until the next
+ * minor release, from an orchestrator that still writes the old name.
+ * @param {any} q
+ */
+export function fromLegacyQuestion(q) {
+  if (!q || typeof q !== 'object' || !Object.hasOwn(q, 'direction')) return q;
+  const { direction, ...rest } = q;
+  return rest.touches_direction === undefined ? { ...rest, touches_direction: direction } : rest;
+}
 
 /**
  * The question with its paths normalized (posix.normalize), or what is wrong with them. Done before
@@ -105,7 +116,7 @@ function firedBases(question, policy, areas) {
     if (!found.has(basis)) found.set(basis, { reason, source: 'checked' });
   };
   if (question.reversibility === 'one-way') check('one-way-door', 'it is a one-way door');
-  const max = policy.rights?.agent_spend_max;
+  const max = policy.rights?.agent_spend_max_tokens;
   if (typeof question.spend_tokens === 'number' && question.spend_tokens > max) {
     check(
       'budget',
@@ -134,7 +145,7 @@ function decide(basis, question, policy, areas) {
   if (when.includes('cross-area') && areas.length > 1) {
     return owner(`the rule sends a call across areas (${areas.join(', ')}) to the owner`);
   }
-  if (when.includes('direction') && question.direction) {
+  if (when.includes('direction') && question.touches_direction) {
     return owner('the rule sends a call that touches direction to the owner');
   }
   if (areas.length === 0) return owner('no area is identified, so there is no area owner');

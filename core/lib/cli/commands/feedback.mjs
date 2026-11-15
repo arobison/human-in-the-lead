@@ -62,7 +62,7 @@ const brief = (r) => ({
   id: r.id,
   kind: r.kind,
   state: r.state,
-  area: r.area ?? null,
+  loop: r.loop ?? null,
   refs: r.refs,
   created_at: r.created_at,
   words: r.words,
@@ -103,7 +103,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback',
       summary:
         'Record feedback about HITLd in the private store, with its context (the version, the harness, what the ledger says about the refs)',
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'kind',
@@ -124,7 +124,7 @@ export function makeCommands({ makeFiler }) {
             'Comma-separated dispatch, decision, item or ledger event IDs, such as D-3,HITLD-12. A malformed ID is an error',
         },
         {
-          name: 'area',
+          name: 'loop',
           type: 'string',
           description:
             'The loop or command concerned. Default: the loop of the ledger entries for the refs',
@@ -136,7 +136,7 @@ export function makeCommands({ makeFiler }) {
           description: `The harness adapter ID. Default: ${CLAUDE_CODE}`,
         },
         {
-          name: 'harness_version',
+          name: 'harness-version',
           type: 'string',
           description:
             "The harness's version, when the caller knows it. The core cannot learn it offline; default: unknown",
@@ -151,10 +151,10 @@ export function makeCommands({ makeFiler }) {
           kind: String(input.kind),
           words: String(input.words),
           refs: /** @type {string | undefined} */ (input.refs),
-          area: /** @type {string | undefined} */ (input.area),
+          loop: /** @type {string | undefined} */ (input.loop),
           expected: /** @type {string | undefined} */ (input.expected),
           harness: /** @type {string | undefined} */ (input.harness),
-          harnessVersion: /** @type {string | undefined} */ (input.harness_version),
+          harnessVersion: /** @type {string | undefined} */ (input['harness-version']),
           defaultHarness: CLAUDE_CODE,
         });
         return {
@@ -170,7 +170,7 @@ export function makeCommands({ makeFiler }) {
     {
       name: 'feedback list',
       summary: 'Show the feedback records still waiting to be published (local or drafted)',
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         { name: 'all', type: 'boolean', description: 'Show every record, whatever its state' },
         { name: 'json', type: 'boolean', description: 'Include the whole records in the output' },
@@ -192,7 +192,7 @@ export function makeCommands({ makeFiler }) {
     {
       name: 'feedback drop',
       summary: 'Mark a feedback record dropped, so it is never published',
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'id',
@@ -212,8 +212,8 @@ export function makeCommands({ makeFiler }) {
     {
       name: 'feedback render',
       summary:
-        "Print a record's issue body under the headings of the issue forms (HITLd version, Harness, Loop or area, What happened, What you expected, Evidence)",
-      piece: 'feedback',
+        "Print a record's issue body under the headings of the issue forms (HITLd version, Harness, Loop, What happened, What you expected, Evidence)",
+      built_by: 'feedback',
       args: [
         {
           name: 'id',
@@ -240,7 +240,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback route',
       summary:
         "Say where feedback-like text goes: record it (about HITLd, from the person's own turn), a project note, ask the person, or quote it back (from anywhere but the person)",
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'from',
@@ -259,7 +259,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback draft',
       summary:
         "Record the generalizer's public draft of a waiting record. A draft that is not public, or holds a name, path, person or ID from the record's context, is withheld with the reason",
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'id',
@@ -273,7 +273,7 @@ export function makeCommands({ makeFiler }) {
           type: 'string',
           required: true,
           description:
-            'JSON from the generalizer agent: { title, area?, what_happened, expected?, evidence?, classification, reason? }. Untrusted until checked',
+            'JSON from the generalizer agent: { title, loop?, what_happened, expected?, evidence?, classification, reason? }. Untrusted until checked',
         },
         STORE,
       ],
@@ -300,7 +300,7 @@ export function makeCommands({ makeFiler }) {
       name: 'feedback publish',
       summary:
         "Show each drafted record beside the person's words, or take the person's answer on one: approve, edit, by-hand or drop. Only an approved draft is filed, as an issue in HITLd's repository",
-      piece: 'feedback',
+      built_by: 'feedback',
       args: [
         {
           name: 'id',
@@ -326,8 +326,8 @@ export function makeCommands({ makeFiler }) {
           description: 'For a record approved by-hand: the issue the person posted',
         },
         { name: 'title', type: 'string', description: 'With edit: the new title' },
-        { name: 'area', type: 'string', description: 'With edit: the new loop or area' },
-        { name: 'what_happened', type: 'string', description: 'With edit: the new account' },
+        { name: 'loop', type: 'string', description: 'With edit: the new loop' },
+        { name: 'what-happened', type: 'string', description: 'With edit: the new account' },
         { name: 'expected', type: 'string', description: 'With edit: what was expected' },
         { name: 'evidence', type: 'string', description: 'With edit: the new evidence' },
         STORE,
@@ -355,8 +355,8 @@ export function makeCommands({ makeFiler }) {
               url: /** @type {string | undefined} */ (input.url),
               edits: {
                 title: /** @type {string | undefined} */ (input.title),
-                area: /** @type {string | undefined} */ (input.area),
-                what_happened: /** @type {string | undefined} */ (input.what_happened),
+                loop: /** @type {string | undefined} */ (input.loop),
+                what_happened: /** @type {string | undefined} */ (input['what-happened']),
                 expected: /** @type {string | undefined} */ (input.expected),
                 evidence: /** @type {string | undefined} */ (input.evidence),
               },

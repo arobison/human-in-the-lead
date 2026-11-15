@@ -2,12 +2,12 @@
 id: HITLD-47
 title: Orchestrator skill recognizes feedback about HITLd and publishes it through the generalizer and send gate
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-46]
-claimed: D-47
-changelog: "The orchestrator recognizes feedback about HITLd in the person's own turns and files a generalized version only after the person approves it."
+claimed_by: D-47
+release_note: "The orchestrator recognizes feedback about HITLd in the person's own turns and files a generalized version only after the person approves it."
 ---
 
 ## Why

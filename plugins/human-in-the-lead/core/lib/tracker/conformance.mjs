@@ -103,9 +103,9 @@ export const CONFORMANCE_CHECKS = [
     name: 'keeps declared fields across a state change',
     run(b) {
       const id = make(b);
-      b.adapter.transition(id, 'Dropped', 'conformance check', {});
+      b.adapter.transition(id, 'dropped', 'conformance check', {});
       const after = read(b.adapter, id);
-      assert.equal(after.state, 'Dropped');
+      assert.equal(after.state, 'dropped');
       assert.deepEqual(picked(after), VALUES);
     },
   },

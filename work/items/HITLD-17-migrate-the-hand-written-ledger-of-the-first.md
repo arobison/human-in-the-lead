@@ -2,7 +2,7 @@
 id: HITLD-17
 title: "Migrate the hand-written ledger of the first build into the private store"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 ---

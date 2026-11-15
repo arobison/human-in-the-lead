@@ -32,18 +32,18 @@ const PROPOSAL_FIELDS = [
   'last_tag',
   'base',
   'base_version',
-  'initial',
+  'first_release',
   'interface_delta',
   'bump',
   'breaking',
-  'basis',
+  'reason',
   'version',
   'tag',
   'prerelease',
   'prerelease_rule',
   'items',
   'notes',
-  'missing_changelog',
+  'missing_release_note',
   'gates',
   'milestones',
   'unreleased',
@@ -57,7 +57,7 @@ export const commands = [
     name: 'release propose',
     summary:
       'Propose a release: the interface delta since the last full release, the bump it proposes, draft notes, missing changelog lines and unmet gates',
-    piece: 'first-release',
+    built_by: 'first-release',
     output: PROPOSAL_FIELDS,
     args: [
       preArg,
@@ -83,7 +83,7 @@ export const commands = [
     name: 'release make',
     summary:
       "Make a release: write the release record and an annotated tag on main, or with --branch the record alone on a release branch; never pushing (the owner's, from the main session)",
-    piece: 'first-release',
+    built_by: 'first-release',
     mcp: false,
     args: [
       {

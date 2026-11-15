@@ -2,16 +2,25 @@
 // kinds, statuses, the allowlist of front-matter keys per kind, and how the stored keys map to
 // the tracker's entity fields (design part 3.2).
 //
-// The stored names are the consumer's: `status`, `project` (an item's parent), `initiative` (a
-// project's parent), `decided-by`, `claimed`. The entity the adapter hands out uses the model's
-// names: `state`, `parent`, `decider`. The mapping is here, in one place. A milestone's parent is
-// a project or an initiative, stored under the key of its kind.
+// The stored names are the model's, except two: `project` (an item's parent) and `initiative` (a
+// project's parent), which the entity hands out as `parent`. The mapping is here, in one place. A
+// milestone's parent is a project or an initiative, stored under the key of its kind.
+//
+// The format before HITLD-82 used other names (legacy.mjs); `hitld work migrate` moves a tracker's
+// files, and the check names a file that still holds an old key.
 
 import { ITEM_KINDS, list } from './graph.mjs';
+import { LEGACY_STATES, RENAMED_KEYS } from './legacy.mjs';
 import { MILESTONE_KINDS, milestoneFields, storedMilestoneField } from './milestones.mjs';
 
 export const KINDS = ['work', 'decision', 'external', 'project', 'initiative', ...MILESTONE_KINDS];
-export const STATUSES = ['Proposed', 'Planned', 'In progress', 'Done', 'Dropped'];
+/** The lifecycle (design part 3.2): stored as `state`, lowercase kebab-case. */
+export const STATES = ['proposed', 'planned', 'in-progress', 'done', 'dropped'];
+
+/** Display labels for the views. */
+export const STATE_LABELS = /** @type {Record<string, string>} */ (
+  Object.fromEntries(Object.entries(LEGACY_STATES).map(([label, state]) => [state, label]))
+);
 
 /** Folder group per kind: containers and milestones have their own, every item kind shares one. */
 export const FOLDER_GROUP = /** @type {const} */ ({
@@ -24,7 +33,7 @@ export const FOLDER_GROUP = /** @type {const} */ ({
   learning: 'milestone',
 });
 
-const COMMON_KEYS = ['id', 'title', 'kind', 'status', 'created'];
+const COMMON_KEYS = ['id', 'title', 'kind', 'state', 'created'];
 
 /** The stored milestone keys (design part 3.2, Milestone). */
 const MILESTONE_KEYS = [
@@ -33,7 +42,7 @@ const MILESTONE_KEYS = [
   'initiative',
   'outcome',
   'done_when',
-  'needs',
+  'constraints',
   'contributions',
   'appetite_tokens',
   'deadline',
@@ -59,19 +68,11 @@ export const DECISION_ANSWER_KEYS = [
 
 /** The allowlist: any key not listed for an item's kind is an error. */
 export const KEYS = /** @type {Record<string, string[]>} */ ({
-  work: [...COMMON_KEYS, 'project', 'needs', 'claimed', 'reason'],
-  decision: [
-    ...COMMON_KEYS,
-    'project',
-    'needs',
-    'claimed',
-    'reason',
-    'decided-by',
-    ...DECISION_ANSWER_KEYS,
-  ],
-  external: [...COMMON_KEYS, 'project', 'needs', 'claimed', 'reason', 'party'],
-  project: [...COMMON_KEYS, 'initiative', 'lead', 'plan', 'reason'],
-  initiative: [...COMMON_KEYS, 'lead', 'reason'],
+  work: [...COMMON_KEYS, 'project', 'needs', 'claimed_by', 'reason'],
+  decision: [...COMMON_KEYS, 'project', 'needs', 'reason', 'decider', ...DECISION_ANSWER_KEYS],
+  external: [...COMMON_KEYS, 'project', 'needs', 'reason', 'waiting_on'],
+  project: [...COMMON_KEYS, 'initiative', 'owner', 'plan', 'reason'],
+  initiative: [...COMMON_KEYS, 'owner', 'reason'],
   capability: MILESTONE_KEYS,
   learning: MILESTONE_KEYS,
 });
@@ -105,7 +106,7 @@ export const CODE_KEYS = [
 const OPTIONAL_LISTS = ['opened_from', 'touches', 'serial', 'credit'];
 
 /** Stored keys that hold a list, whatever the settings. */
-const LIST_KEYS = ['needs', 'done_when', 'contributions', 'check_results'];
+const LIST_KEYS = ['needs', 'done_when', 'constraints', 'contributions', 'check_results'];
 
 /**
  * The keys that hold a list, given the settings.
@@ -123,9 +124,7 @@ export const listKeys = (layout) =>
  * @param {string} kind @param {import('./config.mjs').Layout} layout
  */
 export const allowedKeys = (kind, layout) => [
-  ...KEYS[kind],
-  ...layout.optionalKeys,
-  ...layout.fields.map((f) => f.name),
+  ...new Set([...KEYS[kind], ...layout.optionalKeys, ...layout.fields.map((f) => f.name)]),
 ];
 
 /** The key order a file is written in: the reference order, then the optional keys. */
@@ -135,7 +134,7 @@ export const keyOrder = (
 ) => allowedKeys(kind, layout);
 
 /** The stored keys with no entity field of their own: carried through under the same names. */
-export const NATIVE_EXTRAS = ['created', 'claimed', 'reason', 'party', 'lead', 'plan'];
+export const NATIVE_EXTRAS = ['created', 'claimed_by', 'reason', 'waiting_on', 'owner', 'plan'];
 
 /**
  * Names a declared field may not take: every key and entity field the format already uses, and
@@ -147,12 +146,12 @@ export const reservedFieldNames = (optionalNames) =>
   new Set([
     ...Object.values(KEYS).flat(),
     ...Object.keys(RETIRED_KEYS),
+    ...Object.keys(RENAMED_KEYS),
     ...optionalNames,
     ...NATIVE_EXTRAS,
     ...CODE_KEYS,
-    'state',
     'parent',
-    'decider',
+    'claimed',
     'body',
     'path',
     'version',
@@ -233,9 +232,8 @@ export function fieldProblems(d, layout) {
 const intOrSame = (v) => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v);
 
 /**
- * The entity as the model names it, from a file's stored keys: `status` becomes `state`, the
- * parent key becomes `parent`, `decided-by` becomes `decider`, and a missing classification is
- * the project's default. Keys the model has no field for are carried through under their own
+ * The entity as the model names it, from a file's stored keys: the parent key becomes `parent`,
+ * and a missing classification is the project's default. Keys the model has no field for are carried through under their own
  * names. `schema_version` is added so the schemas can validate it.
  * @param {Record<string, unknown>} d stored keys
  * @param {import('./config.mjs').Layout} layout
@@ -243,21 +241,21 @@ const intOrSame = (v) => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) :
  */
 export function toEntity(d, layout) {
   /** @type {Record<string, unknown>} */
-  const e = { schema_version: 1, id: d.id, kind: d.kind, title: d.title, state: d.status };
+  const e = { schema_version: 1, id: d.id, kind: d.kind, title: d.title, state: d.state };
   const kind = String(d.kind);
   const milestone = MILESTONE_KINDS.includes(kind);
   if ((ITEM_KINDS.includes(kind) || milestone) && d.project !== undefined) e.parent = d.project;
   if ((kind === 'project' || milestone) && d.initiative !== undefined) e.parent = d.initiative;
   if (milestone) Object.assign(e, milestoneFields(d));
   else if (d.needs !== undefined) e.needs = d.needs;
-  if (d['decided-by'] !== undefined) e.decider = d['decided-by'];
+  if (d.decider !== undefined) e.decider = d.decider;
   if (kind === 'decision') {
     for (const k of DECISION_ANSWER_KEYS) if (d[k] !== undefined) e[k] = d[k];
   }
   e.classification = d.classification ?? layout.defaultClassification;
   for (const k of layout.optionalKeys) {
     if (k === 'classification' || d[k] === undefined) continue;
-    e[k] = k === 'estimate_tokens' || k === 'tier_hint' ? intOrSame(d[k]) : d[k];
+    e[k] = k === 'estimate_tokens' || k === 'tier_override' ? intOrSame(d[k]) : d[k];
   }
   for (const def of layout.fields) {
     if (d[def.name] !== undefined) e[def.name] = fieldValue(def, d[def.name]);
@@ -281,15 +279,13 @@ export function toStored(fields, kind, layout) {
   const allowed = new Set(allowedKeys(kind, layout));
   const milestone = MILESTONE_KINDS.includes(kind);
   for (const [k, v] of Object.entries(fields)) {
-    if (k === 'state') stored.status = v;
-    else if (k === 'parent' && milestone) {
+    if (k === 'parent' && milestone) {
       // A milestone's parent is a project unless parent_kind names an initiative.
       const key = fields.parent_kind === 'initiative' ? 'initiative' : 'project';
       stored[key] = v;
       stored[key === 'project' ? 'initiative' : 'project'] = null;
     } else if (k === 'parent_kind' && milestone) continue;
     else if (k === 'parent') stored[ITEM_KINDS.includes(kind) ? 'project' : 'initiative'] = v;
-    else if (k === 'decider') stored['decided-by'] = v;
     else if (k === 'schema_version' || k === 'body' || k === 'path' || k === 'version') continue;
     else if (allowed.has(k)) {
       const value = storedField(k, v, layout);

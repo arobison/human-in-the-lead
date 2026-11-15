@@ -6,7 +6,7 @@
 // so the merge queue runs the primary checkout's copy of this file, never the branch's.
 //
 // Not shipped in the plugin: it is this repository's choice of scanner, not part of the core.
-// Install the pinned bundle on the merge machine and set HITLD_CODEQL (CONTRIBUTING.md).
+// Install the pinned bundle on the merge machine and set HITLD_CODEQL_PATH (CONTRIBUTING.md).
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
@@ -19,11 +19,11 @@ const BUNDLE_SHA256 = '89ed56c8ec6bfccef6a0d2e7fe86da0469ca24b4db08b88016ec134b9
 // The suite GitHub's code scanning default setup runs, so the queue and CI agree.
 const SUITE = 'codeql/javascript-queries:codeql-suites/javascript-code-scanning.qls';
 
-const INSTALL = `Install CodeQL ${CODEQL_VERSION} on the merge machine and point HITLD_CODEQL at its codeql executable:
+const INSTALL = `Install CodeQL ${CODEQL_VERSION} on the merge machine and point HITLD_CODEQL_PATH at its codeql executable:
   curl -fLO ${BUNDLE_URL}
   echo '${BUNDLE_SHA256}  codeql-bundle-linux64.tar.gz' | sha256sum -c
   mkdir -p ~/.cache/hitld-codeql/v${CODEQL_VERSION} && tar -xzf codeql-bundle-linux64.tar.gz -C ~/.cache/hitld-codeql/v${CODEQL_VERSION}
-  export HITLD_CODEQL=~/.cache/hitld-codeql/v${CODEQL_VERSION}/codeql/codeql
+  export HITLD_CODEQL_PATH=~/.cache/hitld-codeql/v${CODEQL_VERSION}/codeql/codeql
 (see CONTRIBUTING.md)`;
 
 /** @param {string} message @returns {never} */
@@ -37,7 +37,7 @@ function refuse(message) {
  * @param {string} codeql @param {string[]} args @param {string} cwd
  */
 function codeqlRun(codeql, args, cwd) {
-  // Trust boundary: the executable is $HITLD_CODEQL, set by the merge machine's owner in the
+  // Trust boundary: the executable is $HITLD_CODEQL_PATH, set by the merge machine's owner in the
   // queue's environment, never read from the repository; the arguments are fixed here; no shell.
   // The working directory is a fresh temporary directory, not the tree under test, so no CodeQL
   // workspace, pack or configuration file the branch commits is picked up. The tree under test
@@ -51,8 +51,12 @@ function codeqlRun(codeql, args, cwd) {
 }
 
 function main() {
-  const codeql = process.env.HITLD_CODEQL;
-  if (!codeql) refuse(`HITLD_CODEQL is not set.\n${INSTALL}`);
+  // HITLD_CODEQL is its name before HITLD-82, read with a warning until the next minor release.
+  const codeql = process.env.HITLD_CODEQL_PATH ?? process.env.HITLD_CODEQL;
+  if (!codeql) refuse(`HITLD_CODEQL_PATH is not set.\n${INSTALL}`);
+  if (!process.env.HITLD_CODEQL_PATH) {
+    process.stderr.write('HITLD_CODEQL is now HITLD_CODEQL_PATH; rename it in the merge shell\n');
+  }
   const sarif = process.env.HITLD_SARIF;
   if (!sarif) refuse('HITLD_SARIF is not set: run this as a merge.scanners command');
   const source = realpathSync(process.cwd());
@@ -66,7 +70,7 @@ function main() {
   }
   if (version !== CODEQL_VERSION) {
     refuse(
-      `HITLD_CODEQL runs CodeQL ${version || '(unknown version)'}; this repository pins ${CODEQL_VERSION}.\n${INSTALL}`,
+      `HITLD_CODEQL_PATH runs CodeQL ${version || '(unknown version)'}; this repository pins ${CODEQL_VERSION}.\n${INSTALL}`,
     );
   }
 

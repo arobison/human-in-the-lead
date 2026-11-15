@@ -46,7 +46,7 @@ const ledger = [
     id: 'E-2',
     dispatch: 'D-3',
     item: 'W-9',
-    outcome: 'done',
+    result: 'done',
     schema_version: 1,
     at: '2026-11-14T11:00:00Z',
   },
@@ -74,9 +74,9 @@ test('feedback: a record holds the words verbatim and the context the person did
   const rec = r.json.record;
   assert.equal(rec.id, 'FB-1');
   assert.equal(rec.words, words);
-  assert.equal(rec.version, VERSION);
+  assert.equal(rec.hitld_version, VERSION);
   assert.deepEqual(rec.harness, { name: 'claude-code', version: 'unknown' });
-  assert.equal(rec.area, 'dispatch');
+  assert.equal(rec.loop, 'dispatch');
   assert.deepEqual(rec.refs, ['D-3', 'W-9']);
   assert.match(rec.what_happened, /dispatched, reported/);
   assert.equal(rec.evidence.length, 2);
@@ -88,7 +88,7 @@ test('feedback: a record holds the words verbatim and the context the person did
   );
 });
 
-test('feedback: --area wins, harness details are taken as given, an unmatched ref is said', async () => {
+test('feedback: --loop wins, harness details are taken as given, an unmatched ref is said', async () => {
   const r = await hitld([
     'feedback',
     '--kind',
@@ -97,18 +97,18 @@ test('feedback: --area wins, harness details are taken as given, an unmatched re
     'w',
     '--refs',
     'D-77',
-    '--area',
+    '--loop',
     'merge queue',
     '--harness',
     'copilot',
-    '--harness_version',
+    '--harness-version',
     '1.2',
     '--store',
     store,
     '--json',
   ]);
   assert.equal(r.json.record.id, 'FB-2');
-  assert.equal(r.json.record.area, 'merge queue');
+  assert.equal(r.json.record.loop, 'merge queue');
   assert.deepEqual(r.json.record.harness, { name: 'copilot', version: '1.2' });
   assert.deepEqual(r.json.unmatched_refs, ['D-77']);
 });

@@ -271,6 +271,8 @@ export async function runMergeQueue(r) {
           const out = exec(cmd, dir, {
             HITLD_ITEM: e.item,
             HITLD_TOUCHES: (e.touches ?? []).join(' '),
+            HITLD_CHANGED_FILES: changed,
+            // Its name before HITLD-82, for fast checks written against it; until the next minor.
             HITLD_CHANGED: changed,
           });
           if (!out.ok) {

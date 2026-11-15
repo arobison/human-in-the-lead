@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "id": "foundation/parallel-dispatch-needs-the-capability",
-  "piece": "foundation",
+  "suite": "foundation",
   "category": "portability",
-  "description": "Two dispatches in flight at once need parallelSubagents. Where a harness lacks it (minimal, the Copilot cloud agent) the scenario is not applicable, and is reported so, never as passed.",
+  "description": "Two dispatches in flight at once need parallel_subagents. Where a harness lacks it (minimal, the Copilot cloud agent) the scenario is not applicable, and is reported so, never as passed.",
   "mode": "offline",
-  "harness": { "profiles": ["*"], "requires": { "parallelSubagents": true } },
+  "harness": { "profiles": ["*"], "requires": { "parallel_subagents": true } },
   "steps": [
     {
       "id": "first",

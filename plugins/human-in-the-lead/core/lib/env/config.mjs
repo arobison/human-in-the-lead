@@ -37,7 +37,7 @@ export function envSettings(policy) {
     portRange: e.port_range ?? { min: 4100, max: 4199 },
     failedWorktreesKept: e.failed_worktrees_kept ?? 3,
     serialResources: e.serial_resources ?? ['gpu', 'benchmark', 'merge-queue'],
-    lockExpirySeconds: e.lock_expiry ?? 300,
+    lockExpirySeconds: e.lock_expiry_seconds ?? 300,
     secretProvider: e.secret_provider ?? 'auto',
     secretTasks: e.secret_tasks ?? [],
   };

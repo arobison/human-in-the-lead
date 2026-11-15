@@ -2,7 +2,7 @@
 id: HITLD-4
 title: "Files tracker backend, with the key and paths as settings (piece a)"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

@@ -50,21 +50,21 @@ const setDiff = (before, after) => ({
 export function diffSurface(before, after) {
   /** @type {DeltaEntry[]} */
   const out = [];
-  /** @param {'breaking' | 'additive' | 'fix'} impact @param {string} area @param {string} what */
-  const add = (impact, area, what) => out.push({ impact, area, what });
+  /** @param {'breaking' | 'additive' | 'fix'} impact @param {string} surface @param {string} what */
+  const add = (impact, surface, what) => out.push({ impact, surface, what });
 
   // Schemas. The report schema is the report shape, so it counts there.
   const ids = [...new Set([...Object.keys(before.schemas), ...Object.keys(after.schemas)])].sort();
   for (const id of ids) {
-    const area = id === 'report' ? 'report' : 'schemas';
+    const surface = id === 'report' ? 'report' : 'schemas';
     const a = before.schemas[id];
     const b = after.schemas[id];
     if (!a) {
-      add('additive', area, `schema ${id} added`);
+      add('additive', surface, `schema ${id} added`);
       continue;
     }
     if (!b) {
-      add('breaking', area, `schema ${id} removed`);
+      add('breaking', surface, `schema ${id} removed`);
       continue;
     }
     const paths = [...new Set([...Object.keys(a.fields), ...Object.keys(b.fields)])].sort();
@@ -72,23 +72,23 @@ export function diffSurface(before, after) {
       const fa = a.fields[p];
       const fb = b.fields[p];
       if (!fa) {
-        if (fb.required) add('breaking', area, `${id}: ${p} added, required`);
-        else add('additive', area, `${id}: ${p} added`);
+        if (fb.required) add('breaking', surface, `${id}: ${p} added, required`);
+        else add('additive', surface, `${id}: ${p} added`);
         continue;
       }
       if (!fb) {
-        add('breaking', area, `${id}: ${p} removed`);
+        add('breaking', surface, `${id}: ${p} removed`);
         continue;
       }
-      if (fa.type !== fb.type) add('breaking', area, `${id}: ${p} type ${fa.type} → ${fb.type}`);
-      if (!fa.required && fb.required) add('breaking', area, `${id}: ${p} now required`);
-      if (fa.required && !fb.required) add('additive', area, `${id}: ${p} now optional`);
+      if (fa.type !== fb.type) add('breaking', surface, `${id}: ${p} type ${fa.type} → ${fb.type}`);
+      if (!fa.required && fb.required) add('breaking', surface, `${id}: ${p} now required`);
+      if (fa.required && !fb.required) add('additive', surface, `${id}: ${p} now optional`);
       const v = setDiff(fa.values ?? [], fb.values ?? []);
       if (fa.values && fb.values) {
         if (v.removed.length) {
-          add('breaking', area, `${id}: ${p} no longer allows ${v.removed.join(', ')}`);
+          add('breaking', surface, `${id}: ${p} no longer allows ${v.removed.join(', ')}`);
         }
-        if (v.added.length) add('additive', area, `${id}: ${p} allows ${v.added.join(', ')}`);
+        if (v.added.length) add('additive', surface, `${id}: ${p} allows ${v.added.join(', ')}`);
       }
     }
   }
@@ -162,7 +162,7 @@ export function diffSurface(before, after) {
  * The bump a delta proposes from a base version, and why.
  * @param {DeltaEntry[]} delta
  * @param {string} base the last full release's version (0.0.0 before the first)
- * @returns {{ bump: Bump, breaking: boolean, version: string, basis: string }}
+ * @returns {{ bump: Bump, breaking: boolean, version: string, reason: string }}
  */
 export function proposeBump(delta, base) {
   const v = parseVersion(base);
@@ -174,21 +174,21 @@ export function proposeBump(delta, base) {
   /** @type {Bump} */
   let bump;
   /** @type {string} */
-  let basis;
+  let reason;
   if (breaking) {
     bump = v.major === 0 ? 'minor' : 'major';
-    basis =
+    reason =
       v.major === 0
         ? `${breaking} breaking change(s): minor while the version is 0.y.z, flagged breaking`
         : `${breaking} breaking change(s): major`;
   } else if (additive) {
     bump = 'minor';
-    basis = `${additive} additive change(s), none breaking: minor`;
+    reason = `${additive} additive change(s), none breaking: minor`;
   } else {
     bump = 'patch';
-    basis = fixes
+    reason = fixes
       ? `${fixes} fix(es) to the interface, nothing added or removed: patch`
       : 'no change to the public interface: internal change proposes patch at most';
   }
-  return { bump, breaking: breaking > 0, version: bumpVersion(base, bump), basis };
+  return { bump, breaking: breaking > 0, version: bumpVersion(base, bump), reason };
 }

@@ -38,11 +38,11 @@ Precedent saves the owner from answering the same question twice, but the genera
 
 ### Q4. May a reproduced bug from an unknown reporter become planned work without a human?
 
-*Decided: no, as recommended.* Reproduced bugs from unknown reporters become `Proposed` until a person commits them.
+*Decided: no, as recommended.* Reproduced bugs from unknown reporters become `proposed` until a person commits them.
 
 A bug reproduced into a failing test has strong evidence behind it, but its report came from someone the project does not know ([part 2](02-loops.md#22-triage), [part 9](09-contributors.md#92-trust-levels)).
 
-- **Recommend: not for unknown (T0) reporters.** Their reproduced bugs become `Proposed` items with the failing test attached, and a person commits each in the main session. Auto-fix by precedent is allowed for known reporters (T1 and above), per area.
+- **Recommend: not for unknown (L0) reporters.** Their reproduced bugs become `proposed` items with the failing test attached, and a person commits each in the main session. Auto-fix by precedent is allowed for known reporters (L1 and above), per area.
 - **Alternative: allow auto-fix by precedent for any reporter once the bug is reproduced**, treating the reproduction as the evidence. Faster for outside reporters, but untrusted reports then steer executor work with no human in between.
 
 ### Q5. Do provenance trailers naming the model appear in the public repository?
@@ -263,7 +263,7 @@ It runs on GitHub's infrastructure ([part 15](15-architecture.md#the-copilot-clo
 Agents draft every reply; sensitive replies always go through a human ([part 9](09-contributors.md#93-replies)).
 
 - **Recommend: draft-only at first**, then the owner enables automatic sending of routine replies per source and trust level once the drafts have a record.
-- **Alternative: automatic routine replies from the start** for trust level T1 and above. Faster responses, with the risk that early drafts sound automated to people the project wants to keep.
+- **Alternative: automatic routine replies from the start** for trust level L1 and above. Faster responses, with the risk that early drafts sound automated to people the project wants to keep.
 
 ### Q20. DCO or CLA for inbound contributions? (blocks Outside contributors; also applies to this repository)
 
@@ -329,9 +329,9 @@ These are calls the design makes without asking. Each can be reversed cheaply no
 - The plugin lives in `plugins/human-in-the-lead/`, listed by a marketplace at the repository root ([part 16](16-packaging.md#161-this-repositorys-layout)).
 - Decisions are items of kind `decision` in the same tracker and number space ([part 3](03-data-model.md#decision)).
 - Studies and runs stay in the project's benchmark tool; this system cites them ([part 3](03-data-model.md#study-run-verdict)).
-- The report shape adds `status` and `calls` (logged calls) to the agreed shape ([part 5](05-execution.md#56-the-report-shape)).
+- The report shape adds `result` (`status` before HITLD-82) and `calls` (logged calls) to the agreed shape ([part 5](05-execution.md#56-the-report-shape)).
 - Executors never create tracker entities; the orchestrator does ([part 3](03-data-model.md#id-allocation)).
-- Claims are read from branches; `main` never shows `In progress`; views are written only as part of a merge (by the queue, or by the merge the owner names in owner mode) ([part 3](03-data-model.md#initiative-project-item)).
+- Claims are read from branches; `main` never shows `in-progress`; views are written only as part of a merge (by the queue, or by the merge the owner names in owner mode) ([part 3](03-data-model.md#initiative-project-item)).
 - A sandboxed reproducer role turns bug reports into failing tests ([part 2](02-loops.md#22-triage)).
 - The owner's own words in the main session are directions; notes and pasted material become signals ([part 9](09-contributors.md#92-trust-levels)).
 - A minimal acceptance author and the security baseline are part of "One signal end to end" ([part 21](21-scope.md)).
@@ -348,7 +348,7 @@ These are calls the design makes without asking. Each can be reversed cheaply no
 - This repository keeps its public signals in `signals/`; the first 18 are the owner's untriaged ideas ([part 3](03-data-model.md#layout)).
 - Markdown stays the knowledge base's source of truth; any search index is a rebuildable cache ([part 8](08-knowledge-base.md#82-markdown-in-git-is-the-source-of-truth)).
 - Speculation cost is reported separately from waste ([part 5](05-execution.md#speculative-execution-later)).
-- Trust levels T0–T4 ([part 9](09-contributors.md#92-trust-levels)).
+- Trust levels L0–L4 ([part 9](09-contributors.md#92-trust-levels)).
 - The private store's default path is `~/.local/share/human-in-the-lead/<project-id>/` ([part 3](03-data-model.md#private-store)).
 - Controllers move settings only inside owner-set bounds; anything else is a rule change ([part 11](11-metrics-and-control.md#112-who-moves-what)). Judgement weights are estimates, not settings, and have no owner bounds ([Q24](#q24-who-decides-a-change-to-a-persons-prior-weight-blocks-hl)).
 - New projects start in owner merge mode (`merge.mode: owner`): the owner decides each merge ([part 14](14-integration.md)).

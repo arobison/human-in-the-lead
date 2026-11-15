@@ -2,10 +2,10 @@
 id: HITLD-15
 title: "Ready for consuming projects and the first release"
 kind: project
-status: Planned
+state: planned
 created: 2026-11-14
 initiative: HITLD-1
-lead: owner
+owner: owner
 ---
 
 ## Summary

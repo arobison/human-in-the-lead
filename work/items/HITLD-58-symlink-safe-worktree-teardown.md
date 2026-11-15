@@ -2,10 +2,10 @@
 id: HITLD-58
 title: Symlink-safe worktree teardown
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-58
+claimed_by: D-58
 ---
 
 ## Why
