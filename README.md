@@ -182,6 +182,16 @@ A system that grades its own work can learn to game the grade, so stage 2 has gu
 
 ## Using it in a project
 
+**Setup guides, one for each situation you may start from** ([index](docs/guide/README.md)):
+
+- [A new project](docs/guide/new-project.md)
+- [An existing project with no tracker](docs/guide/existing-project.md)
+- [An existing in-repo tracker](docs/guide/existing-tracker.md): coexist, cross-check, switch
+- [An existing hosted tracker](docs/guide/hosted-tracker.md) (Linear, Jira, GitHub Issues): what works today and what is planned
+- [Building your own dashboard](docs/guide/dashboard.md) on `hitld dashboard --json`
+
+Each gives the commands, what to commit, how to check it worked and how to undo it. Or ask Claude Code to use the `adopt` skill: it inspects the repository, proposes the whole setup in one message, and changes nothing until you say yes.
+
 The first release candidate is the tag `v0.1.0-rc.1`. To try an unreleased checkout instead, see [the development loop](docs/design/0001-human-in-the-lead/16-packaging.md#the-development-loop).
 
 This repository is its own Claude Code plugin marketplace. `hitld install` writes the pin for you. `hitld` itself is not published to a package registry, so clone the tag once, anywhere outside your project, and run it from there:
