@@ -2,7 +2,7 @@
 id: HITLD-90
 title: "Tracker structure: opportunities are projects being shaped, initiatives retire into milestones, one milestone kind"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-15
 project: HITLD-15
 ---
