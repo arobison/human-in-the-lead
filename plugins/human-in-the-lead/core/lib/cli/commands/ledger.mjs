@@ -11,6 +11,8 @@ import { Run, handOver, rebuildRun, resumeRun, startRun } from '../../run/run.mj
 import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
+import { revertEvents } from '../../merge/owner.mjs';
+import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const STORE = {
@@ -202,6 +204,12 @@ export const commands = [
           }
         }
         const { event: written, appended } = run.record(fields);
+        // A revert of a merge the owner approved is trust-calibration data (design 14.2).
+        if (appended && written.event === 'reverted' && typeof written.item === 'string') {
+          for (const ev of revertEvents(readTrustEvents(s.store), written.item)) {
+            recordTrustEvent(s.store, ev, written.at);
+          }
+        }
         return { ok: true, appended, event: written };
       }),
   },
