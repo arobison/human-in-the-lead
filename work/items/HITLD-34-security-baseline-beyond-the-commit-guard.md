@@ -9,7 +9,7 @@ project: HITLD-28
 
 ## Why
 
-Design 10.2 and 10.5: least-privilege agent definitions, the guards still to come, and the security review and threat modelling that "done when" needs. Diff-aware scanning, triage records and accepted risk are HITLD-63.
+Design 10.2 and 10.5: least-privilege agent definitions, the guards still to come, and the security review and threat modeling that "done when" needs. Diff-aware scanning, triage records and accepted risk are HITLD-63.
 
 ## Done when
 

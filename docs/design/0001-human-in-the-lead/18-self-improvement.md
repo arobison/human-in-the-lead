@@ -86,7 +86,7 @@ Consumers pin a release tag ([part 16](16-packaging.md)), so rolling back a bad 
 
 ### 4. Diverse checking
 
-A candidate is evaluated by a different model, or at least a different prompt framing, from the one that wrote it: its LLM-graded scenarios use graders from a different model where one is available, and the diverse check stage has an agent of that other model try to find ways the candidate games the evals (special cases keyed on scenario content, weakened assertions, behaviour that differs when an eval is detected).
+A candidate is evaluated by a different model, or at least a different prompt framing, from the one that wrote it: its LLM-graded scenarios use graders from a different model where one is available, and the diverse check stage has an agent of that other model try to find ways the candidate games the evals (special cases keyed on scenario content, weakened assertions, behavior that differs when an eval is detected).
 
 This is the agent version of Ken Thompson's "Reflections on Trusting Trust" (1984): a compiler that compiles itself can carry a flaw that no inspection of its own source reveals. David A. Wheeler's answer, **diverse double-compiling**, is to rebuild with an independent compiler and compare. Here the "independent compiler" is an independent model and framing judging the change, so that a blind spot shared by the author and its grader does not pass silently. Citations are in [part 20](20-prior-art.md#209-security).
 

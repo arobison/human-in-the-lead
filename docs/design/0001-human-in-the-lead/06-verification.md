@@ -14,7 +14,7 @@ Generated code goes through the same transition, area by area. Early on, people 
 4. **Provenance**: every change traceable to its item, brief, model and evidence (6.4).
 5. **Reliability over time**: escaped defects and reliability growth per area, which set how much scrutiny each area gets (6.5).
 
-The difference from a compiler is that this "compiler" changes (new models, new skills) and its errors are correlated (agents from one model tend to share blind spots). So verification must be **diverse** (different models or framings for author, tester, adversary and reviewer) and the reliability record must be **reset or re-earned** when the model changes, or when a skill change alters behaviour (6.5).
+The difference from a compiler is that this "compiler" changes (new models, new skills) and its errors are correlated (agents from one model tend to share blind spots). So verification must be **diverse** (different models or framings for author, tester, adversary and reviewer) and the reliability record must be **reset or re-earned** when the model changes, or when a skill change alters behavior (6.5).
 
 ## 6.2 Independent verification
 
@@ -47,8 +47,8 @@ The skills include templates for each kind, and the knowledge base records, per 
 
 1. Each area has an **invariant registry** in the knowledge base: the properties that must always hold (for example, "the cache never returns a report built for a different key"; "output is deterministic for a fixed seed"). Each invariant has a "checked" date.
 2. For changes in an area with allocated adversarial budget, an adversary agent receives the change, the area's invariants, and the existing tests. Its job is to break an invariant: find an input, sequence or configuration that violates it.
-3. **Every break becomes a failing test** committed to the regression suite, as does every security finding caught by a scan or a security review ([10.5](10-security.md#105-security-in-done-when)); a break in agent behaviour becomes an eval scenario. The fix is a new item (or a follow-up to the same executor). The test stays unless a decision retires it; a flaky one is handled as in [part 14.7](14-integration.md#147-flaky-tests). This is how the system improves itself: each found defect permanently raises the floor.
-4. An adversary that finds an unregistered invariant (behaviour that seems to matter but is not listed) proposes it for the registry; adding it is the area owner's call (the owner's, until area owners can answer; [Q21](22-open-questions.md)).
+3. **Every break becomes a failing test** committed to the regression suite, as does every security finding caught by a scan or a security review ([10.5](10-security.md#105-security-in-done-when)); a break in agent behavior becomes an eval scenario. The fix is a new item (or a follow-up to the same executor). The test stays unless a decision retires it; a flaky one is handled as in [part 14.7](14-integration.md#147-flaky-tests). This is how the system improves itself: each found defect permanently raises the floor.
+4. An adversary that finds an unregistered invariant (behavior that seems to matter but is not listed) proposes it for the registry; adding it is the area owner's call (the owner's, until area owners can answer; [Q21](22-open-questions.md)).
 5. Adversarial budget per area is set by the review-allocation controller from defect yield per token ([part 11](11-metrics-and-control.md#114-feedback-controllers)), with a floor so that every area is probed sometimes.
 
 ### Review
@@ -81,7 +81,7 @@ The built trailers are the first five. `Brief`, `Plugin-Version` and `Evidence` 
 - **Escaped defects** are defects found after merge: by users, by later tests, by adversaries probing old code, or by incidents. Each is linked to the commit that introduced it (by bisection or blame) and therefore, through provenance, to its item, tier, model and skill versions.
 - **Change failure rate** is the share of merged items that later needed a revert or a fix that cites them.
 - **Reliability growth per area.** For each area, the system tracks cumulative escaped defects against cumulative changes. When the defect discovery rate falls as changes accumulate (in the Crow-AMSAA model, a growth parameter below 1; see MIL-HDBK-189C, *Reliability Growth Management*), the area's reliability is growing. An area's reliability sets its human-read sampling rate, its adversarial floor and its auto-fix eligibility.
-- **Re-earning trust.** A major change resets the affected areas' sampling rates to the defaults until enough new samples accumulate (`verification.recalibration_samples`). A change is major when it is a new model, or a skill change that the eval gate ([part 17](17-evals.md)) flags as changing behaviour.
+- **Re-earning trust.** A major change resets the affected areas' sampling rates to the defaults until enough new samples accumulate (`verification.recalibration_samples`). A change is major when it is a new model, or a skill change that the eval gate ([part 17](17-evals.md)) flags as changing behavior.
 
 ## 6.6 When a human reads the code
 
@@ -95,7 +95,7 @@ A human (the area owner or the owner; the owner alone, until area owners can ans
 | **Verification disagreement** (an adversary or reviewer finding the author disputes, or a surviving mutant that cannot be killed) | The disputed region | Who is right? |
 | **Random audit sample**, at the area's sampling rate | One change | Does anything surprise you? (Findings feed rule changes) |
 | **New dependency** | The manifest change and the package's provenance | Do we accept this dependency? |
-| **Provenance or licensing concern** (a large block that looks copied, an unusual licence header) | The block | Can we ship this? |
+| **Provenance or licensing concern** (a large block that looks copied, an unusual license header) | The block | Can we ship this? |
 | **Owner-reviewed UI work** | The running UI, not the code | Is this what you want people to see? |
 | **First changes after a model or skill change** in an area | A sample | Is the new configuration as good as the old? |
 

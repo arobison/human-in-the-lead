@@ -2,7 +2,7 @@
 
 A dated reference note for [design part 12.5](../design/0001-human-in-the-lead/12-reporting-and-limits.md#125-quotas-and-budgets). The design describes the model. This note holds the vendor details, which change often.
 
-**Status.** Read from vendor documentation on 2026-11-14. Plan names, prices, field names and API behaviour were not rechecked after that date, and some claims were not independently verified. Check the linked pages before relying on any line.
+**Status.** Read from vendor documentation on 2026-11-14. Plan names, prices, field names and API behavior were not rechecked after that date, and some claims were not independently verified. Check the linked pages before relying on any line.
 
 ## What each account exposes
 

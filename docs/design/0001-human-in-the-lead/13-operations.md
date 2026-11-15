@@ -259,7 +259,7 @@ The machine profile says how much of the machine `hitld` may use, not just what 
 
 **Kinds of machine.** The machine profile has a `kind` (`role` before HITLD-82), and the kind sets the defaults (decided, [Q26](22-open-questions.md#q26-what-share-of-a-machine-may-hitld-use-by-default-affects-the-machine-profile-hitld-machine-detect-proposes)):
 
-| Role | Default share | Behaviour |
+| Role | Default share | Behavior |
 |---|---|---|
 | **Dedicated** | Everything except one core and about 10% of memory | Load checks only for quiet holds |
 | **Workstation** | Half the cores and half the memory | Load-aware: yields to the person and their programs |
@@ -338,6 +338,6 @@ Until then, conservative defaults apply (one executor, the default reserve, no h
 | `env.serial_resources` | Stays, as the names of what work needs | Capacities and holders are machine settings |
 | `execution.max_executors` | Stays, as the project's own cap | The person's and machine's caps apply on top |
 | Per-person interface settings ([part 23](23-people-in-the-lead.md#235-the-interface-as-a-design-surface)) | Person | Keep each person's decision rights and decision budget ceiling |
-| `judgement.weights` (starting weights per person, [part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)) | Person | Nothing: weights are personal |
+| `judgment.weights` (starting weights per person, [part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)) | Person | Nothing: weights are personal |
 
 For one minor version, a moved key in `policy.json` still loads, with a warning naming its new home. `hitld config migrate` (the settings migration) proposes the person and machine files from those keys, writes them once the person confirms, and removes the keys from `policy.json` in a commit the maintainers review.

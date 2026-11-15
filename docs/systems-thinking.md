@@ -1,16 +1,16 @@
 # The systems thinking behind HITLd
 
-HITLd (human in the lead) is a way to build software in which agents do the work, and people set the direction and make the calls that need judgement. This page explains the ideas it is built on. It is for engineers and engineering leads who know agile, Scrum, Kanban or DevOps, and have not read systems theory.
+HITLd (human in the lead) is a way to build software in which agents do the work, and people set the direction and make the calls that need judgment. This page explains the ideas it is built on. It is for engineers and engineering leads who know agile, Scrum, Kanban or DevOps, and have not read systems theory.
 
-None of these ideas is new. Most are already inside the processes you use, with trade-offs chosen for a time when people did the labour. The design itself is [0001: Human in the lead](design/0001-human-in-the-lead.md); this page links into it.
+None of these ideas is new. Most are already inside the processes you use, with trade-offs chosen for a time when people did the labor. The design itself is [0001: Human in the lead](design/0001-human-in-the-lead.md); this page links into it.
 
 ## The shift
 
-Scrum, Kanban and their relatives assume that labour is scarce. Engineers are few and expensive, and each does one thing at a time. So a good process batches coordination into meetings, estimates effort, and limits how much is started.
+Scrum, Kanban and their relatives assume that labor is scarce. Engineers are few and expensive, and each does one thing at a time. So a good process batches coordination into meetings, estimates effort, and limits how much is started.
 
-With agents, labour is cheap and parallel. Ten agents can start ten items at once. Other things become scarce ([part 1.2](design/0001-human-in-the-lead.md#12-what-is-scarce)):
+With agents, labor is cheap and parallel. Ten agents can start ten items at once. Other things become scarce ([part 1.2](design/0001-human-in-the-lead.md#12-what-is-scarce)):
 
-- **Human attention and judgement.** A person can make only so many good calls.
+- **Human attention and judgment.** A person can make only so many good calls.
 - **The orchestrator's context.** The agent that coordinates the run has a finite context window. Every diff it reads leaves less room for the rest.
 - **Serial resources.** One GPU, one merge queue, a file that many items touch.
 
@@ -27,7 +27,7 @@ Each section gives the principle, where HITLd uses it, and a practice you know t
 
 ### Stocks and flows
 
-**What it says.** A system's behaviour comes from its stocks (things that accumulate) and the flows that fill and drain them. In a bathtub, the water is the stock; the tap and the drain are flows. Donella Meadows, _Thinking in Systems_ (2008).
+**What it says.** A system's behavior comes from its stocks (things that accumulate) and the flows that fill and drain them. In a bathtub, the water is the stock; the tap and the drain are flows. Donella Meadows, _Thinking in Systems_ (2008).
 
 **In HITLd.** Every stage of work is a queue, and every queue is a query over the tracker, so its stock (items waiting) and flows (arrivals and departures) can always be computed. No work waits in an agent's context or in chat ([part 2, common rules](design/0001-human-in-the-lead/02-loops.md#common-rules)).
 
@@ -55,7 +55,7 @@ Each section gives the principle, where HITLd uses it, and a practice you know t
 
 **In HITLd.** Work is cut into items. Each declares the files it touches and runs in its own worktree ([part 5.2](design/0001-human-in-the-lead/05-execution.md#52-dispatch)). Loops nested by speed are Simon's hierarchy in time: fast loops settle before slow ones look. A large item can run its own small orchestrator ([part 19.3](design/0001-human-in-the-lead/19-viable-system-model.md#193-recursion)).
 
-**In today's practice.** Service and team boundaries both aim for parts that change independently. But decomposition followed team lines, because the team was the unit of labour. Here the unit is the item, and decomposition follows the code: the files an item touches and the serial resources it needs.
+**In today's practice.** Service and team boundaries both aim for parts that change independently. But decomposition followed team lines, because the team was the unit of labor. Here the unit is the item, and decomposition follows the code: the files an item touches and the serial resources it needs.
 
 ### The viable system model
 
@@ -143,7 +143,7 @@ Each section gives the principle, where HITLd uses it, and a practice you know t
 
 **In HITLd.** Every estimate is tracked for accuracy (bias) and precision (spread). A bias gets a scale factor; a spread needs better inputs ([part 1.4](design/0001-human-in-the-lead.md#14-accuracy-and-precision)). People's calls are recorded with an optional confidence and what they expected, outcomes are matched later, and each person gets a private calibration review ([part 23](design/0001-human-in-the-lead/23-people-in-the-lead.md)). The same kind of record sets the system's autonomy: more where it has been reliably right, less where it was corrected, always by the owner's decision ([part 4.6](design/0001-human-in-the-lead/04-decision-rights.md#46-autonomy-changes-with-the-record)).
 
-**In today's practice.** Planning poker and velocity compare estimates with actuals for a team. Human effort is hard to score, so single estimates rarely are. Here each estimate and each judgement gets its outcome attached when one arrives.
+**In today's practice.** Planning poker and velocity compare estimates with actuals for a team. Human effort is hard to score, so single estimates rarely are. Here each estimate and each judgment gets its outcome attached when one arrives.
 
 ### Constraints versus contributions
 
@@ -155,9 +155,9 @@ Each section gives the principle, where HITLd uses it, and a practice you know t
 
 ## Agile and friends, re-read
 
-Each practice below got something right, and each made a trade-off that fit human labour. HITLd keeps the principle and changes the trade-off.
+Each practice below got something right, and each made a trade-off that fit human labor. HITLd keeps the principle and changes the trade-off.
 
-| Practice | Principle, and what it got right | Trade-off made for human labour | What HITLd does instead |
+| Practice | Principle, and what it got right | Trade-off made for human labor | What HITLd does instead |
 | --- | --- | --- | --- |
 | **Sprints and planning** | A setpoint and a fast loop. A fixed timebox forces finishing and a regular check against a goal | Coordination was expensive, so it was batched into planning meetings | Continuous flow: items dispatch when ready. Milestones are outcome setpoints, ordered by dependency, not date |
 | **Story points and velocity** | Calibration. Relative sizing is easier than absolute, and actuals are tracked | They estimate human effort, which is noisy and easy to inflate | Size is a token estimate. Actual tokens are measured per dispatch; accuracy and precision are tracked per item type |
@@ -179,7 +179,7 @@ The principles agree on one pattern ([part 1.3](design/0001-human-in-the-lead.md
 4. **Feedback flows to both the actors and the intent.** Fast loops tune the work. Slow loops tell the owner when the intent itself may be wrong.
 5. **Autonomy is extended as trust is earned.** Area by area, from the record, and only by the owner's decision.
 
-Scrum follows it too: a product owner sets the goal, the team self-organizes, velocity stands in for value, reviews and retrospectives close the loops. HITLd keeps the pattern and moves the trade-offs to where the scarcity now is: people's attention and judgement.
+Scrum follows it too: a product owner sets the goal, the team self-organizes, velocity stands in for value, reviews and retrospectives close the loops. HITLd keeps the pattern and moves the trade-offs to where the scarcity now is: people's attention and judgment.
 
 What comes out is legible. Every result can answer "who decided, and on what evidence?" That is what lets other people trust it.
 

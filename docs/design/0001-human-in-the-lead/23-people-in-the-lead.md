@@ -1,4 +1,4 @@
-# 23. The people in the lead: judgement, calibration and the interface
+# 23. The people in the lead: judgment, calibration and the interface
 
 [Back to the index](../0001-human-in-the-lead.md)
 
@@ -8,20 +8,20 @@ This part is about the people who make the calls: the owner and every area owner
 
 Other people trust this system's output because accountable people stand behind it. A contributor accepts a decline because a maintainer made it. Evidence makes the output correct; named people with a record make it trustworthy to others.
 
-People differ. Skill, judgement, gut checks and calibration vary between people, and between areas for one person. Treating every word the same wastes good judgement or over-trusts weak judgement. Never telling people how their calls turned out leaves them no way to improve.
+People differ. Skill, judgment, gut checks and calibration vary between people, and between areas for one person. Treating every word the same wastes good judgment or over-trusts weak judgment. Never telling people how their calls turned out leaves them no way to improve.
 
 So two things are design surfaces in their own right:
 
-- **the record of each person's judgement**, and the feedback it makes possible;
+- **the record of each person's judgment**, and the feedback it makes possible;
 - **the interface between the system and each person**: what it asks, how, and when.
 
 Both are general: nothing assumes one particular owner, and every setting is per person.
 
-## 23.2 The judgement record
+## 23.2 The judgment record
 
-Every call a person makes is recorded at the moment it is made. That covers gut checks and considered judgements on signals and projects being shaped ([part 3](03-data-model.md#judgement)), and answers to decisions ([part 3](03-data-model.md#decision), [part 4](04-decision-rights.md)). The **judgement record** is the per-person view over all of them.
+Every call a person makes is recorded at the moment it is made. That covers gut checks and considered judgments on signals and projects being shaped ([part 3](03-data-model.md#judgment)), and answers to decisions ([part 3](03-data-model.md#decision), [part 4](04-decision-rights.md)). The **judgment record** is the per-person view over all of them.
 
-**What is new.** Judgements already record `what`, `basis`, `by`, `at` and a derived `weight`; decisions record their answer, rationale and channel. Both gain four fields. The first three are recorded from "One signal end to end" ([Q22](22-open-questions.md#q22-do-the-new-judgement-record-fields-join-one-signal-end-to-end-affects-its-record-scoring-waits-for-people-in-the-lead)); `outcomes` comes with the "People in the lead" milestone:
+**What is new.** Judgments already record `what`, `basis`, `by`, `at` and a derived `weight`; decisions record their answer, rationale and channel. Both gain four fields. The first three are recorded from "One signal end to end" ([Q22](22-open-questions.md#q22-do-the-new-judgment-record-fields-join-one-signal-end-to-end-affects-its-record-scoring-waits-for-people-in-the-lead)); `outcomes` comes with the "People in the lead" milestone:
 
 | Field | Notes |
 |---|---|
@@ -43,7 +43,7 @@ Every call a person makes is recorded at the moment it is made. That covers gut 
 | Outcome checks ([part 2](02-loops.md#210-outcome-sensing)) | The shaped problem is solved, partly solved, or not |
 | Reversals | The person, another decider or a revert undoes the call; a precedent drawn from it is overruled |
 
-An agent proposes each match with its evidence. The person can dispute a match, and the dispute is recorded: matching is a judgement too. Calls that never get an outcome stay as `not-observable` and are left out of every score; the review says how many there are.
+An agent proposes each match with its evidence. The person can dispute a match, and the dispute is recorded: matching is a judgment too. Calls that never get an outcome stay as `not-observable` and are left out of every score; the review says how many there are.
 
 One limit is stated wherever results are shown: an outcome is usually observed only for the option chosen. Nobody learns what the rejected option would have done, unless a study tested both.
 
@@ -53,8 +53,8 @@ How much a person's quick read counts in prioritization ([part 2](02-loops.md#24
 
 - **Starts from the person layer.** Each person's starting weight per basis is in the person layer, not in the committed `policy.json`. Without one, the design's default applies. The owner's gut checks start high. A new area owner starts at the default (23.6).
 - **Tunes itself, by shrinkage.** A weight is pulled toward the default and moves only as far as its evidence supports. With few outcomes it barely moves; with many, it follows the record. There are no owner-set bounds, and no owner decision per change.
-- **Two fixed rules.** They are part of the design, not settings. No one's judgement is weighted to zero. No one's gut check alone overrides contrary evidence (below).
-- **Never fixed.** The trust-calibration loop ([part 2](02-loops.md#215-trust-calibration)) keeps comparing judged items with outcomes. Recent calls count more (`judgement.half_life`, counted in calls), so improvement shows in the weight.
+- **Two fixed rules.** They are part of the design, not settings. No one's judgment is weighted to zero. No one's gut check alone overrides contrary evidence (below).
+- **Never fixed.** The trust-calibration loop ([part 2](02-loops.md#215-trust-calibration)) keeps comparing judged items with outcomes. Recent calls count more (`judgment.half_life`, counted in calls), so improvement shows in the weight.
 - **Learned per confidence level.** When a person taps a confidence, the weight for that level comes from how their calls at that level held up. Saying `sure` more often buys nothing: if `sure` calls miss, the weight of `sure` falls.
 - **Recorded, and seen by its person.** Each change is logged with its basis (calls, share held, area). Each person sees their own weights in their private review (23.4). Decided: [Q24](22-open-questions.md#q24-who-decides-a-change-to-a-persons-prior-weight-blocks-people-in-the-lead).
 
@@ -62,7 +62,7 @@ Why tuning needs no decision: a weight is an estimate from data, like a measured
 
 Calibration weighs inputs; it does not grade people. A weight never changes anyone's decision rights ([part 4](04-decision-rights.md#45-several-humans-in-the-lead)).
 
-**Disagreement with evidence is surfaced, never resolved silently.** When a study, a measurement or research contradicts a person's call, the judgement is held out of the estimate, and the conflict goes to that person with the evidence and a recommendation ([part 3](03-data-model.md#judgement)). The system neither overrides them quietly nor defers to them quietly (the last anti-goal in [part 1](../0001-human-in-the-lead.md#goals-non-goals-anti-goals)). If they hold their view, the call stands where it is theirs to make, the record keeps both, and the outcome later shows which was right.
+**Disagreement with evidence is surfaced, never resolved silently.** When a study, a measurement or research contradicts a person's call, the judgment is held out of the estimate, and the conflict goes to that person with the evidence and a recommendation ([part 3](03-data-model.md#judgment)). The system neither overrides them quietly nor defers to them quietly (the last anti-goal in [part 1](../0001-human-in-the-lead.md#goals-non-goals-anti-goals)). If they hold their view, the call stands where it is theirs to make, the record keeps both, and the outcome later shows which was right.
 
 ## 23.4 Feedback to the person: the calibration review
 
@@ -73,7 +73,7 @@ The **calibration review** is a report to one person about their own calls, made
 | **Reads that held up** | Calls whose outcomes arrived and held, especially gut checks that research or a study later supported |
 | **Over- and under-confidence by area** | Per confidence level and area: how many calls, and the share that held. "Of 14 `sure` calls on caching, 13 held; of 9 on the build, 5 held" |
 | **The decision journal** | Decisions whose outcomes arrived since the last review: the question, the evidence available then, what the person expected, what happened |
-| **Scores** | Where calls carried a confidence or a stated probability, the Brier score (the mean squared gap between stated probability and outcome) per area, with the count it rests on. Taps map to probabilities set in `judgement.confidence_levels` |
+| **Scores** | Where calls carried a confidence or a stated probability, the Brier score (the mean squared gap between stated probability and outcome) per area, with the count it rests on. Taps map to probabilities set in `judgment.confidence_levels` |
 | **Disputed matches** | Matches the person disputed, and how each was settled |
 | **Your weights** | The person's current weights per area, basis and confidence level, and how they moved since the last review (23.3) |
 | **Proposed changes** | Interface defaults the record suggests (23.6) |
@@ -146,7 +146,7 @@ Each with its pair ([part 11](11-metrics-and-control.md#113-goodhart-pairs)):
 |---|---|
 | **Calibration gap** ↓: stated confidence against the share that held, per level | Share of calls with the tap skipped or `unsure` |
 | **Brier score** ↓ | Share of calls that get a score at all (scoring only easy calls) |
-| **Prior usefulness** ↑: weighted judgements raised items that later realized value | Contradiction challenges sent per period |
+| **Prior usefulness** ↑: weighted judgments raised items that later realized value | Contradiction challenges sent per period |
 | **Question quality** ↑: worth-asking rate; follow-ups needed per question | Escalation recall ([part 17](17-evals.md#174-metrics)): fewer questions must not mean missed ones |
 | **Ramp of a new person** ↑: share of their decisions not reversed | Owner attention spent reviewing their decisions |
 | **Review usefulness** ↑: the person's one-tap "useful?" on each review | Review length against its budget |
@@ -159,9 +159,9 @@ Each is reported only to its person.
 
 | Piece | When |
 |---|---|
-| Judgements on signals (`what`, `basis`, `by` in public; the rest in the private store) with the starting weight from the person layer; "worth asking?" ratings and reversals | One signal end to end ([part 21](21-scope.md#what-it-contains)) |
+| Judgments on signals (`what`, `basis`, `by` in public; the rest in the private store) with the starting weight from the person layer; "worth asking?" ratings and reversals | One signal end to end ([part 21](21-scope.md#what-it-contains)) |
 | The person file: quiet hours, attention budget, question style, the status line | Before the first release ([13.4](13-operations.md#134-settings-in-four-layers)) |
-| `confidence`, `expected` and `evidence_at_time` on judgements and decision answers, in the private store | One signal end to end (decided, Q22): a record started later cannot be backfilled honestly |
+| `confidence`, `expected` and `evidence_at_time` on judgments and decision answers, in the private store | One signal end to end (decided, Q22): a record started later cannot be backfilled honestly |
 | Outcome matching, weight tuning, the calibration review, adapting each person's interface defaults, the practice set, question-quality evals | **People in the lead** ([part 21](21-scope.md#212-later-milestones)) |
 
 Q22 to Q25, all decided, are in [part 22](22-open-questions.md).

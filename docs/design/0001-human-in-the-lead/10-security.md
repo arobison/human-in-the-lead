@@ -4,7 +4,7 @@
 
 ## 10.1 Threat model
 
-| Threat | How it arrives | Main defence |
+| Threat | How it arrives | Main defense |
 |---|---|---|
 | **Prompt injection** | Text in issues, PR descriptions, comments, commit messages from outsiders, code comments, test fixtures, web pages, dependency READMEs, tool output | Quarantine: an agent that reads untrusted text never also has the means to act on it (10.2) |
 | **Data exfiltration** | An injected instruction asks an agent to send private data somewhere | No agent holds all three of: private data, untrusted input, and an outbound channel (the "lethal trifecta", [Willison](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/); [part 20](20-prior-art.md)) |
@@ -157,7 +157,7 @@ A verdict is keyed by the tool, the rule and a fingerprint of the code at that p
 
 **Design-level items get a threat-model note.** An item that adds a trust boundary, an input path or a privilege carries a short note in its plan: what it protects, where untrusted input enters, the threats (STRIDE as a checklist) and the mitigation for each, each mitigation a test or a follow-up item.
 
-**Every finding caught becomes a test.** A real finding becomes a regression test; a finding about agent behaviour, such as an injection that worked, becomes an eval scenario ([part 17](17-evals.md)). The floor rises with each one, as with adversarial breaks.
+**Every finding caught becomes a test.** A real finding becomes a regression test; a finding about agent behavior, such as an injection that worked, becomes an eval scenario ([part 17](17-evals.md)). The floor rises with each one, as with adversarial breaks.
 
 **Classification.** A real finding not yet fixed is a vulnerability, so the baseline, the verdicts and accepted risks live in the private store, at `confidential` for real findings ([10.3](#103-information-classification)). A public item records only that its scans passed.
 

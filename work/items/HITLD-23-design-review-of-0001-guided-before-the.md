@@ -21,5 +21,5 @@ Open.
 ## Done when
 
 - The owner has finished the guided review of every part of design 0001.
-- Each judgement call is answered or deferred with the reason, and the answers are recorded in part 22.
+- Each judgment call is answered or deferred with the reason, and the answers are recorded in part 22.
 - The design is updated to match, and the review sheet is closed.

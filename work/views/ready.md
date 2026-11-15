@@ -15,7 +15,7 @@ HITLD-15 Ready for consuming projects and the first release
   HITLD-58  Symlink-safe worktree teardown
   HITLD-59  DCO check in CI
   HITLD-60  Private store as git text plus a local SQLite index, with hitld store export, import and sync
-  HITLD-61  CLI and schemas follow the design review: command names, milestone tags, public judgement fields
+  HITLD-61  CLI and schemas follow the design review: command names, milestone tags, public judgment fields
   HITLD-63  Security in done when: diff-aware scanning against a baseline, triage records, accepted risk with expiry
 
 HITLD-28 One signal end to end: the rest of the slice

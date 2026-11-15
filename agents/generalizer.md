@@ -27,7 +27,7 @@ Reply with one JSON object and nothing else:
 }
 ```
 
-Keep it short and plain. Write about HITLd's behaviour, not the project's work.
+Keep it short and plain, in American English. Write about HITLd's behavior, not the project's work.
 
 ## What a public draft never holds
 

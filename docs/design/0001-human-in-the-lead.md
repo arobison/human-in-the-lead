@@ -32,7 +32,7 @@ This design has twenty-three parts. This file holds part 1 (purpose and objectiv
 | 20 | [Ideas this design uses](0001-human-in-the-lead/20-prior-art.md) | The established ideas the design is built on, by field, from cybernetics and control theory to security, each with its source and where it is used |
 | 21 | [Scope and milestones](0001-human-in-the-lead/21-scope.md) | The slice "One signal end to end" and later milestones by dependency |
 | 22 | [Open questions](0001-human-in-the-lead/22-open-questions.md) | Calls that need the owner, each with a recommendation; and the calls this design made |
-| 23 | [The people in the lead](0001-human-in-the-lead/23-people-in-the-lead.md) | Judgement records matched to outcomes, calibration as a per-person prior, private calibration reviews, the interface as a design surface, defaults for new and experienced people |
+| 23 | [The people in the lead](0001-human-in-the-lead/23-people-in-the-lead.md) | Judgment records matched to outcomes, calibration as a per-person prior, private calibration reviews, the interface as a design surface, defaults for new and experienced people |
 
 ---
 
@@ -46,7 +46,7 @@ This design has twenty-three parts. This file holds part 1 (purpose and objectiv
 
 **Human in the lead** puts people in front of the process. The core statement:
 
-> Agents do the work. People make the calls that need judgement, and own the relationships. The system routes each such call to the right person, framed for a fast and good decision, and makes every result traceable to its evidence and to the human calls behind it, because that is what lets other people trust it.
+> Agents do the work. People make the calls that need judgment, and own the relationships. The system routes each such call to the right person, framed for a fast and good decision, and makes every result traceable to its evidence and to the human calls behind it, because that is what lets other people trust it.
 
 The people in the lead set:
 
@@ -54,15 +54,15 @@ The people in the lead set:
 - the **decision rights**: which calls are theirs, which belong to area owners, which agents make and record;
 - the **objective**: its weights and its limits (1.3);
 
-and they make the calls that need judgement. Agents do the labour: intake, triage, shaping, research, implementation, verification, shipping, and most of the measurement.
+and they make the calls that need judgment. Agents do the labor: intake, triage, shaping, research, implementation, verification, shipping, and most of the measurement.
 
-**Judgement.** A call needs judgement when it turns on values or trade-offs, on uncertainty the evidence cannot settle, on something hard to undo, on taste, or on people. Decision rights encode the known cases; novelty, stakes and irreversibility catch the unknown ones ([part 4](0001-human-in-the-lead/04-decision-rights.md)). Each answer can become precedent, so the same question does not come back. People's judgement is a strong prior but not an infallible one: the system weighs each person's quick reads by their record, shows them where evidence disagrees, and helps them get better at it ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)).
+**Judgment.** A call needs judgment when it turns on values or trade-offs, on uncertainty the evidence cannot settle, on something hard to undo, on taste, or on people. Decision rights encode the known cases; novelty, stakes and irreversibility catch the unknown ones ([part 4](0001-human-in-the-lead/04-decision-rights.md)). Each answer can become precedent, so the same question does not come back. People's judgment is a strong prior but not an infallible one: the system weighs each person's quick reads by their record, shows them where evidence disagrees, and helps them get better at it ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)).
 
 **Trust, in two directions.** Other people (users, contributors, reviewers) trust the output because accountable people stand behind it: they set the direction, made the calls, and hold the relationships. The system drafts; people own the relationship. And the people in the lead trust the system only as far as its record: autonomy is granted area by area as evidence accumulates, and withdrawn when it does not hold ([part 4.6](0001-human-in-the-lead/04-decision-rights.md#46-autonomy-changes-with-the-record)).
 
 **Legibility.** Every result can answer "who decided, and on what evidence?" That traceability is what turns the output of a semi-autonomous system into something another person can rely on.
 
-The difference from the loop shows in what people spend attention on. In the loop, attention goes to approvals, roughly in proportion to volume. In the lead, it goes to the calls that need judgement, which is the requisite-variety rule this design applies throughout: the system absorbs the variety it can handle by rule and precedent, and passes on only what needs a person.
+The difference from the loop shows in what people spend attention on. In the loop, attention goes to approvals, roughly in proportion to volume. In the lead, it goes to the calls that need judgment, which is the requisite-variety rule this design applies throughout: the system absorbs the variety it can handle by rule and precedent, and passes on only what needs a person.
 
 The person in front is called **the owner** in this design: the person who holds the project's decision rights. A project may have more than one human: area owners hold delegated decision rights over parts of it. The owner talks to their chief of staff, the front-desk session that hands work to an orchestrator ([part 9](0001-human-in-the-lead/09-contributors.md)).
 
@@ -70,7 +70,7 @@ The person in front is called **the owner** in this design: the person who holds
 
 The design point is one owner directing many agents in parallel on a large codebase, each agent in its own working tree.
 
-In an agentic flow, labour is cheap and parallel. What is scarce:
+In an agentic flow, labor is cheap and parallel. What is scarce:
 
 1. **The owner's attention.** Measured as decision latency and decisions per period.
 2. **The orchestrator's context window.** Everything the main session reads costs it room to think about the rest of the run.
@@ -118,11 +118,11 @@ The objective is a proxy that the owner writes and revises. Several fields have 
 | **Machine-learning objective** | The formula is a training objective: a proxy for what the owner wants, with constraints. Optimizing a proxy invites reward hacking | Goodhart pairs, outcome checks after shipping, evals the system cannot see; the objective is versioned and each revision is a decision |
 | **Theory of constraints** | Throughput is set by the bottleneck, and the bottleneck is the owner's attention | Keep the bottleneck fed with well-framed decisions, never idle and never flooded: batching, framing, the reserve |
 | **Control theory** | Setpoints, sensors, controllers and stability | Controllers act inside the owner's bounds, with rules against oscillation ([part 11](0001-human-in-the-lead/11-metrics-and-control.md)) |
-| **Cybernetics** | Requisite variety: a regulator must absorb as much variety as it faces | Rules and precedent absorb routine variety; only what needs judgement reaches a person. Beer's viable system model as a completeness check ([part 19](0001-human-in-the-lead/19-viable-system-model.md)) |
+| **Cybernetics** | Requisite variety: a regulator must absorb as much variety as it faces | Rules and precedent absorb routine variety; only what needs judgment reaches a person. Beer's viable system model as a completeness check ([part 19](0001-human-in-the-lead/19-viable-system-model.md)) |
 | **Economics of flow** | Cost of delay, queues and work in progress | Prioritize by cost of delay over size; limit work in progress; measure queues ([part 2](0001-human-in-the-lead/02-loops.md)) |
 | **Principal and agent** | A principal delegates to agents whose incentives and information differ, and pays to monitor them | Briefs state intent and limits; reports carry evidence, not claims; verification is independent of the author |
 | **Mission command** | Leaders give intent and constraints; people closest to the work decide how | Items carry intent and "done when"; executors make cheap-to-undo calls and log them |
-| **Forecasting and decision science** | Judgements are predictions that can be scored | Confidence recorded with each call, outcomes matched later, calibration fed back to the person ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)) |
+| **Forecasting and decision science** | Judgments are predictions that can be scored | Confidence recorded with each call, outcomes matched later, calibration fed back to the person ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)) |
 
 What the frames share is the pattern the system is designed around: **someone accountable sets intent and limits; others act with local autonomy; outcomes are measured against a proxy that can be gamed; feedback flows back to both the actors and the intent; and autonomy is extended as trust is earned from the record.**
 
@@ -152,12 +152,12 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 - Token- and wall-time-efficient by design: short briefs, short reports, parallel work, serial resources protected.
 - Tracker-agnostic: the model sits behind an adapter, with in-repo files as the reference backend.
 - Portable across popular agent harnesses: a neutral core and portable instructions, with a thin adapter per harness. Adapters are built in order of how much of the design a harness can run natively: Claude Code first (skills, subagents, hooks, MCP and a plugin marketplace), then GitHub Copilot in VS Code and its cloud agent.
-- Measured behaviour: an eval suite, shipped from the start, gates every change to skills, policy and templates, and detects model changes.
+- Measured behavior: an eval suite, shipped from the start, gates every change to skills, policy and templates, and detects model changes.
 - Self-improving within guardrails: the plugin proposes changes to itself, tested against evals it cannot see, and the owner decides.
 
 **Non-goals**
 
-- Replacing the owner's judgement on strategy, relationships, or one-way doors.
+- Replacing the owner's judgment on strategy, relationships, or one-way doors.
 - A general project-management product for large teams. Multi-owner use is supported through area owners, but the design point is one owner and many agents.
 - Hosting. The slice "One signal end to end" runs inside Claude Code sessions on the owner's machines. Hosted pieces (webhooks, a dashboard) come later and stay optional.
 - Estimating in time.
@@ -170,7 +170,7 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 - Confidential material reaches the public repository or a public channel.
 - Contributors feel they are talking to a bot that does not listen.
 - The orchestrator's context fills with diffs and logs, so it manages the run badly.
-- The owner's judgement is overridden silently, or deferred to without the evidence that disagrees with it.
+- The owner's judgment is overridden silently, or deferred to without the evidence that disagrees with it.
 
 ---
 
@@ -191,8 +191,8 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 | **Item kinds** | `work` (change the product), `decision` (a question for a decider), `external` (work someone the system cannot dispatch completes: the owner by hand, a contributor, an upstream project, a vendor). |
 | **Decision** | An item of kind `decision`: a question, options, a recommendation, a decider, and after answering, an answer and rationale. |
 | **Precedent** | A rule generalized from an answered decision, which resolves matching future questions automatically. |
-| **Judgement** | A person's recorded judgement on a signal or a project being shaped (a gut check or a considered call): a calibrated prior for prioritization, never a decision by itself. |
-| **Judgement record** | The per-person view of every call a person made (judgements and decision answers), each with optional confidence, what they expected, the evidence available at the time, and outcomes as they arrive ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)). |
+| **Judgment** | A person's recorded judgment on a signal or a project being shaped (a gut check or a considered call): a calibrated prior for prioritization, never a decision by itself. |
+| **Judgment record** | The per-person view of every call a person made (judgments and decision answers), each with optional confidence, what they expected, the evidence available at the time, and outcomes as they arrive ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)). |
 | **Calibration review** | A periodic report to one person on how their calls turned out, by area and confidence level; for their own improvement, private to them by default, never a ranking ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)). |
 | **Trust calibration** | The slow loop that matches the system's autonomy to its record per area, by proposals the owner decides. |
 | **Study, run, verdict** | A question with a hypothesis, the evidence runs that test it, and the verdict that cites them. |
@@ -212,6 +212,6 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 | **Harness** | The agent tool that runs sessions and agents: Claude Code, GitHub Copilot, Codex, Cursor. |
 | **Harness adapter** | The layer that dispatches executors, receives completions and reaches the human in one harness, behind one interface. |
 | **`hitld`** | The command line (and Node library, and MCP server) that holds the system's logic. |
-| **Eval scenario** | A labelled test of model-dependent behaviour, run repeatedly and graded; the unit of the eval suite. |
+| **Eval scenario** | A labeled test of model-dependent behavior, run repeatedly and graded; the unit of the eval suite. |
 | **Sealed eval set** | Eval scenarios kept encrypted and unseen by the agents that improve the plugin. |
 | **Protected core** | The parts only the owner may change: the eval suite, decision rights, classification rules, guards, and the self-improvement rules. |

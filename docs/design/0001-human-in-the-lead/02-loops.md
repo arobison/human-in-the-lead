@@ -166,7 +166,7 @@ These apply to every loop.
 - **Milestones:** the outcome cut into thin, checkable future states for users, each with its "done when", its constraints and its share of the project's appetite ([part 3](03-data-model.md#milestones-and-releases)). `hitld work check` verifies that the shares fit. Their outcomes are what would show, after shipping, that the problem is solved; outcome sensing checks them ([2.10](#210-outcome-sensing)).
 - **Out of scope and risks:** what is explicitly out, and the known holes the work could fall into.
 
-**The bet.** The owner's bet is the answer to the project's decision, a decision item the project names in `decision`. The answer moves the project from `proposed` to `planned`, and who made the bet is read from that answer, never stored. A project the owner rejects is `dropped`, with the reason. A judgement on a project raises it in the shaping queue; it never makes the bet ([part 3](03-data-model.md#judgement)).
+**The bet.** The owner's bet is the answer to the project's decision, a decision item the project names in `decision`. The answer moves the project from `proposed` to `planned`, and who made the bet is read from that answer, never stored. A project the owner rejects is `dropped`, with the reason. A judgment on a project raises it in the shaping queue; it never makes the bet ([part 3](03-data-model.md#judgment)).
 
 **Research.** When a project being shaped needs market or user understanding, a researcher agent does desk research and records sources with dates read. When real people must be asked, the system writes the owner a **research brief**: the hypotheses, who to ask, the questions, and for each hypothesis, what answer would change the plan. Research outputs are `confidential` by default ([part 10](10-security.md)).
 
@@ -189,7 +189,7 @@ These apply to every loop.
 - **Milestones** (planned, [part 3](03-data-model.md#milestones-and-releases)). A milestone's constraint carries the milestone's whole cost of delay, because without it no clause comes true. A contribution carries its own value × confidence (value in the project's value units, the same as a project's), and enters the queue only while it is inside the milestone's scope (the contributions that fit the appetite by value per token). There are no priority labels: what must happen is a constraint, everything else is scored.
 
 - **Value of information.** A study or spike whose verdict would change which option is chosen carries the expected value of that change. This lets cheap experiments jump ahead of expensive builds when the choice is uncertain.
-- **Owner judgement as a prior.** A signal or a project being shaped that carries an owner judgement ([part 3](03-data-model.md#judgement)) has its value and confidence raised by the judgement's weight. This raises it into shaping; it never settles the bet. When shaping, research or a study revises the estimate, the project records why. When evidence **contradicts** a judgement, the system neither overrides it quietly nor defers to it quietly: it puts the conflict to the owner as a decision, with the evidence and a recommendation, and the answer becomes precedent.
+- **Owner judgment as a prior.** A signal or a project being shaped that carries an owner judgment ([part 3](03-data-model.md#judgment)) has its value and confidence raised by the judgment's weight. This raises it into shaping; it never settles the bet. When shaping, research or a study revises the estimate, the project records why. When evidence **contradicts** a judgment, the system neither overrides it quietly nor defers to it quietly: it puts the conflict to the owner as a decision, with the evidence and a recommendation, and the answer becomes precedent.
 - **Portfolio balance.** The owner sets target shares per category in `policy.json`. The rule does not override cost of delay; it breaks ties and corrects drift within tolerance.
 
 The owner can always reorder directly, in the main session. A direct reorder is recorded with its reason as a decision, so the system can learn whether its weights are off.
@@ -289,7 +289,7 @@ Each project's **outcome check** records: the measures, what was observed, a ver
 
 ## 2.11 Design review
 
-**Purpose.** Between shaping and items, a stage where a plan is written, the owner reviews it through questions, and only then does it become items. This is where design-heavy work gets the owner's judgement once, cheaply, instead of in pieces during execution.
+**Purpose.** Between shaping and items, a stage where a plan is written, the owner reviews it through questions, and only then does it become items. This is where design-heavy work gets the owner's judgment once, cheaply, instead of in pieces during execution.
 
 | | |
 |---|---|
@@ -302,9 +302,9 @@ Each project's **outcome check** records: the measures, what was observed, a ver
 **Steps.**
 
 1. A tier-3 agent writes the plan from a template (`templates/design.md`): intent, constraints, approaches considered with trade-offs, the chosen approach, risks, the milestones and items it will become with their "done when".
-2. The agent extracts the **judgement calls** and asks them as decision questions, each with a recommendation ([part 4](04-decision-rights.md#the-decision-question)), batched into one review.
+2. The agent extracts the **judgment calls** and asks them as decision questions, each with a recommendation ([part 4](04-decision-rights.md#the-decision-question)), batched into one review.
 3. The owner answers; answers are recorded on the design and become precedent where they generalize.
-4. **The gate:** a design becomes items only when every judgement call is answered. The orchestrator then creates the items, pointing their plan sections at the design.
+4. **The gate:** a design becomes items only when every judgment call is answered. The orchestrator then creates the items, pointing their plan sections at the design.
 
 This design document is itself an example of the stage.
 
@@ -312,7 +312,7 @@ This design document is itself an example of the stage.
 
 User docs, API reference, examples and project handbooks are updated **as part of finishing the work**, not afterwards:
 
-- The docs gate is a policy setting (`docs.gate`, design only so far; a project can turn it off). With it on, an item that changes behaviour users see carries documentation changes in its "done when", checked in the merge queue: a public symbol without reference docs, an example that no longer runs, or a changed flag missing from the user guide fails the check.
+- The docs gate is a policy setting (`docs.gate`, design only so far; a project can turn it off). With it on, an item that changes behavior users see carries documentation changes in its "done when", checked in the merge queue: a public symbol without reference docs, an example that no longer runs, or a changed flag missing from the user guide fails the check.
 - **Examples run.** With the docs gate on, code examples in docs are executed as tests, so they cannot rot silently.
 - **Freshness** works as for the knowledge base ([part 8](08-knowledge-base.md#85-the-kb-tool)): each page records `checked` and `checked_at` and its `sources`; `hitld kb stale` covers docs too, and the gardening loop refreshes the most-read stale pages.
 - API reference is generated from the code where the language supports it; prose around it is maintained like any page.
@@ -347,7 +347,7 @@ A loop beside verification whose evidence is "good to use", not "correct", inclu
 | **Overturn rate** | Share of the system's decisions (logged calls, triage routes, precedent applications, controller moves) that the owner later reversed | Reversals recorded as ledger events against the decision they reverse |
 | **Escalation worth** | Of the questions sent to the owner, the share the owner rated worth asking | A one-tap rating offered with each answer ("worth asking? yes / no"), optional and never required |
 | **Precedent-match accuracy** | Of precedent applications, the share not overruled; of questions sent to the owner despite a candidate precedent, the share the owner answered as the precedent would have | Precedent application and overrule events |
-| **Input calibration** | How well owner judgements on signals and projects being shaped predicted outcomes (below) | Judgement records and outcome checks |
+| **Input calibration** | How well owner judgments on signals and projects being shaped predicted outcomes (below) | Judgment records and outcome checks |
 
 **Proposals, never self-grants.** When an area's record crosses a threshold with enough samples (`trust.min_samples`, with hysteresis), the loop proposes a change of autonomy to the owner as a decision:
 
@@ -356,7 +356,7 @@ A loop beside verification whose evidence is "good to use", not "correct", inclu
 
 The system never grants itself autonomy; every change is the owner's decision, recorded with the evidence, and appears in the audit trail ([part 3](03-data-model.md#audit-record)). When the owner approves a change of autonomy for a class of question, the eval suite's labels for that class change with it, so escalation precision and recall keep measuring against the rules in force ([part 17](17-evals.md#174-metrics)).
 
-**Calibrating inputs, not grading people.** The same method weighs inputs. Judgements ([part 3](03-data-model.md#judgement)) are compared with outcomes per area, and each person's weight tunes itself from the record; the owner's gut checks start high. A weight is an estimate, not a setting, so it is the one slow-loop value that changes without an owner decision: it shrinks toward the default, moves only as far as its evidence supports, and two fixed rules bound it ([part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)). This adjusts how much an input counts in prioritization; it does not score the person who gave it.
+**Calibrating inputs, not grading people.** The same method weighs inputs. Judgments ([part 3](03-data-model.md#judgment)) are compared with outcomes per area, and each person's weight tunes itself from the record; the owner's gut checks start high. A weight is an estimate, not a setting, so it is the one slow-loop value that changes without an owner decision: it shrinks toward the default, moves only as far as its evidence supports, and two fixed rules bound it ([part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)). This adjusts how much an input counts in prioritization; it does not score the person who gave it.
 
 **The calibration review is due on evidence.** Each person's review ([23.4](23-people-in-the-lead.md#234-feedback-to-the-person-the-calibration-review)) is due after `review.every_outcomes` new outcomes of their calls, or after `review.first_after_outcomes` for a person who has had none yet. No calendar date makes it due.
 
@@ -374,7 +374,7 @@ The system never grants itself autonomy; every change is the owner's decision, r
 
 **Parts of the loop:**
 
-- **Threat modelling at design review** ([2.11](#211-design-review)): every design with a new trust boundary, input path or privilege lists its threats (STRIDE as a checklist) and the mitigations, which become items and tests.
+- **Threat modeling at design review** ([2.11](#211-design-review)): every design with a new trust boundary, input path or privilege lists its threats (STRIDE as a checklist) and the mitigations, which become items and tests.
 - **Security testing**: static analysis and dependency audits as declared merge checks, diff-aware against a baseline, each new finding with a recorded triage verdict ([10.5](10-security.md#105-security-in-done-when)); fuzzing for parsers and loaders ([part 6](06-verification.md#63-test-kinds-and-the-adversarial-loop)); findings become items with severity.
 - **Private vulnerability intake**: a separate intake source for vulnerability reports (GitHub private vulnerability reporting, or a security contact named in `SECURITY.md`), classified `confidential`, kept out of the public queue and out of public triage. A responsible-disclosure process: acknowledge, reproduce privately, fix on a private branch, coordinate a disclosure date with the reporter, publish an advisory with credit. Every step's message is drafted by an agent and sent by a person.
 - **Red-teaming the agents**: prompt injection, secret exfiltration, privilege escalation through tools, and poisoned fixtures run as **standing evals** in every release, beyond the injection set of "One signal end to end" ([part 17](17-evals.md)). A successful attack is a sev-1 for the system itself.

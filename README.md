@@ -4,25 +4,25 @@ A product development system where agents do the work, and people set the direct
 
 **Status: v0.1.0-rc.1 is the first release candidate of the milestone "Usable in a consuming project". It is a pre-release for trying and feedback; v0.1.0 follows once it has been tried.** The design is in [docs/design/0001-human-in-the-lead.md](docs/design/0001-human-in-the-lead.md); that milestone and the full slice, "One signal end to end", are defined in [its scope](docs/design/0001-human-in-the-lead/21-scope.md). This README describes the system as designed; what is built is one part of it.
 
-**Why it works: [the systems thinking behind HITLd](docs/systems-thinking.md).** The first principles the design is built on, and how today's agile practices apply the same principles with trade-offs made for human labour.
+**Why it works: [the systems thinking behind HITLd](docs/systems-thinking.md).** The first principles the design is built on, and how today's agile practices apply the same principles with trade-offs made for human labor.
 
 ## What it is
 
 "Human in the loop" puts a person inside an automated process, as a gate it stops at. Two things go wrong: the person becomes the bottleneck, because every gate waits on them, and then a rubber stamp, because there are more approvals than attention to judge them.
 
-**Human in the lead** puts the person in front of the process instead. They set the strategy, the principles and the decision rights, and they make the calls that need judgement. Agents do the labour: taking in bug reports and ideas, triaging them, shaping and prioritizing work, implementing it in parallel, verifying it, shipping it, and measuring how all of that went. A question reaches the person only when it is theirs to answer, and each answer becomes a rule that settles the next similar question. In short, **HITLd** means human in the lead, as distinct from HITL, human in the loop.
+**Human in the lead** puts the person in front of the process instead. They set the strategy, the principles and the decision rights, and they make the calls that need judgment. Agents do the labor: taking in bug reports and ideas, triaging them, shaping and prioritizing work, implementing it in parallel, verifying it, shipping it, and measuring how all of that went. A question reaches the person only when it is theirs to answer, and each answer becomes a rule that settles the next similar question. In short, **HITLd** means human in the lead, as distinct from HITL, human in the loop.
 
 It is packaged as a plugin for agent harnesses, starting with Claude Code and then GitHub Copilot. The design point is one owner directing many agents on a large codebase. Other people take part as area owners and contributors.
 
 ## Design principles
 
 - **Outcomes over output: build what users want.** The system maximizes realized outcomes (shipped, verified, and where possible observed), not merges or lines of code. Merged work that is later reverted counts as cost, not value. Quality, relationships, attention and tokens are limits it never trades for value. ([Objective](docs/design/0001-human-in-the-lead.md#13-the-objective))
-- **The human's attention is the scarce resource.** When agents do the labour, labour stops being the constraint. The constraints become the owner's attention, the orchestrating agent's context window, and serial resources like a GPU or the merge queue. The system budgets the owner's attention like tokens: a decision budget, digests, quiet hours.
-- **Judgement calls go to the right person, and every result is traceable.** Agents do the work. A call that needs judgement (values and trade-offs, uncertainty the evidence cannot settle, something hard to undo, taste, people) goes to the person whose call it is, framed for a fast and good decision. Everything else is settled by rule and precedent, so a hundred similar questions are one question and a rule, and a hard problem goes to a stronger agent, not to the owner. Every result is traceable to its evidence and to the human calls behind it. That is what lets other people trust it. ([Purpose](docs/design/0001-human-in-the-lead.md#11-what-human-in-the-lead-means), [decision rights](docs/design/0001-human-in-the-lead/04-decision-rights.md))
+- **The human's attention is the scarce resource.** When agents do the labor, labor stops being the constraint. The constraints become the owner's attention, the orchestrating agent's context window, and serial resources like a GPU or the merge queue. The system budgets the owner's attention like tokens: a decision budget, digests, quiet hours.
+- **Judgment calls go to the right person, and every result is traceable.** Agents do the work. A call that needs judgment (values and trade-offs, uncertainty the evidence cannot settle, something hard to undo, taste, people) goes to the person whose call it is, framed for a fast and good decision. Everything else is settled by rule and precedent, so a hundred similar questions are one question and a rule, and a hard problem goes to a stronger agent, not to the owner. Every result is traceable to its evidence and to the human calls behind it. That is what lets other people trust it. ([Purpose](docs/design/0001-human-in-the-lead.md#11-what-human-in-the-lead-means), [decision rights](docs/design/0001-human-in-the-lead/04-decision-rights.md))
 - **Precedent as case law.** Every answered decision can become a precedent: a rule that resolves matching future questions automatically. The owner confirms each generalization, sees every application in a digest, and can overrule any of them.
 - **Code treated like compiler output.** When programmers moved from assembly to C, many read the generated code until use and testing had built trust in the compiler. Today few read it, and only with a specific question. Generated code goes through the same transition, area by area. At first people read it: a new project starts in owner merge mode, where the owner names each merge. As evidence builds (tests its author did not write, adversarial agents that try to break it, provenance, a reliability record per area), people read it only when a specific trigger fires. ([Verification](docs/design/0001-human-in-the-lead/06-verification.md#61-the-model))
 - **Trust is earned, area by area.** The system records how often the owner overturns its decisions and whether its questions were worth asking, and proposes more autonomy where it has been reliably right and less where it was corrected. It never grants itself autonomy; the owner decides.
-- **Judgement is evidence, calibrated.** The owner's gut checks are recorded as strong priors, weighed against outcomes over time. When evidence contradicts one, the system says so, with the evidence and a recommendation, rather than quietly overriding it or quietly deferring.
+- **Judgment is evidence, calibrated.** The owner's gut checks are recorded as strong priors, weighed against outcomes over time. When evidence contradicts one, the system says so, with the evidence and a recommendation, rather than quietly overriding it or quietly deferring.
 - **Files as the source of truth.** Work items, decisions, precedents and the knowledge base are plain files in git. Indexes, views and dashboards are derived from them and can be rebuilt. Merging the work closes the item, because the status change rides in the same commit.
 - **Portable by design.** All logic lives in a harness-neutral core. Each agent harness gets a thin adapter, so adding one needs no change to the core. ([Architecture](docs/design/0001-human-in-the-lead/15-architecture.md))
 
@@ -67,13 +67,13 @@ flowchart LR
 - **Triage** deduplicates, classifies, reproduces bugs into failing tests, and routes each signal: to a fix, to the backlog, to the owner, or to a drafted reply.
 - **Shaping** turns clusters of signals into projects ready to bet on: a problem, evidence, options, value with a confidence, and an *appetite*, which is the token budget the problem is worth. The owner's bet commits the project.
 - **Prioritization** orders work by cost of delay divided by size, with the critical path first.
-- **Design review** turns a bet into a written plan, asks the owner its judgement calls as questions with recommendations, and only then turns it into items.
+- **Design review** turns a bet into a written plan, asks the owner its judgment calls as questions with recommendations, and only then turns it into items.
 - **Execution** runs ready work in parallel, each agent in its own git worktree.
 - **Verification** checks each change with independent and adversarial tests: is it correct?
-- **UX review** checks whether it is good to use, including developer experience for libraries: automated accessibility, theme, layout and API-consistency checks, a heuristic review, and a phone-friendly review pack for the owner's judgement on taste and feel.
+- **UX review** checks whether it is good to use, including developer experience for libraries: automated accessibility, theme, layout and API-consistency checks, a heuristic review, and a phone-friendly review pack for the owner's judgment on taste and feel.
 - **Maintenance** keeps dependencies, toolchains, advisories and technical debt moving at a share of capacity the owner sets.
 - **Shipping** assembles releases, changelogs and deprecation notes from the merged items; documentation is updated as part of finishing each item, not afterwards.
-- **Security** runs continuously: threat modelling at design review, static analysis and fuzzing, a private channel for vulnerability reports with responsible disclosure, and red-team evals against the agents themselves.
+- **Security** runs continuously: threat modeling at design review, static analysis and fuzzing, a private channel for vulnerability reports with responsible disclosure, and red-team evals against the agents themselves.
 - **Non-functional budgets** for performance, size, memory and running cost turn regressions into items automatically, with the project's benchmark tool as the sensor.
 - **Keeping plans true**: when an implementation departs from its design, the design is updated or the drift is flagged.
 - **Experimentation and rollout**: feature flags, dogfooding and staged rollout, measured in real use before full enablement.
@@ -134,7 +134,7 @@ Detail: [reporting, monitoring and account limits](docs/design/0001-human-in-the
 
 ## The eval suite
 
-The system's behaviour comes mostly from text (skills, briefs, policy) read by models that change underneath it. The eval suite makes that behaviour measurable. It ships from the start and covers:
+The system's behavior comes mostly from text (skills, briefs, policy) read by models that change underneath it. The eval suite makes that behavior measurable. It ships from the start and covers:
 
 - triage accuracy;
 - resistance to prompt injection in outside text (which must be total);

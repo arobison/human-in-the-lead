@@ -7,7 +7,7 @@ created: 2026-11-15
 project: HITLD-15
 claimed_by: D-107
 needs: [HITLD-102, HITLD-103, HITLD-104, HITLD-105, HITLD-106]
-release_note: "A guide, `docs/guide/store-remote.md`, sets up the private store remote: the store repository, `store.remote.url`, a local device, a cloud environment device, enrolment through the owner's merge, removal and undo. After an enrolment or removal merges, the next push re-seals the store to main's device list (`store status` reports `push_reason`). Offline eval scenarios cover two devices taking turns, a removed device, a discarded session, an unreleased lease and a remote with no plain text."
+release_note: "A guide, `docs/guide/store-remote.md`, sets up the private store remote: the store repository, `store.remote.url`, a local device, a cloud environment device, enrollment through the owner's merge, removal and undo. After an enrollment or removal merges, the next push re-seals the store to main's device list (`store status` reports `push_reason`). Offline eval scenarios cover two devices taking turns, a removed device, a discarded session, an unreleased lease and a remote with no plain text."
 ---
 
 ## Why

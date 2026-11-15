@@ -12,7 +12,7 @@ release_note: "Store devices: `hitld store device init` (keychain locally, `--cl
 
 ## Why
 
-Design 0003 section 6 and Q7: each machine or cloud environment is a device with its own key pair; enrolment is a commit to `store-devices.json` that reaches main only through the owner's merge; removing a device rotates the project key.
+Design 0003 section 6 and Q7: each machine or cloud environment is a device with its own key pair; enrollment is a commit to `store-devices.json` that reaches main only through the owner's merge; removing a device rotates the project key.
 
 ## Done when
 

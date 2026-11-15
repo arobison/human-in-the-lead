@@ -9,7 +9,7 @@ project: HITLD-28
 
 ## Why
 
-Telling people about the work is a loop like the others: positioning, launch and release communication, docs as marketing, community channels, measuring reach and adoption. It needs a lot of human judgement: brand values, voice, what to claim, timing, and every public statement. Agents draft, research and measure; people decide what is said and own the relationships. Design it as a loop in part 2, with its decision rights (most outward-facing calls are the owner's or a delegated person's) and its link to the "Outcome sensing" and "Stakeholder reports" milestones.
+Telling people about the work is a loop like the others: positioning, launch and release communication, docs as marketing, community channels, measuring reach and adoption. It needs a lot of human judgment: brand values, voice, what to claim, timing, and every public statement. Agents draft, research and measure; people decide what is said and own the relationships. Design it as a loop in part 2, with its decision rights (most outward-facing calls are the owner's or a delegated person's) and its link to the "Outcome sensing" and "Stakeholder reports" milestones.
 
 ## Done when
 

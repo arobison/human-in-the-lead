@@ -41,7 +41,7 @@ Rules:
 
 The milestone graph shows progress at the level people plan at. It complements the item dependency graph (`work/views/items-graph.md`); it does not replace it. Items stay in the item graph.
 
-- **Nodes** are milestones, labelled by name ([3.2](03-data-model.md#milestones-and-releases)). Each shows its outcome in one sentence; its constraints `done` out of all its constraints; `tokens_spent` against `appetite_tokens`; and its independent check: passed, due (`check_due`) or not yet due.
+- **Nodes** are milestones, labeled by name ([3.2](03-data-model.md#milestones-and-releases)). Each shows its outcome in one sentence; its constraints `done` out of all its constraints; `tokens_spent` against `appetite_tokens`; and its independent check: passed, due (`check_due`) or not yet due.
 - **Edges** are `needs` between milestones. A `needs` from a milestone to an item is not an edge; it counts toward the node's progress.
 - **The critical path** is highlighted: the chain of milestones not yet `done` with the most estimate tokens remaining, the same rule items use ([3.2](03-data-model.md#project-and-item)).
 - **Drilling in.** Opening a milestone lists its constraints and contributions with their state and critical-path flag, and links to the item graph for them.

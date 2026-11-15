@@ -34,7 +34,7 @@ The scanner still lists these until verdicts are recorded in the baseline this i
 - The merge queue fails a branch only on findings that are in neither the baseline nor the recorded verdicts, and sends it back with the finding.
 - Each new finding has a recorded triage verdict with the item's evidence: real (fixed, with a test that would have caught it), by design (the trust boundary named at the sink) or false positive (a one-line reason). Verdicts are keyed by tool, rule and a code fingerprint; the next scan does not ask again at the same place, and asks again when the code there changes.
 - Accepting a real risk is an owner decision with an expiry. At expiry it becomes a decision again. An executor cannot record an accepted risk or edit the baseline or verdicts: the guards deny it, and the command line refuses it.
-- Every real finding caught becomes a regression test; a finding about agent behaviour becomes an eval scenario.
+- Every real finding caught becomes a regression test; a finding about agent behavior becomes an eval scenario.
 - Baseline, verdicts and accepted risks for real findings are `confidential`; a public item records only that its scans passed.
 - Offline evals: an existing codebase with findings gets a baseline and no failure; a change adding a finding fails; a recorded false positive is not asked again; changed code at that place is asked again; an expired accepted risk becomes an owner decision.
 

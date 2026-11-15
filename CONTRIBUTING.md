@@ -27,7 +27,7 @@ tar -xzf codeql-bundle-linux64.tar.gz -C ~/.cache/hitld-codeql/v2.27.4
 export HITLD_CODEQL_PATH=~/.cache/hitld-codeql/v2.27.4/codeql/codeql   # in the shell that runs hitld merge
 ```
 
-The checksum is the one the release publishes (`codeql-bundle-linux64.tar.gz.checksum.txt`). The bundle holds its own query packs and needs no network to scan. Raising the version changes `scripts/codeql-scan.mjs`, this section and the baseline: the new version's first run on main extends it. The CodeQL licence allows this use because the repository is open source on GitHub.com; it does not cover private code.
+The checksum is the one the release publishes (`codeql-bundle-linux64.tar.gz.checksum.txt`). The bundle holds its own query packs and needs no network to scan. Raising the version changes `scripts/codeql-scan.mjs`, this section and the baseline: the new version's first run on main extends it. The CodeQL license allows this use because the repository is open source on GitHub.com; it does not cover private code.
 
 ## Rules
 
@@ -36,7 +36,7 @@ The checksum is the one the release publishes (`codeql-bundle-linux64.tar.gz.che
 - **Data never runs code.** Schemas reject unknown keys and refuse keys that name code to run. A new schema goes in `schemas/`; a new `policy.json` section goes in `schemas/policy/`, with a `default` and a `description` for every setting.
 - **Every data file carries `schema_version`.** Raising a version follows [part 16.5](docs/design/0001-human-in-the-lead/16-packaging.md#165-releases-and-compatibility).
 - **One command table.** A new `hitld` command is an entry in the piece's file under `core/lib/cli/commands/`, with its arguments declared, so the MCP server can be generated from the same table.
-- **Writing.** Plain, precise wording. No time estimates. Nothing about a consuming project's confidential details.
+- **Writing.** American English in prose, messages and names: enroll, judgment, license, behavior, labeled, -ize. `npm run check` runs a spelling check (`core/bin/spelling-check.mjs`) that fails on British forms. Plain, precise wording. No time estimates. Nothing about a consuming project's confidential details.
 - **Push your own branch only.** Agents push their branch, never main, and never force-push. Agents open no pull request to main; the owner opens it or merges the branch.
 
 ## Giving feedback
