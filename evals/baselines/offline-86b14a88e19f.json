@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "id": "EV-20261115T064630Z-86b14a",
-  "at": "2026-11-15T06:46:30.834Z",
+  "id": "EV-20261115T083807Z-86b14a",
+  "at": "2026-11-15T08:38:07.018Z",
   "mode": "offline",
   "plugin": {
     "name": "human-in-the-lead",
@@ -11,6 +11,7 @@
   "schema_versions": {
     "audit-record": 1,
     "bench-run": 1,
+    "cadence-state": 1,
     "contributor": 1,
     "decision": 1,
     "eval-result": 3,
@@ -23,12 +24,14 @@
     "person": 2,
     "policy": 1,
     "precedent": 1,
+    "progress-signal": 1,
     "project": 1,
     "quarantine": 1,
     "release": 1,
     "run-state": 2,
     "security-records": 1,
     "signal": 1,
+    "store-devices": 1,
     "study": 1,
     "tracker": 1,
     "trust-event": 1,
@@ -42,7 +45,7 @@
       "minimal"
     ]
   },
-  "policy_hash": "0218bfe1e744b20d348526ddf2ae83836942f502b8366cc5579d3ec8421a2ace",
+  "policy_hash": "f27b70252ec29b5f33353c8933364938a205fed255ff10b1485b691bd4ca2087",
   "policy_source": "file",
   "settings": {
     "seed": 1,
@@ -55,10 +58,342 @@
     "settings_hash": "86b14a88e19f"
   },
   "scenario_set": {
-    "version": "30a975eb8bb9",
-    "count": 40
+    "version": "0ccedf5ee3f3",
+    "count": 51
   },
   "scenarios": [
+    {
+      "id": "adopt/existing-tracker",
+      "suite": "adopt",
+      "category": "adoption",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "not-adopted-at-first",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "setup-not-done-at-first",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-store-remote-yet",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "scratch-check-reads-the-tracker-in-place",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "scratch-check-clean",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "nothing-to-migrate",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "inspecting-changes-nothing",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "one-reply-takes-the-values",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "install-ok",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "install-leaves-the-status-line-off",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "install-adds-the-contract-to-agents-md",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "rules-after-the-block",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "rules-not-inside-the-block",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-projects-own-text-is-kept",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "old-tracker-section-gone",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "merge-mode-stays-owner",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "suite-as-approved",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "contract-current-at-the-end",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "work-check-ok",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "work-check-sees-every-item",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "existing-items-are-ready-unconverted",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "tracker-files-and-scripts-untouched",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "main-unmoved",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "setup-done-after",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "everything-committed",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-status-line-file",
+          "grader": "file_exists",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "adopt/no-tracker",
+      "suite": "adopt",
+      "category": "adoption",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "not-adopted-at-first",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "setup-not-done-at-first",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "inspecting-changes-nothing",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "one-reply-changes-one-value",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "install-ok",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "install-leaves-the-status-line-off",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "agents-md-created",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "claude-md-imports-it",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "rules-after-the-block",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "rules-not-inside-the-block",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-store-remote-at-first",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "store-remote-written-to-policy",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "store-address-is-the-projects",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "merge-mode-stays-owner",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "suite-as-the-owner-changed-it",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "contract-current-at-the-end",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "work-check-ok-with-no-items",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "main-unmoved",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "everything-committed",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "first-goals-wait-for-main",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "first-project-gets-the-key",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "first-item-follows",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "work-check-ok-with-the-first-items",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "first-item-is-ready",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-status-line-file",
+          "grader": "file_exists",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
     {
       "id": "contract/check-contract-lifecycle",
       "suite": "contract",
@@ -1788,6 +2123,121 @@
       "transcript": null
     },
     {
+      "id": "orchestrator/quota-pause-resume",
+      "suite": "orchestrator",
+      "category": "continuity",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "paused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "paused-at-the-limit",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "asks-for-a-wake-at-the-reset",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "chief-of-staff-reads-the-reset",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "held-before-the-reset",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-wake-before-the-reset",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "resume-due-after",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cut-off-found",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "resumed-at-the-reset",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "continued-as-a-follow-up",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "because-of-the-limit",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "same-agent",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "refilled",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "not-a-stall",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cut-off-counted",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "one-pause-one-resume",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "owner-not-asked",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
       "id": "orchestrator/setup-not-done-waits",
       "suite": "orchestrator",
       "category": "settings",
@@ -1912,6 +2362,127 @@
         },
         {
           "id": "estimate-from-default",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "orchestrator/watchdog-ladder",
+      "suite": "orchestrator",
+      "category": "continuity",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "reading",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-wake-while-in-time",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "stall-seen",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "poked-first",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "poked-the-same-agent",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "then-a-follow-up",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "follow-up-is-a-new-dispatch",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "follow-up-continues-the-agent",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "then-abandoned",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "abandoned-the-follow-up",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "re-planned",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "re-dispatched",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "recovered",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "queued-to-merge",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "nothing-left-to-watch",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "steps-recorded",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "stall-rate",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "owner-not-asked",
           "grader": "equals",
           "passed": true,
           "message": ""
@@ -2579,20 +3150,577 @@
       "wall_ms": 0,
       "tokens": null,
       "transcript": null
+    },
+    {
+      "id": "store/discarded-session-resumes",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "checkpoint-pushed",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "container-gone",
+          "grader": "file_exists",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "new-session-starts-empty",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "remote-has-something-to-pull",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "resume-pulled",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "state-rebuilt-from-the-ledger",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "same-run",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "open-decisions-intact",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "ledger-intact",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "trust-recorded-before",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "trust-record-intact",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "store/executor-refused-store-commands",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "push-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "pull-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "status-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "enrolment-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "device-list-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "removal-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "redirect-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "export-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "nothing-reached-the-remote",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "address-unchanged",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "device-list-unchanged",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-working-tree-change",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-owner-still-syncs",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "store/remote-holds-no-plain-text",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "pushed-twice",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-store-holds-the-words",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "more-than-one-file",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "every-file-is-age",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "names-reveal-nothing",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "only-the-files-extension-is-plain",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-enrolled-device-opens-every-file",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "store/removed-device-locked-out",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "opened-before-the-removal",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "removal-needs-a-rotation",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "removal-merged",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "push-after-sealed-to-one-device",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "rotation-recorded",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "older-files-pruned",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "remaining-device-opens-it",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "removed-key-opens-nothing",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "remote-holds-no-plain-text",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "pull-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "push-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "never-saw-the-later-record",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "keeps-what-it-pulled",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "remaining-device-has-both",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "store/two-devices-take-turns",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "both-enrolled",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "laptop-handover-pushed",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-pulled",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-takes-the-released-lease",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-sees-the-open-decision",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-sees-the-laptops-record",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "cloud-handover-pushed",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "laptop-pulled",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "laptop-sees-both-open-decisions",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "laptop-sees-the-clouds-record",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "laptop-still-has-its-own",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "store/unenrolled-device-cannot-push",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "first-push-by-the-enrolled-device",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "refused-before-enrolment",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "enrolment-is-a-change-to-the-list",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "no-key-in-the-result",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "refused-until-main-lists-it",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-owner-merged-the-list",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "laptop-is-due-a-push",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "nothing-new-is-still-pushed",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "opens-what-follows-the-merge",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "reads-the-whole-history",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "knows-it-is-enrolled",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "may-push-now",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "store/unreleased-lease-refused",
+      "suite": "store",
+      "category": "store",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "laptop-pushed-its-lease",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "resume-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "start-refused",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "names-the-holder",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "names-the-machine",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "says-how-to-go-on",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "the-holder-is-undisturbed",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "handover-pushed",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "released-lease-taken-without-force",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
     }
   ],
   "summary": {
-    "total": 45,
-    "passed": 43,
+    "total": 56,
+    "passed": 54,
     "failed": 0,
     "errors": 0,
     "not_applicable": 2,
     "tokens": 3200,
     "wall_ms": 0,
     "categories": {
+      "adoption": {
+        "score": 1,
+        "scenarios": 2
+      },
       "continuity": {
         "score": 1,
-        "scenarios": 3
+        "scenarios": 5
       },
       "contract": {
         "score": 1,
@@ -2653,12 +3781,16 @@
       "sizing": {
         "score": 1,
         "scenarios": 1
+      },
+      "store": {
+        "score": 1,
+        "scenarios": 7
       }
     }
   },
   "accepted": {
     "by": "owner",
-    "at": "2026-11-15T06:46:38.788Z",
-    "run": "EV-20261115T064630Z-86b14a"
+    "at": "2026-11-15T08:38:12.372Z",
+    "run": "EV-20261115T083807Z-86b14a"
   }
 }
