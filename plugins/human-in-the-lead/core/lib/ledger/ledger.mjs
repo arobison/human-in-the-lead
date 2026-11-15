@@ -45,7 +45,8 @@ const LEGACY_FIELDS = /** @type {Record<string, string>} */ ({
 /**
  * A ledger line in the current names: an event in the names of schema version 1 is read as
  * version 2 names (`claimed` → `started`, `question` → `asked`, `released` → `unclaimed`,
- * `outcome` → `result`, `handle` → `harness_ref`). Its schema_version stays as written.
+ * `outcome` → `result`, `handle` → `harness_ref`, `skill_versions.plugin` →
+ * `skill_versions.hitld_version`). Its schema_version stays as written.
  * @param {unknown} data
  * @returns {unknown}
  */
@@ -54,7 +55,9 @@ export function fromLegacyEvent(data) {
   const e = /** @type {Record<string, unknown>} */ (data);
   const event = typeof e.event === 'string' ? LEGACY_EVENTS[e.event] : undefined;
   const fields = Object.keys(LEGACY_FIELDS).filter((k) => Object.hasOwn(e, k));
-  if (!event && !fields.length) return data;
+  const sv = /** @type {Record<string, unknown> | undefined} */ (e.skill_versions);
+  const oldPlugin = sv && typeof sv === 'object' && Object.hasOwn(sv, 'plugin');
+  if (!event && !fields.length && !oldPlugin) return data;
   /** @type {Record<string, unknown>} */
   const out = {};
   for (const [k, v] of Object.entries(e)) {
@@ -62,6 +65,10 @@ export function fromLegacyEvent(data) {
     if (to !== undefined) {
       if (!Object.hasOwn(e, to)) out[to] = v;
     } else out[k] = k === 'event' && event ? event : v;
+  }
+  if (oldPlugin && sv) {
+    const { plugin, ...rest } = sv;
+    out.skill_versions = { hitld_version: plugin, ...rest };
   }
   return out;
 }

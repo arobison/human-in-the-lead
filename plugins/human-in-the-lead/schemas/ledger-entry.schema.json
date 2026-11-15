@@ -64,7 +64,8 @@
     "skill_versions": {
       "type": "object",
       "properties": {
-        "plugin": {
+        "hitld_version": {
+          "description": "The HITLd version (plugin before schema version 2).",
           "$ref": "common#/$defs/text"
         },
         "skills": {

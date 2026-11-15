@@ -49,8 +49,8 @@ export function applyEvent(state, e) {
       state.run = {
         id: e.run,
         started_at: e.at,
-        ...(e.skill_versions?.plugin !== undefined
-          ? { hitld_version: e.skill_versions.plugin }
+        ...(e.skill_versions?.hitld_version !== undefined
+          ? { hitld_version: e.skill_versions.hitld_version }
           : {}),
         ...(e.policy_hash !== undefined ? { policy_hash: e.policy_hash } : {}),
       };

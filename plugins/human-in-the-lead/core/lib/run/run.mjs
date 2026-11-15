@@ -127,7 +127,7 @@ export function startRun(store, options) {
       run: id,
       session: options.session,
       host: options.host,
-      skill_versions: { plugin: VERSION },
+      skill_versions: { hitld_version: VERSION },
       ...(options.policyHash ? { policy_hash: options.policyHash } : {}),
       ...(options.scope ? { scope: options.scope } : {}),
     },

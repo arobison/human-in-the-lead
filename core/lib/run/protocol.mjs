@@ -84,7 +84,7 @@ export async function dispatchExecutor(run, adapter, request, extra = {}) {
     ...(request.branch ? { branch: request.branch } : {}),
     brief_hash: createHash('sha256').update(request.brief).digest('hex'),
     skill_versions: {
-      plugin: VERSION,
+      hitld_version: VERSION,
       ...(extra.skillVersions ? { skills: extra.skillVersions } : {}),
     },
     ...(extra.estimateTokens !== undefined ? { estimate_tokens: extra.estimateTokens } : {}),
