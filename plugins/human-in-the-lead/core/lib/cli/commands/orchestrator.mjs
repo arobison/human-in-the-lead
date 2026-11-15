@@ -58,7 +58,7 @@ import {
 } from '../../merge/owner.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 import { executorSignal } from '../executor.mjs';
-import { recordFlakes, readFlakes } from '../../merge/quarantine.mjs';
+import { recordFlakes } from '../../merge/quarantine.mjs';
 import { securityGate } from '../../merge/security.mjs';
 import { CAPABILITIES, MATRIX } from '../../../harness/claude-code/capabilities.mjs';
 import { followUpInstruction, instructionFor } from '../../../harness/claude-code/instructions.mjs';
@@ -325,9 +325,8 @@ const rejectedJson = (x, main) => ({
   ...(x.command ? { command: x.command } : {}),
   ...(x.reason === 'classification' && x.output ? { problems: x.output.split('\n') } : {}),
   follow_up:
-    x.dispatch &&
-    ['conflict', 'classification', 'fast_check', 'security', 'suite'].includes(x.reason)
-      ? { dispatch: x.dispatch, message: sentBack(x, main) }
+    x.dispatch && !['missing', 'needs_rejected'].includes(x.reason)
+      ? { dispatch: x.dispatch, message: x.message ?? sentBack(x, main) }
       : null,
 });
 
@@ -1002,6 +1001,14 @@ export const commands = [
             ...p.policy.merge.generated,
           ],
           flakeReruns: p.policy.merge.flake_reruns,
+          flake: {
+            compareRuns: p.policy.flake.compare_runs,
+            compareRunsMax: p.policy.flake.compare_runs_max,
+            burnInRuns: p.policy.flake.burn_in_runs,
+            burnInCommand: p.policy.flake.burn_in_command,
+            testGlobs: p.policy.flake.test_globs,
+            environments: p.policy.flake.environments,
+          },
           setup: p.policy.env.worktree_setup,
           // From main's policy and tracker.json, never the branch's own.
           classification: {
@@ -1083,29 +1090,33 @@ export const commands = [
               notes: `merge queue: ${x.reason}${x.files?.length ? ` in ${x.files.slice(0, 5).join(', ')}` : ''}`,
             });
           }
-          recordFlakes(p.store, result.flakes);
+          recordFlakes(p.store, result);
         };
         /** @param {(QueueResult | null)[]} results */
         const outcome = (results) => {
           const rs = /** @type {QueueResult[]} */ (results.filter(Boolean));
           const incident = rs.find((r) => r.incident)?.incident ?? null;
-          const held = rs.find((r) => r.held)?.held ?? null;
           return {
-            ok: incident === null && held === null,
+            ok: incident === null,
             main: rs.length
               ? { before: rs[0].main.before, after: rs[rs.length - 1].main.after }
               : null,
             merged: rs.flatMap((r) => r.merged.map((m) => m.item)),
             rejected: rs.flatMap((r) => r.rejected.map((x) => rejectedJson(x, main))),
             flakes: rs.flatMap((r) =>
-              r.flakes.map((f) => ({ commit: f.commit, command: f.command })),
+              r.flakes.map((f) => ({
+                commit: f.commit,
+                command: f.command,
+                outcome: f.outcome,
+                tests: f.tests,
+                quarantinable: f.quarantinable,
+              })),
             ),
-            quarantined: readFlakes(p.store).length,
+            excused: rs.flatMap((r) => r.excused),
             security: security.summary(),
             suite_runs: rs.reduce((n, r) => n + r.suite_runs, 0),
             bisection_runs: rs.reduce((n, r) => n + r.bisection_runs, 0),
             incident,
-            held,
           };
         };
         try {
@@ -1179,11 +1190,9 @@ export const commands = [
               proposals,
               next: o.incident
                 ? 'an incident: tell the owner at once'
-                : o.held
-                  ? 'a batch is held as a flake candidate: nothing merged, nothing blamed; tell the owner, who decides'
-                  : proposals.length
-                    ? 'put each proposal to the owner with hitld rights ask --question <its question>; only the owner changes policy.json. Then send each rejected follow_up and refill with hitld dispatch plan'
-                    : 'for each rejected entry with a follow_up: hitld dispatch follow-up; then refill with hitld dispatch plan',
+                : proposals.length
+                  ? 'put each proposal to the owner with hitld rights ask --question <its question>; only the owner changes policy.json. Then send each rejected follow_up and refill with hitld dispatch plan'
+                  : 'for each rejected entry with a follow_up: hitld dispatch follow-up; then refill with hitld dispatch plan',
             };
           }
           if (owner) {
@@ -1220,11 +1229,6 @@ export const commands = [
               merged: o.merged,
               rejected: o.rejected,
               ...(o.incident ? { next: 'an incident: tell the owner at once' } : {}),
-              ...(o.held && !o.incident
-                ? {
-                    next: 'a batch is held as a flake candidate: nothing merged, nothing blamed; tell the owner, who decides',
-                  }
-                : {}),
             };
           }
           const result = await runMergeQueue({
@@ -1240,9 +1244,7 @@ export const commands = [
             ...o,
             next: o.incident
               ? 'an incident: tell the owner at once'
-              : o.held
-                ? 'a batch is held as a flake candidate: nothing merged, nothing blamed; tell the owner, who decides'
-                : 'for each rejected entry with a follow_up: hitld dispatch follow-up; then refill with hitld dispatch plan',
+              : 'for each rejected entry with a follow_up: hitld dispatch follow-up; then refill with hitld dispatch plan',
           };
         } finally {
           if (lock?.acquired) lock.handle.release();

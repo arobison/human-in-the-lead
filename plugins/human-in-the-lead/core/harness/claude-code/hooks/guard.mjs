@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // PreToolUse on Bash: executors never push, never move main, never run the orchestrator's
-// commands, and never touch the security baseline, verdicts or accepted risks (design 10.5).
+// commands, never touch the security baseline, verdicts or accepted risks (design 10.5), and
+// never write the quarantine file (design 14.7; reading it is how they learn what is quarantined).
 // The system never pushes on its
 // own (design part 5.3); main moves only through the merge queue (part 14.1).
 
@@ -15,7 +16,7 @@ const command = String(input.tool_input?.command ?? '');
 const unquoted = command.replace(/['"\\]/g, '');
 /** The hitld subcommands an executor may run (claim, close, read, check, its own leases). */
 const EXECUTOR_HITLD =
-  /^\s+(work\s+(claim|close|show|query|check|claims)|check\s+(contract|policy)|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|--help|--version)\b/;
+  /^\s+(work\s+(claim|close|show|query|check|claims)|check\s+(contract|policy|quarantine)|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|--help|--version)\b/;
 /** What follows each call of hitld in a command. @param {string} text */
 const hitldCalls = (text) =>
   [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
@@ -40,6 +41,15 @@ if (isExecutor(input, process.env)) {
   ) {
     why =
       "the security baseline and verdicts are not an executor's to read or write; propose a verdict in your report";
+  } else if (
+    /\bhitld(\.mjs)?\s+quarantine\b/.test(unquoted) ||
+    (/\bquarantine\.json\b/.test(unquoted) &&
+      /(>|\btee\b|\bsed\s+-\w*i|\bperl\s+-\w*i|\bmv\b|\bcp\b|\brm\b|\bgit\s+(add|apply|checkout|restore)\b)/.test(
+        unquoted,
+      ))
+  ) {
+    why =
+      "quarantining a test is the orchestrator's, on the queue's evidence; say in your report which test failed and the rerun that shows it flaky";
   } else if (/\brights\b[\s\S]*\b(answer|overrule|reverse|rate|trust)\b/.test(unquoted)) {
     why =
       "decisions are the owner's, answered through the main session; put the question in your report";

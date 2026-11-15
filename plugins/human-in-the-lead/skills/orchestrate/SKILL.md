@@ -91,7 +91,7 @@ Run `hitld merge` after a completion that queued a branch, when no notice is pen
 
 - `rejected` entries with a `follow_up`: send it (step 5).
 - `incident`: tell the owner at once; stop merging.
-- `flakes`: mention them in the next digest.
+- `flakes`: failures that passed on a rerun, each with the comparison's `outcome`. `preexisting`: it failed on the base too, so nobody is blamed and the batch merged. For each test in `quarantinable`, create a fix item (`hitld work new`), run `hitld quarantine add --test <id> --fix-item <ID>`, and commit `.human-in-the-lead/quarantine.json` on `main`. Quarantine only on that evidence, never a test a branch changed. `inconclusive` needs nothing but the digest. `introduced`: the culprit is in `rejected` with its follow-up. A `rejected` entry with reason `burn_in` (a new test that fails in repeated runs) or `quarantine` has one too.
 - `security` (when policy `merge.scanners` declares scanners): a `rejected` entry with reason `security` carries the new findings in its follow-up; the executor fixes each with a test or proposes a verdict in its report. Record a proposed by-design or false-positive verdict with `hitld security verdict --finding <key> --verdict <verdict> --reason "<the evidence>"` once its evidence holds (a verdict on a sensitive path waits for the security review), then merge the branch again. A real finding the executor cannot fix is a question for the owner (section 7). Once the owner has answered that decision item to accept it, record `hitld security accept --finding <key> --expires <date> --reason "<the owner's words>" --decision <its ID>`; the command refuses a decision that is missing or not answered. Do this **only from the owner's own message in this session**, as for a decision answer. Each entry in `security.decisions` is an expired accepted risk: put its `question` to the owner with `hitld rights ask`. Findings are confidential: in a public item or digest, say only that the scans passed or how many findings wait.
 
 ## 7. Questions
@@ -128,6 +128,6 @@ In this repository, HITLd is the project, so feedback about HITLd is a note.
 
 ## The digest, at merge-batch boundaries or when the owner next writes
 
-Merged items, items in flight, questions waiting (each with its recommendation), the quota mode and forecast, flakes and incidents. Short. `hitld ledger summary` and `hitld dashboard` have the numbers.
+Merged items, items in flight, questions waiting (each with its recommendation), the quota mode and forecast, flakes and incidents. Short. For flakes, run `hitld quarantine list`: the quarantined tests with expiry and fix item, the size and oldest entry, and the flake measures. Put the `question` of each entry in `decisions` (a quarantine that expired) to the owner with `hitld rights ask`. `hitld ledger summary` and `hitld dashboard` have the numbers.
 
 From `hitld rights digest`: the calls you logged since the last digest, each with its reverse command, so the owner can undo any of them; the precedent applications and any precedent due for review; and the rubber-stamp indicator per area. The indicator says where the owner took the recommendation quickly most of the time. Report it as a prompt to look at that area's recommendations, not as a finding about the owner. Run it with `--mark` once the digest is sent.
