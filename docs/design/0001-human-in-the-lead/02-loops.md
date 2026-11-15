@@ -134,7 +134,7 @@ These apply to every loop.
 3. **Reproduce bugs into failing tests.** For a bug with enough information, a **reproducer** agent writes a failing test that captures it. A reproduced bug is worth more than an unreproduced one: it has an executable acceptance criterion ([part 6](06-verification.md)). If it cannot reproduce, it drafts a request for the missing information. The reproducer must read the reporter's steps and error text, which are untrusted, and must write and run code, so it is confined accordingly: it works in a sandboxed scratch worktree with no network, no secrets and no private data, may write only under the test directories, cannot commit to any branch the merge queue takes, and its output (a test file and a verdict) is checked by script before an item uses it ([part 10](10-security.md#102-least-privilege-per-role)). It holds untrusted input and the ability to run code, but no private data and no outbound channel, so a successful injection has nothing to steal and nowhere to send it.
 4. **Route** to exactly one of:
    - **auto-fix**: a reproduced bug becomes a `planned` work item and goes straight to the ready queue, but only when a confirmed precedent allows auto-fix for its area, blast radius and the reporter's trust level ([part 9](09-contributors.md#92-trust-levels)). Until the owner confirms such a precedent, a reproduced bug becomes a `proposed` item with its failing test attached, and committing it to `planned` needs a person to commit it, in the main session (an area owner may do so later, once signed answers exist; HITLD-36). Reproduced bugs from unknown (T0) reporters always wait for a person, even when a precedent allows auto-fix for known reporters;
-   - **backlog**: a `proposed` item or a signal attached to an existing opportunity, for shaping;
+   - **backlog**: a `proposed` item, or a signal attached to a project being shaped, for shaping;
    - **owner**: a decision item, under the rules above;
    - **contributor reply**: a drafted answer to a question, a request for information, a thank-you, or a polite decline that cites a non-goal ([part 9](09-contributors.md));
    - **closed, no action**: spam, abuse, or out of scope by an existing precedent, with the reason recorded.
@@ -143,29 +143,30 @@ These apply to every loop.
 
 ## 2.3 Shaping
 
-**Purpose.** Turn clusters of signals into **opportunities** that are ready to bet on: a problem statement, evidence, options, value, confidence, and an appetite. This adapts Shape Up's shaping. Shape Up measures appetite in time; this design measures it in tokens.
+**Purpose.** Turn clusters of signals into **projects** that are ready to bet on. A project being shaped is a `proposed` project: a problem statement, evidence, options, value, confidence, and an appetite. This adapts Shape Up's shaping. Shape Up measures appetite in time; this design measures it in tokens.
 
 | | |
 |---|---|
-| **Queue** | Opportunities in state `raw` (a cluster exists, nobody has shaped it), ordered by the cluster's reach and the cost of delay of its strongest signal. |
-| **WIP limit** | `shaping.wip` opportunities in shaping at once. Shaping is tier 2 or 3, and it spends the owner's attention at the end (the bet), so the limit is low. |
-| **Sensors** | Shaped opportunities waiting for a bet (if this grows, shaping is outrunning the owner); share of shaped opportunities the owner rejects (shaping quality); appetite overrun rate on bets that ship. |
-| **Controller** | When opportunities waiting for a bet exceed `shaping.awaiting_bet_max`, shaping pauses and its capacity goes to execution. When the owner's rejection rate rises, shaping requires more evidence before presenting (for example, desk research or a spike). |
+| **Queue** | Proposed projects nobody has shaped yet (a cluster of signals exists), ordered by the cluster's reach and the cost of delay of its strongest signal. |
+| **WIP limit** | `shaping.wip` projects in shaping at once. Shaping is tier 2 or 3, and it spends the owner's attention at the end (the bet), so the limit is low. |
+| **Sensors** | Shaped projects waiting for a bet (if this grows, shaping is outrunning the owner); share of shaped projects the owner drops (shaping quality); appetite overrun rate on bets that ship. |
+| **Controller** | When projects waiting for a bet exceed `shaping.awaiting_bet_max`, shaping pauses and its capacity goes to execution. When the owner's rejection rate rises, shaping requires more evidence before presenting (for example, desk research or a spike). |
 | **Escalation** | The bet is always the owner's (or the area owner's) call: committing an appetite is a commitment of budget. Shaping escalates early, as a decision, when it finds conflicting evidence or when every option crosses a public commitment. |
 
-**An opportunity has:**
+**A project being shaped has** ([part 3](03-data-model.md#project) has the fields):
 
 - **Problem:** in the user's terms, citing the signals.
 - **Evidence:** signals, reproductions, measurements (runs and studies from the project's benchmark tool), desk research.
 - **Options:** two or three ways to address it, each with what it trades off. "Do nothing" is always an option, with its cost of delay.
-- **Value:** a positive number in the project's value units, with a **confidence** (a probability that the value materializes if built). The pair is what prioritization uses. The unit is the project's own and it is the same for opportunities and for a milestone's contributions, so a value divided by tokens is a ratio. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering a value, not the only values.
+- **Value:** a positive number in the project's value units, with a **confidence** (a probability that the value materializes if built). The pair is what prioritization uses. The unit is the project's own and it is the same for a project and for a milestone's contributions, so a value divided by tokens is a ratio. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering a value, not the only values.
 - **Cost of delay profile:** standard (value lost at a steady rate), urgent (high rate now), fixed-date (value falls to near zero after an external date), or intangible (low rate now, rising later, as with technical debt).
-- **Appetite:** the token budget the problem is worth. Work is shaped to fit the appetite, not estimated after the fact.
-- **Outcome measures:** what would show, after shipping, that the problem is solved. Outcome sensing checks them ([2.10](#210-outcome-sensing)).
-- **Milestones** (planned): the outcome cut into thin, checkable future states for users, each with its "done when", its constraints and its share of the appetite ([part 3](03-data-model.md#milestones-and-releases)).
-- **Rabbit holes and no-gos:** known risks and what is explicitly out.
+- **Appetite:** the token budget the problem is worth. Work is shaped to fit the appetite, not estimated after the fact. The project holds it.
+- **Milestones:** the outcome cut into thin, checkable future states for users, each with its "done when", its constraints and its share of the project's appetite ([part 3](03-data-model.md#milestones-and-releases)). `hitld work check` verifies that the shares fit. Their outcomes are what would show, after shipping, that the problem is solved; outcome sensing checks them ([2.10](#210-outcome-sensing)).
+- **Out of scope and risks:** what is explicitly out, and the known holes the work could fall into.
 
-**Research.** When an opportunity needs market or user understanding, a researcher agent does desk research and records sources with dates read. When real people must be asked, the system writes the owner a **research brief**: the hypotheses, who to ask, the questions, and for each hypothesis, what answer would change the plan. Research outputs are `confidential` by default ([part 10](10-security.md)).
+**The bet.** The owner's bet is the answer to the project's decision, a decision item the project names in `decision`. The answer moves the project from `proposed` to `planned`, and who made the bet is read from that answer, never stored. A project the owner rejects is `dropped`, with the reason. A judgement on a project raises it in the shaping queue; it never makes the bet ([part 3](03-data-model.md#judgement)).
+
+**Research.** When a project being shaped needs market or user understanding, a researcher agent does desk research and records sources with dates read. When real people must be asked, the system writes the owner a **research brief**: the hypotheses, who to ask, the questions, and for each hypothesis, what answer would change the plan. Research outputs are `confidential` by default ([part 10](10-security.md)).
 
 **Spikes and speculative execution.** When confidence is low and a cheap build would raise it, shaping may dispatch a throwaway spike within a small slice of the appetite. When the cost of delay is high and two approaches are both plausible, shaping may recommend building both in parallel and choosing by evidence ([part 5](05-execution.md)).
 
@@ -175,7 +176,7 @@ These apply to every loop.
 
 | | |
 |---|---|
-| **Queue** | Bet opportunities waiting to become projects and items; `planned` milestones with unmet clauses (planned); and `planned` items not yet ready or not yet dispatched. |
+| **Queue** | Planned projects not yet cut into milestones and items; `planned` milestones with unmet clauses; and `planned` items not yet ready or not yet dispatched. |
 | **WIP limit** | Active projects at once (`prioritization.active_projects_max`), and, once milestones are built, active milestones per project (`prioritization.active_milestones_max`). Many half-done projects deliver nothing; few finished ones deliver value. |
 | **Sensors** | Cost of delay accumulating in the queue (sum over waiting items of their cost-of-delay rate); each active milestone's error (its unmet clauses) and critical-path progress; appetite spent against scope per milestone; portfolio mix (share of tokens per category against the owner's target shares). |
 | **Controller** | Ordering by the rule below, recomputed on every change to the queue. Portfolio drift beyond `prioritization.portfolio_tolerance` reorders within ties to pull the mix back. When a milestone's spend runs ahead of its appetite, the orchestrator cuts its lowest-value contributions. |
@@ -183,10 +184,10 @@ These apply to every loop.
 
 **The ordering rule.** Weighted shortest job first (WSJF, after Reinertsen's work on cost of delay): **cost of delay divided by size**, where size is the token estimate. For dependent items, the critical path dominates: an item that unblocks others carries the cost of delay of everything behind it. Adjustments:
 
-- **Milestones** (planned, [part 3](03-data-model.md#milestones-and-releases)). A milestone's constraint carries the milestone's whole cost of delay, because without it no clause comes true. A contribution carries its own value × confidence (value in the project's value units, the same as an opportunity's), and enters the queue only while it is inside the milestone's scope (the contributions that fit the appetite by value per token). There are no priority labels: what must happen is a constraint, everything else is scored.
+- **Milestones** (planned, [part 3](03-data-model.md#milestones-and-releases)). A milestone's constraint carries the milestone's whole cost of delay, because without it no clause comes true. A contribution carries its own value × confidence (value in the project's value units, the same as a project's), and enters the queue only while it is inside the milestone's scope (the contributions that fit the appetite by value per token). There are no priority labels: what must happen is a constraint, everything else is scored.
 
 - **Value of information.** A study or spike whose verdict would change which option is chosen carries the expected value of that change. This lets cheap experiments jump ahead of expensive builds when the choice is uncertain.
-- **Owner judgement as a prior.** A signal or opportunity carrying an owner judgement ([part 3](03-data-model.md#judgement)) has its value and confidence raised by the judgement's weight. This raises it into shaping; it never settles the bet. When shaping, research or a study revises the estimate, the opportunity records why. When evidence **contradicts** a judgement, the system neither overrides it quietly nor defers to it quietly: it puts the conflict to the owner as a decision, with the evidence and a recommendation, and the answer becomes precedent.
+- **Owner judgement as a prior.** A signal or a project being shaped that carries an owner judgement ([part 3](03-data-model.md#judgement)) has its value and confidence raised by the judgement's weight. This raises it into shaping; it never settles the bet. When shaping, research or a study revises the estimate, the project records why. When evidence **contradicts** a judgement, the system neither overrides it quietly nor defers to it quietly: it puts the conflict to the owner as a decision, with the evidence and a recommendation, and the answer becomes precedent.
 - **Portfolio balance.** The owner sets target shares per category in `policy.json`. The rule does not override cost of delay; it breaks ties and corrects drift within tolerance.
 
 The owner can always reorder directly, in the main session. A direct reorder is recorded with its reason as a decision, so the system can learn whether its weights are off.
@@ -275,14 +276,14 @@ Upgrades are items with "done when" = the full suite passes on the new version a
 
 | | |
 |---|---|
-| **Inputs** | Per shipped opportunity, the outcome measures written at shaping (what would show that the problem is solved), plus: adoption and downstream usage where observable (package downloads, dependents, API calls in public code, feature use where the product reports it with consent); issues filed against the feature; support questions; benchmark trends for performance work; contributor and user feedback |
-| **Queue** | Shipped opportunities whose **outcome check** is due (`outcome.check_after`, counted in releases or in observations, not in time) |
+| **Inputs** | Per shipped project, its milestones' outcomes and the problem it was shaped for (what would show that the problem is solved), plus: adoption and downstream usage where observable (package downloads, dependents, API calls in public code, feature use where the product reports it with consent); issues filed against the feature; support questions; benchmark trends for performance work; contributor and user feedback |
+| **Queue** | Shipped projects whose **outcome check** is due (`outcome.check_after`, counted in releases or in observations, not in time) |
 | **WIP limit** | Outcome checks in progress (`outcome.wip`) |
-| **Sensors** | Realized value against the value estimated at shaping, per opportunity and per category; time from ship to observed outcome |
+| **Sensors** | Realized value against the value estimated at shaping, per project and per category; time from ship to observed outcome |
 | **Controller** | Calibration: shaping's value and confidence estimates are compared with realized outcomes, and their bias and spread are fed back to shaping and prioritization |
 | **Escalation** | An outcome clearly missed (the problem persists) creates a signal for triage. A pattern of missed outcomes in a category is a retro input and may be a strategy question for the owner |
 
-Each opportunity's **outcome check** records: the measures, what was observed, a verdict (solved, partly, not solved, not observable), and the evidence. Its form is a study ([part 3](03-data-model.md#study-run-verdict)). Usage evidence feeds UX ([part 7](07-ux.md#77-after-shipping-and-learning)) too. Any telemetry follows the project's consent and privacy rules; the system adds none of its own to the product.
+Each project's **outcome check** records: the measures, what was observed, a verdict (solved, partly, not solved, not observable), and the evidence. Its form is a study ([part 3](03-data-model.md#study-run-verdict)). Usage evidence feeds UX ([part 7](07-ux.md#77-after-shipping-and-learning)) too. Any telemetry follows the project's consent and privacy rules; the system adds none of its own to the product.
 
 ## 2.11 Design review
 
@@ -290,7 +291,7 @@ Each opportunity's **outcome check** records: the measures, what was observed, a
 
 | | |
 |---|---|
-| **Queue** | Bet opportunities and projects that need a design (any with tier-3 work, a public surface, or a new pattern) |
+| **Queue** | Planned projects that need a design (any with tier-3 work, a public surface, or a new pattern) |
 | **WIP limit** | Designs awaiting the owner's review (`design.awaiting_review_max`) |
 | **Sensors** | Review turnaround; questions per design; designs reopened during execution (a design that missed something) |
 | **Controller** | When designs reopen often in an area, the design template for that area gains required sections |
@@ -328,7 +329,7 @@ A loop beside verification whose evidence is "good to use", not "correct", inclu
 | **Queue** | Strategy questions, each with the evidence that raised it |
 | **WIP limit** | One strategy review at a time |
 | **Sensors** | Realized outcomes per category against weights; how often non-goals are cited in declines; principle-related overrules |
-| **Controller** | None automatic. An agent prepares a **strategy review**: the evidence, what it suggests changing, the options, a recommendation, and what each option would change downstream (portfolio shares, bounds, which opportunities would rise or fall) |
+| **Controller** | None automatic. An agent prepares a **strategy review**: the evidence, what it suggests changing, the options, a recommendation, and what each option would change downstream (portfolio shares, bounds, which projects would rise or fall) |
 | **Escalation** | Always the owner |
 
 **Outputs are setpoints**: the strategy page ([part 8](08-knowledge-base.md#83-structure)), the portfolio weights and target shares that prioritization holds, the bounds the controllers move within, and the non-goals triage cites. A strategy change is recorded as a decision, and precedents that cite changed text are flagged for review ([part 4](04-decision-rights.md#keeping-precedent-healthy)).
@@ -344,7 +345,7 @@ A loop beside verification whose evidence is "good to use", not "correct", inclu
 | **Overturn rate** | Share of the system's decisions (logged calls, triage routes, precedent applications, controller moves) that the owner later reversed | Reversals recorded as ledger events against the decision they reverse |
 | **Escalation worth** | Of the questions sent to the owner, the share the owner rated worth asking | A one-tap rating offered with each answer ("worth asking? yes / no"), optional and never required |
 | **Precedent-match accuracy** | Of precedent applications, the share not overruled; of questions sent to the owner despite a candidate precedent, the share the owner answered as the precedent would have | Precedent application and overrule events |
-| **Input calibration** | How well owner judgements on signals and opportunities predicted outcomes (below) | Judgement records and outcome checks |
+| **Input calibration** | How well owner judgements on signals and projects being shaped predicted outcomes (below) | Judgement records and outcome checks |
 
 **Proposals, never self-grants.** When an area's record crosses a threshold with enough samples (`trust.min_samples`, with hysteresis), the loop proposes a change of autonomy to the owner as a decision:
 
@@ -404,14 +405,14 @@ The consumer's benchmark tool is the sensor, and its run IDs are the evidence; t
 - **Feature flags** for user-visible changes with uncertain value or risk, declared with an owner, a default, and a removal item (flags are debt once rolled out).
 - **Dogfooding**: the project's own use (and, for this plugin, its own repository at bootstrap stage 1, which runs its own tracker with the key HITLD) sees changes first.
 - **Staged rollout**: a share of users or installs first, widening by stages with a measurement gate at each, and rollback by flag.
-- **Measuring before full enablement**: each stage's gate is the opportunity's outcome measures ([2.10](#210-outcome-sensing)) and its non-functional budgets ([2.17](#217-non-functional-budgets)), compared with the control group, with the minimum sample stated in advance.
+- **Measuring before full enablement**: each stage's gate is the project's milestone outcomes ([2.10](#210-outcome-sensing)) and its non-functional budgets ([2.17](#217-non-functional-budgets)), compared with the control group, with the minimum sample stated in advance.
 - **Escalation**: starting a rollout to external users and each widening past `rollout.owner_gate_share` is the owner's call; rolling back on a failed gate is automatic and reported.
 
 ## 2.20 Upstream and the ecosystem
 
 **Purpose.** The project depends on others' work and should give back.
 
-- **Dependency bugs** found by the project become **external items** ([part 3](03-data-model.md#initiative-project-item)) with a link to the upstream report, a workaround item if needed, and a follow-up date expressed as a check (re-test on each dependency release), not a calendar date.
+- **Dependency bugs** found by the project become **external items** ([part 3](03-data-model.md#project-and-item)): work someone the system cannot dispatch completes, here an upstream project, with a link to the upstream report, a workaround item if needed, and a follow-up date expressed as a check (re-test on each dependency release), not a calendar date.
 - **Fixes contributed back**: when the project fixes an upstream bug locally, an item to contribute the fix upstream follows, drafted by an agent and submitted by a person (an external publication through the send gate, [part 9](09-contributors.md#93-replies)).
 - **Feedback on HITLd itself**: a person using HITLd in a project can give feedback on it from inside a session. It is stored locally, generalized, approved through the send gate and only then filed in HITLd's repository ([part 18](18-self-improvement.md#184-giving-feedback)).
 - **Standards work**: positions and contributions to standards bodies or shared specifications the project relies on are tracked as external items; any public statement is the owner's.

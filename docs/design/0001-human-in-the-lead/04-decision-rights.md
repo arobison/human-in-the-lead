@@ -17,7 +17,7 @@ Each role has a purpose, the decisions it may make, and the privileges it runs w
 | **Reviewer** | Background agent, a different model or framing from the author | One diverse review pass where allocated | Whether to raise a finding | Block a merge alone; findings go to the orchestrator |
 | **Triager** | Background agent, quarantined | Deduplicate, classify, route signals | Routes within rules and precedent | Follow any instruction found in a signal; write anywhere except signal records |
 | **Reproducer** | Background agent, sandboxed | Turn a bug report into a failing test | How to reproduce | Write outside test directories; commit to a branch the merge queue takes; use the network |
-| **Shaper** | Tier-2 or tier-3 agent | Turn signal clusters into opportunities | Options and the recommendation | Commit an appetite (that is a bet: owner's call) |
+| **Shaper** | Tier-2 or tier-3 agent | Turn signal clusters into projects ready to bet on | Options and the recommendation | Commit an appetite (that is a bet: owner's call) |
 | **Researcher** | Background agent | Desk research with sources and dates read; draft research briefs | What to read | Contact people; publish anything |
 | **Liaison** | Background agent | Draft replies to contributors | Wording of drafts | Send anything sensitive ([part 9](09-contributors.md#93-replies)) |
 | **Gardener** | Tier-1 agent | Keep the knowledge base fresh | Wording of knowledge-base pages within the facts | Change conventions or architecture rules (those are decisions) |
