@@ -186,6 +186,8 @@ export const ERROR_CODES = Object.freeze({
   'remote-config-invalid': "This machine's remote override file is damaged.",
   'sync-state-invalid':
     'The file that records what this store last merged from the remote is damaged.',
+  'store-pull-refused':
+    'hitld run start or run resume stopped: the store remote answered, but its head does not open or merge. An unreachable remote does not stop a run; --no-sync goes on with the local store.',
 
   // Secrets and the environment
   'secret-missing': 'No value is stored for a secret the task needs.',

@@ -77,7 +77,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
-| `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
+| `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin (the plugin it enables carries the store-sync hooks: SessionStart pulls the private store, SessionEnd pushes it), the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
 Built as well: `run`, `env`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, and for owner merge mode `merge --all`, `merge --only` and `merge approve`. `hitld --help` lists every built command; this table is the design, not the list.
@@ -261,6 +261,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `remote-not-format-2`: The remote's head is not an age file; nothing writes another format to a remote.
 - `remote-config-invalid`: This machine's remote override file is damaged.
 - `sync-state-invalid`: The file that records what this store last merged from the remote is damaged.
+- `store-pull-refused`: hitld run start or run resume stopped: the store remote answered, but its head does not open or merge. An unreachable remote does not stop a run; --no-sync goes on with the local store.
 
 **Secrets and the environment**
 
