@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-92
+release_note: "A watchdog: `hitld dispatch watch` finds stalled or overdue dispatches from recorded progress and climbs a ladder (poke, follow-up, re-dispatch, then the owner). A quota pause records its reset time and the run resumes after it. New ledger events and `dispatch` settings; a PostToolUse hook records executor progress."
 ---
 
 ## Why

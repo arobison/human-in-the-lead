@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-89
+release_note: "Reports, digests, calibration reviews and evals run on evidence, not the calendar: `hitld cadence due` says what is due and why, and `hitld cadence done` marks a job as run. New policy sections `reports`, `digests`, `review` and `baselines`, and `load.idle_per_core` in the machine file."
 ---
 
 ## Why

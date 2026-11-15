@@ -6,6 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-28
 claimed_by: D-35
+release_note: "One digest, built from records: `hitld rights digest --trigger merge-batch|owner-writes --mark` fits one phone screen, puts questions first by cost of delay, shows only what is new, holds back in quiet hours, and returns `delivery` and `urgency`. `hitld dashboard` writes the same text to `digest.txt`."
 ---
 
 ## Why

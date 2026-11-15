@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-82
+release_note: "Consistent names: one `state` key with values proposed, planned, in-progress, done and dropped; `result` for how an attempt ended; lowercase kebab-case values; clearer names for ledger events, settings and roles. Old names are read with a warning until the next minor release; `hitld work migrate` and `hitld config migrate` rewrite files."
 ---
 
 ## Why
