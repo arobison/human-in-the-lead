@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-87
+release_note: "Executors run `hitld rights who` and `hitld precedent match` before asking, and decide what the system or a precedent settles. The contract's \"not your call\" list now matches the seven decision rules."
 ---
 
 ## Why
