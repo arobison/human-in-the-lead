@@ -118,6 +118,10 @@ The other GitHub features do not fit:
 
 **Layout.** The store repository holds, per project, a pointer to the current head and the encrypted files: incremental bundles since the previous head, and a full snapshot from time to time. Publishing a head is a git push that fails if the remote moved, which gives compare and swap for free. Pruning rewrites the store repository's history to drop old files; it is dumb storage, so rewriting it is safe.
 
+**As built.** The repository has one branch, `hitld-store`. Its tree holds `bundles/<seq>-<sha256>.bundle`, one file per version kept, and each push is one commit that adds one. The version id is the file name without `.bundle`, so it names the hash its bytes must have and does not change when history is rewritten. A push builds its commit on the remote's tip and is never forced; git refuses it when the tip has moved, and the transport then reports the new head. Prune writes one new root commit that holds only the newest bundles and replaces the branch with `--force-with-lease` pinned to the tip it read, so it cannot overwrite a push that landed meanwhile. The branch must not be protected against force pushes. The provider removes unreachable objects on its own schedule, so prune bounds the branch but does not erase at once.
+
+The transport runs `git` over the URL it is given (`https`, `ssh` or a local path; never a password in the URL). It reads and writes a bare copy kept inside the private store, never the project's checkout. It runs git as `hitld` runs it on the store: an argument list, hooks and signing off, the owner's git config ignored. The keys that say how to reach and sign in to a host (`credential.*`, `http.*`, `url.<base>.insteadOf`) and the proxy, certificate and ssh agent variables are passed on, so the credential helper or proxy a session already uses keeps working.
+
 **One repository per project or one per owner.** One per project isolates access: a session given one project's store repository sees nothing of another's. One per owner, with a folder per project, means one repository to set up. Q4 asks which.
 
 ### Plain or encrypted on GitHub

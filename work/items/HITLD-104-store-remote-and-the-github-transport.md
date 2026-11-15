@@ -2,9 +2,10 @@
 id: HITLD-104
 title: "StoreRemote and the GitHub transport: head, fetch, compare and swap, pruning"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-104
 ---
 
 ## Why
