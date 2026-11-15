@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-90
+release_note: "The tracker loses two levels: a proposed project carries the shaping fields and the appetite, initiatives become milestones with no project, and milestones have one kind. `hitld work migrate` (tracker-structure) moves an existing tracker; old kinds are read with a warning. The tracker read API is version 3."
 ---
 
 ## Why

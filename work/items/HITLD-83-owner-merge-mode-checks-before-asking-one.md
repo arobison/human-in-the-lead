@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-83
+release_note: "Owner merge mode tests each batch before asking, shows only green branches with evidence the system computed, and takes one approval per batch (`hitld merge --all` or `--only`). `merge.owner_paths` and `merge.owner_areas` limit it, and after a run of clean merges the automatic queue is proposed."
 ---
 
 ## Why
