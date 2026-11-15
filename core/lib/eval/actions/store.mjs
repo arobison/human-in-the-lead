@@ -2,8 +2,9 @@
 // each device, a bare repository standing in for the store's host, and a bare repository standing
 // in for the project's own origin (where the owner's merge lands). Every device is a container: a
 // fresh clone of origin, a private store of its own (a data directory of its own) and its key.
-// A device's key arrives the way a cloud environment's does, in HITLD_STORE_IDENTITY; the
-// keychain is not used, so a scenario runs on any machine.
+// A device's key and the store's address arrive the way a cloud environment's do, in
+// HITLD_STORE_IDENTITY and HITLD_STORE_REMOTE; the keychain and the person file are not used, so
+// a scenario runs on any machine. The project's repository never holds the address.
 //
 // Everything is built inside the sandbox. No action prints a private key: `init --cloud` prints
 // one once, and `store.hitld` keeps it as the key of the device it names and leaves it out of the
@@ -75,9 +76,12 @@ function containers(sandbox) {
   return readdirSync(dir).filter((n) => existsSync(join(dir, n, 'checkout')));
 }
 
+/** Whether the scenario's project has a store remote: its host exists. @param {string} sandbox */
+const hasHost = (sandbox) => existsSync(join(hostDir(sandbox), 'HEAD'));
+
 /**
- * The environment a command runs in on a device: its own data directory, and its key as a cloud
- * environment carries it.
+ * The environment a command runs in on a device: its own data directory, and its key and the
+ * store's address as a cloud environment carries them.
  * @param {string} sandbox @param {string} name
  * @param {{ executor?: boolean, noKey?: boolean }} [o]
  * @returns {NodeJS.ProcessEnv}
@@ -91,6 +95,7 @@ function envFor(sandbox, name, o = {}) {
     XDG_DATA_HOME: join(dir, 'data'),
     XDG_CONFIG_HOME: join(dir, 'config'),
     HITLD_SESSION: `s-${name}`,
+    ...(hasHost(sandbox) ? { HITLD_STORE_REMOTE: `file://${hostDir(sandbox)}` } : {}),
     ...(key ? { HITLD_STORE_IDENTITY: key } : {}),
     ...(o.executor ? { HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' } : {}),
   };
@@ -152,7 +157,7 @@ function hasBranch(gitDir) {
 export const actions = {
   'store.fixture': {
     description:
-      "Build a project for the store remote: origin (a bare repository holding main, with policy.json and the list of enrolled devices), a bare repository standing in for the store's host (the project's store.remote.url, unless remote is false), and a container for each named device: a fresh clone, an empty private store and a key of its own. A device is enrolled when it is in `enrolled` (default: all of them). Returns { project, devices, enrolled, remote }.",
+      "Build a project for the store remote: origin (a bare repository holding main, with policy.json and the list of enrolled devices), a bare repository standing in for the store's host, unless remote is false, and a container for each named device: a fresh clone, an empty private store, a key of its own and the store's address in HITLD_STORE_REMOTE. A device is enrolled when it is in `enrolled` (default: all of them). Returns { project, devices, enrolled, remote }.",
     input: {
       type: 'object',
       properties: {
@@ -194,7 +199,7 @@ export const actions = {
         '.human-in-the-lead/policy.json': JSON.stringify({
           schema_version: 1,
           project: { id: PROJECT_ID, key: 'SAM' },
-          ...(withRemote ? { store: { remote: { url: `file://${host}` } } } : {}),
+          ...(withRemote ? { store: { remote: { required: true } } } : {}),
         }),
         [DEVICES_PATH]: serializeDevices({
           schema_version: 1,
@@ -214,7 +219,7 @@ export const actions = {
         project: PROJECT_ID,
         devices,
         enrolled,
-        remote: withRemote ? 'policy' : 'none',
+        remote: withRemote ? 'environment' : 'none',
       };
     },
   },
@@ -304,7 +309,7 @@ export const actions = {
 
   'store.owner-merge': {
     description:
-      "The owner's merge: commit what a device changed under .human-in-the-lead (the device list, policy.json) to main, push it to origin, and bring every other container's main up to date, as a session does when it clones. Returns { merged, files }.",
+      "The owner's merge: commit what a device changed under .human-in-the-lead (the device list) to main, push it to origin, and bring every other container's main up to date, as a session does when it clones. Returns { merged, files }.",
     input: {
       type: 'object',
       properties: { device: DEVICE, message: { type: 'string', minLength: 1 } },

@@ -257,7 +257,7 @@ export function install(input, ctx) {
   writeJson(settingsPath, settings);
   done.settings = '.claude/settings.json';
   done.store_sync_hooks =
-    'the plugin carries them: SessionStart pulls the private store, SessionEnd pushes it; both do nothing until store.remote.url is set';
+    'the plugin carries them: SessionStart pulls the private store, SessionEnd pushes it; both do nothing until a store address is set (HITLD_STORE_REMOTE, or hitld store remote set)';
 
   // The usage capture is opt-in (--statusline). The default quotas are the subscription
   // windows, read only from the status line, and a quota with no reading stops dispatch.

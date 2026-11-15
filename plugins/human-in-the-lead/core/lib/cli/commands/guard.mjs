@@ -8,6 +8,28 @@ import { formatErrors } from '../../schema/validate.mjs';
 import { loadTrackerConfig } from '../../tracker/files/config.mjs';
 import { checkStaged, checkTree, problemLines, rulesFrom } from '../../guard/classification.mjs';
 
+/**
+ * What a refusal says: files above the ceiling, and files that hold the private store's address,
+ * with where it goes.
+ * @param {import('../../guard/classification.mjs').Refused[]} refused @param {string} ceiling
+ */
+function refusedMessage(refused, ceiling) {
+  const placed = refused.filter((r) => r.rule === 'store-address');
+  const above = refused.length - placed.length;
+  const parts = [];
+  if (above) {
+    parts.push(
+      `${above} file(s) above the repository's classification ceiling "${ceiling}" (design part 10.3). Keep them in the private store; lowering a classification is the owner's decision`,
+    );
+  }
+  if (placed.length) {
+    parts.push(
+      `${placed.length} file(s) hold the private store's address, which never goes in the project's repository (design 0003); each problem says where it goes`,
+    );
+  }
+  return `refused: ${parts.join('. ')}`;
+}
+
 /** @type {import('../table.mjs').Command[]} */
 export const commands = [
   {
@@ -74,7 +96,7 @@ export const commands = [
         problems,
         ...(warnings.length ? { warnings } : {}),
         message: r.refused.length
-          ? `refused: ${r.refused.length} file(s) above the repository's classification ceiling "${rules.ceiling}" (design part 10.3). Keep them in the private store; lowering a classification is the owner's decision`
+          ? refusedMessage(r.refused, rules.ceiling)
           : `${r.files} file(s), none above the ceiling "${rules.ceiling}"`,
       };
     },

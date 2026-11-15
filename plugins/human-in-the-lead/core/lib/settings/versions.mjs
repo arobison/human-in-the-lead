@@ -19,7 +19,8 @@ import { schemas } from '../schema/registry.mjs';
  * @typedef {object} SettingsVersion
  * @property {number} version
  * @property {string} from the first release that reads it
- * @property {string[]} keys dotted paths; a file that sets any of them needs at least this version
+ * @property {string[]} keys dotted paths, where `*` stands for any key; a file that sets any of them
+ *   needs at least this version
  */
 
 /**
@@ -31,6 +32,7 @@ export const SETTINGS_VERSIONS = Object.freeze({
   person: [
     { version: 1, from: '0.1.0-rc.1', keys: [] },
     { version: 2, from: '0.1.0-rc.1', keys: ['attention'] },
+    { version: 3, from: '0.1.0-rc.1', keys: ['projects.*.store_remote'] },
   ],
   machine: [{ version: 1, from: '0.1.0-rc.1', keys: [] }],
 });
@@ -38,15 +40,15 @@ export const SETTINGS_VERSIONS = Object.freeze({
 /** @param {unknown} v @returns {v is Record<string, any>} */
 const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** @param {unknown} data @param {string} path */
+/**
+ * @param {unknown} data @param {string} path a dotted path; `*` matches any key
+ * @returns {boolean}
+ */
 function sets(data, path) {
-  /** @type {unknown} */
-  let at = data;
-  for (const k of path.split('.')) {
-    if (!isObject(at) || !Object.hasOwn(at, k)) return false;
-    at = at[k];
-  }
-  return true;
+  const [k, ...rest] = path.split('.');
+  if (!isObject(data)) return false;
+  const keys = k === '*' ? Object.keys(data) : Object.hasOwn(data, k) ? [k] : [];
+  return keys.some((key) => (rest.length ? sets(data[key], rest.join('.')) : true));
 }
 
 /**

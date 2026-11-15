@@ -816,7 +816,7 @@ test('hitld rights pending and sweep read the person file and the project’s ce
   assert.equal(p.decisions[0].deliver, 'now');
 
   // A broken person file stops it with the reason.
-  person(env, { schema_version: 3 });
+  person(env, { schema_version: 4 });
   const bad = await run('rights pending');
   assert.equal(bad.ok, false);
   assert.equal(bad.error, 'settings');

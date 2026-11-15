@@ -181,11 +181,11 @@ export const ERROR_CODES = Object.freeze({
 
   // Pushing and pulling the store
   'no-remote':
-    'No remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine.',
+    'No store address is set: set HITLD_STORE_REMOTE in a cloud environment, or run hitld store remote set <url> on a machine.',
   'nothing-to-push': 'The store holds no text to push yet.',
   'remote-not-format-2':
     "The remote's head is not an age file; nothing writes another format to a remote.",
-  'remote-config-invalid': "This machine's remote override file is damaged.",
+  'remote-config-invalid': "This machine's override of the store's address is damaged.",
   'sync-state-invalid':
     'The file that records what this store last merged from the remote is damaged.',
   'store-pull-refused':

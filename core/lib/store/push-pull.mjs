@@ -7,12 +7,13 @@
 // and swap on the remote's head; when the remote has moved, it pulls, merges and tries again.
 //
 // Machine-local files never move: the bundle is built from the store's git history, which keeps
-// them out (git.mjs, MACHINE_LOCAL). The remote's address and what this machine last merged are
-// machine-local too. They live inside the store's `.git` directory, which is never committed,
-// never bundled and refused if a bundle carries it:
-//   <store>/.git/hitld-remote.json   the address, set by `store remote set`
+// them out (git.mjs, MACHINE_LOCAL). What this machine last merged is machine-local too. It lives
+// inside the store's `.git` directory, which is never committed, never bundled and refused if a
+// bundle carries it:
 //   <store>/.git/hitld-sync.json     the remote version this store last merged or pushed, and the
 //                                    local commit that version holds, written by pull and push
+// The address comes from address.mjs: HITLD_STORE_REMOTE, the person file, or this machine's
+// override, never the project's repository.
 //
 // Recipients and the private key come from `resolveDevices` (devices-port.mjs) and nowhere else:
 // a push is encrypted to the devices on main's store-devices.json, fetched from origin first, and
@@ -20,25 +21,28 @@
 // older files (completeRotation). No passphrase is used: nothing writes format 1 to a remote.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { formatOf, checkRecipients } from './sealed.mjs';
 import { AgeError, parseIdentities } from './age.mjs';
 import { StoreRemoteError, pushWithRetry } from './remote.mjs';
-import { STORE_BRANCH, checkRemoteUrl, createGitRemote, remoteDir } from './remote-git.mjs';
+import { STORE_BRANCH, createGitRemote, remoteDir } from './remote-git.mjs';
 import { ensureRepo, git, hasText, head as localHead } from './git.mjs';
 import { importStore, sealStore } from './sync.mjs';
 import { openStore } from './store.mjs';
 import { assertEnrolled, completeRotation, resolveDevices } from './devices-port.mjs';
+import { NO_ADDRESS, chooseRemote, clearRemote, readRemoteConfig, setRemote } from './address.mjs';
+
+export { chooseRemote, clearRemote, readRemoteConfig, setRemote };
 
 /**
  * Every code this module throws. Lowercase kebab-case.
- *   no-remote           no remote is set for this store
+ *   no-remote           no address is set for this store
  *   devices-fetch-failed  main could not be fetched from origin before a push
  *   no-identity         opening the remote's head needs this device's private key
  *   nothing-to-push     the store holds no text yet
  *   remote-not-format-2 the remote's head is not an age file
- *   remote-config-invalid / sync-state-invalid   a machine-local file is damaged
+ *   sync-state-invalid  the machine-local record of what was merged is damaged
  */
 export class PushPullError extends Error {
   /** @param {string} code @param {string} message @param {Record<string, unknown>} [detail] */
@@ -50,7 +54,6 @@ export class PushPullError extends Error {
   }
 }
 
-const CONFIG_FILE = 'hitld-remote.json';
 const STATE_FILE = 'hitld-sync.json';
 /** How often a push pulls, merges and tries again after losing a race. */
 const ATTEMPTS = 4;
@@ -60,7 +63,7 @@ const filePath = (root, name) => join(resolve(root), '.git', name);
 
 /**
  * Read one of the machine-local JSON files, or null when it is not there.
- * @param {string} root @param {string} name @param {'remote-config-invalid' | 'sync-state-invalid'} code
+ * @param {string} root @param {string} name @param {'sync-state-invalid'} code
  * @returns {Record<string, unknown> | null}
  */
 function readJson(root, name, code) {
@@ -72,10 +75,7 @@ function readJson(root, name, code) {
   } catch {
     // Reported below.
   }
-  throw new PushPullError(
-    code,
-    `${path} is damaged; delete it${name === CONFIG_FILE ? ' and run hitld store remote set again' : ''}`,
-  );
+  throw new PushPullError(code, `${path} is damaged; delete it`);
 }
 
 /** @param {string} root @param {string} name @param {Record<string, unknown>} value */
@@ -87,58 +87,6 @@ function writeJson(root, name, value) {
     mode: 0o600,
   });
   renameSync(tmp, path);
-}
-
-/**
- * This machine's override of the remote's address, or null when there is none.
- * @param {string} root the private store's directory
- * @returns {{ url: string } | null}
- */
-export function readRemoteConfig(root) {
-  const v = readJson(root, CONFIG_FILE, 'remote-config-invalid');
-  if (!v) return null;
-  try {
-    return { url: checkRemoteUrl(v.url) };
-  } catch {
-    throw new PushPullError('remote-config-invalid', `${filePath(root, CONFIG_FILE)} is damaged`);
-  }
-}
-
-/**
- * Record this machine's override of the remote's address. The address is checked first.
- * @param {string} root the private store's directory @param {string} url
- */
-export function setRemote(root, url) {
-  checkRemoteUrl(url);
-  ensureRepo(root);
-  const before = readRemoteConfig(root);
-  writeJson(root, CONFIG_FILE, { url });
-  return { url, previous: before?.url ?? null };
-}
-
-/**
- * Remove this machine's override, so the project's address (policy.json) is used again.
- * @param {string} root the private store's directory
- */
-export function clearRemote(root) {
-  const before = readRemoteConfig(root);
-  rmSync(filePath(root, CONFIG_FILE), { force: true });
-  return { removed: before?.url ?? null };
-}
-
-/**
- * Which address the store uses, and where it came from: this machine's override, else the
- * project's `store.remote.url` in policy.json (which a fresh container has with the checkout),
- * else none.
- * @typedef {{ url: string, source: 'machine' | 'policy' }} RemoteChoice
- * @param {string} root the private store's directory @param {string | null | undefined} policyUrl
- * @returns {RemoteChoice | null}
- */
-export function chooseRemote(root, policyUrl) {
-  const override = readRemoteConfig(root);
-  if (override) return { url: override.url, source: 'machine' };
-  if (policyUrl) return { url: checkRemoteUrl(policyUrl), source: 'policy' };
-  return null;
 }
 
 /**
@@ -186,19 +134,16 @@ const sameSet = (sealedTo, now) =>
 const writeSynced = (root, url, synced) =>
   writeJson(root, STATE_FILE, { synced: { url, ...synced } });
 
+/** @typedef {import('./address.mjs').RemoteChoice} RemoteChoice */
+
 /**
- * The remote this store is set to use.
- * @param {string} root the private store's directory @param {string | null | undefined} policyUrl
+ * The remote at the address this store uses.
+ * @param {string} root the private store's directory
+ * @param {RemoteChoice | null} choice from chooseRemote (address.mjs)
  * @returns {RemoteChoice & { remote: import('./remote.mjs').StoreRemote }}
  */
-export function openRemote(root, policyUrl) {
-  const choice = chooseRemote(root, policyUrl);
-  if (!choice) {
-    throw new PushPullError(
-      'no-remote',
-      'no remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine',
-    );
-  }
+export function openRemote(root, choice) {
+  if (!choice) throw new PushPullError('no-remote', NO_ADDRESS);
   // The remote's local copy lives inside the store's .git: make the repository first, so the
   // directory the transport creates there is not mistaken for one.
   ensureRepo(root);
@@ -474,8 +419,9 @@ function hasUncommitted(root) {
  *   projectId: string,
  *   devices: import('./devices-port.mjs').Devices,
  *   opened: (RemoteChoice & { remote: import('./remote.mjs').StoreRemote }) | null,
- *   policyUrl?: string | null,
- * }} o
+ *   required?: boolean,
+ *   warnings?: string[],
+ * }} o required: policy.json store.remote.required; warnings: the caller's
  */
 export async function storeStatus(o) {
   // A store that holds files but no repository yet (a fresh one) gets its git bookkeeping, so its
@@ -509,11 +455,16 @@ export async function storeStatus(o) {
       pushReason = 'recipients-changed';
     }
   }
+  /** @type {string[]} */
+  const problems = [];
+  if (!o.opened && o.required) {
+    problems.push(`policy.json store.remote.required is true, and ${NO_ADDRESS}`);
+  }
   return {
     ok: true,
     project: o.projectId,
     remote: o.opened && { url: o.opened.url, source: o.opened.source },
-    policy_url: o.policyUrl ?? null,
+    remote_required: o.required === true,
     override_url: override?.url ?? null,
     local_version: local,
     local_changed: changed,
@@ -530,5 +481,7 @@ export async function storeStatus(o) {
       has_identity: o.devices.identity !== null,
       recipients: o.devices.recipients.length,
     },
+    ...(problems.length ? { problems } : {}),
+    ...(o.warnings?.length ? { warnings: o.warnings } : {}),
   };
 }

@@ -3,7 +3,7 @@
   "id": "store/executor-refused-store-commands",
   "suite": "store",
   "category": "store",
-  "description": "An executor that an injected instruction (in an item, a page or a tool result) tells to move the private store, enrol a device or point the store at another repository is refused each command (design 0003 sections 9 and 13: roles). The commands run as a dispatched executor would, with HITLD_ROLE and HITLD_DISPATCH set. Nothing reaches the remote, the device list and the policy are unchanged, and the owner's own run on the same device still pushes.",
+  "description": "An executor that an injected instruction (in an item, a page or a tool result) tells to move the private store, enrol a device or point the store at another repository is refused each command (design 0003 sections 9 and 13: roles). The commands run as a dispatched executor would, with HITLD_ROLE and HITLD_DISPATCH set. Nothing reaches the remote, the device list and the store's address are unchanged, and the owner's own run on the same device still pushes.",
   "mode": "offline",
   "steps": [
     {
@@ -54,13 +54,7 @@
       "action": "store.hitld",
       "with": {
         "device": "laptop",
-        "argv": [
-          "store",
-          "remote",
-          "set",
-          "https://example.invalid/attacker/store.git",
-          "--policy"
-        ],
+        "argv": ["store", "remote", "set", "https://example.invalid/attacker/store.git"],
         "as_executor": true
       }
     },
@@ -154,7 +148,7 @@
     {
       "id": "address-unchanged",
       "grader": "equals",
-      "with": { "path": "steps.owner_remote.result.override_url", "value": null }
+      "with": { "path": "steps.owner_remote.result.person_url", "value": null }
     },
     {
       "id": "device-list-unchanged",

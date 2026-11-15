@@ -26,16 +26,15 @@ For a project that you work on from more than one machine, or from cloud session
    git ls-remote https://github.com/example-owner/sample-app-store.git
    ```
 
-3. **Put the address in the project.** This writes `store.remote.url` into `.human-in-the-lead/policy.json`, which is what a fresh cloud container reads:
+3. **Give this machine the address.** The address never goes in the project's repository, which may be public: it would tell anyone where the store is. On a local machine it goes in your person file (`~/.config/human-in-the-lead/person.json`), under the project's ID:
 
    ```bash
-   hitld store remote set https://github.com/example-owner/sample-app-store.git --policy
-   git diff .human-in-the-lead/policy.json
+   hitld store remote set https://github.com/example-owner/sample-app-store.git
    ```
 
-   The address is `https://host/owner/repo.git`, `ssh://git@host/owner/repo.git`, `git@host:owner/repo.git` or an absolute path. A password in it is refused (`remote-url-invalid`); sign in through git. Without `--policy` the address is recorded for this machine only, and the result prints the change to commit if a cloud session is to find it too.
+   The address is `https://host/owner/repo.git`, `ssh://git@host/owner/repo.git`, `git@host:owner/repo.git` or an absolute path. A password in it is refused (`remote-url-invalid`); sign in through git. `--machine` records it for this machine's store only instead. A cloud environment gets it from a variable (step 8).
 
-   Commit `policy.json` with the next step's device list, so both reach `main` in one merge.
+   If you want every machine and session to warn when it has no address, set `"store": { "remote": { "required": true } }` in `policy.json`. That is the only store setting `policy.json` holds. A `store.remote.url` there is refused by `hitld check policy` and by the commit guard.
 
 ### 2. This machine, as a device
 
@@ -47,12 +46,12 @@ For a project that you work on from more than one machine, or from cloud session
 
    `--name` takes lower-case letters, digits, `.`, `_` and `-`; the default is this machine's host name. Run again, it changes nothing. A machine with no keychain is refused (`device-no-keychain`): give it a key the way a cloud environment gets one (step 7), and set `HITLD_STORE_IDENTITY` in the environment of the shell that runs `hitld`.
 
-5. **Commit and merge.** Commit the device list, and `policy.json` from step 3, and have them reach `main` through your own merge. That merge is the approval:
+5. **Commit and merge.** Commit the device list and have it reach `main` through your own merge. That merge is the approval:
 
    ```bash
    git switch -c hitld/store-remote
-   git add .human-in-the-lead/store-devices.json .human-in-the-lead/policy.json
-   git commit -m "Enrol the laptop and set the store remote"
+   git add .human-in-the-lead/store-devices.json
+   git commit -m "Enrol the laptop"
    ```
 
    Open and merge the pull request yourself, on GitHub or with git, as you do for any change of your own. Do not send it through the merge queue: the queue sends back any branch that changes the device list, so an agent's branch cannot enrol or remove a device.
@@ -77,7 +76,7 @@ One cloud environment is one device. Every session in that environment shares it
 
    Copy the `identity` value (it starts with `AGE-SECRET-KEY-1`) straight to the next step. Run this in a terminal that nothing records. Do not run it through an agent: the result would sit in the session's transcript.
 
-8. **Set it in the environment.** In the cloud environment menu (in the session's title bar), choose Edit, and add an environment variable named `HITLD_STORE_IDENTITY` whose value is that key. Environment variables there are stored in plain text, visible to you, and read by every process in the container: see "What this protects" below. While you are there, check that Network access lets the container reach the store repository's host (`github.com` for GitHub). Start the session with the store repository attached as well as the project's, so the session's own git sign-in covers it. No new token is needed.
+8. **Set it in the environment.** In the cloud environment menu (in the session's title bar), choose Edit, and add two environment variables: `HITLD_STORE_IDENTITY`, whose value is that key, and `HITLD_STORE_REMOTE`, whose value is the store repository's address from step 3. Environment variables there are stored in plain text, visible to you, and read by every process in the container: see "What this protects" below. While you are there, check that Network access lets the container reach the store repository's host (`github.com` for GitHub). Start the session with the store repository attached as well as the project's, so the session's own git sign-in covers it. No new token is needed.
 
    If `init --cloud` is run in a shell that already has `HITLD_STORE_IDENTITY` set, it enrols that key and shows nothing secret.
 
@@ -104,7 +103,7 @@ hitld store device list
 
 `store status` should show:
 
-- `remote.source`: `policy` (or `machine`, if you set an override), and the `url` you set (`hitld store remote show` prints the same);
+- `remote.source`: `person` on a machine where you ran `hitld store remote set`, `environment` in a cloud environment (or `machine`, for an override), and the `url` you set (`hitld store remote show` prints the same);
 - `device.enrolled`: `true`, and `device.recipients`: the number of devices on `main`;
 - `push_due` and `pull_due`: `false` once the device has synced. `pull_due: true` means the remote has something this device has not merged; run `hitld store pull`. `remote_error` is set, and `pull_due` is `null`, when the remote cannot be reached.
 
@@ -186,9 +185,18 @@ The service name is `hitld-store-` and the project ID from `policy.json`.
 
 Each step has its own undo. None of them deletes a store on any machine.
 
-- **Stop using the remote on this machine:** `hitld store remote clear` removes this machine's override. If the address is in `policy.json`, revert the commit that added it, or remove `store.remote` from the file and commit that. With no address, the run commands and the hooks do nothing about the store, and say nothing.
+- **Stop using the remote on this machine:** `hitld store remote clear` takes the address out of your person file (`--machine` removes this machine's override). In a cloud environment, delete the `HITLD_STORE_REMOTE` variable. With no address, the run commands and the hooks do nothing about the store, and say nothing, unless `policy.json` sets `store.remote.required`, when they say there is no address.
 - **Remove a device:** the steps in "Removing a device", then delete its key.
 - **Remove the keychain entry** of a local device with the command above, once its device is removed.
-- **Take back the device list and the address entirely:** `git revert` the commits from steps 3 and 5.
+- **Take back the device list entirely:** `git revert` the commit from step 5.
 - **Delete the store repository** on GitHub. The stores on your machines stay as they are, and a new repository can be set up later with step 3 and a push.
+
+### A project that committed the address before
+
+An older setup put the address in `policy.json` as `store.remote.url`. Every `hitld` command now refuses that `policy.json`, with a message saying where the address goes. Move it:
+
+1. On each machine, `hitld store remote set <url>`. In each cloud environment, add `HITLD_STORE_REMOTE`.
+2. Remove `store.remote.url` from `policy.json` (keep `"required": true` if you want the warning), commit it and merge it.
+
+The project's git history still holds the old address. Rewriting history is your choice; `hitld` does not do it.
 - **Delete a local store** only if you want its ledger gone for good: `~/.local/share/human-in-the-lead/<project ID>/`. With the remote set, the next pull on that machine restores it.
