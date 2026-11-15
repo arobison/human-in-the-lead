@@ -7,6 +7,10 @@
 //                                   marketplace pinned to a checkout path (development, before
 //                                   tags), or the GitHub marketplace pinned to a ref
 //   .claude/settings.local.json     the status-line usage capture, so the quota gate has readings
+//   (the plugin's hooks)            enabling the plugin turns on its SessionStart hook, which pulls
+//                                   the private store from its remote, and its SessionEnd hook,
+//                                   which pushes it (design 0003, section 8); both do nothing
+//                                   until a store remote is configured
 //   .git/hooks/pre-commit           the commit guard (design part 10.3): runs this hitld's
 //                                   `check classification --staged`; shared by every worktree
 //
@@ -250,6 +254,8 @@ export function install(input, ctx) {
   };
   writeJson(settingsPath, settings);
   done.settings = '.claude/settings.json';
+  done.store_sync_hooks =
+    'the plugin carries them: SessionStart pulls the private store, SessionEnd pushes it; both do nothing until store.remote.url is set';
 
   // The usage capture is opt-in (--statusline). The default quotas are the subscription
   // windows, read only from the status line, and a quota with no reading stops dispatch.

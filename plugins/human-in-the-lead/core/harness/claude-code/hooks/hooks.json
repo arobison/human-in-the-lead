@@ -6,6 +6,11 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/core/harness/claude-code/hooks/session-start.mjs\""
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/core/harness/claude-code/hooks/store-sync.mjs\" pull",
+            "timeout": 60
           }
         ]
       }
@@ -47,6 +52,17 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/core/harness/claude-code/hooks/report-check.mjs\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/core/harness/claude-code/hooks/store-sync.mjs\" push",
+            "timeout": 60
           }
         ]
       }

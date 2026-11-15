@@ -112,7 +112,9 @@ export function startRun(store, options) {
   const expiry = options.expirySeconds ?? DEFAULTS.expirySeconds;
   const existing = loadState(store).state;
   if (existing && !options.replace) {
-    const active = existing.in_flight.length > 0 || !leaseExpired(existing, now(), expiry);
+    const active =
+      existing.in_flight.length > 0 ||
+      (!existing.lease.released && !leaseExpired(existing, now(), expiry));
     if (active) {
       throw new Error(
         `run ${existing.run?.id} is still active (lease held by ${existing.lease.session} on ${existing.lease.host}, ${Math.round(leaseAgeSeconds(existing, now()))}s old; ${existing.in_flight.length} in flight); resume it with hitld run resume, or start a new run with replace`,
