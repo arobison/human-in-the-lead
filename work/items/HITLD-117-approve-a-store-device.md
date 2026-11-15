@@ -2,10 +2,14 @@
 id: HITLD-117
 title: Approve a store device
 kind: decision
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
 decider: owner
+answer: "A. Enrol it: Every push from now on is encrypted to this device too, and it may push."
+answered_at: 2026-11-15T21:22:17.898Z
+answered_via: main-session
+answered_by: owner
 ---
 
 ## Question
