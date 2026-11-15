@@ -2,10 +2,11 @@
 id: HITLD-73
 title: Adopt the CodeQL CLI as this repository's merge scanner
 kind: work
-status: Planned
+status: In progress
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-63]
+claimed: D-73
 ---
 
 ## Why
