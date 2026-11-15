@@ -6,7 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-15
 claimed_by: D-61
-release_note: "Commands are tagged by the milestone that builds them; `hitld migrate` is now `hitld data migrate`; public judgments carry only what, basis and by."
+release_note: "Commands are tagged by the milestone that builds them; `hitld migrate` is now `hitld data migrate` (not built yet); public judgments carry only what, basis and by."
 ---
 
 ## Why
