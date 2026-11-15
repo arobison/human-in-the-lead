@@ -14,7 +14,7 @@ import {
   writeSettingsFile,
   writerRefusal,
 } from '../../settings/files.mjs';
-import { explainText, loadEffectivePolicy } from '../../settings/layers.mjs';
+import { explainText, loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { proposeMigration } from '../../settings/migrate.mjs';
 
 const MAX_FILE_BYTES = 1_000_000;
@@ -105,11 +105,13 @@ export const commands = [
         ...r.files,
         policy: noPolicy ? { path: null, present: false } : r.files.policy,
       };
-      if (!r.settings) return { ok, files, errors: r.errors, warnings: r.warnings };
+      const setup = setupState(files);
+      if (!r.settings) return { ok, files, setup, errors: r.errors, warnings: r.warnings };
       if (input.json) {
         return {
           ok,
           files,
+          setup,
           cap: r.settings.cap,
           values: r.settings.values,
           warnings: r.warnings,
@@ -118,8 +120,9 @@ export const commands = [
       }
       return {
         ok,
-        text: explainText(r.settings.values),
+        text: explainText(r.settings.values) + (setup.reason ? `\n\n${setup.reason}` : ''),
         files,
+        setup,
         warnings: r.warnings.map((w) => w.message),
         errors: r.errors,
       };

@@ -5,6 +5,8 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { writeSettingsFile } from '../settings/files.mjs';
 
 /** @param {string} cwd @param {...string} args */
 export const fixtureGit = (cwd, ...args) =>
@@ -22,6 +24,36 @@ export function putFiles(root, files) {
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, text);
   }
+}
+
+/**
+ * Mark the first-run setup done for a sandbox home: empty (all-defaults) person and machine files.
+ * Without them, autonomous dispatch waits (design part 13.4).
+ * @param {NodeJS.ProcessEnv} env XDG_CONFIG_HOME and XDG_DATA_HOME of the sandbox
+ */
+export function writeSetupDone(env) {
+  writeSettingsFile('person', { schema_version: 1 }, { env, cwd: tmpdir() });
+  writeSettingsFile('machine', { schema_version: 1 }, { env, cwd: tmpdir() });
+}
+
+/**
+ * Fake probe sources for `hitld machine detect`: a workstation with a desktop session, eight cores
+ * and 16 GB, no GPU, one browser. Nothing is read from the machine the eval runs on.
+ * @returns {import('../machine/detect.mjs').Sources}
+ */
+export function fakeWorkstation() {
+  const files = /** @type {Record<string, string>} */ ({ '/usr/bin/firefox': '' });
+  return {
+    platform: 'linux',
+    arch: 'x64',
+    release: '6.1.0',
+    cores: 8,
+    memoryBytes: 16 * 1024 ** 3,
+    env: { DISPLAY: ':0', XDG_SESSION_TYPE: 'x11', PATH: '/usr/bin' },
+    readText: (p) => files[p] ?? null,
+    exists: (p) => p in files,
+    run: () => null,
+  };
 }
 
 /** @param {string} root */
