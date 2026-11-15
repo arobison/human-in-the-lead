@@ -18,6 +18,8 @@ import {
   sendApproved,
 } from '../lib/sendgate/gate.mjs';
 import { policyDefaults } from '../lib/policy/policy.mjs';
+import { openStore } from '../lib/store/store.mjs';
+import { addTerm, removeTerm } from '../lib/store/private-terms.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'hitld-feedback-publish-'));
@@ -295,6 +297,53 @@ test('publish: an approved draft is filed with the form headings, labels and foo
   );
   assert.equal(rec.words, words, 'the record keeps the words locally');
   assert.deepEqual(schemas().validateEntity('feedback', rec), []);
+});
+
+test('publish: a draft holding a private term is refused before anything is sent, naming kind and line, never the term', async () => {
+  const term = 'orchid-fox-7';
+  const added = addTerm(openStore(store), { term, kind: 'device' });
+  try {
+    const id = await record('The digest named the wrong machine for the call, honestly.');
+    await draft(id, {
+      ...clean,
+      title: 'The digest named the wrong machine',
+      what_happened: `The digest said the call came from ${term}, but another machine made it.`,
+    });
+    const before = filer.sent.length;
+    for (const answer of ['approve', 'by-hand']) {
+      const r = await run(['feedback', 'publish', id, '--answer', answer, '--store', store]);
+      assert.equal(r.ok, false, answer);
+      assert.equal(r.error, 'private-term', answer);
+      assert.match(r.message, /body, line \d+: holds a private device/, answer);
+      assert.ok(!JSON.stringify(r).includes(term), 'the refusal never names the term');
+    }
+    assert.equal(filer.sent.length, before, 'nothing was sent');
+    assert.equal(stored(id).state, 'drafted', 'the record stays drafted');
+    assert.equal(stored(id).approval, undefined, 'and is not approved');
+
+    // The person edits it away; the same check passes and it is filed.
+    const edited = await run([
+      'feedback',
+      'publish',
+      id,
+      '--answer',
+      'edit',
+      '--what-happened',
+      'The digest named the wrong machine for the call, which another machine made.',
+      '--store',
+      store,
+    ]);
+    assert.deepEqual([edited.ok, edited.filed], [true, true], JSON.stringify(edited));
+
+    // A term in the title is refused too, by its own place.
+    const second = await record('The digest title named a machine, honestly again.');
+    await draft(second, { ...clean, title: `The digest named ${term}` });
+    const t = await run(['feedback', 'publish', second, '--answer', 'approve', '--store', store]);
+    assert.equal(t.error, 'private-term');
+    assert.match(t.message, /title, line 1: holds a private device/);
+  } finally {
+    removeTerm(openStore(store), { which: added.id });
+  }
 });
 
 test('publish: edit approves the person changes, screened like the draft; drop drops', async () => {

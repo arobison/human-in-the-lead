@@ -10,22 +10,22 @@
       "id": "project",
       "action": "store.fixture",
       "with": {
-        "devices": ["cloud-main"]
+        "devices": ["example-cloud"]
       }
     },
     {
       "id": "start",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
-        "argv": ["run", "start", "--id", "R-1", "--host", "cloud-1"]
+        "device": "example-cloud",
+        "argv": ["run", "start", "--id", "R-1", "--host", "example-host-1"]
       }
     },
     {
       "id": "log",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": ["rights", "log", "--text", "Picked the shorter timeout", "--area", "api"]
       }
     },
@@ -33,13 +33,13 @@
       "id": "ask_first",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": [
           "ledger",
           "append",
           "{\"event\":\"asked\",\"decision\":\"SAM-9\"}",
           "--host",
-          "cloud-1"
+          "example-host-1"
         ]
       }
     },
@@ -47,13 +47,13 @@
       "id": "ask_second",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": [
           "ledger",
           "append",
           "{\"event\":\"asked\",\"decision\":\"SAM-10\"}",
           "--host",
-          "cloud-1"
+          "example-host-1"
         ]
       }
     },
@@ -61,7 +61,7 @@
       "id": "reversal",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": ["rights", "reverse", "SAM-3", "--subject-kind", "other", "--area", "api"]
       }
     },
@@ -69,7 +69,7 @@
       "id": "trust_before",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": ["rights", "trust"]
       }
     },
@@ -77,30 +77,30 @@
       "id": "checkpoint",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
-        "argv": ["run", "checkpoint", "--host", "cloud-1"]
+        "device": "example-cloud",
+        "argv": ["run", "checkpoint", "--host", "example-host-1"]
       }
     },
     {
       "id": "discard",
       "action": "store.discard",
       "with": {
-        "device": "cloud-main"
+        "device": "example-cloud"
       }
     },
     {
       "id": "new_session",
       "action": "store.session",
       "with": {
-        "device": "cloud-main-2",
-        "key_from": "cloud-main"
+        "device": "example-cloud-2",
+        "key_from": "example-cloud"
       }
     },
     {
       "id": "fresh_status",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main-2",
+        "device": "example-cloud-2",
         "argv": ["store", "status"]
       }
     },
@@ -108,15 +108,15 @@
       "id": "resume",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main-2",
-        "argv": ["run", "resume", "--host", "cloud-2", "--force"]
+        "device": "example-cloud-2",
+        "argv": ["run", "resume", "--host", "example-host-2", "--force"]
       }
     },
     {
       "id": "trust_after",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main-2",
+        "device": "example-cloud-2",
         "argv": ["rights", "trust"]
       }
     },
@@ -124,7 +124,7 @@
       "id": "ledger_after",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main-2",
+        "device": "example-cloud-2",
         "argv": ["ledger", "tail", "--limit", "20"]
       }
     }
@@ -142,7 +142,7 @@
       "id": "container-gone",
       "grader": "file_exists",
       "with": {
-        "path": "devices/cloud-main/data",
+        "path": "devices/example-cloud/data",
         "present": false
       }
     },

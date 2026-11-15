@@ -91,7 +91,7 @@ Four levels ([part 3](03-data-model.md#classification-levels)): `public`, `inter
 
 ### Private names
 
-The private term list holds the names a public repository, and anything published from it, never holds: the private store's address and its repository's name, the names of the devices that read the store, and whatever the owner adds, such as a partner's name, a private host or a person's email address. Text refers to each by its role instead: "the store repository", "a device", "the owner's laptop".
+The private term list holds the names a public repository, and anything published from it, never holds: the private store's address and its repository's name, the names of the devices that read the store, and whatever the owner adds, such as a partner's name, a private host or a person's email address. Text refers to each by its role instead: "the store repository", "a device", "the owner's main machine".
 
 **Where it lives.** In the private store, at `private/terms.jsonl` (`core/lib/store/private-terms.mjs`). It syncs with the store, encrypted to the devices the owner approved ([design 0003](../0003-private-store-remote.md)), so every device has it. It is never in the project's repository and never in plain text anywhere outside the machine. The file is append-only: a line adds a term or removes one, so copies on two devices merge line by line.
 

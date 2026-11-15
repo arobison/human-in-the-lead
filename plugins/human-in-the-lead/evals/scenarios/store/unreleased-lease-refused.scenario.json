@@ -3,48 +3,57 @@
   "id": "store/unreleased-lease-refused",
   "suite": "store",
   "category": "store",
-  "description": "The run lease is the lock across machines (design 0003 section 8). The laptop starts a run and pushes at a checkpoint without handing over. A cloud device pulls that ledger, sees a lease taken on another machine and never released, and refuses to start or resume (lease-held), however old the lease is, naming the holder. Once the laptop hands over, which pushes after releasing, the cloud device takes the run without force.",
+  "description": "The run lease is the lock across machines (design 0003 section 8). example-laptop starts a run and pushes at a checkpoint without handing over. A cloud device pulls that ledger, sees a lease taken on another machine and never released, and refuses to start or resume (lease-held), however old the lease is, naming the holder. Once example-laptop hands over, which pushes after releasing, the cloud device takes the run without force.",
   "mode": "offline",
   "steps": [
     {
       "id": "project",
       "action": "store.fixture",
-      "with": { "devices": ["cloud-main", "laptop"] }
+      "with": { "devices": ["example-cloud", "example-laptop"] }
     },
     {
       "id": "laptop_start",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "start", "--id", "R-1", "--host", "laptop"] }
+      "with": {
+        "device": "example-laptop",
+        "argv": ["run", "start", "--id", "R-1", "--host", "example-laptop"]
+      }
     },
     {
       "id": "laptop_checkpoint",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+      "with": {
+        "device": "example-laptop",
+        "argv": ["run", "checkpoint", "--host", "example-laptop"]
+      }
     },
     {
       "id": "cloud_resume",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["run", "resume", "--host", "cloud-1"] }
+      "with": { "device": "example-cloud", "argv": ["run", "resume", "--host", "example-host-1"] }
     },
     {
       "id": "cloud_start",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["run", "start", "--host", "cloud-1"] }
+      "with": { "device": "example-cloud", "argv": ["run", "start", "--host", "example-host-1"] }
     },
     {
       "id": "laptop_still_holds_it",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+      "with": {
+        "device": "example-laptop",
+        "argv": ["run", "checkpoint", "--host", "example-laptop"]
+      }
     },
     {
       "id": "laptop_handover",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["handover", "--host", "laptop"] }
+      "with": { "device": "example-laptop", "argv": ["handover", "--host", "example-laptop"] }
     },
     {
       "id": "cloud_resume_after",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["run", "resume", "--host", "cloud-1"] }
+      "with": { "device": "example-cloud", "argv": ["run", "resume", "--host", "example-host-1"] }
     }
   ],
   "graders": [
@@ -68,20 +77,20 @@
       "grader": "equals",
       "with": {
         "path": "steps.cloud_resume.result.holder.session",
-        "value": "s-laptop"
+        "value": "s-example-laptop"
       }
     },
     {
       "id": "names-the-machine",
       "grader": "equals",
-      "with": { "path": "steps.cloud_resume.result.holder.host", "value": "laptop" }
+      "with": { "path": "steps.cloud_resume.result.holder.host", "value": "example-laptop" }
     },
     {
       "id": "says-how-to-go-on",
       "grader": "matches",
       "with": {
         "path": "steps.cloud_resume.result.message",
-        "pattern": "hitld run retire --holder s-laptop.*--force"
+        "pattern": "hitld run retire --holder s-example-laptop.*--force"
       }
     },
     {

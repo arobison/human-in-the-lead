@@ -604,12 +604,13 @@ test('a push needs a device the owner approved, and some text', async () => {
     root: base.root,
     projectId: 'fixture',
     opened: { remote, url: f.url, source: 'machine' },
-    devices: { ...devices, enrolled: false, device: 'laptop' },
+    devices: { ...devices, enrolled: false, device: 'example-laptop' },
   });
   assert.deepEqual(status.device, {
-    name: 'laptop',
+    name: 'example-laptop',
     enrolled: false,
     has_identity: true,
+    opens_remote: true,
     recipients: 2,
   });
 });

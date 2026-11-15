@@ -23,7 +23,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { formatOf, checkRecipients } from './sealed.mjs';
+import { formatOf, checkRecipients, open as openSealed } from './sealed.mjs';
 import { AgeError, parseIdentities } from './age.mjs';
 import { StoreRemoteError, pushWithRetry } from './remote.mjs';
 import { STORE_BRANCH, createDevicesBranch, createGitRemote, remoteDir } from './remote-git.mjs';
@@ -403,6 +403,48 @@ function hasUncommitted(root) {
 }
 
 /**
+ * Whether this device's key opens the remote's head. A device whose approval is only in its own
+ * copy of the store (the owner removed it, or no approved device has sealed the store to it yet)
+ * is told apart from one the remote's head is sealed to. `opens` is null when it cannot be told:
+ * the remote has no head, the device has no key, or the remote cannot be read.
+ * @param {{ remote: Pick<import('./remote.mjs').StoreRemote, 'head' | 'fetch'>, devices: import('./devices-port.mjs').Devices, version?: string | null }} o
+ *   version: the remote's head, when the caller already has it
+ * @returns {Promise<{ opens: boolean | null, problem: string | null }>}
+ */
+export async function headAccess(o) {
+  if (!o.devices.identity) return { opens: null, problem: null };
+  try {
+    const version = o.version === undefined ? await o.remote.head() : o.version;
+    if (version === null) return { opens: null, problem: null };
+    const bytes = await o.remote.fetch(version);
+    if (formatOf(bytes) !== 2) return { opens: null, problem: null };
+    openSealed(bytes, { identities: parseIdentities(o.devices.identity) });
+    return { opens: true, problem: null };
+  } catch (e) {
+    if (e instanceof AgeError && e.code === 'age-no-match') {
+      return {
+        opens: false,
+        problem:
+          "this device cannot open the store: the remote's head does not open with its key, so the owner has probably removed this device, or no approved device has sealed the store to it yet. What this device's own copy says about its approval is out of date",
+      };
+    }
+    return { opens: null, problem: null };
+  }
+}
+
+/**
+ * This device as the remote's head sees it: when the head does not open with its key, it is not
+ * enrolled, whatever its own copy of the approvals says.
+ * @param {import('./devices-port.mjs').Devices} devices
+ * @param {{ opens: boolean | null, problem: string | null }} access
+ * @returns {import('./devices-port.mjs').Devices}
+ */
+export function seenFromRemote(devices, access) {
+  if (access.opens !== false) return devices;
+  return { ...devices, enrolled: false, problem: access.problem };
+}
+
+/**
  * Where the store stands against its remote, and what this device may do. It changes nothing in
  * the store. A remote that cannot be reached is reported, not raised.
  * @param {{
@@ -438,14 +480,21 @@ export async function storeStatus(o) {
       remoteError = { code: e.code, message: e.message };
     }
   }
+  // The remote's head decides whether this device is enrolled: its own copy of the approvals may be
+  // from before the owner removed it.
+  const access =
+    o.opened && !remoteError
+      ? await headAccess({ remote: o.opened.remote, devices: o.devices, version: remoteVersion })
+      : { opens: null, problem: null };
+  const devices = seenFromRemote(o.devices, access);
   const holdsText = local !== null || changed;
-  const now = [...o.devices.recipients].sort();
+  const now = [...devices.recipients].sort();
   /** @type {'never-pushed' | 'local-changes' | 'recipients-changed' | null} */
   let pushReason = null;
   if (o.opened && holdsText) {
     if (!synced) pushReason = 'never-pushed';
     else if (changed || synced.head !== local) pushReason = 'local-changes';
-    else if (o.devices.enrolled && !sameSet(synced.recipients, now)) {
+    else if (devices.enrolled && !sameSet(synced.recipients, now)) {
       pushReason = 'recipients-changed';
     }
   }
@@ -454,6 +503,7 @@ export async function storeStatus(o) {
   if (!o.opened && o.required) {
     problems.push(`policy.json store.remote.required is true, and ${NO_ADDRESS}`);
   }
+  if (access.problem) problems.push(access.problem);
   return {
     ok: true,
     project: o.projectId,
@@ -470,12 +520,14 @@ export async function storeStatus(o) {
     pull_due:
       o.opened && !remoteError ? remoteVersion !== null && remoteVersion !== synced?.version : null,
     device: {
-      name: o.devices.device,
-      enrolled: o.devices.enrolled,
-      has_identity: o.devices.identity !== null,
-      recipients: o.devices.recipients.length,
+      name: devices.device,
+      enrolled: devices.enrolled,
+      has_identity: devices.identity !== null,
+      recipients: devices.recipients.length,
+      opens_remote: access.opens,
+      ...(access.problem ? { problem: access.problem } : {}),
     },
-    devices: deviceSummary(o.root, o.devices, o.requests ?? null, o.requestsError ?? null),
+    devices: deviceSummary(o.root, devices, o.requests ?? null, o.requestsError ?? null),
     ...(problems.length ? { problems } : {}),
     ...(o.warnings?.length ? { warnings: o.warnings } : {}),
   };

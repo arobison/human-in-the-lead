@@ -30,7 +30,7 @@ export const KINDS = Object.freeze([
 export const ROLES = Object.freeze({
   'store-address': 'the store repository',
   repository: 'the store repository',
-  device: 'a device, by its role (for example "the owner\'s laptop")',
+  device: 'a device, by its role (for example "the owner\'s main machine")',
   name: 'its role',
   email: "the person's role, or a noreply address",
   host: 'its role (for example "the store\'s host")',

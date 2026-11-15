@@ -271,7 +271,7 @@ test('allocation counts numbers on other branches, other worktrees and bundle re
   });
   git(wt, 'add', '-A');
   git(wt, 'commit', '-q', '-m', 'x');
-  git(root, 'update-ref', 'refs/bundles/laptop/main', git(wt, 'rev-parse', 'HEAD').trim());
+  git(root, 'update-ref', 'refs/bundles/example-laptop/main', git(wt, 'rev-parse', 'HEAD').trim());
   git(wt, 'checkout', '-q', '--detach');
   git(root, 'branch', '-q', '-D', 'other');
   assert.equal(t.create({ kind: 'work', title: 'three', parent: 'W-2' }), 'W-31');
@@ -598,7 +598,7 @@ test('claims from a fetched bundle ref count, and double claims and orphans are 
   put(root, { 'work/items/W-4-second-step.md': text });
   const sha = commitAll(root, 'claim: W-4');
   git(root, 'checkout', '-q', 'main');
-  git(root, 'update-ref', 'refs/bundles/laptop/exec/w-4', sha);
+  git(root, 'update-ref', 'refs/bundles/example-laptop/exec/w-4', sha);
   git(root, 'branch', '-q', '-D', 'scratch');
   const t = open(root);
   const [c] = t.claims();
@@ -611,7 +611,7 @@ test('claims from a fetched bundle ref count, and double claims and orphans are 
   const problems = t.check({ branches: true, inflight: ['D-1', 'D-9'] }).problems;
   assert.ok(
     problems.includes(
-      'W-4 is claimed twice: D-1 on exec/w-4; D-100001 on refs/bundles/laptop/exec/w-4',
+      'W-4 is claimed twice: D-1 on exec/w-4; D-100001 on refs/bundles/example-laptop/exec/w-4',
     ),
     problems.join('\n'),
   );

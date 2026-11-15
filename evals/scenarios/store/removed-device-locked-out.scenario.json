@@ -3,29 +3,29 @@
   "id": "store/removed-device-locked-out",
   "suite": "store",
   "category": "store",
-  "description": "Milestone c3 (design 0003 section 14). A cloud environment's device is removed: the laptop asks the owner (hitld store device remove), the owner's own answer approves the removal, and the next push is encrypted to the remaining device only and prunes the older files. The removed device's key opens nothing on the remote, its pull is refused, its push is refused, and it never sees what was recorded after the removal. What it pulled before the removal stays with it.",
+  "description": "Milestone c3 (design 0003 section 14). A cloud environment's device is removed: example-laptop asks the owner (hitld store device remove), the owner's own answer approves the removal, and the next push is encrypted to the remaining device only and prunes the older files. The removed device's key opens nothing on the remote, its pull is refused, its push is refused, and it never sees what was recorded after the removal. What it pulled before the removal stays with it.",
   "mode": "offline",
   "steps": [
     {
       "id": "project",
       "action": "store.fixture",
       "with": {
-        "devices": ["cloud-main", "laptop"]
+        "devices": ["example-cloud", "example-laptop"]
       }
     },
     {
       "id": "start",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["run", "start", "--host", "laptop"]
+        "device": "example-laptop",
+        "argv": ["run", "start", "--host", "example-laptop"]
       }
     },
     {
       "id": "log_before",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["rights", "log", "--text", "Recorded before the removal", "--area", "api"]
       }
     },
@@ -33,7 +33,7 @@
       "id": "push_before",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "push"]
       }
     },
@@ -41,7 +41,7 @@
       "id": "cloud_pull_before",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": ["store", "pull"]
       }
     },
@@ -49,15 +49,15 @@
       "id": "remove",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["store", "device", "remove", "cloud-main"]
+        "device": "example-laptop",
+        "argv": ["store", "device", "remove", "example-cloud"]
       }
     },
     {
       "id": "merge",
       "action": "store.owner-answers",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "answer": "A"
       }
     },
@@ -65,7 +65,7 @@
       "id": "log_after",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["rights", "log", "--text", "Recorded after the removal", "--area", "api"]
       }
     },
@@ -73,7 +73,7 @@
       "id": "push_after",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "push"]
       }
     },
@@ -82,14 +82,14 @@
       "action": "store.inspect-remote",
       "with": {
         "markers": ["Recorded after the removal", "Recorded before the removal"],
-        "open_with": ["laptop", "cloud-main"]
+        "open_with": ["example-laptop", "example-cloud"]
       }
     },
     {
       "id": "cloud_pull_after",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": ["store", "pull"]
       }
     },
@@ -97,7 +97,7 @@
       "id": "cloud_push_after",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": ["store", "push"]
       }
     },
@@ -105,7 +105,7 @@
       "id": "cloud_ledger",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": ["ledger", "tail", "--limit", "20"]
       }
     },
@@ -113,7 +113,7 @@
       "id": "laptop_ledger",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["ledger", "tail", "--limit", "20"]
       }
     }
@@ -156,7 +156,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.push_after.result.rotation.rotated",
-        "value": ["cloud-main"]
+        "value": ["example-cloud"]
       }
     },
     {
@@ -171,7 +171,7 @@
       "id": "remaining-device-opens-it",
       "grader": "equals",
       "with": {
-        "path": "steps.remote.opens.laptop",
+        "path": "steps.remote.opens.example-laptop",
         "value": 1
       }
     },
@@ -179,7 +179,7 @@
       "id": "removed-key-opens-nothing",
       "grader": "equals",
       "with": {
-        "path": "steps.remote.opens.cloud-main",
+        "path": "steps.remote.opens.example-cloud",
         "value": 0
       }
     },

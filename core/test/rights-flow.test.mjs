@@ -17,6 +17,7 @@ import {
   recordReversal,
 } from '../lib/rights/flow.mjs';
 import { readTrustEvents, trustSummary } from '../lib/rights/trust.mjs';
+import { readLedger } from '../lib/ledger/ledger.mjs';
 import { makeProject } from './helpers/project.mjs';
 
 /** A dependency question: the owner's under the security rule, with the precedent offer. */
@@ -308,6 +309,68 @@ test('a question that cannot be answered from a phone is refused, and says what 
   assert.equal(project.tracker.items.size, 0);
   const unknown = askQuestion(project, { ...dependency(), surprise: 1 });
   assert.equal(unknown.error, 'invalid-question');
+});
+
+test('an answer that names no option is refused with the options listed, and nothing is recorded', () => {
+  const project = makeProject();
+  const asked = askQuestion(project, dependency());
+  /** Everything an answer could change: the item, the ledger, the trust record, the precedents. */
+  const everything = () =>
+    JSON.stringify({
+      item: project.tracker.get(asked.decision),
+      ledger: readLedger(project.store).events,
+      trust: readTrustEvents(project.store),
+      precedents: project.precedents.list(),
+    });
+  const before = everything();
+  for (const answer of [
+    'let us talk first',
+    'maybe, yes',
+    'add the thing and hand-roll the rest',
+    'yes',
+    'C',
+    '',
+  ]) {
+    const r = answerDecision(project, { decision: asked.decision, answer });
+    assert.equal(r.ok, false, answer);
+    assert.equal(r.error, 'answer-matches-no-option', answer);
+    assert.deepEqual(
+      r.options.map((/** @type {any} */ o) => [o.letter, o.label]),
+      [
+        ['A', 'Add it'],
+        ['B', 'Hand-roll'],
+      ],
+    );
+    assert.match(r.message, /nothing was recorded/);
+    assert.match(r.message, /A\. Add it: one small dependency/);
+    assert.equal(everything(), before, `nothing changed for ${JSON.stringify(answer)}`);
+  }
+  assert.equal(project.tracker.get(asked.decision).state, 'planned', 'the decision is still open');
+
+  // Words that are one option's label are that option; the open decision takes them.
+  const ok = answerDecision(project, { decision: asked.decision, answer: 'hand roll' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.option, 'B');
+  assert.equal(ok.took_recommendation, false);
+});
+
+test('an answer by label words is the option the label names, and an ambiguous one is refused', () => {
+  const project = makeProject();
+  const asked = askQuestion(
+    project,
+    dependency({
+      options: [
+        { label: 'Add it', what_happens: 'one small dependency' },
+        { label: 'Do not add it', what_happens: 'no dependency' },
+        { label: 'Add', what_happens: 'the same words as the first' },
+      ],
+    }),
+  );
+  const both = answerDecision(project, { decision: asked.decision, answer: 'add it' });
+  assert.equal(both.error, 'answer-matches-no-option');
+  assert.match(both.message, /more than one option/);
+  const no = answerDecision(project, { decision: asked.decision, answer: 'Do not add it' });
+  assert.deepEqual([no.ok, no.option], [true, 'B']);
 });
 
 test('only an open decision takes an answer', () => {

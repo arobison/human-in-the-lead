@@ -245,9 +245,10 @@ const table = [
           );
         }
         // Run.record refuses a session that does not hold the lease, then appends and checkpoints.
+        const by = who(input, ctx);
         const run = new Run(
           s.store,
-          { ...who(input, ctx), kept: s.kept, expirySeconds: s.expirySeconds },
+          { ...by, kept: s.kept, expirySeconds: s.expirySeconds },
           loaded.state,
         );
         // The ID, run and time are the system's, never the caller's.
@@ -279,7 +280,12 @@ const table = [
             };
           }
         }
-        const { event: written, appended } = run.record(fields);
+        // An event no dispatch writes says which session and machine wrote it.
+        const { event: written, appended } = run.record(
+          fields.dispatch === undefined
+            ? { ...fields, session: by.session, host: by.host }
+            : fields,
+        );
         // A revert of a merge the owner approved is trust-calibration data (design 14.2).
         if (appended && written.event === 'reverted' && typeof written.item === 'string') {
           for (const ev of revertEvents(readTrustEvents(s.store), written.item)) {

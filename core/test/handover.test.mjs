@@ -29,14 +29,14 @@ const clock = (offset = 0) => {
   return () => new Date(BASE + (offset + n++) * 1000);
 };
 const EXPIRY = 1800;
-const A = { session: 'orch-1', host: 'laptop' };
-const B = { session: 'orch-2', host: 'laptop' };
+const A = { session: 'orch-1', host: 'example-laptop' };
+const B = { session: 'orch-2', host: 'example-laptop' };
 const COS = { session: 'cos', host: 'phone-relay' };
 
 test('a hand-over releases the lease: the holder can no longer record, a successor takes it at once', () => {
   const store = memoryStore();
-  const first = startRun(store, { ...A, now: clock(), harnessRef: 'cloud-1' });
-  assert.equal(first.state.lease.harness_ref, 'cloud-1');
+  const first = startRun(store, { ...A, now: clock(), harnessRef: 'example-host-1' });
+  assert.equal(first.state.lease.harness_ref, 'example-host-1');
   const r = releaseLease(store, { ...A, now: clock(10), reason: 'handover' });
   assert.equal(r.appended, true);
   assert.deepEqual(
@@ -59,11 +59,14 @@ test('a hand-over releases the lease: the holder can no longer record, a success
     ...B,
     now: clock(20),
     expirySeconds: EXPIRY,
-    harnessRef: 'cloud-2',
+    harnessRef: 'example-host-2',
   });
-  assert.deepEqual(tookOver, { from: { session: 'orch-1', host: 'laptop' }, reason: 'handover' });
+  assert.deepEqual(tookOver, {
+    from: { session: 'orch-1', host: 'example-laptop' },
+    reason: 'handover',
+  });
   assert.equal(run.state.lease.released, undefined);
-  assert.equal(run.state.lease.harness_ref, 'cloud-2');
+  assert.equal(run.state.lease.harness_ref, 'example-host-2');
   assert.deepEqual(
     readLedger(store).events.map((e) => e.event),
     ['run-started', 'lease-released', 'lease-taken'],
@@ -101,7 +104,7 @@ test('the chief of staff retires a session that ended; it cannot retire itself o
   const released = readLedger(store).events.at(-1);
   assert.equal(released?.event, 'lease-released');
   assert.equal(released?.session, 'orch-1');
-  assert.equal(released?.host, 'laptop');
+  assert.equal(released?.host, 'example-laptop');
   const state = /** @type {Record<string, any>} */ (loadState(store).state);
   assert.equal(leaseStatus(state, new Date(BASE + 40_000), EXPIRY).free, true);
 
@@ -135,19 +138,25 @@ test('the hand-over is due after enough completions since the lease was taken, o
 test('only work whose notice reaches this session holds a hand-over up', () => {
   const store = memoryStore();
   const run = startRun(store, { ...A, now: clock() });
-  run.record({ event: 'dispatched', dispatch: 'D-1', item: 'W-1', tier: 2, host: 'laptop' });
+  run.record({
+    event: 'dispatched',
+    dispatch: 'D-1',
+    item: 'W-1',
+    tier: 2,
+    host: 'example-laptop',
+  });
   run.record({
     event: 'dispatched',
     dispatch: 'D-2',
     item: 'W-2',
     tier: 3,
     mode: 'interactive',
-    host: 'laptop',
+    host: 'example-laptop',
   });
   run.record({ event: 'dispatched', dispatch: 'D-3', item: 'W-3', tier: 3, mode: 'headless' });
   run.record({ event: 'dispatched', dispatch: 'D-4', item: 'W-4', tier: 2, host: 'desktop' });
   assert.deepEqual(
-    reportingHere(run.state, 'laptop').map((d) => d.dispatch),
+    reportingHere(run.state, 'example-laptop').map((d) => d.dispatch),
     ['D-1', 'D-3'],
   );
   assert.equal(

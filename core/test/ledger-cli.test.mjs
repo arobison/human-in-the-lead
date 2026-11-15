@@ -46,7 +46,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--session',
     's-1',
     '--host',
-    'laptop',
+    'example-laptop',
     '--scope',
     '{"items":["W-1"]}',
   ]);
@@ -61,7 +61,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     item: 'W-1',
     role: 'executor',
     tier: 2,
-    host: 'laptop',
+    host: 'example-laptop',
   });
   // raw append writes only an allowlist of events: no dispatch, report, abandon, release, run or lease events, whoever asks
   const refused0 = await hitld([
@@ -73,18 +73,18 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--session',
     's-1',
     '--host',
-    'laptop',
+    'example-laptop',
   ]);
   assert.deepEqual([refused0.code, refused0.json.error], [EXIT.failed, 'forbidden-event']);
-  const me0 = ['--store', store, '--session', 's-1', '--host', 'laptop'];
+  const me0 = ['--store', store, '--session', 's-1', '--host', 'example-laptop'];
   // a forged terminal event, and an event type not on the list, are refused
   for (const forged of [
     { event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done' },
     { event: 'abandoned', dispatch: 'D-1', item: 'W-1' },
     { event: 'unclaimed', dispatch: 'D-1', item: 'W-1' },
     { event: 'started', dispatch: 'D-1', item: 'W-1', harness: 'x', harness_ref: 'y' },
-    { event: 'lease-taken', run: 'x', session: 's-1', host: 'laptop' },
-    { event: 'run-started', run: 'x', session: 's-1', host: 'laptop' },
+    { event: 'lease-taken', run: 'x', session: 's-1', host: 'example-laptop' },
+    { event: 'run-started', run: 'x', session: 's-1', host: 'example-laptop' },
     { event: 'no-such-event' },
   ]) {
     const r = await hitld(['ledger', 'append', JSON.stringify(forged), ...me0]);
@@ -93,10 +93,10 @@ test('hitld: a run from the command line, with a second session taking over', as
   // the run module writes it
   const diskStore = openStore(store);
   const state = /** @type {any} */ (loadState(diskStore).state);
-  new Run(diskStore, { session: 's-1', host: 'laptop' }, state).record(JSON.parse(event));
+  new Run(diskStore, { session: 's-1', host: 'example-laptop' }, state).record(JSON.parse(event));
 
   const q = JSON.stringify({ id: 'q-1', event: 'asked', decision: 'W-50' });
-  const me = ['--store', store, '--session', 's-1', '--host', 'laptop'];
+  const me = ['--store', store, '--session', 's-1', '--host', 'example-laptop'];
   const appended = await hitld(['ledger', 'append', q, ...me]);
   assert.deepEqual([appended.code, appended.json.appended], [EXIT.ok, true]);
   // the caller's id, run and time are overwritten
@@ -117,6 +117,11 @@ test('hitld: a run from the command line, with a second session taking over', as
   assert.notEqual(forgedFields.json.event.id, 'dispatched-D-1');
   assert.equal(forgedFields.json.event.run, loadState(openStore(store)).state?.run.id);
   assert.notEqual(forgedFields.json.event.at, '1999-01-01');
+  // An event no dispatch writes says which session and machine wrote it.
+  assert.deepEqual(
+    [forgedFields.json.event.session, forgedFields.json.event.host],
+    ['s-1', 'example-laptop'],
+  );
   // the run state caught up with the appended event
   assert.equal(loadState(diskStore).state?.decisions_open.length, 2);
 
@@ -129,7 +134,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--session',
     's-2',
     '--host',
-    'laptop',
+    'example-laptop',
   ]);
   assert.deepEqual([noLease.code, noLease.json.error], [EXIT.failed, 'lease-lost']);
   assert.equal(
@@ -162,14 +167,24 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--session',
     's-2',
     '--host',
-    'laptop',
+    'example-laptop',
   ]);
   assert.equal(refused.code, EXIT.failed);
   assert.equal(refused.json.error, 'lease-held');
   assert.equal(refused.json.holder.session, 's-1');
   assert.equal(
-    (await hitld(['run', 'checkpoint', '--store', store, '--session', 's-2', '--host', 'laptop']))
-      .json.error,
+    (
+      await hitld([
+        'run',
+        'checkpoint',
+        '--store',
+        store,
+        '--session',
+        's-2',
+        '--host',
+        'example-laptop',
+      ])
+    ).json.error,
     'lease-lost',
   );
 
@@ -181,7 +196,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--session',
     's-2',
     '--host',
-    'laptop',
+    'example-laptop',
     '--force',
     '--live',
     'D-1',
@@ -189,7 +204,7 @@ test('hitld: a run from the command line, with a second session taking over', as
   assert.equal(resumed.code, EXIT.ok);
   assert.equal(resumed.json.took_over.reason, 'owner');
   assert.deepEqual(resumed.json.adopted, ['D-1']);
-  assert.match(resumed.json.handover.text, /In flight \(1\): D-1 W-1 executor on laptop/);
+  assert.match(resumed.json.handover.text, /In flight \(1\): D-1 W-1 executor on example-laptop/);
 
   // told nothing is live, it abandons the dispatch and says which claim to release
   const none = await hitld([
@@ -200,7 +215,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--session',
     's-2',
     '--host',
-    'laptop',
+    'example-laptop',
     '--live',
     'none',
   ]);
@@ -255,12 +270,12 @@ test("hitld: with a project policy, the store is the project's private store", a
 
 test('hitld ledger append: fields are allowlisted per event type, and corrections stay in raw-append types', async () => {
   const own = join(dir, 'fields-store');
-  const me = ['--store', own, '--session', 's-1', '--host', 'laptop'];
-  await hitld(['run', 'start', '--store', own, '--session', 's-1', '--host', 'laptop']);
+  const me = ['--store', own, '--session', 's-1', '--host', 'example-laptop'];
+  await hitld(['run', 'start', '--store', own, '--session', 's-1', '--host', 'example-laptop']);
   const diskStore = openStore(own);
   const lifecycle = new Run(
     diskStore,
-    { session: 's-1', host: 'laptop' },
+    { session: 's-1', host: 'example-laptop' },
     /** @type {any} */ (loadState(diskStore).state),
   ).record({ event: 'dispatched', dispatch: 'D-1', item: 'W-1', role: 'executor', tier: 2 });
   /** @param {object} e */
@@ -274,6 +289,8 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
     [{ event: 'merged', item: 'W-1', role: 'executor' }, 'role'],
     [{ event: 'verified', item: 'W-1', result: 'pass', harness: 'x' }, 'harness'],
     [{ event: 'reverted', item: 'W-1', surprise: 1 }, 'surprise'],
+    [{ event: 'logged', text: 'x', session: 's-forged' }, 'session'],
+    [{ event: 'logged', text: 'x', host: 'forged' }, 'host'],
   ])) {
     const r = await append(e);
     assert.deepEqual([r.code, r.json.error], [EXIT.failed, 'forbidden-field'], field);
@@ -284,6 +301,8 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
   const sv = await append({ event: 'asked', decision: 'W-50', schema_version: 99 });
   assert.equal(sv.code, EXIT.ok);
   assert.equal(sv.json.event.schema_version, 2);
+  // The session and host are the caller's own, not a field it may set.
+  assert.deepEqual([sv.json.event.session, sv.json.event.host], ['s-1', 'example-laptop']);
 
   // a correction may not rewrite a lifecycle event, or point at nothing
   const rewrite = await append({

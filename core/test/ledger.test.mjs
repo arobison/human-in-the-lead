@@ -177,7 +177,7 @@ test('inflight: dispatches without a terminal event', () => {
   const now = clock();
   appendEvent(
     store,
-    dispatched({ dispatch: 'D-1', item: 'W-1', branch: 'hitld/W-1-a', host: 'laptop' }),
+    dispatched({ dispatch: 'D-1', item: 'W-1', branch: 'hitld/W-1-a', host: 'example-laptop' }),
     { now },
   );
   appendEvent(store, dispatched({ dispatch: 'D-2', item: 'W-2' }), { now });
@@ -192,7 +192,7 @@ test('inflight: dispatches without a terminal event', () => {
   const list = inflight(store);
   assert.deepEqual(
     list.map((d) => [d.dispatch, d.item, d.harness, d.harness_ref, d.host, d.branch]),
-    [['D-1', 'W-1', 'fake', 'fake-1', 'laptop', 'hitld/W-1-a']],
+    [['D-1', 'W-1', 'fake', 'fake-1', 'example-laptop', 'hitld/W-1-a']],
   );
 });
 
@@ -318,7 +318,7 @@ test('liveDispatch: only a claimed dispatch that has not ended, with its role an
       item: 'W-1',
       run: 'R1',
       serial_resources: ['gpu'],
-      host: 'laptop',
+      host: 'example-laptop',
     }),
   );
   assert.equal(liveDispatch(store, 'D-1', 'R1'), null, 'not claimed yet');

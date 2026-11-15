@@ -77,6 +77,8 @@ export const ERROR_CODES = Object.freeze({
   'invalid-default':
     'The default if unanswered is not allowed here: not a two-way door, or not one of the options.',
   'invalid-decision': 'The decision record or answer is not valid.',
+  'answer-matches-no-option':
+    "The answer names none of the decision's options, or words that fit more than one; nothing was recorded.",
   'not-created': 'The tracker refused to create the decision item.',
   'not-a-decision': 'The ID names an item that is not a decision.',
   'not-open': 'The decision is not open.',

@@ -10,7 +10,7 @@
       "id": "project",
       "action": "store.fixture",
       "with": {
-        "devices": ["laptop"],
+        "devices": ["example-laptop"],
         "enrolled": []
       }
     },
@@ -18,15 +18,15 @@
       "id": "start",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["run", "start", "--host", "laptop"]
+        "device": "example-laptop",
+        "argv": ["run", "start", "--host", "example-laptop"]
       }
     },
     {
       "id": "log",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": [
           "rights",
           "log",
@@ -41,7 +41,7 @@
       "id": "push_before",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "push"]
       }
     },
@@ -49,15 +49,15 @@
       "id": "request",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["store", "device", "init", "--cloud", "--name", "laptop"]
+        "device": "example-laptop",
+        "argv": ["store", "device", "init", "--cloud", "--name", "example-laptop"]
       }
     },
     {
       "id": "push_waiting",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "push"]
       }
     },
@@ -65,7 +65,7 @@
       "id": "status_waiting",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "status"]
       }
     },
@@ -73,7 +73,7 @@
       "id": "sweep",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["rights", "sweep"]
       }
     },
@@ -86,7 +86,7 @@
       "id": "answer",
       "action": "store.owner-answers",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "answer": "A"
       }
     },
@@ -94,8 +94,8 @@
       "id": "checkpoint",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["run", "checkpoint", "--host", "laptop"]
+        "device": "example-laptop",
+        "argv": ["run", "checkpoint", "--host", "example-laptop"]
       }
     },
     {
@@ -103,7 +103,7 @@
       "action": "store.inspect-remote",
       "with": {
         "markers": ["Recorded before any device was approved"],
-        "open_with": ["laptop"]
+        "open_with": ["example-laptop"]
       }
     }
   ],
@@ -129,7 +129,7 @@
       "grader": "matches",
       "with": {
         "path": "steps.request.result.decision.text",
-        "pattern": "^(?![\\s\\S]*\\blaptop\\b)[\\s\\S]*fingerprint"
+        "pattern": "^(?![\\s\\S]*\\bexample-laptop\\b)[\\s\\S]*fingerprint"
       }
     },
     {
@@ -145,7 +145,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.status_waiting.result.devices.decisions[*].name",
-        "value": ["laptop"]
+        "value": ["example-laptop"]
       }
     },
     {
@@ -169,7 +169,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.remote_waiting.requests",
-        "value": ["laptop"]
+        "value": ["example-laptop"]
       }
     },
     {
@@ -192,7 +192,7 @@
       "id": "it-opens-the-first-push",
       "grader": "equals",
       "with": {
-        "path": "steps.remote_after.opens.laptop",
+        "path": "steps.remote_after.opens.example-laptop",
         "value": 1
       }
     },

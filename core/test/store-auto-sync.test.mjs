@@ -143,7 +143,7 @@ test('without a remote nothing is pulled or pushed, and the results say nothing 
 test('milestone c1: a run discarded after a checkpoint resumes in a new session, intact', async () => {
   const f = fixture();
   const one = session(f, 'one', { identity: DEVICE_A.identity });
-  const started = await one.hitld(['run', 'start', '--session', 's-1', '--host', 'cloud-1']);
+  const started = await one.hitld(['run', 'start', '--session', 's-1', '--host', 'example-host-1']);
   assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
   // A fresh remote is empty: the pull says so.
   assert.deepEqual(
@@ -157,7 +157,7 @@ test('milestone c1: a run discarded after a checkpoint resumes in a new session,
     { kind: 'reversal', area: 'api', subject: 'E-1', subject_kind: 'logged-call' },
     at(3),
   );
-  const cp = await one.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'cloud-1']);
+  const cp = await one.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'example-host-1']);
   assert.equal(cp.code, EXIT.ok, JSON.stringify(cp.json));
   assert.deepEqual(
     [cp.json.store_sync.push.status, cp.json.store_sync.push.result],
@@ -179,7 +179,7 @@ test('milestone c1: a run discarded after a checkpoint resumes in a new session,
     '--session',
     's-2',
     '--host',
-    'cloud-2',
+    'example-host-2',
     '--force',
   ]);
   assert.equal(resumed.code, EXIT.ok, JSON.stringify(resumed.json));
@@ -202,15 +202,22 @@ test('milestone c1: a run discarded after a checkpoint resumes in a new session,
 test('a hand-over pushes after the lease is released, so a successor takes it without force', async () => {
   const f = fixture();
   const one = session(f, 'one', { identity: DEVICE_A.identity });
-  await one.hitld(['run', 'start', '--session', 's-1', '--host', 'cloud-1']);
+  await one.hitld(['run', 'start', '--session', 's-1', '--host', 'example-host-1']);
   ask(one, 'E-1', 1);
-  const handed = await one.hitld(['handover', '--session', 's-1', '--host', 'cloud-1']);
+  const handed = await one.hitld(['handover', '--session', 's-1', '--host', 'example-host-1']);
   assert.equal(handed.json.ok, true, JSON.stringify(handed.json));
   assert.equal(handed.json.store_sync.push.status, 'done');
   assert.ok(handed.json.released);
 
   const two = session(f, 'two', { identity: DEVICE_B.identity });
-  const resumed = await two.hitld(['run', 'resume', '--session', 's-2', '--host', 'cloud-2']);
+  const resumed = await two.hitld([
+    'run',
+    'resume',
+    '--session',
+    's-2',
+    '--host',
+    'example-host-2',
+  ]);
   assert.equal(resumed.code, EXIT.ok, JSON.stringify(resumed.json));
   assert.equal(resumed.json.took_over.reason, 'handover');
   // The hand-over note travelled with the store.
@@ -500,27 +507,34 @@ test('lease is the lock: a pulled lease another machine holds is refused until i
   const f = fixture();
   const a = session(f, 'a', { identity: DEVICE_A.identity });
   const b = session(f, 'b', { identity: DEVICE_B.identity });
-  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
-  const cp = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'example-host-1']);
+  const cp = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'example-host-1']);
   assert.equal(cp.json.store_sync.push.status, 'done');
 
   // Machine B pulls and cannot start or resume: A holds the lease and never released it.
-  const refused = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  const refused = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'example-host-2']);
   assert.equal(refused.code, EXIT.failed);
   assert.equal(refused.json.error, 'lease-held');
   assert.equal(refused.json.holder.session, 's-A');
-  assert.equal(refused.json.holder.host, 'cloud-1');
-  assert.match(refused.json.message, /s-A on cloud-1 at 20/);
+  assert.equal(refused.json.holder.host, 'example-host-1');
+  assert.match(refused.json.message, /s-A on example-host-1 at 20/);
   assert.match(refused.json.message, /hitld run retire --holder s-A/);
   assert.match(refused.json.message, /--replace/);
-  const refusedResume = await b.hitld(['run', 'resume', '--session', 's-B', '--host', 'cloud-2']);
+  const refusedResume = await b.hitld([
+    'run',
+    'resume',
+    '--session',
+    's-B',
+    '--host',
+    'example-host-2',
+  ]);
   assert.equal(refusedResume.json.error, 'lease-held');
   assert.match(refusedResume.json.message, /--force/);
   // Nothing was taken or started, but the state is there for retire to work on.
   assert.equal(loadState(b.store).state?.lease.session, 's-A');
 
   // The same machine's own lease is judged as before: A resumes its own run.
-  const again = await a.hitld(['run', 'resume', '--session', 's-A', '--host', 'cloud-1']);
+  const again = await a.hitld(['run', 'resume', '--session', 's-A', '--host', 'example-host-1']);
   assert.equal(again.code, EXIT.ok, JSON.stringify(again.json));
 
   // The owner's retire (A's session is known dead) releases it, and B starts.
@@ -532,11 +546,11 @@ test('lease is the lock: a pulled lease another machine holds is refused until i
     '--session',
     's-B',
     '--host',
-    'cloud-2',
+    'example-host-2',
   ]);
   assert.equal(retired.code, EXIT.ok, JSON.stringify(retired.json));
   assert.equal(retired.json.store_sync.push.status, 'done');
-  const started = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  const started = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'example-host-2']);
   assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
   assert.equal(started.json.handover.lease.session, 's-B');
 });
@@ -545,15 +559,15 @@ test('lease is the lock: after the holder hands over, another machine starts wit
   const f = fixture();
   const a = session(f, 'a', { identity: DEVICE_A.identity });
   const b = session(f, 'b', { identity: DEVICE_B.identity });
-  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
-  await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
-  const refused = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'example-host-1']);
+  await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'example-host-1']);
+  const refused = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'example-host-2']);
   assert.equal(refused.json.error, 'lease-held');
 
-  const handed = await a.hitld(['handover', '--session', 's-A', '--host', 'cloud-1']);
+  const handed = await a.hitld(['handover', '--session', 's-A', '--host', 'example-host-1']);
   assert.equal(handed.json.store_sync.push.status, 'done', JSON.stringify(handed.json));
   // B's earlier refusal left a state that lags the ledger; the pull and the release catch it up.
-  const started = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  const started = await b.hitld(['run', 'start', '--session', 's-B', '--host', 'example-host-2']);
   assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
   assert.equal(started.json.store_sync.pull.status, 'done');
 });
@@ -562,9 +576,9 @@ test('lease is the lock: --replace and --force are the owner’s way past it', a
   const f = fixture();
   const a = session(f, 'a', { identity: DEVICE_A.identity });
   const b = session(f, 'b', { identity: DEVICE_B.identity });
-  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
-  await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
-  const args = ['--session', 's-B', '--host', 'cloud-2'];
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'example-host-1']);
+  await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'example-host-1']);
+  const args = ['--session', 's-B', '--host', 'example-host-2'];
   const forced = await b.hitld(['run', 'resume', ...args, '--force']);
   assert.equal(forced.code, EXIT.ok, JSON.stringify(forced.json));
   assert.equal(forced.json.took_over.reason, 'owner');
@@ -606,22 +620,36 @@ test('a release refused at run start or resume pulls nothing and records nothing
   const f = fixture();
   const one = session(f, 'one', { identity: DEVICE_A.identity });
   const two = session(f, 'two', { identity: DEVICE_B.identity });
-  const started = await one.hitld(['run', 'start', '--session', 's-1', '--host', 'cloud-1']);
+  const started = await one.hitld(['run', 'start', '--session', 's-1', '--host', 'example-host-1']);
   assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
-  const first = await one.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'cloud-1']);
+  const first = await one.hitld([
+    'run',
+    'checkpoint',
+    '--session',
+    's-1',
+    '--host',
+    'example-host-1',
+  ]);
   assert.equal(first.json.store_sync.push.result, 'pushed', JSON.stringify(first.json));
   // The second device has a store of its own, from the remote.
   const pulled = await two.hitld(['store', 'pull']);
   assert.equal(pulled.code, EXIT.ok, JSON.stringify(pulled.json));
   // The first session records more and pushes it: the remote is ahead of the second device.
   ask(one, 'E-9', 9);
-  const second = await one.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'cloud-1']);
+  const second = await one.hitld([
+    'run',
+    'checkpoint',
+    '--session',
+    's-1',
+    '--host',
+    'example-host-1',
+  ]);
   assert.equal(second.json.store_sync.push.result, 'pushed', JSON.stringify(second.json));
   const ahead = await remoteHead(f);
 
   const commands = [
-    ['run', 'start', '--replace', '--session', 's-2', '--host', 'cloud-2'],
-    ['run', 'resume', '--live', 'none', '--force', '--session', 's-2', '--host', 'cloud-2'],
+    ['run', 'start', '--replace', '--session', 's-2', '--host', 'example-host-2'],
+    ['run', 'resume', '--live', 'none', '--force', '--session', 's-2', '--host', 'example-host-2'],
   ];
   /** @param {string} error */
   const refusedAll = async (error) => {
@@ -667,8 +695,8 @@ test('enrolment: with nothing new, the next push makes the store readable by the
   const A = { name: 'device-a', id: DEVICE_A };
   const B = { name: 'device-b', id: DEVICE_B };
   const a = session(f, 'a', { identity: DEVICE_A.identity });
-  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
-  const handed = await a.hitld(['handover', '--session', 's-A', '--host', 'cloud-1']);
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'example-host-1']);
+  const handed = await a.hitld(['handover', '--session', 's-A', '--host', 'example-host-1']);
   assert.equal(handed.json.store_sync.push.result, 'pushed', JSON.stringify(handed.json));
   const first = await a.hitld(['store', 'status']);
   assert.equal(first.json.push_due, false, JSON.stringify(first.json));
@@ -701,7 +729,14 @@ test('enrolment: with nothing new, the next push makes the store readable by the
   // A fresh cloud session on B's key starts its run: no store-pull-refused.
   rmSync(b.data, { recursive: true, force: true });
   const fresh = session(f, 'fresh', { identity: DEVICE_B.identity });
-  const started = await fresh.hitld(['run', 'start', '--session', 's-B', '--host', 'cloud-2']);
+  const started = await fresh.hitld([
+    'run',
+    'start',
+    '--session',
+    's-B',
+    '--host',
+    'example-host-2',
+  ]);
   assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
   assert.equal(started.json.store_sync.pull.status, 'done');
 });
@@ -711,19 +746,26 @@ test('enrolment: a checkpoint with nothing new pushes once the device list has c
   const A = { name: 'device-a', id: DEVICE_A };
   const B = { name: 'device-b', id: DEVICE_B };
   const a = session(f, 'a', { identity: DEVICE_A.identity });
-  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'cloud-1']);
-  const first = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  await a.hitld(['run', 'start', '--session', 's-A', '--host', 'example-host-1']);
+  const first = await a.hitld([
+    'run',
+    'checkpoint',
+    '--session',
+    's-A',
+    '--host',
+    'example-host-1',
+  ]);
   assert.equal(first.json.store_sync.push.result, 'pushed');
-  const same = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  const same = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'example-host-1']);
   assert.equal(same.json.store_sync.push.result, 'up-to-date', JSON.stringify(same.json));
   approve(a.store, [B.name, B.id]);
-  const cp = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  const cp = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'example-host-1']);
   assert.equal(cp.json.store_sync.push.result, 'pushed', JSON.stringify(cp.json));
   const b = session(f, 'b', { identity: DEVICE_B.identity });
   assert.equal((await b.hitld(['store', 'pull'])).json.ok, true);
   // A removal takes the same route, and locks the removed device out again.
   removeApproved(a.store, B.name, B.id);
-  const gone = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'cloud-1']);
+  const gone = await a.hitld(['run', 'checkpoint', '--session', 's-A', '--host', 'example-host-1']);
   assert.equal(gone.json.store_sync.push.result, 'pushed');
   assert.equal((await b.hitld(['store', 'pull'])).json.error, 'age-no-match');
 });

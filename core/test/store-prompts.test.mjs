@@ -263,7 +263,7 @@ test('the scan catches what it is for', () => {
   for (const text of [
     'Run `hitld store remote set <url> --policy` and then `hitld store status`.',
     'When the project has a store remote, `hitld run start` pulls the private store first and `hitld run checkpoint` pushes it.',
-    '```bash\nhitld store device init --cloud --name cloud-main\n```',
+    '```bash\nhitld store device init --cloud --name example-cloud\n```',
     'The owner creates a private repository for the store and gives its URL.',
     'Run `hitld store push` and read `store_sync` in the result.',
   ]) {

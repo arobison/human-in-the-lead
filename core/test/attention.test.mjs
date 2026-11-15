@@ -184,7 +184,7 @@ test('run state lists open decisions from the ledger, and the hand-over shows th
   const { project, at } = clocked();
   const run = startRun(project.store, {
     session: 's-1',
-    host: 'laptop',
+    host: 'example-laptop',
     now: () => new Date(project.now()),
   });
   const first = askQuestion(project, question());
@@ -238,10 +238,16 @@ test('the answered trust event records the recommendation and how long the owner
   assert.equal(other.took_recommendation, false);
   assert.equal(other.latency_ms, 30_000);
 
-  // An answer that names no option has nothing to compare; one never asked has no time.
+  // A decision with no options has none to compare an answer with; one never asked has no time.
   at(2000);
-  const free = askQuestion(project, question({ title: 'Free text?' }), { send: true });
-  const text = answerDecision(project, { decision: free.decision, answer: 'let us talk first' });
+  const free = project.tracker.create({
+    schema_version: 1,
+    kind: 'decision',
+    title: 'Free text?',
+    state: 'planned',
+    classification: 'public',
+  });
+  const text = answerDecision(project, { decision: free, answer: 'let us talk first' });
   assert.equal(text.took_recommendation, null);
   const bare = project.tracker.create({
     schema_version: 1,
@@ -420,9 +426,69 @@ test('logged calls: a ledger event with the way to reverse it, listed for the di
   assert.equal(trustSummary(readTrustEvents(project.store)).cache.reversals, 1);
 });
 
+test('a logged call records the session and host that made it; the digest and the summary show them', () => {
+  const { project } = clocked();
+  const deps = { ...project, who: { session: 's-7', host: 'example-laptop' } };
+  const made = logCall(deps, { text: 'Chose the in-memory cache', item: 'W-3', area: 'cache' });
+  assert.equal(made.ok, true);
+  assert.deepEqual([made.event.session, made.event.host], ['s-7', 'example-laptop']);
+  assert.deepEqual(schemas().validateEntity('ledger-entry', made.event), []);
+  // A caller may name them; one made by hand with no session has the host only.
+  const named = logCall(deps, { text: 'Kept the timeout', session: 's-8', host: 'example-cloud' });
+  assert.deepEqual([named.event.session, named.event.host], ['s-8', 'example-cloud']);
+  const bare = logCall(project, { text: 'Ordered W-3 before W-4' });
+  assert.deepEqual([bare.event.session, bare.event.host], [undefined, undefined]);
+
+  assert.deepEqual(
+    listLoggedCalls(project).map((c) => [c.session ?? null, c.host ?? null]),
+    [
+      ['s-7', 'example-laptop'],
+      ['s-8', 'example-cloud'],
+      [null, null],
+    ],
+  );
+  assert.deepEqual(summarize(readLedger(project.store).events).logged_calls, {
+    total: 3,
+    by_session: [
+      { session: 's-7', host: 'example-laptop', calls: 1 },
+      { session: 's-8', host: 'example-cloud', calls: 1 },
+      { session: null, host: null, calls: 1 },
+    ],
+  });
+  // A decision's events carry them too, when the caller knows them.
+  const asked = askQuestion(deps, question({ title: 'Who asked?' }));
+  const [askedEvent] = events(project, 'asked').filter((e) => e.decision === asked.decision);
+  assert.deepEqual([askedEvent.session, askedEvent.host], ['s-7', 'example-laptop']);
+});
+
+test('the digest says who made each logged call', async () => {
+  const project = makeProject();
+  const commands = makeCommands({ openTracker: () => project.tracker });
+  const ctx = { cwd: project.root, env: { ...project.env, HITLD_SESSION: 's-9' } };
+  const c = commands.find((x) => x.name === 'rights log');
+  assert.ok(c?.run);
+  const logged = /** @type {Record<string, any>} */ (
+    await c.run({ text: 'Kept the default retry count', host: 'example-laptop' }, ctx)
+  );
+  assert.equal(logged.ok, true, JSON.stringify(logged));
+  assert.deepEqual([logged.event.session, logged.event.host], ['s-9', 'example-laptop']);
+  const digestCommand = commands.find((x) => x.name === 'rights digest');
+  assert.ok(digestCommand?.run);
+  const digest = /** @type {Record<string, any>} */ (await digestCommand.run({}, ctx));
+  assert.equal(digest.logged_calls[0].session, 's-9');
+  assert.match(
+    digest.text.replace(/\s+/g, ' '),
+    /Kept the default retry count \(by session s-9 on example-laptop\)/,
+  );
+  // Without --host, the machine's own host name is recorded.
+  const own = /** @type {Record<string, any>} */ (await c.run({ text: 'Another call' }, ctx));
+  assert.equal(typeof own.event.host, 'string');
+  assert.ok(own.event.host.length > 0);
+});
+
 test('a logged call can be about a dispatch that has ended', () => {
   const { project } = clocked();
-  const run = startRun(project.store, { session: 's-1', host: 'laptop' });
+  const run = startRun(project.store, { session: 's-1', host: 'example-laptop' });
   run.record({ event: 'dispatched', dispatch: 'D-1', item: 'W-1', role: 'executor' });
   run.record({ event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done' });
   assert.equal(logCall(project, { text: 'Merged the two small fixes', dispatch: 'D-1' }).ok, true);

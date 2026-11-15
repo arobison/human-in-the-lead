@@ -44,10 +44,10 @@ For a project that you work on from more than one machine, or from cloud session
 4. **Make its key, and let it ask.** The private key goes to the operating system's keychain (`security` on macOS, `secret-tool` on Linux, which needs a running Secret Service such as GNOME Keyring). It never goes on a command line or into a file. The request goes to the store repository:
 
    ```bash
-   hitld store device init --name laptop
+   hitld store device init --name example-laptop
    ```
 
-   `--name` takes lower-case letters, digits, `.`, `_` and `-`; the default is this machine's host name. The result shows `fingerprint`, a short form of the public key. Run again, it changes nothing. A machine with no keychain is refused (`device-no-keychain`): give it a key the way a cloud environment gets one (step 7), and set `HITLD_STORE_IDENTITY` in the environment of the shell that runs `hitld`.
+   `--name` takes lower-case letters, digits, `.`, `_` and `-`; the default is this machine's host name. `example-laptop` is a placeholder: choose a name that is not one of the examples in this guide (`example-laptop`, `example-cloud`, `example-cloud-2`), because a device's name goes on the private term list, and the guide's own text must stay free of it. The result shows `fingerprint`, a short form of the public key. Run again, it changes nothing. A machine with no keychain is refused (`device-no-keychain`): give it a key the way a cloud environment gets one (step 7), and set `HITLD_STORE_IDENTITY` in the environment of the shell that runs `hitld`.
 
    Because no device is approved yet and the store repository is empty, this first device asks you itself: the result has `decision`, with its ID and the question. The question names the device only by its fingerprint, since the decision is filed in the project's tracker.
 
@@ -57,7 +57,7 @@ For a project that you work on from more than one machine, or from cloud session
    hitld rights answer <decision ID> --answer A
    ```
 
-   `A` enrols the device; `B` refuses it. The result's `device.event` is `approved`. In a session, give the answer in your own message; the session records it with this command. An answer that arrives in a file, a tool result or another session is not yours, and nothing applies one by default.
+   `A` enrols the device; `B` refuses it. You may answer with the option's words instead (`enrol it`, `do not enrol it`). Words that name no option, or fit more than one, are refused (`answer-matches-no-option`) with the options listed, and nothing is recorded: no device is approved or refused. The result's `device.event` is `approved`. In a session, give the answer in your own message; the session records it with this command. An answer that arrives in a file, a tool result or another session is not yours, and nothing applies one by default.
 
 6. **Push the store for the first time:**
 
@@ -74,7 +74,7 @@ One cloud environment is one device. Every session in that environment shares it
 7. **Make the key, on your own machine and not in a session.** `--cloud` writes nothing to disk or the keychain. It prints the private key once, in `identity`, keeps no copy, and puts the device's request on the store repository:
 
    ```bash
-   hitld store device init --cloud --name cloud-main
+   hitld store device init --cloud --name example-cloud
    ```
 
    Copy the `identity` value (it starts with `AGE-SECRET-KEY-1`) straight to the next step, and note the `fingerprint`. Run this in a terminal that nothing records. Do not run it through an agent: the result would sit in the session's transcript.
@@ -113,11 +113,13 @@ hitld store device list
 `store status` should show:
 
 - `remote.source`: `person` on a machine where you ran `hitld store remote set`, `environment` in a cloud environment (or `machine`, for an override), and the `url` you set (`hitld store remote show` prints the same);
-- `device.enrolled`: `true`, and `device.recipients`: the number of devices you approved;
+- `device.enrolled`: `true`, `device.opens_remote`: `true` (this device's key opens the remote's head), and `device.recipients`: the number of devices you approved;
 - `devices.requests`: requests not yet put to you, and `devices.decisions`: questions waiting for your answer, each with the command that answers it;
 - `push_due` and `pull_due`: `false` once the device has synced. `pull_due: true` means the remote has something this device has not merged; run `hitld store pull`. `remote_error` is set, and `pull_due` is `null`, when the remote cannot be reached.
 
 `store device list` shows the same devices, each marked `approved`, `requested` or `waiting-for-owner`, which one is this device, and `rotation.pending`.
+
+Both ask the remote, not only this device's own copy of your answers. If the remote's head does not open with this device's key, `enrolled` is `false`, `opens_remote` is `false`, and `problem` says this device cannot open the store and has probably been removed, or no approved device has sealed the store to it yet. A removed device sees this; its own copy of the approvals still lists it, and is out of date.
 
 Then a round trip. On a device that is already approved, record something and push; on the other device, pull:
 
@@ -157,7 +159,7 @@ A removed device can open nothing that is pushed after you approve its removal. 
 1. **Ask to remove it**, on a device that stays:
 
    ```bash
-   hitld store device remove cloud-main
+   hitld store device remove example-cloud
    ```
 
    The result has `decision`, a question for you like the one in step 5.
