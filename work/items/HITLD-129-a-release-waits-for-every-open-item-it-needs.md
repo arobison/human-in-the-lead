@@ -2,9 +2,11 @@
 id: HITLD-129
 title: "Release items carry their version, and a release waits for every open item it needs"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-129
+release_note: "A release item carries its version in a `release` key. `hitld release propose` and `release make` find the release item for the version and treat every item or milestone it needs that is not done as a gate; `release make` refuses while any is open (`release-gates-open`), and the release workflow's record check applies the same rule. `--item` naming another version's release item is refused (`release-item-mismatch`)."
 ---
 
 ## Why
