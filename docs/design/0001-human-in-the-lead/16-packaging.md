@@ -126,7 +126,7 @@ The consumer commits `.claude/settings.json`:
 
 ### Releases
 
-- A release is a **tag** (`vMAJOR.MINOR.PATCH`) on `main`, with a changelog generated from this repository's own item files.
+- A release is a **tag** (`vMAJOR.MINOR.PATCH`) on `main`, with a changelog generated from this repository's own item files. It is made through a release pull request, and the release workflow tags it ([16.5, Release mechanics](#release-mechanics)).
 - A release is **gated by the eval suite**: the visible suite passes on the supported harnesses, the head-to-head against the previous release shows no regression beyond tolerance, and for skill or policy changes the sealed set passes ([part 18](18-self-improvement.md#183-guardrails-against-gaming-its-own-grading)). The changelog cites the eval run IDs.
 - **The first release** has no previous release, no live runner and no sealed set yet. It is gated on the offline suite passing against the owner-accepted baseline. The live evals, the comparison with the previous release and the sealed set join the gate once each exists.
 - **A consumer upgrades by committing a change to the `ref`**, then running the migrations the release notes name (`hitld data migrate`, `hitld work migrate` or `hitld config migrate`). Rolling back is reverting that commit.
@@ -165,6 +165,22 @@ Compatibility rules for data:
 - **The ledger is never rewritten.** It is append-only, so readers handle every schema version that appears in it.
 - **No writing ahead.** A release refuses to write a file whose `schema_version` is newer than it knows, so a machine on an older pin cannot corrupt data written by a newer one (relevant when two machines exchange bundles).
 - **`policy.json` migrations** add new settings with their defaults and bounds; they never change a value the owner set.
+
+### Release mechanics
+
+*Decided and built (HITLD-79, [Q37](22-open-questions.md#q37-how-is-a-release-tagged-when-the-owner-has-no-terminal-affects-releases)).* A release goes through a **release pull request**, as release-please and Changesets do; the release decision itself (the interface delta, the bump and the record, [3.2](03-data-model.md#release)) stays HITLd's.
+
+1. **`hitld release make --branch <name>`** runs in the owner's own turn, with the same guard and checks as on main ([3.2](03-data-model.md#release)). It writes the record on a new branch made from main, refuses a branch that exists here or at a remote, checks out main again, and never tags or pushes. It returns the pull request's title and body: the version, the bump, the notes and the interface delta.
+2. **The orchestrator pushes the branch and opens the pull request.** CI and the DCO check run on it like any other.
+3. **The owner's squash merge is the release decision.** The squash commit on main adds `work/releases/<tag>.md` and carries the owner's `Signed-off-by` (HITLD-59).
+4. **One workflow run** (`.github/workflows/release.yml`) starts on that push. Its first job runs the record-to-tag check (`core/bin/release-check.mjs`) with read access only. The second job runs in the `release` environment, which waits for the owner's approval in GitHub. It checks the record again, runs the checks and the offline evals, packages, creates the annotated tag on that exact commit, pushes the tag with the run's own token, attests build provenance and drafts the GitHub release (a pre-release for a tag with a `-`). Tagging and releasing happen in the same run: a push made with the Actions token starts no other workflow, so nothing waits on one, and no long-lived token is stored.
+5. **The owner publishes the draft.** With immutable releases on, the published release, its assets and its tag can no longer change.
+
+**The record-to-tag check** refuses unless the commit adds exactly one record; the record passes the tracker's checks and the release schema; its tag does not exist; its version is the one `release propose` gives at the commit's parent, for the same pre-release label or a full release, and its `previous` is that proposal's base; and the commit is on main, has one parent, and its subject ends with the `(#N)` a squash merge adds, where N is a merged pull request GitHub links the commit to. A commit that adds no record releases nothing. A version above the proposal (`release make --version`) does not pass; it is tagged by hand. Edge: when another pull request merges between `release make --branch` and the release merge and changes the proposal, the check refuses, and the record is made again from the new main.
+
+**By hand.** `hitld release make` on main still writes the record and the annotated tag for a person at a terminal, who pushes both; the same workflow's `tagged` job builds, attests and drafts on that tag push. A tag ruleset on `v*` refuses that push unless the person is on its bypass list.
+
+**Repository settings** that make this hold (the owner's, written as click-paths in `CONTRIBUTING.md`, Releases): a tag ruleset on `v*` so tags are not moved or deleted, and are created only by the release workflow where GitHub's bypass list allows it; immutable releases; and the `release` environment, with the owner as required reviewer, self-review allowed (one maintainer), and deployments from `main` only.
 
 ## 16.6 What lives in a consuming project
 

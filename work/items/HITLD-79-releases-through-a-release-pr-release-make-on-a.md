@@ -6,6 +6,7 @@ status: In progress
 created: 2026-11-15
 project: HITLD-15
 claimed: D-79
+changelog: "`hitld release make --branch <name>` writes the release record on a release branch for a release pull request; merging it is the release, and the release workflow tags, attests and drafts it after the owner approves the run."
 ---
 
 ## Why
