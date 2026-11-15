@@ -13,8 +13,11 @@
 //   Speculation cost is not separate yet: nothing in the ledger marks a speculative dispatch.
 // - Decision latency: from an `asked` to the `answered` for the same decision, and split at the
 //   `sent` event into queue time (held for a digest) and owner time (shown, unanswered).
+// - Stall rate: of executor dispatches, the share the watchdog found stalled (a `stalled` event for
+//   any reason but a usage limit, which is not the executor's failure), by model, tier and area as
+//   dispatched; with the ladder steps taken, executors cut off by a limit, and quota pauses.
 
-import { correctsValidly, readLedger } from './ledger.mjs';
+import { TERMINAL_EVENTS, correctsValidly, readLedger } from './ledger.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
@@ -87,7 +90,7 @@ export function summarize(allEvents) {
     if (e.event === 'abandoned') d.abandoned = true;
     if (e.event === 'verified' && e.result === 'fail') d.failed = true;
     if (e.event === 'reverted') d.reverted = true;
-    if (['reported', 'abandoned', 'unclaimed'].includes(e.event)) d.ended = true;
+    if (TERMINAL_EVENTS.includes(e.event)) d.ended = true;
   }
 
   // Accepted items: merged, and not reverted since.
@@ -188,6 +191,7 @@ export function summarize(allEvents) {
   });
 
   const verifiedItems = [...byItem].filter(([, evs]) => evs.some((e) => e.event === 'verified'));
+  const stalls = stallMeasures(events);
   return {
     events: events.length,
     dispatches: dispatches.size,
@@ -221,6 +225,61 @@ export function summarize(allEvents) {
       queue: spread(queues),
       owner: spread(owners),
     },
+    stalls,
+  };
+}
+
+/**
+ * Stall rates and the watchdog's steps (design parts 5.2 and 11.1).
+ * @param {LedgerEntry[]} events
+ */
+export function stallMeasures(events) {
+  /** @type {Map<string, LedgerEntry>} */
+  const executors = new Map();
+  /** @type {Set<string>} */
+  const stalled = new Set();
+  const steps = { poke: 0, 'follow-up': 0, abandon: 0, ask: 0 };
+  let cutOff = 0;
+  let pauses = 0;
+  let resumes = 0;
+  for (const e of events) {
+    if (e.event === 'dispatched' && (e.role ?? 'executor') === 'executor')
+      executors.set(e.dispatch, e);
+    if (e.event === 'paused') pauses++;
+    if (e.event === 'resumed') resumes++;
+    if (e.event !== 'stalled') continue;
+    if (e.reason === 'limit') {
+      cutOff++;
+      continue;
+    }
+    stalled.add(e.dispatch);
+    steps[/** @type {keyof typeof steps} */ (e.step)]++;
+  }
+  /** @param {(d: LedgerEntry) => string | number | undefined} key */
+  const by = (key) => {
+    /** @type {Record<string, { dispatches: number, stalled: number, rate: number }>} */
+    const out = {};
+    for (const [id, d] of executors) {
+      const k = String(key(d) ?? 'unknown');
+      out[k] ??= { dispatches: 0, stalled: 0, rate: 0 };
+      out[k].dispatches++;
+      if (stalled.has(id)) out[k].stalled++;
+    }
+    for (const v of Object.values(out)) v.rate = v.stalled / v.dispatches;
+    return out;
+  };
+  const counted = [...stalled].filter((d) => executors.has(d)).length;
+  return {
+    dispatches: executors.size,
+    stalled: counted,
+    rate: executors.size ? counted / executors.size : null,
+    steps,
+    cut_off_by_limit: cutOff,
+    pauses,
+    resumes,
+    by_model: by((d) => d.model),
+    by_tier: by((d) => d.tier),
+    by_area: by((d) => d.area),
   };
 }
 

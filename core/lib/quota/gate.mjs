@@ -117,6 +117,7 @@ function forecastLine(s) {
  *   economize: { prefer_cheaper_models: boolean, reduce_concurrency: boolean },
  *   ask_owner: boolean,
  *   notify_owner: boolean,
+ *   resets_at: string | null,
  *   unread: string[],
  *   quotas: import('./quota.mjs').QuotaState[],
  * }}
@@ -178,6 +179,9 @@ export function dispatchGate(policy, snapshots, item = {}, options = {}) {
     },
     ask_owner: ask,
     notify_owner: mode === 'stop',
+    // When the binding limit's window resets (its reading's reset, or the declared one): a stop
+    // at it is a pause the chief of staff wakes the run from then (design part 12.5).
+    resets_at: worst && mode !== 'normal' ? worst.s.resets_at : null,
     unread,
     quotas,
   };

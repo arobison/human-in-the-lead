@@ -1,0 +1,64 @@
+{
+  "$id": "progress-signal",
+  "title": "Progress signal",
+  "description": "One line of dispatch/progress/<key>.jsonl in the private store (design part 5.2, the watchdog): something observed about a running executor that it did not have to send. worktree lines come from hitld dispatch watch sampling the executor's worktree and branch; harness lines from the harness adapter (in Claude Code, a hook on each of the executor's tool calls); process lines from a headless run's process and output. A line names its dispatch, or the harness reference of the agent when only that is known (a background agent's hook knows its agent ID, not its dispatch). The watchdog reads these to decide whether a dispatch has stalled. Internal: never leaves the machine.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "at": { "description": "When it was observed.", "$ref": "common#/$defs/timestamp" },
+    "dispatch": { "$ref": "common#/$defs/dispatchId" },
+    "harness_ref": {
+      "description": "The agent's reference in its harness, as hitld dispatch handle recorded it, when the dispatch is not known.",
+      "$ref": "common#/$defs/text"
+    },
+    "source": {
+      "description": "worktree (commits and file changes), harness (tool calls and tokens) or process (a headless run's liveness and output).",
+      "enum": ["worktree", "harness", "process"]
+    },
+    "head": {
+      "description": "On worktree: the commit the executor's branch points at.",
+      "$ref": "common#/$defs/commit"
+    },
+    "commits": {
+      "description": "On worktree: commits on the branch that the main branch does not have.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "dirty": {
+      "description": "On worktree: files changed and not committed.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "changed": {
+      "description": "On worktree: a hash of the uncommitted changes (paths, sizes and modification times), so that further edits to the same files are seen.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tool": {
+      "description": "On harness: the tool the executor called, as the harness names it.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "tool_calls": {
+      "description": "On harness: how many tool calls the line stands for (one for a line a hook writes per call).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "tokens": {
+      "description": "On harness: tokens used so far, where the harness reports them while the executor runs.",
+      "$ref": "common#/$defs/tokens"
+    },
+    "alive": {
+      "description": "On process: whether the headless run's process is still running.",
+      "type": "boolean"
+    },
+    "output_bytes": {
+      "description": "On process: the size of the run's output so far.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": ["schema_version", "at", "source"],
+  "additionalProperties": false
+}

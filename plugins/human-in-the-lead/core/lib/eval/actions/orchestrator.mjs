@@ -1,7 +1,8 @@
 // Actions for piece (h)'s scenarios: sizing, the dispatch-refill cycle against the profile's fake
 // adapter, the merge queue on a fixture repository, and the orchestrator's and chief of staff's
-// commands in a fixture consumer (for kill and resume, and hand-over). Every repository is built inside the sandbox; the private store
-// sits beside it, never inside it.
+// commands in a fixture consumer (for kill and resume, hand-over, and the watchdog and quota pauses,
+// on a clock the scenario moves forward). Every repository is built inside the sandbox; the
+// private store sits beside it, never inside it.
 
 import { join } from 'node:path';
 import { resolvePolicy } from '../../policy/policy.mjs';
@@ -45,6 +46,17 @@ const ITEMS = {
   description:
     'Items as the tracker gives them: id, kind, state, classification, touches, body, ...',
 };
+
+/** @type {Record<string, unknown>} */
+const CLOCK = {
+  type: 'integer',
+  minimum: 0,
+  description:
+    'Run as if this many seconds have passed since the step ran, for the watchdog and quota resets; time otherwise passes as it does',
+};
+
+/** A clock this many seconds ahead of the real one. @param {number} seconds */
+const clockAt = (seconds) => () => new Date(Date.now() + seconds * 1000);
 
 /** @param {string} id */
 const doneReport = (id) =>
@@ -271,6 +283,52 @@ export const actions = {
     },
   },
 
+  'orchestrator.statusline': {
+    description:
+      "Record a status-line usage reading in the fixture consumer, as the session's status line would: the five-hour window's used percentage and when it resets, on the scenario's clock. Returns { recorded }.",
+    input: {
+      type: 'object',
+      properties: {
+        five_hour_used: { type: 'number', minimum: 0, maximum: 100 },
+        resets_in_seconds: {
+          type: 'integer',
+          minimum: 1,
+          description: 'When the five-hour window resets, in seconds after the clock below',
+        },
+        clock_offset_seconds: CLOCK,
+      },
+      required: ['five_hour_used', 'resets_in_seconds'],
+      additionalProperties: false,
+    },
+    run: (input, ctx) => {
+      const root = join(ctx.sandbox, 'consumer');
+      const now = clockAt(input.clock_offset_seconds ?? 0);
+      const at = Math.floor(now().getTime() / 1000);
+      const status = recordStatusLine(
+        JSON.stringify({
+          session_id: 'eval',
+          workspace: { project_dir: root },
+          rate_limits: {
+            five_hour: {
+              used_percentage: input.five_hour_used,
+              resets_at: at + input.resets_in_seconds,
+            },
+            seven_day: { used_percentage: 20, resets_at: at + 7 * 86400 },
+          },
+        }),
+        {
+          cwd: root,
+          env: {
+            XDG_DATA_HOME: join(ctx.sandbox, 'data'),
+            XDG_CONFIG_HOME: join(ctx.sandbox, 'config'),
+          },
+          now,
+        },
+      );
+      return { recorded: status.recorded };
+    },
+  },
+
   'orchestrator.owner-turns': {
     description:
       'Script the owner side of a conversation, one entry per owner message. A reply in the "values" phase must be "yes to all" or one or more "change N to X" (separated by commas or semicolons), the forms the first-run walk-through accepts; any other reply fails the step. Returns { turns, values_turns, replies }.',
@@ -330,6 +388,7 @@ export const actions = {
           type: 'boolean',
           description: 'Run as a dispatched executor would: HITLD_DISPATCH and HITLD_ROLE are set',
         },
+        clock_offset_seconds: CLOCK,
       },
       required: ['argv'],
       additionalProperties: false,
@@ -342,6 +401,7 @@ export const actions = {
         err: () => {},
         cwd: join(ctx.sandbox, 'consumer'),
         ...(input.fake_machine ? { machine: fakeWorkstation() } : {}),
+        ...(input.clock_offset_seconds ? { now: clockAt(input.clock_offset_seconds) } : {}),
         env: {
           ...(input.as_executor ? { HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' } : {}),
           XDG_DATA_HOME: join(ctx.sandbox, 'data'),

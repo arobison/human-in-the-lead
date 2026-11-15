@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "id": "orchestrator/watchdog-ladder",
+  "suite": "orchestrator",
+  "category": "continuity",
+  "description": "A fake executor hangs: it is dispatched and never makes progress or reports. The chief of staff's watchdog, a script with no model, sees the stall after the dispatch's stall time and says to wake the orchestrator, recording nothing itself. The orchestrator climbs the ladder with hitld dispatch watch --act: it pokes the same agent, then interrupts it and continues it as a follow-up on the same agent, then abandons that and the item is planned afresh. The fresh executor reports done, so the system recovers without the owner: no question is asked, and every step is in the ledger and the measures.",
+  "mode": "offline",
+  "steps": [
+    { "id": "consumer", "action": "orchestrator.consumer", "with": {} },
+    {
+      "id": "reading",
+      "action": "orchestrator.statusline",
+      "with": { "five_hour_used": 10, "resets_in_seconds": 36000 }
+    },
+    {
+      "id": "start",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "start"], "session": "orch-1" }
+    },
+    {
+      "id": "d1",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-1"], "session": "orch-1" }
+    },
+    {
+      "id": "d1_handle",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "handle", "--dispatch", "D-1", "--harness-ref", "agent-1"],
+        "session": "orch-1"
+      }
+    },
+    {
+      "id": "calm",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "watch"], "session": "cos", "clock_offset_seconds": 1000 }
+    },
+    {
+      "id": "seen",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "watch"], "session": "cos", "clock_offset_seconds": 1900 }
+    },
+    {
+      "id": "poke",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "watch", "--act"],
+        "session": "orch-1",
+        "clock_offset_seconds": 1900
+      }
+    },
+    {
+      "id": "follow",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "watch", "--act"],
+        "session": "orch-1",
+        "clock_offset_seconds": 2600
+      }
+    },
+    {
+      "id": "abandon",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "watch", "--act"],
+        "session": "orch-1",
+        "clock_offset_seconds": 4600
+      }
+    },
+    {
+      "id": "d3",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "start", "W-1"],
+        "session": "orch-1",
+        "clock_offset_seconds": 4600
+      }
+    },
+    {
+      "id": "d3_handle",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "handle", "--dispatch", "D-3", "--harness-ref", "agent-3"],
+        "session": "orch-1",
+        "clock_offset_seconds": 4600
+      }
+    },
+    {
+      "id": "note",
+      "action": "file.write",
+      "with": {
+        "path": "note-3.txt",
+        "content": "item: W-1\nresult: done\ncommit: abc1234 (branch hitld/W-1-add-numbers)\nevidence:\n  - node --test test/: 1 passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n"
+      }
+    },
+    {
+      "id": "done",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "complete", "--dispatch", "D-3", "--report-file", "../note-3.txt"],
+        "session": "orch-1",
+        "clock_offset_seconds": 5000
+      }
+    },
+    {
+      "id": "after",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "watch"], "session": "cos", "clock_offset_seconds": 9000 }
+    },
+    {
+      "id": "summary",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["ledger", "summary"], "session": "cos" }
+    }
+  ],
+  "graders": [
+    {
+      "id": "reading",
+      "grader": "equals",
+      "with": { "path": "steps.reading.recorded", "value": true }
+    },
+    {
+      "id": "no-wake-while-in-time",
+      "grader": "equals",
+      "with": { "path": "steps.calm.result.wake", "value": false }
+    },
+    {
+      "id": "stall-seen",
+      "grader": "equals",
+      "with": { "path": "steps.seen.result.wake_message", "value": "watch: D-1 stalled (poke)" }
+    },
+    {
+      "id": "poked-first",
+      "grader": "equals",
+      "with": { "path": "steps.poke.result.actions[0].step", "value": "poke" }
+    },
+    {
+      "id": "poked-the-same-agent",
+      "grader": "equals",
+      "with": { "path": "steps.poke.result.actions[0].to.harness_ref", "value": "agent-1" }
+    },
+    {
+      "id": "then-a-follow-up",
+      "grader": "equals",
+      "with": { "path": "steps.follow.result.actions[0].step", "value": "follow-up" }
+    },
+    {
+      "id": "follow-up-is-a-new-dispatch",
+      "grader": "equals",
+      "with": { "path": "steps.follow.result.actions[0].continues_as", "value": "D-2" }
+    },
+    {
+      "id": "follow-up-continues-the-agent",
+      "grader": "equals",
+      "with": { "path": "steps.follow.result.actions[0].instruction.input.to", "value": "agent-1" }
+    },
+    {
+      "id": "then-abandoned",
+      "grader": "equals",
+      "with": { "path": "steps.abandon.result.actions[0].step", "value": "abandon" }
+    },
+    {
+      "id": "abandoned-the-follow-up",
+      "grader": "equals",
+      "with": { "path": "steps.abandon.result.actions[0].dispatch", "value": "D-2" }
+    },
+    {
+      "id": "re-planned",
+      "grader": "matches",
+      "with": { "path": "steps.abandon.result.refill.start[*].item", "pattern": "^W-1$" }
+    },
+    {
+      "id": "re-dispatched",
+      "grader": "equals",
+      "with": { "path": "steps.d3.result.dispatch", "value": "D-3" }
+    },
+    {
+      "id": "recovered",
+      "grader": "equals",
+      "with": { "path": "steps.done.result.result", "value": "done" }
+    },
+    {
+      "id": "queued-to-merge",
+      "grader": "equals",
+      "with": { "path": "steps.done.result.queued_to_merge", "value": "hitld/W-1-add-numbers" }
+    },
+    {
+      "id": "nothing-left-to-watch",
+      "grader": "equals",
+      "with": { "path": "steps.after.result.wake", "value": false }
+    },
+    {
+      "id": "steps-recorded",
+      "grader": "equals",
+      "with": {
+        "path": "steps.summary.result.stalls.steps",
+        "value": { "poke": 1, "follow-up": 1, "abandon": 1, "ask": 0 }
+      }
+    },
+    {
+      "id": "stall-rate",
+      "grader": "equals",
+      "with": { "path": "steps.summary.result.stalls.by_tier.1.stalled", "value": 2 }
+    },
+    {
+      "id": "owner-not-asked",
+      "grader": "equals",
+      "with": { "path": "steps.summary.result.decision_latency_ms.open", "value": 0 }
+    }
+  ]
+}

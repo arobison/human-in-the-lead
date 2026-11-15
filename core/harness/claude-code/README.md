@@ -15,6 +15,7 @@ Claude Code's tools (Agent, SendMessage, background Bash, messages in the main s
 | Follow-up | `hitld dispatch follow-up` records a new dispatch on the same agent | `SendMessage` to the agent, or `claude -p --resume` |
 | Hand-over | `hitld handover` writes the note and releases the lease; `hitld run retire` releases the lease of a session that ended | the chief of staff starts the successor: a cloud session, or headless `claude -p` |
 | Wakes | `hitld run status` names the session that holds the lease (`wake_to`) | the chief of staff sends it each GitHub event, relayed completion and scheduled task |
+| Watchdog | `hitld dispatch watch` (the chief of staff's check-in) finds stalls; `--act` records the step | poke: `SendMessage`; follow-up: stop the agent's turn, then `SendMessage`; a PostToolUse hook records each executor tool call as progress |
 
 `createClaudeCodeAdapter({ driver })` is the same contract in process: a driver carries out the calls (tests and evals simulate one). Without a driver, an operation that needs the harness throws `ContractCall` with the instruction.
 

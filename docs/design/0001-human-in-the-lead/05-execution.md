@@ -40,6 +40,37 @@ Items whose `touches` overlap may run in parallel. They then merge one after the
 
 A freed slot is refilled when the orchestrator receives the executor's **completion notice**, delivered by the harness adapter (in Claude Code, the background-agent notification or a tier-3 run's exit; per-harness detail in [part 15](15-architecture.md#153-layer-3-harness-adapters)). The orchestrator never polls executors, checks their output files, or sleeps waiting. Between notices it does useful work: answering questions, merging, triage.
 
+### The watchdog
+
+An executor can hang without ever sending its completion notice. The watchdog finds it, so the owner does not have to.
+
+**Progress, not pings.** The heartbeat is progress the executor makes anyway, never a message it must remember to send. The adapter records progress signals for each dispatch in the private store:
+
+- commits and uncommitted file changes in its worktree or on its branch, sampled by the watchdog;
+- tool calls and tokens from the harness, where the adapter records them (in Claude Code, a hook on each of the executor's tool calls; tokens arrive only with the completion notice);
+- for a headless run, whether its process is alive and whether it has written output.
+
+Liveness alone is not progress: a process can be alive and hung.
+
+**`hitld dispatch watch`** is a script. It reads the recorded signals and the ledger and uses no model tokens. The chief of staff runs it at each of its wakes, the hourly check-in among them ([part 13](13-operations.md#the-watchdog-and-resuming-after-limits)). A dispatch is stalled when it shows no progress for `dispatch.stall_after`, or when it passes its start-to-finish `dispatch.deadline`. Both are set for a tier-1 dispatch at its tier's default estimate and scale with the tier (`dispatch.stall_tier_scale`) and with the dispatch's own estimate (up to `dispatch.stall_estimate_max` times).
+
+**The ladder.** A stalled dispatch climbs one step at a time, and each step waits for the one before it to fail:
+
+| Step | What happens | Next step when |
+|---|---|---|
+| **Poke** | The same agent is asked to report its status | Nothing progresses for `dispatch.poke_wait` |
+| **Follow-up** | The agent is interrupted and continued as a follow-up (5.2, follow-ups): the same agent, its commits kept, a new dispatch ID | The follow-up stalls in its turn |
+| **Abandon** | The dispatch ends, the item is unclaimed, and the plan dispatches it afresh | The fresh dispatch climbs the same ladder |
+| **Ask** | After `dispatch.redispatch_max` abandonments, the next failure is a question for the owner, sent through the attention budget (5.5) | |
+
+The ladder counts from the item's last report. Progress after a step means the step worked, so a dispatch that recovers starts again from a poke. A dispatch past its deadline is not cleared by progress. Not every dispatch can take every step: a headless run cannot be messaged while it runs, and continuing it needs the session its result names, so a stalled one is abandoned. An interactive tier-3 session is poked through the chief of staff, which started it.
+
+**Who acts.** The watchdog decides; the harness acts. When anything is due, the chief of staff wakes the orchestrator, which runs `hitld dispatch watch --act`. That records each step and says what to do: which agent to message, which to stop and continue, which item to re-plan, which question to ask. The skills name the harness tools. This is not polling: the orchestrator still refills slots only on completion notices, and looks at stalls only when the watchdog wakes it.
+
+**Recorded.** Each step is a ledger event (5.4): `stalled` with its reason and step, `poked`, `interrupted`, `abandoned`, and the question's `asked`. Stall rates per model, tier and area are measures, and a stalled dispatch counts as a miss for the sizing controller ([part 11](11-metrics-and-control.md#111-measures)).
+
+**After a usage limit.** An executor can also go quiet because the account reached a limit. While the quota gate has dispatch paused and the window has not reset, the watchdog holds quiet executors instead of climbing the ladder. After the reset, an executor that went quiet during the pause and has not progressed since was cut off by the limit: the watchdog continues it, a background agent as a follow-up and an interactive session with a message. That is not a stall and does not count on the ladder ([part 12](12-reporting-and-limits.md#pausing-and-resuming)).
+
 ### Worktrees
 
 Each executor gets its own git worktree on a branch named `<branch_prefix>/<ID>-<slug>`, cut from the current tip of `main`. How the worktree and the executor are created depends on the harness adapter ([part 15](15-architecture.md#154-the-claude-code-adapter)); in Claude Code, tier 1–2 background agents use worktree isolation and tier-3 runs start in their own worktree. The orchestrator works in the main checkout and is the only writer to `main`.
@@ -100,7 +131,7 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 
 | Field | Notes |
 |---|---|
-| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started`, `lease-taken` and `lease-released` (a hand-over, or a session the chief of staff retired). `merge-approved` records the owner's answer to a batch presented in owner merge mode, bound to that presentation, by the session the owner said it in ([part 14](14-integration.md#142-the-queue)). Two more record the owner's attention: `sent` (a question was first shown to its decider) and `logged` (a call the orchestrator made without asking). Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
+| `event` | `dispatched`, `started` (the harness started the executor), `asked`, `answered`, `reported`, `verified`, `merged`, `reverted`, `unclaimed` (a claim given up), `abandoned`, and for orchestrator continuity `run-started`, `lease-taken` and `lease-released` (a hand-over, or a session the chief of staff retired). `merge-approved` records the owner's answer to a batch presented in owner merge mode, bound to that presentation, by the session the owner said it in ([part 14](14-integration.md#142-the-queue)). Two more record the owner's attention: `sent` (a question was first shown to its decider) and `logged` (a call the orchestrator made without asking). The watchdog (5.2) writes `stalled` (with its `reason` and the ladder `step` taken), `poked` and `interrupted` (a dispatch stopped to be continued as a follow-up; it ends the dispatch). The quota gate's pauses are `paused` (with the `limit` and its window's `resets_at`) and `resumed` ([part 12](12-reporting-and-limits.md#pausing-and-resuming)). Lines written before HITLD-82 say `claimed`, `question` and `released`; the ledger is never rewritten, so the reader takes them as `started`, `asked` and `unclaimed`, permanently |
 | `dispatch` | `D-<n>`, unique per dispatch |
 | `item` | Tracker ID |
 | `tier`, `model`, `effort` | As dispatched |
@@ -116,7 +147,7 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 | `commit` | Final commit of the branch |
 | `decision` | On `asked`, `sent` and `answered`: the decision item. Each is written once per decision. A decision a precedent resolves has none of them: no one was asked |
 | `delivery`, `via` | On `sent`: `interrupt` when the question was sent at once, which uses one of the person's `interrupts_per_day`, or `digest`. On `answered`: `default` when no one answered and the decision took its default; it is then left out of decision latency |
-| `text`, `area` | On `logged`: the call in a sentence, and its area. The event's ID is the handle the digest gives for reversing the call |
+| `text`, `area` | On `logged`: the call in a sentence, and its area. The event's ID is the handle the digest gives for reversing the call. `area` is also on `dispatched` and `stalled`, the item's first area, so stall rates can be read per area |
 | `notes` | Short; never untrusted text |
 
 The table lists the main fields; `schemas/ledger-entry.schema.json` is the full reference. The ledger is append-only. Corrections are new events that reference the old. It is `internal`: it holds no product secrets, but it is the project's working record.

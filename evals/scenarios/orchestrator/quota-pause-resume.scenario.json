@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "id": "orchestrator/quota-pause-resume",
+  "suite": "orchestrator",
+  "category": "continuity",
+  "description": "An executor is running when the five-hour window reaches the owner's reserve. The orchestrator's plan pauses dispatch and records why and when the window resets, and asks for a wake then; the chief of staff reads the time from hitld run status. Before the reset the watchdog holds the quiet executor instead of climbing the ladder. After the reset, with a fresh reading, the watchdog says dispatch may resume and finds the executor the limit cut off; the orchestrator records the resume, continues that executor as a follow-up (not counted as a stall), and refills the free slot. No one asked the owner.",
+  "mode": "offline",
+  "steps": [
+    { "id": "consumer", "action": "orchestrator.consumer", "with": {} },
+    {
+      "id": "start",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "start"], "session": "orch-1" }
+    },
+    {
+      "id": "d1",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-1"], "session": "orch-1" }
+    },
+    {
+      "id": "d1_handle",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "handle", "--dispatch", "D-1", "--harness-ref", "agent-1"],
+        "session": "orch-1"
+      }
+    },
+    {
+      "id": "limit",
+      "action": "orchestrator.statusline",
+      "with": { "five_hour_used": 80, "resets_in_seconds": 3000 }
+    },
+    {
+      "id": "plan",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "plan"], "session": "orch-1", "clock_offset_seconds": 60 }
+    },
+    {
+      "id": "status",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "status"], "session": "cos", "clock_offset_seconds": 60 }
+    },
+    {
+      "id": "before",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "watch"], "session": "cos", "clock_offset_seconds": 2500 }
+    },
+    {
+      "id": "fresh",
+      "action": "orchestrator.statusline",
+      "with": { "five_hour_used": 5, "resets_in_seconds": 18000, "clock_offset_seconds": 3100 }
+    },
+    {
+      "id": "after",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "watch"], "session": "cos", "clock_offset_seconds": 3100 }
+    },
+    {
+      "id": "act",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "watch", "--act"],
+        "session": "orch-1",
+        "clock_offset_seconds": 3100
+      }
+    },
+    {
+      "id": "summary",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["ledger", "summary"], "session": "cos" }
+    }
+  ],
+  "graders": [
+    {
+      "id": "paused",
+      "grader": "equals",
+      "with": { "path": "steps.plan.result.gate.mode", "value": "stop" }
+    },
+    {
+      "id": "paused-at-the-limit",
+      "grader": "equals",
+      "with": { "path": "steps.plan.result.paused.limit", "value": "claude-five-hour" }
+    },
+    {
+      "id": "asks-for-a-wake-at-the-reset",
+      "grader": "matches",
+      "with": { "path": "steps.plan.result.wake_at", "pattern": "^\\d{4}-\\d{2}-\\d{2}T" }
+    },
+    {
+      "id": "chief-of-staff-reads-the-reset",
+      "grader": "matches",
+      "with": { "path": "steps.status.result.wake_at", "pattern": "^\\d{4}-\\d{2}-\\d{2}T" }
+    },
+    {
+      "id": "held-before-the-reset",
+      "grader": "equals",
+      "with": { "path": "steps.before.result.dispatches[0].state", "value": "waiting_for_reset" }
+    },
+    {
+      "id": "no-wake-before-the-reset",
+      "grader": "equals",
+      "with": { "path": "steps.before.result.wake", "value": false }
+    },
+    {
+      "id": "resume-due-after",
+      "grader": "equals",
+      "with": { "path": "steps.after.result.resume.due", "value": true }
+    },
+    {
+      "id": "cut-off-found",
+      "grader": "equals",
+      "with": { "path": "steps.after.result.dispatches[0].state", "value": "cut_off" }
+    },
+    {
+      "id": "resumed-at-the-reset",
+      "grader": "equals",
+      "with": { "path": "steps.act.result.resumed.reason", "value": "reset" }
+    },
+    {
+      "id": "continued-as-a-follow-up",
+      "grader": "equals",
+      "with": { "path": "steps.act.result.actions[0].step", "value": "follow-up" }
+    },
+    {
+      "id": "because-of-the-limit",
+      "grader": "equals",
+      "with": { "path": "steps.act.result.actions[0].reason", "value": "limit" }
+    },
+    {
+      "id": "same-agent",
+      "grader": "equals",
+      "with": { "path": "steps.act.result.actions[0].instruction.input.to", "value": "agent-1" }
+    },
+    {
+      "id": "refilled",
+      "grader": "matches",
+      "with": { "path": "steps.act.result.refill.start[*].item", "pattern": "^W-2$" }
+    },
+    {
+      "id": "not-a-stall",
+      "grader": "equals",
+      "with": { "path": "steps.summary.result.stalls.stalled", "value": 0 }
+    },
+    {
+      "id": "cut-off-counted",
+      "grader": "equals",
+      "with": { "path": "steps.summary.result.stalls.cut_off_by_limit", "value": 1 }
+    },
+    {
+      "id": "one-pause-one-resume",
+      "grader": "equals",
+      "with": { "path": "steps.summary.result.stalls.resumes", "value": 1 }
+    },
+    {
+      "id": "owner-not-asked",
+      "grader": "equals",
+      "with": { "path": "steps.summary.result.decision_latency_ms.open", "value": 0 }
+    }
+  ]
+}

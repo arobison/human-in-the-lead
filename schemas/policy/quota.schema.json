@@ -125,6 +125,10 @@
           "minimum": 0,
           "maximum": 1
         },
+        "resets_at": {
+          "description": "A time the limit's window is known to reset, as the person declares it. For a fixed-length window, later resets follow one window length apart. Used when no reading gives the reset time, so a pause at this limit knows when to wake.",
+          "$ref": "common#/$defs/timestamp"
+        },
         "confidence": {
           "description": "The owner's stated trust in a declared figure. The confidence the system computes from the reading's source and age never exceeds it.",
           "enum": ["high", "medium", "low"]
