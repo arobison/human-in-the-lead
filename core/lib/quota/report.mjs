@@ -128,7 +128,7 @@ export function buildReport({
 
 /** @typedef {ReturnType<typeof buildReport>} Report */
 
-const MODE_LABEL = {
+export const MODE_LABEL = {
   normal: 'Normal dispatch',
   economize: 'Economize',
   critical_path_only: 'Critical path only',
