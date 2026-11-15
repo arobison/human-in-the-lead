@@ -151,8 +151,10 @@ const TEST = (/** @type {string} */ name, /** @type {string} */ body) =>
  *   W-2 changes a constant the suite checks: the batch fails, and bisection must name it
  *   W-3 adds src/c.js and touches the generated file differently: a generated conflict, resolved
  *   W-4 adds its own src/b.js: a semantic conflict with W-1, sent back
- * With `flaky`, main carries a test that fails once, the first time it runs anywhere.
- * @param {string} root @param {{ flaky?: boolean, marker?: string }} [options]
+ * With `flaky`, main carries a test that fails once, the first time it runs anywhere. With
+ * `flaky: 'alternating'`, it fails on every other run, on main as on the branch: a flake that was
+ * already there.
+ * @param {string} root @param {{ flaky?: boolean | 'alternating', marker?: string }} [options]
  */
 export function buildMergeRepo(root, options = {}) {
   initRepo(root);
@@ -170,7 +172,9 @@ export function buildMergeRepo(root, options = {}) {
       ? {
           'test/flaky.test.js': TEST(
             'flaky once',
-            `import { existsSync, writeFileSync } from 'node:fs';\nconst marker = ${JSON.stringify(options.marker ?? join(root, '..', 'flake-marker'))};\nconst check = () => { if (!existsSync(marker)) { writeFileSync(marker, 'x'); assert.fail('first run'); } };`,
+            options.flaky === 'alternating'
+              ? `import { existsSync, readFileSync, writeFileSync } from 'node:fs';\nconst marker = ${JSON.stringify(options.marker ?? join(root, '..', 'flake-marker'))};\nconst check = () => { const n = (existsSync(marker) ? Number(readFileSync(marker, 'utf8')) : 0) + 1; writeFileSync(marker, String(n)); if (n % 2 === 1) assert.fail('odd run'); };`
+              : `import { existsSync, writeFileSync } from 'node:fs';\nconst marker = ${JSON.stringify(options.marker ?? join(root, '..', 'flake-marker'))};\nconst check = () => { if (!existsSync(marker)) { writeFileSync(marker, 'x'); assert.fail('first run'); } };`,
           ),
         }
       : {}),
@@ -230,4 +234,5 @@ export const MERGE_SETTINGS = Object.freeze({
   fullSuite: ["node --test 'test/*.test.js'"],
   generated: [{ globs: ['gen/**'], regenerate: 'node gen.mjs' }],
   flakeReruns: 1,
+  flake: { compareRuns: 3, compareRunsMax: 3, burnInRuns: 2, testGlobs: ['test/**'] },
 });
