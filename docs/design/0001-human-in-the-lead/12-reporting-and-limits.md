@@ -65,7 +65,7 @@ The ceiling limits how long the owner may hear nothing. It is not a schedule: a 
 - **One phone screen first.** The message itself fits a phone screen: per project, one line on what was built and one on what is next; decisions made and pending; study verdicts; blocked items; quota headroom. A link opens the full HTML report.
 - **Charts** in the full report: queue stocks over time, token use against accepted items, critical-path progress per milestone, quota burn.
 - **Facts, not adjectives.** Every line cites items, decisions, studies or run IDs. No "great progress".
-- **It counts as a read** against the attention budget; a report that grows past its budget is shortened, not sent longer.
+- **It counts as a read** against the attention budget; a report that grows past its budget is shortened, not sent longer. The digest `hitld rights digest` builds and the `digest.txt` of `hitld dashboard` are the same text, with a size budget of 30 lines of 56 characters ([part 23.5](23-people-in-the-lead.md)).
 
 ## 12.3 Inspectable controllers
 

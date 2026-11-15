@@ -123,11 +123,11 @@ export const actions = {
 
   'orchestrator.merge': {
     description:
-      'Build the merge fixture repository (four branches: one good with a generated-file change, one that breaks the suite, one with a conflicting generated-file change, one with a semantic conflict; or, with flaky, one branch and a test that fails once) and run the merge queue. With owner, the branches wait for the owner: only those named in only are merged, and with none named nothing is. Returns the queue result with main_files, the regenerated gen/files.txt on main.',
+      'Build the merge fixture repository (four branches: one good with a generated-file change, one that breaks the suite, one with a conflicting generated-file change, one with a semantic conflict; or, with flaky, one branch and a test that fails once, or with flaky alternating, one that fails on every other run on main too) and run the merge queue. With owner, the branches wait for the owner: only those named in only are merged, and with none named nothing is. Returns the queue result with main_files, the regenerated gen/files.txt on main.',
     input: {
       type: 'object',
       properties: {
-        flaky: { type: 'boolean' },
+        flaky: { enum: [true, false, 'alternating'] },
         owner: { type: 'boolean' },
         only: { type: 'array', items: { type: 'string' } },
       },
@@ -135,7 +135,7 @@ export const actions = {
     },
     run: async (input, ctx) => {
       const { root, entries } = buildMergeRepo(join(ctx.sandbox, 'merge-repo'), {
-        flaky: input.flaky === true,
+        flaky: input.flaky === 'alternating' ? 'alternating' : input.flaky === true,
         marker: join(ctx.sandbox, 'flake-marker'),
       });
       const owner = input.owner === true;
@@ -152,7 +152,7 @@ export const actions = {
         merged: r.merged.map((m) => m.item),
         rejected: r.rejected.map((x) => ({ item: x.item, reason: x.reason, files: x.files ?? [] })),
         flakes: r.flakes.length,
-        held: r.held ? r.held.items : [],
+        flake_outcomes: r.flakes.map((f) => f.outcome),
         suite_runs: r.suite_runs,
         bisection_runs: r.bisection_runs,
         bisected: r.bisection_runs > 0,

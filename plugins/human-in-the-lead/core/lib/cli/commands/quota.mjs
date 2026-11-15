@@ -7,11 +7,10 @@ import { outputProblem, writeReportFiles } from '../../report-output.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { findRepoRoot } from '../../policy/policy.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
-import { machineRootFor } from '../../env/manager.mjs';
-import { readAccountSnapshots } from '../../registry/machine.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml } from '../../quota/report.mjs';
-import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
+import { readQuotaInputs } from '../../quota/inputs.mjs';
+import { ownerDigest } from './rights.mjs';
 
 /**
  * Everything the quota commands read: the policy, the snapshots, the ledger, and the time.
@@ -43,16 +42,14 @@ function gather(ctx, input) {
   const repoRoot = findRepoRoot(ctx.cwd) ?? undefined;
   const store = openStore(privateStorePath(loaded.policy.project.id, { env: ctx.env, repoRoot }));
   // The project's own snapshots and every account's from the machine registry.
-  const own = readSnapshots(store);
-  const snapshots = [...own.snapshots, ...readAccountSnapshots(machineRootFor(store.root))];
-  const skipped = own.skipped;
+  const { snapshots, skipped, ledger } = readQuotaInputs(store);
   return {
     error: null,
     policy: loaded.policy,
     store,
     snapshots,
     skipped,
-    ledger: readLedgerEntries(store),
+    ledger,
     now,
     warnings: loaded.warnings.map((w) => w.message),
   };
@@ -118,7 +115,7 @@ export const commands = [
         description: 'Report as of this time (a timestamp), for tests',
       },
     ],
-    run: (input, ctx) => {
+    run: async (input, ctx) => {
       const g = gather(ctx, input);
       if (g.error) return g.error;
       const report = buildReport({
@@ -128,7 +125,20 @@ export const commands = [
         now: g.now,
       });
       const html = renderHtml(report, g.policy);
-      const digest = renderDigest(report);
+      // The digest is the one `hitld rights digest` builds, with this report's quota lines. It is
+      // only read here: the cursor does not move. A project whose decisions cannot be read gets
+      // the quota lines alone.
+      /** @type {string} */
+      let digest = renderDigest(report);
+      try {
+        const made = await ownerDigest(ctx, {
+          now: new Date(g.now).toISOString(),
+          report,
+        });
+        if (made.ok && 'digest' in made) digest = made.digest.text;
+      } catch {
+        // Keep the quota lines.
+      }
       const dir =
         typeof input.out === 'string'
           ? isAbsolute(input.out)

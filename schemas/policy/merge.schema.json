@@ -110,7 +110,7 @@
       "default": []
     },
     "flake_reruns": {
-      "description": "How many times a failing full suite is rerun on the same commit. A pass on a rerun does not merge: the batch is held, the failure is recorded as a flake candidate, and the owner decides (design 14.4 and 14.7).",
+      "description": "How many times a failing full suite is rerun on the same commit. A pass on a rerun makes the failure a flake candidate, and the comparison on the batch's base decides whether the batch is blamed (design 14.4 and 14.7; policy flake). With 0, a failure is not rerun and the batch is bisected at once.",
       "type": "integer",
       "minimum": 0,
       "maximum": 5,
