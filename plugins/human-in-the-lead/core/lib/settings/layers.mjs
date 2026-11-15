@@ -478,6 +478,26 @@ export function effectiveSettings(l) {
 }
 
 /**
+ * Whether the first-run setup is done (design part 13.4): both the person file and the machine file
+ * exist. Until then, conservative defaults apply and autonomous dispatch waits.
+ * @param {{ person: { present: boolean }, machine: { present: boolean } }} files
+ *   the `files` that loadEffectivePolicy reports
+ * @returns {{ done: boolean, missing: string[], reason: string | null }}
+ */
+export function setupState(files) {
+  const missing = ['person', 'machine'].filter(
+    (k) => !(/** @type {Record<string, { present: boolean }>} */ (files)[k]?.present),
+  );
+  return {
+    done: missing.length === 0,
+    missing,
+    reason: missing.length
+      ? `setup not done: run the first-run setup (missing the ${missing.join(' and ')} file)`
+      : null,
+  };
+}
+
+/**
  * Load policy.json and the person and machine files, and layer them.
  * @param {{ cwd?: string, path?: string, env?: NodeJS.ProcessEnv, home?: string, run?: Record<string, any> | null,
  *   running?: { person?: number, machine?: number }, uid?: number,
