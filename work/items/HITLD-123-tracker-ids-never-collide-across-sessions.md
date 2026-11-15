@@ -15,6 +15,8 @@ Two sessions on different machines each filed a decision from their own copy of 
 
 - **IDs do not collide.** An ID is taken from a source every session shares, not only the local checkout: for example a counter the store remote moves with compare-and-swap, or a check against `origin/main` and the open branches that refuses an ID already in use. Two sessions filing at once get different IDs; a test races two filings.
 - **An answer applies only to its question.** `hitld rights answer <ID>` checks that the tracker item, the private ask record and the action it would apply (for a device decision: the action, device name and fingerprint) are the same question; when they differ it refuses with a named code and records nothing.
+- **An answer is bound to the question as shown.** Every question the owner sees carries a short check code derived from its question, options and context (as a device decision shows a fingerprint, and as an owner-mode merge approval is bound to the presented batch). `hitld rights answer` takes the code the answering session showed (or reads it from that session's own record of what it showed) and refuses when the question it would apply has a different code.
+- **Eval scenarios:** two sessions file decisions from out-of-date copies of main and get different IDs, each answer applying to its own question; and an answer to a question that has since changed under the same ID is refused.
 - **Duplicates are caught.** `hitld work check` and the merge check refuse two tracker items with the same ID, naming both files.
 - Design parts 3 (IDs) and 4 (answers) say so.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
