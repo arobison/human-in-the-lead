@@ -70,6 +70,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
+| `hitld store device init / list / remove` | Enrol, list and remove the devices the private store is encrypted to: the key pair, the private key in the OS keychain or a cloud environment variable, and `.human-in-the-lead/store-devices.json` ([0003 section 6](../0003-private-store-remote.md#6-enrolling-and-removing-a-device)) |
 | `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its reason, draft notes, items that changed public surface without a `release_note` line, unmet gates ([3.2](03-data-model.md#release)) |
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
@@ -238,6 +239,17 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `remote-argument-invalid`: An argument to the remote is not valid.
 - `remote-dir-invalid`: The local directory for the remote is not usable.
 - `remote-git-failed`: A git command against the remote failed.
+
+**Store devices**
+
+- `devices-invalid`: A store-devices.json does not parse or breaks its schema.
+- `devices-no-main`: The checkout has no main branch, local or remote-tracking, to read the device list from.
+- `device-name-invalid`: A device name is not a short lower-case name.
+- `device-name-required`: No device name was given and none could be made from the host name.
+- `device-name-taken`: The device name is enrolled with another key.
+- `device-unknown`: No device in store-devices.json has that name.
+- `device-no-keychain`: This machine has no OS keychain hitld can store the device key in.
+- `device-not-enrolled`: This device has no key, or its key is not on main's store-devices.json, so it may not push.
 
 **Secrets and the environment**
 

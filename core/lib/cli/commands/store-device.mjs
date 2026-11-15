@@ -59,7 +59,7 @@ function project(input, ctx) {
   if (!loaded.policy) {
     const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
     throw new DevicesError(
-      'no-policy',
+      'policy',
       `the device commands need the project's ID from a valid policy.json (${why})`,
     );
   }

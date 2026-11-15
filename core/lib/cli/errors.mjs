@@ -163,6 +163,18 @@ export const ERROR_CODES = Object.freeze({
   'remote-dir-invalid': 'The local directory for the remote is not usable.',
   'remote-git-failed': 'A git command against the remote failed.',
 
+  // Store devices
+  'devices-invalid': 'A store-devices.json does not parse or breaks its schema.',
+  'devices-no-main':
+    'The checkout has no main branch, local or remote-tracking, to read the device list from.',
+  'device-name-invalid': 'A device name is not a short lower-case name.',
+  'device-name-required': 'No device name was given and none could be made from the host name.',
+  'device-name-taken': 'The device name is enrolled with another key.',
+  'device-unknown': 'No device in store-devices.json has that name.',
+  'device-no-keychain': 'This machine has no OS keychain hitld can store the device key in.',
+  'device-not-enrolled':
+    "This device has no key, or its key is not on main's store-devices.json, so it may not push.",
+
   // Secrets and the environment
   'secret-missing': 'No value is stored for a secret the task needs.',
   'spawn-failed': 'The task process could not start.',
