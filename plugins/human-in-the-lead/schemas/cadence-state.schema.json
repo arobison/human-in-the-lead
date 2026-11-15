@@ -1,0 +1,36 @@
+{
+  "$id": "cadence-state",
+  "title": "Cadence state",
+  "description": "cadence/state.json in the private store (design part 13.3): when each recurring job last ran and how far into the ledger and the trust record it had read, so `hitld cadence due` counts only what is new. Written by `hitld cadence done`. Internal: never leaves the machine.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "jobs": {
+      "description": "Per job: digest, report, baseline, eval, or review:<person>.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "description": "When the job was marked done.",
+            "$ref": "common#/$defs/timestamp"
+          },
+          "through": {
+            "description": "The ID of the last ledger event the job had read; null when the ledger was empty.",
+            "type": ["string", "null"]
+          },
+          "trust_through": {
+            "description": "How many trust events the job had read.",
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["at"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["schema_version", "jobs"],
+  "additionalProperties": false
+}

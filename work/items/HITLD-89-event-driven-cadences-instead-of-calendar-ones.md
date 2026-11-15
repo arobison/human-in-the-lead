@@ -2,9 +2,10 @@
 id: HITLD-89
 title: Event-driven cadences instead of calendar ones
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-89
 ---
 
 ## Why
