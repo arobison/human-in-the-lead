@@ -1,12 +1,15 @@
 // Moving and syncing the private store between machines (design part 3.2, Q1). Owner only.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { privateStorePath } from '../../store/store.mjs';
 import { executorSignal } from '../executor.mjs';
 
-/** The environment variable that may carry the passphrase. */
+/** The environment variable that may carry the passphrase (format 1 files). */
 export const PASSPHRASE_ENV = 'HITLD_STORE_PASSPHRASE';
+/** The environment variable that may carry age private keys (format 2 files). */
+export const IDENTITY_ENV = 'HITLD_STORE_IDENTITY';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const FILE = {
@@ -21,7 +24,22 @@ const PASSPHRASE_FD = {
   name: 'passphrase-fd',
   type: 'integer',
   mcp: false,
-  description: `Read the passphrase from this open file descriptor (0 for standard input), its first line. Default: $${PASSPHRASE_ENV}. Never on the command line`,
+  description: `For a format-1 file: read the passphrase from this open file descriptor (0 for standard input), its first line. Default: $${PASSPHRASE_ENV}. Never on the command line`,
+};
+/** @type {import('../args.mjs').ArgSpec} */
+const IDENTITY_FD = {
+  name: 'identity-fd',
+  type: 'integer',
+  mcp: false,
+  description: `For a format-2 file: read age private keys (AGE-SECRET-KEY-1..., one per line, # comments allowed, as age-keygen writes them) from this open file descriptor (0 for standard input). Default: $${IDENTITY_ENV}. Never on the command line`,
+};
+/** @type {import('../args.mjs').ArgSpec} */
+const RECIPIENT = {
+  name: 'recipient',
+  type: 'string',
+  repeatable: true,
+  description:
+    'An age public key (age1...) to encrypt the export to; once per recipient. The file opens with any of their private keys',
 };
 /** @type {import('../args.mjs').ArgSpec} */
 const STORE = {
@@ -40,36 +58,83 @@ class Refusal extends Error {
 }
 
 /**
- * The passphrase, from a file descriptor or the environment; never from an argument, which would
- * land in shell history and process lists.
+ * A secret, from a file descriptor or the environment; never from an argument, which would land
+ * in shell history and process lists.
  * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+ * @param {{ option: string, env: string, what: string, code: string }} from
  */
-function passphrase(input, ctx) {
-  const fd = input['passphrase-fd'];
+function secret(input, ctx, from) {
+  const fd = input[from.option];
   /** @type {string | undefined} */
   let value;
   if (typeof fd === 'number') {
-    if (!Number.isInteger(fd) || fd < 0)
-      throw new Refusal('usage', '--passphrase-fd must be 0 or more');
+    if (!Number.isInteger(fd) || fd < 0) {
+      throw new Refusal('usage', `--${from.option} must be 0 or more`);
+    }
     try {
-      value = readFileSync(fd, 'utf8').split(/\r?\n/)[0];
+      value = readFileSync(fd, 'utf8');
     } catch (e) {
       throw new Refusal(
-        'no_passphrase',
-        `cannot read the passphrase from file descriptor ${fd}: ${/** @type {Error} */ (e).message}`,
+        from.code,
+        `cannot read the ${from.what} from file descriptor ${fd}: ${/** @type {Error} */ (e).message}`,
       );
     }
   } else {
-    value = ctx.env[PASSPHRASE_ENV];
+    value = ctx.env[from.env];
   }
-  if (!value) {
+  if (!value?.trim()) {
     throw new Refusal(
-      'no_passphrase',
-      `no passphrase: set ${PASSPHRASE_ENV} or pass --passphrase-fd <n>; never on the command line`,
+      from.code,
+      `no ${from.what}: set ${from.env} or pass --${from.option} <n>; never on the command line`,
     );
   }
   return value;
 }
+
+/**
+ * The passphrase for a format-1 file: the first line.
+ * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+ */
+const passphrase = (input, ctx) =>
+  secret(input, ctx, {
+    option: 'passphrase-fd',
+    env: PASSPHRASE_ENV,
+    what: 'passphrase',
+    code: 'no_passphrase',
+  }).split(/\r?\n/)[0];
+
+/**
+ * The age private keys for a format-2 file.
+ * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+ */
+async function identities(input, ctx) {
+  const text = secret(input, ctx, {
+    option: 'identity-fd',
+    env: IDENTITY_ENV,
+    what: 'age private key',
+    code: 'no-identity',
+  });
+  const { parseIdentities } = await import('../../store/age.mjs');
+  return parseIdentities(text);
+}
+
+/**
+ * The key an existing file opens with, read only when it is needed: an age private key for
+ * format 2, a passphrase for format 1. No file, no key.
+ * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+ * @returns {Promise<import('../../store/sealed.mjs').Keys>}
+ */
+async function keysFor(input, ctx) {
+  const file = resolve(String(input.file));
+  if (!existsSync(file)) return {};
+  const { formatOf } = await import('../../store/sealed.mjs');
+  return formatOf(readFileSync(file)) === 2
+    ? { identities: await identities(input, ctx) }
+    : { passphrase: passphrase(input, ctx) };
+}
+
+/** @param {Record<string, unknown>} input */
+const recipients = (input) => /** @type {string[]} */ (input.recipient ?? []);
 
 /**
  * The project and its store.
@@ -116,7 +181,7 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
     const code = /** @type {{ code?: unknown }} */ (e).code;
     const known =
       e instanceof Refusal ||
-      (e instanceof Error && ['StoreGitError', 'SealedError'].includes(e.name));
+      (e instanceof Error && ['StoreGitError', 'SealedError', 'AgeError'].includes(e.name));
     if (known && typeof code === 'string') {
       return { ok: false, error: code, message: /** @type {Error} */ (e).message };
     }
@@ -132,46 +197,50 @@ export const commands = [
   {
     name: 'store export',
     summary:
-      "Write the private store's text history to one encrypted file: a git bundle and a manifest (owner only)",
+      "Write the private store's text history to one file encrypted to age public keys: a git bundle and a manifest (owner only)",
     built_by: 'consumer-live',
     mcp: false,
-    args: [FILE, PASSPHRASE_FD, STORE],
+    args: [FILE, RECIPIENT, STORE],
     run: ownerOnly('store export', async (input, ctx) => {
       const p = project(input, ctx);
-      const secret = passphrase(input, ctx);
       const { exportStore } = await sync();
       return {
         ok: true,
-        ...exportStore({ ...p, passphrase: secret, file: String(input.file) }),
+        ...exportStore({ ...p, recipients: recipients(input), file: String(input.file) }),
       };
     }),
   },
   {
     name: 'store import',
     summary:
-      'Bring in an exported store: verify it, refuse another project or a newer schema, merge append-only history (a conflict stops it), rebuild the index (owner only)',
+      'Bring in an exported store (format 2 with an age private key, format 1 with a passphrase): verify it, refuse another project or a newer schema, merge append-only history (a conflict stops it), rebuild the index (owner only)',
     built_by: 'consumer-live',
     mcp: false,
-    args: [FILE, PASSPHRASE_FD, STORE],
+    args: [FILE, IDENTITY_FD, PASSPHRASE_FD, STORE],
     run: ownerOnly('store import', async (input, ctx) => {
       const p = project(input, ctx);
-      const secret = passphrase(input, ctx);
+      const file = resolve(String(input.file));
+      if (!existsSync(file)) throw new Refusal('no-file', `there is no export file at ${file}`);
+      const keys = await keysFor(input, ctx);
       const { importStore } = await sync();
-      return importStore({ ...p, passphrase: secret, file: String(input.file) });
+      return importStore({ ...p, ...keys, file: String(input.file) });
     }),
   },
   {
     name: 'store sync',
     summary:
-      'Both directions through one file: import it if it exists, then export the merged store over it (owner only)',
+      'Both directions through one file: import it if it exists (either format), then export the merged store over it, encrypted to age public keys (owner only)',
     built_by: 'consumer-live',
     mcp: false,
-    args: [FILE, PASSPHRASE_FD, STORE],
+    args: [FILE, RECIPIENT, IDENTITY_FD, PASSPHRASE_FD, STORE],
     run: ownerOnly('store sync', async (input, ctx) => {
       const p = project(input, ctx);
-      const secret = passphrase(input, ctx);
+      // Refuse before any key is read or anything is imported.
+      const { checkRecipients } = await import('../../store/sealed.mjs');
+      checkRecipients(recipients(input));
+      const keys = await keysFor(input, ctx);
       const { syncStore } = await sync();
-      return syncStore({ ...p, passphrase: secret, file: String(input.file) });
+      return syncStore({ ...p, ...keys, recipients: recipients(input), file: String(input.file) });
     }),
   },
 ];
