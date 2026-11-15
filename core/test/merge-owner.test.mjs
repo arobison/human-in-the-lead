@@ -158,7 +158,7 @@ test('owner mode: --all merges the presented batch at its tested commit, runs no
   assert.equal(r.result.approvals.unassigned.clean_run, 2);
   // The presentation is used up: a second --all finds nothing to approve.
   const twice = await c.hitld(['merge', '--all']);
-  assert.equal(twice.result.error, 'not_presented');
+  assert.equal(twice.result.error, 'not-presented');
 });
 
 test('owner mode: --only takes a list; it is checked again on its own and not counted as approved as presented', async () => {
@@ -185,10 +185,10 @@ test('owner mode: --only takes a list; it is checked again on its own and not co
 test('owner mode: only presented branches can be approved, and one that moved since is refused', async () => {
   const { c, branches } = await ownerConsumer('owner', { green: true });
   const none = await c.hitld(['merge', '--only', branches['W-1']]);
-  assert.equal(none.result.error, 'not_presented');
+  assert.equal(none.result.error, 'not-presented');
   await c.hitld(['merge']);
   const unknown = await c.hitld(['merge', '--only', 'W-9']);
-  assert.equal(unknown.result.error, 'not_presented');
+  assert.equal(unknown.result.error, 'not-presented');
   // W-2 moves after it was shown: the owner approved other code.
   git(c.root, 'switch', '-q', branches['W-2']);
   put(c.root, { 'src/other.js': 'export const one = 1;\nexport const three = 3;\n' });
@@ -206,7 +206,7 @@ test('owner mode with a chief of staff: it records the answer against the presen
   const { c, store } = await ownerConsumer('owner', { green: true });
   const cos = { env: { HITLD_SESSION: 'cos' } };
   const early = await c.hitld(['merge', 'approve', '--all'], cos);
-  assert.equal(early.result.error, 'not_presented', 'nothing presented yet');
+  assert.equal(early.result.error, 'not-presented', 'nothing presented yet');
   const shown = await c.hitld(['merge']);
   const tested = shown.result.tested;
   // Without a selection it shows the presentation, for the chief of staff to put to the owner.
@@ -215,7 +215,7 @@ test('owner mode with a chief of staff: it records the answer against the presen
   assert.equal(view.result.presented.length, 2);
   assert.equal(
     (await c.hitld(['merge', 'approve', '--only', 'W-9'], cos)).result.error,
-    'not_presented',
+    'not-presented',
   );
   const ok = await c.hitld(['merge', 'approve', '--all'], cos);
   assert.equal(ok.exit, 0, JSON.stringify(ok.result));
@@ -286,7 +286,7 @@ test('owner mode with a chief of staff: a list is applied as a list; an answer t
   const executor = await c.hitld(['merge', 'approve', '--all'], {
     env: { HITLD_SESSION: 'x', HITLD_DISPATCH: 'D-1' },
   });
-  assert.equal(executor.result.error, 'not_permitted');
+  assert.equal(executor.result.error, 'not-permitted');
 });
 
 test('owner mode: an approval in the holder session is recorded once in the ledger too', async () => {
@@ -303,7 +303,7 @@ test('owner mode: an executor is refused, listing and approving alike', async ()
   const { c, branches } = await ownerConsumer();
   for (const argv of [['merge'], ['merge', '--only', branches['W-1']], ['merge', '--all']]) {
     const r = await c.hitld(argv, { env: { ...c.env, HITLD_ROLE: 'executor' } });
-    assert.equal(r.result.error, 'not_permitted');
+    assert.equal(r.result.error, 'not-permitted');
   }
   const stillWaiting = await c.hitld(['merge']);
   assert.equal(stillWaiting.result.presented.length, 1);
@@ -350,7 +350,7 @@ test('queue mode: an executor is refused too', async () => {
   const { c } = await ownerConsumer('queue');
   for (const env of [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-7' }]) {
     const r = await c.hitld(['merge'], { env: { ...c.env, ...env } });
-    assert.equal(r.result.error, 'not_permitted');
+    assert.equal(r.result.error, 'not-permitted');
     assert.match(r.result.message, /orchestrator's/);
   }
 });

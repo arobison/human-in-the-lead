@@ -31,7 +31,7 @@ export const commands = [
       if (top.status !== 0) {
         return {
           ok: false,
-          error: 'not_a_repository',
+          error: 'not-a-repository',
           message: `${ctx.cwd} is not in a git repository`,
         };
       }

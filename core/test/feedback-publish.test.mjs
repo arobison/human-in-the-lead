@@ -167,7 +167,7 @@ test('draft: one that is not public is withheld with the reason, and never filed
   assert.match(stored(id).reason, /classified it confidential: names a feature/);
   const before = filer.sent.length;
   const p = await run(['feedback', 'publish', id, '--answer', 'approve', '--store', store]);
-  assert.deepEqual([p.ok, p.error], [false, 'not_drafted']);
+  assert.deepEqual([p.ok, p.error], [false, 'not-drafted']);
   assert.equal(filer.sent.length, before);
 });
 
@@ -227,12 +227,12 @@ test('publish: nothing is filed without an approval; an executor is refused', as
     const r = await run(['feedback', 'publish', id, '--answer', 'approve', '--store', store], {
       env,
     });
-    assert.deepEqual([r.ok, r.error], [false, 'not_permitted'], JSON.stringify(env));
+    assert.deepEqual([r.ok, r.error], [false, 'not-permitted'], JSON.stringify(env));
     const d = await run(
       ['feedback', 'draft', id, '--draft', JSON.stringify(clean), '--store', store],
       { env },
     );
-    assert.equal(d.error, 'not_permitted');
+    assert.equal(d.error, 'not-permitted');
   }
   const vague = await run([
     'feedback',
@@ -243,7 +243,7 @@ test('publish: nothing is filed without an approval; an executor is refused', as
     '--store',
     store,
   ]);
-  assert.equal(vague.error, 'not_an_approval');
+  assert.equal(vague.error, 'not-an-approval');
   const other = await run([
     'feedback',
     'publish',
@@ -255,7 +255,7 @@ test('publish: nothing is filed without an approval; an executor is refused', as
     '--store',
     store,
   ]);
-  assert.equal(other.error, 'not_an_approver');
+  assert.equal(other.error, 'not-an-approver');
   assert.equal(filer.sent.length, before);
   assert.equal(stored(id).state, 'drafted');
 });
@@ -311,7 +311,7 @@ test('publish: edit approves the person changes, screened like the draft; drop d
     '--store',
     store,
   ]);
-  assert.equal(caught.error, 'not_public');
+  assert.equal(caught.error, 'not-public');
   assert.equal(stored(id).state, 'drafted');
   const edited = await run([
     'feedback',
@@ -354,7 +354,7 @@ test('publish: by-hand gives the text and sends nothing; the pasted URL files it
     '--store',
     store,
   ]);
-  assert.equal(bad.error, 'not_an_issue');
+  assert.equal(bad.error, 'not-an-issue');
   const url = `https://github.com/${FEEDBACK_REPO}/issues/77`;
   const filed = await run(['feedback', 'publish', id, '--url', url, '--store', store]);
   assert.deepEqual([filed.state, filed.url], ['filed', url]);
@@ -432,7 +432,7 @@ test('publish is declared and guarded as rights answer is: offered over MCP, ref
     interactive: false,
     env: { HITLD_DISPATCH: 'D-9' },
   });
-  assert.equal(refused.error, 'not_permitted');
+  assert.equal(refused.error, 'not-permitted');
 });
 
 test('title prefixes and labels match the issue forms', () => {

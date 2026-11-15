@@ -75,7 +75,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--host',
     'laptop',
   ]);
-  assert.deepEqual([refused0.code, refused0.json.error], [EXIT.failed, 'forbidden_event']);
+  assert.deepEqual([refused0.code, refused0.json.error], [EXIT.failed, 'forbidden-event']);
   const me0 = ['--store', store, '--session', 's-1', '--host', 'laptop'];
   // a forged terminal event, and an event type not on the list, are refused
   for (const forged of [
@@ -88,7 +88,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     { event: 'no-such-event' },
   ]) {
     const r = await hitld(['ledger', 'append', JSON.stringify(forged), ...me0]);
-    assert.deepEqual([r.code, r.json.error], [EXIT.failed, 'forbidden_event'], forged.event);
+    assert.deepEqual([r.code, r.json.error], [EXIT.failed, 'forbidden-event'], forged.event);
   }
   // the run module writes it
   const diskStore = openStore(store);
@@ -131,7 +131,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--host',
     'laptop',
   ]);
-  assert.deepEqual([noLease.code, noLease.json.error], [EXIT.failed, 'lease_lost']);
+  assert.deepEqual([noLease.code, noLease.json.error], [EXIT.failed, 'lease-lost']);
   assert.equal(
     (await hitld(['ledger', 'append', q, '--store', store])).code,
     EXIT.failed,
@@ -140,7 +140,7 @@ test('hitld: a run from the command line, with a second session taking over', as
 
   const bad = await hitld(['ledger', 'append', '{"event":"merged"}', ...me]);
   assert.equal(bad.code, EXIT.failed);
-  assert.equal(bad.json.error, 'invalid_event');
+  assert.equal(bad.json.error, 'invalid-event');
   assert.equal((await hitld(['ledger', 'append', 'nope', ...me])).json.error, 'usage');
 
   const inflight = await hitld(['ledger', 'in-flight', '--store', store]);
@@ -165,12 +165,12 @@ test('hitld: a run from the command line, with a second session taking over', as
     'laptop',
   ]);
   assert.equal(refused.code, EXIT.failed);
-  assert.equal(refused.json.error, 'lease_held');
+  assert.equal(refused.json.error, 'lease-held');
   assert.equal(refused.json.holder.session, 's-1');
   assert.equal(
     (await hitld(['run', 'checkpoint', '--store', store, '--session', 's-2', '--host', 'laptop']))
       .json.error,
-    'lease_lost',
+    'lease-lost',
   );
 
   const resumed = await hitld([
@@ -276,7 +276,7 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
     [{ event: 'reverted', item: 'W-1', surprise: 1 }, 'surprise'],
   ])) {
     const r = await append(e);
-    assert.deepEqual([r.code, r.json.error], [EXIT.failed, 'forbidden_field'], field);
+    assert.deepEqual([r.code, r.json.error], [EXIT.failed, 'forbidden-field'], field);
     assert.match(r.json.message, new RegExp(`not ${field}`));
   }
 
@@ -292,15 +292,15 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
     result: 'pass',
     corrects: lifecycle.event.id,
   });
-  assert.deepEqual([rewrite.code, rewrite.json.error], [EXIT.failed, 'forbidden_correction']);
+  assert.deepEqual([rewrite.code, rewrite.json.error], [EXIT.failed, 'forbidden-correction']);
   assert.match(rewrite.json.message, /a dispatched event/);
   const nowhere = await append({ event: 'merged', item: 'W-1', corrects: 'E-999' });
-  assert.equal(nowhere.json.error, 'forbidden_correction');
+  assert.equal(nowhere.json.error, 'forbidden-correction');
 
   // nor a different kind of event, nor one about another item
   const wasFail = await append({ event: 'verified', item: 'W-1', result: 'fail', defects: 1 });
   const otherKind = await append({ event: 'merged', item: 'W-1', corrects: wasFail.json.event.id });
-  assert.equal(otherKind.json.error, 'forbidden_correction');
+  assert.equal(otherKind.json.error, 'forbidden-correction');
   assert.match(otherKind.json.message, /earlier merged event/);
   const otherItem = await append({
     event: 'verified',
@@ -308,7 +308,7 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
     result: 'pass',
     corrects: wasFail.json.event.id,
   });
-  assert.equal(otherItem.json.error, 'forbidden_correction');
+  assert.equal(otherItem.json.error, 'forbidden-correction');
 
   // but one raw-append event may correct another of its kind about the same item
   const first = await append({ event: 'verified', item: 'W-1', result: 'fail', defects: 1 });

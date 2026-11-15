@@ -693,7 +693,7 @@ test('hitld rights digest: both triggers, the person’s quiet hours, marking, a
   const refused = /** @type {any} */ (
     await c?.run?.({}, { cwd: project.root, env: { ...env, HITLD_ROLE: 'executor' } })
   );
-  assert.equal(refused.error, 'not_permitted');
+  assert.equal(refused.error, 'not-permitted');
 });
 
 test('hitld dashboard writes the same digest, and leaves the read cursor where it is', async () => {

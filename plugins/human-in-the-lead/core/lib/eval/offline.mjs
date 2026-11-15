@@ -125,7 +125,7 @@ export async function evalOffline(options) {
   if (chosen.length === 0) {
     return {
       ok: false,
-      error: 'no_scenarios',
+      error: 'no-scenarios',
       message: filter
         ? `no scenario matches "${filter}" (${loaded.length} found; IDs are <suite>/<name>)`
         : `no scenarios found under ${dirs.map((d) => join(d, 'scenarios')).join(', ')}`,
@@ -239,7 +239,7 @@ export async function evalOffline(options) {
     categories: s.categories,
     gate: verdict,
     ...(baselineMissing && !accepted
-      ? { error: 'no_committed_baseline', message: baselineMissing }
+      ? { error: 'no-committed-baseline', message: baselineMissing }
       : {}),
     ...(accepted
       ? {

@@ -55,7 +55,7 @@ function passphrase(input, ctx) {
       value = readFileSync(fd, 'utf8').split(/\r?\n/)[0];
     } catch (e) {
       throw new Refusal(
-        'no_passphrase',
+        'no-passphrase',
         `cannot read the passphrase from file descriptor ${fd}: ${/** @type {Error} */ (e).message}`,
       );
     }
@@ -64,7 +64,7 @@ function passphrase(input, ctx) {
   }
   if (!value) {
     throw new Refusal(
-      'no_passphrase',
+      'no-passphrase',
       `no passphrase: set ${PASSPHRASE_ENV} or pass --passphrase-fd <n>; never on the command line`,
     );
   }
@@ -80,7 +80,7 @@ function project(input, ctx) {
   if (!loaded.policy) {
     const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
     throw new Refusal(
-      'no_policy',
+      'policy',
       `the store commands need the project's ID from a valid policy.json (${why})`,
     );
   }
@@ -106,7 +106,7 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
   if (why) {
     return {
       ok: false,
-      error: 'not_permitted',
+      error: 'not-permitted',
       message: `hitld ${name} is the owner's, run from the main session in the primary checkout (${why}); executors never move the private store`,
     };
   }

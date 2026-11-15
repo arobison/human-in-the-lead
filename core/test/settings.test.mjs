@@ -570,7 +570,7 @@ test('hitld config write refuses executors', async () => {
       ...extra,
     });
     assert.equal(code, 1);
-    assert.equal(result.error, 'refused', JSON.stringify(extra));
+    assert.equal(result.error, 'not-permitted', JSON.stringify(extra));
   }
   assert.equal(existsSync(settingsLocation('person', { env }).path), false);
   assert.throws(
@@ -690,7 +690,10 @@ test('config migrate proposes the files, and with --yes moves the keys without l
   assert.equal(existsSync(settingsLocation('person', { env }).path), false);
 
   const cwdEnv = { ...env, HITLD_ROLE: 'executor' };
-  assert.equal((await hitld(['config', 'migrate', '--yes'], root, cwdEnv)).result.error, 'refused');
+  assert.equal(
+    (await hitld(['config', 'migrate', '--yes'], root, cwdEnv)).result.error,
+    'not-permitted',
+  );
 
   const done = await hitld(['config', 'migrate', '--yes'], root, env);
   assert.equal(done.code, 0, JSON.stringify(done.result));

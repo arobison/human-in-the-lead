@@ -476,7 +476,7 @@ test('hitld cadence done refuses what it should', async () => {
   const tooMany = await hitld(['cadence', 'done', 'digest', '--trust-through', '9']);
   assert.match(tooMany.result.message, /more than the 0 trust events/);
   const executor = await hitld(['cadence', 'done', 'digest'], { ...env, HITLD_ROLE: 'executor' });
-  assert.equal(executor.result.error, 'refused');
+  assert.equal(executor.result.error, 'not-permitted');
   const badLoad = await hitld(['cadence', 'due', '--load', 'lots']);
   assert.equal(badLoad.result.error, 'usage');
 });

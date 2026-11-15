@@ -83,20 +83,20 @@ export function approvePublication(o) {
   const why = approvalRefusal(o.ctx);
   if (why) {
     throw new GateRefusal(
-      'not_permitted',
+      'not-permitted',
       `publishing is approved only by a person, through the main session in the primary checkout (${why}); an executor puts it in its report`,
     );
   }
   if (!o.approvers.includes(o.by)) {
     throw new GateRefusal(
-      'not_an_approver',
+      'not-an-approver',
       `${o.by} may not approve this (policy feedback.approvers: ${o.approvers.join(', ') || 'none'})`,
     );
   }
   const mode = parseAnswer(o.answer);
   if (mode === null || mode === 'drop') {
     throw new GateRefusal(
-      'not_an_approval',
+      'not-an-approval',
       `${JSON.stringify(o.answer)} is not an approval: answer approve, edit, by-hand or drop`,
     );
   }
@@ -139,13 +139,13 @@ export const isApprovedPublication = (value) =>
 export async function sendApproved(value, filer) {
   if (!isApprovedPublication(value)) {
     throw new GateRefusal(
-      'not_approved',
+      'not-approved',
       'only an approved publication from the send gate is sent',
     );
   }
   const approved = /** @type {ApprovedPublication} */ (value);
   if (approved.approval.mode === 'by-hand') {
-    throw new GateRefusal('by_hand', 'the person posts this one themselves; nothing is sent');
+    throw new GateRefusal('by-hand', 'the person posts this one themselves; nothing is sent');
   }
   // Trust boundary: an external publication. Only the approved content leaves the machine.
   const result = await filer.create(approved.content);

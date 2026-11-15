@@ -46,7 +46,7 @@ export function exportStore(options) {
   const rel = relative(resolve(options.root), file);
   if (!rel.startsWith('..') && !isAbsolute(rel)) {
     throw new StoreGitError(
-      'bad_path',
+      'bad-path',
       `the export file ${file} is inside the store; put it elsewhere`,
     );
   }
@@ -79,7 +79,7 @@ export async function importStore(options) {
   const { manifest, bundle } = open(readFileSync(resolve(options.file)), options.passphrase);
   if (manifest.project !== options.projectId) {
     throw new StoreGitError(
-      'another_project',
+      'another-project',
       `the file is from project ${JSON.stringify(manifest.project)}, not ${JSON.stringify(options.projectId)}`,
     );
   }
@@ -89,7 +89,7 @@ export async function importStore(options) {
     .map(([id, v]) => `${id} ${v} (this version: ${known[id] ?? 'none'})`);
   if (newer.length) {
     throw new StoreGitError(
-      'newer_schema',
+      'newer-schema',
       `the file was written by a newer release; upgrade hitld before importing it: ${newer.join(', ')}`,
     );
   }

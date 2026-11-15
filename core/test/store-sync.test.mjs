@@ -136,7 +136,7 @@ test('a wrong passphrase is refused, and nothing changes', async () => {
   const b = join(dir, 'b');
   await assert.rejects(
     importStore({ ...opts(b, file), passphrase: 'not the passphrase' }),
-    (/** @type {any} */ e) => e.code === 'cannot_open' && /passphrase is wrong/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'cannot-open' && /passphrase is wrong/.test(e.message),
   );
   assert.equal(existsSync(join(b, 'ledger.jsonl')), false);
 });
@@ -161,7 +161,7 @@ test('a file with one flipped byte is refused, wherever the byte is', async () =
     writeFileSync(tampered, bad);
     await assert.rejects(
       importStore(opts(join(dir, `b-${where}`), tampered)),
-      (/** @type {any} */ e) => ['cannot_open', 'bad_header'].includes(e.code),
+      (/** @type {any} */ e) => ['cannot-open', 'bad-header'].includes(e.code),
       where,
     );
   }
@@ -176,7 +176,7 @@ test("another project's file is refused", async () => {
   exportStore(opts(a.root, file, 'other-project'));
   await assert.rejects(
     importStore(opts(join(dir, 'b'), file, 'fixture')),
-    (/** @type {any} */ e) => e.code === 'another_project' && /other-project/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'another-project' && /other-project/.test(e.message),
   );
   assert.equal(existsSync(join(dir, 'b', 'ledger.jsonl')), false);
 });
@@ -198,7 +198,7 @@ test('a newer schema, or an unknown export format, is refused', async () => {
   writeFileSync(file, seal(manifest, Buffer.from('bundle'), PASS, { scrypt }));
   await assert.rejects(
     importStore(opts(join(dir, 'b'), file)),
-    (/** @type {any} */ e) => e.code === 'newer_schema' && /ledger-entry/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'newer-schema' && /ledger-entry/.test(e.message),
   );
 
   const sealed = seal({ ...manifest, schema_versions: versions }, Buffer.from('x'), PASS, {
@@ -211,7 +211,7 @@ test('a newer schema, or an unknown export format, is refused', async () => {
   writeFileSync(file, future);
   await assert.rejects(
     importStore(opts(join(dir, 'b'), file)),
-    (/** @type {any} */ e) => e.code === 'unknown_format' && /format 2/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'unknown-format' && /format 2/.test(e.message),
   );
 
   // A header asking for a key derivation too costly to run is refused before it runs.
@@ -222,7 +222,7 @@ test('a newer schema, or an unknown export format, is refused', async () => {
   writeFileSync(file, costly);
   await assert.rejects(
     importStore(opts(join(dir, 'b'), file)),
-    (/** @type {any} */ e) => e.code === 'bad_header' && /scrypt N/.test(e.message),
+    (/** @type {any} */ e) => e.code === 'bad-header' && /scrypt N/.test(e.message),
   );
 });
 
@@ -328,10 +328,10 @@ test('the commands refuse executors, want a passphrase, and never take one as an
         HITLD_STORE_PASSPHRASE: PASS,
       });
       assert.equal(r.code, EXIT.failed, sub);
-      assert.equal(r.json.error, 'not_permitted', sub);
+      assert.equal(r.json.error, 'not-permitted', sub);
     }
     const none = await hitld(['store', sub, file, '--store', store], project, {});
-    assert.equal(none.json.error, 'no_passphrase', sub);
+    assert.equal(none.json.error, 'no-passphrase', sub);
     const arg = await hitld(['store', sub, file, '--passphrase', PASS], project, {});
     assert.equal(arg.code, EXIT.usage, sub);
   }
@@ -359,7 +359,7 @@ test('from the command line: export with the passphrase from a file descriptor, 
   const wrong = await hitld(['store', 'import', file, '--store', b], project, {
     HITLD_STORE_PASSPHRASE: 'wrong',
   });
-  assert.equal(wrong.json.error, 'cannot_open');
+  assert.equal(wrong.json.error, 'cannot-open');
   const ok = await hitld(['store', 'import', file, '--store', b], project, {
     HITLD_STORE_PASSPHRASE: PASS,
   });

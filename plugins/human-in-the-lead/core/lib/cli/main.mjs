@@ -100,7 +100,7 @@ export async function main(argv, io) {
   if (!command.run) {
     json(io, {
       ok: false,
-      error: 'not_built',
+      error: 'not-built',
       command: command.name,
       built_by: command.built_by,
       message: `hitld ${command.name} is not yet built: ${BUILT_BY[command.built_by]}, builds it. See docs/design/0001-human-in-the-lead/21-scope.md.`,

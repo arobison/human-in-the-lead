@@ -161,7 +161,7 @@ export const commands = [
       if (why) {
         return {
           ok: false,
-          error: 'refused',
+          error: 'not-permitted',
           message: `an executor does not mark jobs done: ${why}`,
         };
       }

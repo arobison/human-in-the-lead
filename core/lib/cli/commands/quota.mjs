@@ -147,7 +147,7 @@ export const commands = [
           : join(g.store.root, 'reports');
       const roots = [g.store.root, findRepoRoot(ctx.cwd) ?? ctx.cwd];
       const problem = outputProblem(dir, roots, KIND);
-      if (problem) return { ok: false, error: 'output_path', message: problem };
+      if (problem) return { ok: false, error: 'output-path', message: problem };
       const real = writeReportFiles(dir, KIND.marker, {
         'report.html': html,
         'digest.txt': digest,

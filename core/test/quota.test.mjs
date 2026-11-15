@@ -541,13 +541,13 @@ test('hitld dashboard --out stays inside the repository or the private store, an
   const outside = join(tmp, `outside-${Math.random().toString(36).slice(2)}`);
   const refused = await hitld(args(outside), p);
   assert.equal(refused.code, 1);
-  assert.equal(refused.json.error, 'output_path');
+  assert.equal(refused.json.error, 'output-path');
   assert.equal(existsSync(outside), false);
-  assert.equal((await hitld(args('../escape'), p)).json.error, 'output_path');
+  assert.equal((await hitld(args('../escape'), p)).json.error, 'output-path');
   // A symlink out of the repository does not smuggle the write out.
   mkdirSync(outside, { recursive: true });
   symlinkSync(outside, join(p.repo, 'link'));
-  assert.equal((await hitld(args('link/sub'), p)).json.error, 'output_path');
+  assert.equal((await hitld(args('link/sub'), p)).json.error, 'output-path');
   assert.equal(existsSync(join(outside, 'sub')), false);
   // Inside the repository is fine, repeatedly (the report made its own files).
   assert.equal((await hitld(args('out'), p)).code, 0);
@@ -556,13 +556,13 @@ test('hitld dashboard --out stays inside the repository or the private store, an
   mkdirSync(join(p.repo, 'docs'));
   writeFileSync(join(p.repo, 'docs', 'report.html'), 'mine');
   const clash = await hitld(args('docs'), p);
-  assert.equal(clash.json.error, 'output_path');
+  assert.equal(clash.json.error, 'output-path');
   assert.equal(readFileSync(join(p.repo, 'docs', 'report.html'), 'utf8'), 'mine');
   // Nor one reached through a symlink.
   mkdirSync(join(p.repo, 'tricky'));
   writeFileSync(join(outside, 'target'), 'keep');
   symlinkSync(join(outside, 'target'), join(p.repo, 'tricky', 'report.html'));
-  assert.equal((await hitld(args('tricky'), p)).json.error, 'output_path');
+  assert.equal((await hitld(args('tricky'), p)).json.error, 'output-path');
   assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
   // The private store is allowed.
   assert.equal((await hitld(args(join(p.store.root, 'mine')), p)).code, 0);

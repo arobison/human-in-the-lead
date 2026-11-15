@@ -627,7 +627,7 @@ test('kill and resume: a dispatch recorded but never started is abandoned; a liv
     'the adopted one is not dispatched twice',
   );
   const stale = await c.hitld(['dispatch', 'start', 'W-1']);
-  assert.equal(stale.result.error, 'lease_lost', 'the old session lost the lease');
+  assert.equal(stale.result.error, 'lease-lost', 'the old session lost the lease');
 });
 
 test('tier 3 runs headless in a worktree from hitld env; its JSON result completes it', async () => {

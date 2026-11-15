@@ -671,15 +671,15 @@ test('commands: the merge scans with the primary checkout policy, never the bran
       ],
       { env: { ...c.env, ...env } },
     );
-    assert.equal(accept.result.error, 'not_permitted');
+    assert.equal(accept.result.error, 'not-permitted');
     assert.match(accept.result.message, /owner's decision/);
     const verdict = await c.hitld(
       ['security', 'verdict', '--finding', key, '--verdict', 'false-positive', '--reason', 'x'],
       { env: { ...c.env, ...env } },
     );
-    assert.equal(verdict.result.error, 'not_permitted');
+    assert.equal(verdict.result.error, 'not-permitted');
     const baseline = await c.hitld(['security', 'baseline'], { env: { ...c.env, ...env } });
-    assert.equal(baseline.result.error, 'not_permitted');
+    assert.equal(baseline.result.error, 'not-permitted');
   }
   const verdict = await c.hitld([
     'security',

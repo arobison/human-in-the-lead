@@ -62,7 +62,7 @@
     {
       "id": "auto-start-refused",
       "grader": "equals",
-      "with": { "path": "steps.auto.result.error", "value": "not_planned" }
+      "with": { "path": "steps.auto.result.error", "value": "not-planned" }
     },
     {
       "id": "hand-start-runs",
@@ -72,7 +72,7 @@
     {
       "id": "second-by-hand-waits",
       "grader": "equals",
-      "with": { "path": "steps.second.result.error", "value": "not_planned" }
+      "with": { "path": "steps.second.result.error", "value": "not-planned" }
     },
     {
       "id": "second-says-cap",
