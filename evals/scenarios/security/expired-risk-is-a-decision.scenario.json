@@ -69,7 +69,9 @@
           "id": "W-9",
           "kind": "decision",
           "state": "Done",
-          "answer": "B"
+          "answer": "B",
+          "answered_at": "2030-01-01T00:00:00Z",
+          "answered_by": "owner"
         },
         "now": "2030-01-01T00:00:00Z"
       }

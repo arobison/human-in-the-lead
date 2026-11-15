@@ -175,7 +175,7 @@ An item of kind `decision`. It sits in the same tracker, uses the same lifecycle
 | `blocks` | Derived: items that `need` it |
 | `cost_of_delay_rate` | Derived from what it blocks |
 | `default_if_unanswered` | Only for two-way doors: the option taken, and logged, if the owner sets a deadline and it passes |
-| `answer`, `rationale`, `answered_at`, `answered_via` | Filled on answering. Answers come only from the owner's own turns in the main session, so `answered_via` records that channel ([Q21](22-open-questions.md)) |
+| `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by` | Filled on answering. Answers come only from the owner's own turns in the main session, so `answered_via` records that channel and `answered_by` is `owner` ([Q21](22-open-questions.md)). A decision a precedent resolved has `answered_via: precedent` and no `answered_by` |
 | `precedent_offer` | The generalization offered with the question, for the decider to confirm or decline ([Q3](22-open-questions.md)) |
 | `precedent` | The precedent created from it, if any |
 | `resolved_by_precedent` | If it was resolved automatically, which precedent |
@@ -491,7 +491,7 @@ The model's entity fields and the stored keys differ in name. The files backend 
 
 | Kinds | Keys |
 |---|---|
-| work, decision, external | `id`, `title`, `kind`, `status`, `created`, `project`, `needs`, `claimed`, `reason`; decisions add `decided-by`, external items add `party`. An item's `needs` may name items and milestones |
+| work, decision, external | `id`, `title`, `kind`, `status`, `created`, `project`, `needs`, `claimed`, `reason`; decisions add `decided-by` and, once answered, `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by`, `precedent` and `resolved_by_precedent`; external items add `party`. An item's `needs` may name items and milestones |
 | project | the common keys plus `initiative`, `lead`, `plan`, `reason` |
 | initiative | the common keys plus `lead`, `reason` |
 | capability, learning (milestones) | the common keys plus `project` or `initiative` (one), `outcome`, `done_when`, `needs`, `serves`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
@@ -508,6 +508,8 @@ The front matter holds strings and lists of strings only, so each structured mil
 | `check_results` | `<pass, fail or verdict> <YYYY-MM-DD> <role>: <evidence>`, oldest first |
 | `deadline` | `<YYYY-MM-DD> <source>` |
 | `interface_delta` (release) | `<breaking, additive or fix> <area>: <what>`, where the area is `schemas`, `cli`, `contract`, `report`, `trailers`, `read-api` or `adapters` |
+
+A decision's question, context, options, recommendation, precedent offer, rule basis and reversibility are text for the decider, so `hitld rights ask` writes them into its body under the reference sections (Question; Options and recommendation; Answer), not into the front matter. The private store keeps the options it was asked with, so an answer such as "A" is read against them. A decision item is filed under a project like any item: the question names it as `parent`. A question classified above the tracker's `default_classification` is refused unless `classification` is in `optional_keys`, so it is never written as public.
 
 A milestone is `Done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone, when a `verdict` is recorded by such a role. The check and the tracker refuse anything else.
 

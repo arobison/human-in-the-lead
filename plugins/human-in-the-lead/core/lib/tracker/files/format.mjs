@@ -42,10 +42,33 @@ const MILESTONE_KEYS = [
   'reason',
 ];
 
+/**
+ * The stored keys of an answered decision (design part 3.2, Decision), under the model's own
+ * names: the answer, its rationale, when, through which channel and by whom, the precedent made
+ * from it, and the precedent that resolved it when no person answered. Filled on answering.
+ */
+export const DECISION_ANSWER_KEYS = [
+  'answer',
+  'rationale',
+  'answered_at',
+  'answered_via',
+  'answered_by',
+  'precedent',
+  'resolved_by_precedent',
+];
+
 /** The allowlist: any key not listed for an item's kind is an error. */
 export const KEYS = /** @type {Record<string, string[]>} */ ({
   work: [...COMMON_KEYS, 'project', 'needs', 'claimed', 'reason'],
-  decision: [...COMMON_KEYS, 'project', 'needs', 'claimed', 'reason', 'decided-by'],
+  decision: [
+    ...COMMON_KEYS,
+    'project',
+    'needs',
+    'claimed',
+    'reason',
+    'decided-by',
+    ...DECISION_ANSWER_KEYS,
+  ],
   external: [...COMMON_KEYS, 'project', 'needs', 'claimed', 'reason', 'party'],
   project: [...COMMON_KEYS, 'initiative', 'lead', 'plan', 'reason'],
   initiative: [...COMMON_KEYS, 'lead', 'reason'],
@@ -228,6 +251,9 @@ export function toEntity(d, layout) {
   if (milestone) Object.assign(e, milestoneFields(d));
   else if (d.needs !== undefined) e.needs = d.needs;
   if (d['decided-by'] !== undefined) e.decider = d['decided-by'];
+  if (kind === 'decision') {
+    for (const k of DECISION_ANSWER_KEYS) if (d[k] !== undefined) e[k] = d[k];
+  }
   e.classification = d.classification ?? layout.defaultClassification;
   for (const k of layout.optionalKeys) {
     if (k === 'classification' || d[k] === undefined) continue;

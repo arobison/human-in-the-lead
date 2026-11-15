@@ -9,9 +9,9 @@
 // the refusal here is the second line.
 
 import { execFileSync } from 'node:child_process';
-import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
+import { loadPolicy } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
-import { primaryCheckoutOf } from '../../env/primary.mjs';
+import { ownerCheckoutOf } from '../../env/primary.mjs';
 import { runScanner } from '../../security/scan.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import {
@@ -50,12 +50,7 @@ const fail = (error, message, more = {}) => ({ ok: false, error, message, ...mor
  * @param {Ctx} ctx
  */
 function project(ctx) {
-  let repoRoot = findRepoRoot(ctx.cwd);
-  try {
-    repoRoot = primaryCheckoutOf(ctx.cwd);
-  } catch {
-    // not a repository with a primary checkout: refused below if findRepoRoot found none
-  }
+  const repoRoot = ownerCheckoutOf(ctx.cwd);
   if (!repoRoot)
     return { failure: fail('not_a_repository', `${ctx.cwd} is not in a git repository`) };
   const loaded = loadPolicy({ cwd: repoRoot });

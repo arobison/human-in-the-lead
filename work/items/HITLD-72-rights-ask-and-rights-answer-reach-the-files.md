@@ -2,9 +2,10 @@
 id: HITLD-72
 title: rights ask and rights answer reach the files tracker from the command line
 kind: work
-status: Planned
+status: Done
 created: 2026-11-14
 project: HITLD-15
+claimed: D-72
 ---
 
 ## Why

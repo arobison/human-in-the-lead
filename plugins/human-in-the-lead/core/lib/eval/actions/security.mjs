@@ -268,7 +268,7 @@ export const actions = {
 
   'security.accept': {
     description:
-      "Record the owner's acceptance of the pending finding at a path as a risk until an expiry, as of now, citing a decision item. The tracker is a stand-in holding only that decision, as given (id, kind, state, answer). A refusal is data. Returns { accepted, key, expires, decision } or { accepted: false, refusal }.",
+      "Record the owner's acceptance of the pending finding at a path as a risk until an expiry, as of now, citing a decision item. The tracker is a stand-in holding only that decision, as given (id, kind, state, and the answer keys: answer, answered_at, answered_by, resolved_by_precedent). A refusal is data. Returns { accepted, key, expires, decision } or { accepted: false, refusal }.",
     input: {
       type: 'object',
       properties: {
@@ -282,6 +282,9 @@ export const actions = {
             kind: { type: 'string' },
             state: { type: 'string' },
             answer: { type: 'string' },
+            answered_at: { type: 'string' },
+            answered_by: { type: 'string' },
+            resolved_by_precedent: { type: 'string' },
           },
           required: ['id', 'kind', 'state'],
           additionalProperties: false,

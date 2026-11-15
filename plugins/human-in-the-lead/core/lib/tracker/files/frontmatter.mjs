@@ -149,16 +149,24 @@ function listMember(m) {
   return needsQuotes(s) || s.includes(',') || s.includes(']') ? quote(s) : s;
 }
 
-/** @param {string} v */
+/**
+ * A quoted value. A line break or other control character is written as a JSON escape in double
+ * quotes, so a value of several lines (an answer, say) stays on one front-matter line.
+ * @param {string} v
+ */
 function quote(v) {
+  if (CONTROL.test(v)) return JSON.stringify(v);
   const doubles = (v.match(/"/g) ?? []).length;
   const singles = (v.match(/'/g) ?? []).length;
   return doubles > singles ? `'${v.replace(/'/g, "''")}'` : JSON.stringify(v);
 }
 
+/** Control characters, which a plain or single-quoted value cannot hold on one line. */
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
 /** @param {string} v */
 function needsQuotes(v) {
-  return /^[\s|>&*!{["'#]|: |\s#|\s$/.test(v);
+  return /^[\s|>&*!{["'#]|: |\s#|\s$/.test(v) || CONTROL.test(v);
 }
 
 /**
