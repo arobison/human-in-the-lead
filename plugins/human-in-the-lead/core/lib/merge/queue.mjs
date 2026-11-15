@@ -6,15 +6,22 @@
 //                own (the main checkout is the orchestrator's); a conflict confined to generated
 //                files takes the batch's version, any other conflict goes back to the executor
 //   3. fast      the classification guard on each of the branch's commits (design part 10.3),
-//                then the fast checks on the rebased branch, then the declared security scans
-//                (security.mjs); a failure goes back to the executor
+//                a branch that changes the quarantine file is refused (design 14.7), then the
+//                fast checks on the rebased branch, the burn-in of the tests it adds or changes
+//                (design 14.7), then the declared security scans (security.mjs); a failure goes
+//                back to the executor
 //   4. batch     after batch_max branches: regenerate generated files and the tracker views, commit
 //                them, then the full suite once
-//   5. failure   rerun on the same commit; a pass is a flake candidate: recorded, nothing blamed,
-//                and the batch is held for the owner (this milestone has no base comparison, design 14.7);
-//                otherwise run the suite on main (a failure there is an incident); otherwise
-//                bisect the batch's stack of commits to the first failing branch, send it back,
-//                and rebuild the batch without it
+//   5. failure   rerun on the same commit. A pass is a flake candidate, and the base comparison
+//                decides (design 14.7): the suite runs on the batch's base, then on the candidate,
+//                `flake.compare_runs` times each. It fails on the base: a pre-existing flake, the
+//                batch is not blamed and goes on. It fails only on the candidate: the change
+//                brought an intermittent failure, so the batch is bisected as below. It fails on
+//                neither: inconclusive, nobody is blamed, and it is counted. A failure that fails
+//                again on the rerun runs the suite on main (a failure there is an incident), then
+//                bisects the batch's stack of commits to the first failing branch, sends it back,
+//                and rebuilds the batch without it. A test in the quarantine file does not fail
+//                the suite by itself (quarantine.mjs)
 //   6. advance   fast-forward main to the tested commit; or, with `hold` (owner merge mode), keep
 //                the tested commit under HELD_REF, build the next batch on it, and leave main
 //                where it is: the owner approves what passed, and advanceTo moves main later
@@ -27,6 +34,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { matchesAny } from '../precedent/glob.mjs';
 import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
+import {
+  QUARANTINE_PATH,
+  activeEntries,
+  environmentLabels,
+  quarantineAt,
+  readTestReport,
+} from './quarantine.mjs';
 
 /**
  * @typedef {object} Entry a verified branch waiting to merge
@@ -43,16 +57,34 @@ import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs'
  * @property {string[]} fullSuite
  * @property {{ globs: string[], regenerate?: string }[]} generated
  * @property {number} flakeReruns
+ * @property {FlakeSettings} [flake] policy flake; the defaults when not given
  * @property {string[]} [setup] commands run once in the queue's fresh worktree (env.worktree_setup)
  * @property {import('../guard/classification.mjs').Rules} [classification] the commit guard's
  *   rules, from main's policy and tracker.json; the strictest (ceiling public) when not given
  *
+ * @typedef {object} FlakeSettings
+ * @property {number} [compareRuns] runs of the full suite on each side of the base comparison
+ * @property {number} [compareRunsMax] the ceiling on compareRuns
+ * @property {number} [burnInRuns]
+ * @property {string} [burnInCommand] with none, new tests are not burned in
+ * @property {string[]} [testGlobs] which files are tests
+ * @property {string[]} [environments] environment labels beyond the operating system
+ *
  * @typedef {(command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string }} Exec
  *
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'fast_check' | 'security' | 'suite' | 'missing' | 'needs_rejected',
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
  *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string,
- *   findings?: import('./security.mjs').SentBack[] }} Rejected
- * @typedef {{ commit: string, command: string, output: string }} Flake
+ *   message?: string, findings?: import('./security.mjs').SentBack[] }} Rejected
+ * @typedef {{ runs: number, failures: number }} SideRuns
+ * @typedef {{ commit: string, command: string, output: string,
+ *   outcome: 'preexisting' | 'introduced' | 'inconclusive' | 'real', items: string[],
+ *   tests: string[], quarantinable: string[], base: SideRuns, candidate: SideRuns, runs: number }} Failure
+ *   a full suite that failed on a batch. runs: the suite runs spent on it beyond the first (the rerun and the comparison).
+ *   tests: the tests that failed, when the suite's test report names them. quarantinable: those that also
+ *   failed on the base and that no branch in the batch changed
+ * @typedef {Failure} Flake a failure whose rerun passed (outcome is not real)
+ * @typedef {{ commit: string, tests: string[] }} Excused failures of quarantined tests that did not fail the suite
+ * @typedef {{ item: string, runs: number, ok: boolean }} BurnIn
  * @typedef {{ item: string, branch: string, commit: string, parent: string, changed: string[],
  *   dispatch?: string }} Tested a branch that passed every check, rebased onto `parent`
  */
@@ -174,7 +206,7 @@ export function advanceTo(r) {
  * is kept for the owner (`ready`), and the next batch is built on it.
  * @param {{ repoRoot: string, entries: Entry[], settings: Settings, exec?: Exec,
  *   regenerateViews?: (dir: string) => void, security?: import('./security.mjs').SecurityGate,
- *   hold?: boolean }} r
+ *   hold?: boolean, now?: () => Date }} r
  */
 export async function runMergeQueue(r) {
   const exec = r.exec ?? shellExec;
@@ -184,17 +216,22 @@ export async function runMergeQueue(r) {
     merged: [],
     /** @type {Rejected[]} */
     rejected: [],
-    /** @type {Flake[]} */
+    /** Failures whose rerun passed: flake candidates, each with what the comparison found.
+     * @type {Flake[]} */
     flakes: [],
+    /** Every full-suite failure of a batch, flake or not: the denominator of the flake rate.
+     * @type {Failure[]} */
+    failures: [],
+    /** @type {Excused[]} */
+    excused: [],
+    /** @type {BurnIn[]} */
+    burn_ins: [],
     suite_runs: 0,
     bisection_runs: 0,
     batches: 0,
     main: { before: '', after: '' },
-    /** @type {{ kind: 'main_red' | 'regeneration_red' | 'main_moved' | 'classification', message: string, output?: string } | null} */
+    /** @type {{ kind: 'main_red' | 'regeneration_red' | 'main_moved' | 'classification' | 'quarantine', message: string, output?: string } | null} */
     incident: null,
-    /** A batch that failed and then passed on a rerun: not merged, nothing blamed, the owner decides.
-     * @type {{ kind: 'flake_candidate', commit: string, items: string[], message: string } | null} */
-    held: null,
     /** With `hold`: the tested commit holding every branch that passed, for the owner. Main has
      * not moved; advanceTo moves it there once the owner approves.
      * @type {{ base: string, commit: string, branches: Tested[] } | null} */
@@ -212,7 +249,24 @@ export async function runMergeQueue(r) {
   if (r.hold) git(r.repoRoot, ['update-ref', '-d', HELD_REF]);
   if (!r.entries.length) return result;
 
+  const now = r.now ?? (() => new Date());
+  const flake = s.flake ?? {};
+  // Runs on each side of the base comparison, and per probe of a bisection of an intermittent failure.
+  const compareRuns = Math.max(1, Math.min(flake.compareRuns ?? 10, flake.compareRunsMax ?? 30));
+  // The quarantine file as main holds it: no branch may change it (checked below), so it is the
+  // list for every batch of this run. A file that fails its guard stops the queue.
+  const stored = quarantineAt(r.repoRoot, result.main.before);
+  if (!stored.file) {
+    result.incident = {
+      kind: 'quarantine',
+      message: `${QUARANTINE_PATH} on ${main} is refused, so nothing merged: ${stored.problems.join('; ')}`,
+    };
+    return result;
+  }
+  const quarantined = activeEntries(stored.file, now(), environmentLabels(flake));
+
   const dir = mkdtempSync(join(tmpdir(), 'hitld-merge-'));
+  const reportDir = mkdtempSync(join(tmpdir(), 'hitld-report-'));
   gitOk(r.repoRoot, ['worktree', 'add', '--detach', '--force', dir, result.main.before]);
   try {
     for (const cmd of s.setup ?? []) {
@@ -222,14 +276,90 @@ export async function runMergeQueue(r) {
     /** @param {string} sha */
     const checkout = (sha) => gitOk(dir, ['checkout', '--detach', '--force', '--quiet', sha]);
 
-    /** @param {string} sha @returns {{ ok: boolean, command?: string, output?: string }} */
-    const suite = (sha) => {
+    let reports = 0;
+    /** The files the batch under test adds or changes: a quarantined test defined in one of them is the branch's to fix.
+     * @type {Set<string>} */
+    let changedNow = new Set();
+
+    /**
+     * The full suite on a commit. Each command gets HITLD_TEST_REPORT, the path where the
+     * project's test report goes (quarantine.mjs). A command that fails only on quarantined
+     * tests does not fail the suite: they ran and their results are recorded, but they do not gate,
+     * unless the batch changed them: that is the branch's to fix. The base does not have the
+     * batch's changes, so it passes `onBase`.
+     * @param {string} sha @param {boolean} [onBase]
+     * @returns {{ ok: boolean, command?: string, output?: string, failed?: import('./quarantine.mjs').TestResult[] | null }}
+     */
+    const suite = (sha, onBase = false) => {
       checkout(sha);
       for (const cmd of s.fullSuite) {
-        const out = exec(cmd, dir, { HITLD_MERGE_COMMIT: sha });
-        if (!out.ok) return { ok: false, command: cmd, output: out.output };
+        const report = join(reportDir, `report-${++reports}.json`);
+        const out = exec(cmd, dir, { HITLD_MERGE_COMMIT: sha, HITLD_TEST_REPORT: report });
+        if (out.ok) continue;
+        const tests = readTestReport(report);
+        const failed = tests ? tests.filter((t) => t.outcome === 'fail') : null;
+        if (
+          failed?.length &&
+          failed.every(
+            (t) =>
+              quarantined.some((q) => q.id === t.id) &&
+              (onBase || !(t.file && changedNow.has(t.file))),
+          )
+        ) {
+          result.excused.push({ commit: sha, tests: failed.map((t) => t.id) });
+          continue;
+        }
+        return { ok: false, command: cmd, output: out.output, failed };
       }
       return { ok: true };
+    };
+    /** A counted run of the full suite. @param {string} sha @param {boolean} [onBase] */
+    const run = (sha, onBase = false) => {
+      result.suite_runs++;
+      return suite(sha, onBase);
+    };
+
+    /**
+     * The base comparison (design 14.7), for a failure that passed on rerun: the suite on the
+     * batch's base, up to compare_runs times, and if it never fails there, on the candidate. It is
+     * the same failure on the base when the tests that failed share one, or when a report does not
+     * say which.
+     * @param {string} tip @param {string} base
+     * @param {{ failed?: import('./quarantine.mjs').TestResult[] | null }} first the failing run
+     * @param {Failure} f the record, filled in
+     * @returns {{ ok: boolean, command?: string, output?: string } | null} the candidate's failure, when it introduced one
+     */
+    const compare = (tip, base, first, f) => {
+      const runs = compareRuns;
+      const named = new Map((first.failed ?? []).map((t) => [t.id, t]));
+      for (let i = 0; i < runs; i++) {
+        f.runs++;
+        f.base.runs++;
+        const v = run(base, true);
+        if (v.ok) continue;
+        const shared = (v.failed ?? []).filter((t) => named.has(t.id));
+        if (named.size && v.failed?.length && !shared.length) continue;
+        f.base.failures++;
+        f.outcome = 'preexisting';
+        f.quarantinable = shared
+          .filter((t) => {
+            const path = t.file ?? named.get(t.id)?.file;
+            return !(path && changedNow.has(path));
+          })
+          .map((t) => t.id);
+        return null;
+      }
+      for (let i = 0; i < runs; i++) {
+        f.runs++;
+        f.candidate.runs++;
+        const v = run(tip);
+        if (v.ok) continue;
+        f.candidate.failures++;
+        f.outcome = 'introduced';
+        return v;
+      }
+      f.outcome = 'inconclusive';
+      return null;
     };
 
     /**
@@ -333,6 +463,19 @@ export async function runMergeQueue(r) {
           .out.split('\n')
           .filter(Boolean);
         const changed = changedFiles.join(' ');
+        // Only the orchestrator quarantines a test, and only on evidence (design 14.7).
+        if (changedFiles.includes(QUARANTINE_PATH)) {
+          result.rejected.push({
+            item: e.item,
+            branch: e.branch,
+            reason: 'quarantine',
+            files: [QUARANTINE_PATH],
+            message: `Your branch changes ${QUARANTINE_PATH}. Only the orchestrator quarantines a test, and only on evidence; take the change out of every commit on the branch. If a test is flaky, say so in your report, with the rerun that shows it.`,
+            dispatch: e.dispatch,
+          });
+          rejectedNow.add(e.item);
+          continue;
+        }
         /** @type {{ cmd: string, output: string } | null} */
         let failed = null;
         for (const cmd of s.fastChecks) {
@@ -359,6 +502,44 @@ export async function runMergeQueue(r) {
           });
           rejectedNow.add(e.item);
           continue;
+        }
+        // Burn-in: the tests the branch adds or changes run several times, with the order and the
+        // seed varied, before they can gate anyone else (design 14.7).
+        const testFiles = git(dir, ['diff', '--name-only', '--diff-filter=AMR', tip, rb.sha])
+          .out.split('\n')
+          .filter((f) => f && matchesAny(flake.testGlobs ?? [], f));
+        if (flake.burnInCommand && testFiles.length) {
+          const wanted = flake.burnInRuns ?? 5;
+          let done = 0;
+          /** @type {string | null} */
+          let burnt = null;
+          while (done < wanted && burnt === null) {
+            done++;
+            const out = exec(flake.burnInCommand, dir, {
+              HITLD_ITEM: e.item,
+              HITLD_TOUCHES: (e.touches ?? []).join(' '),
+              HITLD_CHANGED_FILES: changed,
+              HITLD_BURN_IN_FILES: testFiles.join('\n'),
+              HITLD_BURN_IN_RUN: String(done),
+              HITLD_BURN_IN_SEED: String(Number.parseInt(rb.sha.slice(0, 8), 16) + done * 7919),
+            });
+            if (!out.ok) burnt = out.output;
+          }
+          result.burn_ins.push({ item: e.item, runs: done, ok: burnt === null });
+          if (burnt !== null) {
+            result.rejected.push({
+              item: e.item,
+              branch: e.branch,
+              reason: 'burn_in',
+              files: testFiles,
+              command: flake.burnInCommand,
+              output: burnt,
+              message: `The tests your branch adds or changes (${testFiles.join(', ')}) failed on run ${done} of ${wanted}, with the order and seed varied. A new test that fails once is the branch's problem before it can gate anyone else: make it deterministic on your branch.`,
+              dispatch: e.dispatch,
+            });
+            rejectedNow.add(e.item);
+            continue;
+          }
         }
         const scan = r.security?.check({ ...e, dir, commit: rb.sha, base, checkout }) ?? {
           ok: true,
@@ -416,49 +597,73 @@ export async function runMergeQueue(r) {
       }
 
       result.batches++;
-      result.suite_runs++;
-      let verdict = suite(tip);
-      let candidate = false;
-      for (let n = 0; !verdict.ok && !candidate && n < s.flakeReruns; n++) {
-        result.suite_runs++;
-        const again = suite(tip);
-        if (again.ok) {
-          result.flakes.push({
-            commit: tip,
-            command: String(verdict.command),
-            output: String(verdict.output),
-          });
-          candidate = true;
-        }
-      }
-      if (candidate) {
-        // A rerun pass does not show the batch is good: until the base comparison exists (design
-        // 14.7), hold it. Nothing is rejected and main does not move.
-        result.held = {
-          kind: 'flake_candidate',
+      changedNow = new Set(batch.flatMap((b) => b.changed));
+      const first = run(tip);
+      /** @type {{ ok: boolean, command?: string, output?: string }} */
+      let verdict = first;
+      /** @type {Failure | null} */
+      let failure = null;
+      // Runs of each probe in the bisection: several for an intermittent failure.
+      let probeRuns = 1;
+      if (!first.ok) {
+        failure = {
           commit: tip,
+          command: String(first.command),
+          output: String(first.output),
+          outcome: 'real',
           items: batch.map((b) => b.item),
-          message: `the full suite failed and then passed on the same commit (${tip.slice(0, 12)}): a flake candidate, so the batch is held for the owner`,
+          tests: (first.failed ?? []).map((t) => t.id),
+          quarantinable: [],
+          base: { runs: 0, failures: 0 },
+          candidate: { runs: 0, failures: 0 },
+          runs: 0,
         };
-        break;
+        result.failures.push(failure);
+        // Rerun on the same commit: a pass makes it a flake candidate, which the comparison on
+        // the batch's base then settles.
+        let passed = false;
+        for (let n = 0; n < s.flakeReruns && !passed; n++) {
+          failure.runs++;
+          passed = run(tip).ok;
+        }
+        if (passed) {
+          const introduced = compare(tip, base, first, failure);
+          result.flakes.push(failure);
+          if (introduced) {
+            verdict = introduced;
+            probeRuns = compareRuns;
+          } else {
+            // Pre-existing or inconclusive: the commit passed the suite on the rerun, and the
+            // evidence does not put the failure on the batch.
+            verdict = { ok: true };
+          }
+        }
       }
       if (!verdict.ok) {
-        result.suite_runs++;
-        const onMain = suite(base);
-        if (!onMain.ok) {
-          result.incident = {
-            kind: 'main_red',
-            message: `the full suite fails on ${main} itself (${base.slice(0, 12)}): main was not green`,
-            output: onMain.output,
-          };
-          break;
+        // An intermittent failure the comparison pinned on the candidate has shown the base clean.
+        if (failure?.outcome !== 'introduced') {
+          const onMain = run(base, true);
+          if (!onMain.ok) {
+            result.incident = {
+              kind: 'main_red',
+              message: `the full suite fails on ${main} itself (${base.slice(0, 12)}): main was not green`,
+              output: onMain.output,
+            };
+            break;
+          }
         }
+        /** Whether a commit passes the suite: every one of `probeRuns` runs. @param {string} sha */
+        const passes = (sha) => {
+          for (let n = 0; n < probeRuns; n++) {
+            result.bisection_runs++;
+            if (!run(sha).ok) return false;
+          }
+          return true;
+        };
         // Bisect the stack: the first branch whose commit fails the suite.
         let lo = 0;
         let hi = batch.length - 1;
-        result.bisection_runs++;
-        result.suite_runs++;
-        if (suite(batch[hi].commit).ok) {
+        if (passes(batch[hi].commit)) {
           result.incident = {
             kind: 'regeneration_red',
             message:
@@ -469,9 +674,7 @@ export async function runMergeQueue(r) {
         }
         while (lo < hi) {
           const mid = Math.floor((lo + hi) / 2);
-          result.bisection_runs++;
-          result.suite_runs++;
-          if (suite(batch[mid].commit).ok) lo = mid + 1;
+          if (passes(batch[mid].commit)) lo = mid + 1;
           else hi = mid;
         }
         const culprit = batch[lo];
@@ -481,6 +684,11 @@ export async function runMergeQueue(r) {
           reason: 'suite',
           command: verdict.command,
           output: verdict.output,
+          ...(failure?.outcome === 'introduced'
+            ? {
+                message: `The full suite ("${verdict.command}") fails intermittently with your branch in the batch: it failed and then passed on the same commit, and it failed again on run ${failure.candidate.runs} of ${probeRuns}, while the base (${base.slice(0, 12)}) did not fail in ${failure.base.runs} runs. An intermittent failure is a bug too: look for a race or shared state your change added, reproduce it, and fix it on your branch.`,
+              }
+            : {}),
           dispatch: culprit.dispatch,
         });
         // Rebuild without it; the others are rebased again.
@@ -537,6 +745,7 @@ export async function runMergeQueue(r) {
   } finally {
     git(r.repoRoot, ['worktree', 'remove', '--force', dir]);
     rmSync(dir, { recursive: true, force: true });
+    rmSync(reportDir, { recursive: true, force: true });
     git(r.repoRoot, ['worktree', 'prune']);
   }
   return result;
