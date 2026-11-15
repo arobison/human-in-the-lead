@@ -243,4 +243,168 @@ export const commands = [
       return syncStore({ ...p, ...keys, recipients: recipients(input), file: String(input.file) });
     }),
   },
+  ...remoteCommands(),
 ];
+
+/**
+ * Moving the store through its remote (design 0003, sections 7, 8 and 11). Owner only. Keys come
+ * only through `resolveDevices`. The private key is read from the environment or a file
+ * descriptor, never an argument, and no result or message carries it.
+ */
+function remoteCommands() {
+  /** @type {import('../args.mjs').ArgSpec} */
+  const URL_ARG = {
+    name: 'url',
+    type: 'string',
+    positional: true,
+    required: true,
+    description:
+      'The store repository: https://host/owner/repo.git, ssh://git@host/owner/repo.git, user@host:path or an absolute path. No password in it: sign in through git',
+  };
+  /** @type {import('../args.mjs').ArgSpec} */
+  const TO = {
+    ...RECIPIENT,
+    description:
+      "An age public key (age1...) to encrypt the pushed store to; once per recipient, this device's own included. Where a device list supplies the recipients, these are what it adds to",
+  };
+
+  /**
+   * What the resolver needs from this process: the project's root, the store, the environment
+   * (with the key from --identity-fd put where the resolver reads it) and the recipients given.
+   * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+   * @param {{ root: string }} p
+   */
+  async function devices(input, ctx, p) {
+    const env = { ...ctx.env };
+    if (typeof input['identity-fd'] === 'number') {
+      env[IDENTITY_ENV] = secret(input, ctx, {
+        option: 'identity-fd',
+        env: IDENTITY_ENV,
+        what: 'age private key',
+        code: 'no-identity',
+      });
+    }
+    const { resolveDevices } = await import('../../store/devices-port.mjs');
+    return resolveDevices({
+      root: findRepoRoot(ctx.cwd) ?? ctx.cwd,
+      store: p.root,
+      env,
+      recipients: recipients(input),
+    });
+  }
+
+  /**
+   * Like `ownerOnly`, with kebab-case codes and the remote's own errors.
+   * @param {string} name
+   * @param {(input: Record<string, unknown>, ctx: import('../table.mjs').CommandContext) => Promise<import('../table.mjs').CommandResult> | import('../table.mjs').CommandResult} fn
+   * @returns {NonNullable<import('../table.mjs').Command['run']>}
+   */
+  const remoteOnly = (name, fn) => async (input, ctx) => {
+    const why = executorSignal(ctx.env, ctx.cwd);
+    if (why) {
+      return {
+        ok: false,
+        error: 'not-permitted',
+        message: `hitld ${name} is the owner's, run from the main session in the primary checkout (${why}); executors never move the private store`,
+      };
+    }
+    try {
+      return await fn(input, ctx);
+    } catch (e) {
+      const code = /** @type {{ code?: unknown }} */ (e).code;
+      const known =
+        e instanceof Refusal ||
+        (e instanceof Error &&
+          [
+            'StoreGitError',
+            'SealedError',
+            'AgeError',
+            'StoreRemoteError',
+            'PushPullError',
+          ].includes(e.name));
+      if (known && typeof code === 'string') {
+        return { ok: false, error: code, message: /** @type {Error} */ (e).message };
+      }
+      throw e;
+    }
+  };
+
+  /** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
+  async function setUp(input, ctx) {
+    const p = project(input, ctx);
+    const pp = await import('../../store/push-pull.mjs');
+    return { ...p, pp, devices: await devices(input, ctx, p) };
+  }
+
+  /** @type {import('../table.mjs').Command[]} */
+  return [
+    {
+      name: 'store push',
+      summary:
+        "Push the private store's text history to its remote, encrypted to the enrolled devices: a compare and swap on the remote's head; when the remote has moved, pull, merge and try again (owner only)",
+      built_by: 'consumer-live',
+      mcp: false,
+      args: [TO, IDENTITY_FD, STORE],
+      run: remoteOnly('store push', async (input, ctx) => {
+        const { projectId, root, pp, devices: d } = await setUp(input, ctx);
+        return pp.pushStore({
+          root,
+          projectId,
+          remote: pp.openRemote(root),
+          devices: d,
+          now: ctx.now,
+        });
+      }),
+    },
+    {
+      name: 'store pull',
+      summary:
+        "Fetch the remote's head, open it with this device's key and merge it into the private store as store import does; a conflict stops it with nothing merged (owner only)",
+      built_by: 'consumer-live',
+      mcp: false,
+      args: [IDENTITY_FD, STORE],
+      run: remoteOnly('store pull', async (input, ctx) => {
+        const { projectId, root, pp, devices: d } = await setUp(input, ctx);
+        return pp.pullStore({ root, projectId, remote: pp.openRemote(root), devices: d });
+      }),
+    },
+    {
+      name: 'store status',
+      summary:
+        "Report the remote, the local and remote versions, whether a push or a pull is due, and this device's enrolment; changes nothing in the store (owner only)",
+      built_by: 'consumer-live',
+      mcp: false,
+      args: [TO, STORE],
+      run: remoteOnly('store status', async (input, ctx) => {
+        const { projectId, root, pp, devices: d } = await setUp(input, ctx);
+        const remote = pp.readRemoteConfig(root) ? pp.openRemote(root) : null;
+        return pp.storeStatus({ root, projectId, remote, devices: d });
+      }),
+    },
+    {
+      name: 'store remote set',
+      summary:
+        "Record the remote's address for this project's private store on this machine; it is never committed to the project (owner only)",
+      built_by: 'consumer-live',
+      mcp: false,
+      args: [URL_ARG, STORE],
+      run: remoteOnly('store remote set', async (input, ctx) => {
+        const p = project(input, ctx);
+        const { setRemote } = await import('../../store/push-pull.mjs');
+        return { ok: true, project: p.projectId, ...setRemote(p.root, String(input.url)) };
+      }),
+    },
+    {
+      name: 'store remote show',
+      summary: "Show the remote's address recorded for this project's private store (owner only)",
+      built_by: 'consumer-live',
+      mcp: false,
+      args: [STORE],
+      run: remoteOnly('store remote show', async (input, ctx) => {
+        const p = project(input, ctx);
+        const { readRemoteConfig } = await import('../../store/push-pull.mjs');
+        return { ok: true, project: p.projectId, remote: readRemoteConfig(p.root) };
+      }),
+    },
+  ];
+}
