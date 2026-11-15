@@ -5,6 +5,7 @@ kind: work
 state: planned
 created: 2026-11-15
 project: HITLD-15
+release: 0.1.0-rc.1
 needs: [HITLD-100, HITLD-121, HITLD-123, HITLD-129]
 ---
 

@@ -11,6 +11,8 @@
 //   - the commit is on main, has one parent, and its subject ends with the pull request number
 //     GitHub's squash merge adds, "(#N)"; given the pull requests GitHub links the commit to, N
 //     must be one of them.
+//   - when a work item's `release` is that version, everything it needs is done or dropped, read
+//     at the parent (the rule `release make` applies).
 // It reads git and the files only; it tags nothing. The workflow tags on its result.
 
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -21,7 +23,7 @@ import { formatErrors } from '../schema/validate.mjs';
 import { releasesDir } from '../tracker/files/releases.mjs';
 import { openTracker } from '../tracker/files/tracker.mjs';
 import { git } from '../tracker/files/tree.mjs';
-import { tagMessage } from './make.mjs';
+import { describeGates, tagMessage } from './make.mjs';
 import { proposeRelease } from './propose.mjs';
 import { isPrerelease, parseVersion } from './semver.mjs';
 
@@ -204,6 +206,11 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
     if (p.version !== version) {
       problems.push(
         `${tag} is not the next release: at the parent, release propose${label ? ` --pre ${label}` : ''} gives ${p.version} (${p.reason})`,
+      );
+    }
+    if (p.release_item && p.gates.length) {
+      problems.push(
+        `the release item ${p.release_item} for ${version} still waits for its gates: ${describeGates(p.gates)}`,
       );
     }
     if ((d.previous ?? null) !== p.base) {

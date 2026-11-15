@@ -69,6 +69,11 @@
       "description": "One line for the release notes, if the item changes public surface.",
       "$ref": "common#/$defs/text"
     },
+    "release": {
+      "description": "On a release item: the version it makes, such as 0.1.0-rc.1 (design part 3.2, Release). One release item per version. Milestones are never named by version.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
     "credit": {
       "type": "array",
       "items": {

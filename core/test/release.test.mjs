@@ -51,9 +51,10 @@ const schema = (properties, required = ['id']) =>
  * A fixture repository with settings, a schema and its own copy of the surface reader, so a tag
  * of it can be read back.
  */
-function releaseRepo() {
+function releaseRepo(/** @type {Record<string, string>} */ extra = {}) {
   const root = makeRepo({
     files: {
+      ...extra,
       '.human-in-the-lead/policy.json': JSON.stringify({
         schema_version: 1,
         project: { id: 'fixture', key: 'W' },
@@ -422,7 +423,14 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
   const t = open(root);
   const p = await proposeRelease(t, {});
   assert.deepEqual(p.gates, [
-    { item: 'W-8', milestone: 'W-7', title: 'Ready', state: 'planned', check_due: true },
+    {
+      item: 'W-8',
+      id: 'W-7',
+      kind: 'milestone',
+      title: 'Ready',
+      state: 'planned',
+      check_due: true,
+    },
   ]);
   assert.deepEqual(p.notes, ['Config errors name the key. (W-9)']);
   assert.deepEqual(p.missing_release_note, [{ item: 'W-3', files: ['schemas/thing.schema.json'] }]);
@@ -431,6 +439,159 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
   assert.match(
     refused.json.message,
     /the release waits for its gates: W-7 Ready \(planned, check due\)/,
+  );
+});
+
+// --- Release items carry their version, and a release waits for what they need (HITLD-129) -----
+
+/** A work item file in the fixture tracker. @param {string} id @param {Record<string, unknown>} more */
+const itemFile = (id, more = {}) => ({
+  [`work/items/${id}-thing.md`]: itemText({
+    id,
+    title: `Thing ${id}`,
+    kind: 'work',
+    state: 'planned',
+    project: 'W-2',
+    ...more,
+  }),
+});
+
+/** The ids of a proposal's gates. @param {{ json: { gates: { id: string }[] } }} p */
+const gateIds = (p) => p.json.gates.map((g) => g.id);
+
+const WAITING = /the release waits for its gates: /;
+
+test('an open item the release item needs is a gate; make refuses while it is open', async () => {
+  const root = releaseRepo(itemFile('W-8', { release: '0.1.0', needs: ['W-3', 'W-4'] }));
+  const p = await hitld(['release', 'propose'], root);
+  assert.equal(p.json.release_item, 'W-8', 'found by its version, with no --item');
+  assert.deepEqual(p.json.gates, [
+    {
+      item: 'W-8',
+      id: 'W-4',
+      kind: 'item',
+      title: 'Second step',
+      state: 'planned',
+      check_due: false,
+    },
+  ]);
+  const refused = await hitld(['release', 'make'], root);
+  assert.equal(refused.code, 1);
+  assert.match(refused.json.message, WAITING);
+  assert.match(refused.json.message, /W-4 Second step \(planned\)/);
+  assert.equal(git(root, 'tag', '--list').trim(), '');
+  const viaItem = await hitld(['release', 'make', '--item', 'W-8'], root);
+  assert.match(viaItem.json.message, WAITING);
+});
+
+test('a dropped item is not a gate', async () => {
+  const root = releaseRepo({
+    ...itemFile('W-8', { release: '0.1.0', needs: ['W-3', 'W-9'] }),
+    ...itemFile('W-9', { state: 'dropped', reason: 'not needed' }),
+  });
+  const p = await hitld(['release', 'propose'], root);
+  assert.equal(p.json.release_item, 'W-8');
+  assert.deepEqual(p.json.gates, []);
+  const made = await hitld(['release', 'make', '--branch', 'release'], root);
+  assert.equal(made.code, 0, JSON.stringify(made.json));
+});
+
+test('an open milestone the release item needs is a gate, listed as one', async () => {
+  const root = releaseRepo({
+    ...itemFile('W-8', { release: '0.1.0', needs: ['W-3', 'W-7'] }),
+    'work/milestones/W-7-ready.md': itemText({
+      id: 'W-7',
+      title: 'Ready',
+      kind: 'milestone',
+      state: 'planned',
+      project: 'W-2',
+      constraints: ['W-3 c?'],
+    }),
+  });
+  const p = await hitld(['release', 'propose'], root);
+  assert.deepEqual(p.json.gates, [
+    {
+      item: 'W-8',
+      id: 'W-7',
+      kind: 'milestone',
+      title: 'Ready',
+      state: 'planned',
+      check_due: true,
+    },
+  ]);
+  const refused = await hitld(['release', 'make'], root);
+  assert.match(refused.json.message, /W-7 Ready \(planned, check due\)/);
+});
+
+test('with everything the release item needs done, make goes ahead', async () => {
+  const root = releaseRepo(itemFile('W-8', { release: '0.1.0', needs: ['W-3'] }));
+  const p = await hitld(['release', 'propose'], root);
+  assert.equal(p.json.release_item, 'W-8');
+  assert.deepEqual(p.json.gates, []);
+  const made = await hitld(['release', 'make', '--branch', 'release'], root);
+  assert.equal(made.code, 0, JSON.stringify(made.json));
+  assert.equal(made.json.tag, 'v0.1.0');
+});
+
+test('the release item is found by the version proposed or made; --item overrides it', async () => {
+  const root = releaseRepo({
+    ...itemFile('W-8', { release: '0.1.0-rc.1', needs: ['W-4'] }),
+    ...itemFile('W-9', { release: '0.2.0', needs: ['W-3'] }),
+    ...itemFile('W-10', { needs: ['W-5'] }),
+  });
+  const rc = await hitld(['release', 'propose', '--pre', 'rc'], root);
+  assert.equal(rc.json.version, '0.1.0-rc.1');
+  assert.equal(rc.json.release_item, 'W-8');
+  assert.deepEqual(gateIds(rc), ['W-4']);
+  // A version with no release item and no --item: nothing is a gate, as before.
+  const full = await hitld(['release', 'propose'], root);
+  assert.equal(full.json.release_item, null);
+  assert.deepEqual(full.json.gates, []);
+  // --item names another item, which has no release key, and wins.
+  const named = await hitld(['release', 'propose', '--pre', 'rc', '--item', 'W-10'], root);
+  assert.equal(named.json.release_item, 'W-10');
+  assert.deepEqual(gateIds(named), ['W-5']);
+  // make looks up the version it makes: --version 0.2.0 finds W-9, whose need is done.
+  const made = await hitld(['release', 'make', '--version', '0.2.0', '--branch', 'r2'], root);
+  assert.equal(made.code, 0, JSON.stringify(made.json));
+  // An item whose release is another version is refused, by propose and by make.
+  const wrong = await hitld(['release', 'propose', '--item', 'W-9'], root);
+  assert.equal(wrong.code, 1);
+  assert.match(
+    wrong.json.message,
+    /W-9 is the release item for 0\.2\.0, but this release is 0\.1\.0/,
+  );
+  const wrongMake = await hitld(['release', 'make', '--version', '0.3.0', '--item', 'W-9'], root);
+  assert.match(wrongMake.json.message, /release item for 0\.2\.0, but this release is 0\.3\.0/);
+});
+
+test('work check refuses two release items for one version and a release that is not a version', async () => {
+  const root = releaseRepo({
+    ...itemFile('W-8', { release: '0.1.0' }),
+    ...itemFile('W-9', { release: '0.1.0' }),
+    ...itemFile('W-10', { release: 'v0.2' }),
+    ...itemFile('W-11', { release: '0.3.0' }),
+  });
+  const checked = await hitld(['work', 'check'], root);
+  assert.equal(checked.code, 1);
+  const problems = checked.json.problems.join('\n');
+  assert.match(problems, /release 0\.1\.0: set on W-8 and W-9; one release item per version/);
+  assert.match(problems, /W-10-thing\.md: release "v0\.2" isn't a version/);
+  assert.doesNotMatch(problems, /W-11/);
+});
+
+test('the release workflow check refuses a record while the release item waits for something', async () => {
+  const root = releaseRepo(itemFile('W-8', { release: '0.1.0', needs: ['W-3'] }));
+  assert.equal((await hitld(['release', 'make', '--branch', 'release'], root)).code, 0);
+  // Before the merge, main changes: the release item now needs an open item.
+  put(root, itemFile('W-8', { release: '0.1.0', needs: ['W-3', 'W-4'] }));
+  commitAll(root, 'the release item needs more');
+  squash(root);
+  const r = await checkReleaseCommit({ root, prs: [7] });
+  assert.equal(r.ok, false);
+  assert.match(
+    r.problems.join('\n'),
+    /the release item W-8 for 0\.1\.0 still waits for its gates: W-4 Second step \(planned\)/,
   );
 });
 

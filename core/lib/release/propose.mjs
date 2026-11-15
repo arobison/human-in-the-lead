@@ -2,8 +2,10 @@
 //
 // It reads the interface delta since the last full release and proposes the bump from that delta
 // alone, drafts the notes from the released items' changelog lines, lists the items that changed
-// public surface without a changelog line, and lists unmet gates (milestones a release item needs
-// that are not Done).
+// public surface without a changelog line, and lists unmet gates: every item and milestone the
+// release item needs that is not done or dropped. The release item is the work item whose `release`
+// key is the version being proposed or made (design 3.2); `item` names one instead and overrides
+// it, but its `release` key, when it has one, must be that version.
 //
 // Pre-releases. A version may carry a pre-release part (0.1.0-rc.1, tag v0.1.0-rc.1). A
 // pre-release tag is never the base: the delta, the bump and the items are measured from the last
@@ -30,6 +32,9 @@ import { TAG, compareVersions, isPrerelease, nextPrerelease } from './semver.mjs
  * @typedef {import('../tracker/files/tracker.mjs').FilesTracker} FilesTracker
  * @typedef {import('../tracker/files/releases.mjs').DeltaEntry} DeltaEntry
  *
+ * @typedef {{ item: string, id: string, kind: 'item' | 'milestone', title: string, state: string, check_due: boolean }} Gate
+ *   check_due: a milestone whose check has not passed yet (always false for an item)
+ *
  * @typedef {object} Proposal
  * @property {string | null} last_tag the latest release tag reachable from HEAD, pre-releases included
  * @property {string | null} base the last full release, which the delta is measured from
@@ -46,7 +51,8 @@ import { TAG, compareVersions, isPrerelease, nextPrerelease } from './semver.mjs
  * @property {string[]} items work items closed since the base, not yet in a full release
  * @property {string[]} notes draft release notes from those items' changelog lines
  * @property {{ item: string, files: string[] }[]} missing_release_note items that changed public surface without a changelog line
- * @property {{ item: string, milestone: string, title: string, state: string, check_due: boolean }[]} gates milestones a release item needs that are not Done
+ * @property {string | null} release_item the release item whose gates count: the item `--item` names, else the one whose `release` is this version, else null
+ * @property {Gate[]} gates what the release item needs that is not done or dropped; with no release item, the milestones the open items that need one wait for
  * @property {string[]} milestones milestones Done since the base, for the record
  * @property {number} unreleased merged items no full release lists yet
  * @property {string | null} package_version the version in package.json, when there is one
@@ -167,12 +173,14 @@ function surfaceTouches(root, base) {
 /**
  * Propose a release.
  * @param {FilesTracker} t
- * @param {{ pre?: string, item?: string, surfaceOfBase?: (tag: string) => Surface | null }} [options]
- *   pre: a pre-release label such as rc; item: the release item whose gates count (default: every
- *   open work item that needs a milestone)
+ * @param {{ pre?: string, item?: string, version?: string, surfaceOfBase?: (tag: string) => Surface | null }} [options]
+ *   pre: a pre-release label such as rc; item: the release item whose gates count (default: the
+ *   work item whose `release` is the version, else every open work item without a `release` that
+ *   needs a milestone); version: the version being made, which finds the release item (default:
+ *   the proposed version)
  * @returns {Promise<Proposal>}
  */
-export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
+export async function proposeRelease(t, { pre, item, version: making, surfaceOfBase } = {}) {
   const root = t.root();
   const layout = t.layout();
   const tags = releaseTags(root);
@@ -226,29 +234,46 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     .filter((id) => touches.has(id) && !g.get(id)?.data.release_note)
     .map((id) => ({ item: id, files: [...(touches.get(id) ?? [])].sort() }));
 
-  // Gates: milestones an open release item needs that are not Done.
-  const releaseItems = item
-    ? g.items.filter((it) => it.data.id === item)
+  // The release item: named by --item, else the work item whose `release` is this version.
+  const lookup = making ?? version;
+  const named = item ? g.items.filter((it) => it.data.id === item) : [];
+  const found = g.items.filter((it) => it.data.kind === 'work' && it.data.release === lookup);
+  if (item && !named.length) warnings.push(`${item} is not an item in the tracker`);
+  const own = named[0]?.data.release;
+  if (own !== undefined && own !== lookup) {
+    throw new Error(
+      `${item} is the release item for ${own}, but this release is ${lookup}; name an item whose release is ${lookup}, or none`,
+    );
+  }
+  const chosen = item ? named : found.slice(0, 1);
+  // Gates: what the release item needs that is not done or dropped; without one, the milestones
+  // the open items that need one wait for.
+  const releaseItems = chosen.length
+    ? chosen
     : g.items.filter(
         (it) =>
+          it.data.release === undefined &&
           g.isOpen(it) &&
           g.needs(it).some((n) => g.get(n) && g.isMilestone(/** @type {any} */ (g.get(n)))),
       );
-  if (item && !releaseItems.length) warnings.push(`${item} is not an item in the tracker`);
+  /** @type {Gate[]} */
   const gates = releaseItems.flatMap((it) =>
     g
       .needs(it)
       .map((n) => g.get(n))
-      .filter((m) => m && g.isMilestone(m) && m.data.state !== 'done')
-      .map((m) => {
-        const ms = /** @type {NonNullable<typeof m>} */ (m);
-        const entity = t.get(String(ms.data.id));
+      .filter(
+        (n) => n && (g.isMilestone(n) ? n.data.state !== 'done' : chosen.length > 0 && g.isOpen(n)),
+      )
+      .map((n) => {
+        const need = /** @type {NonNullable<typeof n>} */ (n);
+        const milestone = g.isMilestone(need);
         return {
           item: String(it.data.id),
-          milestone: String(ms.data.id),
-          title: String(ms.data.title),
-          state: String(ms.data.state),
-          check_due: entity.check_due === true,
+          id: String(need.data.id),
+          kind: /** @type {'item' | 'milestone'} */ (milestone ? 'milestone' : 'item'),
+          title: String(need.data.title),
+          state: String(need.data.state),
+          check_due: milestone && t.get(String(need.data.id)).check_due === true,
         };
       }),
   );
@@ -305,6 +330,7 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     items,
     notes,
     missing_release_note: missing,
+    release_item: chosen.length ? String(chosen[0].data.id) : null,
     gates,
     milestones,
     unreleased,

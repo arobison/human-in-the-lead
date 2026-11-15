@@ -39,6 +39,7 @@ import {
 import { readProject } from './projects.mjs';
 import { insidePath } from './safe.mjs';
 import { idNumber, patterns } from './tree.mjs';
+import { SEMVER } from '../../release/semver.mjs';
 
 /**
  * @typedef {import('./config.mjs').Layout} Layout
@@ -179,6 +180,25 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
   }
 
   const g = buildGraph(items);
+  // A release item carries the version it makes; one release item per version.
+  /** @type {Map<string, string[]>} */
+  const releaseItems = new Map();
+  for (const it of g.items) {
+    const v = it.data.release;
+    if (v === undefined || Array.isArray(v)) continue;
+    if (!SEMVER.test(String(v))) {
+      say(it, `release "${v}" isn't a version (such as 0.1.0 or 0.1.0-rc.1)`);
+      continue;
+    }
+    releaseItems.set(String(v), [...(releaseItems.get(String(v)) ?? []), String(it.data.id)]);
+  }
+  for (const [version, ids] of releaseItems) {
+    if (ids.length > 1) {
+      problems.push(
+        `release ${version}: set on ${ids.join(' and ')}; one release item per version`,
+      );
+    }
+  }
   for (const [a, b] of g.duplicates) {
     problems.push(`${a.data.id}: in both ${a.path} and ${b.path}`);
   }
