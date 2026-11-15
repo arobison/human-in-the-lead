@@ -19,7 +19,7 @@ Both are general: nothing assumes one particular owner, and every setting is per
 
 ## 23.2 The judgement record
 
-Every call a person makes is recorded at the moment it is made. That covers gut checks and considered judgements on signals and opportunities ([part 3](03-data-model.md#judgement)), and answers to decisions ([part 3](03-data-model.md#decision), [part 4](04-decision-rights.md)). The **judgement record** is the per-person view over all of them.
+Every call a person makes is recorded at the moment it is made. That covers gut checks and considered judgements on signals and projects being shaped ([part 3](03-data-model.md#judgement)), and answers to decisions ([part 3](03-data-model.md#decision), [part 4](04-decision-rights.md)). The **judgement record** is the per-person view over all of them.
 
 **What is new.** Judgements already record `what`, `basis`, `by`, `at` and a derived `weight`; decisions record their answer, rationale and channel. Both gain four fields. The first three are recorded from "One signal end to end" ([Q22](22-open-questions.md#q22-do-the-new-judgement-record-fields-join-one-signal-end-to-end-affects-its-record-scoring-waits-for-people-in-the-lead)); `outcomes` comes with the "People in the lead" milestone:
 
@@ -27,7 +27,7 @@ Every call a person makes is recorded at the moment it is made. That covers gut 
 |---|---|
 | `confidence` | Optional, one tap: `sure`, `fairly-sure` or `unsure`. Skipping it is always allowed and is not read as `unsure` |
 | `expected` | Optional: what the person expected to happen, in a few words ("halves upload time", "nobody will miss it") |
-| `evidence_at_time` | Derived: the IDs of the signals, studies, runs and precedents the question or opportunity showed when the call was made |
+| `evidence_at_time` | Derived: the IDs of the signals, studies, runs and precedents the question or project showed when the call was made |
 | `outcomes` | Derived, appended later: each matched outcome with its source, a verdict (`held`, `missed`, `mixed`, `not-observable`) and the evidence |
 
 `evidence_at_time` matters because hindsight rewrites memory: a call is judged against what was known when it was made.

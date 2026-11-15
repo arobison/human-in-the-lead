@@ -41,7 +41,22 @@ import { planDispatch } from '../../dispatch/plan.mjs';
 import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
 import { runMergeQueue } from '../../merge/queue.mjs';
-import { chooseNamed, waitingForOwner } from '../../merge/owner.mjs';
+import {
+  PRESENTED_KEY,
+  PROPOSED_KEY,
+  approvalEvents,
+  approvalSummary,
+  approvePresented,
+  changedOnBranch,
+  chooseNamed,
+  presentToOwner,
+  presentationCurrent,
+  queueProposals,
+  readPresentation,
+  waitingForOwner,
+  waitsForOwner,
+} from '../../merge/owner.mjs';
+import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 import { executorSignal } from '../executor.mjs';
 import { recordFlakes, readFlakes } from '../../merge/quarantine.mjs';
 import { securityGate } from '../../merge/security.mjs';
@@ -54,6 +69,8 @@ import { install } from '../../install/install.mjs';
  * @typedef {import('../table.mjs').CommandContext} Ctx
  * @typedef {import('../table.mjs').CommandResult} Result
  * @typedef {import('../../dispatch/item.mjs').Item} Item
+ * @typedef {import('../../merge/owner.mjs').QueueResult} QueueResult
+ * @typedef {import('../../merge/owner.mjs').Presentation} Presentation
  */
 
 /** @type {import('../args.mjs').ArgSpec} */
@@ -299,6 +316,59 @@ const sentBack = (x, main) =>
         : x.reason === 'security'
           ? securitySentBack(x, main)
           : `Your branch fails the full suite in its merge batch ("${x.command}"); bisection named it. Fix it on your branch.`;
+
+/** A rejected entry as `hitld merge` prints it. @param {import('../../merge/queue.mjs').Rejected} x @param {string} main */
+const rejectedJson = (x, main) => ({
+  item: x.item,
+  reason: x.reason,
+  ...(x.files ? { files: x.files } : {}),
+  ...(x.command ? { command: x.command } : {}),
+  ...(x.reason === 'classification' && x.output ? { problems: x.output.split('\n') } : {}),
+  follow_up:
+    x.dispatch &&
+    ['conflict', 'classification', 'fast_check', 'security', 'suite'].includes(x.reason)
+      ? { dispatch: x.dispatch, message: sentBack(x, main) }
+      : null,
+});
+
+/**
+ * What owner mode prints about the batch for the owner.
+ * @param {{ presentation: Presentation | null, waiting: import('../../merge/owner.mjs').OwnerWaiting[], reused: boolean }} o
+ */
+const ownerPresentation = (o) => ({
+  ok: true,
+  mode: 'owner',
+  merged: [],
+  rejected: [],
+  presented: o.presentation?.branches ?? [],
+  question: o.presentation?.question ?? null,
+  tested: o.presentation?.commit ?? null,
+  waiting: o.waiting,
+  reused: o.reused,
+  next: o.presentation
+    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations), and each directed read with its question. Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]. Send each rejected follow_up"
+    : 'nothing passed the checks to present: for each rejected entry with a follow_up, hitld dispatch follow-up; then refill with hitld dispatch plan',
+});
+
+/**
+ * The queue proposals due now (owner mode), remembered so each is made once per run of clean merges.
+ * @param {{ store: import('../../store/store.mjs').PrivateStore, policy: Record<string, any> }} p
+ */
+function proposalsNow(p) {
+  /** @type {Record<string, number>} */
+  let proposed = {};
+  try {
+    proposed = JSON.parse(p.store.read(PROPOSED_KEY) ?? '{}') ?? {};
+  } catch {
+    proposed = {};
+  }
+  const out = queueProposals(approvalSummary(readTrustEvents(p.store)), p.policy, proposed);
+  if (out.length) {
+    for (const x of out) proposed[x.area] = x.approvals;
+    p.store.write(PROPOSED_KEY, JSON.stringify(proposed));
+  }
+  return out;
+}
 
 /** @param {import('../../merge/queue.mjs').Rejected} x @param {string} main */
 function securitySentBack(x, main) {
@@ -807,14 +877,20 @@ export const commands = [
   {
     name: 'merge',
     summary:
-      'Run the merge queue: rebase, fast checks, batch suite, bisection. In owner mode (policy merge.mode), lists the branches waiting for the owner; --only merges exactly those named',
+      'Run the merge queue: rebase, fast checks, batch suite, bisection. In owner mode (policy merge.mode), checks the waiting branches without moving main and presents the green ones to the owner with evidence; --all or --only merges what the owner approved',
     built_by: 'h',
     args: [
       {
         name: 'only',
         type: 'string',
         description:
-          'Branches (or items) to merge, comma-separated. In owner mode nothing else merges, and with none named nothing merges',
+          'Branches (or items) to merge, comma-separated. In owner mode: the ones the owner approved, each of them presented by the last hitld merge; nothing else merges',
+      },
+      {
+        name: 'all',
+        type: 'boolean',
+        description:
+          'Owner mode: the owner approved the whole batch the last hitld merge presented',
       },
       SESSION,
       HOST,
@@ -833,26 +909,26 @@ export const commands = [
             `${owner ? "in owner mode the merge is the owner's" : "the merge queue is the orchestrator's"}, run from the main session in the primary checkout (${why})`,
           );
         }
+        const all = input.all === true;
+        const names =
+          typeof input.only === 'string'
+            ? input.only
+                .split(',')
+                .map((n) => n.trim())
+                .filter(Boolean)
+            : null;
+        if (all && names) throw new Refusal('usage', 'give --all or --only, not both');
+        if (all && !owner) {
+          throw new Refusal(
+            'usage',
+            '--all approves a batch presented in owner mode; in queue mode, hitld merge merges what is waiting',
+          );
+        }
+        const approving = owner && (all || names !== null);
         let waiting = /** @type {{ item: string, branch: string | null }[]} */ (
           run.state.merge_queue.waiting
         );
-        if (owner && typeof input.only !== 'string') {
-          return {
-            ok: true,
-            mode: 'owner',
-            merged: [],
-            rejected: [],
-            waiting: waitingForOwner(waiting, readLedger(p.store).events),
-            next: waiting.length
-              ? 'tell the owner what is ready; merge only what the owner names: hitld merge --only <branch>'
-              : 'nothing is waiting for the owner',
-          };
-        }
-        if (typeof input.only === 'string') {
-          const names = input.only
-            .split(',')
-            .map((n) => n.trim())
-            .filter(Boolean);
+        if (!owner && names) {
           const { chosen, unknown, ambiguous, mismatched } = chooseNamed(
             waiting,
             names,
@@ -883,8 +959,21 @@ export const commands = [
           }
           waiting = chosen;
         }
-        if (!waiting.length) {
-          return { ok: true, merged: [], rejected: [], message: 'nothing is waiting to merge' };
+        const presented = readPresentation(p.store);
+        if (approving && !presented) {
+          throw new Refusal(
+            'not_presented',
+            'nothing has been presented to the owner: run hitld merge first; it checks the waiting branches and presents the ones that pass; nothing was merged',
+          );
+        }
+        if (!approving && !waiting.length) {
+          return {
+            ok: true,
+            ...(owner ? { mode: 'owner', presented: [], waiting: [] } : {}),
+            merged: [],
+            rejected: [],
+            message: 'nothing is waiting to merge',
+          };
         }
         const work = readWorkItems({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
         const byId = new Map(work.items.map((i) => [String(i.id), i]));
@@ -892,64 +981,83 @@ export const commands = [
         /** @param {string} item */
         const lastDispatch = (item) =>
           events.filter((e) => e.item === item && e.event === 'reported').at(-1)?.dispatch;
+        /** @param {{ item: string, branch: string | null }} w @returns {import('../../merge/queue.mjs').Entry} */
+        const entryOf = (w) => ({
+          item: w.item,
+          branch: String(w.branch ?? ''),
+          needs: /** @type {string[]} */ (byId.get(w.item)?.needs ?? []),
+          touches: /** @type {string[]} */ (byId.get(w.item)?.touches ?? []),
+          dispatch: lastDispatch(w.item),
+        });
         const layout = work.tracker.layout();
         const main = p.policy.merge.main_branch;
+        /** @type {import('../../merge/queue.mjs').Settings} */
+        const settings = {
+          mainBranch: main,
+          batchMax: p.policy.merge.batch_max,
+          fastChecks: p.policy.merge.fast_checks,
+          fullSuite: p.policy.merge.full_suite,
+          generated: [
+            { globs: [`${layout.workDir}/${layout.viewsDir}/**`] },
+            ...p.policy.merge.generated,
+          ],
+          flakeReruns: p.policy.merge.flake_reruns,
+          setup: p.policy.env.worktree_setup,
+          // From main's policy and tracker.json, never the branch's own.
+          classification: {
+            ceiling: layout.classificationCeiling,
+            defaultClassification: layout.defaultClassification,
+            privatePaths: layout.privatePaths,
+          },
+        };
+        /** @param {string} dir */
+        const regenerateViews = (dir) => {
+          if (existsSync(join(dir, layout.workDir))) {
+            readWorkItems({
+              repoRoot: dir,
+              policy: p.policy,
+              env: ctx.env,
+            }).tracker.writeViews();
+          }
+        };
         const env = openEnv({
           repoRoot: p.repoRoot,
           store: p.store,
           policy: p.policy,
           env: ctx.env,
         });
+        // An owner-mode listing that changes nothing needs no lock: the stored presentation is
+        // still what checking again would give.
+        if (!approving && owner) {
+          const entries = waiting.map(entryOf);
+          const toOwner = entries.filter((e) =>
+            waitsForOwner(changedOnBranch(p.repoRoot, main, e.branch), p.policy),
+          );
+          if (
+            toOwner.length === entries.length &&
+            presentationCurrent(presented, toOwner, p.repoRoot, main)
+          ) {
+            return ownerPresentation({
+              presentation: presented,
+              waiting: waitingForOwner(waiting, events, Date.now(), presented),
+              reused: true,
+            });
+          }
+        }
         const lock = env.settings.serialResources.includes('merge-queue')
           ? await env.acquireLock({ resource: 'merge-queue', holder: 'merge-queue', wait: false })
           : null;
         if (lock && !lock.acquired) {
           throw new Refusal('merge_busy', `the merge queue is held by ${lock.held_by?.holder}`);
         }
+        const scanners = /** @type {{ name: string }[]} */ (p.policy.merge.scanners);
         const security = securityGate({
           store: p.store,
           scanners: p.policy.merge.scanners,
           primaryRoot: p.repoRoot,
         });
-        try {
-          const result = await runMergeQueue({
-            repoRoot: p.repoRoot,
-            entries: waiting.map((w) => ({
-              item: w.item,
-              branch: String(w.branch ?? ''),
-              needs: /** @type {string[]} */ (byId.get(w.item)?.needs ?? []),
-              touches: /** @type {string[]} */ (byId.get(w.item)?.touches ?? []),
-              dispatch: lastDispatch(w.item),
-            })),
-            settings: {
-              mainBranch: main,
-              batchMax: p.policy.merge.batch_max,
-              fastChecks: p.policy.merge.fast_checks,
-              fullSuite: p.policy.merge.full_suite,
-              generated: [
-                { globs: [`${layout.workDir}/${layout.viewsDir}/**`] },
-                ...p.policy.merge.generated,
-              ],
-              flakeReruns: p.policy.merge.flake_reruns,
-              setup: p.policy.env.worktree_setup,
-              // From main's policy and tracker.json, never the branch's own.
-              classification: {
-                ceiling: layout.classificationCeiling,
-                defaultClassification: layout.defaultClassification,
-                privatePaths: layout.privatePaths,
-              },
-            },
-            regenerateViews: (dir) => {
-              if (existsSync(join(dir, layout.workDir))) {
-                readWorkItems({
-                  repoRoot: dir,
-                  policy: p.policy,
-                  env: ctx.env,
-                }).tracker.writeViews();
-              }
-            },
-            security,
-          });
+        /** @param {QueueResult} result */
+        const record = async (result) => {
           for (const m of result.merged) {
             run.record({
               id: `merged-${m.item}-${result.main.after.slice(0, 12)}`,
@@ -976,34 +1084,163 @@ export const commands = [
             });
           }
           recordFlakes(p.store, result.flakes);
+        };
+        /** @param {(QueueResult | null)[]} results */
+        const outcome = (results) => {
+          const rs = /** @type {QueueResult[]} */ (results.filter(Boolean));
+          const incident = rs.find((r) => r.incident)?.incident ?? null;
+          const held = rs.find((r) => r.held)?.held ?? null;
           return {
-            ok: result.incident === null && result.held === null,
-            main: result.main,
-            merged: result.merged.map((m) => m.item),
-            rejected: result.rejected.map((x) => ({
-              item: x.item,
-              reason: x.reason,
-              ...(x.files ? { files: x.files } : {}),
-              ...(x.command ? { command: x.command } : {}),
-              ...(x.reason === 'classification' && x.output
-                ? { problems: x.output.split('\n') }
-                : {}),
-              follow_up:
-                x.dispatch &&
-                ['conflict', 'classification', 'fast_check', 'security', 'suite'].includes(x.reason)
-                  ? { dispatch: x.dispatch, message: sentBack(x, main) }
-                  : null,
-            })),
-            flakes: result.flakes.map((f) => ({ commit: f.commit, command: f.command })),
+            ok: incident === null && held === null,
+            main: rs.length
+              ? { before: rs[0].main.before, after: rs[rs.length - 1].main.after }
+              : null,
+            merged: rs.flatMap((r) => r.merged.map((m) => m.item)),
+            rejected: rs.flatMap((r) => r.rejected.map((x) => rejectedJson(x, main))),
+            flakes: rs.flatMap((r) =>
+              r.flakes.map((f) => ({ commit: f.commit, command: f.command })),
+            ),
             quarantined: readFlakes(p.store).length,
             security: security.summary(),
-            suite_runs: result.suite_runs,
-            bisection_runs: result.bisection_runs,
-            incident: result.incident,
-            held: result.held,
-            next: result.incident
+            suite_runs: rs.reduce((n, r) => n + r.suite_runs, 0),
+            bisection_runs: rs.reduce((n, r) => n + r.bisection_runs, 0),
+            incident,
+            held,
+          };
+        };
+        try {
+          if (owner && approving) {
+            const approved = await approvePresented({
+              repoRoot: p.repoRoot,
+              presentation: /** @type {Presentation} */ (presented),
+              all,
+              names: names ?? [],
+              entries: /** @type {Presentation} */ (presented).branches.map(entryOf),
+              settings,
+              security,
+              regenerateViews,
+              events,
+            });
+            if (approved.refused) {
+              const r = approved.refused;
+              const shown = /** @type {Presentation} */ (presented).branches.map((b) => ({
+                item: b.item,
+                branch: b.branch,
+              }));
+              if (r.moved.length) {
+                throw new Refusal(
+                  'stale',
+                  `${r.moved.join(', ')} changed since it was presented, so the owner approved other code; nothing was merged; run hitld merge to check it again`,
+                  { presented: shown },
+                );
+              }
+              if (r.ambiguous.length || r.mismatched.length) {
+                throw new Refusal(
+                  'ambiguous',
+                  [
+                    r.ambiguous.length
+                      ? `${r.ambiguous.join(', ')} matches more than one presented branch; name the branch`
+                      : '',
+                    r.mismatched.length
+                      ? `${r.mismatched.join(', ')} is on a branch other than the one its item was dispatched on`
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join('; ') + '; nothing was merged',
+                  { presented: shown },
+                );
+              }
+              throw new Refusal(
+                'not_presented',
+                `${r.unknown.join(', ')} ${r.unknown.length === 1 ? 'was' : 'were'} not presented to the owner (only branches that passed the checks are); nothing was merged`,
+                { presented: shown },
+              );
+            }
+            const result = /** @type {QueueResult} */ (approved.result);
+            await record(result);
+            const at = new Date();
+            for (const ev of approvalEvents(
+              /** @type {Presentation} */ (presented),
+              result.merged,
+              approved.as_presented,
+              at,
+            )) {
+              recordTrustEvent(p.store, ev, at.toISOString());
+            }
+            p.store.write(PRESENTED_KEY, 'null');
+            const proposals = proposalsNow(p);
+            const o = outcome([result]);
+            return {
+              ...o,
+              mode: 'owner',
+              as_presented: approved.as_presented,
+              checked_again: approved.rechecked,
+              approvals: approvalSummary(readTrustEvents(p.store)),
+              proposals,
+              next: o.incident
+                ? 'an incident: tell the owner at once'
+                : o.held
+                  ? 'a batch is held as a flake candidate: nothing merged, nothing blamed; tell the owner, who decides'
+                  : proposals.length
+                    ? 'put each proposal to the owner with hitld rights ask --question <its question>; only the owner changes policy.json. Then send each rejected follow_up and refill with hitld dispatch plan'
+                    : 'for each rejected entry with a follow_up: hitld dispatch follow-up; then refill with hitld dispatch plan',
+            };
+          }
+          if (owner) {
+            const shown = await presentToOwner({
+              repoRoot: p.repoRoot,
+              entries: waiting.map(entryOf),
+              settings,
+              policy: p.policy,
+              security,
+              scanners: scanners.map((s) => s.name),
+              regenerateViews,
+              events,
+            });
+            if (shown.queued) await record(shown.queued);
+            if (shown.checked) await record(shown.checked);
+            p.store.write(PRESENTED_KEY, JSON.stringify(shown.presentation));
+            const left = /** @type {{ item: string, branch: string | null }[]} */ (
+              run.state.merge_queue.waiting
+            );
+            const o = outcome([shown.queued, shown.checked]);
+            return {
+              ...o,
+              ...ownerPresentation({
+                presentation: shown.presentation,
+                waiting: waitingForOwner(
+                  left,
+                  readLedger(p.store).events,
+                  Date.now(),
+                  shown.presentation,
+                ),
+                reused: false,
+              }),
+              ok: o.ok,
+              merged: o.merged,
+              rejected: o.rejected,
+              ...(o.incident ? { next: 'an incident: tell the owner at once' } : {}),
+              ...(o.held && !o.incident
+                ? {
+                    next: 'a batch is held as a flake candidate: nothing merged, nothing blamed; tell the owner, who decides',
+                  }
+                : {}),
+            };
+          }
+          const result = await runMergeQueue({
+            repoRoot: p.repoRoot,
+            entries: waiting.map(entryOf),
+            settings,
+            regenerateViews,
+            security,
+          });
+          await record(result);
+          const o = outcome([result]);
+          return {
+            ...o,
+            next: o.incident
               ? 'an incident: tell the owner at once'
-              : result.held
+              : o.held
                 ? 'a batch is held as a flake candidate: nothing merged, nothing blamed; tell the owner, who decides'
                 : 'for each rejected entry with a follow_up: hitld dispatch follow-up; then refill with hitld dispatch plan',
           };

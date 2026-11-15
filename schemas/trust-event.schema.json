@@ -7,7 +7,7 @@
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
     "kind": {
-      "description": "asked: a question went to a decider. answered: it was answered. worth-asking: the decider rated whether it was worth asking. application: a precedent resolved a question. overrule: the owner reversed an application. reversal: the owner reversed a call the system made without a precedent. default: no one answered and a decision took its default (it is not an answer, so it is not counted as one). precedent-created, precedent-narrowed, precedent-retired: the precedent's life.",
+      "description": "asked: a question went to a decider. answered: it was answered. worth-asking: the decider rated whether it was worth asking. application: a precedent resolved a question. overrule: the owner reversed an application. reversal: the owner reversed a call the system made without a precedent. default: no one answered and a decision took its default (it is not an answer, so it is not counted as one). precedent-created, precedent-narrowed, precedent-retired: the precedent's life. merge-approval: the owner approved a branch the merge queue had checked and presented (owner merge mode, design 14.2), one event per area it changes. merge-reverted: a merge the owner approved was later reverted.",
       "enum": [
         "asked",
         "answered",
@@ -18,7 +18,9 @@
         "default",
         "precedent-created",
         "precedent-narrowed",
-        "precedent-retired"
+        "precedent-retired",
+        "merge-approval",
+        "merge-reverted"
       ]
     },
     "at": { "$ref": "common#/$defs/timestamp" },
@@ -69,6 +71,19 @@
     "subject_kind": {
       "description": "reversal: the kind of call reversed (was what before HITLD-82).",
       "enum": ["logged-call", "triage-route", "controller-move", "default", "other"]
+    },
+    "commit": {
+      "description": "merge-approval: the commit the approved branch merged as.",
+      "$ref": "common#/$defs/commit"
+    },
+    "latency_ms": {
+      "description": "merge-approval: from the batch being presented to the owner's approval.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "as_presented": {
+      "description": "merge-approval: true when the owner approved the whole batch as presented, false when they named a list that left some out.",
+      "type": "boolean"
     },
     "note": { "$ref": "common#/$defs/text" }
   },

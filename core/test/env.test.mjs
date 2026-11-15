@@ -69,10 +69,10 @@ const dir = (label) => {
 /** @param {string[]} args @param {string} cwd */
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' });
 
-/** A repository with one commit on main. */
-function makeRepo() {
+/** A repository with one commit on its main branch (default main). */
+function makeRepo(mainBranch = 'main') {
   const root = dir('repo');
-  git(['init', '-q', '-b', 'main'], root);
+  git(['init', '-q', '-b', mainBranch], root);
   git(['config', 'user.name', 'Test'], root);
   git(['config', 'user.email', 'test@example.com'], root);
   writeFileSync(join(root, 'README.md'), 'hello\n');
@@ -113,7 +113,8 @@ async function freeRange(size, from) {
 
 /**
  * @param {{ repoRoot: string, env?: Record<string, any>, read?: import('../lib/env/secrets.mjs').SecretReader,
- *   machineRoot?: string, range?: { min: number, max: number }, callerEnv?: NodeJS.ProcessEnv }} o
+ *   machineRoot?: string, range?: { min: number, max: number }, callerEnv?: NodeJS.ProcessEnv,
+ *   merge?: Record<string, any> }} o
  */
 async function makeEnv(o) {
   const range = o.range ?? (await freeRange(20));
@@ -121,6 +122,7 @@ async function makeEnv(o) {
     schema_version: 1,
     project: { id: 'fixture', key: 'W' },
     env: { port_range: range, ...(o.env ?? {}) },
+    ...(o.merge ? { merge: o.merge } : {}),
   });
   assert.deepEqual(errors, []);
   const store = openStore(dir('store'));
@@ -360,6 +362,22 @@ test('a harness-created worktree is adopted, set up, and never removed by cleanu
   const r = await env.releaseWorktree({ holder: 'D-4', result: 'merged' });
   assert.equal(r.kept, true);
   assert.ok(existsSync(path));
+  git(['worktree', 'remove', '--force', path], repoRoot);
+});
+
+test('worktrees are cut from policy.json merge.main_branch, and adopted ones record it', async () => {
+  const repoRoot = makeRepo('trunk');
+  const { env } = await makeEnv({ repoRoot, merge: { main_branch: 'trunk' } });
+  assert.equal(env.settings.mainBranch, 'trunk');
+  const { lease } = await env.createWorktree({ holder: 'D-5', itemId: 'W-5' });
+  assert.equal(lease.base, 'trunk');
+  assert.equal(git(['rev-parse', 'HEAD'], lease.path), git(['rev-parse', 'trunk'], repoRoot));
+  const path = join(dir('harness'), 'wt');
+  git(['worktree', 'add', '-q', '-b', 'harness/trunk', path, 'trunk'], repoRoot);
+  assert.equal((await env.adoptWorktree({ holder: 'D-6', path })).lease.base, 'trunk');
+  // Without a merge section the policy default applies, and that is main.
+  assert.equal((await makeEnv({ repoRoot: makeRepo() })).env.settings.mainBranch, 'main');
+  await env.releaseWorktree({ holder: 'D-5', result: 'merged' });
   git(['worktree', 'remove', '--force', path], repoRoot);
 });
 

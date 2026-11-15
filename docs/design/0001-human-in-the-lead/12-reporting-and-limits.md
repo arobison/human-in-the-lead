@@ -9,9 +9,9 @@ The owner directs the system mostly from a distance, so what they can see matter
 | Readout | Shows | Source |
 |---|---|---|
 | **Live** | The fleet in flight with each item's stage (briefed, claimed, implementing, verifying, reporting, in review, merged); what is blocked and on what; what is waiting on the owner, oldest first | Run state ([part 13](13-operations.md#131-orchestrator-continuity)), ledger, tracker |
-| **Explorable metrics** | Every queue's stock, age and flow; quality and cost measures ([part 11](11-metrics-and-control.md#111-measures)); as time series, filterable by initiative, project, tier, model and harness | Ledger, tracker history, usage snapshots |
+| **Explorable metrics** | Every queue's stock, age and flow; quality and cost measures ([part 11](11-metrics-and-control.md#111-measures)); as time series, filterable by project, milestone, tier, model and harness | Ledger, tracker history, usage snapshots |
 | **Controllers** | Every controller step: sensor values, setpoint and bounds, action, reason, rule version (12.3) | Controller step log |
-| **Progress reports** | What was built per initiative, decisions made, studies concluded with their verdicts, what is blocked, what is next, with charts (12.2) | All of the above |
+| **Progress reports** | What was built per project, decisions made, studies concluded with their verdicts, what is blocked, what is next, with charts (12.2) | All of the above |
 | **Token use over time** | By model, tier, project, harness and kind of work, against what it bought: accepted items, waste, cost per accepted item | Ledger, usage snapshots |
 | **Quotas** | Each account limit: used, remaining, reserve, burn rate, projected exhaustion (12.5) | Usage snapshots, declared limits |
 | **Milestone graph** (planned) | Milestones as nodes and `needs` between them as edges; each node's outcome, progress against its constraints, appetite spent and check; the critical path highlighted; a milestone's items one step down (12.1.2) | Tracker, ledger, recorded check results |
@@ -43,7 +43,7 @@ The milestone graph shows progress at the level people plan at. It complements t
 
 - **Nodes** are milestones, labelled by name ([3.2](03-data-model.md#milestones-and-releases)). Each shows its outcome in one sentence; its constraints `done` out of all its constraints; `tokens_spent` against `appetite_tokens`; and its independent check: passed, due (`check_due`) or not yet due.
 - **Edges** are `needs` between milestones. A `needs` from a milestone to an item is not an edge; it counts toward the node's progress.
-- **The critical path** is highlighted: the chain of milestones not yet `done` with the most estimate tokens remaining, the same rule items use ([3.2](03-data-model.md#initiative-project-item)).
+- **The critical path** is highlighted: the chain of milestones not yet `done` with the most estimate tokens remaining, the same rule items use ([3.2](03-data-model.md#project-and-item)).
 - **Drilling in.** Opening a milestone lists its constraints and contributions with their state and critical-path flag, and links to the item graph for them.
 - **Two forms.** A generated view, `work/views/milestones.md`, with a mermaid graph and a table of the same fields, readable on GitHub and on a phone ([3.4](03-data-model.md#generated-views)). And a section of the HTML page `hitld dashboard` writes (12.4), where each node opens to its items without scripts from elsewhere.
 
@@ -51,7 +51,7 @@ The milestone graph shows progress at the level people plan at. It complements t
 
 A **progress report** is a periodic digest, sent through the notification channel at a cadence the owner sets (`report.cadence`), inside the attention budget ([part 2](02-loops.md#the-owners-attention-as-a-budget)).
 
-- **One phone screen first.** The message itself fits a phone screen: per initiative, one line on what was built and one on what is next; decisions made and pending; study verdicts; blocked items; quota headroom. A link opens the full HTML report.
+- **One phone screen first.** The message itself fits a phone screen: per project, one line on what was built and one on what is next; decisions made and pending; study verdicts; blocked items; quota headroom. A link opens the full HTML report.
 - **Charts** in the full report: queue stocks over time, token use against accepted items, critical-path progress per milestone, quota burn.
 - **Facts, not adjectives.** Every line cites items, decisions, studies or run IDs. No "great progress".
 - **It counts as a read** against the attention budget; a report that grows past its budget is shortened, not sent longer.
@@ -139,7 +139,7 @@ Different people need different views of the same progress:
 | **The owner** | Progress reports, decisions, quotas | Everything |
 | **Area owners and co-maintainers** | Their areas' progress, and decisions in their areas (answered by the owner until [Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)'s signed answers exist) | `internal` (and `confidential` items they are cleared for) |
 | **Contributors and users** | Release notes, changelog with credit, roadmap status | `public` |
-| **A team or leadership** | Status per initiative: outcomes, risks, what is next | Set per audience in `policy.json` |
+| **A team or leadership** | Status per long outcome and project: outcomes, risks, what is next | Set per audience in `policy.json` |
 
 Each audience has a template and a classification ceiling, and reports are generated from the same data with everything above the ceiling removed. Sending to anyone outside the project goes through the send gate ([part 9](09-contributors.md#93-replies)) and is the owner's decision until a precedent allows a routine report.
 

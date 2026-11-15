@@ -15,8 +15,7 @@ import { idNumber } from './tree.mjs';
  * @property {Node[]} all every entry with an ID, in number order
  * @property {Node[]} items work, decision and external entries
  * @property {Node[]} projects
- * @property {Node[]} initiatives
- * @property {Node[]} milestones capability and learning entries
+ * @property {Node[]} milestones milestone entries
  * @property {(id: string) => Node | undefined} get
  * @property {(it: Node) => string[]} needs the IDs an item or a milestone needs (a milestone's
  *   constraints)
@@ -27,9 +26,9 @@ import { idNumber } from './tree.mjs';
  * @property {(it: Node) => boolean} isReady planned, every need done
  * @property {(it: Node) => boolean} isBlocked planned with an open need (design part 3.2)
  * @property {(projectId: string) => Node[]} itemsOf
- * @property {(initiativeId: string) => Node[]} projectsOf
  * @property {(id: string) => Node[]} dependents open items that need `id`
- * @property {(containerId: string) => Node[]} milestonesOf milestones under a project or initiative
+ * @property {(projectId: string) => Node[]} milestonesOf milestones under a project
+ * @property {() => Node[]} longOutcomes milestones with no project: long outcomes
  * @property {(id: string) => Node[]} constraintOf milestones whose constraints name `id`
  * @property {(id: string) => Node[]} contributesTo milestones whose contributions name `id`
  */
@@ -70,7 +69,6 @@ export function buildGraph(entries) {
     all,
     items: [],
     projects: [],
-    initiatives: [],
     milestones: [],
     get: (id) => byId.get(id),
     needs: (it) =>
@@ -82,19 +80,15 @@ export function buildGraph(entries) {
     isReady: (it) => it.data.state === 'planned' && g.openNeeds(it).length === 0,
     isBlocked: (it) => it.data.state === 'planned' && g.openNeeds(it).length > 0,
     itemsOf: (projectId) => g.items.filter((it) => it.data.project === projectId),
-    projectsOf: (initiativeId) => g.projects.filter((p) => p.data.initiative === initiativeId),
     dependents: (id) => g.items.filter((it) => g.isOpen(it) && g.needs(it).includes(id)),
-    milestonesOf: (containerId) =>
-      g.milestones.filter(
-        (m) => m.data.project === containerId || m.data.initiative === containerId,
-      ),
+    milestonesOf: (projectId) => g.milestones.filter((m) => m.data.project === projectId),
+    longOutcomes: () => g.milestones.filter((m) => !m.data.project),
     constraintOf: (id) => g.milestones.filter((m) => g.needs(m).includes(id)),
     contributesTo: (id) =>
       g.milestones.filter((m) => readMilestone(m.data).contributions.some((c) => c.id === id)),
   };
   g.items = all.filter(g.isItem);
   g.projects = all.filter((it) => it.data.kind === 'project');
-  g.initiatives = all.filter((it) => it.data.kind === 'initiative');
   g.milestones = all.filter(g.isMilestone);
   return g;
 }

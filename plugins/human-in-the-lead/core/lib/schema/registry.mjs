@@ -18,14 +18,11 @@ export const SCHEMA_DIR = fileURLToPath(new URL('../../../schemas/', import.meta
 
 /** Tracker entity kinds (design part 3.2) and the schema each uses. */
 export const TRACKER_KINDS = Object.freeze({
-  initiative: 'initiative',
   project: 'project',
   work: 'item',
   external: 'item',
   decision: 'decision',
-  opportunity: 'opportunity',
-  capability: 'milestone',
-  learning: 'milestone',
+  milestone: 'milestone',
 });
 
 /** @param {unknown} v */

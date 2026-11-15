@@ -5,6 +5,15 @@
     "key": "HITLD"
   },
   "merge": {
+    "public_globs": [
+      "schemas/**",
+      "templates/AGENTS.contract.md",
+      "core/lib/cli/**",
+      "core/lib/contract/report.mjs",
+      "core/lib/tracker/files/api.mjs",
+      "core/lib/tracker/interface.mjs",
+      "core/harness/interface.mjs"
+    ],
     "scanners": [
       {
         "name": "codeql",

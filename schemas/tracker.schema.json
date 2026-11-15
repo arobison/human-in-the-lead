@@ -19,7 +19,7 @@
       "default": "work"
     },
     "folders": {
-      "description": "The folder name under work_dir for each group of files. Initiatives, projects and milestones have their own; work, decision and external items share one, so an item that changes kind does not move. Release records, one per release named by its tag, have their own folder too (design part 3.2, Milestones and releases).",
+      "description": "The folder name under work_dir for each group of files. Projects and milestones have their own; work, decision and external items share one, so an item that changes kind does not move. Release records, one per release named by its tag, have their own folder too (design part 3.2, Milestones and releases). initiative names where initiatives were before HITLD-90: initiatives are milestones now, and the folder is read only so that hitld work migrate can move what is left there, until the next minor release.",
       "type": "object",
       "properties": {
         "initiative": { "$ref": "#/$defs/folder", "default": "initiatives" },
@@ -47,7 +47,7 @@
       "default": ["refs/bundles/"]
     },
     "optional_keys": {
-      "description": "Front-matter keys beyond the reference format that this project's items may carry. Empty by default: the reference format's check rejects every other key. Turning one on lets the check accept it and the tracker read and write it, typed as the item schema types it.",
+      "description": "Front-matter keys beyond the reference format that this project's items may carry. Empty by default: the reference format's check rejects every other key. Turning one on lets the check accept it and the tracker read and write it, typed as the item schema types it. owner is always allowed now (a record without one is the owner's), so listing it changes nothing.",
       "type": "array",
       "items": {
         "enum": [

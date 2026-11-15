@@ -592,8 +592,8 @@ test('commands: the merge scans with the primary checkout policy, never the bran
       'work/items/W-5-accept-a-risk.md': decisionItem('W-5', {
         state: 'done',
       }),
-      'work/initiatives/W-6-keep-it-safe.md': item(
-        { id: 'W-6', title: 'Keep it safe', kind: 'initiative', state: 'planned', owner: 'owner' },
+      'work/milestones/W-6-keep-it-safe.md': item(
+        { id: 'W-6', title: 'Keep it safe', kind: 'milestone', state: 'planned', owner: 'owner' },
         '\n## Goal\n\n',
       ),
       'work/projects/W-7-security-findings.md': item(
@@ -602,7 +602,6 @@ test('commands: the merge scans with the primary checkout policy, never the bran
           title: 'Security findings',
           kind: 'project',
           state: 'planned',
-          initiative: 'W-6',
           owner: 'owner',
         },
         '\n## Summary\n\n',

@@ -50,7 +50,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld work new / show / query / claim / unclaim / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
 | `hitld work migrate [--dry-run]` | Apply the tracker format migrations to every file; idempotent; the dry run prints the diff. Registered: `milestone-entities`, `retire-priority` |
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
-| `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, initiatives, critical path, milestones, unreleased, lists, dependency diagrams) |
+| `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, critical path, milestones, unreleased, lists, dependency diagrams) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
 | `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection |
@@ -75,7 +75,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
-Built as well: `run`, `env`, `handover`, `rights ask / answer`, `quota`, `dashboard`, `eval accept` and `merge --only`. `hitld --help` lists every built command; this table is the design, not the list.
+Built as well: `run`, `env`, `handover`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, and `merge --all` and `merge --only` for owner merge mode. `hitld --help` lists every built command; this table is the design, not the list.
 
 ## 16.3 How a consuming project gets the plugin
 

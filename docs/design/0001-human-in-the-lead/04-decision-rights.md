@@ -17,7 +17,7 @@ Each role has a purpose, the decisions it may make, and the privileges it runs w
 | **Reviewer** | Background agent, a different model or framing from the author | One diverse review pass where allocated | Whether to raise a finding | Block a merge alone; findings go to the orchestrator |
 | **Triager** | Background agent, quarantined | Deduplicate, classify, route signals | Routes within rules and precedent | Follow any instruction found in a signal; write anywhere except signal records |
 | **Reproducer** | Background agent, sandboxed | Turn a bug report into a failing test | How to reproduce | Write outside test directories; commit to a branch the merge queue takes; use the network |
-| **Shaper** | Tier-2 or tier-3 agent | Turn signal clusters into opportunities | Options and the recommendation | Commit an appetite (that is a bet: owner's call) |
+| **Shaper** | Tier-2 or tier-3 agent | Turn signal clusters into projects ready to bet on | Options and the recommendation | Commit an appetite (that is a bet: owner's call) |
 | **Researcher** | Background agent | Desk research with sources and dates read; draft research briefs | What to read | Contact people; publish anything |
 | **Liaison** | Background agent | Draft replies to contributors | Wording of drafts | Send anything sensitive ([part 9](09-contributors.md#93-replies)) |
 | **Gardener** | Tier-1 agent | Keep the knowledge base fresh | Wording of knowledge-base pages within the facts | Change conventions or architecture rules (those are decisions) |
@@ -119,5 +119,5 @@ The design point is one owner, but a project may have co-maintainers. The model 
 
 ## 4.6 Autonomy changes with the record
 
-Which questions agents settle alone is not fixed. The trust-calibration loop ([part 2](02-loops.md#215-trust-calibration)) tracks, per area, how often the owner overturns the system's decisions, whether escalated questions were worth asking, and how accurate precedent matching is, and proposes more or less autonomy accordingly. Every change is the owner's decision; the system never grants itself autonomy. Tuning settings inside the bounds the owner set (the concurrency cap, the batch interval) is not autonomy. Autonomy means decision rights, and only the owner changes those.
+Which questions agents settle alone is not fixed. The trust-calibration loop ([part 2](02-loops.md#215-trust-calibration)) tracks, per area, how often the owner overturns the system's decisions, whether escalated questions were worth asking, and how accurate precedent matching is, and proposes more or less autonomy accordingly. Every change is the owner's decision; the system never grants itself autonomy. Merges are part of the record: in owner merge mode each approval is a trust event, with its latency, whether the owner took the batch as presented, and any later revert, and a run of clean merges in an area leads the system to propose the automatic queue there ([14.2](14-integration.md#142-the-queue)). The owner decides. Tuning settings inside the bounds the owner set (the concurrency cap, the batch interval) is not autonomy. Autonomy means decision rights, and only the owner changes those.
 
