@@ -6,12 +6,12 @@ state: planned
 created: 2026-11-15
 project: HITLD-15
 release: 0.1.0-rc.2
-needs: [HITLD-67]
+needs: [HITLD-67, HITLD-140]
 ---
 
 ## Why
 
-The second release candidate is the first one HITLd builds while running itself. It waits for milestone HITLD-67, "Consumer live": this repository self-hosting on v0.1.0-rc.1, with the routine jobs done by `hitld`, checked by the owner's demo. The owner decided that nothing else from the design lands before it.
+The second release candidate is the first one HITLd builds while running itself. It waits for milestone HITLD-67, "Consumer live": this repository self-hosting on v0.1.0-rc.1, with the routine jobs done by `hitld`, checked by the owner's demo. The owner decided that nothing else from the design lands before it, except HITLD-140: the release run refuses when the `release` environment has no required reviewer, which rc.1 lacked.
 
 ## Done when
 
