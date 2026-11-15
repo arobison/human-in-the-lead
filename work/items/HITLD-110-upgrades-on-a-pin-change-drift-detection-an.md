@@ -2,9 +2,11 @@
 id: HITLD-110
 title: "Upgrades on a pin change: drift detection, an upgrade plan, and upgrading at a hand-over"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-110
+release_note: "`hitld run start` and `run resume` refuse when the running plugin is not the pinned release (`version-not-pinned`), before anything is pulled or recorded, and say how to fix it; a SessionStart hook reports drift. `hitld upgrade plan` lists, by role, what a pin change needs. `hitld install` turns off automatic updates for the plugin. The chief of staff upgrades only at a hand-over."
 ---
 
 ## Why
