@@ -96,7 +96,7 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean }) => ReturnType<typeof closeItem>} close
- * @property {(options?: { branches?: boolean, inflight?: string[] }) => { problems: string[], files: number }} check
+ * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }) => { problems: string[], files: number }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
  * @property {(options?: { only?: string, dryRun?: boolean, commit?: boolean, migrations?: readonly import('./migrate.mjs').Migration[] }) => ReturnType<typeof migrateTracker>} migrate
@@ -692,10 +692,11 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
 
     /**
      * The batch check. `branches` adds ID collisions across every worktree and branch and
-     * double claims; `inflight` (dispatch IDs from the ledger) adds the orphaned-claim check.
-     * @param {{ branches?: boolean, inflight?: string[] }} [options]
+     * double claims; `inflight` (dispatch IDs from the ledger) adds the orphaned-claim check;
+     * `terms` (from the private store) adds the private term rule to the classification check.
+     * @param {{ branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }} [options]
      */
-    check({ branches = false, inflight } = {}) {
+    check({ branches = false, inflight, terms } = {}) {
       const items = read();
       const onMain = currentBranch(root) === layout.mainBranch;
       const g = buildGraph(items);
@@ -710,6 +711,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         ceiling: layout.classificationCeiling,
         defaultClassification: layout.defaultClassification,
         privatePaths: layout.privatePaths,
+        terms,
       });
       for (const line of problemLines(tree.refused)) {
         if (!problems.includes(line)) problems.push(line);

@@ -15,7 +15,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { loadPolicy } from '../../policy/policy.mjs';
+import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
+import { termsForProject } from '../../store/private-terms.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import { apiResponse, fieldFilter } from '../../tracker/files/api.mjs';
@@ -74,6 +75,29 @@ export function open(input, ctx, { readOnly = false } = {}) {
     env: ctx.env,
     block: typeof input.block === 'string' ? input.block : undefined,
   });
+}
+
+/**
+ * The private terms `work check` checks the tree against: from the private store of the project
+ * the repository's own policy names. A list that does not read fails the check.
+ * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+ */
+function workCheckTerms(input, ctx) {
+  const repo = input.repo ? resolve(ctx.cwd, String(input.repo)) : ctx.cwd;
+  const loaded = loadPolicy({ cwd: repo });
+  if (!loaded.policy) return { matchers: [], warnings: [] };
+  try {
+    return termsForProject({
+      policy: loaded.policy,
+      env: ctx.env,
+      repoRoot: findRepoRoot(repo) ?? undefined,
+    });
+  } catch (e) {
+    const err = /** @type {{ code?: unknown, message: string }} */ (e);
+    if (err.code === 'private-list-invalid')
+      throw new CodedError('private-list-invalid', err.message);
+    throw e;
+  }
 }
 
 /** @param {unknown} v @returns {string[] | undefined} */
@@ -455,8 +479,13 @@ export const commands = [
     run(input, ctx) {
       const t = open(input, ctx, { readOnly: true });
       const inflight = csv(input['in-flight']);
-      const { problems, files } = t.check({ branches: Boolean(input.branches), inflight });
-      const warnings = [...t.warnings()];
+      const terms = workCheckTerms(input, ctx);
+      const { problems, files } = t.check({
+        branches: Boolean(input.branches),
+        inflight,
+        terms: terms.matchers,
+      });
+      const warnings = [...t.warnings(), ...terms.warnings];
       if (files === 0) warnings.push(...emptyCheckWarnings(t, input, ctx));
       return {
         ok: problems.length === 0,

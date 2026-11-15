@@ -190,6 +190,15 @@ export const ERROR_CODES = Object.freeze({
   'store-pull-refused':
     'hitld run start or run resume stopped: the store remote answered, but its head does not open or merge. An unreachable remote does not stop a run; --no-sync goes on with the local store.',
 
+  // The private term list
+  'private-term':
+    'The text holds a term from the private term list; the refusal names its kind and line, never the term.',
+  'private-term-invalid':
+    'A term is not one the private term list takes: too short or long, more than one line, or of an unknown kind.',
+  'private-term-unknown': 'No term on the private term list has that ID or matches that term.',
+  'private-list-invalid':
+    'A line of the private term list does not read, so nothing is checked or committed until it is fixed.',
+
   // Secrets and the environment
   'secret-missing': 'No value is stored for a secret the task needs.',
   'spawn-failed': 'The task process could not start.',

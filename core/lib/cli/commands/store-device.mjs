@@ -44,6 +44,7 @@ import {
   remoteDir,
 } from '../../store/remote-git.mjs';
 import { ensureRepo } from '../../store/git.mjs';
+import { recordDevice } from '../../store/private-terms.mjs';
 import { executorSignal } from '../executor.mjs';
 
 /**
@@ -242,7 +243,13 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
     const code = /** @type {{ code?: unknown }} */ (e).code;
     if (
       e instanceof Error &&
-      ['DevicesError', 'AgeError', 'StoreRemoteError', 'StoreAddressError'].includes(e.name) &&
+      [
+        'DevicesError',
+        'AgeError',
+        'StoreRemoteError',
+        'StoreAddressError',
+        'PrivateTermsError',
+      ].includes(e.name) &&
       typeof code === 'string'
     ) {
       return fail(code, e.message);
@@ -286,7 +293,7 @@ export const deviceCommands = [
   {
     name: 'store device init',
     summary:
-      "Make this device's key pair for the private store: the private key in the OS keychain (or, with --cloud, printed once for the cloud environment's HITLD_STORE_IDENTITY), and the device's request (name and public key) put on the store repository's hitld-devices branch, where it waits for the owner's approval. The first device of an empty store asks the owner itself (owner only)",
+      "Make this device's key pair for the private store: the private key in the OS keychain (or, with --cloud, printed once for the cloud environment's HITLD_STORE_IDENTITY), and the device's request (name and public key) put on the store repository's hitld-devices branch, where it waits for the owner's approval. The first device of an empty store asks the owner itself. The device's name goes on the private term list (owner only)",
     built_by: 'consumer-live',
     mcp: false,
     args: [
@@ -317,6 +324,12 @@ export const deviceCommands = [
         );
       }
       checkName(name);
+      // The device's name is private from here on (design 10.3, rule 7), whatever happens next.
+      const terms = recordDevice(openStore(p.storeRoot), name, ctx.now).map((t) => ({
+        id: t.id,
+        kind: t.kind,
+        added: t.added,
+      }));
       const list = await freshRequests(p);
       const records = readApprovals(openStore(p.storeRoot));
       const approved = approvedDevices(records);
@@ -402,6 +415,7 @@ export const deviceCommands = [
           remote: list.url,
           status: 'approved',
           changed: false,
+          private_terms: terms,
           key_created: created,
           key,
           ...secret,
@@ -455,6 +469,7 @@ export const deviceCommands = [
           pushed: request.pushed,
         },
         decision: decision ?? waiting,
+        private_terms: terms,
         key_created: created,
         key,
         ...(identity ? { identity: secret.identity, message: secret.message } : {}),

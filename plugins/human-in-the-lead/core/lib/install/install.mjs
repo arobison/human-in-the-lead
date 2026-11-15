@@ -13,10 +13,12 @@
 //                                   until a store remote is configured
 //   .git/hooks/pre-commit           the commit guard (design part 10.3): runs this hitld's
 //                                   `check classification --staged`; shared by every worktree
+//   .git/hooks/commit-msg           the commit message guard (design part 10.3, rule 7): runs
+//                                   `check commit-message` on the message; shared the same way
 //
 // Nothing outside the markers of AGENTS.md is changed, an existing policy.json is kept, and
-// existing settings are merged key by key. A pre-commit hook that is not hitld's is left alone,
-// and the result says what to add to it. Executors never run install.
+// existing settings are merged key by key. A pre-commit or commit-msg hook that is not hitld's is
+// left alone, and the result says what to add to it. Executors never run install.
 
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -31,7 +33,7 @@ const TEMPLATE = fileURLToPath(new URL('../../../templates/policy.json', import.
 const STATUSLINE = fileURLToPath(new URL('../../bin/hitld-statusline.mjs', import.meta.url));
 const HITLD = fileURLToPath(new URL('../../bin/hitld.mjs', import.meta.url));
 
-/** The line that marks a pre-commit hook as hitld's own, so install may rewrite it. */
+/** The line that marks a pre-commit or commit-msg hook as hitld's own, so install may rewrite it. */
 export const HOOK_MARK = '# hitld:commit-guard';
 
 /** The checkout this code runs from: the nearest directory above it with a marketplace file. */
@@ -86,36 +88,84 @@ export function hookScript(hitld) {
 }
 
 /**
- * Install the commit guard as the repository's pre-commit hook, in the hooks directory every
+ * The commit-msg hook's text: the private term check on the message git hands it. Like the
+ * pre-commit hook, it runs the hitld at `hitld` and nothing else.
+ * @param {string} hitld an absolute path to hitld.mjs
+ */
+export function messageHookScript(hitld) {
+  return [
+    '#!/bin/sh',
+    `${HOOK_MARK} v1. Written by hitld install, which rewrites it; edit a copy under another name.`,
+    '# Refuses a commit message that holds a term from the private term list (design part 10.3,',
+    "# rule 7). The merge checks each commit's message too, so skipping this hook gains nothing.",
+    `HITLD=${shq(hitld)}`,
+    'if [ ! -f "$HITLD" ]; then',
+    '  echo "hitld commit guard: $HITLD is gone; run hitld install again to point this hook at the hitld you use" >&2',
+    '  exit 1',
+    'fi',
+    'exec node "$HITLD" check commit-message "$1"',
+    '',
+  ].join('\n');
+}
+
+/** The hooks install writes: the name, its text, and the line to add to a hook that is not ours. */
+const HOOKS = Object.freeze([
+  {
+    name: /** @type {const} */ ('pre-commit'),
+    text: () => hookScript(HITLD),
+    line: `node ${shq(HITLD)} check classification --staged`,
+  },
+  {
+    name: /** @type {const} */ ('commit-msg'),
+    text: () => messageHookScript(HITLD),
+    line: `node ${shq(HITLD)} check commit-message "$1"`,
+  },
+]);
+
+/**
+ * @typedef {{ done: string, warning?: string }} HookDone
+ */
+
+/**
+ * Install the commit guard's hooks (pre-commit and commit-msg), in the hooks directory every
  * worktree shares. A hook that is not hitld's, or a core.hooksPath the project set, is left alone.
  * @param {string} root
- * @returns {{ done: string, warning?: string }}
+ * @returns {Record<'pre-commit' | 'commit-msg', HookDone>}
  */
-function installHook(root) {
-  const line = `node ${shq(HITLD)} check classification --staged`;
+function installHooks(root) {
+  /** @param {(h: (typeof HOOKS)[number]) => HookDone} f */
+  const each = (f) => ({ 'pre-commit': f(HOOKS[0]), 'commit-msg': f(HOOKS[1]) });
   const hooksPath = spawnSync('git', ['config', '--get', 'core.hooksPath'], {
     cwd: root,
     encoding: 'utf8',
   });
   if (hooksPath.status === 0 && hooksPath.stdout.trim()) {
-    return {
+    return each((h) => ({
       done: 'not installed (core.hooksPath is set)',
-      warning: `core.hooksPath is ${hooksPath.stdout.trim()}, so hitld leaves hooks to that setup: have its pre-commit hook run ${line} and stop the commit when it fails`,
-    };
+      warning: `core.hooksPath is ${hooksPath.stdout.trim()}, so hitld leaves hooks to that setup: have its ${h.name} hook run ${h.line} and stop the commit when it fails`,
+    }));
   }
   const common = spawnSync('git', ['rev-parse', '--git-common-dir'], {
     cwd: root,
     encoding: 'utf8',
   });
   if (common.status !== 0) {
-    return {
+    return each(() => ({
       done: 'not installed',
       warning: `cannot find the git directory: ${common.stderr.trim()}`,
-    };
+    }));
   }
   const dir = common.stdout.trim();
-  const hook = join(isAbsolute(dir) ? dir : resolve(root, dir), 'hooks', 'pre-commit');
-  const text = hookScript(HITLD);
+  const hooks = join(isAbsolute(dir) ? dir : resolve(root, dir), 'hooks');
+  return each((h) => installHook(join(hooks, h.name), h.text(), h.line, h.name));
+}
+
+/**
+ * Write one hook, unless a hook that is not hitld's is there.
+ * @param {string} hook its path @param {string} text @param {string} line @param {string} name
+ * @returns {HookDone}
+ */
+function installHook(hook, text, line, name) {
   /** @type {import('node:fs').Stats | null} */
   let st = null;
   try {
@@ -127,7 +177,7 @@ function installHook(root) {
     const current = st.isFile() ? readFileSync(hook, 'utf8') : '';
     if (!current.includes(HOOK_MARK)) {
       return {
-        done: 'not installed (a pre-commit hook exists)',
+        done: `not installed (a ${name} hook exists)`,
         warning: `${hook} exists and is not hitld's, so it is left as it is: add a line to it that runs ${line} and stops the commit when it fails`,
       };
     }
@@ -294,10 +344,11 @@ export function install(input, ctx) {
     }
   }
 
-  // The commit guard.
-  const hook = installHook(root);
-  done.commit_guard = hook.done;
-  if (hook.warning) warnings.push(hook.warning);
+  // The commit guard: the pre-commit hook over the files, the commit-msg hook over the message.
+  const hooks = installHooks(root);
+  done.commit_guard = hooks['pre-commit'].done;
+  done.message_guard = hooks['commit-msg'].done;
+  for (const h of Object.values(hooks)) if (h.warning) warnings.push(h.warning);
 
   const add =
     source.source === 'directory'

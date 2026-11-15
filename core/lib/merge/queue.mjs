@@ -5,7 +5,8 @@
 //   2. rebase    each onto the tip of the batch under construction, in a worktree of the queue's
 //                own (the main checkout is the orchestrator's); a conflict confined to generated
 //                files takes the batch's version, any other conflict goes back to the executor
-//   3. fast      the classification guard on each of the branch's commits (design part 10.3),
+//   3. fast      the classification guard on each of the branch's commits, their files and,
+//                with private terms in the settings, their messages (design part 10.3),
 //                a branch that changes the quarantine file is refused (design 14.7), then the
 //                fast checks on the rebased branch, the burn-in of the tests it adds or changes
 //                (design 14.7), then the declared security scans (security.mjs); a failure goes
@@ -60,7 +61,8 @@ import {
  * @property {FlakeSettings} [flake] policy flake; the defaults when not given
  * @property {string[]} [setup] commands run once in the queue's fresh worktree (env.worktree_setup)
  * @property {import('../guard/classification.mjs').Rules} [classification] the commit guard's
- *   rules, from main's policy and tracker.json; the strictest (ceiling public) when not given
+ *   rules, from main's policy and tracker.json, with the private terms from the private store; the
+ *   strictest (ceiling public, no terms) when not given
  *
  * @typedef {object} FlakeSettings
  * @property {number} [compareRuns] runs of the full suite on each side of the base comparison
@@ -452,7 +454,7 @@ export async function runMergeQueue(r) {
             item: e.item,
             branch: e.branch,
             reason: 'classification',
-            files: [...new Set(guard.refused.map((x) => x.path))],
+            files: [...new Set(guard.refused.filter((x) => !x.commit).map((x) => x.path))],
             output: problemLines(guard.refused).join('\n'),
             dispatch: e.dispatch,
           });

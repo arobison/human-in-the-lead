@@ -10,9 +10,12 @@
 // listed in policy project.private_paths is never public, whatever it says. Anything above the
 // ceiling (policy project.classification_ceiling) is refused, with the file and the rule named.
 //
-// Beside it, one more rule that holds whatever the ceiling: the store placement rule
+// Beside it, two more rules that hold whatever the ceiling: the store placement rule
 // (store-placement.mjs), which keeps the private store's address and device list out of the
-// repository.
+// repository, and the private term rule (private-terms.mjs), which refuses a file, or a commit
+// message at merge, that holds a term from the private term list. The terms come in `rules.terms`,
+// loaded from the private store by the caller; a refusal names the term's kind and the line, never
+// the term.
 //
 // The hook can be skipped (`git commit --no-verify`); the merge check cannot, so it is the one
 // that enforces. File contents are only read as text and matched; nothing in them is run.
@@ -22,21 +25,27 @@ import { closeSync, lstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { matchesAny } from '../precedent/glob.mjs';
 import { judgePlacement } from './store-placement.mjs';
+import { findTerms, matchMessage } from './private-terms.mjs';
 
 /** The levels, lowest first (design part 3, classification levels). */
 export const LEVELS = Object.freeze(['public', 'internal', 'confidential', 'secret']);
 
 /** How much of a file is read to find its front matter. */
 export const READ_LIMIT = 1024 * 1024;
+/** How much of a file is read when private terms are checked: all of it, up to this. */
+export const TERM_READ_LIMIT = 64 * 1024 * 1024;
 
 /**
  * @typedef {object} Rules
  * @property {string} ceiling the highest level the repository may hold
  * @property {string} defaultClassification the level of a file whose front matter does not say
  * @property {string[]} privatePaths globs of paths that are never public
+ * @property {import('./private-terms.mjs').Matcher[]} [terms] the private terms; none when not given
  *
- * @typedef {'front-matter' | 'project-default' | 'private-path' | 'unreadable' | import('./store-placement.mjs').PlacementRule} RuleName
- * @typedef {{ path: string, rule: RuleName, classification: string | null, message: string }} Refused
+ * @typedef {'front-matter' | 'project-default' | 'private-path' | 'unreadable' | 'private-term' | import('./store-placement.mjs').PlacementRule} RuleName
+ * @typedef {{ path: string, rule: RuleName, classification: string | null, message: string,
+ *   line?: number, kind?: string, term_id?: string | null, commit?: string }} Refused
+ *   for a private term: the line it is on, its kind and its ID on the list (never the term)
  * @typedef {{ files: number, refused: Refused[] }} GuardResult
  */
 
@@ -153,15 +162,65 @@ export function judge(path, declared, rules) {
 }
 
 /**
- * Judge one file from the start of its content.
+ * The private term rule on a text: the first term it holds, or null.
+ * @param {string} path what to call it in the refusal
+ * @param {string} text @param {Rules} rules
+ * @returns {Refused | null}
+ */
+export function judgeTerms(path, text, rules) {
+  if (!rules.terms?.length) return null;
+  const found = findTerms(text, rules.terms, { limit: 20 });
+  if (!found.length) return null;
+  const first = found[0];
+  const more = found.length > 1 ? ` (and ${found.length - 1} more)` : '';
+  return {
+    path,
+    rule: 'private-term',
+    classification: null,
+    line: first.line,
+    kind: first.kind,
+    term_id: first.id,
+    message: `${matchMessage(first)}${more}`,
+  };
+}
+
+/**
+ * Judge one file from the start of its content (all of it, when private terms are checked).
  * @param {string} path @param {Buffer} head @param {boolean} truncated @param {Rules} rules
  */
 export const judgeContent = (path, head, truncated, rules) => {
   const placed = judgePlacement(path, head);
   if (placed) return placed;
+  if (rules.terms?.length) {
+    // The path is published as much as the content.
+    const named = findTerms(path, rules.terms, { limit: 1 })[0];
+    if (named) {
+      return {
+        path,
+        rule: /** @type {const} */ ('private-term'),
+        classification: null,
+        kind: named.kind,
+        term_id: named.id,
+        message: `its path holds a private ${named.kind} from the private term list; name the file by its role, never by name`,
+      };
+    }
+    if (truncated) {
+      return {
+        path,
+        rule: /** @type {const} */ ('unreadable'),
+        classification: null,
+        message: `it is larger than ${TERM_READ_LIMIT / 1024 / 1024} MiB, so it cannot be checked for private terms`,
+      };
+    }
+    const termed = judgeTerms(path, head.toString('utf8'), rules);
+    if (termed) return termed;
+  }
   const fm = frontMatterClassification(head, truncated);
   return judge(path, 'error' in fm ? fm : fm.values, rules);
 };
+
+/** How much to read of a file under these rules. @param {Rules} rules */
+const limitFor = (rules) => (rules.terms?.length ? TERM_READ_LIMIT : READ_LIMIT);
 
 /** @param {string} cwd @param {string[]} args */
 function git(cwd, args) {
@@ -175,13 +234,13 @@ function git(cwd, args) {
 
 /**
  * The start of a blob, read from git's object store.
- * @param {string} cwd @param {string} sha
+ * @param {string} cwd @param {string} sha @param {number} [limit]
  * @returns {{ head: Buffer, truncated: boolean }}
  */
-function readBlob(cwd, sha) {
+function readBlob(cwd, sha, limit = READ_LIMIT) {
   // The sha comes from git's own raw diff output, and is checked to be one.
   if (!/^[0-9a-f]{40,64}$/.test(sha)) throw new Error(`not an object name: ${sha}`);
-  const r = spawnSync('git', ['cat-file', 'blob', sha], { cwd, maxBuffer: READ_LIMIT });
+  const r = spawnSync('git', ['cat-file', 'blob', sha], { cwd, maxBuffer: limit });
   const code = /** @type {NodeJS.ErrnoException | undefined} */ (r.error)?.code;
   if (code === 'ENOBUFS' && r.stdout?.length) return { head: r.stdout, truncated: true };
   if (r.status !== 0) throw new Error(`git cat-file ${sha}: ${(r.stderr ?? '').toString().trim()}`);
@@ -217,7 +276,7 @@ function judgeBlobs(cwd, blobs, rules) {
     const key = `${b.sha} ${b.path}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const { head, truncated } = readBlob(cwd, b.sha);
+    const { head, truncated } = readBlob(cwd, b.sha, limitFor(rules));
     const r = judgeContent(b.path, head, truncated, rules);
     if (r) refused.push(r);
   }
@@ -236,8 +295,19 @@ export function checkStaged(repoRoot, rules) {
 }
 
 /**
- * Every file each commit in from..to adds or changes, as that commit has it. A file that one
- * commit adds and a later one removes is still refused: the history would hold it.
+ * A commit message checked for private terms.
+ * @param {string} commit its full name @param {string} message @param {Rules} rules
+ * @returns {Refused | null}
+ */
+export function judgeMessage(commit, message, rules) {
+  const r = judgeTerms(`commit ${commit.slice(0, 12)} message`, message, rules);
+  return r ? { ...r, commit } : null;
+}
+
+/**
+ * Every file each commit in from..to adds or changes, as that commit has it, and, when private
+ * terms are given, each commit's message. A file that one commit adds and a later one removes is
+ * still refused: the history would hold it.
  * @param {string} cwd a working tree of the repository @param {string} from @param {string} to
  * @param {Rules} rules @returns {GuardResult}
  */
@@ -247,19 +317,27 @@ export function checkCommits(cwd, from, to, rules) {
     .filter(Boolean);
   /** @type {{ path: string, sha: string }[]} */
   const blobs = [];
+  /** @type {Refused[]} */
+  const messages = [];
   for (const c of commits) {
     blobs.push(
       ...parseRaw(git(cwd, ['diff-tree', '-r', '-m', '--root', '--no-commit-id', ...RAW, c])),
     );
+    if (rules.terms?.length) {
+      const r = judgeMessage(c, git(cwd, ['log', '-1', '--format=%B', c]), rules);
+      if (r) messages.push(r);
+    }
   }
-  return judgeBlobs(cwd, blobs, rules);
+  const judged = judgeBlobs(cwd, blobs, rules);
+  return { files: judged.files, refused: [...judged.refused, ...messages] };
 }
 
 /**
  * The start of a file on disk; a link or anything but a regular file is not read.
- * @param {string} full @returns {{ head: Buffer, truncated: boolean } | null}
+ * @param {string} full @param {number} [limit]
+ * @returns {{ head: Buffer, truncated: boolean } | null}
  */
-function readHead(full) {
+function readHead(full, limit = READ_LIMIT) {
   let st;
   try {
     st = lstatSync(full);
@@ -269,9 +347,9 @@ function readHead(full) {
   if (!st.isFile()) return null;
   const fd = openSync(full, 'r');
   try {
-    const buf = Buffer.alloc(Math.min(st.size, READ_LIMIT));
+    const buf = Buffer.alloc(Math.min(st.size, limit));
     const n = readSync(fd, buf, 0, buf.length, 0);
-    return { head: buf.subarray(0, n), truncated: st.size > READ_LIMIT };
+    return { head: buf.subarray(0, n), truncated: st.size > limit };
   } finally {
     closeSync(fd);
   }
@@ -295,7 +373,7 @@ export function checkTree(repoRoot, rules) {
   /** @type {Refused[]} */
   const refused = [];
   for (const path of paths) {
-    const read = readHead(join(repoRoot, path));
+    const read = readHead(join(repoRoot, path), limitFor(rules));
     if (!read) continue;
     files++;
     const r = judgeContent(path, read.head, read.truncated, rules);
@@ -306,3 +384,6 @@ export function checkTree(repoRoot, rules) {
 
 /** The refusals as problem lines, "<path>: <why>". @param {Refused[]} refused */
 export const problemLines = (refused) => refused.map((r) => `${r.path}: ${r.message}`);
+
+/** Whether a refusal is the private term rule's. @param {Refused} r */
+export const isTermRefusal = (r) => r.rule === 'private-term';

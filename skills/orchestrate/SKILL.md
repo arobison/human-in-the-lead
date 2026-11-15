@@ -147,6 +147,14 @@ The chief of staff's watchdog (`hitld dispatch watch`) wakes you with `watch: ..
    - `ask`: stop it as for `abandon`. Then `hitld rights ask --question '<the action's question as JSON>'` and add the decision to the item's `needs`, so it is not dispatched again before the owner answers. Section 7 and `hitld rights pending` decide when it goes to the owner.
 3. Start the items in `refill.start` (step 3). When `resumed` is in the output, dispatch has resumed after a pause: say so in your next message.
 
+## Posting text where others read it
+
+Private things are named by their role, never by name, in everything that may be published: commits, pull requests, comments, release notes, items and reports. Say "the store repository", "a device" or "the owner's laptop", never the store's address, its repository's name or a device's name. The private term list in the private store holds those names (`hitld store remote set` and `hitld store device init` add them, the owner adds more), and the checks refuse text that holds one.
+
+1. **Before you post** a pull request's title or body, an issue or review comment, or release notes, write the text to a file and run `hitld publish check --file <file>` (several `--file`s for a title and a body, or `--text -` from standard input). Post only when it is `ok`.
+2. **When it is refused** (`error: private-term`), each `problems` line names the kind and the line, never the term. Write those lines again, naming the thing by its role, and check again. Never work around a refusal, never post the text without the check, and never ask for the term or run `hitld private list`.
+3. **A refused commit** is the same rule: the commit hooks and the merge refuse a file or commit message that holds a private term (rule `private-term`). Write it again by role.
+
 ## Feedback about HITLd
 
 People say what they notice about HITLd while they work: "hitld should…", "I wish the system…", "that question was not worth asking", "the merge queue worked well". Catch it where they say it.

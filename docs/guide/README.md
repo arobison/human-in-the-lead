@@ -34,7 +34,7 @@ It sets up the project in one step and never touches anything outside these file
 | `AGENTS.md` | The executor contract, between `hitld:contract` markers. Everything outside the markers is yours and is never changed |
 | `CLAUDE.md` | An `@AGENTS.md` import is added, if the file exists without one |
 | `.claude/settings.json` | The plugin marketplace pinned to the tag, and the plugin turned on. Other keys are kept |
-| the git directory's `hooks/pre-commit` | The commit guard, which refuses a file above the repository's classification ceiling. A pre-commit hook that is not `hitld`'s is left alone, and the result says what to add to it |
+| the git directory's `hooks/pre-commit` and `hooks/commit-msg` | The commit guard, which refuses a file above the repository's classification ceiling, and a file or commit message that holds a term from the private term list (the store's address and devices' names, and the names you add with `hitld private add`). A hook that is not `hitld`'s is left alone, and the result says what to add to it |
 
 The status-line usage capture (`.claude/settings.local.json`, git-ignored) is off unless you pass `--statusline`. It changes your own harness settings, so every page leaves it as your choice.
 
