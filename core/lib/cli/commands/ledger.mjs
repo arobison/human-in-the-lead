@@ -27,6 +27,7 @@ import { loadState } from '../../run/checkpoint.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
+import { activePause } from '../../quota/pause.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
@@ -101,7 +102,11 @@ function setup(input, ctx) {
 function who(input, ctx) {
   const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
   if (!session) throw new Error('a session ID is needed: pass --session or set HITLD_SESSION');
-  return { session, host: /** @type {string | undefined} */ (input.host) ?? hostname() };
+  return {
+    session,
+    host: /** @type {string | undefined} */ (input.host) ?? hostname(),
+    ...(ctx.now ? { now: ctx.now } : {}),
+  };
 }
 
 /**
@@ -464,7 +469,17 @@ export const commands = [
         // The ledger may hold events the state has not absorbed yet; read them, change nothing.
         const events = readLedger(s.store).events;
         const state = absorb(structuredClone(loaded.state), events).state;
-        const lease = leaseStatus(state, new Date(), s.expirySeconds);
+        const lease = leaseStatus(state, ctx.now ? ctx.now() : new Date(), s.expirySeconds);
+        // A quota pause names when its window resets: the chief of staff schedules a wake for then.
+        const pause = activePause(events);
+        const paused = pause
+          ? {
+              limit: pause.limit,
+              resets_at: pause.resets_at,
+              since: pause.at,
+              reason: pause.reason,
+            }
+          : null;
         const handover = handoverDue(state, events, {
           afterCompletions: s.orchestrator.handover_after_completions,
           contextShare: s.orchestrator.handover_context_share,
@@ -484,11 +499,13 @@ export const commands = [
           own_sessions: sessions,
           decisions_open: state.decisions_open.length,
           waiting_to_merge: state.merge_queue.waiting.length,
+          paused,
+          wake_at: paused?.resets_at ?? null,
           handover,
           handover_file: file ? `${s.store.root}/${file}` : null,
           next: lease.free
             ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${s.store.root}/${file}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
-            : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}`,
+            : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}${paused ? `; dispatch is paused at ${paused.limit}${paused.resets_at ? `: schedule one wake for ${paused.resets_at}, the reset` : ', reset time unknown: the check-in looks again'}` : ''}`,
         };
       }),
   },

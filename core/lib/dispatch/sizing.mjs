@@ -30,7 +30,9 @@ import {
  * @property {string | null} kind
  * @property {number} tier
  * @property {number | null} tokens actual tokens, from the completion notice
- * @property {boolean | null} firstPass whether its first verification passed
+ * @property {boolean | null} firstPass whether its first verification passed; false for a
+ *   dispatch the watchdog found stalled, which was not a clean first pass whatever followed
+ * @property {boolean} [stalled] the watchdog found it stalled (not cut off by a usage limit)
  *
  * @typedef {object} Sizing
  * @property {string} item
@@ -195,26 +197,41 @@ export function historyFromLedger(events, itemOf) {
   const dispatched = new Map();
   /** @type {Map<string, boolean>} first verification per item */
   const firstVerdict = new Map();
+  /** @type {Set<string>} dispatches the watchdog found stalled */
+  const stalled = new Set();
   for (const e of events) {
     if (e.event === 'dispatched') dispatched.set(e.dispatch, e);
     if (e.event === 'verified' && !firstVerdict.has(e.item))
       firstVerdict.set(e.item, e.result === 'pass');
+    if (e.event === 'stalled' && e.reason !== 'limit') stalled.add(e.dispatch);
   }
   /** @type {HistoryEntry[]} */
   const out = [];
+  /** @type {Set<string>} */
+  const seen = new Set();
   for (const e of events) {
-    if (e.event !== 'reported') continue;
+    // A finished dispatch: reported, or ended by the watchdog after it stalled.
+    const ended =
+      e.event === 'reported' ||
+      (['interrupted', 'abandoned'].includes(e.event) && stalled.has(e.dispatch));
+    if (!ended || seen.has(e.dispatch)) continue;
     const d = dispatched.get(e.dispatch);
     if (!d || d.tier === undefined || d.role !== 'executor') continue;
+    seen.add(e.dispatch);
     const item = itemOf(e.item);
+    const stall = stalled.has(e.dispatch);
     out.push({
       area: item?.area ?? null,
       kind: item?.kind ?? null,
       tier: d.tier,
-      tokens: typeof e.tokens === 'number' ? e.tokens : null,
-      firstPass: firstVerdict.has(e.item)
-        ? /** @type {boolean} */ (firstVerdict.get(e.item))
-        : null,
+      tokens: e.event === 'reported' && typeof e.tokens === 'number' ? e.tokens : null,
+      // A stall counts against familiar ground: the calibration sees it as a miss at its tier.
+      firstPass: stall
+        ? false
+        : firstVerdict.has(e.item)
+          ? /** @type {boolean} */ (firstVerdict.get(e.item))
+          : null,
+      ...(stall ? { stalled: true } : {}),
     });
   }
   return out;

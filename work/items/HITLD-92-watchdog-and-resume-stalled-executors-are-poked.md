@@ -2,9 +2,10 @@
 id: HITLD-92
 title: "Watchdog and resume: stalled executors are poked and continued, paused runs wake when limits reset"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-92
 ---
 
 ## Why

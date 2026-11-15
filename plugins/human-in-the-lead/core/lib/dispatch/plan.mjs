@@ -19,7 +19,7 @@ import { overlapShare } from './item.mjs';
  * @property {string[]} [touches]
  *
  * @typedef {{ mode: string, allow: boolean, reason: string, notify_owner?: boolean, ask_owner?: boolean,
- *   economize?: { reduce_concurrency: boolean } }} GateAnswer
+ *   economize?: { reduce_concurrency: boolean }, resets_at?: string | null }} GateAnswer
  *
  * @typedef {object} Planned
  * @property {string} item
@@ -193,6 +193,7 @@ export function planDispatch(r) {
       reason: lastGate?.reason ?? null,
       notify_owner: lastGate?.notify_owner ?? false,
       ask_owner: lastGate?.ask_owner ?? false,
+      resets_at: lastGate?.resets_at ?? null,
     },
     start,
     inline,

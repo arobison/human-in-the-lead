@@ -19,6 +19,8 @@ import { MODEL_CLASSES } from './capabilities.mjs';
  * @property {string} [worktree] the worktree hitld env prepared (tier 3)
  * @property {string} [briefPath] the brief, saved in the private store
  * @property {string} [resultPath] where a headless run writes its JSON result
+ * @property {string} [pidPath] where a headless run writes its process ID, so the watchdog can
+ *   tell whether it is still running (design part 5.2)
  * @property {'headless' | 'interactive'} [tier3Mode]
  * @property {string} [permissionMode] for a headless run
  * @property {Record<string, string>} [env] the executor's environment (HITLD_DISPATCH, HITLD_PROJECT_ID, HITLD_ROLE)
@@ -91,7 +93,7 @@ export function instructionFor(request, place = {}) {
     place.permissionMode ?? 'acceptEdits',
   ];
   const env = envWords({ HITLD_DISPATCH: request.dispatch, ...(place.env ?? {}) });
-  const command = `cd ${shq(place.worktree)} && ${env} ${words.map(shq).join(' ')} < ${shq(place.briefPath)} > ${shq(place.resultPath)}`;
+  const command = `cd ${shq(place.worktree)} && ${pidWord(place.pidPath)}${env} ${words.map(shq).join(' ')} < ${shq(place.briefPath)} > ${shq(place.resultPath)}`;
   return {
     tool: 'Bash',
     input: {
@@ -103,9 +105,15 @@ export function instructionFor(request, place = {}) {
 }
 
 /**
+ * The words that record the shell's process ID before a headless run: the shell waits for the run,
+ * so the ID is alive exactly as long as the run is. @param {string | undefined} pidPath
+ */
+const pidWord = (pidPath) => (pidPath ? `echo $$ > ${shq(pidPath)} && ` : '');
+
+/**
  * The call that continues an executor with its context.
  * @param {{ harnessRef: string, message: string, tier: number, worktree?: string | null, sessionId?: string | null,
- *   briefPath?: string, resultPath?: string, dispatch: string, permissionMode?: string, env?: Record<string, string> }} r
+ *   briefPath?: string, resultPath?: string, pidPath?: string, dispatch: string, permissionMode?: string, env?: Record<string, string> }} r
  * @returns {Instruction}
  */
 export function followUpInstruction(r) {
@@ -120,7 +128,7 @@ export function followUpInstruction(r) {
       'a headless follow-up needs the earlier run session ID, its worktree, the message file and a result file',
     );
   }
-  const command = `cd ${shq(r.worktree)} && ${envWords({ HITLD_DISPATCH: r.dispatch, ...(r.env ?? {}) })} claude -p --output-format json --permission-mode ${shq(r.permissionMode ?? 'acceptEdits')} --resume ${shq(r.sessionId)} < ${shq(r.briefPath)} > ${shq(r.resultPath)}`;
+  const command = `cd ${shq(r.worktree)} && ${pidWord(r.pidPath)}${envWords({ HITLD_DISPATCH: r.dispatch, ...(r.env ?? {}) })} claude -p --output-format json --permission-mode ${shq(r.permissionMode ?? 'acceptEdits')} --resume ${shq(r.sessionId)} < ${shq(r.briefPath)} > ${shq(r.resultPath)}`;
   return {
     tool: 'Bash',
     input: { command, description: `Follow up ${r.dispatch} headless`, run_in_background: true },

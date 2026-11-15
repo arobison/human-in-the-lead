@@ -30,8 +30,11 @@ export const LEDGER_KEY = 'ledger.jsonl';
  */
 export const DECISION_EVENTS = Object.freeze(['asked', 'sent', 'answered', 'logged']);
 
-/** Events that end a dispatch: nothing more is expected of its executor. */
-export const TERMINAL_EVENTS = Object.freeze(['reported', 'abandoned', 'unclaimed']);
+/**
+ * Events that end a dispatch: nothing more is expected of its executor. `interrupted` ends one the
+ * watchdog stopped so that it continues as a follow-up (a new dispatch on the same agent).
+ */
+export const TERMINAL_EVENTS = Object.freeze(['reported', 'abandoned', 'unclaimed', 'interrupted']);
 
 /** Event names before schema version 2, and what each is now. Read permanently. */
 export const LEGACY_EVENTS = Object.freeze(
@@ -109,10 +112,22 @@ const REQUIRED = {
   unclaimed: ['item'],
   abandoned: ['dispatch', 'item'],
   logged: ['text'],
+  stalled: ['dispatch', 'item', 'reason', 'step'],
+  poked: ['dispatch', 'item'],
+  interrupted: ['dispatch', 'item'],
+  paused: ['limit'],
+  resumed: ['reason'],
 };
 
 /** @type {Record<string, string[]>} */
 const RESULTS = { reported: ['done', 'partial', 'blocked'], verified: ['pass', 'fail'] };
+
+/** Which reasons each event may give. @type {Record<string, string[]>} */
+const REASONS = {
+  'lease-released': ['handover', 'ended'],
+  stalled: ['no_progress', 'deadline', 'limit', 'exited'],
+  resumed: ['reset', 'budget'],
+};
 
 /**
  * Semantic checks the schema cannot express.
@@ -130,6 +145,16 @@ function checkEventRules(e) {
     else if (!allowed.includes(e.result)) {
       errors.push({ path: 'result', message: `must be ${allowed.join(' or ')} for ${e.event}` });
     }
+  }
+  if (e.reason !== undefined) {
+    const allowed = REASONS[e.event];
+    if (!allowed) errors.push({ path: 'reason', message: `is not used by ${e.event}` });
+    else if (!allowed.includes(e.reason)) {
+      errors.push({ path: 'reason', message: `must be ${allowed.join(', ')} for ${e.event}` });
+    }
+  }
+  if (e.step !== undefined && e.event !== 'stalled') {
+    errors.push({ path: 'step', message: 'is only for stalled' });
   }
   if (e.defects !== undefined && !(e.event === 'verified' && e.result === 'fail')) {
     errors.push({ path: 'defects', message: 'is only for a failed verification' });

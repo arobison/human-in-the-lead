@@ -57,4 +57,20 @@ export function windowBounds(window, now, known = {}) {
   return { start: now - length, end: null };
 }
 
+/**
+ * The next reset of a limit whose person declared one (`resets_at`), after `now`: the declared
+ * time itself while it is ahead, then one window length after another. Null when none is declared
+ * or the window has no fixed length (a run budget; a calendar month resets on its own boundary).
+ * @param {{ window: string, resets_at?: unknown }} limit @param {number} now
+ * @returns {number | null}
+ */
+export function declaredReset(limit, now) {
+  const anchor = resetsAtMs(limit.resets_at);
+  if (anchor === null) return null;
+  if (anchor > now) return anchor;
+  const length = windowLengthMs(limit.window);
+  if (!length) return null;
+  return anchor + (Math.floor((now - anchor) / length) + 1) * length;
+}
+
 export { HOUR };

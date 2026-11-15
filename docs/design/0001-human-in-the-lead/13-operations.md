@@ -91,9 +91,32 @@ On every wake the chief of staff also runs `hitld cadence due` ([13.3](#133-the-
 
 `hitld run status` reads the lease without taking it: who holds it, the session's harness reference (`--harness-ref` on `run start` and `run resume`), whether it is free, whether its hand-over is due, and the latest hand-over note. When the lease is free, the chief of staff starts a successor instead of waking anyone.
 
-**Only the chief of staff owns scheduled tasks.** An orchestrator creates no scheduled task, reminder or subscription. So a retired orchestrator leaves none behind, and a successor inherits the schedule without doing anything. A command result that asks for a later wake (for example, dispatch paused until a usage window resets) goes to the chief of staff, which schedules it. The watchdog for stalled executors (planned) runs on the same schedule.
+**Only the chief of staff owns scheduled tasks.** An orchestrator creates no scheduled task, reminder or subscription. So a retired orchestrator leaves none behind, and a successor inherits the schedule without doing anything. A command result that asks for a later wake (for example, dispatch paused until a usage window resets) goes to the chief of staff, which schedules it. The watchdog for stalled executors runs on the same schedule (below).
 
 **When one session is both.** A harness that cannot start sessions, or a person who prefers one session, keeps the main session as both chief of staff and orchestrator. It hands over the same way and gives the owner the note; the owner starts the fresh session.
+
+### The watchdog and resuming after limits
+
+Two things can stop a run without anyone noticing: an executor that hangs without reporting, and a usage limit that pauses dispatch until its window resets. Both are handled on the chief of staff's schedule, by a script, so neither waits for the owner or for an orchestrator to be replaced.
+
+**Every wake runs the watchdog.** At each of its wakes, the hourly check-in among them, the chief of staff runs `hitld dispatch watch` ([part 5](05-execution.md#the-watchdog)), beside `hitld cadence due` (13.3). It samples each executor's worktree, reads the progress the adapter recorded, and says which dispatches are stalled and the next step of the ladder for each, and whether a quota pause is due to lift. It reads the ledger and records nothing there, and it uses no model tokens. When something is due, it prints `wake: true` and a one-line `wake_message`, which the chief of staff sends to `wake_to`, in the same message as any other wake it passes on. Otherwise nothing goes to the orchestrator.
+
+**The orchestrator acts.** Woken, the orchestrator runs `hitld dispatch watch --act`, which only the session holding the lease may run. It records each step in the ledger and prints what to do: the message for a poke, the stop and the follow-up call for a continued agent, the item to re-plan after an abandonment, the question for the owner after repeated failures. It then plans the refill.
+
+**A pause wakes at its reset.** When the quota gate pauses dispatch, the orchestrator ends its turn with `wake_at: <reset> quota reset`, and `hitld run status` shows the same time as `wake_at` ([part 12](12-reporting-and-limits.md#pausing-and-resuming)). The chief of staff keeps one reminder pending, at the earlier of this time and the `ceiling_at` that `hitld cadence due` gives, bound to its own session like every scheduled task. The reminder is an ordinary wake: after the reset, the watch says dispatch may resume. At the wake, `hitld dispatch watch --act` records the resume once the gate allows dispatch, and continues the executors the limit cut off as follow-ups. When the person raises their budget with `hitld config write` and the output says the pause lifts, the chief of staff wakes the orchestrator at once.
+
+**Harness mappings.** The core decides the step; the skills say which tool carries it out:
+
+| Step | Background agent (tiers 1–2) | Headless run (tier 3) | Interactive session (tier 3) |
+|---|---|---|---|
+| Poke | The orchestrator messages the agent (in Claude Code, `SendMessage`) | Not possible while it runs | The chief of staff messages the session |
+| Follow-up | The orchestrator stops the agent's turn, then continues it with the follow-up | Not offered: continuing needs the session the run's result names | Not offered |
+| Abandon | The orchestrator stops the agent if it still runs | The orchestrator stops the process (its ID is recorded) | The chief of staff ends the session |
+| Ask | `hitld rights ask`, delivered through the attention budget ([part 23](23-people-in-the-lead.md#235-the-interface-as-a-design-surface)) | The same | The same |
+
+**When one session is both,** it runs the watchdog itself at its check-in and acts on it in the same turn.
+
+**Eval.** Two offline scenarios cover this. In `orchestrator/watchdog-ladder` a fake executor hangs, and the watchdog pokes it, continues it, abandons it and re-dispatches the item, which then reports done, without the owner. In `orchestrator/quota-pause-resume` dispatch pauses at the reserve with its reset time, holds the quiet executor until the reset, then resumes and continues the executor the limit cut off.
 
 ### Mapping onto harnesses
 
@@ -193,7 +216,7 @@ An outcome, for a review, is a recorded fact about how a call turned out: an ove
 
 **What each harness needs to provide** is wakes, not a list of timed jobs. The wake only lets the chief of staff ask what is due; it does not decide when work happens.
 
-- **Claude Code:** the wakes the chief of staff already has (the owner's message, an orchestrator's message, a completion, a GitHub event), one scheduled check-in while a run is active, and a one-off reminder at `ceiling_at`. Both use the cloud or desktop scheduled tasks, with the minimum interval the product sets; in-session `/loop` tasks only for checks during a run, since they end with the session.
+- **Claude Code:** the wakes the chief of staff already has (the owner's message, an orchestrator's message, a completion, a GitHub event), one scheduled check-in while a run is active, and a one-off reminder at `ceiling_at`, or at a quota pause's reset when that comes first (13.1). Both use the cloud or desktop scheduled tasks, with the minimum interval the product sets; in-session `/loop` tasks only for checks during a run, since they end with the session.
 - **Locally, with no chief of staff session:** the operating system's scheduler (launchd on macOS, cron or systemd timers on Linux) may run `hitld cadence due` and the deterministic jobs it lists. Its interval sets how soon a change is noticed, not when work happens. Jobs that need an agent wait for a session.
 - **GitHub:** Actions workflows triggered by a push to the integration branch, where a job runs in CI (offline evals, baselines on a runner with the right hardware), since a merge is the event; Copilot cloud agent automations for agent work, which GitHub documents as limited to some repository types (check before relying on it). An Actions `schedule` trigger is only a ceiling.
 
