@@ -222,8 +222,8 @@ Each project keeps its own ledger, run state and worktree records in its private
 When the person or machine file is missing, the orchestrator skill walks the person through setting it up, in the main session:
 
 1. It runs `hitld machine detect` and reads any settings that already exist.
-2. It asks a few questions, each with the detected value or a sensible default as its recommendation: which accounts and plans, the reserve, how many agents at once across all projects, the machine's role and how much of it to use, quiet hours.
-3. It offers the status-line usage capture, which is opt-in: it says what it changes in the person's own harness settings, and installs it only on a yes ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)). Without it, limits are declared and estimated.
+2. It shows every proposed value in one message, numbered, each with its source (detected, proposed or default): the machine's role and how much of it to use, how many agents at once across all projects, the reserve, and which accounts and plans if the person wants limits declared. The person answers `yes to all` or `change N to X`.
+3. It offers the status-line usage capture as its own question, which is opt-in: it says what it changes in the person's own harness settings, and installs it only on a yes ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)). Without it, limits are declared and estimated.
 4. It writes the files through `hitld config write`, which validates them, and shows `hitld config explain`.
 
 Until then, conservative defaults apply (one executor, the default reserve, no heavy work above the default load threshold) and autonomous dispatch waits for the setup. Work the person starts by hand still runs. **Executors never run the setup**: `config write` refuses when `HITLD_ROLE=executor` or `HITLD_DISPATCH` is set, as answers do ([Q21](22-open-questions.md)).

@@ -3,7 +3,7 @@
   "id": "orchestrator/first-run-walk-through",
   "suite": "orchestrator",
   "category": "settings",
-  "description": "The first-run walk-through (design 13.4): with no person or machine file the setup is not done; the orchestrator detects the machine, writes both files through config write with the answers given, and config explain shows them and says setup is done. A dispatched executor cannot write them.",
+  "description": "The first-run walk-through (design 13.4): with no person or machine file the setup is not done; the orchestrator detects the machine, shows every proposed value in one message and takes one owner reply for the values (the status-line consent is its own, second turn), writes both files through config write with the answers given, and config explain shows them and says setup is done. A dispatched executor cannot write them.",
   "mode": "offline",
   "steps": [
     { "id": "consumer", "action": "orchestrator.consumer", "with": { "setup": false } },
@@ -49,6 +49,16 @@
       "id": "still_missing",
       "action": "orchestrator.cli",
       "with": { "argv": ["config", "explain", "--json"] }
+    },
+    {
+      "id": "owner",
+      "action": "orchestrator.owner-turns",
+      "with": {
+        "turns": [
+          { "phase": "values", "say": "yes to all" },
+          { "phase": "status_line", "say": "no" }
+        ]
+      }
     },
     {
       "id": "person",
@@ -122,6 +132,16 @@
       "id": "refused-writes-nothing",
       "grader": "equals",
       "with": { "path": "steps.still_missing.result.setup.done", "value": false }
+    },
+    {
+      "id": "values-need-one-owner-turn",
+      "grader": "equals",
+      "with": { "path": "steps.owner.values_turns", "value": 1 }
+    },
+    {
+      "id": "status-line-asked-apart",
+      "grader": "count",
+      "with": { "path": "steps.owner.replies", "equals": 2 }
     },
     {
       "id": "person-written",
