@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "id": "orchestrator/handover-rotation",
+  "suite": "orchestrator",
+  "category": "continuity",
+  "description": "An orchestrator hands over after a number of completions: once the count is reached it starts nothing new, waits for the work it started to report to it, then writes the hand-over and gives up the lease. The chief of staff sees the lease free and the hand-over file; a successor takes the lease without --force and counts completions from its own lease, while the retired session can no longer record.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "consumer",
+      "action": "orchestrator.consumer",
+      "with": { "policy": { "orchestrator": { "handover_after_completions": 1 } } }
+    },
+    {
+      "id": "start",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "start"], "session": "orch-1" }
+    },
+    {
+      "id": "d1",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-1"], "session": "orch-1" }
+    },
+    {
+      "id": "d1_handle",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "handle", "--dispatch", "D-1", "--harness-ref", "agent-1"],
+        "session": "orch-1"
+      }
+    },
+    {
+      "id": "d2",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["dispatch", "start", "W-2"], "session": "orch-1" }
+    },
+    {
+      "id": "d2_handle",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "handle", "--dispatch", "D-2", "--harness-ref", "agent-2"],
+        "session": "orch-1"
+      }
+    },
+    {
+      "id": "note1",
+      "action": "file.write",
+      "with": {
+        "path": "note-1.txt",
+        "content": "item: W-1\nresult: done\ncommit: abc1234 (branch hitld/W-1-add-numbers)\nevidence:\n  - node --test test/: 1 passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n"
+      }
+    },
+    {
+      "id": "complete1",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "complete", "--dispatch", "D-1", "--report-file", "../note-1.txt"],
+        "session": "orch-1"
+      }
+    },
+    {
+      "id": "draining",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["handover"], "session": "orch-1" }
+    },
+    {
+      "id": "note2",
+      "action": "file.write",
+      "with": {
+        "path": "note-2.txt",
+        "content": "item: W-2\nresult: done\ncommit: def5678 (branch hitld/W-2-another-thing)\nevidence:\n  - node --test test/: 1 passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n"
+      }
+    },
+    {
+      "id": "complete2",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["dispatch", "complete", "--dispatch", "D-2", "--report-file", "../note-2.txt"],
+        "session": "orch-1"
+      }
+    },
+    {
+      "id": "handover",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["handover"], "session": "orch-1" }
+    },
+    {
+      "id": "status",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "status"], "session": "cos" }
+    },
+    {
+      "id": "resume",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "resume", "--live", "none"], "session": "orch-2" }
+    },
+    {
+      "id": "successor_status",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "status"], "session": "cos" }
+    },
+    {
+      "id": "retired",
+      "action": "orchestrator.cli",
+      "with": { "argv": ["run", "checkpoint"], "session": "orch-1" }
+    }
+  ],
+  "graders": [
+    {
+      "id": "due-after-one",
+      "grader": "equals",
+      "with": { "path": "steps.complete1.result.handover.due", "value": true }
+    },
+    {
+      "id": "refill-held",
+      "grader": "count",
+      "with": { "path": "steps.complete1.result.refill.start", "equals": 0 }
+    },
+    {
+      "id": "waits-for-its-own-work",
+      "grader": "equals",
+      "with": { "path": "steps.draining.result.error", "value": "draining" }
+    },
+    {
+      "id": "names-what-it-waits-for",
+      "grader": "equals",
+      "with": { "path": "steps.draining.result.reporting_here", "value": ["D-2"] }
+    },
+    {
+      "id": "handed-over",
+      "grader": "equals",
+      "with": { "path": "steps.handover.result.released.reason", "value": "handover" }
+    },
+    {
+      "id": "note-says-released",
+      "grader": "matches",
+      "with": { "path": "steps.handover.result.text", "pattern": "The lease is released" }
+    },
+    {
+      "id": "chief-of-staff-sees-it-free",
+      "grader": "equals",
+      "with": { "path": "steps.status.result.lease.free", "value": true }
+    },
+    {
+      "id": "chief-of-staff-has-the-file",
+      "grader": "matches",
+      "with": { "path": "steps.status.result.handover_file", "pattern": "orchestrator/handover-" }
+    },
+    {
+      "id": "successor-without-force",
+      "grader": "equals",
+      "with": { "path": "steps.resume.result.took_over.reason", "value": "handover" }
+    },
+    {
+      "id": "nothing-lost",
+      "grader": "count",
+      "with": { "path": "steps.resume.result.abandoned", "equals": 0 }
+    },
+    {
+      "id": "successor-counts-afresh",
+      "grader": "equals",
+      "with": { "path": "steps.successor_status.result.handover.due", "value": false }
+    },
+    {
+      "id": "wakes-to-the-successor",
+      "grader": "equals",
+      "with": { "path": "steps.successor_status.result.wake_to", "value": "orch-2" }
+    },
+    {
+      "id": "retired-session-refused",
+      "grader": "equals",
+      "with": { "path": "steps.retired.result.error", "value": "lease_lost" }
+    }
+  ]
+}

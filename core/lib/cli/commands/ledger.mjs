@@ -1,4 +1,6 @@
-// Piece (b): the ledger and orchestrator continuity (design parts 5.4 and 13.1).
+// Piece (b): the ledger and orchestrator continuity (design parts 5.4 and 13.1), and what the
+// chief of staff reads and records about the run: who holds the lease, and retiring a session that
+// ended without a hand-over.
 
 import { hostname } from 'node:os';
 import { findRepoRoot, loadPolicy, policyDefaults } from '../../policy/policy.mjs';
@@ -7,10 +9,23 @@ import { LedgerError, appendEvent, correctsValidly, readLedger } from '../../led
 import { inflight } from '../../ledger/inflight.mjs';
 import { summary } from '../../ledger/summary.mjs';
 import { LeaseError } from '../../run/lease.mjs';
-import { Run, handOver, rebuildRun, resumeRun, startRun } from '../../run/run.mjs';
+import {
+  Run,
+  handOver,
+  handoverDue,
+  latestHandover,
+  leaseStatus,
+  rebuildRun,
+  releaseLease,
+  reportingHere,
+  resumeRun,
+  startRun,
+} from '../../run/run.mjs';
+import { absorb } from '../../run/state.mjs';
 import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
+import { executorSignal } from '../executor.mjs';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const STORE = {
@@ -32,6 +47,17 @@ const HOST = {
   type: 'string',
   description: "The machine this session runs on. Default: this machine's host name",
 };
+/** @type {import('../args.mjs').ArgSpec} */
+const HARNESS_REF = {
+  name: 'harness-ref',
+  type: 'string',
+  description:
+    "This session's own reference in its harness, where it has one (a cloud session's ID): recorded with the lease, so the chief of staff sends wakes there",
+};
+
+/** --context-percent as a share, or null. @param {Record<string, unknown>} input */
+const contextShareOf = (input) =>
+  typeof input['context-percent'] === 'number' ? input['context-percent'] / 100 : null;
 
 /**
  * The store and the settings that come from policy.
@@ -63,6 +89,7 @@ function setup(input, ctx) {
     concurrency: policy.execution?.max_executors?.value,
     kept: policy.run?.checkpoints_kept,
     expirySeconds: policy.run?.lease_expiry_seconds,
+    orchestrator: /** @type {Record<string, number | undefined>} */ (policy.orchestrator ?? {}),
     cwd: ctx.cwd,
   };
 }
@@ -262,6 +289,7 @@ export const commands = [
       },
       SESSION,
       HOST,
+      HARNESS_REF,
       STORE,
     ],
     run: (input, ctx) =>
@@ -289,6 +317,7 @@ export const commands = [
           scope,
           policyHash: s.hash,
           replace: input.replace === true,
+          harnessRef: /** @type {string | undefined} */ (input['harness-ref']),
           kept: s.kept,
           expirySeconds: s.expirySeconds,
         });
@@ -355,10 +384,11 @@ export const commands = [
         name: 'force',
         type: 'boolean',
         description:
-          'Take the lease although it has not expired (the owner says so, for example when moving machines)',
+          'Take the lease although it has not expired and was not released (the owner says so, for example when moving machines)',
       },
       SESSION,
       HOST,
+      HARNESS_REF,
       STORE,
     ],
     run: (input, ctx) =>
@@ -378,6 +408,7 @@ export const commands = [
           force: input.force === true,
           kept: s.kept,
           expirySeconds: s.expirySeconds,
+          harnessRef: /** @type {string | undefined} */ (input['harness-ref']),
           reality,
         });
         return {
@@ -393,6 +424,119 @@ export const commands = [
           foreign: r.foreign,
           unverified: r.unverified,
           handover: handOver(r.run.state, readLedger(s.store).events),
+        };
+      }),
+  },
+  {
+    name: 'run status',
+    summary:
+      'Who holds the run lease and where wakes go, whether it is free for a successor, and whether its holder should hand over. Reads only',
+    built_by: 'b',
+    args: [
+      {
+        name: 'context-percent',
+        type: 'integer',
+        description:
+          'When the holder asks: the percentage of its context it has used, as its harness shows it; compared with policy orchestrator.handover_context_share',
+      },
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const s = setup(input, ctx);
+        const loaded = loadState(s.store);
+        if (!loaded.state) {
+          return {
+            ok: false,
+            error: 'no_run',
+            message: `no run state (${loaded.problems.join('; ')}); start a run with hitld run start, or hitld run rebuild`,
+          };
+        }
+        // The ledger may hold events the state has not absorbed yet; read them, change nothing.
+        const events = readLedger(s.store).events;
+        const state = absorb(structuredClone(loaded.state), events).state;
+        const lease = leaseStatus(state, new Date(), s.expirySeconds);
+        const handover = handoverDue(state, events, {
+          afterCompletions: s.orchestrator.handover_after_completions,
+          contextShare: s.orchestrator.handover_context_share,
+          contextUsed: contextShareOf(input),
+        });
+        const file = latestHandover(s.store, state.run.id);
+        const sessions = state.in_flight
+          .filter((/** @type {any} */ d) => d.mode === 'interactive')
+          .map((/** @type {any} */ d) => d.dispatch);
+        const live = sessions.length ? sessions.join(',') : 'none';
+        return {
+          ok: true,
+          run: state.run,
+          lease,
+          wake_to: lease.free ? null : (lease.harness_ref ?? lease.session),
+          in_flight: state.in_flight.length,
+          own_sessions: sessions,
+          decisions_open: state.decisions_open.length,
+          waiting_to_merge: state.merge_queue.waiting.length,
+          handover,
+          handover_file: file ? `${s.store.root}/${file}` : null,
+          next: lease.free
+            ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${s.store.root}/${file}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
+            : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}`,
+        };
+      }),
+  },
+  {
+    name: 'run retire',
+    summary:
+      "Release the lease of an orchestrator session that ended without a hand-over, so a successor resumes the run at once. The chief of staff's, on the harness's word that the session ended",
+    built_by: 'b',
+    args: [
+      {
+        name: 'holder',
+        type: 'string',
+        required: true,
+        description: 'The session that ended: the lease holder, as hitld run status names it',
+      },
+      {
+        name: 'holder-host',
+        type: 'string',
+        description: "The holder's machine. Default: the lease's",
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const why = executorSignal(ctx.env, ctx.cwd);
+        if (why) {
+          return {
+            ok: false,
+            error: 'not_permitted',
+            message: `hitld run retire is the chief of staff's, run in the primary checkout (${why}); executors never touch the lease`,
+          };
+        }
+        const s = setup(input, ctx);
+        const r = releaseLease(s.store, {
+          ...who(input, ctx),
+          kept: s.kept,
+          reason: 'ended',
+          holder: {
+            session: String(input.holder),
+            ...(typeof input['holder-host'] === 'string' ? { host: input['holder-host'] } : {}),
+          },
+          notes: 'the session ended without a hand-over',
+        });
+        const waiting = reportingHere(r.state, r.state.lease.host).map(
+          (/** @type {any} */ d) => d.dispatch,
+        );
+        return {
+          ok: true,
+          retired: { session: r.state.lease.session, host: r.state.lease.host },
+          released: r.released,
+          appended: r.appended,
+          // Background work the ended session started reported to it alone: the successor's
+          // resume decides what is live, what has commits to continue, and what is abandoned.
+          reported_to_it: waiting,
+          next: 'start a successor orchestrator session; it runs hitld run resume (no --force needed)',
         };
       }),
   },

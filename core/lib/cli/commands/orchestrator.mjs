@@ -15,10 +15,18 @@ import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { loadSettingsFile } from '../../settings/files.mjs';
 import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
-import { readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
+import { appendEvent, readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { LeaseError } from '../../run/lease.mjs';
-import { Run, handOver } from '../../run/run.mjs';
+import {
+  Run,
+  handOver,
+  handoverDue,
+  handoverKey,
+  releaseLease,
+  reportingHere,
+} from '../../run/run.mjs';
+import { absorb } from '../../run/state.mjs';
 import { reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
@@ -75,6 +83,45 @@ const DISPATCH = {
   required: true,
   description: 'The dispatch ID, such as D-12',
 };
+
+/** @type {import('../args.mjs').ArgSpec} */
+const CONTEXT_PERCENT = {
+  name: 'context-percent',
+  type: 'integer',
+  description:
+    'The percentage of its context this session has used, as its harness shows it; at policy orchestrator.handover_context_share the hand-over is due',
+};
+
+/** --context-percent as a share, or null. @param {Record<string, unknown>} input */
+const contextShareOf = (input) =>
+  typeof input['context-percent'] === 'number' ? input['context-percent'] / 100 : null;
+
+/**
+ * Whether this session's hand-over is due (design part 13.1).
+ * @param {Run} run @param {Record<string, any>} policy @param {Record<string, unknown>} input
+ */
+const dueFor = (run, policy, input) =>
+  handoverDue(run.state, readLedger(run.store).events, {
+    afterCompletions: policy.orchestrator?.handover_after_completions,
+    contextShare: policy.orchestrator?.handover_context_share,
+    contextUsed: contextShareOf(input),
+  });
+
+/**
+ * The owner's approval of a waiting branch, from the ledger: a merge-approved event for its item
+ * and branch after the item's last verification. Null when there is none.
+ * @param {Record<string, any>[]} events @param {{ item: string, branch: string | null }} w
+ */
+function approvalOf(events, w) {
+  const verified = events.findLastIndex((e) => e.event === 'verified' && e.item === w.item);
+  return (
+    events
+      .slice(verified + 1)
+      .findLast(
+        (e) => e.event === 'merge-approved' && e.item === w.item && e.branch === w.branch,
+      ) ?? null
+  );
+}
 
 class Refusal extends Error {
   /** @param {string} code @param {string} message @param {Record<string, unknown>} [more] */
@@ -263,6 +310,7 @@ const planJson = (r, setup) => ({
     model: s.sizing.model,
     effort: s.sizing.effort,
     estimate_tokens: s.sizing.estimate_tokens,
+    ...(s.sizing.owner_review ? { owner_review: s.sizing.owner_review } : {}),
     serial: s.serial,
     notes: s.notes,
   })),
@@ -392,6 +440,14 @@ export const commands = [
         const p = project(ctx);
         const run = runOf(p, input, ctx);
         const id = String(input.item);
+        const due = dueFor(run, p.policy, input);
+        if (due.due && input['by-hand'] !== true) {
+          throw new Refusal(
+            'handover_due',
+            `this session's hand-over is due (${due.reasons.join('; ')}): start nothing new; once the work it started has reported, hitld handover. A successor dispatches ${id}`,
+            { handover: due },
+          );
+        }
         const { q, result, setup } = plan(p, ctx, input['by-hand'] === true ? id : undefined);
         const planned = result.start.find((s) => s.item === id);
         if (!planned) {
@@ -439,6 +495,7 @@ export const commands = [
           skill_versions: { hitld_version: VERSION },
           estimate_tokens: sizing.estimate_tokens,
           host: run.host,
+          ...(tier === 3 ? { mode } : {}),
           ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
         });
 
@@ -530,7 +587,7 @@ export const commands = [
         );
         const then =
           call.tool === 'session'
-            ? `ask the owner to start a session in ${worktree} with the brief in ${briefPath}; then hitld dispatch handle --dispatch ${dispatch} --harness-ref <session name>`
+            ? `ask the chief of staff to start a session in ${worktree} with the brief in ${briefPath} (when you are both, start it yourself; without a way to start sessions, ask the owner); then hitld dispatch handle --dispatch ${dispatch} --harness-ref <the session's reference>`
             : `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the ${call.tool === 'Agent' ? 'agent ID' : 'background task ID'} the call returns>`;
         return {
           ok: true,
@@ -611,6 +668,7 @@ export const commands = [
       },
       { name: 'tool-calls', type: 'integer', description: 'Tool calls from the notification' },
       { name: 'duration-ms', type: 'integer', description: 'Duration from the notification' },
+      CONTEXT_PERCENT,
       SESSION,
       HOST,
     ],
@@ -690,7 +748,24 @@ export const commands = [
           }
         }
         const again = plan(project(ctx), ctx);
-        out.refill = planJson(again.result, again.setup);
+        const refill = planJson(again.result, again.setup);
+        out.refill = refill;
+        // A session whose hand-over is due starts nothing new: it lets what it started report to
+        // it, then hands over, and its successor refills the slots (design part 13.1).
+        const due = dueFor(run, p.policy, input);
+        out.handover = due;
+        if (due.due) {
+          const waiting = reportingHere(run.state, run.host).map((x) => x.dispatch);
+          out.refill = {
+            ...refill,
+            start: [],
+            inline: [],
+            held_for_handover: [...refill.start.map((x) => x.item), ...refill.inline],
+            next: waiting.length
+              ? `the hand-over is due (${due.reasons.join('; ')}): start nothing new; process the completions of ${waiting.join(', ')}, then hitld handover`
+              : `the hand-over is due (${due.reasons.join('; ')}): hitld handover now`,
+          };
+        }
         return out;
       }),
   },
@@ -743,6 +818,7 @@ export const commands = [
           ...(first.effort ? { effort: first.effort } : {}),
           ...(first.branch ? { branch: first.branch } : {}),
           ...(first.worktree ? { worktree: first.worktree } : {}),
+          ...(first.mode ? { mode: first.mode } : {}),
           brief_hash: createHash('sha256').update(message).digest('hex'),
           skill_versions: { hitld_version: VERSION },
           host: run.host,
@@ -837,15 +913,23 @@ export const commands = [
           run.state.merge_queue.waiting
         );
         if (owner && typeof input.only !== 'string') {
+          const events = readLedger(p.store).events;
+          const listed = waitingForOwner(waiting, events).map((w) => {
+            const a = approvalOf(events, w);
+            return { ...w, approved: a ? { by: a.by, at: a.at } : null };
+          });
+          const approved = listed.filter((w) => w.approved).map((w) => w.branch ?? w.item);
           return {
             ok: true,
             mode: 'owner',
             merged: [],
             rejected: [],
-            waiting: waitingForOwner(waiting, readLedger(p.store).events),
-            next: waiting.length
-              ? 'tell the owner what is ready; merge only what the owner names: hitld merge --only <branch>'
-              : 'nothing is waiting for the owner',
+            waiting: listed,
+            next: approved.length
+              ? `the owner approved ${approved.join(', ')} (hitld merge approve, from the owner's own message): hitld merge --only ${approved.join(',')}`
+              : waiting.length
+                ? 'tell the owner what is ready; merge only what the owner names: hitld merge --only <branch>'
+                : 'nothing is waiting for the owner',
           };
         }
         if (typeof input.only === 'string') {
@@ -1013,17 +1097,119 @@ export const commands = [
       }),
   },
   {
+    name: 'merge approve',
+    summary:
+      "Owner merge mode: record the owner's approval of waiting branches, from the owner's own message in this session, so the session that holds the lease merges them. Needs no lease: the chief of staff, which the owner talks to, records it",
+    built_by: 'h',
+    args: [
+      {
+        name: 'only',
+        type: 'string',
+        required: true,
+        description: 'The branches (or items) the owner named, comma-separated',
+      },
+      SESSION,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const why = executorSignal(ctx.env, ctx.cwd);
+        if (why) {
+          throw new Refusal(
+            'not_permitted',
+            `a merge approval is the owner's, recorded from the owner's own message (${why})`,
+          );
+        }
+        const p = project(ctx);
+        if (p.policy.merge.mode !== 'owner') {
+          throw new Refusal(
+            'not_owner_mode',
+            'merge.mode is not owner: the queue merges whatever passes, with no approval to record',
+          );
+        }
+        if (!p.state) throw new Refusal('no_run', 'no run has started: hitld run start');
+        const by = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
+        if (!by) {
+          throw new Refusal('usage', 'a session ID is needed: pass --session or set HITLD_SESSION');
+        }
+        const events = readLedger(p.store).events;
+        const state = absorb(structuredClone(p.state), events).state;
+        const waiting = /** @type {{ item: string, branch: string | null }[]} */ (
+          state.merge_queue.waiting
+        );
+        const names = String(input.only)
+          .split(',')
+          .map((n) => n.trim())
+          .filter(Boolean);
+        const { chosen, unknown, ambiguous, mismatched } = chooseNamed(waiting, names, events);
+        if (!names.length || unknown.length || ambiguous.length || mismatched.length) {
+          throw new Refusal(
+            'not_waiting',
+            `${[...unknown, ...ambiguous, ...mismatched].join(', ') || 'no branch'}: not exactly one branch waiting for the owner; nothing was approved`,
+            { waiting: waiting.map((w) => ({ item: w.item, branch: w.branch })) },
+          );
+        }
+        const approved = [];
+        for (const w of chosen) {
+          const existing = approvalOf(events, w);
+          if (!existing) {
+            appendEvent(p.store, {
+              event: 'merge-approved',
+              run: state.run.id,
+              item: w.item,
+              branch: String(w.branch ?? ''),
+              by,
+              notes: "from the owner's own message",
+            });
+          }
+          approved.push({ item: w.item, branch: w.branch, already: Boolean(existing) });
+        }
+        return {
+          ok: true,
+          approved,
+          next: 'wake the session that holds the lease (hitld run status names it): it merges them with hitld merge --only',
+        };
+      }),
+  },
+  {
     name: 'handover',
     summary:
-      'Checkpoint and write the hand-over note for a fresh orchestrator session, from the ledger and run state',
+      'Write the hand-over note for a successor orchestrator session, from the ledger and run state, and give up the lease. Waits until the work this session started has reported to it',
     built_by: 'h',
-    args: [SESSION, HOST],
+    args: [
+      {
+        name: 'now',
+        type: 'boolean',
+        description:
+          'Hand over although work this session started still reports to it (its notices will reach no session; the successor continues it from its branch or abandons it). For a context that cannot wait, or the owner asking',
+      },
+      {
+        name: 'keep-lease',
+        type: 'boolean',
+        description: 'Write the note only, and keep driving the run (the owner asked for a note)',
+      },
+      CONTEXT_PERCENT,
+      SESSION,
+      HOST,
+    ],
     run: (input, ctx) =>
       guarded(() => {
         const p = project(ctx);
         const run = runOf(p, input, ctx);
+        const keep = input['keep-lease'] === true;
         const state = run.checkpoint();
+        const waiting = reportingHere(state, run.host).map((/** @type {any} */ d) => d.dispatch);
+        if (waiting.length && !keep && input.now !== true) {
+          throw new Refusal(
+            'draining',
+            `${waiting.join(', ')} still report to this session, and no successor would hear of them: start nothing new, process their completions, then hitld handover (or --now)`,
+            { reporting_here: waiting },
+          );
+        }
+        const due = dueFor(run, p.policy, input);
         const h = handOver(state, readLedger(p.store).events);
+        const sessions = state.in_flight
+          .filter((/** @type {any} */ d) => d.mode === 'interactive')
+          .map((/** @type {any} */ d) => d.dispatch);
         let next = '';
         try {
           next = readyQueue(project(ctx), ctx)
@@ -1038,14 +1224,41 @@ export const commands = [
           '',
           h.text,
           `Ready next: ${next || 'none'}.`,
+          ...(due.due ? [`Why now: ${due.reasons.join('; ')}.`] : []),
+          ...(waiting.length && !keep
+            ? [
+                `Reported to the previous session only: ${waiting.join(', ')}. Their notices reach no session; resume decides from their branches.`,
+              ]
+            : []),
           '',
           'To continue, in a fresh session: the orchestrate skill, which begins with',
-          'hitld run resume --live <the dispatch IDs Claude Code still shows running, or none>.',
+          `hitld run resume --live <those of ${sessions.join(', ') || 'none'} still running, or none>.`,
+          keep
+            ? 'The session that wrote this note still holds the lease.'
+            : 'The lease is released: the successor takes it without --force.',
           '',
         ].join('\n');
-        const key = `orchestrator/handover-${h.run}-${h.checkpoint}.md`;
+        const key = handoverKey(h.run, h.checkpoint);
         p.store.write(key, text);
-        return { ok: true, file: join(p.store.root, key), text };
+        const released = keep
+          ? null
+          : releaseLease(p.store, {
+              session: run.session,
+              host: run.host,
+              kept: p.policy.run?.checkpoints_kept,
+              reason: 'handover',
+              notes: due.reasons.join('; ') || (input.now === true ? 'at once' : 'asked'),
+            }).released;
+        return {
+          ok: true,
+          file: join(p.store.root, key),
+          text,
+          released,
+          handover: due,
+          next: keep
+            ? 'give the owner the text and the file; this session still drives the run'
+            : 'stop driving the run: tell the chief of staff the file (when you are both, the owner); a successor session resumes from it with hitld run resume',
+        };
       }),
   },
   {

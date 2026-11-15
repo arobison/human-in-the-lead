@@ -12,6 +12,7 @@ import { TERMINAL_EVENTS, readLedger } from './ledger.mjs';
  * @property {string} item
  * @property {string} [role]
  * @property {number} [tier]
+ * @property {'headless' | 'interactive'} [mode] for tier 3: a background run, or its own session
  * @property {string | null} harness null until the harness accepted the dispatch (claimed)
  * @property {string | null} harness_ref the harness's own reference for the dispatch
  * @property {string | null} host
@@ -35,6 +36,7 @@ export function applyInflight(list, e) {
       item: e.item,
       ...(e.role !== undefined ? { role: e.role } : {}),
       ...(e.tier !== undefined ? { tier: e.tier } : {}),
+      ...(e.mode !== undefined ? { mode: e.mode } : {}),
       harness: null,
       harness_ref: null,
       host: e.host ?? null,

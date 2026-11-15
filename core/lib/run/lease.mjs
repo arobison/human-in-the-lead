@@ -5,12 +5,16 @@
 // The store offers no compare-and-swap, so takeover reads, then writes, then reads back to confirm
 // it won. That is enough for one machine and one owner; two sessions racing within the same few
 // milliseconds could still both believe they won, and the loser finds out at its next checkpoint.
+//
+// A lease can also be released before it expires (design part 13.1, disposable orchestrators): by
+// its holder when it hands over, or by the chief of staff when it saw the holder's session end. A
+// released lease is free for a successor at once, and its holder can no longer record.
 
 /** @typedef {import('./state.mjs').RunState} RunState */
 
 export class LeaseError extends Error {
   /**
-   * @param {'held' | 'lost' | 'none'} code
+   * @param {'held' | 'lost' | 'released' | 'none'} code
    * @param {string} message
    * @param {{ session: string, host: string, renewed_at: string } | null} [holder]
    */
@@ -46,6 +50,13 @@ export function assertHolds(state, session, host) {
     throw new LeaseError(
       'lost',
       `the lease on run ${state.run.id} is held by session ${l.session} on ${l.host}, not by this session`,
+      l,
+    );
+  }
+  if (l.released) {
+    throw new LeaseError(
+      'released',
+      `this session gave up the lease on run ${state.run.id} (${l.released.reason === 'handover' ? 'it handed over' : `retired by ${l.released.by}: its session ended`}); a successor resumes the run`,
       l,
     );
   }
