@@ -1098,3 +1098,61 @@ test('the check refuses a feedback record in the repository (design 18.4: privat
     problems.join('\n'),
   );
 });
+
+test('work new refused for an executor or off main returns not-permitted', async () => {
+  const root = makeRepo();
+  settings(root);
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'settings');
+  const args = ['work', 'new', '--title', 'X', '--parent', 'W-2'];
+  const executor = await hitld(args, root, { HITLD_ROLE: 'executor' });
+  assert.equal(executor.code, 1);
+  assert.equal(executor.json.error, 'not-permitted');
+  git(root, 'checkout', '-q', '-b', 'exec/w-4');
+  const off = await hitld(args, root);
+  assert.equal(off.json.error, 'not-permitted');
+  git(root, 'checkout', '-q', 'main');
+  const onMain = await hitld(['work', 'claim', 'W-4', '--dispatch', 'D-1'], root);
+  assert.equal(onMain.json.error, 'not-permitted');
+});
+
+test('work check with no policy.json returns policy; a missing item is not-found', async () => {
+  const root = makeRepo();
+  const r = await hitld(['work', 'check'], root);
+  assert.equal(r.code, 1);
+  assert.equal(r.json.error, 'policy');
+  settings(root);
+  const shown = await hitld(['work', 'show', 'W-99'], root);
+  assert.equal(shown.json.error, 'not-found');
+});
+
+test('work check that finds no tracker files warns and says where it looked', async () => {
+  const bare = makeRepo({
+    files: {
+      'backlog/W-9-thing.md': itemText({
+        id: 'W-9',
+        title: 'Thing',
+        kind: 'work',
+        state: 'planned',
+      }),
+    },
+    omit: [
+      'work/milestones/W-1-goal.md',
+      'work/projects/W-2-the-project.md',
+      'work/items/W-3-first-step.md',
+      'work/items/W-4-second-step.md',
+      'work/items/W-5-third-step.md',
+      'work/items/W-6-which-way.md',
+    ],
+  });
+  settings(bare);
+  git(bare, 'add', '-A');
+  git(bare, 'commit', '-q', '-m', 'settings');
+  const r = await hitld(['work', 'check'], bare);
+  assert.equal(r.json.files, 0);
+  assert.match(r.json.summary, /0 files checked/);
+  const w = r.json.warnings.join('\n');
+  assert.match(w, /no tracker files found in work\//);
+  assert.match(w, /no tracker\.json/);
+  assert.match(w, /look like tracker items.*backlog/);
+});

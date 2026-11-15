@@ -3,6 +3,7 @@
 // Exit codes: 0 ok; 1 the command ran and found a problem, or failed; 2 usage error;
 // 3 the command is not yet built.
 
+import { CodedError, isErrorCode } from './errors.mjs';
 import { parseArgs, UsageError } from './args.mjs';
 import { COMMANDS, BUILT_BY, findCommand } from './table.mjs';
 import { NAME, VERSION } from '../version.mjs';
@@ -129,7 +130,8 @@ export async function main(argv, io) {
     return result.ok ? EXIT.ok : EXIT.failed;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    json(io, { ok: false, error: 'failed', command: command.name, message });
+    const error = e instanceof CodedError && isErrorCode(e.code) ? e.code : 'failed';
+    json(io, { ok: false, error, command: command.name, message });
     return EXIT.failed;
   }
 }

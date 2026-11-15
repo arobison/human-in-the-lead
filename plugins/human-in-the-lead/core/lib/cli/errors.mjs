@@ -200,5 +200,15 @@ export const ERROR_CODES = Object.freeze({
   'primary-mismatch': 'The recorded primary checkout is not the one this process is in.',
 });
 
+/** An error that carries its design 16.2 code, so the command line prints it instead of `failed`. */
+export class CodedError extends Error {
+  /** @param {string} code @param {string} message */
+  constructor(code, message) {
+    super(message);
+    this.name = 'CodedError';
+    this.code = code;
+  }
+}
+
 /** @param {string} code */
 export const isErrorCode = (code) => Object.hasOwn(ERROR_CODES, code);

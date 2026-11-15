@@ -9,11 +9,12 @@ For a project that wants a view the built-in page does not give: its own numbers
 ```bash
 hitld dashboard                 # write dashboard.html and digest.txt
 hitld dashboard --json          # the same, and also return the data
+hitld dashboard --json --no-write   # return the data only; write no files
 hitld dashboard --out reports   # write them in a directory of your choice
 ```
 
 - By default the two files go to `reports/` in the project's private store (outside the repository). `--out` takes a directory inside the repository or the private store, and refuses anything else with the error `output-path`. The directory keeps a marker, `.hitld-report.json`, naming the files a report made there, and a later report overwrites only files the marker lists.
-- With `--json`, the command's JSON output has the usual `ok`, the paths `html` and `digest`, the dispatch `mode` and the digest `text`, and the data under **`report`**. It still writes the two files: `--json` adds to the output, it does not replace the page.
+- With `--json`, the command's JSON output has the usual `ok`, the paths `html` and `digest`, the dispatch `mode` and the digest `text`, and the data under **`report`**. It still writes the two files: `--json` adds to the output, it does not replace the page. To get the data without writing any file, add `--no-write`: the output then has `ok`, `mode`, `text` and `report`, and no `html` or `digest` path.
 - It reads the ledger, the usage snapshots and the quotas for the project, locally. It makes no network request.
 
 ## What the data holds
@@ -47,8 +48,8 @@ A fresh project with no readings and no ledger gives `gate.mode: "stop"` (no rea
 With `jq`:
 
 ```bash
-hitld dashboard --json | jq -r '.report.gate.mode'
-hitld dashboard --json | jq -r '.report.quotas[] | "\(.id) \(.headroom)"'
+hitld dashboard --json --no-write | jq -r '.report.gate.mode'
+hitld dashboard --json --no-write | jq -r '.report.quotas[] | "\(.id) \(.headroom)"'
 ```
 
 With Node, which `hitld` already needs. This script checks the version and copies only chosen fields:
@@ -80,7 +81,7 @@ const snapshot = {
 console.log(JSON.stringify(snapshot, null, 2));
 ```
 
-Run it as `hitld dashboard --json | node snapshot.mjs`. A command that fails prints one JSON object with `ok: false` and an `error` code, so check `ok` before you read `report`. Exit codes are 0 for ok and 1 for a problem.
+Run it as `hitld dashboard --json --no-write | node snapshot.mjs`. A command that fails prints one JSON object with `ok: false` and an `error` code, so check `ok` before you read `report`. Exit codes are 0 for ok and 1 for a problem.
 
 ## Showing it on a published page
 
@@ -100,15 +101,15 @@ If the page is a static file with no script and no network request, you get the 
 ## Check that it worked
 
 ```bash
-hitld dashboard --json | jq '.report.metrics_schema_version'   # 1
-hitld dashboard --json | node snapshot.mjs                     # your fields, no error
+hitld dashboard --json --no-write | jq '.report.metrics_schema_version'   # 1
+hitld dashboard --json --no-write | node snapshot.mjs                     # your fields, no error
 ```
 
-Open your page next to the built-in `dashboard.html` (its path is in the command's `html` field). The numbers for the same limit must agree: both come from the same report.
+Open your page next to the built-in `dashboard.html` (run `hitld dashboard --json` without `--no-write`; its path is in the command's `html` field). The numbers for the same limit must agree: both come from the same report.
 
 ## Undo it
 
-Delete your script and the page. HITLD's files and settings are unchanged by anything on this page: `hitld dashboard` only reads, and it overwrites only the files its own marker lists. If you used `--out` inside the repository, delete that directory.
+Delete your script and the page. HITLD's files and settings are unchanged by anything on this page: `hitld dashboard --no-write` writes nothing, and it overwrites only the files its own marker lists. If you used `--out` inside the repository, delete that directory.
 
 ## When a view should be built in
 

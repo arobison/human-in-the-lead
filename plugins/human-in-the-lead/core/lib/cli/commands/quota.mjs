@@ -109,7 +109,14 @@ export const commands = [
       {
         name: 'json',
         type: 'boolean',
-        description: 'Also return the report data (the metrics data contract)',
+        description:
+          'Also return the report data (the metrics data contract); the files are still written unless --no-write is given',
+      },
+      {
+        name: 'no-write',
+        type: 'boolean',
+        description:
+          'Write no files: return the report data (the metrics data contract) and the digest text only',
       },
       {
         name: 'now',
@@ -140,6 +147,9 @@ export const commands = [
         if (made.ok && 'digest' in made) digest = made.digest.text;
       } catch {
         // Keep the quota lines.
+      }
+      if (input['no-write']) {
+        return { ok: true, mode: report.gate.mode, text: digest, report };
       }
       const dir =
         typeof input.out === 'string'

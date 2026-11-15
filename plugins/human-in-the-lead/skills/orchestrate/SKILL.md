@@ -42,6 +42,8 @@ When no chief of staff runs (nothing can start sessions, or the owner prefers on
 
 ## 0. First run: set up the person and the machine
 
+If the project is not set up for HITLd (no `.human-in-the-lead/policy.json`, so `hitld` commands fail with `policy`), stop and use the `adopt` skill (`skills/adopt`) first.
+
 Before anything else, run `hitld config explain --json` and read `setup`. When `setup.done` is true, go to step 1. When it is false, the person file or the machine file is missing (`setup.missing` names them). With a chief of staff, it runs the setup with the owner: say so in your message and stop. Until both exist, `hitld dispatch plan` holds all autonomous work (reason `setup`) with a cap of one, and `hitld dispatch start` refuses items except `--by-hand`. Walk the owner through the setup now, in this session. Never delegate it: executors are refused by `hitld config write`, and so are you if you are running as one.
 
 Keep the messages short and self-contained, so they can be answered from a phone. Show all the values in one message, not one question per message.

@@ -23,6 +23,7 @@
 import { applyPatch } from './format.mjs';
 import { findEntry, writeStored } from './edit.mjs';
 import { git, idNumber, loadPlaces, refPlaces } from './tree.mjs';
+import { CodedError } from '../../cli/errors.mjs';
 
 /**
  * @typedef {import('./config.mjs').Layout} Layout
@@ -218,12 +219,15 @@ export function claimItem(root, layout, id, claimant, { branch } = {}) {
   const here = currentBranch(root);
   if (!here) throw new Error('claim from a branch, not a detached HEAD');
   if (here === layout.mainBranch) {
-    throw new Error(`claim on the executor's branch, never on ${layout.mainBranch}`);
+    throw new CodedError(
+      'not-permitted',
+      `claim on the executor's branch, never on ${layout.mainBranch}`,
+    );
   }
   if (branch && branch !== here) throw new Error(`this working tree is on ${here}, not ${branch}`);
   if (!claimant.trim()) throw new Error('a claim needs a claimant (a dispatch ID)');
   const entry = findEntry(root, layout, id);
-  if (!entry?.data) throw new Error(`${id} is not in this working tree`);
+  if (!entry?.data) throw new CodedError('not-found', `${id} is not in this working tree`);
   const d = entry.data;
   if (d.kind !== 'work') {
     throw new Error(
@@ -256,7 +260,7 @@ export function claimItem(root, layout, id, claimant, { branch } = {}) {
  */
 export function closeItem(root, layout, id, { commit = true } = {}) {
   const entry = findEntry(root, layout, id);
-  if (!entry?.data) throw new Error(`${id} is not in this working tree`);
+  if (!entry?.data) throw new CodedError('not-found', `${id} is not in this working tree`);
   const d = entry.data;
   const here = currentBranch(root);
   const solo = d.kind === 'decision' || d.kind === 'external';
@@ -273,7 +277,10 @@ export function closeItem(root, layout, id, { commit = true } = {}) {
     );
   }
   if (!solo && here === layout.mainBranch) {
-    throw new Error(`close ${id} in the branch that does the work, not on ${layout.mainBranch}`);
+    throw new CodedError(
+      'not-permitted',
+      `close ${id} in the branch that does the work, not on ${layout.mainBranch}`,
+    );
   }
   const stored = applyPatch(entry.data, { state: 'done' }, layout);
   const version = writeStored(root, layout, entry.path, stored, entry.body);
