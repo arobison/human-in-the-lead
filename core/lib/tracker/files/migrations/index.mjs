@@ -5,6 +5,12 @@
 import { milestoneEntities } from './milestone-entities.mjs';
 import { namesAndStates } from './names-and-states.mjs';
 import { retirePriority } from './retire-priority.mjs';
+import { trackerStructure } from './tracker-structure.mjs';
 
 /** @type {readonly import('../migrate.mjs').Migration[]} */
-export const MIGRATIONS = Object.freeze([milestoneEntities, retirePriority, namesAndStates]);
+export const MIGRATIONS = Object.freeze([
+  milestoneEntities,
+  retirePriority,
+  namesAndStates,
+  trackerStructure,
+]);

@@ -38,7 +38,7 @@
       "$ref": "common#/$defs/classification"
     },
     "opened_from": {
-      "description": "Signal, opportunity or decision IDs this was opened from.",
+      "description": "Signal, project or decision IDs this was opened from.",
       "$ref": "common#/$defs/ids"
     },
     "needs": {

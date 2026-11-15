@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "id": "rights/judgement-never-settles-a-call",
+  "suite": "rights",
+  "category": "judgement-as-input",
+  "description": "An owner's judgement is an input, never a decision: a strong gut check raises the estimate without settling anything, evidence against it holds it out and becomes a question to the owner, and a project the owner has judged is still not planned until its decision is answered.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": { "git": true } },
+  "steps": [
+    {
+      "id": "support",
+      "action": "judgement.weigh",
+      "with": {
+        "judgements": [
+          {
+            "what": "fits the strategy and is plausibly valuable",
+            "basis": "gut-check",
+            "by": "owner"
+          }
+        ],
+        "confidence": 0.4,
+        "value": 5
+      }
+    },
+    {
+      "id": "against",
+      "action": "judgement.weigh",
+      "with": {
+        "judgements": [
+          {
+            "what": "fits the strategy and is plausibly valuable",
+            "basis": "gut-check",
+            "by": "owner"
+          }
+        ],
+        "confidence": 0.4,
+        "value": 5,
+        "evidence": [
+          {
+            "ref": "ST-1",
+            "verdict": "contradicts",
+            "summary": "no user in the study asked for it"
+          }
+        ]
+      }
+    },
+    {
+      "id": "conflict",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "judgement",
+          "conflict",
+          "--conflict",
+          "{\"subject\":\"FX-1 Faster start\",\"judgement\":{\"what\":\"fits the strategy and is plausibly valuable\",\"basis\":\"gut-check\",\"by\":\"owner\"},\"evidence\":[{\"ref\":\"ST-1\",\"verdict\":\"contradicts\",\"summary\":\"no user in the study asked for it\"}],\"recommend\":\"revise\",\"why\":\"The study asked the users the project is for.\"}"
+        ]
+      }
+    },
+    {
+      "id": "decision-item",
+      "action": "file.write",
+      "with": {
+        "path": "work/items/FX-2-bet-on-faster-start.md",
+        "content": "---\nid: FX-2\ntitle: Bet on faster start?\nkind: decision\nstate: planned\nproject: FX-1\ndecider: owner\n---\n\n## Question\n\nBet on faster start, with its appetite?\n"
+      }
+    },
+    {
+      "id": "judged-project",
+      "action": "file.write",
+      "with": {
+        "path": "work/projects/FX-1-faster-start.md",
+        "content": "---\nid: FX-1\ntitle: Faster start\nkind: project\nstate: planned\nproblem: Start takes too long for new users.\nconfidence: \"0.64\"\nappetite_tokens: \"400000\"\ndecision: FX-2\n---\n\n## Notes\n\nThe owner's gut check: fits the strategy and is plausibly valuable.\n"
+      }
+    },
+    { "id": "check-judged", "action": "cli", "with": { "argv": ["work", "check"] } },
+    {
+      "id": "shaping-project",
+      "action": "file.write",
+      "with": {
+        "path": "work/projects/FX-1-faster-start.md",
+        "content": "---\nid: FX-1\ntitle: Faster start\nkind: project\nstate: proposed\nproblem: Start takes too long for new users.\nconfidence: \"0.64\"\nappetite_tokens: \"400000\"\ndecision: FX-2\n---\n\n## Notes\n\nThe owner's gut check: fits the strategy and is plausibly valuable.\n"
+      }
+    },
+    { "id": "check-shaping", "action": "cli", "with": { "argv": ["work", "check"] } }
+  ],
+  "graders": [
+    {
+      "id": "judgement-raises-the-estimate",
+      "grader": "equals",
+      "with": { "path": "steps.support.confidence", "value": 0.64 }
+    },
+    {
+      "id": "an-estimate-and-nothing-more",
+      "grader": "equals",
+      "with": {
+        "path": "steps.support.fields",
+        "value": ["applied", "confidence", "conflicts", "held", "value", "weight"]
+      }
+    },
+    {
+      "id": "contradicted-judgement-held-out",
+      "grader": "count",
+      "with": { "path": "steps.against.held", "equals": 1 }
+    },
+    {
+      "id": "contradicted-judgement-not-applied",
+      "grader": "count",
+      "with": { "path": "steps.against.applied", "equals": 0 }
+    },
+    {
+      "id": "estimate-unchanged-while-held",
+      "grader": "equals",
+      "with": { "path": "steps.against.confidence", "value": 0.4 }
+    },
+    {
+      "id": "conflict-goes-to-its-author",
+      "grader": "equals",
+      "with": { "path": "steps.against.conflicts[0].by", "value": "owner" }
+    },
+    {
+      "id": "conflict-is-a-question",
+      "grader": "equals",
+      "with": { "path": "steps.conflict.result.question.addressed_to", "value": "owner" }
+    },
+    {
+      "id": "conflict-basis",
+      "grader": "equals",
+      "with": {
+        "path": "steps.conflict.result.question.triggers[0].basis",
+        "value": "conflicting-evidence"
+      }
+    },
+    {
+      "id": "conflict-offers-both-ways",
+      "grader": "count",
+      "with": { "path": "steps.conflict.result.question.options", "equals": 2 }
+    },
+    {
+      "id": "judged-project-not-planned-without-the-bet",
+      "grader": "contains",
+      "with": {
+        "path": "steps.check-judged.result.problems",
+        "value": "work/projects/FX-1-faster-start.md: decision FX-2 isn't answered; a project is planned only by the owner's bet, the answer to its decision"
+      }
+    },
+    {
+      "id": "check-fails-while-unanswered",
+      "grader": "equals",
+      "with": { "path": "steps.check-judged.exit", "value": 1 }
+    },
+    {
+      "id": "shaping-project-is-fine",
+      "grader": "equals",
+      "with": { "path": "steps.check-shaping.result.ok", "value": true }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 ---
 id: HITLD-68
 title: End to end
-kind: capability
+kind: milestone
 state: planned
 created: 2026-11-14
 project: HITLD-28

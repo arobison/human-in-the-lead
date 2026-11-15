@@ -1,11 +1,13 @@
 // The views over the item graph (design part 3.4, "Generated views"): ready, blocked, the
-// decision backlog, projects, initiatives, the item lists, the dependency diagrams, the critical
-// path, the milestones (each with its unmet clauses and scope) and the merged-but-unreleased stock. Each
-// returns text. The first five are the reference views byte for byte (design part 16.7).
+// decision backlog, projects, the item lists, the dependency diagrams, the critical path, the
+// milestones (each with its unmet clauses and scope; long outcomes first) and the
+// merged-but-unreleased stock. Each returns text. The first four are the reference views byte for
+// byte (design part 16.7).
 
 import { ITEM_KINDS, describeProgress, progress } from './graph.mjs';
-import { readMilestone } from './milestones.mjs';
-import { STATE_LABELS } from './format.mjs';
+import { isLearning, readMilestone } from './milestones.mjs';
+import { readProject } from './projects.mjs';
+import { DEFAULT_OWNER, STATE_LABELS } from './format.mjs';
 
 /**
  * @typedef {import('./graph.mjs').Graph} Graph
@@ -121,9 +123,17 @@ export function viewProjects(g) {
     const id = String(p.data.id);
     const c = progress(g, g.itemsOf(id));
     out.push(
-      `${id} ${p.data.title} [${stateLabel(p.data.state)}], led by ${p.data.owner ?? 'owner'}`,
+      `${id} ${p.data.title} [${stateLabel(p.data.state)}], led by ${p.data.owner ?? DEFAULT_OWNER}`,
     );
     out.push(`  ${describeProgress(c)}`);
+    const appetite = readProject(p.data).appetite;
+    if (appetite !== undefined) {
+      const shared = g
+        .milestonesOf(id)
+        .filter((m) => m.data.state !== 'dropped')
+        .reduce((sum, m) => sum + (readMilestone(m.data).appetite ?? 0), 0);
+      out.push(`  appetite: ${appetite} tokens, ${shared} shared out to its milestones`);
+    }
     const on = deps.filter((e) => e.from === id);
     const by = deps.filter((e) => e.to === id);
     /** @param {typeof deps} es @param {'from' | 'to'} key */
@@ -131,27 +141,6 @@ export function viewProjects(g) {
       es.map((e) => `${e[key]} ${titleOf(g, e[key])} (${e.count})`).join('; ') || 'nothing open';
     out.push(`  waits on: ${fmt(on, 'to')}`);
     out.push(`  waited on by: ${fmt(by, 'from')}`);
-  }
-  return out.length ? `${out.join('\n')}\n` : '';
-}
-
-/** Each initiative: its projects' progress rolled up. @param {Graph} g */
-export function viewInitiatives(g) {
-  /** @type {string[]} */
-  const out = [];
-  for (const ini of g.initiatives) {
-    const projects = g.projectsOf(String(ini.data.id));
-    const all = projects.flatMap((p) => g.itemsOf(String(p.data.id)));
-    out.push(`${ini.data.id} ${ini.data.title} [${stateLabel(ini.data.state)}]`);
-    for (const p of projects) {
-      out.push(
-        `  ${p.data.id} ${p.data.title}: ${describeProgress(progress(g, g.itemsOf(String(p.data.id))))}`,
-      );
-    }
-    const decisions = all.filter((it) => it.data.kind === 'decision' && g.isOpen(it));
-    const external = all.filter((it) => it.data.kind === 'external' && g.isOpen(it));
-    out.push(`  all: ${describeProgress(progress(g, all))}`);
-    out.push(`  open decisions: ${decisions.length}; waiting outside: ${external.length}`);
   }
   return out.length ? `${out.join('\n')}\n` : '';
 }
@@ -200,7 +189,7 @@ function itemLine(g, it, projectId, linkBase) {
 }
 
 /**
- * The generated item lists, as markdown: initiatives, projects, items.
+ * The generated item lists, as markdown: projects and their items.
  * @param {Graph} g @param {{ linkBase?: string }} [options]
  */
 export function renderLists(g, { linkBase = '' } = {}) {
@@ -216,7 +205,7 @@ export function renderLists(g, { linkBase = '' } = {}) {
     out.push(
       `${'#'.repeat(level)} ${p.data.title}`,
       '',
-      `${pid}, ${stateLabel(p.data.state)}, led by ${p.data.owner ?? 'owner'}: ${describeProgress(progress(g, items))}.${plan}`,
+      `${pid}, ${stateLabel(p.data.state)}, led by ${p.data.owner ?? DEFAULT_OWNER}: ${describeProgress(progress(g, items))}.${plan}`,
       '',
     );
     // Each item shows under the first of the project's milestones that names it as a constraint.
@@ -240,15 +229,7 @@ export function renderLists(g, { linkBase = '' } = {}) {
       out.push('');
     }
   };
-  for (const ini of g.initiatives) {
-    out.push(`### ${ini.data.title}`, '');
-    const projects = g.projectsOf(String(ini.data.id));
-    const all = projects.flatMap((p) => g.itemsOf(String(p.data.id)));
-    const iid = linkBase ? `[${ini.data.id}](${linkBase}${ini.folder}/${ini.file})` : ini.data.id;
-    out.push(`${iid}, ${stateLabel(ini.data.state)}: ${describeProgress(progress(g, all))}.`, '');
-    for (const p of projects) projectBlock(p, 4);
-  }
-  for (const p of g.projects.filter((p) => !g.get(String(p.data.initiative)))) projectBlock(p, 3);
+  for (const p of g.projects) projectBlock(p, 3);
   return `${out.join('\n').replace(/\n+$/, '')}\n`;
 }
 
@@ -278,14 +259,18 @@ export function replaceBetweenMarkers(text, generated) {
 export function viewMilestones(g, derived) {
   /** @type {string[]} */
   const out = [];
-  const open = g.milestones.filter(g.isOpen);
+  // Long outcomes (no project) first, then each project's milestones, each group in ID order.
+  const open = [...g.longOutcomes(), ...g.milestones.filter((m) => m.data.project)].filter(
+    g.isOpen,
+  );
   for (const m of open) {
     const d = derived(m);
     const data = readMilestone(m.data);
-    const parent = String(m.data.project ?? m.data.initiative);
+    const parent = m.data.project ? String(m.data.project) : null;
+    const where = parent ? `under ${parent} ${titleOf(g, parent)}` : 'a long outcome';
     if (out.length) out.push('');
     out.push(
-      `${m.data.id} ${m.data.title} [${stateLabel(m.data.state)}], ${m.data.kind}, under ${parent} ${titleOf(g, parent)}`,
+      `${m.data.id} ${m.data.title} [${stateLabel(m.data.state)}], ${isLearning(data) ? 'learning, ' : ''}${where}`,
     );
     if (data.outcome) out.push(`  outcome: ${data.outcome}`);
     const ids = g.needs(m);
@@ -396,17 +381,11 @@ export function mermaidItems(g, projectId) {
 /** The project graph as Mermaid. @param {Graph} g */
 export function mermaidProjects(g) {
   const lines = ['graph LR'];
-  for (const ini of g.initiatives) {
+  for (const p of g.projects) {
+    const c = progress(g, g.itemsOf(String(p.data.id)));
     lines.push(
-      `  subgraph ${node(String(ini.data.id))}["${String(ini.data.title).replace(/"/g, "'")}"]`,
+      `  ${node(String(p.data.id))}["${shortTitle(String(p.data.title)).replace(/"/g, "'")}<br/>${c.done} of ${c.total - c.dropped} done"]`,
     );
-    for (const p of g.projectsOf(String(ini.data.id))) {
-      const c = progress(g, g.itemsOf(String(p.data.id)));
-      lines.push(
-        `    ${node(String(p.data.id))}["${shortTitle(String(p.data.title)).replace(/"/g, "'")}<br/>${c.done} of ${c.total - c.dropped} done"]`,
-      );
-    }
-    lines.push('  end');
   }
   for (const e of projectDeps(g)) lines.push(`  ${node(e.to)} -->|${e.count}| ${node(e.from)}`);
   return `${lines.join('\n')}\n`;

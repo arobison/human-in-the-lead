@@ -16,7 +16,7 @@ judgements:
 provenance:
   - recorded from the owner's conversation with the orchestrating session, 2026-11-14
 design_refs:
-  - { related: "03-data-model.md#initiative-project-item" }
+  - { related: "03-data-model.md#project-and-item" }
   - { related: "06-verification.md#64-provenance" }
 ---
 
@@ -24,7 +24,7 @@ A code-to-item graph: which items touched which files, for conflict prediction, 
 
 ## Design references
 
-- related: [03-data-model.md#initiative-project-item](../docs/design/0001-human-in-the-lead/03-data-model.md#initiative-project-item)
+- related: [03-data-model.md#project-and-item](../docs/design/0001-human-in-the-lead/03-data-model.md#project-and-item)
 - related: [06-verification.md#64-provenance](../docs/design/0001-human-in-the-lead/06-verification.md#64-provenance)
 
 Untriaged. This is an idea, not a design commitment, until triage and shaping run.

@@ -37,11 +37,12 @@ export function itemText(fields, body = '\nBody.\n') {
 
 /**
  * A repository on branch `main` whose work directory is `work/`, holding a small tracker:
- * an initiative W-1, a project W-2, a Done item W-3, a ready item W-4 (needs W-3), a blocked item
+ * a long-outcome milestone W-1 (no parent), a project W-2, a Done item W-3, a ready item W-4 (needs W-3), a blocked item
  * W-5 (needs W-4) and an open decision W-6 that W-5 also needs.
- * @param {{ files?: Record<string, string>, commit?: boolean }} [options] extra files, by repository-relative path
+ * @param {{ files?: Record<string, string>, commit?: boolean, omit?: string[] }} [options] extra
+ *   files, by repository-relative path; omit leaves out fixture files, by path
  */
-export function makeRepo({ files = {}, commit = true } = {}) {
+export function makeRepo({ files = {}, commit = true, omit = [] } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-tracker-')));
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.name', 'Fixture');
@@ -49,10 +50,10 @@ export function makeRepo({ files = {}, commit = true } = {}) {
   git(root, 'config', 'commit.gpgsign', 'false');
   /** @type {Record<string, string>} */
   const base = {
-    'work/initiatives/W-1-goal.md': itemText({
+    'work/milestones/W-1-goal.md': itemText({
       id: 'W-1',
       title: 'The goal',
-      kind: 'initiative',
+      kind: 'milestone',
       state: 'planned',
       owner: 'owner',
     }),
@@ -61,7 +62,6 @@ export function makeRepo({ files = {}, commit = true } = {}) {
       title: 'The project',
       kind: 'project',
       state: 'planned',
-      initiative: 'W-1',
       owner: 'owner',
     }),
     'work/items/W-3-first-step.md': itemText({
@@ -96,6 +96,7 @@ export function makeRepo({ files = {}, commit = true } = {}) {
       decider: 'owner',
     }),
   };
+  for (const path of omit) delete base[path];
   put(root, { ...base, ...files });
   if (commit) commitAll(root, 'fixture');
   return root;

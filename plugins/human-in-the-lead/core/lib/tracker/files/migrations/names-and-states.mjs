@@ -20,9 +20,17 @@
 // unchanged and the commit can be reviewed line by line.
 
 import { renderItem } from '../frontmatter.mjs';
-import { LEGACY_STATES, legacyCheckResult, renamesFor } from '../legacy.mjs';
+import {
+  LEGACY_MILESTONE_KINDS,
+  LEGACY_STATES,
+  legacyCheckResult,
+  renamesFor,
+} from '../legacy.mjs';
 import { list } from '../graph.mjs';
 import { MILESTONE_KINDS } from '../milestones.mjs';
+
+/** The milestone kinds this step meets: the ones before HITLD-90, and the current one. */
+const ANY_MILESTONE_KIND = [...LEGACY_MILESTONE_KINDS, ...MILESTONE_KINDS];
 
 /**
  * @typedef {import('../migrate.mjs').FileChange} FileChange
@@ -82,7 +90,7 @@ export function migrateText(text, data) {
       if (to !== key || state !== value) out[i] = rendered('state', state);
       continue;
     }
-    if (to === 'check_results' && MILESTONE_KINDS.includes(kind)) {
+    if (to === 'check_results' && ANY_MILESTONE_KIND.includes(kind)) {
       const lines = list(value).map(legacyCheckResult);
       if (lines.some((l, n) => l !== list(value)[n])) {
         out[i] = rendered('check_results', lines);

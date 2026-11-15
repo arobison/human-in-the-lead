@@ -5,7 +5,8 @@
 // branches, close on merge, unclaim, the batch check and the views. Milestones are entities in the
 // same number space; release records are read from their own folder and found by their tag. Every
 // derived field (a milestone's unmet_clauses, check_due, scope, tokens_spent, cost_of_delay_rate and
-// to_shape; an item's constraint_of, contributes_to and released_in) is computed on each read.
+// to_shape; a project's bet_by; an item's constraint_of, contributes_to and released_in) is
+// computed on each read.
 
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -50,6 +51,7 @@ import {
   passingCheck,
   readMilestone,
 } from './milestones.mjs';
+import { SHAPING_KEYS, betBy } from './projects.mjs';
 import {
   checkReleases,
   isPrerelease,
@@ -71,7 +73,6 @@ import {
   viewBlocked,
   viewCriticalPath,
   viewDecisions,
-  viewInitiatives,
   viewMilestones,
   viewProjects,
   viewReady,
@@ -122,10 +123,11 @@ const BODY = /** @type {Record<string, string>} */ ({
   decision: '\n## Question\n\n\n## Options and recommendation\n\n\n## Answer\n\nOpen.\n',
   external: '\n## Waiting on\n\n\n',
   project: '\n## Summary\n\n\n',
-  initiative: '\n## Goal\n\n\n',
-  capability: '\n## Notes\n\n\n',
-  learning: '\n## Notes\n\n\n',
+  milestone: '\n## Notes\n\n\n',
 });
+
+/** Views no longer written; a write of the views removes them. */
+const RETIRED_VIEWS = ['initiatives.md'];
 
 /** The letter of the option at index i: A, B, ... @param {number} i */
 const letter = (i) => String.fromCharCode(65 + i);
@@ -286,6 +288,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
     for (const k of NATIVE_EXTRAS) if (d[k] !== undefined) entity[k] = d[k];
     const id = String(d.id);
     if (MILESTONE_KINDS.includes(String(d.kind))) Object.assign(entity, derivedOf(ctx, it));
+    else if (d.kind === 'project') entity.bet_by = betBy(d, (x) => ctx.g.get(x)?.data);
     else if (ITEM_KINDS.includes(String(d.kind))) {
       entity.constraint_of = ctx.g.constraintOf(id).map((m) => m.data.id);
       entity.contributes_to = ctx.g.contributesTo(id).map((m) => m.data.id);
@@ -477,7 +480,7 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
           ...g.needs(/** @type {any} */ (it)),
           ...m.contributions.map((c) => c.id),
         ]);
-        if (to === 'done' && !passingCheck(kind, m.results, roles)) {
+        if (to === 'done' && !passingCheck(m, roles)) {
           throw new Error(
             `${id} becomes done only from a recorded passing check by a role other than its items' authors (${[...roles].join(', ')}); record the run in check_results`,
           );
@@ -508,11 +511,12 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         const needs = list(it.data?.needs);
         if (!needs.includes(to)) rewrite(it, { needs: [...needs, to] });
       } else if (relation === 'parent') {
-        const kind = String(it.data?.kind);
-        if (MILESTONE_KINDS.includes(kind)) {
-          const key = target.data?.kind === 'initiative' ? 'initiative' : 'project';
-          rewrite(it, { [key]: to, [key === 'project' ? 'initiative' : 'project']: null });
-        } else rewrite(it, { [ITEM_KINDS.includes(kind) ? 'project' : 'initiative']: to });
+        if (it.data?.kind === 'project') {
+          throw new Error(
+            `${from} is a project, which has no parent; a long outcome across projects is a milestone with no parent, whose constraints are their milestones`,
+          );
+        }
+        rewrite(it, { project: to });
       } else if (relation === 'opened_from' && layout.optionalKeys.includes('opened_from')) {
         const ids = list(it.data?.opened_from);
         if (!ids.includes(to)) rewrite(it, { opened_from: [...ids, to] });
@@ -575,12 +579,11 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         );
       }
       if (isItem && !draft.parent) throw new Error('an item needs a parent: the project ID');
-      if (isMilestone && !draft.parent) {
-        throw new Error('a milestone needs a parent: a project or an initiative ID');
+      if (kind === 'project' && draft.parent) {
+        throw new Error(
+          'a project has no parent; a long outcome across projects is a milestone with no parent, whose constraints are their milestones',
+        );
       }
-      if (kind === 'project' && !draft.parent)
-        throw new Error('a project needs a parent: the initiative ID');
-      if (kind === 'initiative' && draft.parent) throw new Error('an initiative has no parent');
       if (kind === 'external' && !draft.waiting_on)
         throw new Error('an external item needs waiting_on (who we wait on)');
       // Without a classification key, every file is the default classification. A draft more
@@ -607,16 +610,19 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         parent: draft.parent,
         needs: isMilestone ? undefined : list(draft.needs),
         constraints: isMilestone ? list(draft.constraints ?? draft.needs) : undefined,
-        parent_kind: isMilestone
-          ? read().find((e) => e.data?.id === draft.parent)?.data?.kind
-          : undefined,
         outcome: isMilestone ? draft.outcome : undefined,
+        appetite_tokens:
+          isMilestone || kind === 'project' ? (draft.appetite_tokens ?? undefined) : undefined,
         waiting_on: kind === 'external' ? draft.waiting_on : undefined,
         decider: kind === 'decision' ? (draft.decider ?? 'owner') : undefined,
-        owner: ['project', 'initiative'].includes(kind) ? (draft.owner ?? 'owner') : undefined,
+        // Without an owner key, the owner is accountable: the default is not written.
+        owner: draft.owner,
         plan: kind === 'project' ? draft.plan : undefined,
         created: today(),
       };
+      if (kind === 'project') {
+        for (const k of SHAPING_KEYS) if (draft[k] !== undefined) fields[k] = draft[k];
+      }
       for (const k of layout.optionalKeys) if (draft[k] !== undefined) fields[k] = draft[k];
       for (const f of layout.fields)
         if (draft[f.name] !== undefined) fields[f.name] = draft[f.name];
@@ -744,7 +750,6 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         blocked: viewBlocked(g),
         decisions: viewDecisions(g, who),
         projects: viewProjects(g),
-        initiatives: viewInitiatives(g),
         'critical-path': viewCriticalPath(g),
         milestones: viewMilestones(g, (m) => derivedOf(ctx, m)),
         unreleased: viewUnreleased(g, ctx.released),
@@ -773,7 +778,6 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         blocked: { title: 'Blocked', fence: 'text' },
         decisions: { title: 'Decision backlog', fence: 'text' },
         projects: { title: 'Projects', fence: 'text' },
-        initiatives: { title: 'Initiatives', fence: 'text' },
         'critical-path': { title: 'Critical path', fence: 'text' },
         milestones: { title: 'Milestones', fence: 'text' },
         unreleased: { title: 'Merged, not released', fence: 'text' },
@@ -801,6 +805,13 @@ export function openTracker({ repoRoot, policy, configDir, env = process.env, bl
         );
       }
       put('lists.md', `${header}\n# Item lists\n\n${texts.lists}`);
+      for (const file of RETIRED_VIEWS) {
+        const path = join(dir, file);
+        if (!outDir && isRegularFile(path)) {
+          rmSync(path);
+          written.push(`${file} (removed: no longer a view)`);
+        }
+      }
       if (!outDir && layout.listsFile) {
         const readme = insidePath(root, `${layout.workDir}/${layout.listsFile}`);
         const g = buildGraph(read());

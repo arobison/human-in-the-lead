@@ -27,7 +27,7 @@ The orchestrator (the main session) manages execution. It sizes ready items into
 
 ### The ready queue and the cap
 
-The ready queue is a script query: items that are `ready` ([part 3](03-data-model.md#initiative-project-item)), ordered by the prioritization rule ([part 2](02-loops.md#24-prioritization)). The orchestrator dispatches from the head of the queue until it reaches:
+The ready queue is a script query: items that are `ready` ([part 3](03-data-model.md#project-and-item)), ordered by the prioritization rule ([part 2](02-loops.md#24-prioritization)). The orchestrator dispatches from the head of the queue until it reaches:
 
 - the **concurrency cap**: the strictest of the person's, the machine's, the project's (`execution.max_executors`, moved by its controller inside the owner's bounds) and the run's ([part 13](13-operations.md#134-settings-in-four-layers)), or
 - a **serial resource** at capacity: one benchmark-heavy item at a time, one merge at a time, one holder of any named serial fixture, or

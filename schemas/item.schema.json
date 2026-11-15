@@ -1,7 +1,7 @@
 {
   "$id": "item",
   "title": "Item",
-  "description": "The unit of dispatch: an item of kind work or external (design part 3.2). Decisions have their own schema. In the files backend the body holds the sections Why, Done when, Plan and Notes; this schema covers the front matter. Derived fields (claimed, ready, blocked, stage, critical_path, lead_time) are never stored.",
+  "description": "The unit of dispatch: an item of kind work or external (design part 3.2). An external item is work someone the system cannot dispatch completes: the owner by hand, a contributor, an upstream project or a vendor; waiting_on names who. Decisions have their own schema. In the files backend the body holds the sections Why, Done when, Plan and Notes; this schema covers the front matter. Derived fields (claimed, ready, blocked, stage, critical_path, lead_time) are never stored.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
@@ -38,7 +38,7 @@
       "$ref": "common#/$defs/classification"
     },
     "opened_from": {
-      "description": "Signal, opportunity or decision IDs this was opened from.",
+      "description": "Signal, project or decision IDs this was opened from.",
       "$ref": "common#/$defs/ids"
     },
     "needs": {

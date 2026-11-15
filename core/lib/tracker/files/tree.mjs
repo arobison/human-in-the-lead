@@ -29,7 +29,9 @@ import { insidePath, isRegularFile, readNoFollow } from './safe.mjs';
 
 /**
  * The folders of ID-named files, in the order files are read: initiatives, projects, items and
- * milestones. Release records (named by their tag) are read on their own (releases.mjs).
+ * milestones. Initiatives are milestones now; their folder is read until the next minor release
+ * so the check can name a file left there and `hitld work migrate` can move it. Release records
+ * (named by their tag) are read on their own (releases.mjs).
  * @param {Layout} layout
  */
 export const folderNames = (layout) => [

@@ -4,7 +4,6 @@ title: "Several humans in the lead"
 kind: project
 state: planned
 created: 2026-11-14
-initiative: HITLD-1
 owner: owner
 ---
 
