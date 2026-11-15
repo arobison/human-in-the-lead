@@ -150,6 +150,15 @@ Sync is part of `hitld` commands that already run at the right moments, so no ag
 
 **Offline.** Work continues on the local copy. The next push carries it. A machine that has been offline merges like any other.
 
+**As built: push, pull and status.** The code is `core/lib/store/push-pull.mjs`.
+
+- **The address.** `hitld store remote set <url>` checks the URL and records it in `<store>/.git/hitld-remote.json`. That file is machine-local: it is inside the store's `.git`, which no commit or bundle carries, and nothing is written to the project.
+- **What was merged.** Pull and push record the remote version they last merged or pushed, and the local commit it holds, in `<store>/.git/hitld-sync.json`. The next push uses that version as the head it expects.
+- **Push.** It commits the store's text, seals it as format 2 to the recipients, and pushes with compare and swap. If the remote has moved, it fetches the new head, merges it as `store import` does, seals again and retries, up to four times. A real conflict stops it, names the paths and changes nothing. A device that is not enrolled, or whose own key is not among the recipients, is refused before anything is sent.
+- **Pull.** It fetches the head and opens it with this device's key. An empty remote, or a head already merged, changes nothing. A key that does not open the file is refused and nothing is written.
+- **Status.** It reports the address, the local commit and the remote version, the version last merged, whether a push or a pull is due, and this device's enrolment. A remote that cannot be reached is reported in the result, not raised. It changes nothing in the store.
+- **Keys.** Recipients and the private key come from `resolveDevices` (`core/lib/store/devices-port.mjs`) and nowhere else. The private key comes from `HITLD_STORE_IDENTITY` or `--identity-fd`, never an argument, and is never printed.
+
 **What can still be lost.** A cloud session killed between two pushes loses what it recorded after the last one. Pushing at each checkpoint keeps that window to one step of work.
 
 ## 9. Security limits
