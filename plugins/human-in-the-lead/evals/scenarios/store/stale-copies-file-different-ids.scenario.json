@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "id": "store/stale-copies-file-different-ids",
+  "suite": "store",
+  "category": "store",
+  "description": "Design part 3.4, ID allocation. Two sessions on two devices each file a decision from their own copy of main, which neither has pushed: example-laptop asks the owner to remove example-spare, and example-cloud asks an ordinary question. The IDs come from the counter on the store repository, so they differ. The stores then meet through the remote, and each answer applies to its own question only: the owner's B on the cloud's question removes no device, and the owner's A on the laptop's removes example-spare.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "project",
+      "action": "store.fixture",
+      "with": { "devices": ["example-laptop", "example-cloud", "example-spare"] }
+    },
+    {
+      "id": "remove",
+      "action": "store.hitld",
+      "with": {
+        "device": "example-laptop",
+        "argv": ["store", "device", "remove", "example-spare"]
+      }
+    },
+    {
+      "id": "ask",
+      "action": "store.hitld",
+      "with": {
+        "device": "example-cloud",
+        "argv": [
+          "rights",
+          "ask",
+          "--question",
+          "{\"title\":\"Add a padding library?\",\"question\":\"May we add a small padding library as a runtime dependency?\",\"context\":\"The string padding in the report writer is hand-rolled and has two bugs.\",\"options\":[{\"label\":\"Add it\",\"what_happens\":\"one small dependency, MIT licensed\"},{\"label\":\"Hand-roll\",\"what_happens\":\"no dependency; we fix the bugs ourselves\"}],\"recommendation\":{\"option\":\"A\",\"why\":\"A permissive license and a tiny surface.\"},\"triggers\":[{\"basis\":\"security\",\"reason\":\"it adds a dependency\"}],\"paths\":[\"package.json\"],\"item_kind\":\"work\",\"classification\":\"public\",\"reversibility\":\"two-way\",\"parent\":\"SAM-1\"}"
+        ]
+      }
+    },
+    {
+      "id": "laptop_push",
+      "action": "store.hitld",
+      "with": { "device": "example-laptop", "argv": ["store", "push"] }
+    },
+    {
+      "id": "cloud_pull",
+      "action": "store.hitld",
+      "with": { "device": "example-cloud", "argv": ["store", "pull"] }
+    },
+    {
+      "id": "cloud_answer",
+      "action": "store.hitld",
+      "with": {
+        "device": "example-cloud",
+        "argv": ["rights", "answer", "SAM-3", "--answer", "B"]
+      }
+    },
+    {
+      "id": "laptop_answers",
+      "action": "store.owner-answers",
+      "with": { "device": "example-laptop", "answer": "A" }
+    },
+    {
+      "id": "cloud_devices",
+      "action": "store.hitld",
+      "with": { "device": "example-cloud", "argv": ["store", "device", "list"] }
+    }
+  ],
+  "graders": [
+    {
+      "id": "laptop-took-the-first-number",
+      "grader": "equals",
+      "with": { "path": "steps.remove.result.decision.decision", "value": "SAM-2" }
+    },
+    {
+      "id": "cloud-took-another-number",
+      "grader": "equals",
+      "with": { "path": "steps.ask.result.decision", "value": "SAM-3" }
+    },
+    {
+      "id": "the-stores-met",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_pull.result.ok", "value": true }
+    },
+    {
+      "id": "cloud-answer-is-its-own-question",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_answer.result.option", "value": "B" }
+    },
+    {
+      "id": "cloud-answer-applies-no-device-action",
+      "grader": "equals",
+      "with": { "path": "steps.cloud_answer.result.binds", "value": null }
+    },
+    {
+      "id": "laptop-answer-removes-the-device-it-asked-about",
+      "grader": "equals",
+      "with": { "path": "steps.laptop_answers.answered[0].device.event", "value": "removed" }
+    },
+    {
+      "id": "the-removed-device-is-example-spare",
+      "grader": "equals",
+      "with": { "path": "steps.laptop_answers.answered[0].device.name", "value": "example-spare" }
+    },
+    {
+      "id": "cloud-answer-removed-nothing",
+      "grader": "count",
+      "with": { "path": "steps.cloud_devices.result.approved", "equals": 3 }
+    }
+  ]
+}

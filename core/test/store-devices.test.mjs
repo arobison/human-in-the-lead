@@ -1128,3 +1128,99 @@ test("a device list in the project's repository: refused at commit, by the polic
   );
   assert.equal(fixtureGit(p.root, 'rev-parse', 'main'), before);
 });
+
+test('a device answer applies only to the device decision asked under its ID, never to another filed there', async () => {
+  const p = await withLaptop();
+  const joiner = p.envOf('example-tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  await hitld(['store', 'device', 'init', '--cloud', '--name', 'example-tablet'], p.root, joiner);
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.owner);
+  const asked = ask.json.asked[0];
+  assert.match(asked.check, /^[0-9a-f]{8}$/);
+  assert.match(asked.text, new RegExp(`Check code: ${asked.check}`));
+  assert.equal(
+    asked.answer_with,
+    `hitld rights answer ${asked.decision} --answer A --code ${asked.check}`,
+  );
+  const store = p.storeOf(p.owner);
+  // Another session filed a removal of example-laptop under the same ID, from its own copy of main.
+  const laptop = approvedDevices(readApprovals(store)).find((d) => d.name === 'example-laptop');
+  recordApproval(store, {
+    event: 'asked',
+    decision: asked.decision,
+    action: 'remove',
+    name: 'example-laptop',
+    recipient: /** @type {any} */ (laptop).recipient,
+    at: '2026-11-15T12:30:00.000Z',
+  });
+
+  // The answer is for the question shown: enrol example-tablet. The removal is not applied.
+  const yes = await hitld(
+    ['rights', 'answer', asked.decision, '--answer', 'A', '--code', asked.check],
+    p.root,
+    p.owner,
+  );
+  assert.equal(yes.code, EXIT.ok, JSON.stringify(yes.json));
+  assert.deepEqual([yes.json.device.event, yes.json.device.name], ['approved', 'example-tablet']);
+  assert.match(yes.json.warnings.join(), /another_question_under_this_id/);
+  assert.deepEqual(
+    approvedDevices(readApprovals(store)).map((d) => d.name),
+    ['example-laptop', 'example-tablet'],
+    'example-laptop was not removed',
+  );
+  // The other question is asked again, under an ID of its own.
+  const again = await hitld(['store', 'device', 'remove', 'example-laptop'], p.root, p.owner);
+  assert.equal(again.code, EXIT.ok, JSON.stringify(again.json));
+  assert.notEqual(again.json.decision.decision, asked.decision);
+  assert.deepEqual(
+    openDeviceAsks(readApprovals(store)).map((r) => [r.decision, r.action, r.name]),
+    [[again.json.decision.decision, 'remove', 'example-laptop']],
+  );
+});
+
+test('an answer to a device decision whose question changed under the same ID is refused and changes nothing', async () => {
+  const p = await withLaptop();
+  const joiner = p.envOf('example-tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  await hitld(['store', 'device', 'init', '--cloud', '--name', 'example-tablet'], p.root, joiner);
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.owner);
+  const asked = ask.json.asked[0];
+  const shown = await hitld(['rights', 'show', asked.decision], p.root, p.owner);
+  assert.equal(shown.json.check, asked.check);
+  const store = p.storeOf(p.owner);
+  const before = everythingAnAnswerChanges(p.root, store);
+
+  // A code from another question is refused.
+  const other = await hitld(
+    ['rights', 'answer', asked.decision, '--answer', 'A', '--code', 'ffffffff'],
+    p.root,
+    p.owner,
+  );
+  assert.equal(other.code, EXIT.failed);
+  assert.equal(other.json.error, 'answer-question-changed');
+  assert.equal(other.json.device, undefined);
+  assert.equal(everythingAnAnswerChanges(p.root, store), before);
+
+  // The tracker item under the ID becomes another session's question (a removal): refused, even
+  // with the right code, since the item is not the question asked.
+  const items = join(p.root, 'work', 'items');
+  const file = readdirSync(items).find((f) => f.startsWith(`${asked.decision}-`));
+  const path = join(items, /** @type {string} */ (file));
+  writeFileSync(
+    path,
+    readFileSync(path, 'utf8')
+      .replace('Approve a store device', 'Remove a store device')
+      .replace('Enrol the store device', 'Remove the store device'),
+  );
+  const changed = everythingAnAnswerChanges(p.root, store);
+  const r = await hitld(
+    ['rights', 'answer', asked.decision, '--answer', 'A', '--code', asked.check],
+    p.root,
+    p.owner,
+  );
+  assert.equal(r.json.error, 'answer-question-changed', JSON.stringify(r.json));
+  assert.match(r.json.message, /title is "Remove a store device"/);
+  assert.equal(everythingAnAnswerChanges(p.root, store), changed, 'nothing recorded');
+  assert.deepEqual(
+    approvedDevices(readApprovals(store)).map((d) => d.name),
+    ['example-laptop'],
+  );
+});

@@ -9,10 +9,13 @@ import { fromLegacy } from '../lib/tracker/files/legacy.mjs';
 import { numberedName } from '../lib/tracker/files/milestones.mjs';
 import { parseCostOfDelay, readProject } from '../lib/tracker/files/projects.mjs';
 import { trackerStructure } from '../lib/tracker/files/migrations/tracker-structure.mjs';
-import { git, itemText, makeRepo, policyFor } from './tracker-fixture.mjs';
+import { git, isolatedEnv, itemText, makeRepo, policyFor } from './tracker-fixture.mjs';
+
+/** No person file, private store or store address of this machine is read. */
+const HOME = isolatedEnv();
 
 const open = (/** @type {string} */ root) =>
-  openTracker({ repoRoot: root, policy: policyFor(), env: {} });
+  openTracker({ repoRoot: root, policy: policyFor(), env: { ...HOME } });
 
 /** @param {Record<string, string>} files @param {string[]} [omit] */
 const problems = (files, omit = []) => open(makeRepo({ files, omit })).check().problems;

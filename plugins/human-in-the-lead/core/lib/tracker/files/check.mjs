@@ -47,6 +47,17 @@ import { SEMVER } from '../../release/semver.mjs';
  */
 
 /**
+ * Two files in one tree that hold the same ID, each pair named: "<ID>: in both <path> and <path>".
+ * `hitld work check` reports them, and the merge queue refuses a branch whose rebased tree has any.
+ * @param {Entry[]} items @returns {string[]}
+ */
+export function duplicateIds(items) {
+  return buildGraph(items).duplicates.map(
+    ([a, b]) => `${a.data.id}: in both ${a.path} and ${b.path}`,
+  );
+}
+
+/**
  * Validate loaded entries. Returns a list of problem strings.
  * @param {Entry[]} items
  * @param {Layout} layout
@@ -199,9 +210,7 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
       );
     }
   }
-  for (const [a, b] of g.duplicates) {
-    problems.push(`${a.data.id}: in both ${a.path} and ${b.path}`);
-  }
+  problems.push(...duplicateIds(items));
   for (const it of g.all) {
     const d = it.data;
     /** @param {string} key @param {string} kind */

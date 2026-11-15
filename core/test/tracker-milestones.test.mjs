@@ -17,10 +17,21 @@ import {
 } from '../lib/tracker/files/milestones.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
-import { commitAll, git, itemText, makeRepo, policyFor, put } from './tracker-fixture.mjs';
+import {
+  commitAll,
+  git,
+  isolatedEnv,
+  itemText,
+  makeRepo,
+  policyFor,
+  put,
+} from './tracker-fixture.mjs';
+
+/** No person file, private store or store address of this machine is read. */
+const HOME = isolatedEnv();
 
 const open = (/** @type {string} */ root) =>
-  openTracker({ repoRoot: root, policy: policyFor(), env: {} });
+  openTracker({ repoRoot: root, policy: policyFor(), env: { ...HOME } });
 
 /** A milestone W-7 under W-2. @param {Record<string, string | string[]>} [extra] */
 const milestone = (extra = {}) =>
@@ -42,7 +53,7 @@ const problems = (files) => open(makeRepo({ files })).check().problems;
 /** @param {string[]} argv @param {string} cwd */
 async function hitld(argv, cwd) {
   let out = '';
-  const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env: {} });
+  const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env: { ...HOME } });
   return { code, json: JSON.parse(out) };
 }
 

@@ -7,6 +7,7 @@
 //                files takes the batch's version, any other conflict goes back to the executor
 //   3. fast      the classification guard on each of the branch's commits, their files and,
 //                with private terms in the settings, their messages (design part 10.3),
+//                two tracker items with one ID in the rebased tree are refused (design 3.4),
 //                a branch that changes the quarantine file is refused (design 14.7), then the
 //                fast checks on the rebased branch, the burn-in of the tests it adds or changes
 //                (design 14.7), then the declared security scans (security.mjs); a failure goes
@@ -63,6 +64,9 @@ import {
  * @property {import('../guard/classification.mjs').Rules} [classification] the commit guard's
  *   rules, from main's policy and tracker.json, with the private terms from the private store; the
  *   strictest (ceiling public, no terms) when not given
+ * @property {(dir: string) => string[]} [trackerCheck] the problems of the tracker in a checked-out
+ *   tree that refuse a branch: two items with one ID (design 3.4). Not a policy fast check, so it
+ *   runs whatever merge.fast_checks says
  *
  * @typedef {object} FlakeSettings
  * @property {number} [compareRuns] runs of the full suite on each side of the base comparison
@@ -74,7 +78,7 @@ import {
  *
  * @typedef {(command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string }} Exec
  *
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'duplicate_id' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
  *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string,
  *   message?: string, findings?: import('./security.mjs').SentBack[] }} Rejected
  * @typedef {{ runs: number, failures: number }} SideRuns
@@ -456,6 +460,21 @@ export async function runMergeQueue(r) {
             reason: 'classification',
             files: [...new Set(guard.refused.filter((x) => !x.commit).map((x) => x.path))],
             output: problemLines(guard.refused).join('\n'),
+            dispatch: e.dispatch,
+          });
+          rejectedNow.add(e.item);
+          continue;
+        }
+        // Two items with one ID: two sessions each took the next number from their own copy of
+        // main. Refused here, naming both files, whatever the fast checks are.
+        const duplicates = s.trackerCheck?.(dir) ?? [];
+        if (duplicates.length) {
+          result.rejected.push({
+            item: e.item,
+            branch: e.branch,
+            reason: 'duplicate_id',
+            output: duplicates.join('\n'),
+            message: `Your branch, rebased onto ${s.mainBranch}, holds two tracker items with one ID: ${duplicates.join('; ')}. Give the item your branch adds a new ID (only the orchestrator creates items) and take the duplicate out of the branch.`,
             dispatch: e.dispatch,
           });
           rejectedNow.add(e.item);

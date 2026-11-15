@@ -10,11 +10,14 @@ import { join } from 'node:path';
 import {
   answerDecision,
   askQuestion,
+  askedKey,
+  checkCode,
   listApplications,
   overrule,
   precedentHealth,
   rateWorthAsking,
   recordReversal,
+  showQuestion,
 } from '../lib/rights/flow.mjs';
 import { readTrustEvents, trustSummary } from '../lib/rights/trust.mjs';
 import { readLedger } from '../lib/ledger/ledger.mjs';
@@ -579,4 +582,121 @@ test('questions sent despite a candidate record whether the answer agreed with i
     [a.asked_with_candidates, a.answered_as_candidate, a.candidate_agreement],
     [2, 1, 0.5],
   );
+});
+
+// --- An answer is bound to the question as shown (design part 4.2) ------------------------------
+
+test('every question carries a check code; an answer given for another code is refused and records nothing', () => {
+  const project = makeProject();
+  const who = { ...project, who: { session: 's-1', host: 'example-host' } };
+  const asked = askQuestion(who, dependency());
+  assert.match(asked.check, /^[0-9a-f]{8}$/);
+  assert.match(asked.text, new RegExp(`Check code: ${asked.check}\\n$`));
+  assert.equal(
+    asked.check,
+    checkCode({
+      question: dependency().question,
+      context: dependency().context,
+      options: dependency().options,
+    }),
+  );
+  const shown = showQuestion(who, { decision: asked.decision });
+  assert.equal(shown.check, asked.check);
+  assert.match(shown.text, new RegExp(`Check code: ${asked.check}`));
+
+  const everything = () =>
+    JSON.stringify({
+      item: project.tracker.get(asked.decision),
+      ledger: readLedger(project.store).events,
+      trust: readTrustEvents(project.store),
+      precedents: project.precedents.list(),
+    });
+  const before = everything();
+  const wrong = answerDecision(who, { decision: asked.decision, answer: 'A', code: '0000-0000' });
+  assert.equal(wrong.ok, false);
+  assert.equal(wrong.error, 'answer-question-changed');
+  assert.match(wrong.message, /check code 00000000/);
+  assert.match(wrong.message, /nothing was recorded/);
+  assert.equal(everything(), before);
+
+  // The code as shown, in any case and with a dash, is the question's.
+  const typed = `${asked.check.slice(0, 4).toUpperCase()}-${asked.check.slice(4)}`;
+  const right = answerDecision(who, { decision: asked.decision, answer: 'A', code: typed });
+  assert.equal(right.ok, true, JSON.stringify(right));
+  assert.equal(right.check, asked.check);
+});
+
+test('a question that changed under the same ID after it was shown is refused, from this session', () => {
+  const project = makeProject();
+  const one = { ...project, who: { session: 's-1', host: 'example-host' } };
+  const asked = askQuestion(one, dependency());
+  showQuestion(one, { decision: asked.decision });
+  // Another session's question arrives under the same ID: its ask record replaces this one.
+  const other = {
+    ...JSON.parse(String(project.store.read(askedKey(asked.decision)))),
+    question: 'May we remove the report writer?',
+    options: [
+      { label: 'Remove it', what_happens: 'it is gone' },
+      { label: 'Keep it', what_happens: 'nothing changes' },
+    ],
+  };
+  other.check = checkCode(other);
+  project.store.write(askedKey(asked.decision), JSON.stringify(other));
+  const before = JSON.stringify(project.tracker.get(asked.decision));
+  const r = answerDecision(one, { decision: asked.decision, answer: 'A' });
+  assert.equal(r.error, 'answer-question-changed');
+  assert.match(
+    r.message,
+    new RegExp(`this session showed the question with check code ${asked.check}`),
+  );
+  assert.equal(JSON.stringify(project.tracker.get(asked.decision)), before);
+  // A session that showed nothing still meets the tracker item, which holds the first question.
+  const two = { ...project, who: { session: 's-2', host: 'example-host' } };
+  const r2 = answerDecision(two, { decision: asked.decision, answer: 'A' });
+  assert.equal(r2.error, 'answer-question-changed');
+  assert.match(r2.message, /tracker item holds another question/);
+});
+
+test('a tracker item that is not the question asked under its ID is refused; the same question is not', () => {
+  const project = makeProject();
+  const asked = askQuestion(project, dependency());
+  const item = project.tracker.get(asked.decision);
+  project.tracker.update(asked.decision, { title: 'Remove a store device' }, String(item._version));
+  const r = answerDecision(project, { decision: asked.decision, answer: 'B' });
+  assert.equal(r.error, 'answer-question-changed');
+  assert.match(r.message, /title is "Remove a store device"/);
+  const back = project.tracker.get(asked.decision);
+  project.tracker.update(asked.decision, { title: dependency().title }, String(back._version));
+  assert.equal(answerDecision(project, { decision: asked.decision, answer: 'B' }).ok, true);
+});
+
+test('an action bound into the question must be the one that would apply', () => {
+  const project = makeProject();
+  const binds = { action: 'remove', name: 'example-tablet', fingerprint: '0000-1111-2222-3333' };
+  const asked = askQuestion(project, dependency(), { binds });
+  assert.equal(asked.check, checkCode({ ...dependency(), binds }));
+  const elsewhere = { ...binds, name: 'example-laptop' };
+  const wrong = answerDecision(project, {
+    decision: asked.decision,
+    answer: 'A',
+    applies: [elsewhere],
+  });
+  assert.equal(wrong.error, 'answer-question-changed');
+  assert.match(wrong.message, /action waiting under this ID is not the one asked/);
+  const none = answerDecision(project, { decision: asked.decision, answer: 'A', applies: [] });
+  assert.equal(none.error, 'answer-question-changed');
+  // Its own action, beside another filed under the same ID: it applies, and says the other waits.
+  const ok = answerDecision(project, {
+    decision: asked.decision,
+    answer: 'A',
+    applies: [elsewhere, binds],
+  });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.binds, binds);
+  assert.match(ok.warnings.join(), /another_question_under_this_id/);
+
+  // A question that names no action, with one waiting under its ID, is refused.
+  const plain = askQuestion(project, dependency());
+  const r = answerDecision(project, { decision: plain.decision, answer: 'A', applies: [binds] });
+  assert.equal(r.error, 'answer-question-changed');
 });

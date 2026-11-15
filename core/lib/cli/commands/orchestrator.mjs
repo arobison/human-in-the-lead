@@ -50,6 +50,8 @@ import { planDispatch } from '../../dispatch/plan.mjs';
 import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
 import { runMergeQueue } from '../../merge/queue.mjs';
+import { duplicateIds } from '../../tracker/files/check.mjs';
+import { loadWorkTree } from '../../tracker/files/tree.mjs';
 import {
   PRESENTED_KEY,
   PROPOSED_KEY,
@@ -494,7 +496,9 @@ const rejectedJson = (x, main) => ({
   reason: x.reason,
   ...(x.files ? { files: x.files } : {}),
   ...(x.command ? { command: x.command } : {}),
-  ...(x.reason === 'classification' && x.output ? { problems: x.output.split('\n') } : {}),
+  ...((x.reason === 'classification' || x.reason === 'duplicate_id') && x.output
+    ? { problems: x.output.split('\n') }
+    : {}),
   follow_up:
     x.dispatch && !['missing', 'needs_rejected'].includes(x.reason)
       ? { dispatch: x.dispatch, message: x.message ?? sentBack(x, main) }
@@ -1243,6 +1247,15 @@ const table = [
             environments: p.policy.flake.environments,
           },
           setup: p.policy.env.worktree_setup,
+          // Main's tracker layout, read in the rebased tree: two items with one ID refuse it.
+          trackerCheck: (dir) => {
+            if (!existsSync(join(dir, layout.workDir))) return [];
+            try {
+              return duplicateIds(loadWorkTree(dir, layout));
+            } catch (e) {
+              return [`the tracker files could not be read: ${/** @type {Error} */ (e).message}`];
+            }
+          },
           // From main's policy and tracker.json, never the branch's own; the private terms from
           // the private store, so every commit's files and message are checked for them.
           classification: {

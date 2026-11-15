@@ -439,9 +439,16 @@ export function makeCommands({ openTracker }) {
           required: true,
         },
         {
+          name: 'code',
+          type: 'string',
+          description:
+            'The check code shown with the question. Without it, the code this session last showed is used. The answer is refused when the question under the ID has another code',
+        },
+        {
           name: 'via',
           type: 'string',
-          description: 'The channel it came through (default main-session)',
+          description:
+            'The channel it came through (default main-session; question-tool when the owner picked an option in the harness question tool)',
         },
         {
           name: 'worth-asking',
@@ -458,21 +465,30 @@ export function makeCommands({ openTracker }) {
         const o = await open(ctx, { tracker: true });
         if (o.failure) return o.failure;
         const agrees = /** @type {string | undefined} */ (input['agrees-with']);
+        const decision = /** @type {string} */ (input.decision);
+        // A store device decision: the owner's answer changes who may read the store, recorded
+        // inside the store (design 0003, section 6). What each device action waiting under this ID
+        // would do is checked against the question asked before anything is recorded.
+        const { applyDeviceAnswer, deviceBinds, fingerprint, openDeviceAsks, readApprovals } =
+          await import('../../store/devices.mjs');
+        const waiting = openDeviceAsks(readApprovals(o.deps.store)).filter(
+          (r) => r.decision === decision,
+        );
         const result = answerDecision(o.deps, {
-          decision: /** @type {string} */ (input.decision),
+          decision,
           answer: /** @type {string} */ (input.answer),
           via: /** @type {string | undefined} */ (input.via),
           worth_asking: yesNo(input['worth-asking'], 'worth-asking'),
           ...(agrees ? { agrees_with: agrees.split(',').map((s) => s.trim()) } : {}),
+          ...(typeof input.code === 'string' ? { code: input.code } : {}),
+          applies: waiting.map(deviceBinds),
         });
         if (!result.ok) return result;
-        // A store device decision: the owner's answer changes who may read the store, recorded
-        // inside the store (design 0003, section 6). Any other decision is left as it is.
-        const { applyDeviceAnswer, fingerprint } = await import('../../store/devices.mjs');
         const device = applyDeviceAnswer(o.deps.store, {
-          decision: /** @type {string} */ (input.decision),
+          decision,
           option: /** @type {string | null} */ (result.option ?? null),
           at: (ctx.now ?? (() => new Date()))().toISOString(),
+          binds: result.binds ?? null,
         });
         if (!device) return result;
         return {

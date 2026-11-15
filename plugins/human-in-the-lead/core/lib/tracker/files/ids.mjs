@@ -4,13 +4,18 @@
 //    never create tracker entities.
 // 2. A second machine allocates from a reserved block, a range recorded in policy.json
 //    (ids.blocks), so items created on either machine merge without renumbering.
-// 3. The check fails on duplicate IDs at merge time, as a backstop (check.mjs).
+// 3. The number comes from a source every session shares, not only this clone (shared-ids.mjs):
+//    the main branch's remote is fetched first, and when the private store has a remote, the
+//    number is taken from the store repository's counter, a compare and swap.
+// 4. The check fails on duplicate IDs, in `hitld work check` and in the merge queue, as a
+//    backstop (check.mjs).
 //
 // The next number is one more than the highest taken in the block's range, in every worktree's
 // working copy (uncommitted files included) and on every local branch, remote-tracking branch
-// and bundle ref. The file is created exclusively and the places are scanned once more, which
-// narrows the window for two creates at the same instant to nothing but a tie, which the
-// lexically smaller file name wins; the duplicate check catches anything else.
+// and bundle ref; with a counter, it is also above every number the counter gave out. The file is created exclusively and the places are
+// scanned once more, which narrows the window for two creates at the same instant in one clone
+// to nothing but a tie, which the lexically smaller file name wins; the duplicate check catches
+// anything else.
 
 import { blockRange } from './config.mjs';
 import { fileNamesIn, git, listPlaces, patterns } from './tree.mjs';
@@ -63,21 +68,27 @@ export function takenNumbers(root, layout, range) {
  * Pick the next number in a block and call `write(n)`, which creates the file exclusively and
  * returns its repository-relative path. Then scan again: if another file took the same number
  * meanwhile, the one whose name sorts first keeps it and the other is removed (`remove(path)`)
- * and retried.
+ * and retried. `shared.take`, the store counter, takes the number (at least the next free one
+ * here) for every session that shares the store.
+ * A number the counter gives that is already in use here is refused and the next one taken.
  * @param {string} root @param {Layout} layout
- * @param {{ block?: string, write: (n: number) => string, remove: (path: string) => void, tries?: number }} options
+ * @param {{ block?: string, write: (n: number) => string, remove: (path: string) => void, tries?: number,
+ *   shared?: Pick<import('./shared-ids.mjs').SharedIds, 'take'> }} options
  * @returns {{ id: string, path: string, block: string }}
  */
-export function allocate(root, layout, { block, write, remove, tries = 8 }) {
+export function allocate(root, layout, { block, write, remove, tries = 8, shared }) {
   const range = blockRange(layout, block);
   const { file: filePattern } = patterns(layout.key);
   for (let i = 0; i < tries; i++) {
-    const n = Math.max(range.from - 1, ...takenNumbers(root, layout, range)) + 1;
+    const taken = takenNumbers(root, layout, range);
+    const next = Math.max(range.from - 1, ...taken) + 1;
+    const n = shared?.take ? shared.take({ key: layout.key, block: range.name, from: next }) : next;
     if (range.to !== null && n > range.to) {
       throw new Error(
         `ID block "${range.name}" (${range.from} to ${range.to}) is used up; reserve a larger block in policy.json ids.blocks`,
       );
     }
+    if (taken.has(n)) continue; // the counter is behind: that number is in use
     /** @type {string} */
     let path;
     try {

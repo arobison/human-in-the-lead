@@ -31,6 +31,8 @@ export const ERROR_CODES = Object.freeze({
   policy: 'policy.json is missing, invalid or not trusted.',
   settings: 'A settings file is invalid.',
   tracker: 'tracker.json is invalid.',
+  'id-counter-unreachable':
+    'A new ID is taken from the counter on the store repository, and it could not be reached or written; no ID was taken.',
   contract: 'The contract block in AGENTS.md could not be installed.',
   'not-a-repository': 'The working directory is not in a git repository.',
   'output-path':
@@ -79,6 +81,8 @@ export const ERROR_CODES = Object.freeze({
   'invalid-decision': 'The decision record or answer is not valid.',
   'answer-matches-no-option':
     "The answer names none of the decision's options, or words that fit more than one; nothing was recorded.",
+  'answer-question-changed':
+    'The question the answer would apply to is not the one shown: its check code differs from the one given or last shown, the tracker item and the ask record disagree, or the device action it would apply is another; nothing was recorded.',
   'not-created': 'The tracker refused to create the decision item.',
   'not-a-decision': 'The ID names an item that is not a decision.',
   'not-open': 'The decision is not open.',

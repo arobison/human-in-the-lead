@@ -93,6 +93,7 @@ const questions = {
         critical_path: d.critical_path,
         blocks: d.blocks,
         reversibility: d.reversibility,
+        ...(asked?.check ? { check: asked.check } : {}),
         ...(rec
           ? {
               recommendation: {
@@ -113,6 +114,7 @@ const questions = {
           : d.reversibility === 'two-way'
             ? 'easy to undo'
             : null,
+        asked?.check ? `check ${asked.check}` : null,
       ].filter(Boolean);
       entries.push([
         clip(`${i + 1}. ${id} ${d.title}`),

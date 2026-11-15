@@ -18,11 +18,22 @@ import { schemas } from '../lib/schema/registry.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
 import { findOrphans } from '../lib/tracker/files/claims.mjs';
 import { TRACKER_METHODS } from '../lib/tracker/interface.mjs';
-import { commitAll, git, itemText, makeRepo, policyFor, put } from './tracker-fixture.mjs';
+import {
+  commitAll,
+  git,
+  isolatedEnv,
+  itemText,
+  makeRepo,
+  policyFor,
+  put,
+} from './tracker-fixture.mjs';
+
+/** No person file, private store or store address of this machine is read. */
+const HOME = isolatedEnv();
 
 /** @param {string} root @param {Partial<Parameters<typeof openTracker>[0]>} [extra] */
 const open = (root, extra) =>
-  openTracker({ repoRoot: root, policy: policyFor(), env: {}, ...(extra ?? {}) });
+  openTracker({ repoRoot: root, policy: policyFor(), env: { ...HOME }, ...(extra ?? {}) });
 
 // --- The adapter ------------------------------------------------------------------------
 
@@ -281,8 +292,12 @@ test('allocation counts numbers on other branches, other worktrees and bundle re
 test('a second machine allocates from its reserved block, and the base range never reaches it', () => {
   const root = makeRepo();
   const policy = policyFor([{ name: 'second-machine', from: 100000 }]);
-  const base = openTracker({ repoRoot: root, policy, env: {} });
-  const second = openTracker({ repoRoot: root, policy, env: { HITLD_ID_BLOCK: 'second-machine' } });
+  const base = openTracker({ repoRoot: root, policy, env: { ...HOME } });
+  const second = openTracker({
+    repoRoot: root,
+    policy,
+    env: { ...HOME, HITLD_ID_BLOCK: 'second-machine' },
+  });
   assert.equal(second.create({ kind: 'work', title: 'there', parent: 'W-2' }), 'W-100000');
   assert.equal(second.create({ kind: 'work', title: 'there too', parent: 'W-2' }), 'W-100001');
   // The first machine, seeing the second's items, keeps counting in its own range.
@@ -292,7 +307,7 @@ test('a second machine allocates from its reserved block, and the base range nev
   assert.equal(base.check().problems.length, 0);
   // The option works the same as the environment variable.
   assert.equal(
-    openTracker({ repoRoot: root, policy, env: {}, block: 'second-machine' }).create({
+    openTracker({ repoRoot: root, policy, env: { ...HOME }, block: 'second-machine' }).create({
       kind: 'work',
       title: 'opt',
       parent: 'W-2',
@@ -306,7 +321,7 @@ test('a block that is used up, or does not exist, is an error that says so', () 
   const small = openTracker({
     repoRoot: root,
     policy: policyFor([{ name: 'tiny', from: 50, to: 51 }]),
-    env: { HITLD_ID_BLOCK: 'tiny' },
+    env: { ...HOME, HITLD_ID_BLOCK: 'tiny' },
   });
   assert.equal(small.create({ kind: 'work', title: 'a', parent: 'W-2' }), 'W-50');
   assert.equal(small.create({ kind: 'work', title: 'b', parent: 'W-2' }), 'W-51');
@@ -317,7 +332,7 @@ test('a block that is used up, or does not exist, is an error that says so', () 
   const capped = openTracker({
     repoRoot: root,
     policy: policyFor([{ name: 'second', from: 9 }]),
-    env: {},
+    env: { ...HOME },
   });
   assert.equal(capped.create({ kind: 'work', title: 'x', parent: 'W-2' }), 'W-7');
   assert.equal(capped.create({ kind: 'work', title: 'y', parent: 'W-2' }), 'W-8');
@@ -327,7 +342,11 @@ test('a block that is used up, or does not exist, is an error that says so', () 
   );
   assert.throws(
     () =>
-      openTracker({ repoRoot: root, policy: policyFor(), env: { HITLD_ID_BLOCK: 'nope' } }).create({
+      openTracker({
+        repoRoot: root,
+        policy: policyFor(),
+        env: { ...HOME, HITLD_ID_BLOCK: 'nope' },
+      }).create({
         kind: 'work',
         title: 'q',
         parent: 'W-2',
@@ -734,7 +753,7 @@ test('views regenerate the lists between the README markers when tracker.json na
 // --- The command line --------------------------------------------------------------------------
 
 /** @param {string[]} argv @param {string} cwd @param {NodeJS.ProcessEnv} [env] */
-async function hitld(argv, cwd, env = {}) {
+async function hitld(argv, cwd, env = { ...HOME }) {
   let out = '';
   const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env });
   return { code, out, json: out.startsWith('{') ? JSON.parse(out) : null };
@@ -818,6 +837,7 @@ test('hitld work new, claim, close, claims and unclaim walk the lifecycle', asyn
     id: 'W-7',
     path: 'work/items/W-7-add-a-thing.md',
     block: 'base',
+    id_source: 'local',
   });
   assert.equal(
     git(root, 'status', '--porcelain').includes('W-7-add-a-thing.md'),
