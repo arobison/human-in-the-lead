@@ -215,7 +215,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.approve.result.error",
-        "value": "not_drafted"
+        "value": "not-drafted"
       }
     },
     {

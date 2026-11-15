@@ -87,7 +87,7 @@ function refused(ctx, name) {
   return why
     ? {
         ok: false,
-        error: 'not_permitted',
+        error: 'not-permitted',
         message: `hitld ${name} is the person's, through the main session in the primary checkout (${why}); an executor puts feedback in its report`,
       }
     : null;

@@ -148,7 +148,7 @@ export function install(input, ctx) {
   if (ctx.env.HITLD_ROLE === 'executor' || ctx.env.HITLD_DISPATCH) {
     return {
       ok: false,
-      error: 'not_permitted',
+      error: 'not-permitted',
       message:
         'hitld install changes project settings and the git hooks every worktree shares; executors never run it (HITLD_ROLE=executor or HITLD_DISPATCH is set)',
     };
@@ -157,7 +157,7 @@ export function install(input, ctx) {
   if (!root)
     return {
       ok: false,
-      error: 'not_a_repository',
+      error: 'not-a-repository',
       message: `${ctx.cwd} is not in a git repository`,
     };
   /** @type {Record<string, string>} */

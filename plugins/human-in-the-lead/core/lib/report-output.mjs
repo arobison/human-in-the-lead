@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -76,14 +77,30 @@ export function outputProblem(dir, roots, { marker, files }) {
 }
 
 /**
- * Write files after outputProblem has passed, and record them in the marker.
+ * Write files after outputProblem has passed, and record them in the marker. A file the marker
+ * lists under a name that is `retired` (a page's name before a rename) is removed first, and its
+ * name leaves the marker, so a directory written under the old name holds the new page only.
+ * Only a regular file the marker lists is removed; a symbolic link or anything else is left alone.
  * @param {string} dir @param {string} marker @param {Record<string, string>} files by name
+ * @param {string[]} [retired] names an earlier release wrote and this one no longer does
  * @returns {string} the directory's real path
  */
-export function writeReportFiles(dir, marker, files) {
+export function writeReportFiles(dir, marker, files, retired = []) {
   const real = realish(dir);
   mkdirSync(real, { recursive: true });
-  const names = [...new Set([...made(real, marker), ...Object.keys(files)])];
+  const listed = made(real, marker);
+  const gone = new Set();
+  for (const name of retired) {
+    if (name in files || !listed.includes(name)) continue;
+    try {
+      if (lstatSync(join(real, name)).isFile()) unlinkSync(join(real, name));
+      gone.add(name);
+    } catch (e) {
+      if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT') gone.add(name);
+      // Anything else: leave the file, and keep it in the marker.
+    }
+  }
+  const names = [...new Set([...listed.filter((n) => !gone.has(n)), ...Object.keys(files)])];
   writeFileSync(join(real, marker), `${JSON.stringify({ files: names })}\n`);
   for (const [name, text] of Object.entries(files)) writeFileSync(join(real, name), text);
   return real;

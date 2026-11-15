@@ -100,7 +100,7 @@ const passphrase = (input, ctx) =>
     option: 'passphrase-fd',
     env: PASSPHRASE_ENV,
     what: 'passphrase',
-    code: 'no_passphrase',
+    code: 'no-passphrase',
   }).split(/\r?\n/)[0];
 
 /**
@@ -145,7 +145,7 @@ function project(input, ctx) {
   if (!loaded.policy) {
     const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
     throw new Refusal(
-      'no_policy',
+      'policy',
       `the store commands need the project's ID from a valid policy.json (${why})`,
     );
   }
@@ -171,7 +171,7 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
   if (why) {
     return {
       ok: false,
-      error: 'not_permitted',
+      error: 'not-permitted',
       message: `hitld ${name} is the owner's, run from the main session in the primary checkout (${why}); executors never move the private store`,
     };
   }

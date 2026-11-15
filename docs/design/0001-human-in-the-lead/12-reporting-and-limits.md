@@ -76,7 +76,7 @@ Every controller ([part 11](11-metrics-and-control.md#114-feedback-controllers))
 ## 12.4 A portable build
 
 - **A local metrics store.** The core writes everything the readouts need to the private store: the ledger, the controller step log, usage snapshots (12.5), and quota declarations. These files follow a **versioned data contract** (`metrics_schema_version`), like every other data format ([part 16](16-packaging.md#165-releases-and-compatibility)).
-- **`hitld dashboard`** renders a static, self-contained HTML dashboard (charts as inline SVG, no scripts from elsewhere, no server, no network requests) and the digests, from that store. The page includes the milestone graph (12.1.2). It runs anywhere Node runs, under any harness.
+- **`hitld dashboard`** renders a static, self-contained HTML dashboard (charts as inline SVG, no scripts from elsewhere, no server, no network requests) and the digests, from that store. The page includes the milestone graph (12.1.2). It writes `dashboard.html` and `digest.txt` ([16.2](16-packaging.md#pages-the-commands-write)). It runs anywhere Node runs, under any harness.
 - **`hitld dashboard --json`** emits the data contract itself, so **richer views** can read the same data: a published dashboard page in Claude, or another app the owner builds on the same data. A view that publishes data off the machine gets aggregates only, at or below its classification limit, and publishing it is the owner's decision.
 - **The dashboard with safe intents** ([part 5](05-execution.md#57-control-plane-and-readout)) is a later milestone built on the same contract.
 

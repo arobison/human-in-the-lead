@@ -330,11 +330,11 @@ test('the baseline goes to the primary checkout, never to a linked worktree; exe
   // From the worktree an executor's accept is refused, and writes nothing anywhere.
   const refused = await inLinked.hitld(['eval', 'accept', '--result', ran.json.run]);
   assert.equal(refused.code, 1);
-  assert.equal(refused.json.error, 'not_allowed');
+  assert.equal(refused.json.error, 'not-permitted');
   const dispatched = await w.hitld(['eval', 'accept', '--result', ran.json.run], {
     HITLD_DISPATCH: 'D-1',
   });
-  assert.equal(dispatched.json.error, 'not_allowed');
+  assert.equal(dispatched.json.error, 'not-permitted');
   assert.deepEqual(committedFiles(primary), []);
   assert.deepEqual(committedFiles(linked), []);
 
@@ -410,7 +410,7 @@ test('--require-baseline fails without a committed baseline, the private store n
   // Nothing committed: it fails, and says where the file belongs.
   const missing = await w.offline(['--require-baseline']);
   assert.equal(missing.code, 1);
-  assert.equal(missing.json.error, 'no_committed_baseline');
+  assert.equal(missing.json.error, 'no-committed-baseline');
   assert.match(missing.json.message, /evals\/baselines\/offline-[0-9a-f]{12}\.json is missing/);
   // The run itself is still one the owner can accept: the gate's verdict is not the failure.
   assert.equal(missing.json.gate.ok, true);
@@ -420,7 +420,7 @@ test('--require-baseline fails without a committed baseline, the private store n
   writeBaseline(w.store(), stored(w, ran.json.run), new Date(Date.now() - 1000));
   const storeOnly = await w.offline(['--require-baseline']);
   assert.equal(storeOnly.code, 1);
-  assert.equal(storeOnly.json.error, 'no_committed_baseline');
+  assert.equal(storeOnly.json.error, 'no-committed-baseline');
   assert.equal(storeOnly.json.gate.baseline, null);
 
   // Accepted and committed: it passes.

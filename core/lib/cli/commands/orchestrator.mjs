@@ -169,7 +169,7 @@ function refuseSelection(r, presentation, what) {
     );
   }
   throw new Refusal(
-    'not_presented',
+    'not-presented',
     `${r.unknown.join(', ')} ${r.unknown.length === 1 ? 'was' : 'were'} not presented to the owner (only branches that passed the checks are); nothing was ${what}`,
     { presented: shown },
   );
@@ -182,7 +182,7 @@ export async function guarded(fn) {
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, error: e.code, message: e.message, ...e.more };
     if (e instanceof LeaseError) {
-      return { ok: false, error: `lease_${e.code}`, message: e.message, holder: e.holder };
+      return { ok: false, error: `lease-${e.code}`, message: e.message, holder: e.holder };
     }
     throw e;
   }
@@ -196,7 +196,7 @@ export function project(ctx) {
   // The primary checkout, even from inside a linked worktree: policy, tracker and main are the
   // owner's there, never an executor's copy (as piece (c) does for env exec).
   const repoRoot = ownerCheckoutOf(ctx.cwd);
-  if (!repoRoot) throw new Refusal('not_a_repository', `${ctx.cwd} is not in a git repository`);
+  if (!repoRoot) throw new Refusal('not-a-repository', `${ctx.cwd} is not in a git repository`);
   const loaded = loadPolicy({ cwd: repoRoot });
   if (!loaded.policy) {
     throw new Refusal('policy', 'policy.json is missing or invalid; run hitld check policy', {
@@ -240,7 +240,7 @@ export function project(ctx) {
  * @param {ReturnType<typeof project>} p @param {Record<string, unknown>} input @param {Ctx} ctx
  */
 export function runOf(p, input, ctx) {
-  if (!p.state) throw new Refusal('no_run', 'no run has started: hitld run start');
+  if (!p.state) throw new Refusal('no-run', 'no run has started: hitld run start');
   const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
   if (!session) {
     throw new Refusal('usage', 'a session ID is needed: pass --session or set HITLD_SESSION');
@@ -617,7 +617,7 @@ export const commands = [
         const due = dueFor(run, p.policy, input);
         if (due.due && input['by-hand'] !== true) {
           throw new Refusal(
-            'handover_due',
+            'handover-due',
             `this session's hand-over is due (${due.reasons.join('; ')}): start nothing new; once the work it started has reported, hitld handover. A successor dispatches ${id}`,
             { handover: due },
           );
@@ -633,7 +633,7 @@ export const commands = [
               : q.queue.some((i) => String(i.id) === id)
                 ? `${id} is ready but no slot is free (${result.running} running, cap ${result.cap})`
                 : `${id} is not ready (or is already in flight)`;
-          throw new Refusal('not_planned', why, { plan: planJson(result, setup) });
+          throw new Refusal('not-planned', why, { plan: planJson(result, setup) });
         }
         const item = /** @type {Item} */ (q.byId.get(id));
         const dispatch = nextDispatchId(readLedger(p.store).events);
@@ -730,7 +730,7 @@ export const commands = [
               item: id,
               notes: 'the worktree could not be prepared',
             });
-            throw new Refusal('setup_failed', /** @type {Error} */ (e).message, { dispatch });
+            throw new Refusal('setup-failed', /** @type {Error} */ (e).message, { dispatch });
           }
         }
         const brief = briefFor(worktree);
@@ -806,7 +806,7 @@ export const commands = [
         const run = runOf(p, input, ctx);
         const d = String(input.dispatch);
         const entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
-        if (!entry) throw new Refusal('not_in_flight', `${d} is not in flight`);
+        if (!entry) throw new Refusal('not-in-flight', `${d} is not in flight`);
         const { appended } = run.record({
           id: lifecycleId('started', d),
           event: 'started',
@@ -860,7 +860,7 @@ export const commands = [
             (e) => e.dispatch === d && e.event === 'reported',
           );
           if (done) return { ok: true, dispatch: d, already: true, event: done };
-          throw new Refusal('not_in_flight', `${d} is not in flight`);
+          throw new Refusal('not-in-flight', `${d} is not in flight`);
         }
         /** @type {import('../../../harness/claude-code/adapter.mjs').Notification} */
         let n;
@@ -966,11 +966,11 @@ export const commands = [
         const first = events.find((e) => e.dispatch === from && e.event === 'dispatched');
         const started = events.find((e) => e.dispatch === from && e.event === 'started');
         if (!first || !started?.harness_ref) {
-          throw new Refusal('unknown_dispatch', `${from} has no recorded harness_ref to continue`);
+          throw new Refusal('unknown-dispatch', `${from} has no recorded harness_ref to continue`);
         }
         if (run.state.in_flight.some((/** @type {any} */ x) => x.dispatch === from)) {
           throw new Refusal(
-            'still_running',
+            'still-running',
             `${from} is still running: its completion notice comes first`,
           );
         }
@@ -1091,7 +1091,7 @@ export const commands = [
         const why = executorSignal(ctx.env, ctx.cwd);
         if (why) {
           throw new Refusal(
-            'not_permitted',
+            'not-permitted',
             `${owner ? "in owner mode the merge is the owner's" : "the merge queue is the orchestrator's"}, run from the main session in the primary checkout (${why})`,
           );
         }
@@ -1138,7 +1138,7 @@ export const commands = [
           }
           if (!names.length || unknown.length) {
             throw new Refusal(
-              'not_waiting',
+              'not-waiting',
               `${names.length ? unknown.join(', ') : 'no branch'} ${unknown.length === 1 ? 'is' : 'are'} not waiting to merge; nothing was merged`,
               { waiting: waiting.map((w) => ({ item: w.item, branch: w.branch })) },
             );
@@ -1169,7 +1169,7 @@ export const commands = [
         }
         if (approving && !presented) {
           throw new Refusal(
-            'not_presented',
+            'not-presented',
             'nothing has been presented to the owner: run hitld merge first; it checks the waiting branches and presents the ones that pass; nothing was merged',
           );
         }
@@ -1263,7 +1263,7 @@ export const commands = [
           ? await env.acquireLock({ resource: 'merge-queue', holder: 'merge-queue', wait: false })
           : null;
         if (lock && !lock.acquired) {
-          throw new Refusal('merge_busy', `the merge queue is held by ${lock.held_by?.holder}`);
+          throw new Refusal('merge-busy', `the merge queue is held by ${lock.held_by?.holder}`);
         }
         const scanners = /** @type {{ name: string }[]} */ (p.policy.merge.scanners);
         const security = securityGate({
@@ -1480,18 +1480,18 @@ export const commands = [
         const why = executorSignal(ctx.env, ctx.cwd);
         if (why) {
           throw new Refusal(
-            'not_permitted',
+            'not-permitted',
             `a merge approval is the owner's, recorded from the owner's own message (${why})`,
           );
         }
         const p = project(ctx);
         if (p.policy.merge.mode !== 'owner') {
           throw new Refusal(
-            'not_owner_mode',
+            'not-owner-mode',
             'merge.mode is not owner: the queue merges whatever passes, with no approval to record',
           );
         }
-        if (!p.state) throw new Refusal('no_run', 'no run has started: hitld run start');
+        if (!p.state) throw new Refusal('no-run', 'no run has started: hitld run start');
         const all = input.all === true;
         const names =
           typeof input.only === 'string'
@@ -1504,7 +1504,7 @@ export const commands = [
         const presented = readPresentation(p.store);
         if (!presented) {
           throw new Refusal(
-            'not_presented',
+            'not-presented',
             'nothing has been presented to the owner: the session holding the lease runs hitld merge first; nothing was approved',
           );
         }

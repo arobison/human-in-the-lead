@@ -44,7 +44,7 @@ test('a command not yet built says so and names who builds it (built_by)', async
   const { code, out } = await run(['kb', 'search']);
   assert.equal(code, EXIT.notBuilt);
   const result = parse(out);
-  assert.equal(result.error, 'not_built');
+  assert.equal(result.error, 'not-built');
   assert.equal(result.built_by, 'signal');
   assert.match(result.message, /the milestone One signal end to end, builds it/);
 });

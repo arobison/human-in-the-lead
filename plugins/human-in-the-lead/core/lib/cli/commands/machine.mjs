@@ -52,7 +52,7 @@ export const commands = [
       if (refusal) {
         return {
           ok: false,
-          error: 'refused',
+          error: 'not-permitted',
           message: `executors never write settings: ${refusal}`,
           ...base,
           written: false,

@@ -156,7 +156,7 @@ test('rights ask and rights answer write the files tracker of the primary checko
     ['rights', 'answer', id, '--answer', 'A'],
   ]) {
     const refused = await c.hitld(argv, { cwd: wt });
-    assert.equal(refused.result.error, 'not_permitted', argv[1]);
+    assert.equal(refused.result.error, 'not-permitted', argv[1]);
   }
 
   const answered = await c.hitld(['rights', 'answer', id, '--answer', 'A yes']);
@@ -173,7 +173,7 @@ test('rights ask and rights answer write the files tracker of the primary checko
   assert.equal(fields.precedent, 'P-1');
   assert.equal(fields.resolved_by_precedent, undefined);
   const again = await c.hitld(['rights', 'answer', id, '--answer', 'B']);
-  assert.equal(again.result.error, 'not_open');
+  assert.equal(again.result.error, 'not-open');
 
   // A like question is resolved by the precedent: Done at once, citing it, answered by nobody.
   const like = { ...filed, title: 'Add right-pad?', precedent_offer: undefined };
@@ -202,11 +202,11 @@ test('rights ask and rights answer write the files tracker of the primary checko
   // What the files cannot hold truthfully is refused, never written.
   const internal = { ...filed, title: 'Internal?', classification: 'internal' };
   const refused = await c.hitld(['rights', 'ask', '--question', JSON.stringify(internal)]);
-  assert.equal(refused.result.error, 'not_created');
+  assert.equal(refused.result.error, 'not-created');
   assert.match(refused.result.message, /classified internal cannot be written/);
   const orphan = { ...question, title: 'Orphan?', precedent_offer: undefined, tags: ['x'] };
   const noParent = await c.hitld(['rights', 'ask', '--question', JSON.stringify(orphan)]);
-  assert.equal(noParent.result.error, 'not_created');
+  assert.equal(noParent.result.error, 'not-created');
   assert.match(noParent.result.message, /the question's parent names the project/);
 });
 
@@ -319,7 +319,7 @@ test('an executor cannot ask, show, log, answer, overrule, reverse, rate or trus
       const r = /** @type {any} */ (
         await c?.run?.({ decision: 'W-1', answer: 'A' }, { cwd: nowhere, env })
       );
-      assert.equal(r.error, 'not_permitted', `${name} with ${JSON.stringify(env)}`);
+      assert.equal(r.error, 'not-permitted', `${name} with ${JSON.stringify(env)}`);
     }
   }
   const owner = /** @type {any} */ (
@@ -327,7 +327,7 @@ test('an executor cannot ask, show, log, answer, overrule, reverse, rate or trus
       .find((x) => x.name === 'rights answer')
       ?.run?.({ decision: 'W-1', answer: 'A' }, { cwd: nowhere, env: {} })
   );
-  assert.notEqual(owner.error, 'not_permitted');
+  assert.notEqual(owner.error, 'not-permitted');
 });
 
 test('the decision commands refuse in a linked worktree, where executors work (Q21)', async () => {
@@ -347,10 +347,10 @@ test('the decision commands refuse in a linked worktree, where executors work (Q
   const r = /** @type {any} */ (
     await c?.run?.({ decision: 'W-1', answer: 'A' }, { cwd: wt, env: {} })
   );
-  assert.equal(r.error, 'not_permitted');
+  assert.equal(r.error, 'not-permitted');
   assert.match(r.message, /linked worktree/);
   const main = /** @type {any} */ (
     await c?.run?.({ decision: 'W-1', answer: 'A' }, { cwd: repo, env: {} })
   );
-  assert.notEqual(main.error, 'not_permitted');
+  assert.notEqual(main.error, 'not-permitted');
 });

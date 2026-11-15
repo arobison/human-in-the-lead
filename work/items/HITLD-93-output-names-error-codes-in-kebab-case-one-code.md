@@ -2,9 +2,11 @@
 id: HITLD-93
 title: "Output names: error codes in kebab-case, one code per meaning, the dashboard page is dashboard.html"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-93
+release_note: "Error codes in the hitld command's JSON are lowercase kebab-case, one code per meaning: not_permitted, not_allowed and refused (a role refusal) are not-permitted, every other snake_case code is hyphenated, and design 16.2 lists every code with its old name. hitld dashboard writes dashboard.html instead of report.html. There is no fallback for the old names."
 ---
 
 ## Why

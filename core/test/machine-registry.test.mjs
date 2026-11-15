@@ -317,7 +317,7 @@ test('check 11: two projects stay within the person cap, see the same usage, and
   assert.equal(planA.result.start.length, 0);
   const startA2 = await A(['dispatch', 'start', 'W-2']);
   assert.equal(startA2.exit === 0, false);
-  assert.equal(startA2.result.error, 'not_planned');
+  assert.equal(startA2.result.error, 'not-planned');
   const live = liveExecutors(machineRootFor(openStore(privateStorePath('x', { env })).root));
   assert.deepEqual(live.map((e) => `${e.project}/${e.dispatch}`).sort(), [
     'beta/D-1',
@@ -380,8 +380,8 @@ test('check 11: two projects dispatching at the same moment cannot pass the cap 
   assert.equal(results.filter((r) => r.ok).length, 1, 'one dispatch went');
   const refused = results.find((r) => !r.ok);
   // Which check refuses depends on timing: the plan sees the other's executor if it registered
-  // first (not_planned), and the registry's own check catches the case where both had planned.
-  assert.ok(['cap', 'not_planned'].includes(refused.error), refused.error);
+  // first (not-planned), and the registry's own check catches the case where both had planned.
+  assert.ok(['cap', 'not-planned'].includes(refused.error), refused.error);
   assert.equal(
     Object.keys(
       readMachineRegistry(machineRootFor(openStore(privateStorePath('x', { env })).root)).executors,

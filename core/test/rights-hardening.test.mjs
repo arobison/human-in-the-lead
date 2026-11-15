@@ -104,7 +104,7 @@ test('an area owner may not generalize over rule bases the area may not decide',
   });
   const asked = askQuestion(project, wide);
   assert.equal(asked.outcome, 'asked');
-  assert.match(asked.warnings[0], /offer_not_permitted: the owners of cache may decide/);
+  assert.match(asked.warnings[0], /offer-not-permitted: the owners of cache may decide/);
   assert.equal(/** @type {any} */ (project.tracker.get(asked.decision)).precedent_offer, undefined);
   const r = answerDecision(project, { decision: asked.decision, answer: 'A yes', by: 'C-3' });
   assert.equal(r.precedent, null);
@@ -172,7 +172,7 @@ test('only a decider, or the owner, may answer', () => {
   const project = makeProject();
   const asked = askQuestion(project, areaQuestion());
   const r = answerDecision(project, { decision: asked.decision, answer: 'A yes', by: 'C-4' });
-  assert.equal(r.error, 'not_a_decider');
+  assert.equal(r.error, 'not-a-decider');
   assert.equal(/** @type {any} */ (project.tracker.get(asked.decision)).state, 'planned');
   const owner = answerDecision(project, { decision: asked.decision, answer: 'A yes', by: 'owner' });
   assert.equal(owner.ok, true);
@@ -252,7 +252,7 @@ test("addressing a judgement conflict cannot hand the owner's question to a cont
   assert.equal(/** @type {any} */ (project.tracker.get(r.decision)).decider, 'owner');
   assert.equal(
     answerDecision(project, { decision: r.decision, answer: 'A', by: 'C-9' }).error,
-    'not_a_decider',
+    'not-a-decider',
   );
 });
 
@@ -291,7 +291,7 @@ test('an overrule of a more confidential decision does not write its attributes 
   // No automatic exception from the confidential case.
   const refused = overrule(project, { decision: a.decision, why: 'the partner acme forbids it' });
   assert.equal(refused.ok, false);
-  assert.equal(refused.error, 'sensitive_exception');
+  assert.equal(refused.error, 'sensitive-exception');
   assert.equal(project.precedents.get('P-1')?.state, 'active', 'nothing was written');
 
   // With attributes the owner chose, and no reason in the precedent.
@@ -441,7 +441,7 @@ test('a traversal path cannot be taken for a path in another area, or for none',
   for (const bad of ['../../etc/passwd', '/etc/passwd', 'src/cache/../../../x', 'C:\\Windows\\x']) {
     const r = askQuestion(project, areaQuestion({ paths: [bad], precedent_offer: undefined }));
     assert.equal(r.ok, false, bad);
-    assert.equal(r.error, 'invalid_question', bad);
+    assert.equal(r.error, 'invalid-question', bad);
   }
 });
 
@@ -582,7 +582,7 @@ test('an overrule whose decision has an unknown classification is treated as the
   const item = /** @type {Record<string, any>} */ (project.tracker.items.get(a.decision));
   item.classification = 'toString';
   const r = overrule(project, { decision: a.decision, why: 'the reason' });
-  assert.equal(r.error, 'sensitive_exception');
+  assert.equal(r.error, 'sensitive-exception');
   const retired = overrule(project, { decision: a.decision, why: 'the reason', retire: true });
   assert.equal(retired.action, 'retired');
   assert.ok(!JSON.stringify(project.precedents.get('P-1')).includes('the reason'));

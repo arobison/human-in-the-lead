@@ -151,7 +151,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.executor.result.error",
-        "value": "not_permitted"
+        "value": "not-permitted"
       }
     },
     {
@@ -159,7 +159,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.dispatched.result.error",
-        "value": "not_permitted"
+        "value": "not-permitted"
       }
     },
     {
@@ -167,7 +167,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.vague.result.error",
-        "value": "not_an_approval"
+        "value": "not-an-approval"
       }
     },
     {
@@ -175,7 +175,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.other.result.error",
-        "value": "not_an_approver"
+        "value": "not-an-approver"
       }
     },
     {

@@ -96,10 +96,10 @@ test('asking with send records the question as sent at once', () => {
 
 test('showing refuses what it cannot show', () => {
   const { project } = clocked();
-  assert.equal(showQuestion(project, { decision: 'W-99' }).error, 'not_found');
+  assert.equal(showQuestion(project, { decision: 'W-99' }).error, 'not-found');
   const asked = askQuestion(project, question());
   answerDecision(project, { decision: asked.decision, answer: 'A' });
-  assert.equal(showQuestion(project, { decision: asked.decision }).error, 'not_open');
+  assert.equal(showQuestion(project, { decision: asked.decision }).error, 'not-open');
   const bare = project.tracker.create({
     schema_version: 1,
     kind: 'decision',
@@ -107,7 +107,7 @@ test('showing refuses what it cannot show', () => {
     state: 'planned',
     classification: 'public',
   });
-  assert.equal(showQuestion(project, { decision: bare }).error, 'no_question_record');
+  assert.equal(showQuestion(project, { decision: bare }).error, 'no-question-record');
 });
 
 test('a decision a precedent resolves is neither asked nor answered in the ledger', () => {
@@ -143,7 +143,7 @@ test('an event is written once per decision, even when the orchestrator recorded
   });
   // W-1 is the tracker's first ID: asking it again must not add a second asked.
   const shown = showQuestion(project, { decision: 'W-1' });
-  assert.equal(shown.error, 'no_question_record');
+  assert.equal(shown.error, 'no-question-record');
   assert.equal(events(project, 'asked').length, 1);
 });
 
@@ -328,7 +328,7 @@ test('"worth asking?": a rating right after an answer rates that decision; a lat
   const { project, at } = clocked();
   assert.equal(
     /** @type {any} */ (rateWorthAsking(project, { worth: false })).error,
-    'nothing_to_rate',
+    'nothing-to-rate',
   );
   const one = askQuestion(project, question({ title: 'One?' }), { send: true });
   const two = askQuestion(project, question({ title: 'Two?' }), { send: true });
@@ -362,11 +362,11 @@ test('every question offers the optional "worth asking?" tap', () => {
 
 test('logged calls: a ledger event with the way to reverse it, listed for the digest', () => {
   const { project, at } = clocked();
-  assert.equal(logCall(project, { text: '' }).error, 'invalid_call');
-  assert.equal(logCall(project, { text: 'x'.repeat(501) }).error, 'invalid_call');
+  assert.equal(logCall(project, { text: '' }).error, 'invalid-call');
+  assert.equal(logCall(project, { text: 'x'.repeat(501) }).error, 'invalid-call');
   assert.equal(
     logCall(project, { text: 'Ordered W-3 before W-4', item: 'not an id' }).error,
-    'invalid_call',
+    'invalid-call',
   );
 
   const first = logCall(project, {
@@ -408,7 +408,7 @@ test('logged calls: a ledger event with the way to reverse it, listed for the di
     [reversed.recorded.subject_kind, reversed.recorded.area, reversed.logged_call],
     ['logged-call', 'cache', 'Chose the in-memory cache for the report writer'],
   );
-  assert.equal(recordReversal(project, { subject: first.id }).error, 'already_reversed');
+  assert.equal(recordReversal(project, { subject: first.id }).error, 'already-reversed');
   const after = listLoggedCalls(project);
   assert.deepEqual(
     after.map((c) => [c.id, c.reversed, c.reverse_with === undefined]),

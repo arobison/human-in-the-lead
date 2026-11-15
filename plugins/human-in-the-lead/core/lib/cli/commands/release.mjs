@@ -116,7 +116,7 @@ export const commands = [
       if (why || ctx.interactive !== true) {
         return {
           ok: false,
-          error: 'not_permitted',
+          error: 'not-permitted',
           message: `release make is the owner's, through the main session in the primary checkout (${why ?? 'not the human command line'}); an executor proposes a release in its report`,
         };
       }

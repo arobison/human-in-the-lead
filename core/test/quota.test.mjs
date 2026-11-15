@@ -505,7 +505,7 @@ test('hitld quota status reads the store; a snapshot near the reserve limits dis
   assert.equal(bad.json.error, 'usage');
 });
 
-test('hitld dashboard writes report.html and digest.txt, and --json gives the data', async () => {
+test('hitld dashboard writes dashboard.html and digest.txt, and --json gives the data', async () => {
   const p = project();
   p.store.append('usage/snapshots.jsonl', `${JSON.stringify(snap(T0 - 60_000, 80))}\n`);
   const out = join(p.repo, 'out');
@@ -513,11 +513,11 @@ test('hitld dashboard writes report.html and digest.txt, and --json gives the da
   assert.equal(r.code, 0);
   assert.equal(r.json.mode, 'stop');
   assert.equal(r.json.report.metrics_schema_version, 1);
-  assert.ok(existsSync(join(out, 'report.html')));
+  assert.ok(existsSync(join(out, 'dashboard.html')));
   assert.match(readFileSync(join(out, 'digest.txt'), 'utf8'), /Dispatch: Stopped at the reserve\./);
   // Without --out the report goes under the private store, not the repository.
   const d = await hitld(['dashboard', '--now', iso(T0)], p);
-  assert.equal(d.json.html, join(p.store.root, 'reports', 'report.html'));
+  assert.equal(d.json.html, join(p.store.root, 'reports', 'dashboard.html'));
   assert.ok(existsSync(d.json.html));
   assert.equal(d.json.report, undefined);
   assert.equal(dirname(d.json.html).startsWith(p.repo), false);
@@ -541,31 +541,60 @@ test('hitld dashboard --out stays inside the repository or the private store, an
   const outside = join(tmp, `outside-${Math.random().toString(36).slice(2)}`);
   const refused = await hitld(args(outside), p);
   assert.equal(refused.code, 1);
-  assert.equal(refused.json.error, 'output_path');
+  assert.equal(refused.json.error, 'output-path');
   assert.equal(existsSync(outside), false);
-  assert.equal((await hitld(args('../escape'), p)).json.error, 'output_path');
+  assert.equal((await hitld(args('../escape'), p)).json.error, 'output-path');
   // A symlink out of the repository does not smuggle the write out.
   mkdirSync(outside, { recursive: true });
   symlinkSync(outside, join(p.repo, 'link'));
-  assert.equal((await hitld(args('link/sub'), p)).json.error, 'output_path');
+  assert.equal((await hitld(args('link/sub'), p)).json.error, 'output-path');
   assert.equal(existsSync(join(outside, 'sub')), false);
   // Inside the repository is fine, repeatedly (the report made its own files).
   assert.equal((await hitld(args('out'), p)).code, 0);
   assert.equal((await hitld(args('out'), p)).code, 0);
   // A file the report did not create is not overwritten.
   mkdirSync(join(p.repo, 'docs'));
-  writeFileSync(join(p.repo, 'docs', 'report.html'), 'mine');
+  writeFileSync(join(p.repo, 'docs', 'dashboard.html'), 'mine');
   const clash = await hitld(args('docs'), p);
-  assert.equal(clash.json.error, 'output_path');
-  assert.equal(readFileSync(join(p.repo, 'docs', 'report.html'), 'utf8'), 'mine');
+  assert.equal(clash.json.error, 'output-path');
+  assert.equal(readFileSync(join(p.repo, 'docs', 'dashboard.html'), 'utf8'), 'mine');
   // Nor one reached through a symlink.
   mkdirSync(join(p.repo, 'tricky'));
   writeFileSync(join(outside, 'target'), 'keep');
-  symlinkSync(join(outside, 'target'), join(p.repo, 'tricky', 'report.html'));
-  assert.equal((await hitld(args('tricky'), p)).json.error, 'output_path');
+  symlinkSync(join(outside, 'target'), join(p.repo, 'tricky', 'dashboard.html'));
+  assert.equal((await hitld(args('tricky'), p)).json.error, 'output-path');
   assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
   // The private store is allowed.
   assert.equal((await hitld(args(join(p.store.root, 'mine')), p)).code, 0);
+});
+
+test('a directory written under report.html is accepted, and the old page is replaced by dashboard.html', async () => {
+  const p = project();
+  const dir = join(p.repo, 'old');
+  mkdirSync(dir);
+  writeFileSync(join(dir, 'report.html'), 'the page before the rename');
+  writeFileSync(join(dir, 'digest.txt'), 'the digest before the rename');
+  writeFileSync(
+    join(dir, '.hitld-report.json'),
+    `${JSON.stringify({ files: ['report.html', 'digest.txt'] })}\n`,
+  );
+  const r = await hitld(['dashboard', '--out', 'old', '--now', iso(T0)], p);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.html, join(realpathSync(dir), 'dashboard.html'));
+  assert.ok(existsSync(join(dir, 'dashboard.html')));
+  assert.match(readFileSync(join(dir, 'digest.txt'), 'utf8'), /Dispatch: Stopped at the reserve\./);
+  // The old page is removed, and the marker lists the new names only.
+  assert.equal(existsSync(join(dir, 'report.html')), false);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, '.hitld-report.json'), 'utf8')).files, [
+    'digest.txt',
+    'dashboard.html',
+  ]);
+  // A report.html the marker does not list is someone else's and stays.
+  const other = join(p.repo, 'other');
+  mkdirSync(other);
+  writeFileSync(join(other, 'report.html'), 'mine');
+  assert.equal((await hitld(['dashboard', '--out', 'other', '--now', iso(T0)], p)).code, 0);
+  assert.equal(readFileSync(join(other, 'report.html'), 'utf8'), 'mine');
 });
 
 test('--out is a command-line option only: the MCP input schema leaves it out', () => {

@@ -154,31 +154,31 @@ export async function execTask(ctx, request) {
   const task = ctx.settings.secretTasks.find((t) => t.task === name);
   if (!task) {
     return refuse(
-      'task_undeclared',
+      'task-undeclared',
       `"${name}" is not a task declared in policy.json env.secret_tasks. Only declared tasks may use secrets; ask the owner to declare one.`,
     );
   }
   const who = dispatchRecord(ctx.store, dispatchId);
-  if (!who.ok) return refuse('dispatch_refused', who.reason);
+  if (!who.ok) return refuse('not-a-dispatch', who.reason);
   if (!task.roles.includes(who.role)) {
-    return refuse('task_not_granted', `role "${who.role}" has no grant for task "${name}"`);
+    return refuse('task-not-granted', `role "${who.role}" has no grant for task "${name}"`);
   }
   // The dispatch's recorded worktree must be a real worktree of the primary checkout (judged from
   // the primary's own metadata, not the worktree's), and the caller must be running inside it. So
   // a rewritten .git file, or a borrowed dispatch ID used from elsewhere, gets nothing.
   if (!who.worktree) {
-    return refuse('worktree_mismatch', `dispatch ${who.dispatch} has no recorded worktree`);
+    return refuse('worktree-mismatch', `dispatch ${who.dispatch} has no recorded worktree`);
   }
   const owned = belongsToPrimary(ctx.primaryRoot, who.worktree);
-  if (!owned.ok) return refuse('worktree_mismatch', owned.reason);
+  if (!owned.ok) return refuse('worktree-mismatch', owned.reason);
   if (!isInside(owned.worktree, request.callerCwd)) {
     return refuse(
-      'worktree_mismatch',
+      'worktree-mismatch',
       `the caller is not inside dispatch ${who.dispatch}'s worktree ${owned.worktree}`,
     );
   }
   const command = commandOf(task, ctx.primaryRoot);
-  if ('error' in command) return refuse('task_invalid', `task "${name}" ${command.error}`);
+  if ('error' in command) return refuse('task-invalid', `task "${name}" ${command.error}`);
 
   const cwd = task.cwd === 'worktree' ? owned.worktree : ctx.primaryRoot;
   return runWithSecrets(

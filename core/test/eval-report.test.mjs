@@ -402,7 +402,7 @@ function workspace() {
 
 test('hitld eval report renders the latest stored run into reports/ in the private store', async () => {
   const w = workspace();
-  assert.equal((await w.hitld(['eval', 'report'])).json.error, 'no_run');
+  assert.equal((await w.hitld(['eval', 'report'])).json.error, 'no-eval-run');
   const ran = await w.hitld(['eval', '--offline', '--evals-dir', 'evals']);
   assert.equal(ran.code, 0);
   const r = await w.hitld(['eval', 'report']);
@@ -426,11 +426,11 @@ test('hitld eval report renders the latest stored run into reports/ in the priva
   assert.equal((await w.hitld(['eval', 'report', '--result', ran.json.run])).code, 0);
   assert.equal(
     (await w.hitld(['eval', 'report', '--result', 'EV-20000101T000000Z-000000'])).json.error,
-    'no_run',
+    'no-eval-run',
   );
   assert.equal(
     (await w.hitld(['eval', 'report', '--result', '../../etc/passwd'])).json.error,
-    'no_run',
+    'no-eval-run',
   );
 });
 
@@ -451,13 +451,13 @@ test('hitld eval report --out stays inside the repository or the private store, 
   const outside = join(tmp(), 'outside');
   const refused = await w.hitld(args(outside));
   assert.equal(refused.code, 1);
-  assert.equal(refused.json.error, 'output_path');
+  assert.equal(refused.json.error, 'output-path');
   assert.equal(existsSync(outside), false);
-  assert.equal((await w.hitld(args('../escape'))).json.error, 'output_path');
+  assert.equal((await w.hitld(args('../escape'))).json.error, 'output-path');
   // A symlink out of the repository does not smuggle the write out.
   mkdirSync(outside, { recursive: true });
   symlinkSync(outside, join(w.cwd, 'link'));
-  assert.equal((await w.hitld(args('link/sub'))).json.error, 'output_path');
+  assert.equal((await w.hitld(args('link/sub'))).json.error, 'output-path');
   assert.equal(existsSync(join(outside, 'sub')), false);
   // Inside the repository is fine, repeatedly.
   assert.equal((await w.hitld(args('out'))).code, 0);
@@ -466,13 +466,13 @@ test('hitld eval report --out stays inside the repository or the private store, 
   // A file it did not create is not overwritten.
   mkdirSync(join(w.cwd, 'docs'));
   writeFileSync(join(w.cwd, 'docs', file), 'mine');
-  assert.equal((await w.hitld(args('docs'))).json.error, 'output_path');
+  assert.equal((await w.hitld(args('docs'))).json.error, 'output-path');
   assert.equal(readFileSync(join(w.cwd, 'docs', file), 'utf8'), 'mine');
   // Nor one reached through a symlink.
   mkdirSync(join(w.cwd, 'tricky'));
   writeFileSync(join(outside, 'target'), 'keep');
   symlinkSync(join(outside, 'target'), join(w.cwd, 'tricky', file));
-  assert.equal((await w.hitld(args('tricky'))).json.error, 'output_path');
+  assert.equal((await w.hitld(args('tricky'))).json.error, 'output-path');
   assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
   // The private store is allowed, and so is sharing reports/ with `hitld dashboard`.
   assert.equal(

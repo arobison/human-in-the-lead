@@ -65,7 +65,7 @@
     {
       "id": "old-session-refused",
       "grader": "equals",
-      "with": { "path": "steps.stale.result.error", "value": "lease_lost" }
+      "with": { "path": "steps.stale.result.error", "value": "lease-lost" }
     }
   ]
 }
