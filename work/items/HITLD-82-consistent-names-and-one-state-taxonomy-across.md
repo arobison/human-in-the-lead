@@ -2,9 +2,10 @@
 id: HITLD-82
 title: Consistent names and one state taxonomy across the public surface
 kind: work
-status: Planned
+status: In progress
 created: 2026-11-15
 project: HITLD-15
+claimed: D-82
 ---
 
 ## Why
