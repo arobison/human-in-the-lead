@@ -89,6 +89,7 @@ const shortTime = (iso) => `${iso.slice(0, 10)} ${iso.slice(11, 16)}Z`;
  * @param {string | null} [options.since] only news after this. Default: the read cursor
  * @param {string} [options.now] ISO 8601. Default: the clock of `deps`
  * @param {Record<string, any> | null} [options.report] the quota report, for the quota and merge lines
+ * @param {string | null} [options.root] the owner's checkout, for the quarantine file
  * @param {boolean} [options.full] the whole text, without the size budget
  * @param {readonly Part[]} [options.parts] the parts to assemble. Default: PARTS
  * @returns {Digest}
@@ -117,6 +118,7 @@ export function buildDigest(deps, options) {
     pending,
     report: options.report ?? null,
     last,
+    root: options.root ?? null,
   };
 
   /** @type {Section[]} */

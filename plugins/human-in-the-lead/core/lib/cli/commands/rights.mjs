@@ -231,6 +231,7 @@ export async function ownerDigest(ctx, options = {}) {
     since: options.since,
     now,
     report,
+    root: ownerCheckoutOf(ctx.cwd),
     full: options.full,
   });
   return { ok: true, deps: o.deps, digest };

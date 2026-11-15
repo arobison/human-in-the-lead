@@ -325,13 +325,13 @@ export async function presentToOwner(o) {
     regenerateViews: o.regenerateViews,
   };
   const queued = toQueue.length ? await runMergeQueue({ ...common, entries: toQueue }) : null;
-  if (queued && (queued.incident || queued.held)) {
+  if (queued?.incident) {
     return { queued, checked: null, presentation: null };
   }
   const checked = toOwner.length
     ? await runMergeQueue({ ...common, entries: toOwner, hold: true })
     : null;
-  const ready = checked && !checked.incident && !checked.held ? checked.ready : null;
+  const ready = checked && !checked.incident ? checked.ready : null;
   if (!ready) return { queued, checked, presentation: null };
   const byItem = new Map(o.entries.map((e) => [e.item, e]));
   const events = o.events ?? [];
@@ -480,12 +480,14 @@ export async function approvePresented(o) {
           })),
           rejected: [],
           flakes: [],
+          failures: [],
+          excused: [],
+          burn_ins: [],
           suite_runs: 0,
           bisection_runs: 0,
           batches: 0,
           main: { before: p.base, after: p.commit },
           incident: null,
-          held: null,
           ready: null,
         },
       };

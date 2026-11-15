@@ -21,6 +21,7 @@ import { flakesPart } from '../lib/digest/flakes.mjs';
 import { answerDecision, askQuestion, logCall } from '../lib/rights/flow.mjs';
 import { sweepDefaults } from '../lib/rights/pending.mjs';
 import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { FLAKES_KEY, QUARANTINE_PATH, recordQuarantineEvent } from '../lib/merge/quarantine.mjs';
 import { attentionDefaults } from '../lib/settings/attention.mjs';
 import { settingsLocation } from '../lib/settings/files.mjs';
 import { makeCommands } from '../lib/cli/commands/rights.mjs';
@@ -518,7 +519,7 @@ test('the digest is assembled from named parts, and the flaky-test part has its 
     ],
   );
   assert.equal(PARTS.includes(flakesPart), true);
-  assert.deepEqual(flakesPart.collect(/** @type {any} */ ({})), { section: null });
+  assert.deepEqual(flakesPart.collect(/** @type {any} */ ({ root: null })), { section: null });
 
   // A part another piece adds is assembled and shortened like the rest, and carries its data.
   const { deps } = setup();
@@ -542,6 +543,88 @@ test('the digest is assembled from named parts, and the flaky-test part has its 
   assert.equal(d.news, true, 'a part with news makes a digest');
   assert.ok(lines(d).includes('Flaky tests (1)'));
   assert.deepEqual(d.flakes, [{ test: 'test/cache.test.mjs' }]);
+});
+
+// The flaky-test part
+
+test('the flake section: quarantined tests, expired ones with their question, the measures, in budget', () => {
+  const { deps, project } = setup('2026-11-14T12:00:00Z');
+  /** @param {Record<string, string>[]} tests */
+  const quarantine = (tests) =>
+    writeFileSync(
+      join(project.root, QUARANTINE_PATH),
+      JSON.stringify({ schema_version: 1, tests }),
+    );
+  const at = (/** @type {string} */ t) => () => new Date(t);
+  quarantine([
+    { id: 'a > live flake', expires: '2026-11-20', fix_item: 'W-7' },
+    { id: 'a > old flake', expires: '2026-11-10', fix_item: 'W-8' },
+  ]);
+  recordQuarantineEvent(
+    project.store,
+    { kind: 'quarantined', test: 'a > live flake', fix_item: 'W-7' },
+    at('2026-11-12T10:00:00Z'),
+  );
+  project.store.append(
+    FLAKES_KEY,
+    `${JSON.stringify({ kind: 'failure', outcome: 'preexisting', runs: 3, at: '2026-11-13T10:00:00Z' })}\n` +
+      `${JSON.stringify({ kind: 'failure', outcome: 'real', runs: 1, at: '2026-11-13T11:00:00Z' })}\n`,
+  );
+
+  const d = buildDigest(deps, { settings: settings(), root: project.root, now: deps.now() });
+  const out = lines(d);
+  assert.equal(d.news, true, 'a test quarantined since the cursor, and one expired, are news');
+  assert.ok(out.some((l) => /^Flaky tests: 2 quarantined, oldest \d+ days, 1 expired\.$/.test(l)));
+  assert.ok(out.includes('Failures 2, flake candidates 1 (50%).'));
+  assert.ok(out.includes('Expired: a > old flake, until 2026-11-10, fix W-8'));
+  assert.ok(out.includes('a > live flake, until 2026-11-20, fix W-7'));
+  assert.ok(
+    out.findIndex((l) => l.startsWith('Expired:')) < out.findIndex((l) => l.startsWith('a > live')),
+    'expired first',
+  );
+  assert.equal(d.flakes.size, 2);
+  assert.deepEqual(d.flakes.expired, ['a > old flake']);
+  assert.match(d.flakes.decisions[0].question.title, /has expired/);
+  assert.equal(d.flakes.decisions[0].fix_item, 'W-8');
+
+  // After the digest is sent the list is state: shown with room, and not news by itself.
+  assert.equal(markDigest(deps, d).marked, true);
+  const later = { ...deps, now: () => '2026-11-14T12:05:00Z' };
+  const next = buildDigest(later, { settings: settings(), root: project.root });
+  assert.equal(next.delivery, 'skip');
+  assert.equal(next.flakes.size, 2);
+  // A test quarantined after the cursor is news again.
+  recordQuarantineEvent(
+    project.store,
+    { kind: 'quarantined', test: 'a > new flake', fix_item: 'W-9' },
+    at('2026-11-14T12:03:00Z'),
+  );
+  assert.equal(buildDigest(later, { settings: settings(), root: project.root }).delivery, 'send');
+
+  // A long list is shortened like any other section.
+  quarantine(
+    Array.from({ length: 30 }, (_, i) => ({
+      id: `suite > flake number ${i + 1}`,
+      expires: '2026-11-30',
+      fix_item: `W-${100 + i}`,
+    })),
+  );
+  const big = buildDigest(deps, { settings: settings(), root: project.root, now: deps.now() });
+  assert.ok(lines(big).length <= DIGEST_BUDGET.lines);
+  assert.ok(lines(big).every((l) => l.length <= DIGEST_BUDGET.width));
+  assert.ok(lines(big).some((l) => /^\+\d+ more lines$/.test(l)));
+  assert.ok(big.size.omitted.flakes > 0);
+  assert.equal(big.flakes.size, 30, 'the data is not cut');
+
+  // No quarantine and no failures: no section. A refused file says so.
+  quarantine([]);
+  assert.equal(
+    buildDigest(deps, { settings: settings(), root: project.root, now: deps.now() }).flakes.size,
+    0,
+  );
+  writeFileSync(join(project.root, QUARANTINE_PATH), '{"tests": 3}');
+  const refused = buildDigest(deps, { settings: settings(), root: project.root, now: deps.now() });
+  assert.ok(lines(refused).includes('Quarantine file refused: run hitld check quarantine.'));
 });
 
 // Through the command, and the dashboard

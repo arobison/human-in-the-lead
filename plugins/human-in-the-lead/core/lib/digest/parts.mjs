@@ -30,6 +30,7 @@ import { clip, wrap } from './render.mjs';
  * @property {{ decisions: Record<string, any>[], waiting: Record<string, any>[] }} pending what
  *   `hitld rights pending` says, with quiet hours left out: what the digest would say outside them
  * @property {Record<string, any> | null} report the quota report, when the caller has one
+ * @property {string | null} root the owner's checkout, where the quarantine file is
  * @property {{ through: string | null, quota: { mode: string, thresholds: string[] } | null }} last
  *   what the last marked digest recorded
  *
