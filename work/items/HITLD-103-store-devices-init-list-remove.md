@@ -2,9 +2,10 @@
 id: HITLD-103
 title: "Store devices: init, list and remove, store-devices.json, refusal for an unenrolled device"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-103
 needs: [HITLD-102]
 ---
 
