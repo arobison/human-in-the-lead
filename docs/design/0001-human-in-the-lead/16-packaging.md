@@ -157,6 +157,8 @@ The plugin's **public interface** is: the executor contract; the report shape; t
 
 **While the version is 0.y.z** (before 1.0), a minor release may break formats or commands, and ships the migration for whatever it changes: `hitld data migrate` for data files, `hitld work migrate` for the tracker format. Patch releases never break. Minor and major releases are the owner's call; a patch release may follow a precedent the owner confirmed. The first tag is `v0.1.0`. The rules below apply from 1.0.
 
+**What a 0.y.z release still keeps.** Data people keep (tracker files, settings, the ledger, private-store records) follows the rename rule below even before 1.0: an old name is read for one minor release, with a warning, and the release ships its migration. Output (error codes, the `hitld` command's JSON and text, generated pages) may change in any minor release with no fallback; the release notes list each change.
+
 Compatibility rules for data:
 
 - **Every data file and ledger line carries `schema_version`.**
