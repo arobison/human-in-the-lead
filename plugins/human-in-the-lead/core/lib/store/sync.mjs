@@ -29,7 +29,8 @@ import { rebuildIndex } from './index-db.mjs';
  * @typedef {object} SyncOptions
  * @property {string} root the store directory
  * @property {string} projectId
- * @property {string} file the export file
+ * @property {string} [file] the export file (not needed when `bytes` is given)
+ * @property {Buffer} [bytes] an import's file already in memory (a pull from a remote)
  * @property {string[]} [recipients] age public keys an export is encrypted to (format 2)
  * @property {Array<string | import('./age.mjs').Identity>} [identities] age private keys an
  *   import opens a format-2 file with
@@ -44,19 +45,13 @@ function schemaVersions() {
 }
 
 /**
- * Write the store's text history to one encrypted file, format 2, encrypted to the recipients.
+ * Commit the store's text and seal its history, format 2, encrypted to the recipients: the bytes
+ * an export writes to a file and a push sends to a remote.
  * @param {SyncOptions} options
+ * @returns {{ bytes: Buffer, head: string }}
  */
-export function exportStore(options) {
+export function sealStore(options) {
   const recipients = checkRecipients(options.recipients);
-  const file = resolve(options.file);
-  const rel = relative(resolve(options.root), file);
-  if (!rel.startsWith('..') && !isAbsolute(rel)) {
-    throw new StoreGitError(
-      'bad_path',
-      `the export file ${file} is inside the store; put it elsewhere`,
-    );
-  }
   const root = ensureRepo(options.root);
   const head = snapshot(root, 'store export');
   const bundle = createBundle(root);
@@ -69,7 +64,24 @@ export function exportStore(options) {
     created_at: (options.now ?? (() => new Date()))().toISOString(),
     hitld_version: VERSION,
   };
-  const bytes = seal(manifest, bundle, recipients);
+  return { bytes: seal(manifest, bundle, recipients), head };
+}
+
+/**
+ * Write the store's text history to one encrypted file, format 2, encrypted to the recipients.
+ * @param {SyncOptions} options
+ */
+export function exportStore(options) {
+  const recipients = checkRecipients(options.recipients);
+  const file = resolve(String(options.file));
+  const rel = relative(resolve(options.root), file);
+  if (!rel.startsWith('..') && !isAbsolute(rel)) {
+    throw new StoreGitError(
+      'bad_path',
+      `the export file ${file} is inside the store; put it elsewhere`,
+    );
+  }
+  const { bytes, head } = sealStore(options);
   // The owner names the file. Written beside it, then renamed, readable by the owner only.
   const tmp = join(dirname(file), `.${process.pid}.hitld-export.tmp`);
   writeFileSync(tmp, bytes, { mode: 0o600 });
@@ -91,10 +103,13 @@ export function exportStore(options) {
  * @param {SyncOptions} options
  */
 export async function importStore(options) {
-  const { manifest, bundle, format } = open(readFileSync(resolve(options.file)), {
-    identities: options.identities,
-    passphrase: options.passphrase,
-  });
+  const { manifest, bundle, format } = open(
+    options.bytes ?? readFileSync(resolve(String(options.file))),
+    {
+      identities: options.identities,
+      passphrase: options.passphrase,
+    },
+  );
   if (manifest.project !== options.projectId) {
     throw new StoreGitError(
       'another_project',
@@ -153,7 +168,7 @@ export async function importStore(options) {
  */
 export async function syncStore(options) {
   checkRecipients(options.recipients);
-  const had = existsSync(resolve(options.file));
+  const had = existsSync(resolve(String(options.file)));
   const imported = had ? await importStore(options) : null;
   if (imported && !imported.ok) return { ...imported, exported: null };
   const exported = exportStore(options);
