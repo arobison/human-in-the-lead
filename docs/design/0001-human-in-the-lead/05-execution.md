@@ -114,6 +114,7 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 | `estimate_tokens` | Copied from the item at dispatch |
 | `commit` | Final commit of the branch |
 | `decision` | On `asked`, `sent` and `answered`: the decision item. Each is written once per decision. A decision a precedent resolves has none of them: no one was asked |
+| `delivery`, `via` | On `sent`: `interrupt` when the question was sent at once, which uses one of the person's `interrupts_per_day`, or `digest`. On `answered`: `default` when no one answered and the decision took its default; it is then left out of decision latency |
 | `text`, `area` | On `logged`: the call in a sentence, and its area. The event's ID is the handle the digest gives for reversing the call |
 | `notes` | Short; never untrusted text |
 
@@ -131,8 +132,9 @@ The table lists the main fields; `schemas/ledger-entry.schema.json` is the full 
 
 **When the orchestrator asks the owner.**
 
-- **At once**, if the question blocks the critical path, or if no ready work remains to fill the slots it idles (subject to quiet hours, which only a sev-1 breaks).
+- **At once**, if the question blocks the critical path, or if no ready work remains to fill the slots it idles (subject to quiet hours, which only a sev-1 breaks, and to the person's interrupts per day).
 - **Otherwise in batches**, in the next digest, after batching similar questions into one and applying precedent.
+- **`hitld rights pending`** settles which, the way the quota gate settles dispatch: it lists the open questions in the order of what waiting costs, with the attention budget left, and says for each one `now`, `digest`, `hold` or `default`, with the reason ([part 23](23-people-in-the-lead.md#235-the-interface-as-a-design-surface)).
 - The question-timing controller adapts the batch interval to how quickly the owner is answering ([part 11](11-metrics-and-control.md#114-feedback-controllers)).
 
 **Each question stands alone**: the format in [part 4](04-decision-rights.md#the-decision-question), with the recommendation first and the choices with their consequences.

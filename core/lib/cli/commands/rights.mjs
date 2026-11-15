@@ -10,6 +10,7 @@ import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { executorSignal } from '../executor.mjs';
 import { loadPolicy, findRepoRoot } from '../../policy/policy.mjs';
+import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { ownerCheckoutOf } from '../../env/primary.mjs';
 import { openTracker as openFilesTracker } from '../../tracker/files/tracker.mjs';
 import { schemas } from '../../schema/registry.mjs';
@@ -36,6 +37,7 @@ import {
   normalizeQuestion,
   routeQuestion,
 } from '../../rights/route.mjs';
+import { listDefaults, pendingDecisions, sweepDefaults } from '../../rights/pending.mjs';
 import { readTrustEvents, rubberStamps, trustSummary } from '../../rights/trust.mjs';
 
 /**
@@ -130,6 +132,8 @@ const FILE_ARG = {
 const EXECUTOR_REFUSED = new Map([
   ['rights ask', "the orchestrator's"],
   ['rights show', "the orchestrator's"],
+  ['rights pending', "the orchestrator's"],
+  ['rights sweep', "the orchestrator's"],
   ['rights log', "the orchestrator's"],
   ['rights answer', "the owner's"],
   ['rights overrule', "the owner's"],
@@ -167,7 +171,31 @@ export function makeCommands({ openTracker }) {
     const tracker = needs.tracker
       ? await openTracker({ repoRoot: repoRoot ?? ctx.cwd, policy, env: ctx.env })
       : /** @type {TrackerAdapter} */ (/** @type {unknown} */ (null));
-    return { deps: { policy, policyHash: loaded.hash, tracker, precedents, store } };
+    return { deps: { policy, policyHash: loaded.hash, tracker, precedents, store }, loaded };
+  }
+
+  /**
+   * The person's effective attention budget and the executor cap: the person file under the
+   * project's ceilings, or the conservative defaults when no person file exists.
+   * @param {import('../table.mjs').CommandContext} ctx
+   * @param {import('../../policy/policy.mjs').PolicyResult} loaded
+   */
+  function settingsOf(ctx, loaded) {
+    const eff = loadEffectivePolicy({ env: ctx.env, policyResult: loaded });
+    if (!eff.settings) {
+      return { failure: { ok: false, error: 'settings', errors: eff.errors } };
+    }
+    if (eff.errors.length) {
+      return {
+        failure: {
+          ok: false,
+          error: 'settings',
+          message: 'a settings file does not load; run hitld config explain',
+          errors: eff.errors,
+        },
+      };
+    }
+    return { settings: { attention: eff.settings.attention, cap: eff.settings.cap } };
   }
 
   /** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
@@ -248,11 +276,48 @@ export function makeCommands({ openTracker }) {
           positional: true,
           required: true,
         },
+        {
+          name: 'interrupt',
+          type: 'boolean',
+          description:
+            'It is being sent at once, on its own, not in a digest: it uses one of the interrupts the person allows per day',
+        },
       ],
       run: async (input, ctx) => {
         const o = await open(ctx, { tracker: true });
         if (o.failure) return o.failure;
-        return showQuestion(o.deps, { decision: /** @type {string} */ (input.decision) });
+        return showQuestion(o.deps, {
+          decision: /** @type {string} */ (input.decision),
+          interrupt: input.interrupt === true,
+        });
+      },
+    },
+    {
+      name: 'rights pending',
+      summary:
+        'The open decisions in the order of what waiting costs, the attention budget left, and for each one where it goes: now, digest, hold or default, with the reason',
+      built_by: 'e',
+      args: [],
+      run: async (_input, ctx) => {
+        const o = await open(ctx, { tracker: true });
+        if (o.failure) return o.failure;
+        const s = settingsOf(ctx, o.loaded);
+        if (s.failure) return s.failure;
+        return pendingDecisions(o.deps, s.settings);
+      },
+    },
+    {
+      name: 'rights sweep',
+      summary:
+        'Apply the defaults that are due: no answer by the deadline, or a full digest and a question that is easy to undo. Each is recorded as answered by default, listed in the digest, and can be reversed',
+      built_by: 'e',
+      args: [],
+      run: async (_input, ctx) => {
+        const o = await open(ctx, { tracker: true });
+        if (o.failure) return o.failure;
+        const s = settingsOf(ctx, o.loaded);
+        if (s.failure) return s.failure;
+        return sweepDefaults(o.deps, s.settings);
       },
     },
     {
@@ -368,21 +433,22 @@ export function makeCommands({ openTracker }) {
     {
       name: 'rights reverse',
       summary:
-        'Record that the owner reversed a call the system made without a precedent (trust-calibration data); a logged call is reversed by its ID from the digest',
+        'Record that the owner reversed a call the system made without a precedent (trust-calibration data); a logged call, or a decision that took its default, is reversed by its ID from the digest',
       built_by: 'e',
       args: [
         {
           name: 'subject',
           type: 'string',
           description:
-            "What was reversed: a logged call's ID (E-<n>, from the digest), a decision, a route",
+            "What was reversed: a logged call's ID (E-<n>) or a decision that took its default (<KEY>-<n>), both from the digest; or a route",
           positional: true,
           required: true,
         },
         {
           name: 'subject-kind',
           type: 'string',
-          description: 'The kind of call: logged-call, triage-route, controller-move or other',
+          description:
+            'The kind of call: logged-call, triage-route, controller-move, default or other',
         },
         { name: 'area', type: 'string', description: 'The area it belongs to' },
         { name: 'note', type: 'string', description: 'Why' },
@@ -428,7 +494,7 @@ export function makeCommands({ openTracker }) {
     {
       name: 'rights digest',
       summary:
-        'For the digest: applications of precedent (with those the owner overruled), precedents due for review, calls logged without asking (each with how to reverse it), and the rubber-stamp indicator per area',
+        'For the digest: applications of precedent (with those the owner overruled), precedents due for review, calls logged without asking and defaults applied (each with how to reverse it), and the rubber-stamp indicator per area',
       built_by: 'e',
       args: [
         {
@@ -452,11 +518,17 @@ export function makeCommands({ openTracker }) {
           (cursor ? JSON.parse(cursor).through : null);
         const applications = listApplications(o.deps, { since });
         const logged = listLoggedCalls(o.deps, { since });
+        const defaults = listDefaults(o.deps, { since });
         const health = precedentHealth(o.deps);
         if (input.mark) {
           const latest =
-            [...applications.map((a) => String(a.at)), ...logged.map((c) => c.at)].sort().at(-1) ??
-            since;
+            [
+              ...applications.map((a) => String(a.at)),
+              ...logged.map((c) => c.at),
+              ...defaults.map((d) => String(d.at)),
+            ]
+              .sort()
+              .at(-1) ?? since;
           if (latest) store.write(DIGEST_KEY, JSON.stringify({ through: latest }) + '\n');
         }
         return {
@@ -466,6 +538,7 @@ export function makeCommands({ openTracker }) {
           overruled: applications.filter((a) => a.overruled).length,
           review: health.filter((h) => h.needs_review),
           logged_calls: logged,
+          defaults,
           rubber_stamp: rubberStamps(readTrustEvents(store), {
             rubberStampSeconds: o.deps.policy.trust?.rubber_stamp_seconds,
           }),
