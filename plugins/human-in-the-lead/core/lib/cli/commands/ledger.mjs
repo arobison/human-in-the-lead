@@ -24,6 +24,7 @@ import {
 import { absorb } from '../../run/state.mjs';
 import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
+import { refuseHeldElsewhere, restoreState } from '../../run/pulled.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
 import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.mjs';
@@ -105,19 +106,6 @@ function setup(input, ctx) {
     mainBranch: /** @type {string | undefined} */ (policy.merge?.main_branch),
     cwd: ctx.cwd,
   };
-}
-
-/**
- * A store pulled onto a machine that never ran the project holds the ledger but no run state (the
- * state is machine-local and never leaves it). Rebuild it from the ledger so the run resumes.
- * @param {import('../../store/store.mjs').PrivateStore} store @param {number | undefined} kept
- * @returns {boolean} whether the state was rebuilt
- */
-function restoreState(store, kept) {
-  if (loadState(store).state) return false;
-  if (!readLedger(store).events.some((e) => e.event === 'run-started')) return false;
-  rebuildRun(store, { kept });
-  return true;
 }
 
 /** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
@@ -342,6 +330,15 @@ const table = [
       guarded(async () => {
         const s = setup(input, ctx);
         const pull = await pullBeforeRun('run start', input, ctx);
+        if (input.replace !== true) {
+          refuseHeldElsewhere({
+            ...who(input, ctx),
+            store: s.store,
+            kept: s.kept,
+            pull,
+            override: '--replace',
+          });
+        }
         /** @type {Record<string, unknown>} */
         let scope = {};
         if (typeof input.scope === 'string') {
@@ -445,6 +442,15 @@ const table = [
         const s = setup(input, ctx);
         const pull = await pullBeforeRun('run resume', input, ctx);
         const rebuilt = pull?.status === 'done' && restoreState(s.store, s.kept);
+        if (input.force !== true) {
+          refuseHeldElsewhere({
+            ...who(input, ctx),
+            store: s.store,
+            kept: s.kept,
+            pull,
+            override: '--force',
+          });
+        }
         const live =
           typeof input.live === 'string'
             ? input.live
@@ -637,5 +643,5 @@ const table = [
   },
 ];
 
-/** `run checkpoint` ends by pushing the store (design 0003, section 8). */
-export const commands = pushingAfter(table, ['run checkpoint']);
+/** `run checkpoint` and `run retire` end by pushing the store (design 0003, section 8). */
+export const commands = pushingAfter(table, ['run checkpoint', 'run retire']);

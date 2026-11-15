@@ -65,7 +65,7 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
 ## 1. Start or resume
 
 - **New run:** `hitld run start --scope '{"items": [...], "budget_tokens": N}'` (scope optional). It records the primary checkout and takes the lease.
-- **Resume:** `hitld run resume --live <the dispatch IDs still running, comma separated, or none>`. In a session that dispatched them, name your running background agents by their dispatch IDs (they were started with `name: D-<n>`). As a successor, use the IDs the chief of staff gave you: background work of an earlier session reported to it alone. Act on its output: `follow_up` entries get a follow-up (step 5), `abandoned` items are free again. A lease that was handed over or retired is taken without `--force`. If the lease is held and fresh, stop and say so; take over with `--force` only when the owner says so.
+- **Resume:** `hitld run resume --live <the dispatch IDs still running, comma separated, or none>`. In a session that dispatched them, name your running background agents by their dispatch IDs (they were started with `name: D-<n>`). As a successor, use the IDs the chief of staff gave you: background work of an earlier session reported to it alone. Act on its output: `follow_up` entries get a follow-up (step 5), `abandoned` items are free again. A lease that was handed over or retired is taken without `--force`. If the lease is held and fresh, or `lease-held` says another machine's session holds it and never released it, stop and say so; take over with `--force` only when the owner says so.
 - On either command, add `--harness-ref <your own session ID>` when your harness gives you one, so wakes reach you.
 
 ## 2. Plan
