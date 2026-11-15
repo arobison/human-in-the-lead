@@ -130,7 +130,7 @@ The consumer commits `.claude/settings.json`:
 
 - A release is a **tag** (`vMAJOR.MINOR.PATCH`) on `main`, with a changelog generated from this repository's own item files. It is made through a release pull request, and the release workflow tags it ([16.5, Release mechanics](#release-mechanics)).
 - A release is **gated by the eval suite**: the visible suite passes on the supported harnesses, the head-to-head against the previous release shows no regression beyond tolerance, and for skill or policy changes the sealed set passes ([part 18](18-self-improvement.md#183-guardrails-against-gaming-its-own-grading)). The changelog cites the eval run IDs.
-- **The first release** has no previous release, no live runner and no sealed set yet. It is gated on the offline suite passing against the owner-accepted baseline. The live evals, the comparison with the previous release and the sealed set join the gate once each exists.
+- **The first release** has no previous release, no live runner and no sealed set yet. It is gated on the offline suite passing against the owner-accepted baseline, which is committed in `evals/baselines/` ([17.5](17-evals.md#175-how-it-runs)); the release workflow fails when no committed baseline matches. The live evals, the comparison with the previous release and the sealed set join the gate once each exists.
 - **A consumer upgrades by committing a change to the `ref`**, then running the migrations the release notes name (`hitld data migrate`, `hitld work migrate` or `hitld config migrate`). Rolling back is reverting that commit.
 
 ### The development loop

@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { repoOnMain } from './eval-git.mjs';
 import { main } from '../lib/cli/main.mjs';
 import { COMMANDS } from '../lib/cli/table.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
@@ -65,6 +66,7 @@ function workspace(scenarios = { a: GOOD }) {
   const put = (name, grader) =>
     writeFileSync(join(dir, `${name}.scenario.json`), JSON.stringify(scenario(name, grader)));
   for (const [name, g] of Object.entries(scenarios)) put(name, g);
+  repoOnMain(cwd); // a baseline is accepted only from a run on main with a clean tree
   const env = { XDG_DATA_HOME: tmp() };
   /** @param {string[]} argv @param {Record<string, string>} [more] */
   const hitld = async (argv, more = {}) => {

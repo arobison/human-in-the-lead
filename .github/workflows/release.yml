@@ -100,7 +100,9 @@ jobs:
           --message-file "$RUNNER_TEMP/tag-message" --notes-file "$RUNNER_TEMP/notes.md"
       - run: npm ci
       - run: npm run check
-      - run: node core/bin/hitld.mjs eval --offline
+      # The first release is gated on the offline suite passing against the owner-accepted
+      # baseline committed in evals/baselines/ (design 16.5): no matching baseline fails the step.
+      - run: node core/bin/hitld.mjs eval --offline --require-baseline
       - name: Package
         env:
           TAG: ${{ steps.check.outputs.tag }}
@@ -153,7 +155,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: node core/bin/hitld.mjs eval --offline
+      - run: node core/bin/hitld.mjs eval --offline --require-baseline
       - name: Package
         run: |
           mkdir dist
