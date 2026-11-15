@@ -1,0 +1,28 @@
+---
+id: HITLD-82
+title: Consistent names and one state taxonomy across the public surface
+kind: work
+status: Planned
+created: 2026-11-15
+project: HITLD-15
+---
+
+## Why
+
+Before the first release, the owner decided to make names consistent across the public surface and to adopt one state taxonomy. Two audits found the problems: one word meaning two things (`release`, `claimed`, `report`, `run`, `area`, `handle`), styles mixed within one format, units missing, and leftover names from before the design review. The executor contract tells executors to write `state:` while tracker files use `status:`, so an executor following the contract writes a key `work check` rejects.
+
+## Done when
+
+- **State taxonomy:** the stored lifecycle key is `state` everywhere, including tracker files and the worktree registry, and how an attempt ended is `result` (the executor report, the ledger's former `outcome`, eval scenario results, owner-waiting entries). Every enum value is lowercase kebab-case, so nothing on the command line needs quoting; views may show display labels.
+- **Core lifecycle:** `proposed → planned → in-progress → done | dropped`, with `dropped` always carrying a reason. Work items use all five, `in-progress` only on the claim branch. Decisions, external items, milestones, projects and initiatives use the four without `in-progress`; a project or initiative being active is derived from its items. Ready, blocked, claim liveness, stage, quota mode, finding class, lease expiry and run state stay derived. `blocked` follows the design (planned items with an open need).
+- **Domain vocabularies, aligned:** report `done | partial | blocked`; checks and evals `pass | fail | error | not-applicable`; milestone check result `verdict` becomes `answered`; opportunity `rejected` becomes `dropped` with a reason; precedent `narrowed` is retired (a narrowed precedent is `active` with exceptions; the trust event records the narrowing); a withheld feedback record can be redrafted; ledger events `released` → `unclaimed`, `claimed` → `started`, `question` → `asked`.
+- **The naming audit's renames** are all applied (see Notes).
+- **The glossary** names the owner's front-desk session the chief of staff (`chief-of-staff` in code), distinct from the orchestrator.
+- **The executor contract** writes the same key the tracker reads, and a test runs the contract's claim and close steps literally against the files backend.
+- **Compatibility:** a registered `hitld work migrate` step moves tracker files; readers accept the old names for data outside the repository (permanently for the append-only ledger; for one minor version elsewhere, with a warning); `config migrate` moves renamed person and machine keys; `hitld install` rewrites the contract block; the eval baseline is re-accepted once by the owner.
+- `npm run check`, the offline eval gate and `hitld work check` pass; this repository's tracker is migrated in one reviewable commit.
+
+## Notes
+
+The naming audit's renames: `work release` → `work unclaim` (commit prefix `unclaim:`, event `unclaimed`), `env port release` → `env port free`; ledger `claimed` → `started`; `decided-by` → `decider`, `lead` → `owner`; stored `claimed` → `claimed_by`; kebab-case for every CLI option (`--branch-prefix`, `--timeout-seconds`, `--ttl-seconds`, `--harness-version`, `--what-happened`); `dispatch started` → `dispatch handle`; `economize_at`/`critical_at`/`notify_at` → `economize_below`/`critical_below`/`notify_used`, `report_at` → `report_at_budget_multiple`; the HITLd version is `hitld_version` everywhere; the executor cap is `max_executors`; the unbuilt command's `piece` → `built_by`, eval scenario `piece` → `suite`, scenario folders without letter prefixes; `--holder`/`--claimant` → `--dispatch`; `hitld report` → `hitld dashboard`; benchmark runs `runs:` → `bench_runs:` in the contract, `run.schema` → `bench-run`, eval `--run` → `--result`; milestone derived `error` → `unmet_clauses`; `direction` → `touches_direction`, `worth` → `worth_asking`, `held` → `held_for_digest`, `overlap_serialize` → `serialize_overlap_share`, `context_handoff` → `handover_context_share`; `lock_expiry_seconds`, `lease_expiry_seconds`, `agent_spend_max_tokens`, `budget_tokens`; harness-capabilities keys in snake_case; enum values kebab-case (`cloud-vm`, `not-applicable`, `plan-percent`); `--tool-uses` → `--tool-calls`; `in-flight` on the command line; `--worth-asking` on both rating commands; feedback `area` → `loop`, interface delta `area` → `surface`; harness `handle` → `harness_ref`; milestone `needs` → `constraints`; read API adds `entity: milestone`; trust levels `L0`–`L4`; machine `role` → `kind`; tier `executor` → `runs_as`; person `owner_reserve` → `reserve`; `release propose` `basis` → `reason`, `initial` → `first_release`; `HITLD_PROJECT` → `HITLD_PROJECT_ID`; run state `open_questions` → `decisions_open`, `decisions_this_run` → `decisions_answered`; one `main_branch` setting; `lists_readme` → `lists_file`; bare `hitld rights` → `rights who`; `in_person_areas` → `owner_review_areas`, `familiar_yield` → `familiar_min_yield`; env `registry.json` → `holders.json`; enum `what` → `subject_kind`; audit `rule_version` → `under`; `HITLD_CHANGED` → `HITLD_CHANGED_FILES`, `HITLD_CODEQL` → `HITLD_CODEQL_PATH`; `--critical` → `--critical-path`. Data-model names from the tracker naming review are added here once the owner decides them.
+

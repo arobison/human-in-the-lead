@@ -16,4 +16,5 @@ Design part 21, One signal end to end.
 - A digest is written at merge-batch boundaries and when the owner writes.
 - It lists items merged, calls made, precedent applications and decisions waiting, and fits one phone screen.
 - Quiet hours hold it back.
+- It is built from records, not the orchestrator's memory: ranked by cost of delay with questions first and the recommendation inline, a read cursor so it shows only what is new, a size budget, and an urgency the channel can act on (HITLD-84, HITLD-85).
 - A test covers a digest in each trigger.
