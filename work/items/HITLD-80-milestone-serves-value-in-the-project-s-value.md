@@ -2,9 +2,10 @@
 id: HITLD-80
 title: "Milestone serves: value in the project's value units with a confidence, not a Fibonacci rank"
 kind: work
-status: Planned
+status: In progress
 created: 2026-11-15
 project: HITLD-15
+claimed: D-80
 ---
 
 ## Why
