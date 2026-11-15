@@ -21,6 +21,7 @@ import { git, head, snapshot } from '../lib/store/git.mjs';
 import { createGitRemote, remoteDir } from '../lib/store/remote-git.mjs';
 import { pushStore, storeStatus } from '../lib/store/push-pull.mjs';
 import { resolveDevices } from '../lib/store/devices-port.mjs';
+import { resolvePolicy } from '../lib/policy/policy.mjs';
 
 /** Two enrolled devices and one that is not. */
 const DEVICE_A = generateIdentity();
@@ -31,6 +32,33 @@ const at = (/** @type {number} */ n) => `2026-11-14T10:${String(n).padStart(2, '
 
 /** Strings of the fixture store that must never appear in the remote. */
 const SECRET_NOTE = 'the cache eviction rationale is confidential: tenant 4471 asked for it';
+
+/**
+ * Put the project's remote address in its policy.json, as the owner commits it.
+ * @param {ReturnType<typeof fixture>} f @param {string | null} url
+ */
+function setPolicyUrl(f, url) {
+  writeFileSync(
+    join(f.project, '.human-in-the-lead', 'policy.json'),
+    JSON.stringify({
+      schema_version: 1,
+      project: { id: 'fixture', key: 'W' },
+      store: { remote: { url } },
+    }),
+  );
+}
+
+/**
+ * Another bare repository standing in for a second host.
+ * @param {ReturnType<typeof fixture>} f @param {string} name
+ */
+function otherHost(f, name) {
+  const bare = join(f.dir, 'host', name);
+  mkdirSync(bare, { recursive: true });
+  const init = spawnSync('git', ['init', '-q', '--bare'], { cwd: bare, encoding: 'utf8' });
+  assert.equal(init.status, 0, init.stderr);
+  return { bare, url: `file://${bare}` };
+}
 
 /** A project directory with a policy, a bare repository standing in for the host, and stores. */
 function fixture() {
@@ -492,7 +520,15 @@ test('every command is refused to executors', async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
   fill(a.store);
-  const subs = [['push'], ['pull'], ['status'], ['remote', 'set', f.url], ['remote', 'show']];
+  const subs = [
+    ['push'],
+    ['pull'],
+    ['status'],
+    ['remote', 'set', f.url],
+    ['remote', 'set', f.url, '--policy'],
+    ['remote', 'clear'],
+    ['remote', 'show'],
+  ];
   for (const sub of subs) {
     for (const env of [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-3' }]) {
       const r = await a.run([...sub, ...(['push', 'status'].includes(sub[0]) ? BOTH : [])], env);
@@ -509,7 +545,7 @@ test('a push needs an enrolled device, a recipient list that includes this devic
   const a = device(f, 'a', DEVICE_A);
   await a.run(['remote', 'set', f.url]);
   const remote = createGitRemote({ url: f.url, dir: remoteDir(a.store.root) });
-  const base = { root: a.store.root, projectId: 'fixture', remote };
+  const base = { root: a.store.root, projectId: 'fixture', remote, url: f.url };
   const devices = resolveDevices({
     root: f.project,
     store: a.store.root,
@@ -540,7 +576,9 @@ test('a push needs an enrolled device, a recipient list that includes this devic
 
   // Status reports the enrolment the resolver gave.
   const status = await storeStatus({
-    ...base,
+    root: base.root,
+    projectId: 'fixture',
+    opened: { remote, url: f.url, source: 'machine' },
     devices: { ...devices, enrolled: false, device: 'laptop' },
   });
   assert.deepEqual(status.device, {
@@ -572,4 +610,141 @@ test('status reports an unreachable remote instead of failing, and pull of an em
   // Status changed nothing in the store.
   assert.deepEqual([a.store.list(), head(a.store.root)], listed);
   assert.equal((await a.run(['push', ...BOTH])).json.error, 'remote-unreachable');
+});
+
+test('the remote comes from policy.json alone, with no remote set on this machine', async () => {
+  const f = fixture();
+  setPolicyUrl(f, f.url);
+  const a = device(f, 'a', DEVICE_A);
+  fill(a.store);
+
+  const shown = await a.run(['remote', 'show']);
+  assert.deepEqual(shown.json.remote, { url: f.url, source: 'policy' });
+  assert.deepEqual([shown.json.policy_url, shown.json.override_url], [f.url, null]);
+  const before = await a.run(['status', ...BOTH]);
+  assert.deepEqual(before.json.remote, { url: f.url, source: 'policy' });
+  assert.equal(before.json.push_due, true);
+
+  const pushed = await a.run(['push', ...BOTH]);
+  assert.equal(pushed.code, EXIT.ok, JSON.stringify(pushed.json));
+  assert.equal(pushed.json.result, 'pushed');
+  assert.equal(existsSync(join(a.store.root, '.git', 'hitld-remote.json')), false);
+  const after = await a.run(['status', ...BOTH]);
+  assert.equal(after.json.push_due, false);
+  assert.equal(after.json.remote_version, pushed.json.version);
+});
+
+test('a fresh store with the policy set pulls without remote set', async () => {
+  const f = fixture();
+  setPolicyUrl(f, f.url);
+  const a = device(f, 'a', DEVICE_A);
+  fill(a.store);
+  assert.equal((await a.run(['push', ...BOTH])).code, EXIT.ok);
+
+  // A new container: an empty store directory, the checkout's policy.json, this device's key.
+  const fresh = device(f, 'fresh', DEVICE_B);
+  assert.deepEqual(fresh.store.list(), []);
+  const status = await fresh.run(['status', ...BOTH]);
+  assert.equal(status.json.pull_due, true);
+  assert.equal(status.json.synced, null);
+  const pulled = await fresh.run(['pull']);
+  assert.equal(pulled.code, EXIT.ok, JSON.stringify(pulled.json));
+  assert.equal(pulled.json.result, 'fast-forward');
+  assert.equal(fresh.store.read('ledger.jsonl'), a.store.read('ledger.jsonl'));
+  assert.equal(fresh.store.read('notes/cache.md'), `${SECRET_NOTE}\n`);
+  // What it merged is machine-local state, written by the pull.
+  assert.equal(existsSync(join(fresh.store.root, '.git', 'hitld-sync.json')), true);
+  assert.equal((await fresh.run(['pull'])).json.result, 'up-to-date');
+});
+
+test('a machine override wins over policy.json and is reported; clear returns to the policy', async () => {
+  const f = fixture();
+  const mirror = otherHost(f, 'mirror.git');
+  setPolicyUrl(f, f.url);
+  const a = device(f, 'a', DEVICE_A);
+  fill(a.store);
+
+  const set = await a.run(['remote', 'set', mirror.url]);
+  assert.equal(set.code, EXIT.ok, JSON.stringify(set.json));
+  assert.equal(set.json.written, 'machine');
+  assert.deepEqual(set.json.policy_change.json, { store: { remote: { url: mirror.url } } });
+  const shown = await a.run(['remote', 'show']);
+  assert.deepEqual(shown.json.remote, { url: mirror.url, source: 'machine' });
+  assert.deepEqual([shown.json.policy_url, shown.json.override_url], [f.url, mirror.url]);
+  const status = await a.run(['status', ...BOTH]);
+  assert.deepEqual(status.json.remote, { url: mirror.url, source: 'machine' });
+  assert.equal(status.json.policy_url, f.url);
+
+  // The push goes to the override; the policy's remote stays empty.
+  assert.equal((await a.run(['push', ...BOTH])).json.result, 'pushed');
+  assert.equal(await createGitRemote({ url: f.url, dir: join(f.dir, 'r1') }).head(), null);
+  assert.notEqual(await createGitRemote({ url: mirror.url, dir: join(f.dir, 'r2') }).head(), null);
+  // Policy.json was not touched by the override.
+  assert.equal(
+    JSON.parse(readFileSync(join(f.project, '.human-in-the-lead', 'policy.json'), 'utf8')).store
+      .remote.url,
+    f.url,
+  );
+
+  // Back on the policy's address, what was merged from the mirror does not count: the push is due.
+  const cleared = await a.run(['remote', 'clear']);
+  assert.deepEqual([cleared.json.ok, cleared.json.removed], [true, mirror.url]);
+  const back = await a.run(['status', ...BOTH]);
+  assert.deepEqual(back.json.remote, { url: f.url, source: 'policy' });
+  assert.equal(back.json.synced, null);
+  assert.equal(back.json.push_due, true);
+  assert.equal((await a.run(['push', ...BOTH])).json.result, 'pushed');
+  assert.notEqual(await createGitRemote({ url: f.url, dir: join(f.dir, 'r3') }).head(), null);
+});
+
+test('remote set prints the policy.json change, and --policy writes it for the owner to commit', async () => {
+  const f = fixture();
+  const a = device(f, 'a', DEVICE_A);
+  const policyFile = join(f.project, '.human-in-the-lead', 'policy.json');
+  const original = readFileSync(policyFile, 'utf8');
+
+  const set = await a.run(['remote', 'set', f.url]);
+  assert.equal(set.json.policy_change.set, 'store.remote.url');
+  assert.equal(set.json.policy_change.value, f.url);
+  assert.equal(readFileSync(policyFile, 'utf8'), original, 'the default never writes policy.json');
+
+  const written = await a.run(['remote', 'set', f.url, '--policy']);
+  assert.equal(written.code, EXIT.ok, JSON.stringify(written.json));
+  assert.equal(written.json.written, 'policy');
+  assert.match(written.json.message, /override/);
+  const policy = JSON.parse(readFileSync(policyFile, 'utf8'));
+  assert.equal(policy.store.remote.url, f.url);
+  assert.equal(policy.project.id, 'fixture');
+  // It loads: a store with no override reads the address from it.
+  assert.deepEqual((await device(f, 'b', DEVICE_B).run(['remote', 'show'])).json.remote, {
+    url: f.url,
+    source: 'policy',
+  });
+  // An unusable address is refused in both modes, and nothing is written.
+  const bad = await a.run(['remote', 'set', 'https://u:pw@host/x.git', '--policy']);
+  assert.equal(bad.json.error, 'remote-url-invalid');
+  assert.equal(JSON.parse(readFileSync(policyFile, 'utf8')).store.remote.url, f.url);
+});
+
+test('policy.json refuses an unusable store.remote.url when it loads', () => {
+  for (const url of ['http://host/x.git', 'https://u:pw@host/x.git', 'ext::sh -c x', '-oops']) {
+    const { policy, errors } = resolvePolicy({
+      schema_version: 1,
+      project: { id: 'fixture', key: 'W' },
+      store: { remote: { url } },
+    });
+    assert.equal(policy, null, url);
+    assert.equal(errors[0].path, 'store.remote.url', url);
+  }
+  const ok = resolvePolicy({
+    schema_version: 1,
+    project: { id: 'fixture', key: 'W' },
+    store: { remote: { url: 'https://github.com/owner/store.git' } },
+  });
+  assert.deepEqual(ok.errors, []);
+  assert.equal(
+    resolvePolicy({ schema_version: 1, project: { id: 'fixture', key: 'W' } }).policy?.store?.remote
+      ?.url,
+    null,
+  );
 });

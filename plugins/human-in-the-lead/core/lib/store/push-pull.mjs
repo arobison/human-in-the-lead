@@ -17,7 +17,7 @@
 // No key is read here: recipients and the private key come from `resolveDevices` through the
 // caller. No passphrase is used: nothing writes format 1 to a remote.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { formatOf, checkRecipients } from './sealed.mjs';
 import { parseIdentities, parseRecipient } from './age.mjs';
@@ -86,7 +86,7 @@ function writeJson(root, name, value) {
 }
 
 /**
- * The remote this store pushes to and pulls from, or null when none is set.
+ * This machine's override of the remote's address, or null when there is none.
  * @param {string} root the private store's directory
  * @returns {{ url: string } | null}
  */
@@ -101,8 +101,7 @@ export function readRemoteConfig(root) {
 }
 
 /**
- * Record the remote's address for this store. The address is checked first. A different address
- * forgets what was merged from the old one.
+ * Record this machine's override of the remote's address. The address is checked first.
  * @param {string} root the private store's directory @param {string} url
  */
 export function setRemote(root, url) {
@@ -110,44 +109,77 @@ export function setRemote(root, url) {
   ensureRepo(root);
   const before = readRemoteConfig(root);
   writeJson(root, CONFIG_FILE, { url });
-  if (before && before.url !== url) writeJson(root, STATE_FILE, { synced: null });
   return { url, previous: before?.url ?? null };
 }
 
 /**
- * What this store last merged from the remote or pushed to it: the remote's version id, and the
- * local commit that version holds.
+ * Remove this machine's override, so the project's address (policy.json) is used again.
+ * @param {string} root the private store's directory
+ */
+export function clearRemote(root) {
+  const before = readRemoteConfig(root);
+  rmSync(filePath(root, CONFIG_FILE), { force: true });
+  return { removed: before?.url ?? null };
+}
+
+/**
+ * Which address the store uses, and where it came from: this machine's override, else the
+ * project's `store.remote.url` in policy.json (which a fresh container has with the checkout),
+ * else none.
+ * @typedef {{ url: string, source: 'machine' | 'policy' }} RemoteChoice
+ * @param {string} root the private store's directory @param {string | null | undefined} policyUrl
+ * @returns {RemoteChoice | null}
+ */
+export function chooseRemote(root, policyUrl) {
+  const override = readRemoteConfig(root);
+  if (override) return { url: override.url, source: 'machine' };
+  if (policyUrl) return { url: checkRemoteUrl(policyUrl), source: 'policy' };
+  return null;
+}
+
+/**
+ * What this store last merged from the remote at `url` or pushed to it: the remote's version id,
+ * and the local commit that version holds. A record made against another address is not used.
  * @typedef {{ version: string, head: string }} Synced
  */
 
-/** @param {string} root @returns {Synced | null} */
-export function readSynced(root) {
+/** @param {string} root @param {string} url @returns {Synced | null} */
+export function readSynced(root, url) {
   const v = readJson(root, STATE_FILE, 'sync-state-invalid');
   const s = /** @type {any} */ (v?.synced);
   if (!s) return null;
-  if (typeof s.version !== 'string' || !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(s.head)) {
+  if (
+    typeof s.version !== 'string' ||
+    typeof s.url !== 'string' ||
+    !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(s.head)
+  ) {
     throw new PushPullError('sync-state-invalid', `${filePath(root, STATE_FILE)} is damaged`);
   }
-  return { version: s.version, head: s.head };
+  return s.url === url ? { version: s.version, head: s.head } : null;
 }
 
-/** @param {string} root @param {Synced} synced */
-const writeSynced = (root, synced) => writeJson(root, STATE_FILE, { synced });
+/** @param {string} root @param {string} url @param {Synced} synced */
+const writeSynced = (root, url, synced) =>
+  writeJson(root, STATE_FILE, { synced: { url, ...synced } });
 
 /**
  * The remote this store is set to use.
- * @param {string} root the private store's directory
- * @returns {import('./remote.mjs').StoreRemote}
+ * @param {string} root the private store's directory @param {string | null | undefined} policyUrl
+ * @returns {RemoteChoice & { remote: import('./remote.mjs').StoreRemote }}
  */
-export function openRemote(root) {
-  const config = readRemoteConfig(root);
-  if (!config) {
+export function openRemote(root, policyUrl) {
+  const choice = chooseRemote(root, policyUrl);
+  if (!choice) {
     throw new PushPullError(
       'no-remote',
-      'no remote is set for this store: run hitld store remote set <url>',
+      'no remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine',
     );
   }
-  return createGitRemote({ url: config.url, dir: remoteDir(root), branch: STORE_BRANCH });
+  // The remote's local copy lives inside the store's .git: make the repository first, so the
+  // directory the transport creates there is not mistaken for one.
+  ensureRepo(root);
+  const remote = createGitRemote({ url: choice.url, dir: remoteDir(root), branch: STORE_BRANCH });
+  return { ...choice, remote };
 }
 
 /**
@@ -155,6 +187,7 @@ export function openRemote(root) {
  * @property {string} root the private store's directory
  * @property {string} projectId
  * @property {import('./remote.mjs').StoreRemote} remote
+ * @property {string} url the address `remote` was opened on; what was merged is recorded against it
  * @property {import('./devices-port.mjs').Devices} devices from `resolveDevices`
  * @property {() => Date} [now] for tests
  */
@@ -189,7 +222,7 @@ async function mergeVersion(o, version) {
   }
   const merged = await importStore({ root: o.root, projectId: o.projectId, bytes, identities });
   if (merged.ok) {
-    writeSynced(o.root, { version, head: /** @type {string} */ (merged.incoming) });
+    writeSynced(o.root, o.url, { version, head: /** @type {string} */ (merged.incoming) });
   }
   return merged;
 }
@@ -204,7 +237,7 @@ export async function pullStore(o) {
   if (version === null) {
     return { ok: true, result: 'empty', project: o.projectId, remote_version: null };
   }
-  if (readSynced(o.root)?.version === version) {
+  if (readSynced(o.root, o.url)?.version === version) {
     return { ok: true, result: 'up-to-date', project: o.projectId, remote_version: version };
   }
   const merged = await mergeVersion(o, version);
@@ -250,7 +283,7 @@ export async function pushStore(o) {
   }
   const sealOptions = { root: o.root, projectId: o.projectId, recipients, now: o.now };
   let sealed = sealStore(sealOptions);
-  const synced = readSynced(o.root);
+  const synced = readSynced(o.root, o.url);
   const remoteHead = await o.remote.head();
   if (synced && remoteHead === synced.version && sealed.head === synced.head) {
     return {
@@ -283,7 +316,7 @@ export async function pushStore(o) {
   if (version instanceof Conflict) {
     return { ...version.merged, remote_version: version.version };
   }
-  writeSynced(o.root, { version, head: sealed.head });
+  writeSynced(o.root, o.url, { version, head: sealed.head });
   return {
     ok: true,
     result: 'pushed',
@@ -324,22 +357,30 @@ function hasUncommitted(root) {
 /**
  * Where the store stands against its remote, and what this device may do. It changes nothing in
  * the store. A remote that cannot be reached is reported, not raised.
- * @param {Omit<PushPullOptions, 'remote'> & { remote: import('./remote.mjs').StoreRemote | null }} o
+ * @param {{
+ *   root: string,
+ *   projectId: string,
+ *   devices: import('./devices-port.mjs').Devices,
+ *   opened: (RemoteChoice & { remote: import('./remote.mjs').StoreRemote }) | null,
+ *   policyUrl?: string | null,
+ * }} o
  */
 export async function storeStatus(o) {
-  const config = readRemoteConfig(o.root);
-  const exists = existsSync(join(resolve(o.root), '.git'));
+  // A store that holds files but no repository yet (a fresh one) gets its git bookkeeping, so its
+  // text can be told from its machine-local files. Nothing is committed.
+  const exists = existsSync(resolve(o.root));
   if (exists) ensureRepo(o.root);
   const local = exists ? localHead(o.root) : null;
   const changed = exists && hasUncommitted(o.root);
-  const synced = readSynced(o.root);
+  const synced = o.opened ? readSynced(o.root, o.opened.url) : null;
+  const override = readRemoteConfig(o.root);
   /** @type {string | null} */
   let remoteVersion = null;
   /** @type {{ code: string, message: string } | null} */
   let remoteError = null;
-  if (o.remote) {
+  if (o.opened) {
     try {
-      remoteVersion = await o.remote.head();
+      remoteVersion = await o.opened.remote.head();
     } catch (e) {
       if (!(e instanceof StoreRemoteError)) throw e;
       remoteError = { code: e.code, message: e.message };
@@ -349,15 +390,17 @@ export async function storeStatus(o) {
   return {
     ok: true,
     project: o.projectId,
-    remote: config,
+    remote: o.opened && { url: o.opened.url, source: o.opened.source },
+    policy_url: o.policyUrl ?? null,
+    override_url: override?.url ?? null,
     local_version: local,
     local_changed: changed,
     remote_version: remoteVersion,
     remote_error: remoteError,
     synced: synced,
-    push_due: config ? holdsText && (changed || !synced || synced.head !== local) : false,
+    push_due: o.opened ? holdsText && (changed || !synced || synced.head !== local) : false,
     pull_due:
-      config && !remoteError ? remoteVersion !== null && remoteVersion !== synced?.version : null,
+      o.opened && !remoteError ? remoteVersion !== null && remoteVersion !== synced?.version : null,
     device: {
       name: o.devices.device,
       enrolled: o.devices.enrolled,
