@@ -7,7 +7,7 @@ created: 2026-11-15
 project: HITLD-15
 claimed_by: D-103
 needs: [HITLD-102]
-release_note: "Store devices: `hitld store device init` (keychain locally, `--cloud` for a cloud environment), `device list` and `device remove`; the enrolled devices are `.human-in-the-lead/store-devices.json`, changed only by the owner's merge."
+release_note: "Store devices: `hitld store device init` (keychain locally, `--cloud` for a cloud environment), `device list` and `device remove`. Which devices may open the store is the owner's decision (HITLD-113)."
 ---
 
 ## Why
