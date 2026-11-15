@@ -2,9 +2,10 @@
 id: HITLD-105
 title: "Store push and pull: push, pull, status, remote set and show, merge on pull"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-105
 needs: [HITLD-102, HITLD-104]
 ---
 
