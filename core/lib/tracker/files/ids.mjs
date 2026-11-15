@@ -14,6 +14,7 @@
 
 import { blockRange } from './config.mjs';
 import { fileNamesIn, git, listPlaces, patterns } from './tree.mjs';
+import { CodedError } from '../../cli/errors.mjs';
 
 /**
  * @typedef {import('./config.mjs').Layout} Layout
@@ -26,13 +27,15 @@ import { fileNamesIn, git, listPlaces, patterns } from './tree.mjs';
  */
 export function assertOrchestrator(root, layout, env = process.env) {
   if (env.HITLD_ROLE === 'executor') {
-    throw new Error(
+    throw new CodedError(
+      'not-permitted',
       'only the orchestrator creates tracker entities; an executor describes new work in its report',
     );
   }
   const branch = git(root, ['symbolic-ref', '--short', '-q', 'HEAD'], { allowFail: true }).trim();
   if (branch !== layout.mainBranch) {
-    throw new Error(
+    throw new CodedError(
+      'not-permitted',
       `only the orchestrator creates tracker entities, on ${layout.mainBranch} in its own working tree (this is ${branch || 'a detached HEAD'})`,
     );
   }
