@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { privateStorePath } from '../../store/store.mjs';
 import { executorSignal } from '../executor.mjs';
+import { deviceCommands } from './store-device.mjs';
 
 /** The environment variable that may carry the passphrase (format 1 files). */
 export const PASSPHRASE_ENV = 'HITLD_STORE_PASSPHRASE';
@@ -243,4 +244,6 @@ export const commands = [
       return syncStore({ ...p, ...keys, recipients: recipients(input), file: String(input.file) });
     }),
   },
+  // store device init | list | remove (design 0003 section 6), in store-device.mjs.
+  ...deviceCommands,
 ];

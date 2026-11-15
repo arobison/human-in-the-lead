@@ -41,6 +41,7 @@ import {
   quarantineAt,
   readTestReport,
 } from './quarantine.mjs';
+import { DEVICES_PATH } from '../store/devices.mjs';
 
 /**
  * @typedef {object} Entry a verified branch waiting to merge
@@ -72,7 +73,7 @@ import {
  *
  * @typedef {(command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string }} Exec
  *
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'quarantine' | 'store-devices' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
  *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string,
  *   message?: string, findings?: import('./security.mjs').SentBack[] }} Rejected
  * @typedef {{ runs: number, failures: number }} SideRuns
@@ -471,6 +472,20 @@ export async function runMergeQueue(r) {
             reason: 'quarantine',
             files: [QUARANTINE_PATH],
             message: `Your branch changes ${QUARANTINE_PATH}. Only the orchestrator quarantines a test, and only on evidence; take the change out of every commit on the branch. If a test is flaky, say so in your report, with the rerun that shows it.`,
+            dispatch: e.dispatch,
+          });
+          rejectedNow.add(e.item);
+          continue;
+        }
+        // Enrolling or removing a store device is the owner's merge, never an executor's branch
+        // (design 0003 section 6).
+        if (changedFiles.includes(DEVICES_PATH)) {
+          result.rejected.push({
+            item: e.item,
+            branch: e.branch,
+            reason: 'store-devices',
+            files: [DEVICES_PATH],
+            message: `Your branch changes ${DEVICES_PATH}. Only the owner enrols or removes a store device, through their own merge; take the change out of every commit on the branch.`,
             dispatch: e.dispatch,
           });
           rejectedNow.add(e.item);
