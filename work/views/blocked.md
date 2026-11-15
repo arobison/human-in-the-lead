@@ -9,7 +9,7 @@ HITLD-15 Ready for consuming projects and the first release
   HITLD-24  Release v0.1.0: version, tag, notes
       ← HITLD-39 First-run setup walk-through in the orchestrator skill
         HITLD-40 Machine-wide registry of live executors and per-account usage, with the merge queue lock per repository
-        HITLD-45 Milestones and releases as entities: needs and serves, independent checks, release records and `hitld release propose`
+        HITLD-45 Milestones and releases as entities: needs and contributions, independent checks, release records and `hitld release propose`
         HITLD-51 The commit guard: refuse confidential files in a public repository
         HITLD-58 Symlink-safe worktree teardown
         HITLD-59 DCO check in CI
@@ -28,12 +28,12 @@ HITLD-15 Ready for consuming projects and the first release
         HITLD-38 Machine detection with `hitld machine detect`
   HITLD-40  Machine-wide registry of live executors and per-account usage, with the merge queue lock per repository
       ← HITLD-37 Person and machine settings files with schemas, trusted loading and `hitld config explain`
-  HITLD-45  Milestones and releases as entities: needs and serves, independent checks, release records and `hitld release propose`
+  HITLD-45  Milestones and releases as entities: needs and contributions, independent checks, release records and `hitld release propose`
       ← HITLD-18 Tracker read API: versioned JSON output and declared extension fields
   HITLD-47  Orchestrator skill recognizes feedback about HITLd and publishes it through the generalizer and send gate
       ← HITLD-46 `hitld feedback`: capture feedback about HITLd with context, stored locally
   HITLD-62  Milestone graph in the views and the report
-      ← HITLD-45 Milestones and releases as entities: needs and serves, independent checks, release records and `hitld release propose`
+      ← HITLD-45 Milestones and releases as entities: needs and contributions, independent checks, release records and `hitld release propose`
 
 HITLD-28 One signal end to end: the rest of the slice
   HITLD-33  Live evals and the Copilot cloud agent profile

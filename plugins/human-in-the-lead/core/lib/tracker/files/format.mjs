@@ -34,7 +34,7 @@ const MILESTONE_KEYS = [
   'outcome',
   'done_when',
   'needs',
-  'serves',
+  'contributions',
   'appetite_tokens',
   'deadline',
   'check',
@@ -105,7 +105,7 @@ export const CODE_KEYS = [
 const OPTIONAL_LISTS = ['opened_from', 'touches', 'serial', 'credit'];
 
 /** Stored keys that hold a list, whatever the settings. */
-const LIST_KEYS = ['needs', 'done_when', 'serves', 'check_results'];
+const LIST_KEYS = ['needs', 'done_when', 'contributions', 'check_results'];
 
 /**
  * The keys that hold a list, given the settings.

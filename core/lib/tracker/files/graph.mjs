@@ -31,7 +31,7 @@ import { idNumber } from './tree.mjs';
  * @property {(id: string) => Node[]} dependents open items that need `id`
  * @property {(containerId: string) => Node[]} milestonesOf milestones under a project or initiative
  * @property {(id: string) => Node[]} constraintOf milestones whose needs name `id`
- * @property {(id: string) => Node[]} contributesTo milestones whose serves name `id`
+ * @property {(id: string) => Node[]} contributesTo milestones whose contributions name `id`
  */
 
 export const ITEM_KINDS = ['work', 'decision', 'external'];
