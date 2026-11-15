@@ -47,7 +47,7 @@ function codesInSource() {
       for (const lit of m[1].matchAll(/'([^'\n]*)'/g)) if (WORD.test(lit[1])) add(lit[1], rel);
     }
     for (const m of text.matchAll(
-      /\bnew (?:Refusal|GateRefusal|SealedError|StoreGitError|StoreRemoteError|PushPullError|AgeError|DevicesError)\(\s*'([^'\n]*)'/g,
+      /\bnew (?:Refusal|GateRefusal|SealedError|StoreGitError|StoreRemoteError|PushPullError|AgeError|DevicesError|CodedError)\(\s*'([^'\n]*)'/g,
     )) {
       add(m[1], rel);
     }

@@ -39,6 +39,7 @@ import { readTrustEvents, trustSummary } from '../../rights/trust.mjs';
 import { TRIGGERS, buildDigest, markDigest } from '../../digest/digest.mjs';
 import { buildReport } from '../../quota/report.mjs';
 import { readQuotaInputs } from '../../quota/inputs.mjs';
+import { CodedError } from '../errors.mjs';
 
 /**
  * @typedef {import('../../tracker/interface.mjs').TrackerAdapter} TrackerAdapter
@@ -252,10 +253,14 @@ export function makeCommands({ openTracker }) {
   const questionOf = (input, ctx) => {
     const question = fromLegacyQuestion(jsonInput(input, 'question', ctx));
     const errors = schemas().validate('question', question);
-    if (errors.length) throw new Error(`the question is invalid:\n${formatErrors(errors)}`);
+    if (errors.length)
+      throw new CodedError('invalid-question', `the question is invalid:\n${formatErrors(errors)}`);
     const paths = normalizeQuestion(question);
     if (paths.errors.length)
-      throw new Error(`the question is invalid:\n${paths.errors.join('\n')}`);
+      throw new CodedError(
+        'invalid-question',
+        `the question is invalid:\n${paths.errors.join('\n')}`,
+      );
     return paths.question;
   };
 
