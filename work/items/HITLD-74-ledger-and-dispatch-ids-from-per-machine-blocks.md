@@ -2,7 +2,7 @@
 id: HITLD-74
 title: Ledger and dispatch IDs from per-machine blocks, so store sync does not conflict
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
 ---

@@ -2,7 +2,7 @@
 id: HITLD-14
 title: Contract example uses the project key; model trailers (Q5)
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

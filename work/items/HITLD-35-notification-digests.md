@@ -2,7 +2,7 @@
 id: HITLD-35
 title: Notification digests
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

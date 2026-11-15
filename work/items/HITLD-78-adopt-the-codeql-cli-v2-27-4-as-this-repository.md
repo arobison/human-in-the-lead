@@ -2,10 +2,10 @@
 id: HITLD-78
 title: Adopt the CodeQL CLI v2.27.4 as this repository's merge scanner
 kind: decision
-status: Done
+state: done
 created: 2026-11-15
 project: HITLD-15
-decided-by: owner
+decider: owner
 answer: Adopt v2.27.4
 answered_at: 2026-11-15T00:30:00Z
 answered_by: owner

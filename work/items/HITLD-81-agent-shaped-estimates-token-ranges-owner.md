@@ -2,7 +2,7 @@
 id: HITLD-81
 title: "Agent-shaped estimates: token ranges, owner-attention cost and rework, calibrated per area and tier"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-15
 project: HITLD-28
 ---

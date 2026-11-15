@@ -2,10 +2,10 @@
 id: HITLD-70
 title: Evals gate
 kind: capability
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
-needs: [HITLD-33 c?, HITLD-57 c?]
+constraints: [HITLD-33 c?, HITLD-57 c?]
 ---
 
 ## Notes

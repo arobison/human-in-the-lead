@@ -2,7 +2,7 @@
 id: HITLD-86
 title: "Chief of staff and disposable orchestrators: rotation, scheduled tasks and events, tier 3 sessions"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-15
 project: HITLD-15
 ---

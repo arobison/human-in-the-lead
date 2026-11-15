@@ -2,12 +2,12 @@
 id: HITLD-38
 title: Machine detection with `hitld machine detect`
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37]
-claimed: D-38
-changelog: "`hitld machine detect` proposes a machine profile from local probes; items can name `resources`, and dispatch waits when this machine lacks one."
+claimed_by: D-38
+release_note: "`hitld machine detect` proposes a machine profile from local probes; items can name `resources`, and dispatch waits when this machine lacks one."
 ---
 
 ## Why

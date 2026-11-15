@@ -2,11 +2,11 @@
 id: HITLD-44
 title: How a team of humans in the lead shares the loops
 kind: decision
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-53
 needs: [HITLD-36]
-decided-by: owner
+decider: owner
 ---
 
 ## Why

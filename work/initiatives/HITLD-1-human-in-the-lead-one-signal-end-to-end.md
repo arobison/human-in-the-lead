@@ -2,9 +2,9 @@
 id: HITLD-1
 title: "Human in the lead: one signal end to end"
 kind: initiative
-status: Planned
+state: planned
 created: 2026-11-14
-lead: owner
+owner: owner
 ---
 
 ## Goal

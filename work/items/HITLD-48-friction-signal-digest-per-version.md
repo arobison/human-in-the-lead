@@ -2,7 +2,7 @@
 id: HITLD-48
 title: "Friction-signal digest per version"
 kind: work
-status: Proposed
+state: proposed
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-47]

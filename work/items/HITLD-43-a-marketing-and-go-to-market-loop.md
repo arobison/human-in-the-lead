@@ -2,7 +2,7 @@
 id: HITLD-43
 title: A marketing and go-to-market loop
 kind: work
-status: Proposed
+state: proposed
 created: 2026-11-14
 project: HITLD-28
 ---

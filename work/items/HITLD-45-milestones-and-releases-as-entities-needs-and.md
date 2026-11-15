@@ -2,12 +2,12 @@
 id: HITLD-45
 title: "Milestones and releases as entities: needs and contributions, independent checks, release records and `hitld release propose`"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-18]
-claimed: claude-executor
-changelog: "Milestones and releases are tracker entities; `hitld release propose` drafts the bump and notes from the interface delta, and `hitld release make` writes the release record and tag."
+claimed_by: claude-executor
+release_note: "Milestones and releases are tracker entities; `hitld release propose` drafts the bump and notes from the interface delta, and `hitld release make` writes the release record and tag."
 ---
 
 ## Why

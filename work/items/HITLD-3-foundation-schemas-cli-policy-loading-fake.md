@@ -2,7 +2,7 @@
 id: HITLD-3
 title: "Foundation: schemas, CLI, policy loading, fake adapter"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

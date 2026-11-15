@@ -2,11 +2,11 @@
 id: HITLD-37
 title: Person and machine settings files with schemas, trusted loading and `hitld config explain`
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-37
-changelog: "Person and machine settings files, outside any repository, with `hitld config explain`, `config write` and `config migrate`; caps and limits take the strictest layer."
+claimed_by: D-37
+release_note: "Person and machine settings files, outside any repository, with `hitld config explain`, `config write` and `config migrate`; caps and limits take the strictest layer."
 ---
 
 ## Why

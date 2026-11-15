@@ -2,10 +2,10 @@
 id: HITLD-68
 title: End to end
 kind: capability
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
-needs: [HITLD-29 c?, HITLD-30 c?, HITLD-31 c?, HITLD-32 c?]
+constraints: [HITLD-29 c?, HITLD-30 c?, HITLD-31 c?, HITLD-32 c?]
 ---
 
 ## Notes

@@ -2,7 +2,7 @@
 id: HITLD-12
 title: Eval results page and hitld eval accept --run
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

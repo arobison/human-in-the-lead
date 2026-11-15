@@ -2,10 +2,10 @@
 id: HITLD-64
 title: Safe to publish
 kind: capability
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
-needs: [HITLD-22 c?, HITLD-23 c?]
+constraints: [HITLD-22 c?, HITLD-23 c?]
 ---
 
 ## Notes

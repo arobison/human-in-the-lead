@@ -2,7 +2,7 @@
 id: HITLD-8
 title: Decision rights with precedent and judgement priors (piece e)
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

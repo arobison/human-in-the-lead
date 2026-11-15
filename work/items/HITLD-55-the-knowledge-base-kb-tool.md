@@ -2,7 +2,7 @@
 id: HITLD-55
 title: "The knowledge-base `kb` tool"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
 ---

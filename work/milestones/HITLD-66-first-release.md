@@ -2,10 +2,10 @@
 id: HITLD-66
 title: First release
 kind: capability
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
-needs: [HITLD-18 c?, HITLD-24 c?, HITLD-45 c?, HITLD-58 c?, HITLD-59 c?, HITLD-63 c?]
+constraints: [HITLD-18 c?, HITLD-24 c?, HITLD-45 c?, HITLD-58 c?, HITLD-59 c?, HITLD-63 c?]
 ---
 
 ## Notes

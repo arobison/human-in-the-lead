@@ -2,12 +2,12 @@
 id: HITLD-39
 title: First-run setup walk-through in the orchestrator skill
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37, HITLD-38]
-claimed: D-39
-changelog: "First-run setup in the orchestrator skill; autonomous dispatch waits until the person and machine files exist (`dispatch start --by-hand` runs one named item meanwhile)."
+claimed_by: D-39
+release_note: "First-run setup in the orchestrator skill; autonomous dispatch waits until the person and machine files exist (`dispatch start --by-hand` runs one named item meanwhile)."
 ---
 
 ## Why

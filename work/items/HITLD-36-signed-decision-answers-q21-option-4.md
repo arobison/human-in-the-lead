@@ -2,7 +2,7 @@
 id: HITLD-36
 title: Signed decision answers (Q21, option 4)
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-53
 ---

@@ -2,7 +2,7 @@
 id: HITLD-5
 title: "Ledger and orchestrator continuity: run state, lease, resume (piece b)"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

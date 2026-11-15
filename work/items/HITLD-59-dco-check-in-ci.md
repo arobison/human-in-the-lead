@@ -2,10 +2,10 @@
 id: HITLD-59
 title: DCO check in CI
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
-claimed: D-1
+claimed_by: D-1
 ---
 
 ## Why

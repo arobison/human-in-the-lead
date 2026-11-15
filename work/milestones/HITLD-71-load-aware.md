@@ -2,10 +2,10 @@
 id: HITLD-71
 title: Load aware
 kind: capability
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-28
-needs: [HITLD-41 c?, HITLD-42 c?]
+constraints: [HITLD-41 c?, HITLD-42 c?]
 ---
 
 ## Notes

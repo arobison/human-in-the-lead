@@ -2,7 +2,7 @@
 id: HITLD-6
 title: "Environment resource manager: worktrees, ports, locks, secret tasks (piece c)"
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-2
 ---

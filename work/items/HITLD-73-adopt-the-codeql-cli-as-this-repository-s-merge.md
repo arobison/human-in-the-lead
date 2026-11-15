@@ -2,12 +2,12 @@
 id: HITLD-73
 title: Adopt the CodeQL CLI as this repository's merge scanner
 kind: work
-status: Done
+state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-63]
-claimed: D-73
-changelog: "This repository's merge queue runs CodeQL 2.27.4 as its scanner, from the primary checkout; scanners get `HITLD_PRIMARY_ROOT`, so a branch cannot change the scanner that checks it."
+claimed_by: D-73
+release_note: "This repository's merge queue runs CodeQL 2.27.4 as its scanner, from the primary checkout; scanners get `HITLD_PRIMARY_ROOT`, so a branch cannot change the scanner that checks it."
 ---
 
 ## Why

@@ -2,7 +2,7 @@
 id: HITLD-62
 title: "Milestone graph in the views and the report"
 kind: work
-status: Planned
+state: planned
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-45]
