@@ -9,12 +9,12 @@ import { loadTrackerConfig } from '../../tracker/files/config.mjs';
 import { checkStaged, checkTree, problemLines, rulesFrom } from '../../guard/classification.mjs';
 
 /**
- * What a refusal says: files above the ceiling, and files that hold the private store's address,
- * with where it goes.
+ * What a refusal says: files above the ceiling, and files that hold the private store's address or
+ * device list, each with where it goes.
  * @param {import('../../guard/classification.mjs').Refused[]} refused @param {string} ceiling
  */
 function refusedMessage(refused, ceiling) {
-  const placed = refused.filter((r) => r.rule === 'store-address');
+  const placed = refused.filter((r) => r.rule === 'store-address' || r.rule === 'store-devices');
   const above = refused.length - placed.length;
   const parts = [];
   if (above) {
@@ -24,7 +24,7 @@ function refusedMessage(refused, ceiling) {
   }
   if (placed.length) {
     parts.push(
-      `${placed.length} file(s) hold the private store's address, which never goes in the project's repository (design 0003); each problem says where it goes`,
+      `${placed.length} file(s) hold the private store's address or device list, which never go in the project's repository (design 0003); each problem says where it goes`,
     );
   }
   return `refused: ${parts.join('. ')}`;

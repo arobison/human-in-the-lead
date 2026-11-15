@@ -16,21 +16,29 @@
 // override, never the project's repository.
 //
 // Recipients and the private key come from `resolveDevices` (devices-port.mjs) and nowhere else:
-// a push is encrypted to the devices on main's store-devices.json, fetched from origin first, and
-// a device not on that list may not push. After a removal, the first push prunes the remote's
-// older files (completeRotation). No passphrase is used: nothing writes format 1 to a remote.
+// a push brings in the remote's head, then is encrypted to the devices the owner's answers
+// approved, and a device the owner has not approved may not push. After a removal, the first push
+// prunes the remote's older files (completeRotation). No passphrase is used: nothing writes
+// format 1 to a remote.
 
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { formatOf, checkRecipients } from './sealed.mjs';
 import { AgeError, parseIdentities } from './age.mjs';
 import { StoreRemoteError, pushWithRetry } from './remote.mjs';
-import { STORE_BRANCH, createGitRemote, remoteDir } from './remote-git.mjs';
+import { STORE_BRANCH, createDevicesBranch, createGitRemote, remoteDir } from './remote-git.mjs';
 import { ensureRepo, git, hasText, head as localHead } from './git.mjs';
 import { importStore, sealStore } from './sync.mjs';
 import { openStore } from './store.mjs';
 import { assertEnrolled, completeRotation, resolveDevices } from './devices-port.mjs';
+import {
+  DevicesError,
+  fingerprint,
+  openDeviceAsks,
+  pendingRequests,
+  readApprovals,
+  requestsOnBranch,
+} from './devices.mjs';
 import { NO_ADDRESS, chooseRemote, clearRemote, readRemoteConfig, setRemote } from './address.mjs';
 
 export { chooseRemote, clearRemote, readRemoteConfig, setRemote };
@@ -38,7 +46,6 @@ export { chooseRemote, clearRemote, readRemoteConfig, setRemote };
 /**
  * Every code this module throws. Lowercase kebab-case.
  *   no-remote           no address is set for this store
- *   devices-fetch-failed  main could not be fetched from origin before a push
  *   no-identity         opening the remote's head needs this device's private key
  *   nothing-to-push     the store holds no text yet
  *   remote-not-format-2 the remote's head is not an age file
@@ -235,31 +242,68 @@ export async function pullStore(o) {
 }
 
 /**
- * Seal the store's text for the devices and push it as the remote's new head. A push the remote
- * refuses because it moved pulls the new head, merges it and pushes on top of it; a conflict, or
- * a remote that keeps moving, stops it.
- * @param {PushPullOptions} o
+ * Seal the store's text for the approved devices and push it as the remote's new head. The
+ * remote's head is brought in first when this store has not merged it, so the approved set the
+ * push encrypts to holds every owner's answer another device pushed (a removal included). A push
+ * the remote refuses because it moved pulls the new head, merges it, resolves the devices again
+ * and pushes on top of it; a conflict, or a remote that keeps moving, stops it.
+ * @param {PushPullOptions & { refresh?: () => import('./devices-port.mjs').Devices }} o refresh:
+ *   resolve this device again from the store, after a merge; without it, `devices` stands
  */
 export async function pushStore(o) {
-  // Refused unless this device's key is on main's list. Enrolled means its own key is among the
-  // recipients, so the device can always open what it pushed.
+  // Refused unless the owner has approved this device's key, as far as this store knows. Enrolled
+  // means its own key is among the recipients, so the device can always open what it pushed.
   assertEnrolled(o.devices);
-  const recipients = checkRecipients(o.devices.recipients);
-  const rotating = o.devices.rotation.pending.length > 0;
-  const mine = [...recipients].sort();
   ensureRepo(o.root);
   if (!hasText(o.root)) {
     throw new PushPullError('nothing-to-push', 'the store holds no text to push yet');
   }
-  const sealOptions = { root: o.root, projectId: o.projectId, recipients, now: o.now };
-  let sealed = sealStore(sealOptions);
-  const synced = readSynced(o.root, o.url);
+  /** @type {Array<{ version: string, result: string }>} */
+  const merges = [];
+  /** @param {string} version */
+  const bringIn = async (version) => {
+    let merged;
+    try {
+      merged = await mergeVersion(o, version);
+    } catch (e) {
+      // The head does not open with this key: the owner removed this device, or its approval was
+      // pushed in a file sealed before it. Either way it may not push.
+      if (e instanceof AgeError && e.code === 'age-no-match') {
+        throw new DevicesError(
+          'device-not-enrolled',
+          "this device may not push the store: the remote's head does not open with its key, so the owner removed it, or no approved device has pushed since its approval",
+        );
+      }
+      throw e;
+    }
+    if (!merged.ok) throw new Conflict(merged, version);
+    merges.push({ version, result: /** @type {string} */ (merged.result) });
+  };
+  let devices = o.devices;
+  const current = () => {
+    devices = o.refresh ? assertEnrolled(o.refresh()) : devices;
+    const recipients = checkRecipients(devices.recipients);
+    return { recipients, mine: [...recipients].sort() };
+  };
+
+  const before = readSynced(o.root, o.url);
   const remoteHead = await o.remote.head();
+  try {
+    if (remoteHead !== null && remoteHead !== before?.version) await bringIn(remoteHead);
+  } catch (e) {
+    if (e instanceof Conflict) return { ...e.merged, remote_version: e.version };
+    throw e;
+  }
+  let { recipients, mine } = current();
+  const sealOptions = () => ({ root: o.root, projectId: o.projectId, recipients, now: o.now });
+  let sealed = sealStore(sealOptions());
+  const synced = readSynced(o.root, o.url);
+  const rotating = () => devices.rotation.pending.length > 0;
   // Nothing new is still pushed while a rotation is pending (the remote's head was encrypted to
-  // the removed key, and must be replaced by one that is not) and when main's device list is not
-  // the one the head was sealed to (an enrolled device could not open it).
+  // the removed key, and must be replaced by one that is not) and when the approved set is not
+  // the one the head was sealed to (an approved device could not open it).
   if (
-    !rotating &&
+    !rotating() &&
     synced &&
     sameSet(synced.recipients, mine) &&
     remoteHead === synced.version &&
@@ -273,19 +317,14 @@ export async function pushStore(o) {
       head: sealed.head,
     };
   }
-  /** @type {Array<{ version: string, result: string }>} */
-  const merges = [];
   const version = await pushWithRetry(o.remote, {
     bytes: sealed.bytes,
     expected: synced?.version ?? null,
     attempts: ATTEMPTS,
     async reconcile(actual) {
-      if (actual !== null) {
-        const merged = await mergeVersion(o, actual);
-        if (!merged.ok) throw new Conflict(merged, actual);
-        merges.push({ version: actual, result: /** @type {string} */ (merged.result) });
-      }
-      sealed = sealStore(sealOptions);
+      if (actual !== null) await bringIn(actual);
+      ({ recipients, mine } = current());
+      sealed = sealStore(sealOptions());
       return { bytes: sealed.bytes, expected: actual };
     },
   }).catch((e) => {
@@ -299,7 +338,7 @@ export async function pushStore(o) {
   const rotation = await completeRotation({
     remote: o.remote,
     store: openStore(o.root),
-    resolution: o.devices,
+    resolution: devices,
     version,
     now: o.now,
   });
@@ -308,84 +347,36 @@ export async function pushStore(o) {
     result: 'pushed',
     project: o.projectId,
     version,
-    previous_version: synced?.version ?? null,
+    previous_version: before?.version ?? null,
     head: sealed.head,
     recipients: recipients.length,
     bytes: sealed.bytes.length,
     merged: merges,
-    device: o.devices.device,
+    device: devices.device,
     rotation,
   };
 }
 
 /**
  * @typedef {object} DeviceLookup
- * @property {string} checkout the project's checkout, where main and store-devices.json are read
  * @property {string} store the private store's directory
  * @property {NodeJS.ProcessEnv} env
  * @property {string} projectId
- * @property {string} mainBranch policy.json merge.main_branch
  */
 
 /**
- * This device as main's list sees it, without fetching: for pull and status.
+ * This device as the store it holds sees it: the owner's answers in it.
  * @param {DeviceLookup} l
  */
 export const devicesHere = (l) =>
-  resolveDevices({
-    root: l.checkout,
-    store: l.store,
-    env: l.env,
-    projectId: l.projectId,
-    mainBranch: l.mainBranch,
-  });
+  resolveDevices({ store: l.store, env: l.env, projectId: l.projectId });
 
 /**
- * This device for a push: fetch main from origin so the list is current, resolve, and refuse a
- * device that is not on it (device-not-enrolled). A fetch that fails refuses the push rather than
- * use a list that may still hold a removed device. A checkout with no origin remote has nothing
- * to fetch, and its local main is the list.
+ * This device for a push: refuse it unless the owner has approved its key (device-not-enrolled).
+ * The push itself brings in the remote's head and resolves again (pushStore, refresh).
  * @param {DeviceLookup} l
  */
-export function devicesForPush(l) {
-  const fetched = fetchMain(l.checkout, l.mainBranch, l.env);
-  return { ...assertEnrolled(devicesHere(l)), fetched };
-}
-
-/**
- * Fetch the main branch from origin into its remote-tracking ref. Run as git.mjs runs git: an
- * argument list, hooks and fsmonitor off, no prompt. The owner's own git configuration is used, so
- * the credential helper or proxy their checkout already uses keeps working.
- * @param {string} checkout @param {string} mainBranch @param {NodeJS.ProcessEnv} env
- * @returns {'fetched' | 'no-origin'}
- */
-export function fetchMain(checkout, mainBranch, env) {
-  /** @param {string[]} args */
-  const run = (args) =>
-    spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args], {
-      cwd: checkout,
-      env: { ...env, GIT_TERMINAL_PROMPT: '0' },
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120_000,
-    });
-  if (run(['remote', 'get-url', 'origin']).status !== 0) return 'no-origin';
-  const r = run([
-    'fetch',
-    '--quiet',
-    '--no-tags',
-    'origin',
-    `+refs/heads/${mainBranch}:refs/remotes/origin/${mainBranch}`,
-  ]);
-  if (r.status !== 0) {
-    const why = (r.stderr || r.error?.message || 'failed').trim().split('\n')[0];
-    throw new PushPullError(
-      'devices-fetch-failed',
-      `could not fetch ${mainBranch} from origin to read the current store-devices.json (${why}); nothing was pushed. Fix the connection and push again`,
-    );
-  }
-  return 'fetched';
-}
+export const devicesForPush = (l) => assertEnrolled(devicesHere(l));
 
 /** A merge during a push stopped on a conflict. */
 class Conflict extends Error {
@@ -421,7 +412,10 @@ function hasUncommitted(root) {
  *   opened: (RemoteChoice & { remote: import('./remote.mjs').StoreRemote }) | null,
  *   required?: boolean,
  *   warnings?: string[],
- * }} o required: policy.json store.remote.required; warnings: the caller's
+ *   requests?: { requests: import('./devices.mjs').Device[], problems: string[] } | null,
+ *   requestsError?: { code: string, message: string } | null,
+ * }} o required: policy.json store.remote.required; warnings: the caller's; requests: what the
+ *   store repository's hitld-devices branch holds, fetched by the caller
  */
 export async function storeStatus(o) {
   // A store that holds files but no repository yet (a fresh one) gets its git bookkeeping, so its
@@ -481,7 +475,63 @@ export async function storeStatus(o) {
       has_identity: o.devices.identity !== null,
       recipients: o.devices.recipients.length,
     },
+    devices: deviceSummary(o.root, o.devices, o.requests ?? null, o.requestsError ?? null),
     ...(problems.length ? { problems } : {}),
     ...(o.warnings?.length ? { warnings: o.warnings } : {}),
   };
+}
+
+/**
+ * The device side of status and of the device list: the approved set, the requests waiting to be
+ * put to the owner, and the device decisions waiting for the owner's answer.
+ * @param {string} root the private store's directory
+ * @param {import('./devices-port.mjs').Devices} devices
+ * @param {{ requests: import('./devices.mjs').Device[], problems: string[] } | null} requests
+ * @param {{ code: string, message: string } | null} requestsError
+ */
+export function deviceSummary(root, devices, requests, requestsError) {
+  const records = existsSync(resolve(root)) ? readApprovals(openStore(root)) : [];
+  /** @param {{ name: string, recipient: string }} d */
+  const shown = (d) => ({
+    name: d.name,
+    fingerprint: fingerprint(d.recipient),
+    recipient: d.recipient,
+  });
+  return {
+    approved: devices.approved.map((d) => ({ ...shown(d), status: 'approved', added: d.added })),
+    requests: requests
+      ? pendingRequests(requests.requests, records).map((d) => ({
+          ...shown(d),
+          status: 'requested',
+        }))
+      : null,
+    decisions: openDeviceAsks(records).map((r) => ({
+      ...shown(r),
+      status: 'waiting-for-owner',
+      decision: r.decision,
+      action: r.action,
+      answer_with: `hitld rights answer ${r.decision} --answer A`,
+    })),
+    ...(requests?.problems.length ? { request_problems: requests.problems } : {}),
+    ...(requestsError ? { requests_error: requestsError } : {}),
+  };
+}
+
+/**
+ * The requests on the store repository's hitld-devices branch, fetched now. Best effort: a store
+ * repository that cannot be read gives the copy last fetched, and says why.
+ * @param {string} root the private store's directory @param {string | null} url
+ */
+export async function fetchRequests(root, url) {
+  if (!url) return { requests: null, error: null };
+  ensureRepo(root);
+  /** @type {{ code: string, message: string } | null} */
+  let error = null;
+  try {
+    await createDevicesBranch({ url, dir: remoteDir(root) }).fetch();
+  } catch (e) {
+    if (!(e instanceof StoreRemoteError)) throw e;
+    error = { code: 'devices-fetch-failed', message: e.message };
+  }
+  return { requests: requestsOnBranch(root, url), error };
 }

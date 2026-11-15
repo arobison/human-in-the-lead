@@ -171,6 +171,13 @@ async function openRights(ctx, openTracker, needs = {}) {
 }
 
 /**
+ * What the rights library works on, with the tracker, in the owner's checkout: for another
+ * piece that asks a decision of its own (the store's device decisions, design 0003 section 6).
+ * @param {import('../table.mjs').CommandContext} ctx
+ */
+export const openDecisions = (ctx) => openRights(ctx, defaultOpenTracker, { tracker: true });
+
+/**
  * The person's effective attention budget and the executor cap: the person file under the
  * project's ceilings, or the conservative defaults when no person file exists. `policy` is the
  * project's policy with the person's and machine's settings layered over it.
@@ -437,13 +444,36 @@ export function makeCommands({ openTracker }) {
         const o = await open(ctx, { tracker: true });
         if (o.failure) return o.failure;
         const agrees = /** @type {string | undefined} */ (input['agrees-with']);
-        return answerDecision(o.deps, {
+        const result = answerDecision(o.deps, {
           decision: /** @type {string} */ (input.decision),
           answer: /** @type {string} */ (input.answer),
           via: /** @type {string | undefined} */ (input.via),
           worth_asking: yesNo(input['worth-asking'], 'worth-asking'),
           ...(agrees ? { agrees_with: agrees.split(',').map((s) => s.trim()) } : {}),
         });
+        if (!result.ok) return result;
+        // A store device decision: the owner's answer changes who may read the store, recorded
+        // inside the store (design 0003, section 6). Any other decision is left as it is.
+        const { applyDeviceAnswer, fingerprint } = await import('../../store/devices.mjs');
+        const device = applyDeviceAnswer(o.deps.store, {
+          decision: /** @type {string} */ (input.decision),
+          option: /** @type {string | null} */ (result.option ?? null),
+          at: (ctx.now ?? (() => new Date()))().toISOString(),
+        });
+        if (!device) return result;
+        return {
+          ...result,
+          device: {
+            event: device.event,
+            action: device.action,
+            name: device.name,
+            fingerprint: fingerprint(device.recipient),
+            next:
+              device.event === 'refused'
+                ? 'nothing changes in who may read the store'
+                : 'the next push from this device is encrypted to the new set of devices (a checkpoint does it, or hitld store push)',
+          },
+        };
       },
     },
     {

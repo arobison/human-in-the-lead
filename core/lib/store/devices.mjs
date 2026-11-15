@@ -1,7 +1,23 @@
 // Store devices (design 0003, sections 5, 6 and 9): each machine or cloud environment that keeps
-// the private store has its own age X25519 key pair. Its public key is enrolled in
-// .human-in-the-lead/store-devices.json, which reaches main only through the owner's merge. Every
-// pushed file is encrypted to the devices on main's copy, and only a device on it may push.
+// the private store has its own age X25519 key pair. Every pushed file is encrypted to the
+// approved devices, and only an approved device may push.
+//
+// Who is approved is the owner's own answer to a device decision, and nothing else:
+//
+//   request   `hitld store device init` puts the device's name and public key on the store
+//             repository's hitld-devices branch (proposals/<name>.json). That branch is not
+//             protected, so a request is never trusted by itself.
+//   decision  an approved device turns each request into a decision only the owner settles
+//             (`hitld store device ask`, through `hitld rights ask`); removal is the same
+//             (`hitld store device remove`). Such a decision never takes a default.
+//   answer    the owner's answer, recorded by `hitld rights answer` from the owner's own turn,
+//             writes `approved`, `removed` or `refused` to devices/approvals.jsonl in the private
+//             store. That file is encrypted with the rest of the store, so every device learns
+//             the approved set on its next pull.
+//
+// Nothing of it is in the project's repository, which may be public (placement.mjs). The
+// limit: a process that already holds an approved key can write the store, approvals included;
+// the approval guards against anyone who can write the store repository but holds no key.
 //
 // Where a private key lives:
 //   a local machine      the operating system's keychain (env/keychain.mjs), service
@@ -9,39 +25,42 @@
 //   a cloud environment  the environment variable HITLD_STORE_IDENTITY, set once by the owner in
 //                        their personal cloud environment; hitld never writes it to disk
 //
-// Removing a device is a commit too. Format 2 has no long-lived project key: each pushed file has
-// a fresh file key wrapped for each recipient, so once the removal is on main the next push is
-// not encrypted to the removed key. What remains is the remote's older files, which the removed
-// key still opens: the push that follows a removal prunes them (rotation, below).
+// Format 2 has no long-lived project key: each pushed file has a fresh file key wrapped for each
+// recipient, so once a removal is approved the next push is not encrypted to the removed key.
+// What remains is the remote's older files, which the removed key still opens: the push that
+// follows a removal prunes them (rotation, below).
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { keychain } from '../env/keychain.mjs';
 import { schemas } from '../schema/registry.mjs';
 import { parseRecipient } from './age.mjs';
+import { DEVICES_BRANCH, PROPOSALS_DIR, devicesRef, remoteDir } from './remote-git.mjs';
+import { LEGACY_DEVICES_PATH } from './placement.mjs';
 
-/** The enrolled devices, in the repository. */
-export const DEVICES_PATH = '.human-in-the-lead/store-devices.json';
+export { DEVICES_BRANCH, LEGACY_DEVICES_PATH, PROPOSALS_DIR };
 /** The environment variable a cloud environment's private key arrives in. */
 export const IDENTITY_ENV = 'HITLD_STORE_IDENTITY';
 /** The keychain account a local machine's private key is stored under. */
 export const KEYCHAIN_ACCOUNT = 'device-identity';
 /** Where removals and rotations are recorded in the private store: text, so it syncs. */
 export const ROTATIONS_KEY = 'devices/rotations.jsonl';
+/** Where the owner's device decisions and answers are recorded in the private store. */
+export const APPROVALS_KEY = 'devices/approvals.jsonl';
 export const DEVICE_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const REMOTE = 'origin';
 
 /**
  * A refusal, with a code that names the kind. Lowercase kebab-case:
- *   devices-invalid         a store-devices.json does not parse or breaks the schema
- *   devices-no-main         the checkout has no main branch, local or remote-tracking, to read
- *   device-name-invalid     a device name is not a short lower-case name
- *   device-name-required    no name was given and none could be made
- *   device-name-taken       the name is enrolled with another key
- *   device-unknown          no device has that name
- *   device-no-keychain      this machine has no keychain hitld can store a key in
- *   device-not-enrolled     this device has no key, or its key is not on main's list
+ *   devices-fetch-failed      the store repository's requests could not be read
+ *   device-name-invalid       a device name is not a short lower-case name
+ *   device-name-required      no name was given and none could be made
+ *   device-name-taken         the name is used by another key
+ *   device-unknown            no approved device has that name
+ *   device-no-keychain        this machine has no keychain hitld can store a key in
+ *   device-not-enrolled       this device has no key, or the owner has not approved its key
+ *   device-ask-refused        a device decision could not be asked
  * A message never carries a private key.
  */
 export class DevicesError extends Error {
@@ -61,7 +80,6 @@ export class DevicesError extends Error {
  * @property {string} added YYYY-MM-DD
  *
  * @typedef {{ schema_version: number, devices: Device[] }} DevicesFile
- * @typedef {{ file: DevicesFile | null, problems: string[], present: boolean }} DevicesRead
  */
 
 /** @returns {DevicesFile} */
@@ -78,8 +96,19 @@ export const deviceKeychain = (projectId, options = {}) =>
   keychain({ service: keychainService(projectId), ...options });
 
 /**
+ * A short fingerprint of a public key, for the owner to compare: the decision shows it, and so
+ * does the device that asked. Sixteen hex digits of its SHA-256, in groups of four.
+ * @param {string} recipient
+ */
+export const fingerprint = (recipient) =>
+  (createHash('sha256').update(recipient).digest('hex').slice(0, 16).match(/.{4}/g) ?? []).join(
+    '-',
+  );
+
+/**
  * Check a store-devices.json text: the schema, then what the schema cannot say (unique names and
- * keys, keys that parse with their checksum).
+ * keys, keys that parse with their checksum). A request on the hitld-devices branch is one such
+ * text with one device.
  * @param {string} text
  * @returns {{ file: DevicesFile | null, problems: string[] }}
  */
@@ -130,176 +159,271 @@ export function serializeDevices(file) {
   return `${JSON.stringify({ schema_version: file.schema_version, devices }, null, 2)}\n`;
 }
 
-/**
- * The file in a working tree. No file is an empty list.
- * @param {string} repoRoot @returns {DevicesRead}
- */
-export function readDevices(repoRoot) {
-  const path = join(repoRoot, DEVICES_PATH);
-  if (!existsSync(path)) return { file: emptyDevices(), problems: [], present: false };
-  return { ...checkDevices(readFileSync(path, 'utf8')), present: true };
-}
+/** A request's text: a device list with this one device. @param {Device} device */
+export const requestText = (device) => serializeDevices({ schema_version: 1, devices: [device] });
+
+// --- requests, on the store repository's hitld-devices branch ------------------------------------
 
 /**
- * Write the file in a working tree, for the owner to commit.
- * @param {string} repoRoot @param {DevicesFile} file
+ * Git against the store's local bare repository, read only. Nothing of the owner's configuration
+ * is read, and hooks are off.
+ * @param {string} storeRoot @param {string[]} args
  */
-export function writeDevices(repoRoot, file) {
-  const path = join(repoRoot, DEVICES_PATH);
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, serializeDevices(file));
-  renameSync(tmp, path);
-  return path;
-}
-
-/** @param {string} repoRoot @param {string[]} args */
-function git(repoRoot, args) {
-  const r = spawnSync('git', args, {
-    cwd: repoRoot,
+function bare(storeRoot, args) {
+  const dir = remoteDir(storeRoot);
+  if (!existsSync(join(dir, 'HEAD'))) return { ok: false, out: '' };
+  const r = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      GIT_DIR: dir,
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      LANG: 'C',
+      LC_ALL: 'C',
+    },
   });
   return { ok: r.status === 0, out: r.stdout ?? '' };
 }
 
 /**
- * The file as a commit holds it. A commit without one has an empty list.
- * @param {string} repoRoot @param {string} ref a commit or ref
- * @returns {DevicesRead}
+ * The requests on the store repository's hitld-devices branch, as last fetched from `url`: one
+ * device each, checked. A request that fails the check is left out and named in `problems`.
+ * None of them is trusted: they say only who asked.
+ * @param {string} storeRoot the private store's directory @param {string} url the store's address
+ * @returns {{ requests: Device[], problems: string[], commit: string | null }}
  */
-export function devicesAt(repoRoot, ref) {
-  const r = git(repoRoot, ['show', `${ref}:${DEVICES_PATH}`]);
-  if (!r.ok) return { file: emptyDevices(), problems: [], present: false };
-  return { ...checkDevices(r.out), present: true };
-}
-
-/**
- * The copies of main this checkout has: the local branch and the remote-tracking one, those that
- * exist. Nothing is fetched.
- * @param {string} repoRoot @param {string} mainBranch
- * @returns {string[]}
- */
-export function mainRefs(repoRoot, mainBranch) {
-  return [`refs/heads/${mainBranch}`, `refs/remotes/${REMOTE}/${mainBranch}`].filter(
-    (ref) => git(repoRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).ok,
-  );
-}
-
-/**
- * The devices enrolled on main: on every copy of main this checkout has. When the local branch and
- * the remote-tracking branch differ, a device counts only if both list it, so a removal on either
- * takes effect at once, and an enrolment counts once both have it. A list on main that fails the
- * check refuses: nothing is enrolled until it is fixed on main.
- * @param {string} repoRoot @param {string} mainBranch
- * @returns {{ devices: Device[], refs: string[] }}
- */
-export function enrolledOnMain(repoRoot, mainBranch) {
-  const refs = mainRefs(repoRoot, mainBranch);
-  if (!refs.length) {
-    throw new DevicesError(
-      'devices-no-main',
-      `this checkout has no ${mainBranch} branch (local or ${REMOTE}/${mainBranch}) to read ${DEVICES_PATH} from; fetch it`,
-    );
-  }
-  /** @type {Device[] | null} */
-  let devices = null;
-  for (const ref of refs) {
-    const at = devicesAt(repoRoot, ref);
-    if (!at.file) {
-      throw new DevicesError(
-        'devices-invalid',
-        `${DEVICES_PATH} on ${ref} is refused, so no device is enrolled: ${at.problems.join('; ')}`,
-        { ref, problems: at.problems },
+export function requestsOnBranch(storeRoot, url) {
+  const ref = devicesRef(url);
+  const tip = bare(storeRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+  if (!tip.ok) return { requests: [], problems: [], commit: null };
+  const commit = tip.out.trim();
+  const ls = bare(storeRoot, ['ls-tree', '--name-only', commit, `${PROPOSALS_DIR}/`]);
+  /** @type {Device[]} */
+  const requests = [];
+  /** @type {string[]} */
+  const problems = [];
+  for (const path of ls.out.split('\n').filter(Boolean)) {
+    const file = path.slice(PROPOSALS_DIR.length + 1);
+    const shown = bare(storeRoot, ['show', `${commit}:${path}`]);
+    const read = shown.ok ? checkDevices(shown.out) : { file: null, problems: ['cannot be read'] };
+    const one = read.file?.devices.length === 1 ? read.file.devices[0] : null;
+    if (!one || `${one.name}.json` !== file) {
+      problems.push(
+        `${path}: ${read.problems.join('; ') || 'a request names one device, under its own name'}`,
       );
+      continue;
     }
-    const here = new Set(at.file.devices.map((d) => d.recipient));
-    devices = devices
-      ? devices.filter((d) => here.has(d.recipient))
-      : [...at.file.devices].sort((a, b) => a.name.localeCompare(b.name));
+    requests.push(one);
   }
-  return { devices: devices ?? [], refs };
+  return { requests: requests.sort((a, b) => a.name.localeCompare(b.name)), problems, commit };
+}
+
+// --- the owner's answers, inside the encrypted store ---------------------------------------------
+
+/**
+ * One line of devices/approvals.jsonl.
+ *   asked     a device decision was asked: `action` enrol or remove, for this key
+ *   approved  the owner's answer enrolled the key
+ *   removed   the owner's answer removed it
+ *   refused   the owner's answer said no, to an enrolment or a removal
+ * @typedef {{ event: 'asked' | 'approved' | 'removed' | 'refused', decision: string, action: 'enrol' | 'remove', name: string, recipient: string, added?: string, at: string }} ApprovalRecord
+ */
+
+/**
+ * The device decisions and answers recorded in the private store, oldest first. A line that does
+ * not parse is skipped.
+ * @param {import('./store.mjs').PrivateStore} store
+ * @returns {ApprovalRecord[]}
+ */
+export function readApprovals(store) {
+  const text = store.read(APPROVALS_KEY) ?? '';
+  /** @type {ApprovalRecord[]} */
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line);
+      if (
+        ['asked', 'approved', 'removed', 'refused'].includes(r.event) &&
+        ['enrol', 'remove'].includes(r.action) &&
+        typeof r.decision === 'string' &&
+        typeof r.name === 'string' &&
+        typeof r.recipient === 'string' &&
+        typeof r.at === 'string' &&
+        !Number.isNaN(Date.parse(r.at))
+      ) {
+        out.push(r);
+      }
+    } catch {
+      // skipped
+    }
+  }
+  // Lines from two devices merge in either order; the time orders them.
+  return out
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => Date.parse(a.r.at) - Date.parse(b.r.at) || a.i - b.i)
+    .map((x) => x.r);
+}
+
+/**
+ * Append one record. The file is append-only, so copies on several devices merge line by line.
+ * @param {import('./store.mjs').PrivateStore} store @param {ApprovalRecord} record
+ */
+export function recordApproval(store, record) {
+  store.append(APPROVALS_KEY, `${JSON.stringify(record)}\n`);
+}
+
+/**
+ * The approved set: every key the owner's answers enrolled and have not removed since.
+ * @param {ApprovalRecord[]} records
+ * @returns {Device[]} sorted by name
+ */
+export function approvedDevices(records) {
+  /** @type {Map<string, Device>} */
+  const on = new Map();
+  for (const r of records) {
+    if (r.event === 'approved') {
+      on.set(r.recipient, {
+        name: r.name,
+        recipient: r.recipient,
+        added: r.added ?? r.at.slice(0, 10),
+      });
+    } else if (r.event === 'removed') {
+      on.delete(r.recipient);
+    }
+  }
+  return [...on.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
  * @typedef {object} Removal
  * @property {string} name
  * @property {string} recipient
- * @property {string} at when it happened: the commit time on main, or when `device remove` ran
- * @property {string | null} commit the commit on main that removed it, when known
+ * @property {string} at when it happened: the owner's answer
+ * @property {string | null} commit the decision that removed it
  */
 
+/** Every removal the owner's answers made. @param {ApprovalRecord[]} records @returns {Removal[]} */
+export const deviceRemovals = (records) =>
+  records
+    .filter((r) => r.event === 'removed')
+    .map((r) => ({ name: r.name, recipient: r.recipient, at: r.at, commit: r.decision }));
+
 /**
- * Every key main's list has lost, from the history of the file on main (first parents only, so a
- * merge counts as the commit that changed it). A version that fails the check is skipped.
- * @param {string} repoRoot @param {string} ref
- * @returns {Removal[]}
+ * The device decisions asked and not answered yet, oldest first.
+ * @param {ApprovalRecord[]} records
+ * @returns {ApprovalRecord[]}
  */
-export function removalsOnMain(repoRoot, ref) {
-  const log = git(repoRoot, [
-    'log',
-    '--first-parent',
-    '--reverse',
-    '--format=%H %cI',
-    ref,
-    '--',
-    DEVICES_PATH,
-  ]);
-  if (!log.ok) return [];
-  /** @type {Removal[]} */
-  const out = [];
-  /** @type {Map<string, string>} recipient to name */
-  let before = new Map();
-  for (const line of log.out.split('\n').filter(Boolean)) {
-    const [commit, at] = line.split(' ');
-    const read = devicesAt(repoRoot, commit);
-    if (!read.file) continue;
-    const now = new Map(read.file.devices.map((d) => [d.recipient, d.name]));
-    for (const [recipient, name] of before) {
-      if (!now.has(recipient)) out.push({ name, recipient, at, commit });
-    }
-    before = now;
-  }
-  return out;
+export function openDeviceAsks(records) {
+  const answered = new Set(records.filter((r) => r.event !== 'asked').map((r) => r.decision));
+  return records.filter((r) => r.event === 'asked' && !answered.has(r.decision));
 }
 
 /**
- * Add a device. The same name with the same key changes nothing; a taken name, or a key already
- * enrolled under another name, is refused.
- * @param {DevicesFile} file @param {Device} device
- * @returns {{ file: DevicesFile, changed: boolean, entry: Device }}
+ * The requests still waiting to be put to the owner: not approved, not asked about already, and
+ * never answered for that key before. A key the owner refused or removed stays out: a device asks
+ * again with a new key.
+ * @param {Device[]} requests @param {ApprovalRecord[]} records
+ * @returns {Device[]}
  */
-export function addDevice(file, device) {
-  checkName(device.name);
-  parseRecipient(device.recipient);
-  const byName = file.devices.find((d) => d.name === device.name);
-  const byKey = file.devices.find((d) => d.recipient === device.recipient);
-  // The key is enrolled already, perhaps under another name: nothing to add.
-  if (byKey) return { file, changed: false, entry: byKey };
-  if (byName) {
-    throw new DevicesError(
-      'device-name-taken',
-      `"${device.name}" is enrolled with another key; choose another name with --name, or remove "${device.name}" first`,
-    );
-  }
-  const entry = { name: device.name, recipient: device.recipient, added: device.added };
-  return { file: { ...file, devices: [...file.devices, entry] }, changed: true, entry };
+export function pendingRequests(requests, records) {
+  const seen = new Set(records.filter((r) => r.action === 'enrol').map((r) => r.recipient));
+  const approved = new Set(approvedDevices(records).map((d) => d.recipient));
+  return requests.filter((d) => !seen.has(d.recipient) && !approved.has(d.recipient));
 }
 
 /**
- * Remove a device by name.
- * @param {DevicesFile} file @param {string} name
- * @returns {{ file: DevicesFile, removed: Device }}
+ * The question that puts a device to the owner. It names the device only by its key's
+ * fingerprint: the decision item is a file in the project's tracker, which may be public, and
+ * the device's name stays in the private store and the store repository. `hitld store device
+ * list` shows the name beside the fingerprint.
+ * @param {'enrol' | 'remove'} action @param {Device} device @param {string | undefined} parent
  */
-export function removeDevice(file, name) {
-  const removed = file.devices.find((d) => d.name === name);
-  if (!removed) {
-    throw new DevicesError(
-      'device-unknown',
-      `no device is named "${name}" in ${DEVICES_PATH}; hitld store device list shows them`,
-    );
-  }
-  return { file: { ...file, devices: file.devices.filter((d) => d !== removed) }, removed };
+export function deviceQuestion(action, device, parent) {
+  const fp = fingerprint(device.recipient);
+  const enrol = action === 'enrol';
+  return {
+    title: enrol ? 'Approve a store device' : 'Remove a store device',
+    question: enrol
+      ? `Enrol the store device whose key fingerprint is ${fp}?`
+      : `Remove the store device whose key fingerprint is ${fp}?`,
+    context: enrol
+      ? `A device asked to read and write this project's private store. Once you approve it, every push is encrypted to it too. Check that the fingerprint is the one the device showed when it asked (hitld store device init); hitld store device list shows its name. Only your own answer approves it: no default and no precedent ever does.`
+      : `Once you approve the removal, no push is encrypted to this device's key, and the next push prunes the older files it can open. What it already pulled, it keeps. hitld store device list shows its name.`,
+    options: enrol
+      ? [
+          {
+            label: 'Enrol it',
+            what_happens:
+              'Every push from now on is encrypted to this device too, and it may push.',
+            reversible: true,
+          },
+          {
+            label: 'Do not enrol it',
+            what_happens:
+              'Nothing is encrypted to it, and it may not push. A new key must ask again.',
+            reversible: true,
+          },
+        ]
+      : [
+          {
+            label: 'Remove it',
+            what_happens:
+              'The next push is encrypted to the other devices only, and prunes the older files.',
+            reversible: true,
+          },
+          {
+            label: 'Keep it',
+            what_happens: 'Nothing changes.',
+            reversible: true,
+          },
+        ],
+    recommendation: {
+      option: 'A',
+      why: enrol
+        ? 'if the fingerprint matches the one the device showed you; otherwise B'
+        : 'if this is the device you meant to remove; otherwise B',
+    },
+    triggers: [
+      { basis: 'rule-change', reason: 'it changes who can read the private store' },
+      { basis: 'security', reason: 'a device key opens every file pushed after it is approved' },
+    ],
+    reversibility: /** @type {const} */ ('two-way'),
+    classification: 'public',
+    tags: ['store-device'],
+    ...(parent ? { parent } : {}),
+  };
+}
+
+/**
+ * Turn the owner's answer to a device decision into the record that changes the approved set.
+ * Called by `hitld rights answer` once the answer is recorded; any other decision is left alone.
+ * Option A approves (enrols or removes); anything else refuses. An answer to a decision already
+ * answered changes nothing.
+ * @param {import('./store.mjs').PrivateStore} store
+ * @param {{ decision: string, option: string | null, at: string }} answer
+ * @returns {ApprovalRecord | null} the record written, or null when it is not a device decision
+ */
+export function applyDeviceAnswer(store, answer) {
+  const records = readApprovals(store);
+  const asked = openDeviceAsks(records).find((r) => r.decision === answer.decision);
+  if (!asked) return null;
+  const yes = answer.option === 'A';
+  /** @type {ApprovalRecord} */
+  const record = {
+    event: yes ? (asked.action === 'enrol' ? 'approved' : 'removed') : 'refused',
+    decision: asked.decision,
+    action: asked.action,
+    name: asked.name,
+    recipient: asked.recipient,
+    ...(asked.added ? { added: asked.added } : {}),
+    at: answer.at,
+  };
+  recordApproval(store, record);
+  return record;
 }
 
 /** @param {unknown} name */
@@ -369,7 +493,7 @@ export function recordRotation(store, record) {
 }
 
 /**
- * The removals whose rotation has not happened yet: the key is off main's list now, and no
+ * The removals whose rotation has not happened yet: the key is off the approved set now, and no
  * rotation of it is recorded since it was removed. A key removed, enrolled again and removed again
  * is pending again.
  * @param {{ removals: Removal[], records: RotationRecord[], current: string[] }} input

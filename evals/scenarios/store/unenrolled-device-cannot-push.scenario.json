@@ -3,7 +3,7 @@
   "id": "store/unenrolled-device-cannot-push",
   "suite": "store",
   "category": "store",
-  "description": "A device is enrolled by a commit that reaches main through the owner's merge (design 0003 section 6). Until then it cannot push (device-not-enrolled), even with its enrolment committed in its own checkout, and what the remote holds was sealed before it existed. Once the merge lands, the enrolled device is due a push although nothing new is in its store; its next checkpoint re-seals the store to both devices, the new device pulls the whole history, and its own push is accepted.",
+  "description": "A device is enrolled only by the owner's own answer to a device decision (design 0003 section 6). A new device puts its request on the store repository's hitld-devices branch; the request alone makes it no recipient, and it cannot push (device-not-enrolled). An approved device puts the request to the owner (hitld store device ask), the owner answers in their own turn, and the approved device is then due a push; its next checkpoint re-seals the store to both devices, the new device pulls the whole history, learns it is approved, and its own push is accepted.",
   "mode": "offline",
   "steps": [
     {
@@ -47,7 +47,7 @@
       }
     },
     {
-      "id": "tablet_enrol",
+      "id": "tablet_request",
       "action": "store.hitld",
       "with": {
         "device": "tablet",
@@ -55,7 +55,7 @@
       }
     },
     {
-      "id": "tablet_push_not_merged",
+      "id": "tablet_push_requested",
       "action": "store.hitld",
       "with": {
         "device": "tablet",
@@ -63,10 +63,58 @@
       }
     },
     {
-      "id": "merge",
-      "action": "store.owner-merge",
+      "id": "laptop_status_requested",
+      "action": "store.hitld",
       "with": {
-        "device": "tablet"
+        "device": "laptop",
+        "argv": ["store", "status"]
+      }
+    },
+    {
+      "id": "laptop_log_again",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["rights", "log", "--text", "Recorded while the tablet only asked", "--area", "api"]
+      }
+    },
+    {
+      "id": "laptop_push_requested",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "push"]
+      }
+    },
+    {
+      "id": "remote_requested",
+      "action": "store.inspect-remote",
+      "with": {
+        "open_with": ["laptop", "tablet"]
+      }
+    },
+    {
+      "id": "laptop_ask",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "device", "ask"]
+      }
+    },
+    {
+      "id": "laptop_sweep",
+      "action": "store.hitld",
+      "with": {
+        "device": "laptop",
+        "argv": ["rights", "sweep"]
+      }
+    },
+    {
+      "id": "answer",
+      "action": "store.owner-answers",
+      "with": {
+        "device": "laptop",
+        "answer": "A"
       }
     },
     {
@@ -128,7 +176,7 @@
       }
     },
     {
-      "id": "refused-before-enrolment",
+      "id": "refused-before-it-asks",
       "grader": "equals",
       "with": {
         "path": "steps.tablet_push_unenrolled.result.error",
@@ -136,10 +184,10 @@
       }
     },
     {
-      "id": "enrolment-is-a-change-to-the-list",
+      "id": "the-request-is-on-the-branch",
       "grader": "equals",
       "with": {
-        "path": "steps.tablet_enrol.result.changed",
+        "path": "steps.tablet_request.result.request.pushed",
         "value": true
       }
     },
@@ -147,32 +195,80 @@
       "id": "no-key-in-the-result",
       "grader": "equals",
       "with": {
-        "path": "steps.tablet_enrol.result.key.where",
+        "path": "steps.tablet_request.result.key.where",
         "value": "environment"
       }
     },
     {
-      "id": "refused-until-main-lists-it",
+      "id": "not-the-first-device-so-no-self-ask",
       "grader": "equals",
       "with": {
-        "path": "steps.tablet_push_not_merged.result.error",
+        "path": "steps.tablet_request.result.decision",
+        "value": null
+      }
+    },
+    {
+      "id": "a-request-is-not-an-approval",
+      "grader": "equals",
+      "with": {
+        "path": "steps.tablet_push_requested.result.error",
         "value": "device-not-enrolled"
       }
     },
     {
-      "id": "the-owner-merged-the-list",
+      "id": "status-lists-the-request",
       "grader": "equals",
       "with": {
-        "path": "steps.merge.files",
-        "value": [".human-in-the-lead/store-devices.json"]
+        "path": "steps.laptop_status_requested.result.devices.requests[*].name",
+        "value": ["tablet"]
+      }
+    },
+    {
+      "id": "a-request-is-never-a-recipient",
+      "grader": "equals",
+      "with": {
+        "path": "steps.laptop_push_requested.result.recipients",
+        "value": 1
+      }
+    },
+    {
+      "id": "the-requester-opens-nothing",
+      "grader": "equals",
+      "with": {
+        "path": "steps.remote_requested.opens.tablet",
+        "value": 0
+      }
+    },
+    {
+      "id": "the-request-goes-to-the-owner",
+      "grader": "equals",
+      "with": {
+        "path": "steps.laptop_ask.result.asked[*].name",
+        "value": ["tablet"]
+      }
+    },
+    {
+      "id": "a-device-decision-never-takes-a-default",
+      "grader": "equals",
+      "with": {
+        "path": "steps.laptop_sweep.result.applied",
+        "value": []
+      }
+    },
+    {
+      "id": "the-owner-approved-it",
+      "grader": "equals",
+      "with": {
+        "path": "steps.answer.answered[0].device.event",
+        "value": "approved"
       }
     },
     {
       "id": "laptop-is-due-a-push",
       "grader": "equals",
       "with": {
-        "path": "steps.laptop_status.result.push_reason",
-        "value": "recipients-changed"
+        "path": "steps.laptop_status.result.push_due",
+        "value": true
       }
     },
     {
@@ -184,7 +280,7 @@
       }
     },
     {
-      "id": "opens-what-follows-the-merge",
+      "id": "opens-what-follows-the-answer",
       "grader": "equals",
       "with": {
         "path": "steps.tablet_pull.result.ok",

@@ -11,7 +11,8 @@
 // ceiling (policy project.classification_ceiling) is refused, with the file and the rule named.
 //
 // Beside it, one more rule that holds whatever the ceiling: the store placement rule
-// (store-placement.mjs), which keeps the private store's address out of the repository.
+// (store-placement.mjs), which keeps the private store's address and device list out of the
+// repository.
 //
 // The hook can be skipped (`git commit --no-verify`); the merge check cannot, so it is the one
 // that enforces. File contents are only read as text and matched; nothing in them is run.

@@ -1,17 +1,19 @@
-// Store devices (design 0003, sections 5, 6 and 9): store-devices.json and its check, the list on
-// main, the device port a push asks, rotation after a removal (milestone c3), the commands, and
-// the merge queue's refusal of a branch that changes the list.
+// Store devices (design 0003, sections 5, 6 and 9): a request's check, the owner's answers that
+// make the approved set, the device port a push asks, rotation after a removal (milestone c3),
+// the commands and the device decisions they ask, and the commit guard that keeps a device list
+// out of the project's repository.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,24 +21,32 @@ import { join } from 'node:path';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { generateIdentity, recipientOf } from '../lib/store/age.mjs';
 import { open, seal } from '../lib/store/sealed.mjs';
-import { openStore } from '../lib/store/store.mjs';
+import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { runMergeQueue } from '../lib/merge/queue.mjs';
+import { createGitRemote } from '../lib/store/remote-git.mjs';
 import { commitAll, fixtureGit, putFiles } from '../lib/eval/orchestrator-fixtures.mjs';
 import { memoryRemote } from './helpers/memory-remote.mjs';
+import { approve, removeApproved } from './helpers/devices.mjs';
 import { keychain } from '../lib/env/keychain.mjs';
+import { writeSettingsFile } from '../lib/settings/files.mjs';
 import {
-  DEVICES_PATH,
+  APPROVALS_KEY,
   DevicesError,
   ROTATIONS_KEY,
-  addDevice,
+  applyDeviceAnswer,
+  approvedDevices,
   checkDevices,
-  emptyDevices,
-  enrolledOnMain,
+  deviceQuestion,
+  fingerprint,
   nameFromHost,
+  openDeviceAsks,
+  pendingRequests,
   pendingRotations,
+  readApprovals,
   readRotations,
+  recordApproval,
   recordRotation,
-  removeDevice,
+  requestText,
   serializeDevices,
 } from '../lib/store/devices.mjs';
 import { assertEnrolled, completeRotation, resolveDevices } from '../lib/store/devices-port.mjs';
@@ -52,46 +62,24 @@ const device = (name, key) => ({ name, recipient: key.recipient, added: DAY });
 /** @param {...{ name: string, recipient: string, added: string }} devices */
 const devicesText = (...devices) => serializeDevices({ schema_version: 1, devices });
 
-/** A repository on main with a policy.json, and a private store outside it. */
-function repo() {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-devices-')));
-  const root = join(base, 'repo');
-  mkdirSync(root);
-  fixtureGit(root, 'init', '-q', '-b', 'main');
-  fixtureGit(root, 'config', 'user.name', 'Fixture');
-  fixtureGit(root, 'config', 'user.email', 'fixture@example.invalid');
-  fixtureGit(root, 'config', 'commit.gpgsign', 'false');
-  putFiles(root, {
-    '.human-in-the-lead/policy.json': JSON.stringify({
-      schema_version: 1,
-      project: { id: 'fixture', key: 'W' },
-    }),
-    'README.md': 'a project\n',
-  });
-  chmodSync(join(root, '.human-in-the-lead', 'policy.json'), 0o644);
-  commitAll(root, 'start');
-  const store = openStore(join(base, 'store'));
-  /** @param {string} text @param {string} [message] */
-  const commitDevices = (text, message = 'devices') => {
-    putFiles(root, { [DEVICES_PATH]: text });
-    return commitAll(root, message);
-  };
-  return { base, root, store, commitDevices };
-}
+/** A store of its own. */
+const freshStore = () => openStore(mkdtempSync(join(tmpdir(), 'hitld-devices-store-')));
 
 /** A keychain stand-in. @param {string | null} value */
 const fakeKeychain = (value) => ({ read: () => value });
 
-/** @param {{ root: string, store: import('../lib/store/store.mjs').PrivateStore }} r @param {NodeJS.ProcessEnv} env */
-const resolve = (r, env) =>
-  resolveDevices({ root: r.root, store: r.store, env, keychain: fakeKeychain(null) });
+/** @param {import('../lib/store/store.mjs').PrivateStore} store @param {NodeJS.ProcessEnv} env */
+const resolve = (store, env) => resolveDevices({ store, env, keychain: fakeKeychain(null) });
 
-// --- the file ----------------------------------------------------------------------------------
+// --- a request --------------------------------------------------------------------------------
 
-test('store-devices.json: public keys, names and dates only; names and keys unique; keys checked', () => {
+test('a request is a device list of one: public keys, names and dates only; keys checked', () => {
   const ok = checkDevices(devicesText(device('laptop', LAPTOP), device('cloud-main', CLOUD)));
   assert.deepEqual(ok.problems, []);
   assert.equal(ok.file?.devices.length, 2);
+  assert.deepEqual(checkDevices(requestText(device('laptop', LAPTOP))).file?.devices, [
+    device('laptop', LAPTOP),
+  ]);
 
   const twice = checkDevices(devicesText(device('laptop', LAPTOP), device('laptop', CLOUD)));
   assert.match(twice.problems.join(), /the name "laptop" appears twice/);
@@ -127,105 +115,122 @@ test('store-devices.json: public keys, names and dates only; names and keys uniq
     /newer than this release knows/,
   );
   assert.match(checkDevices('{').problems.join(), /does not parse/);
-});
-
-test('add and remove: sorted output, the same key twice changes nothing, a taken name is refused', () => {
-  let file = emptyDevices();
-  ({ file } = addDevice(file, device('zeta', CLOUD)));
-  ({ file } = addDevice(file, device('alpha', LAPTOP)));
-  const text = serializeDevices(file);
-  assert.ok(text.indexOf('"alpha"') < text.indexOf('"zeta"'));
-  assert.ok(text.endsWith('}\n'));
-
-  const again = addDevice(file, device('alpha', LAPTOP));
-  assert.equal(again.changed, false);
-  const renamed = addDevice(file, device('beta', LAPTOP));
-  assert.equal(renamed.changed, false, 'a key already enrolled is not enrolled twice');
-  assert.equal(renamed.entry.name, 'alpha');
-  assert.throws(
-    () => addDevice(file, device('alpha', GPU)),
-    (e) => e instanceof DevicesError && e.code === 'device-name-taken',
-  );
-  assert.throws(
-    () => addDevice(file, device('Bad Name', GPU)),
-    (e) => e instanceof DevicesError && e.code === 'device-name-invalid',
-  );
-
-  const { file: left, removed } = removeDevice(file, 'zeta');
-  assert.equal(removed.recipient, CLOUD.recipient);
-  assert.deepEqual(
-    left.devices.map((d) => d.name),
-    ['alpha'],
-  );
-  assert.throws(
-    () => removeDevice(left, 'zeta'),
-    (e) => e instanceof DevicesError && e.code === 'device-unknown',
-  );
   assert.equal(nameFromHost('Owners-MacBook-Pro.local'), 'owners-macbook-pro');
   assert.equal(nameFromHost('---'), null);
+  assert.match(fingerprint(LAPTOP.recipient), /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/);
+  assert.notEqual(fingerprint(LAPTOP.recipient), fingerprint(CLOUD.recipient));
 });
 
-// --- main's list -------------------------------------------------------------------------------
+// --- the owner's answers -------------------------------------------------------------------------
 
-test("the enrolled set is main's committed list: not the working tree, not another branch", () => {
-  const r = repo();
-  assert.deepEqual(enrolledOnMain(r.root, 'main').devices, [], 'no file on main: nobody');
-  r.commitDevices(devicesText(device('laptop', LAPTOP)));
-
-  // An uncommitted edit does not enrol.
-  putFiles(r.root, { [DEVICES_PATH]: devicesText(device('laptop', LAPTOP), device('gpu', GPU)) });
+test("the approved set is the owner's answers: approved, then removed; a request alone is nothing", () => {
+  const store = freshStore();
+  assert.deepEqual(approvedDevices(readApprovals(store)), []);
+  approve(store, ['laptop', LAPTOP], ['gpu', GPU]);
   assert.deepEqual(
-    enrolledOnMain(r.root, 'main').devices.map((d) => d.name),
+    approvedDevices(readApprovals(store)).map((d) => d.name),
+    ['gpu', 'laptop'],
+  );
+  removeApproved(store, 'gpu', GPU);
+  const records = readApprovals(store);
+  assert.deepEqual(
+    approvedDevices(records).map((d) => d.name),
     ['laptop'],
   );
-  // Nor does a commit on a branch.
-  fixtureGit(r.root, 'switch', '-q', '-c', 'W-1');
-  commitAll(r.root, 'enrol on a branch');
+  // A request for a key the owner approved, refused or removed is not waiting; a new one is.
+  const requests = [device('laptop', LAPTOP), device('gpu', GPU), device('cloud-main', CLOUD)];
   assert.deepEqual(
-    enrolledOnMain(r.root, 'main').devices.map((d) => d.name),
-    ['laptop'],
+    pendingRequests(requests, records).map((d) => d.name),
+    ['cloud-main'],
   );
-  fixtureGit(r.root, 'switch', '-q', 'main');
-  assert.deepEqual(enrolledOnMain(r.root, 'main').refs, ['refs/heads/main']);
+  // A line that does not parse, or names another event, is skipped; lines merged in either order
+  // fold by their time.
+  store.append(APPROVALS_KEY, 'not json\n{"event":"granted","decision":"x"}\n');
+  recordApproval(store, {
+    event: 'approved',
+    decision: 'W-1',
+    action: 'enrol',
+    name: 'old',
+    recipient: CLOUD.recipient,
+    at: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(readApprovals(store)[0].name, 'old');
+  assert.deepEqual(
+    approvedDevices(readApprovals(store)).map((d) => d.name),
+    ['laptop', 'old'],
+  );
 });
 
-test('with a local main and origin/main, a device counts only if both list it', () => {
-  const r = repo();
-  const both = r.commitDevices(devicesText(device('laptop', LAPTOP), device('gpu', GPU)));
-  fixtureGit(r.root, 'update-ref', 'refs/remotes/origin/main', both);
-  // The owner removed gpu on the remote's main; this checkout's local main has not caught up.
-  r.commitDevices(devicesText(device('laptop', LAPTOP)), 'remove gpu');
-  const removedOnRemote = fixtureGit(r.root, 'rev-parse', 'HEAD');
-  fixtureGit(r.root, 'reset', '-q', '--hard', both);
-  fixtureGit(r.root, 'update-ref', 'refs/remotes/origin/main', removedOnRemote);
-  const on = enrolledOnMain(r.root, 'main');
-  assert.deepEqual(on.refs, ['refs/heads/main', 'refs/remotes/origin/main']);
+test('an answer to a device decision applies it: A approves or removes, anything else refuses; other decisions are left alone', () => {
+  const store = freshStore();
+  /** @param {string} decision @param {'enrol' | 'remove'} action @param {string} name @param {{ recipient: string }} key */
+  const ask = (decision, action, name, key) =>
+    recordApproval(store, {
+      event: 'asked',
+      decision,
+      action,
+      name,
+      recipient: key.recipient,
+      added: DAY,
+      at: `2026-11-15T10:0${decision.slice(-1)}:00.000Z`,
+    });
+  ask('W-1', 'enrol', 'laptop', LAPTOP);
+  ask('W-2', 'enrol', 'cloud-main', CLOUD);
   assert.deepEqual(
-    on.devices.map((d) => d.name),
-    ['laptop'],
+    openDeviceAsks(readApprovals(store)).map((r) => r.decision),
+    ['W-1', 'W-2'],
   );
+  assert.equal(
+    applyDeviceAnswer(store, { decision: 'W-9', option: 'A', at: '2026-11-15T11:00:00Z' }),
+    null,
+  );
+  assert.equal(
+    applyDeviceAnswer(store, { decision: 'W-1', option: 'A', at: '2026-11-15T11:00:00Z' })?.event,
+    'approved',
+  );
+  assert.equal(
+    applyDeviceAnswer(store, { decision: 'W-2', option: 'B', at: '2026-11-15T11:01:00Z' })?.event,
+    'refused',
+  );
+  // Answered once: a second answer changes nothing.
+  assert.equal(
+    applyDeviceAnswer(store, { decision: 'W-1', option: 'B', at: '2026-11-15T11:02:00Z' }),
+    null,
+  );
+  ask('W-3', 'remove', 'laptop', LAPTOP);
+  assert.equal(
+    applyDeviceAnswer(store, { decision: 'W-3', option: 'A', at: '2026-11-15T11:03:00Z' })?.event,
+    'removed',
+  );
+  const records = readApprovals(store);
+  assert.deepEqual(approvedDevices(records), []);
+  assert.deepEqual(openDeviceAsks(records), []);
+  // The refused key stays out: it asks again only with a new key.
+  assert.deepEqual(pendingRequests([device('cloud-main', CLOUD)], records), []);
 });
 
-test("a list on main that fails the check enrols nobody; a checkout without main can't tell", () => {
-  const r = repo();
-  r.commitDevices('{"schema_version": 1, "devices": [{"name": "x"}]}');
-  assert.throws(
-    () => enrolledOnMain(r.root, 'main'),
-    (e) => e instanceof DevicesError && e.code === 'devices-invalid',
+test('the device question names a fingerprint, not the device, goes to the owner and carries no default', () => {
+  const q = deviceQuestion('enrol', device('owners-laptop', LAPTOP), 'W-1');
+  const text = JSON.stringify(q);
+  assert.doesNotMatch(text, /owners-laptop/);
+  assert.doesNotMatch(text, new RegExp(LAPTOP.recipient));
+  assert.match(q.question, new RegExp(fingerprint(LAPTOP.recipient)));
+  assert.deepEqual(
+    q.triggers.map((t) => t.basis),
+    ['rule-change', 'security'],
   );
-  assert.throws(
-    () => enrolledOnMain(r.root, 'trunk'),
-    (e) => e instanceof DevicesError && e.code === 'devices-no-main',
-  );
+  assert.equal('default_if_unanswered' in q, false);
+  assert.equal(q.parent, 'W-1');
+  assert.match(deviceQuestion('remove', device('gpu', GPU), undefined).title, /Remove/);
 });
 
 // --- the port ----------------------------------------------------------------------------------
 
-test('the port: recipients from main, the identity from the environment or the keychain', () => {
-  const r = repo();
-  r.commitDevices(devicesText(device('laptop', LAPTOP), device('cloud-main', CLOUD)));
+test('the port: recipients from the approved set, the identity from the environment or the keychain', () => {
+  const store = freshStore();
+  approve(store, ['laptop', LAPTOP], ['cloud-main', CLOUD]);
 
-  const cloud = resolve(r, { HITLD_STORE_IDENTITY: CLOUD.identity });
+  const cloud = resolve(store, { HITLD_STORE_IDENTITY: CLOUD.identity });
   assert.deepEqual(cloud.recipients.sort(), [CLOUD.recipient, LAPTOP.recipient].sort());
   assert.equal(cloud.identity, CLOUD.identity);
   assert.equal(cloud.enrolled, true);
@@ -233,26 +238,21 @@ test('the port: recipients from main, the identity from the environment or the k
   assert.equal(cloud.key_source, 'environment');
   assert.equal(assertEnrolled(cloud).device, 'cloud-main');
 
-  const local = resolveDevices({
-    root: r.root,
-    store: r.store,
-    env: {},
-    keychain: fakeKeychain(LAPTOP.identity),
-  });
+  const local = resolveDevices({ store, env: {}, keychain: fakeKeychain(LAPTOP.identity) });
   assert.equal(local.device, 'laptop');
   assert.equal(local.key_source, 'keychain');
 
-  // Several keys in the variable: the one on the list is this device's.
-  const several = resolve(r, {
+  // Several keys in the variable: the approved one is this device's.
+  const several = resolve(store, {
     HITLD_STORE_IDENTITY: `# another project\n${STRANGER.identity}\n${CLOUD.identity}\n`,
   });
   assert.equal(several.identity, CLOUD.identity);
   assert.equal(several.device, 'cloud-main');
 });
 
-test('a push from a device not on main is refused by name: device-not-enrolled', () => {
-  const r = repo();
-  r.commitDevices(devicesText(device('laptop', LAPTOP)));
+test('a push from a device the owner has not approved is refused by name: device-not-enrolled', () => {
+  const store = freshStore();
+  approve(store, ['laptop', LAPTOP]);
   /** @param {ReturnType<typeof resolveDevices>} res */
   const refused = (res) =>
     assert.throws(
@@ -260,34 +260,39 @@ test('a push from a device not on main is refused by name: device-not-enrolled',
       (e) => e instanceof DevicesError && e.code === 'device-not-enrolled',
     );
 
-  const stranger = resolve(r, { HITLD_STORE_IDENTITY: STRANGER.identity });
+  const stranger = resolve(store, { HITLD_STORE_IDENTITY: STRANGER.identity });
   assert.equal(stranger.enrolled, false);
   assert.equal(stranger.device, null);
-  assert.match(String(stranger.problem), new RegExp(STRANGER.recipient));
+  assert.match(String(stranger.problem), new RegExp(fingerprint(STRANGER.recipient)));
   refused(stranger);
 
-  const none = resolve(r, {});
+  const none = resolve(store, {});
   assert.equal(none.identity, null);
   assert.match(String(none.problem), /no key/);
   refused(none);
 
-  const bad = resolve(r, { HITLD_STORE_IDENTITY: 'AGE-SECRET-KEY-1NOTAKEY' });
+  const bad = resolve(store, { HITLD_STORE_IDENTITY: 'AGE-SECRET-KEY-1NOTAKEY' });
   assert.equal(bad.identity, null);
   assert.doesNotMatch(String(bad.problem), /NOTAKEY/);
   refused(bad);
 
-  // Enrolled in the working tree only: still refused.
-  putFiles(r.root, {
-    [DEVICES_PATH]: devicesText(device('laptop', LAPTOP), device('x', STRANGER)),
+  // Asked, not answered: still refused.
+  recordApproval(store, {
+    event: 'asked',
+    decision: 'W-5',
+    action: 'enrol',
+    name: 'x',
+    recipient: STRANGER.recipient,
+    at: '2026-11-15T10:00:00.000Z',
   });
-  refused(resolve(r, { HITLD_STORE_IDENTITY: STRANGER.identity }));
+  refused(resolve(store, { HITLD_STORE_IDENTITY: STRANGER.identity }));
 });
 
 // --- rotation: milestone c3 --------------------------------------------------------------------
 
-test('c3: after a removal reaches main, nothing pushed opens with the removed key, and older files are pruned', async () => {
-  const r = repo();
-  r.commitDevices(devicesText(device('laptop', LAPTOP), device('gpu', GPU)));
+test('c3: after the owner approves a removal, nothing pushed opens with the removed key, and older files are pruned', async () => {
+  const store = freshStore();
+  approve(store, ['laptop', LAPTOP], ['gpu', GPU]);
   const remote = memoryRemote().open();
   const manifest = {
     project: 'fixture',
@@ -297,14 +302,14 @@ test('c3: after a removal reaches main, nothing pushed opens with the removed ke
     created_at: '2026-11-15T10:00:00.000Z',
     hitld_version: 'test',
   };
-  /** A push as store push makes it: refuse an unenrolled device, encrypt to main's list. */
+  /** A push as store push makes it: refuse an unapproved device, encrypt to the approved set. */
   const push = async (/** @type {string} */ text) => {
-    const res = assertEnrolled(resolve(r, { HITLD_STORE_IDENTITY: LAPTOP.identity }));
+    const res = assertEnrolled(resolve(store, { HITLD_STORE_IDENTITY: LAPTOP.identity }));
     const bytes = seal(manifest, Buffer.from(text), res.recipients);
     const version = await remote.push(bytes, { expected: await remote.head() });
     return {
       version,
-      rotation: await completeRotation({ remote, store: r.store, resolution: res, version }),
+      rotation: await completeRotation({ remote, store, resolution: res, version }),
     };
   };
   /** @param {{ identity: string }} who @param {string} version */
@@ -322,9 +327,9 @@ test('c3: after a removal reaches main, nothing pushed opens with the removed ke
   assert.deepEqual(first.rotation, { rotated: [], removed: [] });
   assert.equal(await opens(GPU, first.version), true);
 
-  // The owner removes gpu; it counts once the commit is on main.
-  r.commitDevices(devicesText(device('laptop', LAPTOP)), 'remove gpu');
-  const pending = resolve(r, {}).rotation.pending;
+  // The owner's answer removes gpu.
+  removeApproved(store, 'gpu', GPU);
+  const pending = resolve(store, {}).rotation.pending;
   assert.deepEqual(
     pending.map((p) => p.name),
     ['gpu'],
@@ -338,12 +343,12 @@ test('c3: after a removal reaches main, nothing pushed opens with the removed ke
   assert.equal(await remote.head(), second.version);
   await assert.rejects(remote.fetch(first.version), /no v1/);
   assert.deepEqual(
-    readRotations(r.store).map((x) => [x.event, x.name]),
+    readRotations(store).map((x) => [x.event, x.name]),
     [['rotated', 'gpu']],
   );
 
   // Done once: the next push prunes nothing.
-  assert.deepEqual(resolve(r, {}).rotation.pending, []);
+  assert.deepEqual(resolve(store, {}).rotation.pending, []);
   const third = await push('later');
   assert.deepEqual(third.rotation, { rotated: [], removed: [] });
   assert.equal(await opens(GPU, third.version), false);
@@ -351,12 +356,12 @@ test('c3: after a removal reaches main, nothing pushed opens with the removed ke
 
 test('a removal is pending until rotated after it; enrolled again and removed again, it is pending again', () => {
   const at = (/** @type {number} */ h) => `2026-11-15T${String(h).padStart(2, '0')}:00:00Z`;
-  const removal = { name: 'gpu', recipient: GPU.recipient, at: at(10), commit: 'abc1234' };
+  const removal = { name: 'gpu', recipient: GPU.recipient, at: at(10), commit: 'W-4' };
   assert.deepEqual(
     pendingRotations({ removals: [removal], records: [], current: [LAPTOP.recipient] }),
     [removal],
   );
-  // Still on main: not pending, whatever the store says.
+  // Approved again: not pending, whatever the store says.
   assert.deepEqual(
     pendingRotations({ removals: [removal], records: [], current: [GPU.recipient] }),
     [],
@@ -369,12 +374,12 @@ test('a removal is pending until rotated after it; enrolled again and removed ag
     version: 'v2',
   });
   assert.deepEqual(pendingRotations({ removals: [removal], records: [rotated], current: [] }), []);
-  const again = { ...removal, at: at(12), commit: 'def5678' };
+  const again = { ...removal, at: at(12), commit: 'W-7' };
   assert.deepEqual(
     pendingRotations({ removals: [removal, again], records: [rotated], current: [] }),
     [again],
   );
-  // A removal recorded by `device remove` counts too, once the key is off main.
+  // A removal recorded before the owner's answers were kept in the store counts too.
   const recorded = /** @type {const} */ ({
     event: 'removed',
     name: 'gpu',
@@ -385,7 +390,7 @@ test('a removal is pending until rotated after it; enrolled again and removed ag
 });
 
 test('rotation records are append-only lines in the private store; a bad line is skipped', () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-rot-')));
+  const store = freshStore();
   recordRotation(store, { event: 'removed', name: 'gpu', recipient: GPU.recipient, at: DAY });
   store.append(ROTATIONS_KEY, 'not json\n{"event":"other"}\n');
   assert.deepEqual(
@@ -479,17 +484,92 @@ async function hitld(argv, cwd, env) {
 
 const keychainTests = process.platform === 'linux' || process.platform === 'darwin';
 
+/**
+ * A project on main with a policy.json and a tracker project to file device decisions under, a
+ * bare repository standing in for the store repository, and the environment one device runs in:
+ * its own data and config directories, and the store's address in HITLD_STORE_REMOTE.
+ */
+function project() {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-devices-')));
+  const root = join(base, 'repo');
+  mkdirSync(root);
+  fixtureGit(root, 'init', '-q', '-b', 'main');
+  fixtureGit(root, 'config', 'user.name', 'Fixture');
+  fixtureGit(root, 'config', 'user.email', 'fixture@example.invalid');
+  fixtureGit(root, 'config', 'commit.gpgsign', 'false');
+  putFiles(root, {
+    '.human-in-the-lead/policy.json': JSON.stringify({
+      schema_version: 1,
+      project: { id: 'fixture', key: 'W' },
+    }),
+    'work/projects/W-1-the-store.md':
+      '---\nid: W-1\ntitle: "The store"\nkind: project\nstate: planned\ncreated: 2026-11-15\n---\n',
+    'README.md': 'a project\n',
+  });
+  chmodSync(join(root, '.human-in-the-lead', 'policy.json'), 0o644);
+  commitAll(root, 'start');
+  const host = join(base, 'host', 'store.git');
+  mkdirSync(host, { recursive: true });
+  assert.equal(spawnSync('git', ['init', '-q', '--bare'], { cwd: host }).status, 0);
+  const url = `file://${host}`;
+  /** @param {string} name @param {NodeJS.ProcessEnv} [more] @returns {NodeJS.ProcessEnv} */
+  const envOf = (name, more = {}) => ({
+    PATH: process.env.PATH,
+    HOME: join(base, 'home', name),
+    XDG_DATA_HOME: join(base, 'data', name),
+    XDG_CONFIG_HOME: join(base, 'config', name),
+    HITLD_STORE_REMOTE: url,
+    ...more,
+  });
+  /** @param {NodeJS.ProcessEnv} env */
+  const storeOf = (env) => openStore(privateStorePath('fixture', { env }));
+  return { base, root, host, url, envOf, storeOf };
+}
+
+/** The device names asking on a host's hitld-devices branch. @param {string} host */
+function requestsOnHost(host) {
+  const r = spawnSync('git', ['ls-tree', '--name-only', 'refs/heads/hitld-devices', 'proposals/'], {
+    env: { PATH: process.env.PATH ?? '', GIT_DIR: host },
+    encoding: 'utf8',
+  });
+  return r.stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((p) => p.replace(/^proposals\/|\.json$/g, ''));
+}
+
+/** Put a request on the host's branch by hand, as anyone who can write it could. @param {string} host @param {{ name: string, recipient: string, added: string }} d */
+function plantRequest(host, d) {
+  const env = {
+    PATH: process.env.PATH ?? '',
+    GIT_DIR: host,
+    GIT_AUTHOR_NAME: 'x',
+    GIT_AUTHOR_EMAIL: 'x@example.invalid',
+    GIT_COMMITTER_NAME: 'x',
+    GIT_COMMITTER_EMAIL: 'x@example.invalid',
+  };
+  /** @param {string[]} args @param {string} [input] */
+  const g = (args, input) => spawnSync('git', args, { env, input, encoding: 'utf8' }).stdout.trim();
+  const tip = g(['rev-parse', '--verify', '--quiet', 'refs/heads/hitld-devices']);
+  const blob = g(['hash-object', '-w', '--stdin'], requestText(d));
+  const listed = tip ? g(['ls-tree', `${tip}:proposals`]) : '';
+  const sub = g(['mktree'], `${listed ? `${listed}\n` : ''}100644 blob ${blob}\t${d.name}.json\n`);
+  const tree = g(['mktree'], `040000 tree ${sub}\tproposals\n`);
+  const commit = g(['commit-tree', tree, ...(tip ? ['-p', tip] : []), '-m', 'planted']);
+  g(['update-ref', 'refs/heads/hitld-devices', commit]);
+}
+
 test(
-  'device init on a local machine: the private key goes to the keychain, never a file, an argument or the output',
+  'device init on a local machine: the key goes to the keychain, the request to the branch; the first device asks for itself',
   { skip: !keychainTests && 'no keychain tool on this platform' },
   async () => {
-    const r = repo();
-    const kc = fakeKeychainTools(r.base);
-    const env = { PATH: kc.PATH, XDG_DATA_HOME: join(r.base, 'data') };
-    const out = await hitld(['store', 'device', 'init', '--name', 'laptop'], r.root, env);
+    const p = project();
+    const kc = fakeKeychainTools(p.base);
+    const env = p.envOf('laptop', { PATH: kc.PATH });
+    const out = await hitld(['store', 'device', 'init', '--name', 'laptop'], p.root, env);
     assert.equal(out.code, EXIT.ok, JSON.stringify(out.json));
     assert.equal(out.json.device, 'laptop');
-    assert.equal(out.json.changed, true);
+    assert.equal(out.json.status, 'requested');
     assert.equal(out.json.key_created, true);
     assert.deepEqual(out.json.key, {
       where: 'keychain',
@@ -497,7 +577,22 @@ test(
       account: 'device-identity',
     });
     assert.equal(out.json.identity, undefined, 'a local key is never printed');
-    assert.match(out.json.next, /commit \.human-in-the-lead\/store-devices\.json/);
+    assert.equal(out.json.fingerprint, fingerprint(out.json.recipient));
+    assert.deepEqual(out.json.request, {
+      branch: 'hitld-devices',
+      file: 'proposals/laptop.json',
+      pushed: true,
+    });
+    assert.deepEqual(requestsOnHost(p.host), ['laptop']);
+    // The first device of an empty store asks the owner itself.
+    const decision = out.json.decision.decision;
+    assert.match(decision, /^W-\d+$/);
+    assert.match(out.json.decision.text, new RegExp(out.json.fingerprint));
+    assert.doesNotMatch(out.json.decision.text, /laptop/);
+    // The decision item, a file in the project's repository, names neither the device nor its key.
+    const items = readdirSync(join(p.root, 'work', 'items'));
+    const item = readFileSync(join(p.root, 'work', 'items', items[0]), 'utf8');
+    assert.doesNotMatch(item, /laptop|age1/);
 
     const stored = readdirSync(kc.vault);
     assert.deepEqual(stored, ['hitld-store-fixture__device-identity']);
@@ -505,74 +600,85 @@ test(
     assert.equal(recipientOf(identity), out.json.recipient);
     assert.ok(!readFileSync(kc.log, 'utf8').includes(identity), 'the key never went on argv');
     assert.ok(!JSON.stringify(out.json).includes(identity));
-    const file = checkDevices(readFileSync(join(r.root, DEVICES_PATH), 'utf8'));
-    assert.deepEqual(file.file?.devices, [
-      { name: 'laptop', recipient: out.json.recipient, added: '2026-11-15' },
-    ]);
 
-    // Again: the same key, nothing changes.
-    const again = await hitld(['store', 'device', 'init', '--name', 'laptop'], r.root, env);
+    // Nothing is pushed until the owner answers, and no sweep answers for them.
+    await hitld(['run', 'start', '--host', 'laptop'], p.root, env);
+    assert.equal((await hitld(['store', 'push'], p.root, env)).json.error, 'device-not-enrolled');
+    const swept = await hitld(['rights', 'sweep'], p.root, env);
+    assert.deepEqual(swept.json.applied, [], JSON.stringify(swept.json));
+    const status = await hitld(['store', 'status'], p.root, env);
+    assert.deepEqual(
+      status.json.devices.decisions.map((/** @type {any} */ d) => [d.decision, d.name]),
+      [[decision, 'laptop']],
+    );
+    assert.equal(status.json.reminders, undefined, 'no branch to protect');
+    assert.equal(await createGitRemote({ url: p.url, dir: join(p.base, 'peek') }).head(), null);
+
+    // Again before the answer: the same request, the same decision.
+    const again = await hitld(['store', 'device', 'init', '--name', 'laptop'], p.root, env);
     assert.equal(again.json.changed, false);
-    assert.equal(again.json.key_created, false);
-    assert.equal(again.json.recipient, out.json.recipient);
+    assert.equal(again.json.decision.decision, decision);
 
-    // list reads main: the uncommitted entry is not enrolled yet.
-    const before = await hitld(['store', 'device', 'list'], r.root, env);
-    assert.equal(before.code, EXIT.ok, JSON.stringify(before.json));
-    assert.deepEqual(before.json.devices, []);
+    // The owner's own answer approves it; then the push goes.
+    const answered = await hitld(['rights', 'answer', decision, '--answer', 'A'], p.root, env);
+    assert.equal(answered.json.ok, true, JSON.stringify(answered.json));
+    assert.equal(answered.json.device.event, 'approved');
+    const pushed = await hitld(['store', 'push'], p.root, env);
+    assert.equal(pushed.json.result, 'pushed', JSON.stringify(pushed.json));
+    assert.equal(pushed.json.recipients, 1);
+    const listed = await hitld(['store', 'device', 'list'], p.root, env);
     assert.deepEqual(
-      before.json.not_on_main.added.map((/** @type {{ name: string }} */ d) => d.name),
-      ['laptop'],
+      listed.json.approved.map((/** @type {any} */ d) => [d.name, d.status]),
+      [['laptop', 'approved']],
     );
-    assert.equal(before.json.this_device.enrolled, false);
-    commitAll(r.root, 'enrol laptop');
-    const after = await hitld(['store', 'device', 'list'], r.root, env);
-    assert.deepEqual(
-      after.json.devices.map((/** @type {{ name: string }} */ d) => d.name),
-      ['laptop'],
-    );
-    assert.deepEqual(after.json.this_device, {
-      name: 'laptop',
-      enrolled: true,
-      key_source: 'keychain',
-    });
+    assert.deepEqual(listed.json.requests, []);
+    assert.equal(listed.json.this_device.enrolled, true);
+    const done = await hitld(['store', 'device', 'init', '--name', 'laptop'], p.root, env);
+    assert.deepEqual([done.json.status, done.json.changed], ['approved', false]);
   },
 );
 
-test('device init: a taken name is refused before any key is made; no keychain is refused with a way on', async () => {
-  const r = repo();
-  r.commitDevices(devicesText(device('laptop', LAPTOP)));
-  const kc = fakeKeychainTools(r.base);
-  const env = { PATH: kc.PATH, XDG_DATA_HOME: join(r.base, 'data') };
-  const taken = await hitld(['store', 'device', 'init', '--name', 'laptop'], r.root, env);
+test('device init: a name another key uses is refused before any key is made; no keychain is refused with a way on', async () => {
+  const p = project();
+  plantRequest(p.host, device('laptop', LAPTOP));
+  const kc = fakeKeychainTools(p.base);
+  const env = p.envOf('desk', { PATH: kc.PATH });
+  const taken = await hitld(['store', 'device', 'init', '--name', 'laptop'], p.root, env);
   assert.equal(taken.json.error, 'device-name-taken');
   assert.deepEqual(readdirSync(kc.vault), [], 'no orphan key');
 
-  const empty = join(r.base, 'empty-bin');
+  const empty = join(p.base, 'empty-bin');
   mkdirSync(empty);
-  const none = await hitld(['store', 'device', 'init', '--name', 'desk'], r.root, {
-    PATH: empty,
-    XDG_DATA_HOME: join(r.base, 'data'),
-  });
+  const none = await hitld(
+    ['store', 'device', 'init', '--name', 'desk'],
+    p.root,
+    p.envOf('desk', { PATH: empty }),
+  );
   assert.equal(none.code, EXIT.failed);
   assert.equal(none.json.error, 'device-no-keychain');
   assert.match(none.json.message, /--cloud/);
   assert.match(none.json.message, /HITLD_STORE_IDENTITY/);
 
-  const badName = await hitld(['store', 'device', 'init', '--name', 'My Laptop'], r.root, env);
+  const badName = await hitld(['store', 'device', 'init', '--name', 'My Laptop'], p.root, env);
   assert.equal(badName.json.error, 'device-name-invalid');
+  const noAddress = await hitld(
+    ['store', 'device', 'init', '--cloud', '--name', 'x'],
+    p.root,
+    p.envOf('desk', { HITLD_STORE_REMOTE: '' }),
+  );
+  assert.equal(noAddress.json.error, 'no-remote');
 });
 
 test('device init --cloud: the key is printed once for the environment variable, and written nowhere', async () => {
-  const r = repo();
-  const kc = fakeKeychainTools(r.base);
-  const env = { PATH: kc.PATH, XDG_DATA_HOME: join(r.base, 'data') };
-  const unnamed = await hitld(['store', 'device', 'init', '--cloud'], r.root, env);
+  const p = project();
+  const kc = fakeKeychainTools(p.base);
+  const env = p.envOf('owner', { PATH: kc.PATH });
+  const unnamed = await hitld(['store', 'device', 'init', '--cloud'], p.root, env);
   assert.equal(unnamed.json.error, 'device-name-required');
 
   const out = await hitld(
     ['store', 'device', 'init', '--cloud', '--name', 'cloud-main'],
-    r.root,
+    p.root,
     env,
   );
   assert.equal(out.code, EXIT.ok, JSON.stringify(out.json));
@@ -581,17 +687,15 @@ test('device init --cloud: the key is printed once for the environment variable,
   assert.match(out.json.message, /does not show it again/);
   assert.match(out.json.next, /^set HITLD_STORE_IDENTITY/);
   assert.deepEqual(readdirSync(kc.vault), [], 'nothing in the keychain');
-  assert.deepEqual(filesHolding(r.base, out.json.identity), [], 'nothing on disk');
-  const text = readFileSync(join(r.root, DEVICES_PATH), 'utf8');
-  assert.ok(!text.includes('AGE-SECRET-KEY'), 'the file holds the public key only');
-  assert.match(text, /"cloud-main"/);
+  assert.deepEqual(filesHolding(p.base, out.json.identity), [], 'nothing on disk');
 
-  // In the environment, with the variable set: enrol that key, print nothing secret.
-  const r2 = repo();
-  const set = await hitld(['store', 'device', 'init', '--cloud', '--name', 'cloud-main'], r2.root, {
-    PATH: kc.PATH,
-    HITLD_STORE_IDENTITY: CLOUD.identity,
-  });
+  // In the environment, with the variable set: ask for that key, print nothing secret.
+  const q = project();
+  const set = await hitld(
+    ['store', 'device', 'init', '--cloud', '--name', 'cloud-main'],
+    q.root,
+    q.envOf('cloud', { HITLD_STORE_IDENTITY: CLOUD.identity }),
+  );
   assert.equal(set.code, EXIT.ok, JSON.stringify(set.json));
   assert.equal(set.json.recipient, CLOUD.recipient);
   assert.equal(set.json.key_created, false);
@@ -599,89 +703,245 @@ test('device init --cloud: the key is printed once for the environment variable,
   assert.ok(!JSON.stringify(set.json).includes(CLOUD.identity));
 });
 
-test('device remove: edits the file for the owner to commit, and records that the key must rotate', async () => {
-  const r = repo();
-  r.commitDevices(devicesText(device('laptop', LAPTOP), device('gpu', GPU)));
-  const env = { PATH: process.env.PATH, XDG_DATA_HOME: join(r.base, 'data') };
-  const store = join(r.base, 'store');
-  const out = await hitld(['store', 'device', 'remove', 'gpu', '--store', store], r.root, env);
-  assert.equal(out.code, EXIT.ok, JSON.stringify(out.json));
-  assert.equal(out.json.removed.name, 'gpu');
-  assert.equal(out.json.remaining, 1);
-  assert.equal(out.json.rotation, 'pending');
-  assert.match(out.json.message, /encrypted only to the remaining devices/);
-  assert.deepEqual(
-    checkDevices(readFileSync(join(r.root, DEVICES_PATH), 'utf8')).file?.devices.map((d) => d.name),
-    ['laptop'],
+/**
+ * A project whose laptop the owner approved and which has pushed once.
+ */
+async function withLaptop() {
+  const p = project();
+  const laptop = p.envOf('laptop', { HITLD_STORE_IDENTITY: LAPTOP.identity });
+  const first = await hitld(
+    ['store', 'device', 'init', '--cloud', '--name', 'laptop'],
+    p.root,
+    laptop,
   );
+  await hitld(['rights', 'answer', first.json.decision.decision, '--answer', 'A'], p.root, laptop);
+  assert.equal((await hitld(['store', 'push'], p.root, laptop)).json.result, 'pushed');
+  return { ...p, laptop };
+}
+
+test('a second device: its request is never a recipient until an approved device asks and the owner answers', async () => {
+  const p = await withLaptop();
+  const tablet = p.envOf('tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  const asked = await hitld(
+    ['store', 'device', 'init', '--cloud', '--name', 'tablet'],
+    p.root,
+    tablet,
+  );
+  assert.equal(asked.code, EXIT.ok, JSON.stringify(asked.json));
+  assert.equal(asked.json.decision, null, 'not the first device: it does not ask for itself');
+  assert.match(asked.json.next, /hitld store device ask/);
+  // Someone who can write the store repository plants a request of their own.
+  plantRequest(p.host, device('intruder', STRANGER));
+  assert.deepEqual(requestsOnHost(p.host).sort(), ['intruder', 'laptop', 'tablet']);
+
+  // The tablet may not push, and a push from the laptop is sealed to the laptop alone.
+  await hitld(['run', 'start', '--host', 'tablet'], p.root, tablet);
+  assert.equal((await hitld(['store', 'push'], p.root, tablet)).json.error, 'device-not-enrolled');
+  p.storeOf(p.laptop).write('notes/n.md', 'more\n');
+  assert.equal((await hitld(['store', 'push'], p.root, p.laptop)).json.recipients, 1);
+  const status = await hitld(['store', 'status'], p.root, p.laptop);
   assert.deepEqual(
-    readRotations(openStore(store)).map((x) => [x.event, x.name, x.recipient]),
-    [['removed', 'gpu', GPU.recipient]],
+    status.json.devices.requests.map((/** @type {any} */ d) => [d.name, d.status]),
+    [
+      ['intruder', 'requested'],
+      ['tablet', 'requested'],
+    ],
   );
 
-  // Not on main yet: still enrolled, still a recipient, nothing pending.
-  const list = await hitld(['store', 'device', 'list', '--store', store], r.root, env);
-  assert.deepEqual(
-    list.json.devices.map((/** @type {{ name: string }} */ d) => d.name),
-    ['gpu', 'laptop'],
+  // Only an approved device asks; the tablet is not one.
+  assert.equal(
+    (await hitld(['store', 'device', 'ask'], p.root, tablet)).json.error,
+    'device-not-enrolled',
   );
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.laptop);
+  assert.equal(ask.code, EXIT.ok, JSON.stringify(ask.json));
   assert.deepEqual(
-    list.json.not_on_main.removed.map((/** @type {{ name: string }} */ d) => d.name),
-    ['gpu'],
+    ask.json.asked.map((/** @type {any} */ a) => a.name),
+    ['intruder', 'tablet'],
   );
-  assert.deepEqual(list.json.rotation.pending, []);
-  commitAll(r.root, 'remove gpu');
-  const merged = await hitld(['store', 'device', 'list', '--store', store], r.root, env);
+  // Asked again, nothing new is asked.
+  assert.deepEqual((await hitld(['store', 'device', 'ask'], p.root, p.laptop)).json.asked, []);
+  // With room in the digest for one decision, the other would take its recommendation if it
+  // could; a device decision never does.
+  writeSettingsFile(
+    'person',
+    { schema_version: 2, attention: { decisions_per_digest: 1 } },
+    { env: p.laptop, cwd: p.base },
+  );
+  const pending = await hitld(['rights', 'pending'], p.root, p.laptop);
+  assert.equal(pending.json.ok, true, JSON.stringify(pending.json));
+  assert.equal(
+    pending.json.decisions.some((/** @type {any} */ d) => d.deliver === 'default'),
+    false,
+    JSON.stringify(pending.json.decisions),
+  );
+  assert.deepEqual((await hitld(['rights', 'sweep'], p.root, p.laptop)).json.applied, []);
+  const [intruder, tab] = ask.json.asked;
+  const no = await hitld(
+    ['rights', 'answer', intruder.decision, '--answer', 'B'],
+    p.root,
+    p.laptop,
+  );
+  assert.equal(no.json.device.event, 'refused');
+  const yes = await hitld(['rights', 'answer', tab.decision, '--answer', 'A'], p.root, p.laptop);
+  assert.equal(yes.json.device.event, 'approved');
+
+  const pushed = await hitld(['store', 'push'], p.root, p.laptop);
+  assert.equal(pushed.json.recipients, 2, JSON.stringify(pushed.json));
+  const remote = createGitRemote({ url: p.url, dir: join(p.base, 'reader') });
+  const bytes = await remote.fetch(/** @type {string} */ (await remote.head()));
+  assert.throws(() => open(bytes, { identities: [STRANGER.identity] }), { code: 'age-no-match' });
+  open(bytes, { identities: [CLOUD.identity] });
+  assert.equal((await hitld(['store', 'pull'], p.root, tablet)).json.ok, true);
+  const listed = await hitld(['store', 'device', 'list'], p.root, tablet);
   assert.deepEqual(
-    merged.json.rotation.pending.map((/** @type {{ name: string }} */ p) => p.name),
-    ['gpu'],
+    listed.json.approved.map((/** @type {any} */ d) => d.name),
+    ['laptop', 'tablet'],
+  );
+  assert.deepEqual(listed.json.requests, [], 'a refused key does not ask again');
+  assert.equal(listed.json.this_device.enrolled, true);
+});
+
+test('device remove asks the owner; a no keeps the device, a yes removes it and the next push rotates', async () => {
+  const p = await withLaptop();
+  const tablet = p.envOf('tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  await hitld(['store', 'device', 'init', '--cloud', '--name', 'tablet'], p.root, tablet);
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.laptop);
+  await hitld(['rights', 'answer', ask.json.asked[0].decision, '--answer', 'A'], p.root, p.laptop);
+  assert.equal((await hitld(['store', 'push'], p.root, p.laptop)).json.recipients, 2);
+
+  assert.equal(
+    (await hitld(['store', 'device', 'remove', 'nobody'], p.root, p.laptop)).json.error,
+    'device-unknown',
+  );
+  const first = await hitld(['store', 'device', 'remove', 'tablet'], p.root, p.laptop);
+  assert.equal(first.code, EXIT.ok, JSON.stringify(first.json));
+  assert.equal(first.json.decision.action, 'remove');
+  const no = await hitld(
+    ['rights', 'answer', first.json.decision.decision, '--answer', 'B'],
+    p.root,
+    p.laptop,
+  );
+  assert.equal(no.json.device.event, 'refused');
+  assert.equal((await hitld(['store', 'push'], p.root, p.laptop)).json.recipients, 2);
+
+  const second = await hitld(['store', 'device', 'remove', 'tablet'], p.root, p.laptop);
+  const again = await hitld(['store', 'device', 'remove', 'tablet'], p.root, p.laptop);
+  assert.equal(again.json.decision.decision, second.json.decision.decision, 'asked once');
+  const yes = await hitld(
+    ['rights', 'answer', second.json.decision.decision, '--answer', 'A'],
+    p.root,
+    p.laptop,
+  );
+  assert.equal(yes.json.device.event, 'removed');
+  const listed = await hitld(['store', 'device', 'list'], p.root, p.laptop);
+  assert.deepEqual(
+    listed.json.rotation.pending.map((/** @type {any} */ r) => r.name),
+    ['tablet'],
+  );
+  const pushed = await hitld(['store', 'push'], p.root, p.laptop);
+  assert.equal(pushed.json.recipients, 1);
+  assert.deepEqual(pushed.json.rotation.rotated, ['tablet']);
+  assert.equal((await hitld(['store', 'pull'], p.root, tablet)).json.error, 'age-no-match');
+});
+
+test('a store from before device decisions: a key that opens the head, in a store with no approval, asks for itself', async () => {
+  const p = project();
+  // The remote's head was sealed to the laptop and another device under the old device list.
+  const env = p.envOf('laptop', { HITLD_STORE_IDENTITY: LAPTOP.identity });
+  const old = p.storeOf(env);
+  old.write('notes/n.md', 'from before\n');
+  const { openRemote, pushStore } = await import('../lib/store/push-pull.mjs');
+  const { remote, url } = openRemote(old.root, { url: p.url, source: 'environment' });
+  const sealedTo = resolveDevices({ store: old, env });
+  const legacy = {
+    ...sealedTo,
+    enrolled: true,
+    device: 'laptop',
+    recipients: [LAPTOP.recipient, GPU.recipient],
+  };
+  assert.equal(
+    (await pushStore({ root: old.root, projectId: 'fixture', remote, url, devices: legacy }))
+      .result,
+    'pushed',
   );
 
-  const unknown = await hitld(['store', 'device', 'remove', 'gpu', '--store', store], r.root, env);
-  assert.equal(unknown.json.error, 'device-unknown');
+  // A fresh container with the laptop's key opens that head, finds no approval, and asks.
+  const fresh = p.envOf('fresh', { HITLD_STORE_IDENTITY: LAPTOP.identity });
+  const asked = await hitld(
+    ['store', 'device', 'init', '--cloud', '--name', 'laptop'],
+    p.root,
+    fresh,
+  );
+  assert.equal(asked.code, EXIT.ok, JSON.stringify(asked.json));
+  assert.match(String(asked.json.decision?.decision), /^W-\d+$/);
+  assert.equal(p.storeOf(fresh).read('notes/n.md'), 'from before\n', 'the head was merged first');
+  // A key that does not open it is a new device: it waits for an approved one to ask.
+  const other = p.envOf('other', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  const waits = await hitld(
+    ['store', 'device', 'init', '--cloud', '--name', 'other'],
+    p.root,
+    other,
+  );
+  assert.equal(waits.json.decision, null);
 });
 
 test('executors are refused every device command', async () => {
-  const r = repo();
-  r.commitDevices(devicesText(device('laptop', LAPTOP)));
+  const p = project();
   for (const argv of [
     ['store', 'device', 'init', '--name', 'x'],
     ['store', 'device', 'init', '--cloud', '--name', 'x'],
+    ['store', 'device', 'ask'],
     ['store', 'device', 'list'],
     ['store', 'device', 'remove', 'laptop'],
   ]) {
-    for (const env of [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-3' }]) {
-      const out = await hitld(argv, r.root, { PATH: process.env.PATH, ...env });
+    for (const extra of [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-3' }]) {
+      const out = await hitld(argv, p.root, p.envOf('x', extra));
       assert.equal(out.json.error, 'not-permitted', argv.join(' '));
       assert.equal(out.code, EXIT.failed);
     }
   }
-  // Nothing changed.
-  assert.equal(
-    readFileSync(join(r.root, DEVICES_PATH), 'utf8'),
-    devicesText(device('laptop', LAPTOP)),
-  );
+  assert.deepEqual(requestsOnHost(p.host), [], 'no request reached the store repository');
 
   // From a linked worktree too, where executors work.
-  const wt = join(r.base, 'wt');
-  fixtureGit(r.root, 'worktree', 'add', '-q', '-b', 'W-2', wt);
-  const linked = await hitld(['store', 'device', 'list'], wt, { PATH: process.env.PATH });
+  const wt = join(p.base, 'wt');
+  fixtureGit(p.root, 'worktree', 'add', '-q', '-b', 'W-2', wt);
+  const linked = await hitld(['store', 'device', 'list'], wt, p.envOf('x'));
   assert.equal(linked.json.error, 'not-permitted');
 });
 
-// --- the merge queue ---------------------------------------------------------------------------
+// --- the device list never goes in the project's repository ------------------------------------
 
-test('the merge queue sends back a branch that changes store-devices.json', async () => {
-  const r = repo();
-  putFiles(r.root, { 'suite.mjs': 'process.exit(0)\n' });
-  commitAll(r.root, 'suite');
-  fixtureGit(r.root, 'switch', '-q', '-c', 'W-1');
-  putFiles(r.root, { [DEVICES_PATH]: devicesText(device('mine', STRANGER)) });
-  commitAll(r.root, 'enrol a device');
-  fixtureGit(r.root, 'switch', '-q', 'main');
-  const before = fixtureGit(r.root, 'rev-parse', 'main');
+test("a device list in the project's repository: refused at commit, by the policy check and at merge", async () => {
+  const p = project();
+  const listed = devicesText(device('mine', STRANGER));
+  putFiles(p.root, { '.human-in-the-lead/store-devices.json': listed });
+  fixtureGit(p.root, 'add', '.human-in-the-lead/store-devices.json');
+  const staged = await hitld(['check', 'classification', '--staged'], p.root, p.envOf('x'));
+  assert.equal(staged.json.ok, false);
+  assert.deepEqual(
+    staged.json.refused.map((/** @type {any} */ r) => r.rule),
+    ['store-devices'],
+  );
+  assert.match(staged.json.message, /address or device list/);
+  const policy = await hitld(['check', 'policy'], p.root, p.envOf('x'));
+  assert.equal(policy.json.ok, false);
+  assert.match(policy.json.errors.at(-1).message, /hitld store device init/);
+  const list = await hitld(['store', 'device', 'list'], p.root, p.envOf('x'));
+  assert.match(list.json.warnings.join(), /is not read any more/);
+  fixtureGit(p.root, 'reset', '-q');
+  rmSync(join(p.root, '.human-in-the-lead', 'store-devices.json'));
+
+  // A branch that brings it is sent back by the merge's own guard.
+  putFiles(p.root, { 'suite.mjs': 'process.exit(0)\n' });
+  commitAll(p.root, 'suite');
+  fixtureGit(p.root, 'switch', '-q', '-c', 'W-1');
+  putFiles(p.root, { '.human-in-the-lead/store-devices.json': listed });
+  commitAll(p.root, 'add a device list');
+  fixtureGit(p.root, 'switch', '-q', 'main');
+  const before = fixtureGit(p.root, 'rev-parse', 'main');
   const q = await runMergeQueue({
-    repoRoot: r.root,
+    repoRoot: p.root,
     entries: [{ item: 'W-1', branch: 'W-1' }],
     settings: {
       mainBranch: 'main',
@@ -694,8 +954,7 @@ test('the merge queue sends back a branch that changes store-devices.json', asyn
   });
   assert.deepEqual(
     q.rejected.map((x) => [x.item, x.reason, x.files]),
-    [['W-1', 'store-devices', [DEVICES_PATH]]],
+    [['W-1', 'classification', ['.human-in-the-lead/store-devices.json']]],
   );
-  assert.match(String(q.rejected[0].message), /Only the owner enrols or removes a store device/);
-  assert.equal(fixtureGit(r.root, 'rev-parse', 'main'), before);
+  assert.equal(fixtureGit(p.root, 'rev-parse', 'main'), before);
 });

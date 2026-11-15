@@ -3,18 +3,23 @@
   "id": "store/removed-device-locked-out",
   "suite": "store",
   "category": "store",
-  "description": "Milestone c3 (design 0003 section 14). A cloud environment's device is removed: the owner's removal reaches main, and the next push is encrypted to the remaining device only and prunes the older files. The removed device's key opens nothing on the remote, its pull is refused, its push is refused, and it never sees what was recorded after the removal. What it pulled before the removal stays with it.",
+  "description": "Milestone c3 (design 0003 section 14). A cloud environment's device is removed: the laptop asks the owner (hitld store device remove), the owner's own answer approves the removal, and the next push is encrypted to the remaining device only and prunes the older files. The removed device's key opens nothing on the remote, its pull is refused, its push is refused, and it never sees what was recorded after the removal. What it pulled before the removal stays with it.",
   "mode": "offline",
   "steps": [
     {
       "id": "project",
       "action": "store.fixture",
-      "with": { "devices": ["cloud-main", "laptop"] }
+      "with": {
+        "devices": ["cloud-main", "laptop"]
+      }
     },
     {
       "id": "start",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "start", "--host", "laptop"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["run", "start", "--host", "laptop"]
+      }
     },
     {
       "id": "log_before",
@@ -27,19 +32,35 @@
     {
       "id": "push_before",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "push"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "push"]
+      }
     },
     {
       "id": "cloud_pull_before",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["store", "pull"] }
+      "with": {
+        "device": "cloud-main",
+        "argv": ["store", "pull"]
+      }
     },
     {
       "id": "remove",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "device", "remove", "cloud-main"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "device", "remove", "cloud-main"]
+      }
     },
-    { "id": "merge", "action": "store.owner-merge", "with": { "device": "laptop" } },
+    {
+      "id": "merge",
+      "action": "store.owner-answers",
+      "with": {
+        "device": "laptop",
+        "answer": "A"
+      }
+    },
     {
       "id": "log_after",
       "action": "store.hitld",
@@ -51,7 +72,10 @@
     {
       "id": "push_after",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["store", "push"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["store", "push"]
+      }
     },
     {
       "id": "remote",
@@ -64,79 +88,124 @@
     {
       "id": "cloud_pull_after",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["store", "pull"] }
+      "with": {
+        "device": "cloud-main",
+        "argv": ["store", "pull"]
+      }
     },
     {
       "id": "cloud_push_after",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["store", "push"] }
+      "with": {
+        "device": "cloud-main",
+        "argv": ["store", "push"]
+      }
     },
     {
       "id": "cloud_ledger",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["ledger", "tail", "--limit", "20"] }
+      "with": {
+        "device": "cloud-main",
+        "argv": ["ledger", "tail", "--limit", "20"]
+      }
     },
     {
       "id": "laptop_ledger",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["ledger", "tail", "--limit", "20"] }
+      "with": {
+        "device": "laptop",
+        "argv": ["ledger", "tail", "--limit", "20"]
+      }
     }
   ],
   "graders": [
     {
       "id": "opened-before-the-removal",
       "grader": "equals",
-      "with": { "path": "steps.cloud_pull_before.result.ok", "value": true }
+      "with": {
+        "path": "steps.cloud_pull_before.result.ok",
+        "value": true
+      }
     },
     {
-      "id": "removal-needs-a-rotation",
+      "id": "removal-is-the-owners-decision",
       "grader": "equals",
-      "with": { "path": "steps.remove.result.rotation", "value": "pending" }
+      "with": {
+        "path": "steps.remove.result.decision.action",
+        "value": "remove"
+      }
     },
     {
-      "id": "removal-merged",
+      "id": "the-owner-approved-the-removal",
       "grader": "equals",
-      "with": { "path": "steps.merge.merged", "value": true }
+      "with": {
+        "path": "steps.merge.answered[0].device.event",
+        "value": "removed"
+      }
     },
     {
       "id": "push-after-sealed-to-one-device",
       "grader": "equals",
-      "with": { "path": "steps.push_after.result.recipients", "value": 1 }
+      "with": {
+        "path": "steps.push_after.result.recipients",
+        "value": 1
+      }
     },
     {
       "id": "rotation-recorded",
       "grader": "equals",
-      "with": { "path": "steps.push_after.result.rotation.rotated", "value": ["cloud-main"] }
+      "with": {
+        "path": "steps.push_after.result.rotation.rotated",
+        "value": ["cloud-main"]
+      }
     },
     {
       "id": "older-files-pruned",
       "grader": "equals",
-      "with": { "path": "steps.remote.versions", "value": 1 }
+      "with": {
+        "path": "steps.remote.versions",
+        "value": 1
+      }
     },
     {
       "id": "remaining-device-opens-it",
       "grader": "equals",
-      "with": { "path": "steps.remote.opens.laptop", "value": 1 }
+      "with": {
+        "path": "steps.remote.opens.laptop",
+        "value": 1
+      }
     },
     {
       "id": "removed-key-opens-nothing",
       "grader": "equals",
-      "with": { "path": "steps.remote.opens.cloud-main", "value": 0 }
+      "with": {
+        "path": "steps.remote.opens.cloud-main",
+        "value": 0
+      }
     },
     {
       "id": "remote-holds-no-plain-text",
       "grader": "equals",
-      "with": { "path": "steps.remote.plain_hits", "value": [] }
+      "with": {
+        "path": "steps.remote.plain_hits",
+        "value": []
+      }
     },
     {
       "id": "pull-refused",
       "grader": "equals",
-      "with": { "path": "steps.cloud_pull_after.result.error", "value": "age-no-match" }
+      "with": {
+        "path": "steps.cloud_pull_after.result.error",
+        "value": "age-no-match"
+      }
     },
     {
       "id": "push-refused",
       "grader": "equals",
-      "with": { "path": "steps.cloud_push_after.result.error", "value": "device-not-enrolled" }
+      "with": {
+        "path": "steps.cloud_push_after.result.error",
+        "value": "device-not-enrolled"
+      }
     },
     {
       "id": "never-saw-the-later-record",

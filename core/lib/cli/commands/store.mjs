@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { privateStorePath } from '../../store/store.mjs';
+import { legacyWarnings } from '../../store/placement.mjs';
 import { executorSignal } from '../executor.mjs';
 import { deviceCommands } from './store-device.mjs';
 
@@ -283,8 +284,8 @@ function remoteCommands() {
   };
   /**
    * The environment the resolver reads, with the key from --identity-fd put where it reads it.
-   * There are no recipient flags: a push is encrypted to the enrolled devices and nothing else, so
-   * a removed device never gets a later push (design 0003 section 6).
+   * There are no recipient flags: a push is encrypted to the devices the owner approved and nothing
+   * else, so a removed device never gets a later push (design 0003 section 6).
    * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
    */
   function deviceEnv(input, ctx) {
@@ -320,13 +321,7 @@ function remoteCommands() {
     const pp = await import('../../store/push-pull.mjs');
     const env = deviceEnv(input, ctx);
     const address = pp.chooseRemote({ store: p.root, projectId: p.projectId, env });
-    const lookup = {
-      checkout: findRepoRoot(ctx.cwd) ?? ctx.cwd,
-      store: p.root,
-      env,
-      projectId: p.projectId,
-      mainBranch: p.loaded.policy?.merge?.main_branch ?? 'main',
-    };
+    const lookup = { store: p.root, env, projectId: p.projectId };
     return { ...p, pp, address, lookup };
   }
 
@@ -335,7 +330,7 @@ function remoteCommands() {
     {
       name: 'store push',
       summary:
-        "Push the private store's text history to its remote, encrypted to the enrolled devices: a compare and swap on the remote's head; when the remote has moved, pull, merge and try again (owner only)",
+        "Push the private store's text history to its remote, encrypted to the devices the owner approved: the remote's head is merged first, then a compare and swap on it; when the remote has moved, pull, merge and try again (owner only)",
       built_by: 'consumer-live',
       mcp: false,
       args: [IDENTITY_FD, STORE],
@@ -343,7 +338,8 @@ function remoteCommands() {
         const { projectId, root, pp, address, lookup } = await setUp(input, ctx);
         const { remote, url } = pp.openRemote(root, address);
         const devices = pp.devicesForPush(lookup);
-        return pp.pushStore({ root, projectId, remote, url, devices, now: ctx.now });
+        const refresh = () => pp.devicesHere(lookup);
+        return pp.pushStore({ root, projectId, remote, url, devices, refresh, now: ctx.now });
       }),
     },
     {
@@ -362,7 +358,7 @@ function remoteCommands() {
     {
       name: 'store status',
       summary:
-        "Report the remote and where its address came from, the local and remote versions, whether a push or a pull is due, and this device's enrolment; changes nothing in the store (owner only)",
+        "Report the remote and where its address came from, the local and remote versions, whether a push or a pull is due, this device's approval, the approved devices, the device requests waiting to be put to the owner and the device decisions waiting for the owner's answer; changes nothing in the store (owner only)",
       built_by: 'consumer-live',
       mcp: false,
       args: [STORE],
@@ -370,7 +366,17 @@ function remoteCommands() {
         const { projectId, root, required, pp, address, lookup } = await setUp(input, ctx);
         const opened = address ? pp.openRemote(root, address) : null;
         const devices = pp.devicesHere(lookup);
-        return pp.storeStatus({ root, projectId, opened, devices, required });
+        const fetched = await pp.fetchRequests(root, address?.url ?? null);
+        return pp.storeStatus({
+          root,
+          projectId,
+          opened,
+          devices,
+          required,
+          requests: fetched.requests,
+          requestsError: fetched.error,
+          warnings: legacyWarnings(findRepoRoot(ctx.cwd)),
+        });
       }),
     },
     {

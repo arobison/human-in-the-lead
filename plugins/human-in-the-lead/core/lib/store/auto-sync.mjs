@@ -11,8 +11,7 @@
 //                         this device has no key (`no-identity`), the caller is an executor
 //                         (`executor`), the project has no valid policy (`no-project`), or the
 //                         store holds no text yet (`nothing-to-push`)
-//   status 'unreachable'  the remote could not be reached, or origin could not be fetched for the
-//                         device list; the local store is as it was
+//   status 'unreachable'  the remote could not be reached; the local store is as it was
 //   status 'failed'       the remote answered and what it holds could not be used, or a push was
 //                         refused: it does not decrypt or merge, the device is not enrolled, the
 //                         head is not an age file, a merge conflict
@@ -37,8 +36,7 @@ import { NO_ADDRESS, chooseRemote } from './address.mjs';
  * @property {string} store the private store's directory
  * @property {string | null} projectId policy.json project.id; null when there is no valid policy
  * @property {boolean} remoteRequired policy.json store.remote.required
- * @property {string} checkout the project's checkout, where main and store-devices.json are read
- * @property {string} mainBranch policy.json merge.main_branch
+ * @property {string} checkout the project's checkout
  * @property {NodeJS.ProcessEnv} env
  * @property {string} cwd where the command or hook runs, for the executor check
  * @property {() => Date} [now] for tests
@@ -58,7 +56,7 @@ import { NO_ADDRESS, chooseRemote } from './address.mjs';
  */
 
 /** Remote codes that mean the remote could not be reached, as opposed to it answering badly. */
-const UNREACHABLE = new Set(['remote-unreachable', 'remote-git-failed', 'devices-fetch-failed']);
+const UNREACHABLE = new Set(['remote-unreachable', 'remote-git-failed']);
 
 /**
  * The sync context of the project a command or hook runs in, from its policy.json.
@@ -77,7 +75,6 @@ export function contextFromCwd(cwd, env, now, store) {
     projectId,
     remoteRequired: loaded.policy.store?.remote?.required === true,
     checkout,
-    mainBranch: loaded.policy.merge?.main_branch ?? 'main',
     env,
     cwd,
     ...(now ? { now } : {}),
@@ -153,13 +150,7 @@ async function prepare(action, c) {
     };
   }
   const pp = await import('./push-pull.mjs');
-  const lookup = {
-    checkout: c.checkout,
-    store: c.store,
-    env: c.env,
-    projectId: c.projectId,
-    mainBranch: c.mainBranch,
-  };
+  const lookup = { store: c.store, env: c.env, projectId: c.projectId };
   // A device with no key at all is not an error: a machine that never enrolled still works on its
   // own store. A key that is set but broken is, and the pull or push says so.
   const here = pp.devicesHere(lookup);
@@ -212,8 +203,8 @@ export async function autoPull(c) {
 }
 
 /**
- * Push the store to the remote, encrypted to the devices on main's list. Main is fetched from
- * origin first, so a removed device is not sealed to.
+ * Push the store to the remote, encrypted to the devices the owner approved. The remote's head is
+ * brought in first, so a device the owner removed elsewhere is not sealed to.
  * @param {SyncContext} c
  * @returns {Promise<SyncReport>}
  */
@@ -229,6 +220,7 @@ export async function autoPush(c) {
         remote,
         url,
         devices: pp.devicesForPush(lookup),
+        refresh: () => pp.devicesHere(lookup),
         ...(c.now ? { now: c.now } : {}),
       })
     );

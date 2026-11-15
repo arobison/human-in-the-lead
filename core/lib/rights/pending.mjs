@@ -85,8 +85,9 @@ export function pendingDecisions(deps, settings) {
       asked_at: life?.asked ?? null,
       sent_at: life?.sent ?? null,
       reversibility: asked?.reversibility ?? null,
-      default_if_unanswered: asked?.default_if_unanswered ?? null,
-      recommended: asked?.recommendation?.option ?? null,
+      // A question only the owner's answer settles never takes a default (design 0003, section 6).
+      default_if_unanswered: asked?.never_default ? null : (asked?.default_if_unanswered ?? null),
+      recommended: asked?.never_default ? null : (asked?.recommendation?.option ?? null),
       ...u,
     };
   });
@@ -150,6 +151,10 @@ export function sweepDefaults(deps, settings) {
         decision: id,
         why: 'it has no record of how it was asked, so no default is applied',
       });
+      continue;
+    }
+    if (asked.never_default) {
+      skipped.push({ decision: id, why: "only the owner's own answer settles it" });
       continue;
     }
     try {
