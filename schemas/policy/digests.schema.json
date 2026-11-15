@@ -1,0 +1,43 @@
+{
+  "$id": "policy/digests",
+  "title": "policy.json: digests",
+  "description": "When a digest of decisions and calls is due (design parts 2, 12 and 13.3): the questions waiting, the calls logged without asking, the defaults applied. It is due when enough has accumulated, when the owner is present or the machine is idle and something changed, or when too long has passed without one. `hitld cadence due` reads these and the ledger; it holds no timer. A threshold of 0 is off. How many questions may stand in front of a person at once is their attention budget (attention.decisions_per_digest_max).",
+  "type": "object",
+  "properties": {
+    "every_merges": {
+      "description": "Due once this many items have merged since the last digest: a merge batch has ended.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 5
+    },
+    "every_decisions": {
+      "description": "Due once this many decisions have been asked or answered, or calls logged, since the last digest.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 5
+    },
+    "when_owner_writes": {
+      "description": "Due when the owner writes in the chief of staff's session and at least min_changes have accumulated: the owner is there to read it.",
+      "type": "boolean",
+      "default": true
+    },
+    "when_idle": {
+      "description": "Due when the machine is idle (no executor running, load low) and at least min_changes have accumulated: the run has stopped to wait.",
+      "type": "boolean",
+      "default": true
+    },
+    "min_changes": {
+      "description": "The fewest changes (merges plus decisions) that make a digest worth sending on the owner's presence or an idle machine.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 1
+    },
+    "silence_max_hours": {
+      "description": "The longest the owner goes without a digest while a run is active or something changed. A ceiling on silence, not a schedule: a digest sent for any other reason restarts it.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 48
+    }
+  },
+  "additionalProperties": false
+}

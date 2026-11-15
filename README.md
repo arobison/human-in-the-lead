@@ -111,7 +111,7 @@ Detail: [execution](docs/design/0001-human-in-the-lead/05-execution.md) and [met
 - **Continuity.** The orchestrating session's context fills and gets summarized, so the run's state lives in a file, checkpointed at clean points. A fresh session on either machine resumes exactly where the last one stopped, and an eval kills and resumes one mid-run to prove it.
 - **Environment.** A resource manager creates, sets up and cleans up worktrees, hands out dev-server ports without ever stopping a server it did not start, locks serial resources like the GPU, and injects secrets into the one process that needs them, never into an agent's context.
 - **Integration.** The merge queue keeps `main` green: dependency order, a full test run per batch, bisection on failure, conflicts regenerated or sent back, flaky tests quarantined rather than blamed. CI on GitHub Actions and special runners comes later.
-- **Scheduling.** Recurring work nobody prompts (intake, digests, nightly baselines, sweeps for stale items, stale knowledge and flaky tests, quota checks) runs on a schedule, mostly as plain commands that cost no model tokens.
+- **Recurring work on evidence.** Work nobody prompts (digests, reports, baselines, evals, calibration reviews, and later intake and sweeps) runs when enough has changed, when the owner is there, or when the machine is idle, not on the calendar. `hitld cadence due` says what is due and why, mostly as plain commands that cost no model tokens.
 
 Detail: [operations](docs/design/0001-human-in-the-lead/13-operations.md) and [integration](docs/design/0001-human-in-the-lead/14-integration.md).
 

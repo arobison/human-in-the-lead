@@ -7,13 +7,16 @@
 //   - a category is below its floor in eval.category_floors, whatever the baseline says;
 //   - a scenario's tokens rise beyond eval.tokens_tolerance of the baseline's.
 // Scenarios the baseline has not seen are noted, not failed: they are new coverage.
+// The verdict says which baseline it used: the one committed in the repository, or the private
+// store's (see findBaseline in results.mjs).
 // Wall time is recorded but never gated: it varies with the machine.
 
 /**
  * @typedef {Record<string, any>} EvalResult
  * @typedef {{ category_floors: Record<string, number>, score_tolerance: number, tokens_tolerance: number }} Thresholds
  * @typedef {{ kind: string, subject: string, message: string }} GateFailure
- * @typedef {{ ok: boolean, baseline: string | null, failures: GateFailure[], notes: string[] }} GateVerdict
+ * @typedef {{ ok: boolean, baseline: string | null, baseline_source: 'committed' | 'private-store' | null, failures: GateFailure[], notes: string[] }} GateVerdict
+ * @typedef {{ source: 'committed' | 'private-store' | null, path: string }} BaselineOrigin
  */
 
 /** @param {{ id: string, profile: string }} s */
@@ -23,8 +26,9 @@ const keyOf = (s) => `${s.id}@${s.profile}`;
  * @param {EvalResult} current
  * @param {EvalResult | null} baseline
  * @param {Thresholds} thresholds
- * @param {{ inScope?: (scenarioId: string) => boolean }} [options]
- *   inScope: which baseline scenarios this run was meant to cover, for a partial run
+ * @param {{ inScope?: (scenarioId: string) => boolean, origin?: BaselineOrigin }} [options]
+ *   inScope: which baseline scenarios this run was meant to cover, for a partial run;
+ *   origin: where the baseline came from, and where a committed one for these settings would be
  * @returns {GateVerdict}
  */
 export function compareToBaseline(current, baseline, thresholds, options = {}) {
@@ -49,9 +53,18 @@ export function compareToBaseline(current, baseline, thresholds, options = {}) {
 
   if (!baseline) {
     notes.push(
-      'no baseline for these settings: nothing to compare with; floors and scenario results still apply. A baseline is recorded with --accept-baseline, by the owner.',
+      `no baseline for these settings: nothing to compare with; floors and scenario results still apply. The owner accepts one with hitld eval accept, which writes ${options.origin?.path ?? 'evals/baselines/<mode>-<settings hash>.json'} for the owner to commit`,
     );
-    return { ok: failures.length === 0, baseline: null, failures, notes };
+    return { ok: failures.length === 0, baseline: null, baseline_source: null, failures, notes };
+  }
+
+  const source = options.origin?.source ?? null;
+  if (source === 'committed') {
+    notes.push(`baseline ${baseline.id}: the one committed in ${options.origin?.path}`);
+  } else if (source === 'private-store') {
+    notes.push(
+      `baseline ${baseline.id}: from this machine's private store; none is committed for these settings, so CI and other machines have no baseline`,
+    );
   }
 
   if (baseline.plugin.version !== current.plugin.version) {
@@ -130,7 +143,13 @@ export function compareToBaseline(current, baseline, thresholds, options = {}) {
     }
   }
 
-  return { ok: failures.length === 0, baseline: baseline.id, failures, notes };
+  return {
+    ok: failures.length === 0,
+    baseline: baseline.id,
+    baseline_source: source,
+    failures,
+    notes,
+  };
 }
 
 /** @param {number} n */

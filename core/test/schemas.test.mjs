@@ -50,6 +50,14 @@ const examples = {
       seven_day: { used_percentage: 17, resets_at: 1794900000 },
     },
   },
+  // Part 13.3: what each recurring job last read, as `hitld cadence done` writes it.
+  'cadence-state': {
+    schema_version: 1,
+    jobs: {
+      digest: { at: '2026-11-14T12:00:00Z', through: 'E-41', trust_through: 7 },
+      'review:owner': { at: '2026-11-14T12:00:00Z', trust_through: 9 },
+    },
+  },
   // Part 13.4: the person file, with a declared limit and a share between projects.
   person: {
     schema_version: 1,

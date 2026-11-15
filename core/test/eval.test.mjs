@@ -32,6 +32,7 @@ import {
   writeSandboxFile,
 } from '../lib/eval/util.mjs';
 import { LiveNotBuilt, runLive } from '../lib/eval/live.mjs';
+import { commitAll, repoOnMain } from './eval-git.mjs';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-test-'));
 
@@ -47,11 +48,15 @@ function workspace(scenarios) {
   mkdirSync(dir, { recursive: true });
   const env = { XDG_DATA_HOME: tmp() };
   for (const [name, s] of Object.entries(scenarios)) write(cwd, name, s);
+  repoOnMain(cwd); // a baseline is accepted only from a run on main with a clean tree
   return {
     cwd,
     env,
     /** @param {string} name @param {Record<string, unknown>} s */
-    write: (name, s) => write(cwd, name, s),
+    write: (name, s) => {
+      write(cwd, name, s);
+      commitAll(cwd);
+    },
     /** @param {Record<string, unknown>} [more] */
     run: (more = {}) => evalOffline({ cwd, env, evalsDir: 'evals', ...more }),
   };
