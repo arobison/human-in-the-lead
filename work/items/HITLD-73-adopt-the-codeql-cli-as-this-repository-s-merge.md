@@ -7,6 +7,7 @@ created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-63]
 claimed: D-73
+changelog: "This repository's merge queue runs CodeQL 2.27.4 as its scanner, from the primary checkout; scanners get `HITLD_PRIMARY_ROOT`, so a branch cannot change the scanner that checks it."
 ---
 
 ## Why
