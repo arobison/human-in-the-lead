@@ -1,0 +1,22 @@
+{
+  "$id": "policy/store",
+  "title": "policy.json: store",
+  "description": "The private store's remote (design 0003, section 11). It is committed so a fresh cloud container finds the remote without anyone running a command. The address is not a secret: no password goes in it, and credentials come from the session's own git access. A machine can override it with `hitld store remote set` (kept in that machine's private store, never committed).",
+  "type": "object",
+  "properties": {
+    "remote": {
+      "description": "Where the private store's encrypted bundles are kept between machines.",
+      "type": "object",
+      "properties": {
+        "url": {
+          "description": "The store repository: https://host/owner/repo.git, ssh://git@host/owner/repo.git, user@host:path or an absolute path. Checked when it is used (core/lib/store/remote-git.mjs, checkRemoteUrl): no password, no plain http, no transport helper. Null: no remote is set here.",
+          "type": ["string", "null"],
+          "maxLength": 2048,
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

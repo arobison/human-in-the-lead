@@ -70,6 +70,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
+| `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the project's devices; the address is `store.remote.url` in `policy.json`, which a machine may override ([design 0003](../0003-private-store-remote.md)) |
 | `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its reason, draft notes, items that changed public surface without a `release_note` line, unmet gates ([3.2](03-data-model.md#release)) |
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
@@ -238,6 +239,16 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `remote-argument-invalid`: An argument to the remote is not valid.
 - `remote-dir-invalid`: The local directory for the remote is not usable.
 - `remote-git-failed`: A git command against the remote failed.
+
+**Pushing and pulling the store**
+
+- `no-remote`: No remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine.
+- `not-enrolled`: This device is not on the project's device list, so it cannot push until its enrolment is merged.
+- `not-a-recipient`: The push would not be encrypted to this device's own key, so this device could not open it afterwards.
+- `nothing-to-push`: The store holds no text to push yet.
+- `remote-not-format-2`: The remote's head is not an age file; nothing writes another format to a remote.
+- `remote-config-invalid`: This machine's remote override file is damaged.
+- `sync-state-invalid`: The file that records what this store last merged from the remote is damaged.
 
 **Secrets and the environment**
 

@@ -150,6 +150,15 @@ Sync is part of `hitld` commands that already run at the right moments, so no ag
 
 **Offline.** Work continues on the local copy. The next push carries it. A machine that has been offline merges like any other.
 
+**As built: push, pull and status.** The code is `core/lib/store/push-pull.mjs`.
+
+- **The address.** The project's address is `store.remote.url` in `policy.json` (schema `schemas/policy/store.schema.json`). It is committed, so a fresh cloud container finds the remote with the checkout and nothing is run first. It is not a secret: a password in it is refused, and credentials come from the session's own git access. Policy loading checks it with `checkRemoteUrl`, and a bad address is a policy error. A machine may override it, for a mirror say: `hitld store remote set <url>` records the override in `<store>/.git/hitld-remote.json`, which is machine-local (inside the store's `.git`, which no commit or bundle carries) and wins over the policy. `hitld store remote clear` removes it. `remote set` does not write `policy.json` by default; it prints the change to commit (`policy_change`), and `--policy` writes it into `policy.json` for the owner to review and commit. `remote show` and `status` say which source the address came from (`policy` or `machine`).
+- **What was merged.** Pull and push record the remote version they last merged or pushed, the local commit it holds and the address it was on, in `<store>/.git/hitld-sync.json`. It is machine-local and not in the policy: a fresh container has none, so its first `hitld store pull` fetches the head and merges it. The next push uses the recorded version as the head it expects. A record made against another address is not used.
+- **Push.** It commits the store's text, seals it as format 2 to the recipients, and pushes with compare and swap. If the remote has moved, it fetches the new head, merges it as `store import` does, seals again and retries, up to four times. A real conflict stops it, names the paths and changes nothing. A device that is not enrolled, or whose own key is not among the recipients, is refused before anything is sent.
+- **Pull.** It fetches the head and opens it with this device's key. An empty remote, or a head already merged, changes nothing. A key that does not open the file is refused and nothing is written.
+- **Status.** It reports the address and its source, the local commit and the remote version, the version last merged, whether a push or a pull is due, and this device's enrolment. A remote that cannot be reached is reported in the result, not raised. It commits nothing.
+- **Keys.** Recipients and the private key come from `resolveDevices` (`core/lib/store/devices-port.mjs`) and nowhere else. The private key comes from `HITLD_STORE_IDENTITY` or `--identity-fd`, never an argument, and is never printed.
+
 **What can still be lost.** A cloud session killed between two pushes loses what it recorded after the last one. Pushing at each checkpoint keeps that window to one step of work.
 
 ## 9. Security limits
@@ -178,7 +187,7 @@ Format 1 stays readable for `hitld store import`; nothing writes it to a remote.
 
 All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-and-compatibility):
 
-- **Commands:** `hitld store device init | list | remove`, `hitld store remote set | show`, `hitld store push`, `hitld store pull` and `hitld store status`. Each refuses executors. Each is an entry in the command table, so the MCP server gets the read-only ones.
+- **Commands:** `hitld store device init | list | remove`, `hitld store remote set | clear | show`, `hitld store push`, `hitld store pull` and `hitld store status`. Each refuses executors. Each is an entry in the command table, so the MCP server gets the read-only ones.
 - **Files:** `.human-in-the-lead/store-devices.json` (public keys, schema-checked, in the repository) and a `store.remote` section in `policy.json` (the transport and its address; no credentials).
 - **The store export format** gains format 2 (section 10).
 - **Run commands** (`run start`, `run resume`, checkpoints, `handover`) pull and push when a remote is set, and report what they did.

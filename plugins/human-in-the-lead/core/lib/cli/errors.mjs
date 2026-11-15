@@ -163,6 +163,20 @@ export const ERROR_CODES = Object.freeze({
   'remote-dir-invalid': 'The local directory for the remote is not usable.',
   'remote-git-failed': 'A git command against the remote failed.',
 
+  // Pushing and pulling the store
+  'no-remote':
+    'No remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine.',
+  'not-enrolled':
+    "This device is not on the project's device list, so it cannot push until its enrolment is merged.",
+  'not-a-recipient':
+    "The push would not be encrypted to this device's own key, so this device could not open it afterwards.",
+  'nothing-to-push': 'The store holds no text to push yet.',
+  'remote-not-format-2':
+    "The remote's head is not an age file; nothing writes another format to a remote.",
+  'remote-config-invalid': "This machine's remote override file is damaged.",
+  'sync-state-invalid':
+    'The file that records what this store last merged from the remote is damaged.',
+
   // Secrets and the environment
   'secret-missing': 'No value is stored for a secret the task needs.',
   'spawn-failed': 'The task process could not start.',
