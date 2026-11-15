@@ -2,10 +2,12 @@
 id: HITLD-113
 title: "The store's address and device list live outside the project repository"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-113
 needs: [HITLD-107]
+release_note: "The store remote's address is read from `HITLD_STORE_REMOTE`, the person file or a machine override, never from the project repository; `policy.json` keeps only `store.remote.required`, and a committed `store.remote.url` or device list is refused. Enrolling or removing a device is a decision only the owner answers: `hitld store device init` files a request, `hitld store device ask` asks the owner, and the approved devices are recorded inside the encrypted store. The person file is schema version 3."
 ---
 
 ## Why
