@@ -89,9 +89,32 @@ The owner's conversation does not move: the chief of staff tells the owner in on
 
 `hitld run status` reads the lease without taking it: who holds it, the session's harness reference (`--harness-ref` on `run start` and `run resume`), whether it is free, whether its hand-over is due, and the latest hand-over note. When the lease is free, the chief of staff starts a successor instead of waking anyone.
 
-**Only the chief of staff owns scheduled tasks.** An orchestrator creates no scheduled task, reminder or subscription. So a retired orchestrator leaves none behind, and a successor inherits the schedule without doing anything. A command result that asks for a later wake (for example, dispatch paused until a usage window resets) goes to the chief of staff, which schedules it. The watchdog for stalled executors (planned) runs on the same schedule.
+**Only the chief of staff owns scheduled tasks.** An orchestrator creates no scheduled task, reminder or subscription. So a retired orchestrator leaves none behind, and a successor inherits the schedule without doing anything. A command result that asks for a later wake (for example, dispatch paused until a usage window resets) goes to the chief of staff, which schedules it. The watchdog for stalled executors runs on the same schedule (below).
 
 **When one session is both.** A harness that cannot start sessions, or a person who prefers one session, keeps the main session as both chief of staff and orchestrator. It hands over the same way and gives the owner the note; the owner starts the fresh session.
+
+### The watchdog and resuming after limits
+
+Two things can stop a run without anyone noticing: an executor that hangs without reporting, and a usage limit that pauses dispatch until its window resets. Both are handled on the chief of staff's schedule, by a script, so neither waits for the owner or for an orchestrator to be replaced.
+
+**The check-in runs the watchdog.** The chief of staff's hourly check-in runs `hitld dispatch watch` ([part 5](05-execution.md#the-watchdog)). It samples each executor's worktree, reads the progress the adapter recorded, and says which dispatches are stalled and the next step of the ladder for each, and whether a quota pause is due to lift. It reads the ledger and records nothing there, and it uses no model tokens. When something is due, it prints `wake: true` and a one-line `wake_message`, which the chief of staff sends to `wake_to`. Otherwise the check-in ends there.
+
+**The orchestrator acts.** Woken, the orchestrator runs `hitld dispatch watch --act`, which only the session holding the lease may run. It records each step in the ledger and prints what to do: the message for a poke, the stop and the follow-up call for a continued agent, the item to re-plan after an abandonment, the question for the owner after repeated failures. It then plans the refill.
+
+**A pause wakes at its reset.** When the quota gate pauses dispatch, the orchestrator ends its turn with `wake_at: <reset> quota reset`, and `hitld run status` shows the same time as `wake_at` ([part 12](12-reporting-and-limits.md#pausing-and-resuming)). The chief of staff schedules one wake for it, bound to its own session like every scheduled task. At the wake, `hitld dispatch watch --act` records the resume once the gate allows dispatch, and continues the executors the limit cut off as follow-ups. When the person raises their budget with `hitld config write` and the output says the pause lifts, the chief of staff wakes the orchestrator at once.
+
+**Harness mappings.** The core decides the step; the skills say which tool carries it out:
+
+| Step | Background agent (tiers 1–2) | Headless run (tier 3) | Interactive session (tier 3) |
+|---|---|---|---|
+| Poke | The orchestrator messages the agent (in Claude Code, `SendMessage`) | Not possible while it runs | The chief of staff messages the session |
+| Follow-up | The orchestrator stops the agent's turn, then continues it with the follow-up | Not offered: continuing needs the session the run's result names | Not offered |
+| Abandon | The orchestrator stops the agent if it still runs | The orchestrator stops the process (its ID is recorded) | The chief of staff ends the session |
+| Ask | `hitld rights ask`, delivered through the attention budget ([part 23](23-people-in-the-lead.md#235-the-interface-as-a-design-surface)) | The same | The same |
+
+**When one session is both,** it runs the watchdog itself at its check-in and acts on it in the same turn.
+
+**Eval.** Two offline scenarios cover this. In `orchestrator/watchdog-ladder` a fake executor hangs, and the watchdog pokes it, continues it, abandons it and re-dispatches the item, which then reports done, without the owner. In `orchestrator/quota-pause-resume` dispatch pauses at the reserve with its reset time, holds the quiet executor until the reset, then resumes and continues the executor the limit cut off.
 
 ### Mapping onto harnesses
 

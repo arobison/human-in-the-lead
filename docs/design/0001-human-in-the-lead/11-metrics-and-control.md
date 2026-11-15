@@ -39,6 +39,7 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 | **Review yield per token** | Confirmed findings per review token; the same for adversarial passes | Ledger |
 | **Mutation score on changed lines** | Killed mutants over all mutants in changed code | Verification output |
 | **Flake rate** | Test failures that pass on rerun with no change, over all failures | Per-test history from the test reporter ([part 14.7](14-integration.md#147-flaky-tests)), merge queue logs |
+| **Stall rate** | Share of executor dispatches the watchdog found stalled ([part 5](05-execution.md#the-watchdog)), by model, tier and area, with the ladder steps taken. Executors cut off by a usage limit are counted apart: the limit is not the executor's failure. `hitld ledger summary` reports it | Ledger |
 
 ### Attention and relationships
 
@@ -104,6 +105,8 @@ Seven controllers: the five below, merge batch size and the flake comparison run
 | **Budget** (quotas, including the run token budget) | Headroom above the owner's reserve for every quota, and projected exhaustion against each window's reset ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)) | Model and tier choice; concurrency; which items may be dispatched; whether to dispatch at all | Economize below `quota.economize_below` (cheaper models where sizing allows, lower concurrency); critical-path only below `quota.critical_below`; stop autonomous dispatch at the reserve; ask the owner before exceeding any `hard` quota | Critical-path progress; first-pass yield (economizing must not cost more in retries than it saves) |
 | **Merge batch size** | Batch failure rate and bisection cost ([part 14](14-integration.md#146-measures)) | `merge.batch_max` | Smaller after failures, so bisection is cheaper; larger after a run of clean batches | Queue wait |
 | **Flake comparison runs** | Flake rate, and how often a comparison was inconclusive ([part 14.7](14-integration.md#147-flaky-tests)) | `flake.compare_runs`, below a ceiling in `policy.json` | More runs when comparisons are inconclusive; fewer after a run of clear ones | Flake cost |
+
+**Stalls feed the sizing controller.** A dispatch the watchdog found stalled counts as a miss in first-pass yield at its tier, whatever happened after. So an item type that keeps stalling at a tier is not taken down to it for familiar ground.
 
 The concurrency and budget controllers act on one project's settings, but the caps and quotas they work under are shared. The person's appetite for parallel agents and the machine's maximum apply across every project on the machine, and the person's limits and reserve apply across every machine; the strictest layer wins ([part 13](13-operations.md#134-settings-in-four-layers)).
 

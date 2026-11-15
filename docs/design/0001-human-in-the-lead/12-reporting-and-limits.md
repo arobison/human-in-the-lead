@@ -89,6 +89,7 @@ Each limit is a **quota**:
 | `confidence` | How far to trust the current value, from its source and age |
 | `hard` | Whether exceeding it needs the owner's approval first |
 | `reserve` | The share kept back for the owner's own interactive use |
+| `resets_at` | Optional: a time the window is known to reset, as the person declares it; later resets follow one window length apart. Used when no reading gives the reset |
 
 The existing run token budget becomes a quota with `window: run`.
 
@@ -125,6 +126,16 @@ Quotas are **constraints for the controllers**. The budget controller ([part 11]
 - **The owner's reserve is never spent by autonomous work.** The default reserve is 25% of each window, set in the person file ([13.4](13-operations.md#134-settings-in-four-layers)); it stays available so an autonomous run never locks the owner out of their own interactive use (decided: [Q11](22-open-questions.md#q11-how-large-is-the-owners-reserve-on-each-account-limit)).
 - **Threshold notifications** at `quota.notify_used` levels go into the digest; a projected exhaustion before reset, or reaching the reserve, is an interrupt.
 - **Hard budgets need a yes.** Limits that cost money are hard: before any action that would exceed one (paid overage, API spend), the system asks the person and waits. Plan windows are soft, with the reserve (decided: [Q12](22-open-questions.md#q12-which-limits-are-hard)).
+
+### Pausing and resuming
+
+A stop at the reserve is a pause, not an end. Nothing else wakes the run when the window resets, so the pause says when it will.
+
+- **Recorded with its reset.** When the gate stops dispatch for every item, the session holding the lease records `paused` in the ledger: the limit that stopped it, the gate's reason, and when that limit's window resets. The reset comes from the latest reading (the status line's `resets_at`) or, without one, from the limit's declared `resets_at`. An item held because its own estimate would cross the reserve is a hold, not a pause.
+- **A wake at the reset.** `hitld dispatch plan` gives the reset as `wake_at`, and `hitld run status` shows it, so the chief of staff schedules one wake for that time ([part 13](13-operations.md#the-watchdog-and-resuming-after-limits)). When no reset time is known, the chief of staff's hourly check-in looks again.
+- **Resumed.** At the wake the orchestrator re-plans. The gate decides from the next reading; once it no longer stops dispatch, the run records `resumed` with reason `reset`.
+- **A raised budget re-plans at once.** When the person raises a limit or lowers their reserve with `hitld config write`, the command says whether the new settings lift the pause. If they do, the chief of staff wakes the orchestrator straight away, and its plan records `resumed` with reason `budget`, without waiting for the reset.
+- **Executors cut off by the limit.** An executor that stopped because the account reached its limit is found by the watchdog after the reset and continued as a follow-up ([part 5](05-execution.md#the-watchdog)). Until the reset, the watchdog does not count quiet executors as stalled.
 
 ### Privacy
 

@@ -79,10 +79,17 @@ export const MATRIX = Object.freeze([
   },
   {
     function: 'hooks',
-    how: 'Plugin hooks: SessionStart (puts hitld on PATH, prints the plugin path and version), SubagentStop and Stop (report shape check for executors), PreToolUse (guard: executors never push)',
+    how: 'Plugin hooks: SessionStart (puts hitld on PATH, prints the plugin path and version), SubagentStop and Stop (report shape check for executors), PreToolUse (guard: executors never push), PostToolUse (each executor tool call is a progress signal for the watchdog)',
     source: 'documented',
     notes:
       'Plugin agents cannot carry their own hooks, so the hooks identify executors by agent_type or HITLD_DISPATCH',
+  },
+  {
+    function: 'progress',
+    how: "For the watchdog (hitld dispatch watch): the PostToolUse hook records each executor tool call, by agent_id for a subagent and HITLD_DISPATCH for a headless run; the watch samples the branch and worktree, and a headless run's process ID (written by its command) and output. Tokens arrive only with the completion",
+    source: 'contract',
+    notes:
+      'A subagent hook input carries agent_id; the watch matches it to the harness_ref hitld dispatch handle recorded, which must be the same agent ID',
   },
   {
     function: 'executor identity',
