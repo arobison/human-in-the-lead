@@ -141,11 +141,11 @@ These shape a format or a default that the first release (v0.1.0, HITLD-24) woul
 
 ### Q18. What unit is value measured in? (blocks Shaping and prioritization)
 
-*Decided: relative points 1, 2, 3, 5, 8 and 13, compared within a milestone, never across.* A contribution's value is relative to the other contributions of the same milestone ([part 3](03-data-model.md#milestone)).
+*Decided: the project's own value units, a positive number.* A contribution's value has the same meaning as an opportunity's value ([part 2](02-loops.md#23-shaping), [part 3](03-data-model.md#milestone)). 1, 2, 3, 5, 8 and 13 are quick choices, not the only values.
 
 Prioritization divides cost of delay by size, so value needs a unit ([part 1](../0001-human-in-the-lead.md#13-the-objective)).
 
-- **Recommend: relative value points on a fixed scale** (1, 2, 3, 5, 8, 13), set at shaping and calibrated against the owner's bets and later outcomes.
+- **Chosen: a number in the project's value units**, set at shaping and calibrated against the owner's bets and later outcomes. A rank divided by tokens looks precise and is not, so value is a ratio-scale quantity.
 - **Alternative: a money-like unit** (estimated value per period of delay). More meaningful for cost of delay, harder to estimate for platform and research work, and closer to commercial matters this public repository should not hold.
 
 ### Q26. What share of a machine may `hitld` use by default? (affects the machine profile `hitld machine detect` proposes)

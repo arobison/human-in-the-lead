@@ -8,7 +8,9 @@
 //   done_when:     "c1: <text>"
 //   needs:         "<ID> c1"          a constraint linked to clause c1
 //                  "<ID> c?"          a constraint still to be linked to a clause at shaping
-//   serves:        "<ID> value=<1|2|3|5|8|13> confidence=<0 to 1>"
+//   serves:        "<ID> value=<number above 0> confidence=<0 to 1>"
+//                  value is in the project's value units (design part 2), as an opportunity's is;
+//                  1, 2, 3, 5, 8 and 13 are quick choices, not the only values
 //   check:         "<demo|integration-test|study> <target>"
 //   check_results: "<pass|fail|verdict> <YYYY-MM-DD> <role>: <evidence>"
 //   deadline:      "<YYYY-MM-DD> <source>"
@@ -19,7 +21,6 @@
 
 export const MILESTONE_KINDS = ['capability', 'learning'];
 export const MILESTONE_STATES = ['Proposed', 'Planned', 'Done', 'Dropped'];
-export const VALUE_POINTS = [1, 2, 3, 5, 8, 13];
 export const CHECK_KINDS = ['demo', 'integration-test', 'study'];
 export const CHECK_RESULTS = ['pass', 'fail', 'verdict'];
 /** The clause marker of a constraint still to be linked at shaping. */
@@ -67,12 +68,12 @@ export function parseConstraint(s) {
 export function parseContribution(s) {
   const m = /^(\S+)\s+value=(\S+)\s+confidence=(\S+)$/.exec(String(s).trim());
   if (!m || !ID.test(m[1])) {
-    return { error: `"${s}" isn't "<ID> value=<points> confidence=<0 to 1>"` };
+    return { error: `"${s}" isn't "<ID> value=<number above 0> confidence=<0 to 1>"` };
   }
   const value = Number(m[2]);
   const confidence = Number(m[3]);
-  if (!VALUE_POINTS.includes(value)) {
-    return { error: `${m[1]}: value ${m[2]} isn't one of ${VALUE_POINTS.join(', ')}` };
+  if (!/^\d+(\.\d+)?$/.test(m[2]) || !(value > 0) || !Number.isFinite(value)) {
+    return { error: `${m[1]}: value ${m[2]} isn't a number above 0` };
   }
   if (!/^(0(\.\d+)?|1(\.0+)?)$/.test(m[3])) {
     return { error: `${m[1]}: confidence ${m[3]} isn't a number from 0 to 1` };

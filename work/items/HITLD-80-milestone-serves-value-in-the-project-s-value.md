@@ -2,10 +2,11 @@
 id: HITLD-80
 title: "Milestone serves: value in the project's value units with a confidence, not a Fibonacci rank"
 kind: work
-status: In progress
+status: Done
 created: 2026-11-15
 project: HITLD-15
 claimed: D-80
+changelog: A milestone `serves` value is any positive number in the project's value units, not only 1, 2, 3, 5, 8 or 13; scope ranks contributions by value times confidence per token.
 ---
 
 ## Why

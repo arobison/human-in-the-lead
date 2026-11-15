@@ -70,13 +70,13 @@
       }
     },
     "serves": {
-      "description": "Contributions: items that add to the outcome. Stored as \"<ID> value=<points> confidence=<0 to 1>\". Points are compared within one milestone, never across milestones.",
+      "description": "Contributions: items that add to the outcome. Stored as \"<ID> value=<number above 0> confidence=<0 to 1>\". Value is in the project's value units, the same as an opportunity's value; 1, 2, 3, 5, 8 and 13 are quick choices, not the only values.",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "id": { "$ref": "common#/$defs/id" },
-          "value": { "enum": [1, 2, 3, 5, 8, 13] },
+          "value": { "type": "number", "exclusiveMinimum": 0 },
           "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
         },
         "required": ["id", "value", "confidence"],

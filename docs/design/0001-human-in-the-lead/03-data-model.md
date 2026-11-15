@@ -199,7 +199,7 @@ A checkable future state with its own "done when" (principle 2 in [3.0](#30-prin
 | `outcome` | stored | One sentence: the state for users, or the question answered |
 | `done_when` | stored | Clauses, each with a short ID (`c1`, `c2`). Outcome predicates for users where possible ("a new user installs the plugin and dispatches a first item without help"), not lists of outputs. A learning milestone's clause names the study whose verdict settles it |
 | `needs` | stored | **Constraints**: items, or other milestones, without which a clause cannot be true, each linked to that clause. Logical necessity derived from the outcome, not a priority label |
-| `serves` | stored | **Contributions**: items that add to the outcome, each with a `value` in relative points (1, 2, 3, 5, 8 or 13, [Q18](22-open-questions.md#q18-what-unit-is-value-measured-in-blocks-shaping-and-prioritization)) and a `confidence`. Points are compared within one milestone, never across milestones. A learning item's value is the value of information |
+| `serves` | stored | **Contributions**: items that add to the outcome, each with a `value` and a `confidence`. The value is a positive number in the project's value units ([2.3](02-loops.md#23-shaping), [Q18](22-open-questions.md#q18-what-unit-is-value-measured-in-blocks-shaping-and-prioritization)), the same unit as an opportunity's value, so the milestone's scope can rank contributions by value per token. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering it, not the only values. A learning item's value is the value of information |
 | `appetite_tokens` | stored | What the milestone is worth. A project's milestones share its appetite; an item counted in several counts once |
 | `deadline` | stored, optional | An external date (an event, a dependency's end of support) with its source, held as a fixed-date cost-of-delay profile. Never an internal estimate ([1.5](../0001-human-in-the-lead.md#15-durations)) |
 | `check` | stored | The independent check that the outcome holds: `demo` (a script run by someone other than the items' authors), `integration-test` (a test path) or `study` (a study ID). Each result is recorded with its evidence |
@@ -503,7 +503,7 @@ The front matter holds strings and lists of strings only, so each structured mil
 |---|---|
 | `done_when` | `c1: <text>` |
 | `needs` | `<ID> c1` (a constraint linked to clause `c1`), or `<ID> c?` (to be linked at shaping) |
-| `serves` | `<ID> value=<1, 2, 3, 5, 8 or 13> confidence=<0 to 1>` |
+| `serves` | `<ID> value=<number above 0> confidence=<0 to 1>` |
 | `check` | `<demo, integration-test or study> <target>` |
 | `check_results` | `<pass, fail or verdict> <YYYY-MM-DD> <role>: <evidence>`, oldest first |
 | `deadline` | `<YYYY-MM-DD> <source>` |
