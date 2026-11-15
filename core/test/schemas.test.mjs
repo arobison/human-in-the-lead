@@ -280,6 +280,10 @@ const examples = {
     at: '2026-11-14T03:00:00Z',
     prev_hash: null,
   },
+  quarantine: {
+    schema_version: 1,
+    tests: [{ id: 'cart > totals', expires: '2026-11-29', fix_item: 'HITLD-140' }],
+  },
   study: {
     schema_version: 1,
     id: 'PS-1',

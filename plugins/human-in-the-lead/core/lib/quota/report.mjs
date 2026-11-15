@@ -128,14 +128,19 @@ export function buildReport({
 
 /** @typedef {ReturnType<typeof buildReport>} Report */
 
-const MODE_LABEL = {
+export const MODE_LABEL = {
   normal: 'Normal dispatch',
   economize: 'Economize',
   critical_path_only: 'Critical path only',
   stop: 'Stopped at the reserve',
 };
 
-/** The text digest: one phone screen, facts only. @param {Report} r @returns {string} */
+/**
+ * The quota and spend lines on their own: one phone screen, facts only. `hitld dashboard` writes
+ * the digest of core/lib/digest, which has the same quota lines beside the owner's questions and
+ * news; this is what it falls back to when a project's decisions cannot be read.
+ * @param {Report} r @returns {string}
+ */
 export function renderDigest(r) {
   const lines = [`${r.project}: quotas and spend, ${r.generated_at}`, ''];
   lines.push(`Dispatch: ${MODE_LABEL[r.gate.mode]}.`);
