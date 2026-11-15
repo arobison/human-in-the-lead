@@ -2,9 +2,11 @@
 id: HITLD-121
 title: "American English throughout: prose, messages, identifiers, and a spelling check"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-121
+release_note: "American English throughout: docs, skills, messages and identifiers. Renamed with no fallback: `hitld rights judgement weigh` and `judgement conflict` are now `hitld rights judgment weigh` and `judgment conflict`, their input keys `judgements` and `judgement` are `judgments` and `judgment`, the result fields `needs_judgement` and `conflicts[].judgement` are `needs_judgment` and `conflicts[].judgment`, and the eval action `judgement.weigh` is `judgment.weigh`. The `policy.json` section `judgement` is read as `judgment` with a warning for one minor release, and store device approvals written as `enrol` are read as `enroll`. `npm run check` now refuses British spellings."
 needs: [HITLD-119]
 ---
 

@@ -181,9 +181,9 @@ test('the strictest rule that fires names the decider, and every rule that holds
   );
 });
 
-test('addressed_to is honoured only for a judgement conflict, and then only adds a decider', () => {
+test('addressed_to is honored only for a judgment conflict, and then only adds a decider', () => {
   const conflict = [trig('conflicting-evidence')];
-  // A genuine judgement conflict is also put to the person whose judgement it is.
+  // A genuine judgment conflict is also put to the person whose judgment it is.
   const owner = routeQuestion({ addressed_to: 'owner', triggers: conflict }, policy);
   assert.deepEqual(owner.deciders, ['owner']);
   assert.equal(owner.addressed, 'owner');

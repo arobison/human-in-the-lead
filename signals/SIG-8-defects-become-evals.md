@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Escaped defects and incidents become eval scenarios automatically."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

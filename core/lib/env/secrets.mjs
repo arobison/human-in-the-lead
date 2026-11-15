@@ -1,6 +1,6 @@
 // Secrets (design part 13.2): an agent never sees a value. A declared task (tasks.mjs) reads the
 // values it is granted, gives them to one child process through its environment, and filters the
-// child's output for them before anything is returned. The filter is defence in depth: what keeps
+// child's output for them before anything is returned. The filter is defense in depth: what keeps
 // a secret from an agent is that the agent cannot choose the command. Nothing here writes a value
 // anywhere: not the registry, not the event log, not the result.
 
@@ -79,7 +79,7 @@ export function splitCommand(line) {
 
 /**
  * Finds secret values in text and replaces them with [REDACTED:NAME]. Besides the value itself it
- * recognises the forms a program commonly prints: JSON-escaped, URL-encoded, base64, base64url and
+ * recognizes the forms a program commonly prints: JSON-escaped, URL-encoded, base64, base64url and
  * hex; and for a multi-line value, each line of at least six characters.
  * @param {Record<string, string>} secrets name to value
  */

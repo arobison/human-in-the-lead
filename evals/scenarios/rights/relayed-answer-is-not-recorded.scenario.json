@@ -23,7 +23,7 @@
           "rights",
           "ask",
           "--question",
-          "{\"title\":\"Add left-pad as a dependency?\",\"question\":\"May we add left-pad (MIT) as a runtime dependency?\",\"context\":\"The string padding in the report writer is hand-rolled and has two bugs.\",\"options\":[{\"label\":\"Add it\",\"what_happens\":\"one small dependency, MIT licensed\"},{\"label\":\"Hand-roll\",\"what_happens\":\"no dependency; we fix the bugs ourselves\"}],\"recommendation\":{\"option\":\"A\",\"why\":\"A permissive licence and a tiny surface.\"},\"triggers\":[{\"basis\":\"security\",\"reason\":\"it adds a dependency\"}],\"paths\":[\"package.json\"],\"item_kind\":\"work\",\"classification\":\"public\",\"reversibility\":\"two-way\",\"parent\":\"FX-1\"}"
+          "{\"title\":\"Add left-pad as a dependency?\",\"question\":\"May we add left-pad (MIT) as a runtime dependency?\",\"context\":\"The string padding in the report writer is hand-rolled and has two bugs.\",\"options\":[{\"label\":\"Add it\",\"what_happens\":\"one small dependency, MIT licensed\"},{\"label\":\"Hand-roll\",\"what_happens\":\"no dependency; we fix the bugs ourselves\"}],\"recommendation\":{\"option\":\"A\",\"why\":\"A permissive license and a tiny surface.\"},\"triggers\":[{\"basis\":\"security\",\"reason\":\"it adds a dependency\"}],\"paths\":[\"package.json\"],\"item_kind\":\"work\",\"classification\":\"public\",\"reversibility\":\"two-way\",\"parent\":\"FX-1\"}"
         ]
       }
     },

@@ -163,7 +163,7 @@ test("the approved set is the owner's answers: approved, then removed; a request
   recordApproval(store, {
     event: 'approved',
     decision: 'W-1',
-    action: 'enrol',
+    action: 'enroll',
     name: 'old',
     recipient: CLOUD.recipient,
     at: '2026-01-01T00:00:00.000Z',
@@ -177,7 +177,7 @@ test("the approved set is the owner's answers: approved, then removed; a request
 
 test('an answer to a device decision applies it: A approves or removes, anything else refuses; other decisions are left alone', () => {
   const store = freshStore();
-  /** @param {string} decision @param {'enrol' | 'remove'} action @param {string} name @param {{ recipient: string }} key */
+  /** @param {string} decision @param {'enroll' | 'remove'} action @param {string} name @param {{ recipient: string }} key */
   const ask = (decision, action, name, key) =>
     recordApproval(store, {
       event: 'asked',
@@ -188,8 +188,8 @@ test('an answer to a device decision applies it: A approves or removes, anything
       added: DAY,
       at: `2026-11-15T10:0${decision.slice(-1)}:00.000Z`,
     });
-  ask('W-1', 'enrol', 'example-laptop', LAPTOP);
-  ask('W-2', 'enrol', 'example-cloud', CLOUD);
+  ask('W-1', 'enroll', 'example-laptop', LAPTOP);
+  ask('W-2', 'enroll', 'example-cloud', CLOUD);
   assert.deepEqual(
     openDeviceAsks(readApprovals(store)).map((r) => r.decision),
     ['W-1', 'W-2'],
@@ -223,8 +223,49 @@ test('an answer to a device decision applies it: A approves or removes, anything
   assert.deepEqual(pendingRequests([device('example-cloud', CLOUD)], records), []);
 });
 
+test('approval lines written before HITLD-121 with the old spelling are read as enroll and never rewritten', () => {
+  const store = freshStore();
+  const line = (/** @type {Record<string, unknown>} */ r) => `${JSON.stringify(r)}\n`;
+  const old = {
+    decision: 'W-1',
+    action: 'enrol', // spelling-ok: the spelling the log held before HITLD-121
+    name: 'example-laptop',
+    recipient: LAPTOP.recipient,
+    added: DAY,
+  };
+  store.append(APPROVALS_KEY, line({ ...old, event: 'asked', at: '2026-11-15T10:00:00.000Z' }));
+  const before = store.read(APPROVALS_KEY);
+
+  const records = readApprovals(store);
+  assert.deepEqual(
+    records.map((r) => [r.event, r.action]),
+    [['asked', 'enroll']],
+  );
+  assert.equal(openDeviceAsks(records).length, 1);
+  // An answer bound to what the old question named still finds its device.
+  const binds = {
+    action: 'enrol', // spelling-ok
+    name: 'example-laptop',
+    fingerprint: fingerprint(LAPTOP.recipient),
+  };
+  const answered = applyDeviceAnswer(store, {
+    decision: 'W-1',
+    option: 'A',
+    at: '2026-11-15T11:00:00Z',
+    binds,
+  });
+  assert.deepEqual([answered?.event, answered?.action], ['approved', 'enroll']);
+  assert.deepEqual(
+    approvedDevices(readApprovals(store)).map((d) => d.name),
+    ['example-laptop'],
+  );
+  // The old line is as it was written: the log is append-only.
+  assert.ok(store.read(APPROVALS_KEY)?.startsWith(before ?? ''));
+  assert.match(store.read(APPROVALS_KEY) ?? '', /"action":"enrol"/); // spelling-ok
+});
+
 test('the device question names a fingerprint, not the device, goes to the owner and carries no default', () => {
-  const q = deviceQuestion('enrol', device('example-main-device', LAPTOP), 'W-1');
+  const q = deviceQuestion('enroll', device('example-main-device', LAPTOP), 'W-1');
   const text = JSON.stringify(q);
   assert.doesNotMatch(text, /example-main-device/);
   assert.doesNotMatch(text, new RegExp(LAPTOP.recipient));
@@ -294,7 +335,7 @@ test('a push from a device the owner has not approved is refused by name: device
   recordApproval(store, {
     event: 'asked',
     decision: 'W-5',
-    action: 'enrol',
+    action: 'enroll',
     name: 'x',
     recipient: STRANGER.recipient,
     at: '2026-11-15T10:00:00.000Z',
@@ -884,15 +925,15 @@ test('an answer that names no option changes nothing for a device decision', asy
   const store = p.storeOf(p.owner);
   const before = everythingAnAnswerChanges(p.root, store);
 
-  for (const answer of ['let me think about it', 'maybe, yes', 'enrol the other one', 'C']) {
+  for (const answer of ['let me think about it', 'maybe, yes', 'enroll the other one', 'C']) {
     const r = await hitld(['rights', 'answer', decision, '--answer', answer], p.root, p.owner);
     assert.equal(r.code, EXIT.failed, answer);
     assert.equal(r.json.error, 'answer-matches-no-option', answer);
     assert.deepEqual(
       r.json.options.map((/** @type {any} */ o) => [o.letter, o.label]),
       [
-        ['A', 'Enrol it'],
-        ['B', 'Do not enrol it'],
+        ['A', 'Enroll it'],
+        ['B', 'Do not enroll it'],
       ],
     );
     assert.equal(r.json.device, undefined, 'no device change is reported');
@@ -909,7 +950,7 @@ test('an answer that names no option changes nothing for a device decision', asy
     'still not a recipient',
   );
 
-  // "do not enrol it" holds the words of "enrol it" and means the opposite: it is B, not A.
+  // "do not enroll it" holds the words of "enroll it" and means the opposite: it is B, not A.
   const no = await hitld(
     ['rights', 'answer', decision, '--answer', 'do not enroll it'],
     p.root,
@@ -1153,7 +1194,7 @@ test('a device answer applies only to the device decision asked under its ID, ne
     at: '2026-11-15T12:30:00.000Z',
   });
 
-  // The answer is for the question shown: enrol example-tablet. The removal is not applied.
+  // The answer is for the question shown: enroll example-tablet. The removal is not applied.
   const yes = await hitld(
     ['rights', 'answer', asked.decision, '--answer', 'A', '--code', asked.check],
     p.root,
@@ -1208,7 +1249,7 @@ test('an answer to a device decision whose question changed under the same ID is
     path,
     readFileSync(path, 'utf8')
       .replace('Approve a store device', 'Remove a store device')
-      .replace('Enrol the store device', 'Remove the store device'),
+      .replace('Enroll the store device', 'Remove the store device'),
   );
   const changed = everythingAnAnswerChanges(p.root, store);
   const r = await hitld(

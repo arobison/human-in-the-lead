@@ -74,7 +74,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld data migrate` (planned) | Upgrade data files (`policy.json`, settings and private-store files; never the ledger) to the current schema versions |
 | `hitld config migrate` | Move settings out of `policy.json` into the person and machine files ([13.4](13-operations.md#moving-from-todays-policyjson)) |
 | `hitld store export / import / sync` | Move or sync the private store between machines as an encrypted bundle ([part 3](03-data-model.md#private-store)) |
-| `hitld store device init / ask / list / remove` | Enrol, list and remove the devices the private store is encrypted to: the key pair, the private key in the OS keychain or a cloud environment variable, the device's request on the store repository, and the device decisions only the owner's answer settles ([0003 section 6](../0003-private-store-remote.md#6-enrolling-and-removing-a-device)) |
+| `hitld store device init / ask / list / remove` | Enroll, list and remove the devices the private store is encrypted to: the key pair, the private key in the OS keychain or a cloud environment variable, the device's request on the store repository, and the device decisions only the owner's answer settles ([0003 section 6](../0003-private-store-remote.md#6-enrolling-and-removing-a-device)) |
 | `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the devices the owner approved; the address is `HITLD_STORE_REMOTE`, else the person file, else this machine's override, never `policy.json`; `remote set` puts the address and the repository's names on the private term list ([design 0003](../0003-private-store-remote.md#8-when-sync-runs)) |
 | `hitld release propose [--pre rc] [--item <id>]` | The interface delta since the last full release, the bump it proposes and its reason, draft notes, items that changed public surface without a `release_note` line, and the gates of the release item for the proposed version (the work item whose `release` is that version, or `--item`): each item or milestone it needs that is not done or dropped ([3.2](03-data-model.md#release)) |
 | `hitld release make [--version v] [--pre rc] [--decision <id>] [--item <id>]` | Write the release record and an annotated tag on `main`, refused while a gate of the release item for that version is open; the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
@@ -154,7 +154,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 
 **Decisions and precedents**
 
-- `invalid-question`: The question does not match its schema or normalise.
+- `invalid-question`: The question does not match its schema or normalize.
 - `incomplete-question`: The question does not stand alone; it lacks fields a decider needs.
 - `invalid-default`: The default if unanswered is not allowed here: not a two-way door, or not one of the options.
 - `invalid-decision`: The decision record or answer is not valid.
@@ -394,7 +394,7 @@ Known limits, from the documentation read on 2026-11-14: cloud sessions do not l
 
 ## 16.5 Releases and compatibility
 
-The plugin's **public interface** is: the executor contract; the report shape; the data schemas (items, decisions, precedents, signals, studies, ledger, `policy.json`, eval scenarios and results); the adapter interfaces; the `hitld` command's and MCP server's JSON; and the commit trailers. Semantic versioning applies to that interface. The adapter interface and capability set are public and labelled experimental until a second adapter proves their shape. The schemas of the person and machine files ([13.4](13-operations.md#134-settings-in-four-layers)) are part of it.
+The plugin's **public interface** is: the executor contract; the report shape; the data schemas (items, decisions, precedents, signals, studies, ledger, `policy.json`, eval scenarios and results); the adapter interfaces; the `hitld` command's and MCP server's JSON; and the commit trailers. Semantic versioning applies to that interface. The adapter interface and capability set are public and labeled experimental until a second adapter proves their shape. The schemas of the person and machine files ([13.4](13-operations.md#134-settings-in-four-layers)) are part of it.
 
 **While the version is 0.y.z** (before 1.0), a minor release may break formats or commands, and ships the migration for whatever it changes: `hitld data migrate` for data files, `hitld work migrate` for the tracker format. Patch releases never break. Minor and major releases are the owner's call; a patch release may follow a precedent the owner confirmed. The first tag is `v0.1.0`. The rules below apply from 1.0.
 

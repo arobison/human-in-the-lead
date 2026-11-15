@@ -74,7 +74,7 @@ export const ERROR_CODES = Object.freeze({
     'The name matches more than one presented branch, or a branch other than the item was dispatched on.',
 
   // Decisions and precedents
-  'invalid-question': 'The question does not match its schema or normalise.',
+  'invalid-question': 'The question does not match its schema or normalize.',
   'incomplete-question': 'The question does not stand alone; it lacks fields a decider needs.',
   'invalid-default':
     'The default if unanswered is not allowed here: not a two-way door, or not one of the options.',

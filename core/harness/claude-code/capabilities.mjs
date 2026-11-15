@@ -64,7 +64,7 @@ export const MATRIX = Object.freeze([
   },
   {
     function: 'usage',
-    how: 'Headless: usage and total_cost_usd in the JSON result (documented). Subagents: token, tool-use and duration counts in the notification, recorded when present and labelled undocumented',
+    how: 'Headless: usage and total_cost_usd in the JSON result (documented). Subagents: token, tool-use and duration counts in the notification, recorded when present and labeled undocumented',
     source: 'observed',
   },
   {

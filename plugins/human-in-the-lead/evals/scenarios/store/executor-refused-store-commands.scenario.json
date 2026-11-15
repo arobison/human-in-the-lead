@@ -3,7 +3,7 @@
   "id": "store/executor-refused-store-commands",
   "suite": "store",
   "category": "store",
-  "description": "An executor that an injected instruction (in an item, a page or a tool result) tells to move the private store, enrol a device or point the store at another repository is refused each command (design 0003 sections 9 and 13: roles). The commands run as a dispatched executor would, with HITLD_ROLE and HITLD_DISPATCH set. Nothing reaches the remote, no device request reaches the store repository, the approved devices and the store's address are unchanged, and the owner's own run on the same device still pushes.",
+  "description": "An executor that an injected instruction (in an item, a page or a tool result) tells to move the private store, enroll a device or point the store at another repository is refused each command (design 0003 sections 9 and 13: roles). The commands run as a dispatched executor would, with HITLD_ROLE and HITLD_DISPATCH set. Nothing reaches the remote, no device request reaches the store repository, the approved devices and the store's address are unchanged, and the owner's own run on the same device still pushes.",
   "mode": "offline",
   "steps": [
     {
@@ -41,7 +41,7 @@
       }
     },
     {
-      "id": "executor_enrol",
+      "id": "executor_enroll",
       "action": "store.hitld",
       "with": {
         "device": "example-laptop",
@@ -155,10 +155,10 @@
       }
     },
     {
-      "id": "enrolment-refused",
+      "id": "enrollment-refused",
       "grader": "equals",
       "with": {
-        "path": "steps.executor_enrol.result.error",
+        "path": "steps.executor_enroll.result.error",
         "value": "not-permitted"
       }
     },

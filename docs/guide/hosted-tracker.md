@@ -51,7 +51,7 @@ For a small backlog, you can do now by hand what the planned import will do for 
    > Return 200 from /health once the database is reachable.
    ```
 
-   Map states by meaning: backlog or to do becomes `planned` (committed) or `proposed` (not committed); in progress becomes `planned` unless an agent is already working on it; done and cancelled items are not copied. Dependencies become `--needs`.
+   Map states by meaning: backlog or to do becomes `planned` (committed) or `proposed` (not committed); in progress becomes `planned` unless an agent is already working on it; done and canceled items are not copied. Dependencies become `--needs`.
 4. **Check:**
 
    ```bash

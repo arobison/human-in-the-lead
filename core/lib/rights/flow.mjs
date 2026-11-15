@@ -215,8 +215,15 @@ function trackerDisagrees(entity, asked) {
   return null;
 }
 
+/**
+ * Binds with an action in its current spelling: a question asked before HITLD-121 binds the old
+ * spelling of enroll.
+ * @param {Record<string, string>} b
+ */
+const currentBinds = (b) => (b.action === 'enrol' ? { ...b, action: 'enroll' } : b); // spelling-ok
+
 /** @param {Record<string, string>} a @param {Record<string, string>} b */
-const sameBinds = (a, b) => canonicalJson(a) === canonicalJson(b);
+const sameBinds = (a, b) => canonicalJson(currentBinds(a)) === canonicalJson(currentBinds(b));
 
 /**
  * Why an answer would not apply to the question as shown, or null when it would.
@@ -388,9 +395,9 @@ function citeCandidates(candidates, classification) {
  * @param {Deps} deps
  * @param {Record<string, any>} given as in schemas/question.schema.json (direction, its name before HITLD-82, is read as touches_direction)
  * @param {{ judged?: Record<string, boolean>, send?: boolean, ownerOnly?: boolean, binds?: Record<string, string> }} [options]
- *   judged: the holder's judgement, per candidate precedent ID, of whether its plain-language
+ *   judged: the holder's judgment, per candidate precedent ID, of whether its plain-language
  *   conditions and exceptions fit (design part 4.3, step 2). ownerOnly: a question only the
- *   owner's own answer settles (a store device's enrolment or removal, design 0003 section 6):
+ *   owner's own answer settles (a store device's enrollment or removal, design 0003 section 6):
  *   it goes to the owner whatever the rules say about areas, no precedent resolves it, it carries
  *   no default, and the record says so, so `rights sweep` never applies one.
  * @returns {Result}
@@ -611,7 +618,7 @@ export function askQuestion(deps, given, options = {}) {
     route,
     candidates: remaining.map((c) => ({
       id: c.id,
-      needs_judgement: c.needs_judgement,
+      needs_judgment: c.needs_judgment,
       judge: c.judge,
     })),
     text,

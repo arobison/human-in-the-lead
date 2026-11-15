@@ -61,7 +61,7 @@
       "description": "Ordered transforms: who or what touched it and how, with dispatch IDs.",
       "$ref": "common#/$defs/texts"
     },
-    "judgements": { "$ref": "common#/$defs/judgements" },
+    "judgments": { "$ref": "common#/$defs/judgments" },
     "design_refs": {
       "description": "Design sections that already cover the signal, or relate to it.",
       "type": "array",

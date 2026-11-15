@@ -52,7 +52,7 @@ const question = (/** @type {Record<string, any>} */ more = {}) => ({
     { label: 'Add it', what_happens: 'one small dependency, MIT licensed' },
     { label: 'Hand-roll', what_happens: 'no dependency; we fix the bugs ourselves' },
   ],
-  recommendation: { option: 'A', why: 'A permissive licence and a tiny surface.' },
+  recommendation: { option: 'A', why: 'A permissive license and a tiny surface.' },
   triggers: [{ basis: 'security', reason: 'it adds a dependency' }],
   paths: ['package.json'],
   item_kind: 'work',
@@ -125,7 +125,7 @@ test('questions come first, most costly to delay first, each with its recommenda
     out.findIndex((l) => /A costly question/.test(l)) < out.findIndex((l) => /A cheap/.test(l)),
   );
   // The recommendation is inline, with its label: the question can be answered from the digest.
-  assert.ok(out.some((l) => /^   Recommend A \(Add it\): A permissive licence/.test(l)));
+  assert.ok(out.some((l) => /^   Recommend A \(Add it\): A permissive license/.test(l)));
   assert.ok(out.some((l) => /blocks 2 · .*easy to undo/.test(l)));
   // After the questions: what merged, and the calls made, with how to reverse one.
   const at = (/** @type {RegExp} */ re) => out.findIndex((l) => re.test(l));
@@ -143,14 +143,14 @@ test('questions come first, most costly to delay first, each with its recommenda
 test('precedent applied and defaults taken are listed, with the owner’s overrules marked', () => {
   const { deps, advance } = setup();
   const offer = {
-    summary: 'new dependencies with permissive licences',
-    rule: 'When a new dependency has a permissive licence, allow it.',
-    conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
+    summary: 'new dependencies with permissive licenses',
+    rule: 'When a new dependency has a permissive license, allow it.',
+    conditions: { rights_basis: ['security'], tags: ['dependency-license'] },
   };
   const first = askQuestion(
     deps,
     plain(
-      question({ tags: ['dependency-licence'], precedent_offer: offer, reversibility: undefined }),
+      question({ tags: ['dependency-license'], precedent_offer: offer, reversibility: undefined }),
     ),
   );
   const answered = answerDecision(deps, { decision: first.decision, answer: 'A yes' });
@@ -161,7 +161,7 @@ test('precedent applied and defaults taken are listed, with the owner’s overru
     plain(
       question({
         title: 'Add right-pad?',
-        tags: ['dependency-licence'],
+        tags: ['dependency-license'],
         reversibility: undefined,
         precedent_offer: undefined,
       }),
@@ -413,7 +413,7 @@ test('the digest fits one phone screen, however much is new, and says what it le
   for (let i = 1; i <= 40; i++) {
     merged(deps, `W-${100 + i}`, iso(T0 - i * MIN));
     logCall(deps, {
-      text: `Call number ${i}: kept the existing behaviour for the legacy report format and moved on to the next item`,
+      text: `Call number ${i}: kept the existing behavior for the legacy report format and moved on to the next item`,
     });
   }
   const wide = settings({ interrupts_per_day: 0 });
@@ -454,7 +454,7 @@ test('with a few questions, the long lists are shortened and the way to undo a c
   askQuestion(deps, question({ title: 'One question' }));
   askQuestion(deps, question({ title: 'Another question' }));
   for (let i = 1; i <= 40; i++) {
-    logCall(deps, { text: `Call number ${i}: kept the existing behaviour and moved on` });
+    logCall(deps, { text: `Call number ${i}: kept the existing behavior and moved on` });
   }
   const d = buildDigest(deps, { settings: settings(), now: deps.now() });
   const out = lines(d);

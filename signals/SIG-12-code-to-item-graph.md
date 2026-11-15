@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "A code-to-item graph: which items touched which files, for conflict prediction, blast radius and review routing."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

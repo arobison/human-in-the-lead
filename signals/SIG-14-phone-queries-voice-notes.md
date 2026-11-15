@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Conversational queries from the phone ('what's blocked?', 'what did we spend this week?') over the metrics store, and voice notes captured as idea signals."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

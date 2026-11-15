@@ -1,5 +1,5 @@
 // age's published test vectors (C2SP CCTV), the ones that apply to X25519 recipients without
-// ASCII armor. Source, licence and how they were chosen: fixtures/age/README.md.
+// ASCII armor. Source, license and how they were chosen: fixtures/age/README.md.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

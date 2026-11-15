@@ -3,7 +3,7 @@
   "id": "contract/precedent-settles-before-asking",
   "suite": "contract",
   "category": "contract",
-  "description": "An executor holding a question checks who decides it and whether a precedent fits. A question an active owner precedent settles has one candidate that needs no judgement, so the executor decides and cites it. A like question no precedent covers has no candidate, so it goes up as a question.",
+  "description": "An executor holding a question checks who decides it and whether a precedent fits. A question an active owner precedent settles has one candidate that needs no judgment, so the executor decides and cites it. A like question no precedent covers has no candidate, so it goes up as a question.",
   "mode": "offline",
   "fixture": { "generator": "repo", "options": { "language": "javascript", "git": true } },
   "steps": [
@@ -69,9 +69,9 @@
       "with": { "path": "steps.settled-match.result.candidates[0].id", "value": "P-1" }
     },
     {
-      "id": "settled-needs-no-judgement",
+      "id": "settled-needs-no-judgment",
       "grader": "equals",
-      "with": { "path": "steps.settled-match.result.candidates[0].needs_judgement", "value": false }
+      "with": { "path": "steps.settled-match.result.candidates[0].needs_judgment", "value": false }
     },
     {
       "id": "open-no-candidate",

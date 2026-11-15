@@ -11,7 +11,7 @@ release_note: "A private term list in the private store (`hitld private add/list
 
 ## Why
 
-The commit guard refuses whole files labelled above the repository's ceiling, but not private names inside ordinary files, and nothing checks the text agents publish: commit messages, pull request titles and bodies, issue comments and release notes. A private store's address and its devices' names reached a public repository that way, in a file and in the text written around it. The owner decided this must not happen again, before v0.1.0-rc.1.
+The commit guard refuses whole files labeled above the repository's ceiling, but not private names inside ordinary files, and nothing checks the text agents publish: commit messages, pull request titles and bodies, issue comments and release notes. A private store's address and its devices' names reached a public repository that way, in a file and in the text written around it. The owner decided this must not happen again, before v0.1.0-rc.1.
 
 ## Done when
 

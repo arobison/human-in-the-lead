@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Kill criteria per project, set at shaping and checked at reviews, as a guard against sunk cost."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

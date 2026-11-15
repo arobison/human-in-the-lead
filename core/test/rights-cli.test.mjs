@@ -19,16 +19,16 @@ const question = {
     { label: 'Add it', what_happens: 'one small MIT dependency' },
     { label: 'Hand-roll', what_happens: 'we fix the bugs ourselves' },
   ],
-  recommendation: { option: 'A', why: 'A permissive licence and a tiny surface.' },
+  recommendation: { option: 'A', why: 'A permissive license and a tiny surface.' },
   triggers: [{ basis: 'security', reason: 'it adds a dependency' }],
-  tags: ['dependency-licence'],
+  tags: ['dependency-license'],
   paths: ['package.json'],
   item_kind: 'work',
   classification: 'public',
   precedent_offer: {
-    summary: 'new dependencies with permissive licences',
-    rule: 'When a new dependency has a permissive licence, allow it.',
-    conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
+    summary: 'new dependencies with permissive licenses',
+    rule: 'When a new dependency has a permissive license, allow it.',
+    conditions: { rights_basis: ['security'], tags: ['dependency-license'] },
   },
 };
 
@@ -231,12 +231,12 @@ test('the commands carry a question through to a precedent, a digest and an over
     match.candidates.map((/** @type {any} */ c) => c.id),
     ['P-1'],
   );
-  assert.equal(match.candidates[0].needs_judgement, false);
+  assert.equal(match.candidates[0].needs_judgment, false);
 
   const again = await run('rights ask', {
     question: JSON.stringify({
       ...question,
-      tags: ['dependency-licence', 'cli'],
+      tags: ['dependency-license', 'cli'],
       precedent_offer: undefined,
     }),
   });
@@ -270,21 +270,21 @@ test('the commands carry a question through to a precedent, a digest and an over
   assert.ok(project);
 });
 
-test('hitld judgement weigh and conflict', async () => {
+test('hitld judgment weigh and conflict', async () => {
   const { run } = setup();
   const subject = {
-    judgements: [{ what: 'valuable', basis: 'gut-check', by: 'owner' }],
+    judgments: [{ what: 'valuable', basis: 'gut-check', by: 'owner' }],
     confidence: 0.5,
     evidence: [{ ref: 'S-4', verdict: 'contradicts', summary: 'no gain' }],
   };
-  const w = await run('judgement weigh', { subject: JSON.stringify(subject) });
+  const w = await run('judgment weigh', { subject: JSON.stringify(subject) });
   assert.equal(w.ok, true);
   assert.equal(w.conflicts.length, 1);
   assert.equal(w.confidence, 0.5);
-  const q = await run('judgement conflict', {
+  const q = await run('judgment conflict', {
     conflict: JSON.stringify({
       subject: 'W-90',
-      judgement: subject.judgements[0],
+      judgment: subject.judgments[0],
       evidence: subject.evidence,
       recommend: 'revise',
       why: 'Measured.',

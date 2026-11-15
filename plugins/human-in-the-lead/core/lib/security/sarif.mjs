@@ -50,7 +50,7 @@ export const MAX_SARIF_BYTES = 64 * 1024 * 1024;
 export const MAX_RESULTS = 20_000;
 /**
  * Lines of context either side of the flagged region that the fingerprint covers. None: an edit on
- * a neighbouring line, or lines inserted above, would otherwise ask again about unchanged code.
+ * a neighboring line, or lines inserted above, would otherwise ask again about unchanged code.
  */
 export const CONTEXT_LINES = 0;
 /** The most lines of a flagged region the fingerprint covers. */

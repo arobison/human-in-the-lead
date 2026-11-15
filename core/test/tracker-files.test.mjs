@@ -448,7 +448,7 @@ test('optional keys are allowed only when tracker.json turns them on, and are ty
 test('a decision carries its answer keys, typed by the decision schema; a work item does not', () => {
   const answered = {
     id: 'W-7',
-    title: 'Which licence?',
+    title: 'Which license?',
     kind: 'decision',
     state: 'done',
     project: 'W-2',
@@ -460,12 +460,12 @@ test('a decision carries its answer keys, typed by the decision schema; a work i
     answered_by: 'owner',
     precedent: 'P-1',
   };
-  assert.deepEqual(problemsFor({ 'work/items/W-7-which-licence.md': itemText(answered) }), []);
+  assert.deepEqual(problemsFor({ 'work/items/W-7-which-license.md': itemText(answered) }), []);
   const { answered_by: _, precedent: __, ...rest } = answered;
   const resolved = { ...rest, answered_via: 'precedent', resolved_by_precedent: 'P-2' };
-  assert.deepEqual(problemsFor({ 'work/items/W-7-which-licence.md': itemText(resolved) }), []);
+  assert.deepEqual(problemsFor({ 'work/items/W-7-which-license.md': itemText(resolved) }), []);
   const bad = problemsFor({
-    'work/items/W-7-which-licence.md': itemText({
+    'work/items/W-7-which-license.md': itemText({
       ...answered,
       answered_at: 'yesterday',
       answered_by: 'someone',

@@ -53,7 +53,7 @@
     },
     "reversibility": { "$ref": "decision#/properties/reversibility" },
     "addressed_to": {
-      "description": "A question put to one person, such as a judgement the evidence contradicts, goes to them whatever the rules say.",
+      "description": "A question put to one person, such as a judgment the evidence contradicts, goes to them whatever the rules say.",
       "$ref": "common#/$defs/person"
     },
     "blocks": {

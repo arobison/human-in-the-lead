@@ -42,7 +42,7 @@ When a rebase conflicts, the queue classifies the conflict:
 |---|---|---|
 | **Generated** | Tracker views, lockfiles, generated code | Regenerate from the sources after the rebase; never merge generated files by hand (basic queue) |
 | **Trivial** | Both branches added entries to the same list; import order; adjacent but independent hunks | A tier-1 conflict-resolver agent, whose result must pass the same fast checks (later milestone; in the basic queue, these go to the next row) |
-| **Semantic** | Both branches changed the same function's behaviour | Back to the later branch's executor as a follow-up, with both diffs and the earlier item's intent (basic queue) |
+| **Semantic** | Both branches changed the same function's behavior | Back to the later branch's executor as a follow-up, with both diffs and the earlier item's intent (basic queue) |
 | **Intent conflict** | Two items' goals contradict each other | A decision for the owner (an area owner once [Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)'s signed answers exist), under the rights rules ([part 4](04-decision-rights.md)) |
 
 Conflict rate per area is recorded; a rising rate is a congestion signal for the concurrency controller and a hint that two items should have been one.
@@ -102,7 +102,7 @@ The rerun on the same commit is cheap and runs every time. The base-versus-candi
 
 **What the project provides** (built, HITLD-21). The queue knows nothing of a project's test framework, so two contracts let it name tests, like the scanners' `$HITLD_SARIF`:
 
-- **The test report.** Each full-suite command gets `$HITLD_TEST_REPORT`, a path. A suite that writes a JSON object there, `{"schema_version": 1, "tests": [{"id", "outcome": "pass" | "fail" | "skip", "file"}]}` (`file` is optional), lets the queue name the tests that failed, compare them on the base, and honour the quarantine. Without a report, the rerun and the comparison still work on the whole suite, but no test can be quarantined.
+- **The test report.** Each full-suite command gets `$HITLD_TEST_REPORT`, a path. A suite that writes a JSON object there, `{"schema_version": 1, "tests": [{"id", "outcome": "pass" | "fail" | "skip", "file"}]}` (`file` is optional), lets the queue name the tests that failed, compare them on the base, and honor the quarantine. Without a report, the rerun and the comparison still work on the whole suite, but no test can be quarantined.
 - **The burn-in command.** `flake.burn_in_command` runs the tests a branch adds or changes. The queue calls it `flake.burn_in_runs` times, with `$HITLD_BURN_IN_FILES` (the changed files that match `flake.test_globs`), a different `$HITLD_BURN_IN_SEED` each time and `$HITLD_BURN_IN_RUN`. A non-zero exit fails the branch. With no command, new tests are not burned in.
 
 ### Quarantine

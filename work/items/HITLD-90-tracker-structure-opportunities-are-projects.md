@@ -20,7 +20,7 @@ The tracker has more levels than one owner directing agents needs. This reposito
 - **Initiatives retire.** A long outcome is a milestone with no parent whose constraints are other milestones; a project's parent is optional. The migration turns each initiative into a top-level milestone.
 - **One milestone kind.** Milestones have `kind: milestone`; a learning milestone is the one whose check is a study, derived, not stored.
 - **External items** are defined as work someone the system cannot dispatch completes: the owner by hand, a contributor, an upstream project, a vendor.
-- **Small additions:** `work check` refuses numbered milestone names (M1, v2, phase 3); the project schema has `plan`; a record's `owner` is optional and defaults to the owner; an eval scenario checks agents never treat a judgement as settling a call.
+- **Small additions:** `work check` refuses numbered milestone names (M1, v2, phase 3); the project schema has `plan`; a record's `owner` is optional and defaults to the owner; an eval scenario checks agents never treat a judgment as settling a call.
 - One registered `work migrate` step moves this repository's tracker in a reviewable commit; old kinds are read with a warning for one minor version; design parts 2 and 3 and the glossary describe the model as built.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
 

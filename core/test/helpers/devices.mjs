@@ -17,7 +17,7 @@ export function approve(store, ...devices) {
     recordApproval(store, {
       event: 'approved',
       decision: `W-${900 + n}`,
-      action: 'enrol',
+      action: 'enroll',
       name,
       recipient: key.recipient,
       added: '2026-11-15',

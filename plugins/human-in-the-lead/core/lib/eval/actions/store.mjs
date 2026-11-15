@@ -234,7 +234,7 @@ export const actions = {
           JSON.stringify({
             event: 'approved',
             decision: `SAM-${100 + i}`,
-            action: 'enrol',
+            action: 'enroll',
             name,
             recipient: recipients[name],
             added: '2026-11-15',

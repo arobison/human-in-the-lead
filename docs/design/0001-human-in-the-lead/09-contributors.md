@@ -2,7 +2,7 @@
 
 [Back to the index](../0001-human-in-the-lead.md)
 
-Most of this system is labour that agents do well. Relationships are not. People who report bugs, send patches, or depend on the project judge it partly by how they are treated, and they can tell when they are being handled by a machine that is not listening. This part sets what automation does with other people's contributions, and where a human must be involved.
+Most of this system is labor that agents do well. Relationships are not. People who report bugs, send patches, or depend on the project judge it partly by how they are treated, and they can tell when they are being handled by a machine that is not listening. This part sets what automation does with other people's contributions, and where a human must be involved.
 
 It applies to open-source projects and to closed ones with several humans alike.
 
@@ -79,7 +79,7 @@ The CHAOSS project's metrics (<https://chaoss.community/>) are the reference for
 
 ## 9.6 Legal
 
-- **Inbound contributions.** External contributions need a sign-off under the Developer Certificate of Origin ([DCO](https://developercertificate.org/)): a `Signed-off-by` line on each commit, checked at merge, in either merge mode. Decided ([Q20](22-open-questions.md#q20-dco-or-cla-for-inbound-contributions-blocks-outside-contributors-also-applies-to-this-repository)); a contributor licence agreement is not used.
+- **Inbound contributions.** External contributions need a sign-off under the Developer Certificate of Origin ([DCO](https://developercertificate.org/)): a `Signed-off-by` line on each commit, checked at merge, in either merge mode. Decided ([Q20](22-open-questions.md#q20-dco-or-cla-for-inbound-contributions-blocks-outside-contributors-also-applies-to-this-repository)); a contributor license agreement is not used.
 - **This repository's own commits.** The DCO applies to them too. The owner signs off the first public commit. For a commit an agent made, the person who approves its merge signs it off: an agent cannot certify the origin of a contribution, and the approver is the one who can. CI checks it (`core/bin/dco-check.mjs`).
-- **Generated code.** Provenance trailers ([part 6](06-verification.md#64-provenance)) or the ledger record which model produced each change. The verification skill flags large blocks that look copied from elsewhere (an unusual licence header, verbatim matches against known sources where a scanner is available) as a human-read trigger.
-- **Licences of dependencies.** Adding a dependency is a security decision and a public commitment ([part 4](04-decision-rights.md)); the decision item records the dependency's licence.
+- **Generated code.** Provenance trailers ([part 6](06-verification.md#64-provenance)) or the ledger record which model produced each change. The verification skill flags large blocks that look copied from elsewhere (an unusual license header, verbatim matches against known sources where a scanner is available) as a human-read trigger.
+- **Licenses of dependencies.** Adding a dependency is a security decision and a public commitment ([part 4](04-decision-rights.md)); the decision item records the dependency's license.

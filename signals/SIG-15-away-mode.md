@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Away mode: operate only within delegated rights, queue decisions, and send one digest on return."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

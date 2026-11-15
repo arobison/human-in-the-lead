@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Audit sampling: a small random share of merged code is read by a person or a reviewer agent, to estimate quality statistically and check the compiler model."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

@@ -28,7 +28,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run typecheck && npm run format:check && npm test",
+    "spelling": "node core/bin/spelling-check.mjs",
+    "check": "npm run typecheck && npm run format:check && npm run spelling && npm test",
     "build": "node core/lib/packaging/build.mjs"
   },
   "devDependencies": {

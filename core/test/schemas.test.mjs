@@ -187,7 +187,7 @@ const examples = {
     summary: 'Definition of ready before dispatch.',
     route: null,
     classification: 'public',
-    judgements: [
+    judgments: [
       {
         what: 'fits the strategy and is plausibly valuable',
         basis: 'gut-check',
@@ -243,8 +243,8 @@ const examples = {
   precedent: {
     schema_version: 1,
     id: 'P-1',
-    rule: 'When a dependency has a permissive licence, allow it.',
-    conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
+    rule: 'When a dependency has a permissive license, allow it.',
+    conditions: { rights_basis: ['security'], tags: ['dependency-license'] },
     sources: ['W-300'],
     scope: 'all',
     state: 'active',
@@ -257,7 +257,7 @@ const examples = {
     area: 'cache',
     subject: 'W-413',
     precedent: 'P-1',
-    facts: { rights_basis: ['security'], tags: ['dependency-licence'] },
+    facts: { rights_basis: ['security'], tags: ['dependency-license'] },
   },
   contributor: {
     schema_version: 1,
@@ -466,15 +466,15 @@ test('a project being shaped carries the shaping fields; its bet is a decision',
   }
 });
 
-test('a public judgement carries what, basis and who; the time is not public', () => {
+test('a public judgment carries what, basis and who; the time is not public', () => {
   const signal = /** @type {any} */ (examples.signal);
-  const judgement = signal.judgements[0];
+  const judgment = signal.judgments[0];
   const check = (/** @type {any} */ j) =>
-    registry.validateEntity('signal', { ...signal, judgements: [j] });
-  assert.deepEqual(check(judgement), []);
-  assert.ok(check({ ...judgement, at: '2026-11-14' }).length, 'the time is private');
-  assert.ok(check({ what: judgement.what, basis: judgement.reason }).length, 'who is required');
-  assert.ok(check({ ...judgement, confidence: 0.7 }).length, 'private fields are not public');
+    registry.validateEntity('signal', { ...signal, judgments: [j] });
+  assert.deepEqual(check(judgment), []);
+  assert.ok(check({ ...judgment, at: '2026-11-14' }).length, 'the time is private');
+  assert.ok(check({ what: judgment.what, basis: judgment.reason }).length, 'who is required');
+  assert.ok(check({ ...judgment, confidence: 0.7 }).length, 'private fields are not public');
 });
 
 test('item states are the five of the reference format', () => {

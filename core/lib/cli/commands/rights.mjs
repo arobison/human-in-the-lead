@@ -1,6 +1,6 @@
-// Piece (e): decision rights with precedent (design part 4), and owner judgements as priors
+// Piece (e): decision rights with precedent (design part 4), and owner judgments as priors
 // (design part 3.2). The library is in core/lib/rights/, core/lib/precedent/ and
-// core/lib/judgement/; these commands are a thin JSON-in, JSON-out wrapper over it.
+// core/lib/judgment/; these commands are a thin JSON-in, JSON-out wrapper over it.
 //
 // Questions, answers and the like are passed as JSON text (--question '{...}') or as a path to a
 // JSON file (--file), because the command-line parser takes only flat options. An MCP tool takes
@@ -19,7 +19,7 @@ import { formatErrors } from '../../schema/validate.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { matchPrecedents } from '../../precedent/match.mjs';
 import { openPrecedentStore } from '../../precedent/store.mjs';
-import { applyPriors, conflictQuestion } from '../../judgement/judgement.mjs';
+import { applyPriors, conflictQuestion } from '../../judgment/judgment.mjs';
 import {
   answerDecision,
   askQuestion,
@@ -684,7 +684,7 @@ export function makeCommands({ openTracker }) {
     },
     {
       name: 'precedent match',
-      summary: 'Candidate precedents for a question, and which still need a judgement of fit',
+      summary: 'Candidate precedents for a question, and which still need a judgment of fit',
       built_by: 'e',
       args: questionArgs,
       run: async (input, ctx) => {
@@ -703,7 +703,7 @@ export function makeCommands({ openTracker }) {
           candidates: match.candidates.map((c) => ({
             id: c.id,
             rule: c.precedent.rule,
-            needs_judgement: c.needs_judgement,
+            needs_judgment: c.needs_judgment,
             judge: c.judge,
           })),
           excluded: match.excluded,
@@ -712,16 +712,16 @@ export function makeCommands({ openTracker }) {
       },
     },
     {
-      name: 'judgement weigh',
+      name: 'judgment weigh',
       summary:
-        'Apply judgements as priors to an estimate; a judgement that evidence contradicts is held out and returned as a conflict',
+        'Apply judgments as priors to an estimate; a judgment that evidence contradicts is held out and returned as a conflict',
       built_by: 'e',
       args: [
         {
           name: 'subject',
           type: 'string',
           description:
-            'JSON: { judgements: [{ what, basis, by, at }], confidence?, value?, evidence?: [{ ref, verdict, summary, judgement? }] }',
+            'JSON: { judgments: [{ what, basis, by, at }], confidence?, value?, evidence?: [{ ref, verdict, summary, judgment? }] }',
         },
         FILE_ARG,
       ],
@@ -732,16 +732,16 @@ export function makeCommands({ openTracker }) {
       },
     },
     {
-      name: 'judgement conflict',
+      name: 'judgment conflict',
       summary:
-        'The question that puts contradicting evidence to the person whose judgement it contradicts',
+        'The question that puts contradicting evidence to the person whose judgment it contradicts',
       built_by: 'e',
       args: [
         {
           name: 'conflict',
           type: 'string',
           description:
-            'JSON: { subject, judgement, evidence, recommend: "keep" | "revise", why, area? }; the result goes to hitld rights ask',
+            'JSON: { subject, judgment, evidence, recommend: "keep" | "revise", why, area? }; the result goes to hitld rights ask',
         },
         FILE_ARG,
       ],

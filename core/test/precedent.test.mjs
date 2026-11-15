@@ -34,8 +34,8 @@ const match = (facts, ps, options = {}) =>
 const precedent = (more = {}) => ({
   schema_version: 1,
   id: 'P-1',
-  rule: 'When a new dependency has a permissive licence, allow it.',
-  conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
+  rule: 'When a new dependency has a permissive license, allow it.',
+  conditions: { rights_basis: ['security'], tags: ['dependency-license'] },
   sources: ['W-3'],
   scope: 'all',
   decider: 'owner',
@@ -86,7 +86,7 @@ test('a condition the question gives no fact for is not met', () => {
 });
 
 test('matching: candidates and why the others are out', () => {
-  const facts = { rights_basis: ['security'], tags: ['dependency-licence', 'npm'] };
+  const facts = { rights_basis: ['security'], tags: ['dependency-license', 'npm'] };
   const m = match(facts, [
     precedent(),
     precedent({ id: 'P-2', conditions: { rights_basis: ['novelty'] } }),
@@ -103,7 +103,7 @@ test('matching: candidates and why the others are out', () => {
   );
   assert.match(m.excluded[1].reason, /retired/);
   assert.match(m.excluded[2].reason, /scoped to area cache/);
-  assert.equal(m.candidates[0].needs_judgement, false);
+  assert.equal(m.candidates[0].needs_judgment, false);
 });
 
 test('a precedent scoped to an area covers questions inside that area only', () => {
@@ -117,10 +117,10 @@ test('a precedent scoped to an area covers questions inside that area only', () 
   assert.equal(match({ rights_basis: ['security'] }, [p]).candidates.length, 0);
 });
 
-test('plain-language conditions and text exceptions need a judgement; structured exceptions do not', () => {
+test('plain-language conditions and text exceptions need a judgment; structured exceptions do not', () => {
   const facts = {
     rights_basis: ['security'],
-    tags: ['dependency-licence'],
+    tags: ['dependency-license'],
     paths: ['package.json'],
   };
   const text = precedent({
@@ -128,7 +128,7 @@ test('plain-language conditions and text exceptions need a judgement; structured
     exceptions: ['a package with a native build step'],
   });
   const m = match(facts, [text]);
-  assert.equal(m.candidates[0].needs_judgement, true);
+  assert.equal(m.candidates[0].needs_judgment, true);
   assert.deepEqual(m.candidates[0].judge, [
     'condition: and the package is widely used',
     'exception: a package with a native build step',
@@ -155,11 +155,11 @@ test('a rule basis in precedent.not_for_bases is never resolved by precedent', (
 });
 
 test('one clear candidate resolves; several, or an unjudged fit, go to the decider', () => {
-  const clear = { id: 'P-1', precedent: precedent(), needs_judgement: false, judge: [] };
+  const clear = { id: 'P-1', precedent: precedent(), needs_judgment: false, judge: [] };
   const vague = {
     id: 'P-2',
     precedent: precedent({ id: 'P-2' }),
-    needs_judgement: true,
+    needs_judgment: true,
     judge: ['x'],
   };
   assert.equal(resolveByPrecedent([clear]).resolved?.id, 'P-1');
@@ -173,9 +173,9 @@ test('one clear candidate resolves; several, or an unjudged fit, go to the decid
 
 test('creating a precedent: the offer, the decision, the policy it was checked under', () => {
   const offer = {
-    summary: 'licences',
+    summary: 'licenses',
     rule: 'When a dependency is permissively licensed, allow it.',
-    conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
+    conditions: { rights_basis: ['security'], tags: ['dependency-license'] },
   };
   const p = draftPrecedent({
     id: 'P-7',

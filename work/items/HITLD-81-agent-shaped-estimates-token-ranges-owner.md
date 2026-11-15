@@ -18,5 +18,5 @@ Effort is estimated in tokens from the median of similar past items (design 5.1)
 - Expected cost includes rework: the token estimate divided by the first-pass yield of its area and tier.
 - With no history, the executor's own estimate from its plan is used at low confidence and calibrated as actuals arrive.
 - Each estimator's bias and spread are tracked per area and tier (design 5.1), shown in the run report, and an eval scenario checks that a seeded biased estimator is corrected.
-- Value stays a person's judgement (HITLD-80); agents do not estimate it.
+- Value stays a person's judgment (HITLD-80); agents do not estimate it.
 

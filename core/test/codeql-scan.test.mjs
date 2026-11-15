@@ -1,5 +1,5 @@
 // This repository's own merge scanner (HITLD-73): the policy entry and the wrapper's refusals.
-// The CodeQL CLI itself is not run here; the gate's behaviour is tested with the fixture scanner.
+// The CodeQL CLI itself is not run here; the gate's behavior is tested with the fixture scanner.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

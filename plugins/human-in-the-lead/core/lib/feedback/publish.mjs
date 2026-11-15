@@ -201,7 +201,7 @@ function repeatsWords(draft, words) {
 
 /**
  * The deterministic screen: why a draft's text is not fit to publish, beside the generalizer's own
- * judgement. Empty when nothing was found.
+ * judgment. Empty when nothing was found.
  * @param {string} text the draft's text, every field joined
  * @param {FeedbackRecord} record @param {Context} context
  * @returns {string[]}

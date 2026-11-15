@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Pre-mortems for large or risky items, with failure reasons turned into tests or risks."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

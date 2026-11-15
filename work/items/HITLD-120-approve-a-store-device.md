@@ -6,7 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 decider: owner
-answer: "A. Enrol it: Every push from now on is encrypted to this device too, and it may push."
+answer: "A. Enroll it: Every push from now on is encrypted to this device too, and it may push."
 answered_at: 2026-11-15T21:43:54.534Z
 answered_via: main-session
 answered_by: owner
@@ -14,7 +14,7 @@ answered_by: owner
 
 ## Question
 
-Enrol the store device whose key fingerprint is 5cf1-eab4-8301-5d12?
+Enroll the store device whose key fingerprint is 5cf1-eab4-8301-5d12?
 
 A device asked to read and write this project's private store. Once you approve it, every push is encrypted to it too. Check that the fingerprint is the one the device showed when it asked (hitld store device init); hitld store device list shows its name. Only your own answer approves it: no default and no precedent ever does.
 
@@ -22,8 +22,8 @@ Rule basis: rule-change. Reversibility: two-way.
 
 ## Options and recommendation
 
-- A. Enrol it: Every push from now on is encrypted to this device too, and it may push.
-- B. Do not enrol it: Nothing is encrypted to it, and it may not push. A new key must ask again.
+- A. Enroll it: Every push from now on is encrypted to this device too, and it may push.
+- B. Do not enroll it: Nothing is encrypted to it, and it may not push. A new key must ask again.
 
 Recommended: A. if the fingerprint matches the one the device showed you; otherwise B
 

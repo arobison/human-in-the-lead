@@ -1,7 +1,7 @@
 {
-  "$id": "policy/judgement",
-  "title": "policy.json: judgement",
-  "description": "Starting weights for recorded judgements (design part 3.2, Judgement). Calibration moves them with the record (the milestone Trust calibration).",
+  "$id": "policy/judgment",
+  "title": "policy.json: judgment",
+  "description": "Starting weights for recorded judgments (design part 3.2, Judgment). Calibration moves them with the record (the milestone Trust calibration).",
   "type": "object",
   "properties": {
     "weights": {
@@ -22,7 +22,7 @@
       "additionalProperties": { "$ref": "#/$defs/weights" }
     },
     "lift": {
-      "description": "How far a judgement's weight raises the confidence and value of what it judges: confidence moves that share of the way to 1, scaled by the weight, and value is multiplied by 1 plus weight times lift. 0 turns the prior off. A judgement that evidence contradicts is held out until the person it came from answers.",
+      "description": "How far a judgment's weight raises the confidence and value of what it judges: confidence moves that share of the way to 1, scaled by the weight, and value is multiplied by 1 plus weight times lift. 0 turns the prior off. A judgment that evidence contradicts is held out until the person it came from answers.",
       "type": "number",
       "minimum": 0,
       "maximum": 1,

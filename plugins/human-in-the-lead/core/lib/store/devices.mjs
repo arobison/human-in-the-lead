@@ -224,20 +224,28 @@ export function requestsOnBranch(storeRoot, url) {
 // --- the owner's answers, inside the encrypted store ---------------------------------------------
 
 /**
+ * The action of a record in its current spelling. Records written before HITLD-121 hold the old
+ * spelling of enroll, and the file is append-only, so they are read as `enroll` and never
+ * rewritten.
+ * @param {unknown} action
+ */
+export const currentAction = (action) => (action === 'enrol' ? 'enroll' : action); // spelling-ok
+
+/**
  * One line of devices/approvals.jsonl.
- *   asked     a device decision was asked: `action` enrol or remove, for this key
+ *   asked     a device decision was asked: `action` enroll or remove, for this key
  *   approved  the owner's answer enrolled the key
  *   removed   the owner's answer removed it
- *   refused   the owner's answer said no, to an enrolment or a removal
+ *   refused   the owner's answer said no, to an enrollment or a removal
  * An `asked` line also carries the check code of the question asked (`check`, rights/flow.mjs).
- * @typedef {{ event: 'asked' | 'approved' | 'removed' | 'refused', decision: string, action: 'enrol' | 'remove', name: string, recipient: string, added?: string, at: string, check?: string }} ApprovalRecord
+ * @typedef {{ event: 'asked' | 'approved' | 'removed' | 'refused', decision: string, action: 'enroll' | 'remove', name: string, recipient: string, added?: string, at: string, check?: string }} ApprovalRecord
  */
 
 /**
  * What a device decision applies when answered: its action, the device's name and its key's
  * fingerprint. Part of the question's check code, and checked by `hitld rights answer` against
  * the question asked under that ID before anything is recorded.
- * @param {{ action: 'enrol' | 'remove', name: string, recipient: string }} r
+ * @param {{ action: 'enroll' | 'remove', name: string, recipient: string }} r
  * @returns {Record<string, string>}
  */
 export const deviceBinds = (r) => ({
@@ -260,9 +268,10 @@ export function readApprovals(store) {
     if (!line.trim()) continue;
     try {
       const r = JSON.parse(line);
+      if (r && typeof r === 'object') r.action = currentAction(r.action);
       if (
         ['asked', 'approved', 'removed', 'refused'].includes(r.event) &&
-        ['enrol', 'remove'].includes(r.action) &&
+        ['enroll', 'remove'].includes(r.action) &&
         typeof r.decision === 'string' &&
         typeof r.name === 'string' &&
         typeof r.recipient === 'string' &&
@@ -344,7 +353,7 @@ export function openDeviceAsks(records) {
  * @returns {Device[]}
  */
 export function pendingRequests(requests, records) {
-  const seen = new Set(records.filter((r) => r.action === 'enrol').map((r) => r.recipient));
+  const seen = new Set(records.filter((r) => r.action === 'enroll').map((r) => r.recipient));
   const approved = new Set(approvedDevices(records).map((d) => d.recipient));
   return requests.filter((d) => !seen.has(d.recipient) && !approved.has(d.recipient));
 }
@@ -354,29 +363,29 @@ export function pendingRequests(requests, records) {
  * fingerprint: the decision item is a file in the project's tracker, which may be public, and
  * the device's name stays in the private store and the store repository. `hitld store device
  * list` shows the name beside the fingerprint.
- * @param {'enrol' | 'remove'} action @param {Device} device @param {string | undefined} parent
+ * @param {'enroll' | 'remove'} action @param {Device} device @param {string | undefined} parent
  */
 export function deviceQuestion(action, device, parent) {
   const fp = fingerprint(device.recipient);
-  const enrol = action === 'enrol';
+  const enroll = action === 'enroll';
   return {
-    title: enrol ? 'Approve a store device' : 'Remove a store device',
-    question: enrol
-      ? `Enrol the store device whose key fingerprint is ${fp}?`
+    title: enroll ? 'Approve a store device' : 'Remove a store device',
+    question: enroll
+      ? `Enroll the store device whose key fingerprint is ${fp}?`
       : `Remove the store device whose key fingerprint is ${fp}?`,
-    context: enrol
+    context: enroll
       ? `A device asked to read and write this project's private store. Once you approve it, every push is encrypted to it too. Check that the fingerprint is the one the device showed when it asked (hitld store device init); hitld store device list shows its name. Only your own answer approves it: no default and no precedent ever does.`
       : `Once you approve the removal, no push is encrypted to this device's key, and the next push prunes the older files it can open. What it already pulled, it keeps. hitld store device list shows its name.`,
-    options: enrol
+    options: enroll
       ? [
           {
-            label: 'Enrol it',
+            label: 'Enroll it',
             what_happens:
               'Every push from now on is encrypted to this device too, and it may push.',
             reversible: true,
           },
           {
-            label: 'Do not enrol it',
+            label: 'Do not enroll it',
             what_happens:
               'Nothing is encrypted to it, and it may not push. A new key must ask again.',
             reversible: true,
@@ -397,7 +406,7 @@ export function deviceQuestion(action, device, parent) {
         ],
     recommendation: {
       option: 'A',
-      why: enrol
+      why: enroll
         ? 'if the fingerprint matches the one the device showed you; otherwise B'
         : 'if this is the device you meant to remove; otherwise B',
     },
@@ -415,7 +424,7 @@ export function deviceQuestion(action, device, parent) {
 /**
  * Turn the owner's answer to a device decision into the record that changes the approved set.
  * Called by `hitld rights answer` once the answer is recorded; any other decision is left alone.
- * Option A approves (enrols or removes); anything else refuses. An answer to a decision already
+ * Option A approves (enrolls or removes); anything else refuses. An answer to a decision already
  * answered changes nothing. With `binds` (what the question asked names, deviceBinds), only the
  * waiting decision it names is answered; without, only a sole waiting one under that ID.
  * @param {import('./store.mjs').PrivateStore} store
@@ -430,7 +439,9 @@ export function applyDeviceAnswer(store, answer) {
     ? open.find((r) => {
         const b = deviceBinds(r);
         return (
-          b.action === binds.action && b.name === binds.name && b.fingerprint === binds.fingerprint
+          b.action === currentAction(binds.action) &&
+          b.name === binds.name &&
+          b.fingerprint === binds.fingerprint
         );
       })
     : open.length === 1
@@ -440,7 +451,7 @@ export function applyDeviceAnswer(store, answer) {
   const yes = answer.option === 'A';
   /** @type {ApprovalRecord} */
   const record = {
-    event: yes ? (asked.action === 'enrol' ? 'approved' : 'removed') : 'refused',
+    event: yes ? (asked.action === 'enroll' ? 'approved' : 'removed') : 'refused',
     decision: asked.decision,
     action: asked.action,
     name: asked.name,

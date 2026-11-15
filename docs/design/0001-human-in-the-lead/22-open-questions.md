@@ -12,7 +12,7 @@ Each question stands alone, with a recommendation and the main alternative. They
 
 The ledger, private signals, confidential decisions, research and eval results need a home outside the public repository ([part 3](03-data-model.md#private-store)).
 
-- **Git text files are the source of truth** for what syncs between machines and keeps history: the ledger, decisions, precedents, signals, notes and judgement records. Other machines the owner controls get them through an encrypted bundle, the same way code bundles move (`hitld store export`, `import` and `sync`). One ledger and one decision record, so flow metrics cover every machine.
+- **Git text files are the source of truth** for what syncs between machines and keeps history: the ledger, decisions, precedents, signals, notes and judgment records. Other machines the owner controls get them through an encrypted bundle, the same way code bundles move (`hitld store export`, `import` and `sync`). One ledger and one decision record, so flow metrics cover every machine.
 - **SQLite** (Node's built-in module, so no dependency) holds what is local to one machine and needs transactions or fast queries: the machine registry (live executors, leases, locks, capacities) and an index over the ledger for metrics. The index can be deleted and rebuilt from the text.
 - This is the knowledge base's pattern ([part 8](08-knowledge-base.md#82-markdown-in-git-is-the-source-of-truth)): text is the truth, the index is a deletable cache.
 - **Why not SQLite for everything.** Two SQLite files cannot be merged when two machines both wrote to them. Git text history can.
@@ -78,7 +78,7 @@ A public item may need a decision whose content is confidential ([part 10](10-se
 
 The suite needs a runner ([part 17](17-evals.md#175-how-it-runs)).
 
-- **Recommend: a small harness-neutral scenario format and runner in the core, reusing `claude plugin eval` for skill-level scenarios on Claude Code.** No new dependency or language in the core, and the end-to-end flows (multi-agent dispatch, tracker, merge queue) are modelled directly.
+- **Recommend: a small harness-neutral scenario format and runner in the core, reusing `claude plugin eval` for skill-level scenarios on Claude Code.** No new dependency or language in the core, and the end-to-end flows (multi-agent dispatch, tracker, merge queue) are modeled directly.
 - **Alternative: adopt Inspect AI as the runner.** Mature sandboxing, logs and a viewer, at the cost of a Python dependency beside a Node core and an adapter from its model to tracker-and-merge flows.
 
 ### Q9. How much live-model eval spend per change and per release?
@@ -115,13 +115,13 @@ A hard limit needs the person's yes before it is exceeded ([part 12](12-reportin
 
 - **Alternative not taken: every limit is hard.** The system asks before touching the edge of any window, at the cost of more interrupts during long runs.
 
-<a id="q22-do-the-new-judgement-record-fields-join-v0-affects-v0s-record-scoring-waits-for-hl"></a>
+<a id="q22-do-the-new-judgment-record-fields-join-v0-affects-v0s-record-scoring-waits-for-hl"></a>
 
-### Q22. Do the new judgement-record fields join One signal end to end? (affects its record; scoring waits for People in the lead)
+### Q22. Do the new judgment-record fields join One signal end to end? (affects its record; scoring waits for People in the lead)
 
-*Decided: yes, recorded from One signal end to end, in the private store.* Public entities carry only `what`, `basis` and `by` ([part 23](23-people-in-the-lead.md#232-the-judgement-record)).
+*Decided: yes, recorded from One signal end to end, in the private store.* Public entities carry only `what`, `basis` and `by` ([part 23](23-people-in-the-lead.md#232-the-judgment-record)).
 
-The judgement record ([part 23](23-people-in-the-lead.md#232-the-judgement-record)) adds an optional confidence, an optional expectation and the evidence available at the time to judgements and decision answers.
+The judgment record ([part 23](23-people-in-the-lead.md#232-the-judgment-record)) adds an optional confidence, an optional expectation and the evidence available at the time to judgments and decision answers.
 
 - **Recommend: record the three fields from the start**, with no scoring or review yet. Like trust-calibration data, a record started later cannot be backfilled honestly: nobody remembers what they expected.
 - **Alternative: add them with "People in the lead".** The milestone stays smaller, and the record starts empty when that milestone begins.
@@ -130,9 +130,9 @@ The judgement record ([part 23](23-people-in-the-lead.md#232-the-judgement-recor
 
 ### Q25. Is the confidence line offered on every question? (affects One signal end to end, with Q22)
 
-*Decided: on every judgement and decision answer, optional, with a per-person switch, as recommended.*
+*Decided: on every judgment and decision answer, optional, with a per-person switch, as recommended.*
 
-- **Recommend: on every judgement and decision answer**, optional and one line, with a per-person switch to hide it. More scored calls make feedback useful sooner.
+- **Recommend: on every judgment and decision answer**, optional and one line, with a per-person switch to hide it. More scored calls make feedback useful sooner.
 - **Alternative: only on gut checks and one-way doors.** Shorter questions, slower feedback.
 
 ## Before the first release
@@ -164,7 +164,7 @@ Prioritization divides cost of delay by size, so value needs a unit ([part 1](..
 *Decided: no, as recommended.* The person keeps the person file with their dotfiles, and HITLd does not sync it. Settings loading allows a dotfiles repository and symlinks to it ([13.4](13-operations.md#security)).
 
 - **Recommend: no. The person keeps it with their other dotfiles, and the system does not sync it.** The first-run walk-through on a new machine offers to copy values the person pastes in. The account-wide usage reading already keeps every machine inside the plan.
-- **Alternative: sync it through the private store's bundle exchange** ([Q1](#q1-where-does-the-private-store-live-and-do-other-machines-share-it)). One less file to carry, at the cost of personal plans and limits travelling with project data.
+- **Alternative: sync it through the private store's bundle exchange** ([Q1](#q1-where-does-the-private-store-live-and-do-other-machines-share-it)). One less file to carry, at the cost of personal plans and limits traveling with project data.
 
 ### Q29. How is headroom shared when several projects compete near the reserve? (affects the budget controller across projects)
 
@@ -292,7 +292,7 @@ The review exists for the person's own improvement ([part 23](23-people-in-the-l
 
 ### Q24. Who decides a change to a person's prior weight? (blocks People in the lead)
 
-*Decided: nobody; weights tune themselves.* A weight shrinks toward the default and moves only as far as its evidence supports: with few outcomes, it barely moves. There are no owner-set bounds. Two rules are fixed in the design: no one's judgement is weighted to zero, and no one's gut check alone overrides contrary evidence. Each person sees their own weights in their private review ([part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)).
+*Decided: nobody; weights tune themselves.* A weight shrinks toward the default and moves only as far as its evidence supports: with few outcomes, it barely moves. There are no owner-set bounds. Two rules are fixed in the design: no one's judgment is weighted to zero, and no one's gut check alone overrides contrary evidence. Each person sees their own weights in their private review ([part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)).
 
 - **Why not an owner decision per change.** A weight is an estimate from data, not a policy. Shrinkage keeps it from moving on thin evidence, and the fixed rules bound it, so tuning inside them is not a rule change.
 - **Alternative not taken: the owner decides each change**, as one batched decision per person. More oversight, at the cost of owner attention and of the owner reviewing everyone's calibration.
@@ -343,13 +343,13 @@ These are calls the design makes without asking. Each can be reversed cheaply no
 - UX design and review is its own loop and part, beside verification ([part 7](07-ux.md)).
 - The audit trail is its own hash-chained file, separate from the ledger ([part 3](03-data-model.md#audit-record)).
 - Loops are nested by speed, with stability rules strictest on the slow loops ([part 2](02-loops.md#loops-nested-by-speed)).
-- Judgements are calibrated priors: the owner's gut checks start with a high weight, set in the owner's person layer; weights tune themselves by shrinkage under two fixed rules; evidence that contradicts a judgement is put to its person, never silently applied ([part 3](03-data-model.md#judgement), [part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)).
+- Judgments are calibrated priors: the owner's gut checks start with a high weight, set in the owner's person layer; weights tune themselves by shrinkage under two fixed rules; evidence that contradicts a judgment is put to its person, never silently applied ([part 3](03-data-model.md#judgment), [part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)).
 - Trust-calibration data is collected from the start; autonomy changes are always owner decisions ([part 2](02-loops.md#215-trust-calibration)).
 - This repository keeps its public signals in `signals/`; the first 18 are the owner's untriaged ideas ([part 3](03-data-model.md#layout)).
 - Markdown stays the knowledge base's source of truth; any search index is a rebuildable cache ([part 8](08-knowledge-base.md#82-markdown-in-git-is-the-source-of-truth)).
 - Speculation cost is reported separately from waste ([part 5](05-execution.md#speculative-execution-later)).
 - Trust levels L0–L4 ([part 9](09-contributors.md#92-trust-levels)).
 - The private store's default path is `~/.local/share/human-in-the-lead/<project-id>/` ([part 3](03-data-model.md#private-store)).
-- Controllers move settings only inside owner-set bounds; anything else is a rule change ([part 11](11-metrics-and-control.md#112-who-moves-what)). Judgement weights are estimates, not settings, and have no owner bounds ([Q24](#q24-who-decides-a-change-to-a-persons-prior-weight-blocks-hl)).
+- Controllers move settings only inside owner-set bounds; anything else is a rule change ([part 11](11-metrics-and-control.md#112-who-moves-what)). Judgment weights are estimates, not settings, and have no owner bounds ([Q24](#q24-who-decides-a-change-to-a-persons-prior-weight-blocks-hl)).
 - New projects start in owner merge mode (`merge.mode: owner`): the owner decides each merge ([part 14](14-integration.md)).
 - For caps and limits, the strictest settings layer wins ([13.4](13-operations.md#precedence)).

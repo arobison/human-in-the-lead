@@ -599,7 +599,7 @@ test('a push needs a device the owner approved, and some text', async () => {
   assert.equal(pushed.result, 'pushed');
   assert.equal(pushed.device, 'device-a');
 
-  // Status reports the enrolment the resolver gave.
+  // Status reports the enrollment the resolver gave.
   const status = await storeStatus({
     root: base.root,
     projectId: 'fixture',

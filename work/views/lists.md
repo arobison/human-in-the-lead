@@ -15,7 +15,7 @@ HITLD-2, Done, led by owner: 12 of 12 done, 0 ready, 0 blocked. Plan: [21-scope.
 - [x] HITLD-5 Ledger and orchestrator continuity: run state, lease, resume (piece b). Done.
 - [x] HITLD-6 Environment resource manager: worktrees, ports, locks, secret tasks (piece c). Done.
 - [x] HITLD-7 Executor contract block and hitld check contract (piece d). Done.
-- [x] HITLD-8 Decision rights with precedent and judgement priors (piece e). Done.
+- [x] HITLD-8 Decision rights with precedent and judgment priors (piece e). Done.
 - [x] HITLD-9 Quotas, the reserve gate and hitld report (piece f). Done.
 - [x] HITLD-10 Offline eval runner and scenarios (piece g). Done.
 - [x] HITLD-11 Orchestrator skill, Claude Code adapter, basic merge queue, packaging (piece h). Done.
@@ -67,7 +67,7 @@ No milestone
 - [ ] HITLD-49 Close by trailer at merge, and the consistency check on main. Needs nothing.
 - [ ] HITLD-50 hitld env primary --reset: the owner moves the recorded primary checkout. Needs nothing.
 - [ ] HITLD-51 The commit guard: refuse confidential files in a public repository. Needs nothing.
-- [ ] HITLD-61 CLI and schemas follow the design review: command names, milestone tags, public judgement fields. Needs nothing.
+- [ ] HITLD-61 CLI and schemas follow the design review: command names, milestone tags, public judgment fields. Needs nothing.
 - [ ] HITLD-62 Milestone graph in the views and the report. Needs HITLD-45.
 
 #### One signal end to end: the rest of the slice

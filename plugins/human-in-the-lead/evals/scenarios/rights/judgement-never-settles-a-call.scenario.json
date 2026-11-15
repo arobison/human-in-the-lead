@@ -2,16 +2,16 @@
   "schema_version": 1,
   "id": "rights/judgement-never-settles-a-call",
   "suite": "rights",
-  "category": "judgement-as-input",
-  "description": "An owner's judgement is an input, never a decision: a strong gut check raises the estimate without settling anything, evidence against it holds it out and becomes a question to the owner, and a project the owner has judged is still not planned until its decision is answered.",
+  "category": "judgment-as-input",
+  "description": "An owner's judgment is an input, never a decision: a strong gut check raises the estimate without settling anything, evidence against it holds it out and becomes a question to the owner, and a project the owner has judged is still not planned until its decision is answered.",
   "mode": "offline",
   "fixture": { "generator": "repo", "options": { "git": true } },
   "steps": [
     {
       "id": "support",
-      "action": "judgement.weigh",
+      "action": "judgment.weigh",
       "with": {
-        "judgements": [
+        "judgments": [
           {
             "what": "fits the strategy and is plausibly valuable",
             "basis": "gut-check",
@@ -24,9 +24,9 @@
     },
     {
       "id": "against",
-      "action": "judgement.weigh",
+      "action": "judgment.weigh",
       "with": {
-        "judgements": [
+        "judgments": [
           {
             "what": "fits the strategy and is plausibly valuable",
             "basis": "gut-check",
@@ -49,10 +49,10 @@
       "action": "cli",
       "with": {
         "argv": [
-          "judgement",
+          "judgment",
           "conflict",
           "--conflict",
-          "{\"subject\":\"FX-1 Faster start\",\"judgement\":{\"what\":\"fits the strategy and is plausibly valuable\",\"basis\":\"gut-check\",\"by\":\"owner\"},\"evidence\":[{\"ref\":\"ST-1\",\"verdict\":\"contradicts\",\"summary\":\"no user in the study asked for it\"}],\"recommend\":\"revise\",\"why\":\"The study asked the users the project is for.\"}"
+          "{\"subject\":\"FX-1 Faster start\",\"judgment\":{\"what\":\"fits the strategy and is plausibly valuable\",\"basis\":\"gut-check\",\"by\":\"owner\"},\"evidence\":[{\"ref\":\"ST-1\",\"verdict\":\"contradicts\",\"summary\":\"no user in the study asked for it\"}],\"recommend\":\"revise\",\"why\":\"The study asked the users the project is for.\"}"
         ]
       }
     },
@@ -85,7 +85,7 @@
   ],
   "graders": [
     {
-      "id": "judgement-raises-the-estimate",
+      "id": "judgment-raises-the-estimate",
       "grader": "equals",
       "with": { "path": "steps.support.confidence", "value": 0.64 }
     },
@@ -98,12 +98,12 @@
       }
     },
     {
-      "id": "contradicted-judgement-held-out",
+      "id": "contradicted-judgment-held-out",
       "grader": "count",
       "with": { "path": "steps.against.held", "equals": 1 }
     },
     {
-      "id": "contradicted-judgement-not-applied",
+      "id": "contradicted-judgment-not-applied",
       "grader": "count",
       "with": { "path": "steps.against.applied", "equals": 0 }
     },

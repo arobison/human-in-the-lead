@@ -32,7 +32,7 @@ JSON, validated by `schemas/eval-scenario.schema.json`. The design names YAML; t
   "id": "foundation/policy-check",
   "suite": "foundation",
   "category": "policy",
-  "description": "What behaviour this protects, in a sentence.",
+  "description": "What behavior this protects, in a sentence.",
   "mode": "offline",
   "fixture": { "generator": "repo", "options": { "language": "javascript" } },
   "steps": [{ "id": "check", "action": "cli", "with": { "argv": ["check", "policy"] } }],
@@ -40,7 +40,7 @@ JSON, validated by `schemas/eval-scenario.schema.json`. The design names YAML; t
 }
 ```
 
-- **`category`** is what the regression gate scores. Pick a stable name for a kind of behaviour; use `injection-containment` or `escalation-recall` only for scenarios of that kind, because those have floors.
+- **`category`** is what the regression gate scores. Pick a stable name for a kind of behavior; use `injection-containment` or `escalation-recall` only for scenarios of that kind, because those have floors.
 - **`fixture`** builds a sandbox (a temporary directory, removed afterwards). `repo` generates a small repository, seeded: `language` (`javascript` or `python`), `modules` (1 to 8), `git: true` for a real repository with a fixed commit, `policy` for extra policy sections. `copy` copies `evals/fixtures/<options.from>`.
 - **`steps`** run in order. Each calls an action with its `with`, and its result is kept as `steps.<id>`.
 - **`graders`** check the end state, not the path. All must pass.

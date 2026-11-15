@@ -1,5 +1,5 @@
 // Flaky tests (design 14.7): the quarantine file and its guard, the base comparison, burn-in, the
-// quarantine honoured by the full suite, the evidence in the private store, the digest section and
+// quarantine honored by the full suite, the evidence in the private store, the digest section and
 // the commands.
 
 import { test } from 'node:test';
@@ -356,7 +356,7 @@ test('a flake in a test the branch changed is not quarantinable', async () => {
   assert.deepEqual(q.flakes[0].quarantinable, []);
 });
 
-// --- the quarantine honoured by the full suite -------------------------------------------------
+// --- the quarantine honored by the full suite -------------------------------------------------
 
 const BAD = [
   { id: 'ok', mode: 'pass' },

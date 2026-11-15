@@ -52,7 +52,7 @@ Anything that arrived. Created by intake, updated by triage.
 | `route` | stored | `auto-fix`, `backlog`, `owner`, `reply`, `closed` with a reason |
 | `links` | stored | Items, projects and decisions created from it |
 | `provenance` | stored | Ordered list of transforms: who or what touched it and how (normalized by, triaged by, reproduced by, with dispatch IDs) |
-| `judgements` | stored | Owner or area-owner judgements on it ([Judgement](#judgement)) |
+| `judgments` | stored | Owner or area-owner judgments on it ([Judgment](#judgment)) |
 | `design_refs` | stored | Design sections that already cover the signal (`covers`) or relate to it (`related`), so triage does not file work the design already holds |
 | `state` | stored | `new`, `triaged`, `closed` |
 | `classification` | stored | From the source's default; raised by triage if needed |
@@ -75,31 +75,31 @@ A body of work toward an outcome, with its items, its milestones and its appetit
 | `plan` | stored | The plan, or a pointer to a section of a design document |
 | `decision` | stored | The decision item whose answer is the owner's bet |
 | `bet_by` | derived | Who answered that decision; none until it is answered |
-| `judgements` | stored | Carried over from its signals, plus any made on the project itself |
-| `revisions` | stored | Each change to value or confidence after shaping began, with its reason and evidence (for example, a study verdict that lowered a judgement's prior) |
+| `judgments` | stored | Carried over from its signals, plus any made on the project itself |
+| `revisions` | stored | Each change to value or confidence after shaping began, with its reason and evidence (for example, a study verdict that lowered a judgment's prior) |
 
-Plus the fields common to projects and items ([below](#project-and-item)). The files backend does not store `judgements` and `revisions` yet.
+Plus the fields common to projects and items ([below](#project-and-item)). The files backend does not store `judgments` and `revisions` yet.
 
 - **The bet.** The owner's bet is the answer to the project's `decision`. It moves the project from `proposed` to `planned` (a commitment of budget, so it is the owner's: [part 4](04-decision-rights.md)). A planned or done project's decision is answered; `hitld work check` refuses one whose decision is still open. A project the owner rejects is `dropped`, with the reason.
 - **The appetite.** The project holds it. Each of its milestones holds a share, in its own `appetite_tokens`, and `hitld work check` verifies that the shares of the milestones not dropped fit the project's appetite.
 - **No parent.** A project stands alone. A long outcome that spans projects is a milestone with no parent whose constraints are the projects' milestones ([Milestone](#milestone)). The read API's `parent` stays optional on a project; the files backend stores none.
 
-### Judgement
+### Judgment
 
-A person's judgement on a signal or a project being shaped. It records an input, not a decision: it raises priority into shaping and never settles anything by itself. The eval scenario `rights/judgement-never-settles-a-call` checks that.
+A person's judgment on a signal or a project being shaped. It records an input, not a decision: it raises priority into shaping and never settles anything by itself. The eval scenario `rights/judgement-never-settles-a-call` checks that.
 
 | Field | Notes |
 |---|---|
 | `what` | What was judged, in plain words (for example, "fits the strategy and is plausibly valuable") |
 | `basis` | `gut-check` (a quick call from experience) or `considered` (a deliberate decision with reasons) |
 | `by`, `at` | Who and when |
-| `weight` | Derived: the prior weight this judgement carries in prioritization, from the person layer and calibration. Kept in the private store |
+| `weight` | Derived: the prior weight this judgment carries in prioritization, from the person layer and calibration. Kept in the private store |
 
-- **Public and private.** A public entity carries only `what`, `basis` and `by`: what was judged, the basis and who. The time, the weight, the judgement record's fields and the learned weights live in the private store and the person layer ([13.4](13-operations.md#134-settings-in-four-layers)), so nobody can rebuild a person's calibration from public files.
+- **Public and private.** A public entity carries only `what`, `basis` and `by`: what was judged, the basis and who. The time, the weight, the judgment record's fields and the learned weights live in the private store and the person layer ([13.4](13-operations.md#134-settings-in-four-layers)), so nobody can rebuild a person's calibration from public files.
 - **Starting weight.** Each person's starting weight per basis is in the person layer, not in the committed `policy.json`. Without one, the design's default applies. The owner's gut checks start **high**: a strong prior, because the owner's experience is real evidence.
 - **Calibration.** Outcome checks ([part 2](02-loops.md#210-outcome-sensing)) compare judged items with what happened, per area, and the trust-calibration loop ([part 2](02-loops.md#215-trust-calibration)) tunes the weight from the record: a weight moves only as far as its evidence supports ([23.3](23-people-in-the-lead.md#233-calibration-as-a-prior)). This weighs inputs; it does not grade the person.
-- **Not infallible.** When research, a study verdict or measurements conflict with a judgement, the conflict goes to the person who made it, with the evidence and a recommendation. Neither side wins silently.
-- **The judgement record.** Optional confidence, what the person expected, the evidence available at the time, and matched outcomes; per-person weights and the calibration review: [part 23](23-people-in-the-lead.md).
+- **Not infallible.** When research, a study verdict or measurements conflict with a judgment, the conflict goes to the person who made it, with the evidence and a recommendation. Neither side wins silently.
+- **The judgment record.** Optional confidence, what the person expected, the evidence available at the time, and matched outcomes; per-person weights and the calibration review: [part 23](23-people-in-the-lead.md).
 
 ### Project and item
 
@@ -419,11 +419,11 @@ A project's benchmark tool is the reference implementation. Executors measure th
 
 ### Private store
 
-The ledger, confidential research, relationship notes, process studies, private signals and judgement records live in a **private store**: a directory outside the repo (`~/.local/share/human-in-the-lead/<project-id>/`). Its interface is a small key-path file API (read, append, write, list) so it can later be backed by something else.
+The ledger, confidential research, relationship notes, process studies, private signals and judgment records live in a **private store**: a directory outside the repo (`~/.local/share/human-in-the-lead/<project-id>/`). Its interface is a small key-path file API (read, append, write, list) so it can later be backed by something else.
 
 It holds two kinds of data (decided, [Q1](22-open-questions.md#q1-where-does-the-private-store-live-and-do-other-machines-share-it)):
 
-- **Git text files** for what syncs between machines and keeps history: the ledger, decisions, precedents, signals, notes and judgement records. They are the truth.
+- **Git text files** for what syncs between machines and keeps history: the ledger, decisions, precedents, signals, notes and judgment records. They are the truth.
 - **SQLite** (Node's built-in module, so no dependency) for what is local to one machine and needs transactions or fast queries: the machine registry (live executors, leases, locks, capacities, [13.4](13-operations.md#134-settings-in-four-layers)), and an index over the ledger for metrics. The index is a cache: deleting it loses nothing, and it is rebuilt from the text. This is the same pattern as the knowledge base ([part 8](08-knowledge-base.md#82-markdown-in-git-is-the-source-of-truth)). SQLite files are never synced, because two copies written on two machines cannot be merged.
 
 **Moving and syncing the store.** Moving a store by hand would be error-prone, so the command line does it. Executors never run these commands: they refuse when `HITLD_ROLE=executor` or `HITLD_DISPATCH` is set, or in a linked worktree.
@@ -473,7 +473,7 @@ work/
     items-graph.md               # dependency diagrams
     projects-graph.md
 precedents/
-  P-1-dependency-licences.md     # public precedents; confidential ones live in the private store
+  P-1-dependency-licenses.md     # public precedents; confidential ones live in the private store
 signals/
   SIG-1-definition-of-ready.md   # public signals, when the project keeps them in the repository
 ```

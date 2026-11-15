@@ -10,7 +10,7 @@ graph LR
     HITLD_5["HITLD-5 Ledger and orchestrator continuity: run state, lease, resume ("]:::done
     HITLD_6["HITLD-6 Environment resource manager: worktrees, ports, locks, secret "]:::done
     HITLD_7["HITLD-7 Executor contract block and hitld check contract (piece d)"]:::done
-    HITLD_8["HITLD-8 Decision rights with precedent and judgement priors (piece e)"]:::done
+    HITLD_8["HITLD-8 Decision rights with precedent and judgment priors (piece e)"]:::done
     HITLD_9["HITLD-9 Quotas, the reserve gate and hitld report (piece f)"]:::done
     HITLD_10["HITLD-10 Offline eval runner and scenarios (piece g)"]:::done
     HITLD_11["HITLD-11 Orchestrator skill, Claude Code adapter, basic merge queue, p"]:::done

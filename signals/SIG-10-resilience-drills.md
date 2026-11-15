@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Resilience drills: kill executors, corrupt state, drop the network mid-run (chaos engineering for the process)."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

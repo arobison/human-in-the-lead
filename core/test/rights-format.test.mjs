@@ -79,7 +79,7 @@ test('without blocks or an offer, those parts are left out; a one-way door says 
   );
 });
 
-test('an option labelled with its own letter is not shown twice', () => {
+test('an option labeled with its own letter is not shown twice', () => {
   assert.equal(
     describeOption({ label: 'A', what_happens: 'Include it: always correct' }, 0),
     'A. Include it: always correct',
@@ -156,36 +156,61 @@ test('words that are exactly one label name that option; the rest of the answer 
 });
 
 test('simple spelling variants and slips of the keys still name the label', () => {
-  const enrol = {
+  const enroll = {
     options: [
-      { label: 'Enrol it', what_happens: 'a' },
-      { label: 'Do not enrol it', what_happens: 'b' },
-      { label: 'Organise the files', what_happens: 'c' },
+      { label: 'Enroll it', what_happens: 'a' },
+      { label: 'Do not enroll it', what_happens: 'b' },
+      { label: 'Organize the files', what_happens: 'c' },
     ],
   };
   /** @param {string} t */
-  const p = (t) => parseAnswer(t, enrol).option;
-  assert.equal(p('enrol it'), 0);
+  const p = (t) => parseAnswer(t, enroll).option;
   assert.equal(p('enroll it'), 0);
+  assert.equal(p('enrol it'), 0); // spelling-ok: a British spelling, as people type it
+  assert.equal(p('Enrol'), 0); // spelling-ok
+  assert.equal(p('do not enrol it'), 1); // spelling-ok
   assert.equal(p('Enroll'), 0);
   assert.equal(p('do not enroll it'), 1);
   assert.equal(p('organize the files'), 2);
+  assert.equal(p('organise the files'), 2); // spelling-ok
   assert.equal(p('orgnaise the files'), null, 'a transposition is not a slip it forgives');
   assert.equal(p('oraganise the files'), 2, 'one letter off, in a long word');
 });
 
-test('words that add to a label, or fit two labels, name no option', () => {
-  const enrol = {
+test('British spellings as people type them name the American label', () => {
+  const decision = {
     options: [
-      { label: 'Enrol it', what_happens: 'a' },
-      { label: 'Do not enrol it', what_happens: 'b' },
+      { label: 'Enroll it', what_happens: 'a' },
+      { label: 'Accept the license', what_happens: 'b' },
+      { label: 'Keep the behavior', what_happens: 'c' },
+      { label: 'Add a judgment', what_happens: 'd' },
+      { label: 'Skip the labeled ones', what_happens: 'e' },
+      { label: 'Normalize the names', what_happens: 'f' },
     ],
   };
-  // "not enrol it" holds the words of "Enrol it", and means the opposite.
-  const negated = parseAnswer('not enrol it', enrol);
+  /** @param {string} t */
+  const p = (t) => parseAnswer(t, decision).option;
+  assert.equal(p('enrol it'), 0); // spelling-ok: each answer below is how a person may type it
+  assert.equal(p('accept the licence'), 1); // spelling-ok
+  assert.equal(p('keep the behaviour'), 2); // spelling-ok
+  assert.equal(p('add a judgement'), 3); // spelling-ok
+  assert.equal(p('skip the labelled ones'), 4); // spelling-ok
+  assert.equal(p('normalise the names'), 5); // spelling-ok
+  assert.equal(p('Enroll it'), 0);
+});
+
+test('words that add to a label, or fit two labels, name no option', () => {
+  const enroll = {
+    options: [
+      { label: 'Enroll it', what_happens: 'a' },
+      { label: 'Do not enroll it', what_happens: 'b' },
+    ],
+  };
+  // "not enroll it" holds the words of "Enroll it", and means the opposite.
+  const negated = parseAnswer('not enroll it', enroll);
   assert.deepEqual([negated.option, negated.ambiguous], [null, false]);
-  assert.equal(parseAnswer('enrol it now', enrol).option, null);
-  assert.equal(parseAnswer('I would not enrol it', enrol).option, null);
+  assert.equal(parseAnswer('enroll it now', enroll).option, null);
+  assert.equal(parseAnswer('I would not enroll it', enroll).option, null);
   // Two labels that are the same words: the answer fits both, so it names neither.
   const twins = {
     options: [

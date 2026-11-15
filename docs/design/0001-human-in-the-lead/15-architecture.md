@@ -31,7 +31,7 @@ flowchart TB
   L4 --> L3 --> L2 --> L1
 ```
 
-**The rule that keeps it portable:** the core never calls a harness. It knows only the harness adapter interface (15.3). Adding a harness means writing an adapter and its packaging; it never means changing the core, the schemas or the skills. The core's own tests run against a fake adapter, so a core change that leans on one harness fails them. The adapter interface and capability set are public interface under semver ([16.5](16-packaging.md#165-releases-and-compatibility)), labelled experimental until a second adapter proves their shape.
+**The rule that keeps it portable:** the core never calls a harness. It knows only the harness adapter interface (15.3). Adding a harness means writing an adapter and its packaging; it never means changing the core, the schemas or the skills. The core's own tests run against a fake adapter, so a core change that leans on one harness fails them. The adapter interface and capability set are public interface under semver ([16.5](16-packaging.md#165-releases-and-compatibility)), labeled experimental until a second adapter proves their shape.
 
 ## 15.1 Layer 1: the neutral core
 
@@ -100,7 +100,7 @@ interface HarnessCapabilities {
 
 The orchestrator reads the capability set and adapts. Nothing in the core assumes a capability is present.
 
-| Missing capability | Degraded behaviour |
+| Missing capability | Degraded behavior |
 |---|---|
 | Parallel subagents | Sequential dispatch: one executor at a time, still from the ready queue in priority order. The concurrency controller is pinned at 1 |
 | Persistent sessions | Tier-3 work runs as a tier-2 dispatch at the highest model and effort available, with a smaller slice of the item per dispatch |
