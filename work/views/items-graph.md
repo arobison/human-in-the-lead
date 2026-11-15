@@ -35,7 +35,7 @@ graph LR
     HITLD_38["HITLD-38 Machine detection with 'hitld machine detect'"]:::open
     HITLD_39["HITLD-39 First-run setup walk-through in the orchestrator skill"]:::open
     HITLD_40["HITLD-40 Machine-wide registry of live executors and per-account usage"]:::open
-    HITLD_45["HITLD-45 Milestones and releases as entities: needs and serves, indepe"]:::open
+    HITLD_45["HITLD-45 Milestones and releases as entities: needs and contributions, indepe"]:::open
     HITLD_46["HITLD-46 'hitld feedback': capture feedback about HITLd with context, "]:::open
     HITLD_47["HITLD-47 Orchestrator skill recognizes feedback about HITLd and publis"]:::open
     HITLD_49["HITLD-49 Close by trailer at merge, and the consistency check on main"]:::open

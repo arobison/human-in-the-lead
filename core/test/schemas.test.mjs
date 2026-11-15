@@ -115,7 +115,7 @@ const examples = {
       { id: 'W-214', clause: 'c1' },
       { id: 'W-215', clause: null },
     ],
-    serves: [{ id: 'W-216', value: 3, confidence: 0.7 }],
+    contributions: [{ id: 'W-216', value: 3, confidence: 0.7 }],
     appetite_tokens: 600000,
     deadline: { date: '2027-03-01', source: 'the conference demo' },
     check: { kind: 'integration-test', target: 'test/config/errors.test.ts' },

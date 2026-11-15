@@ -158,7 +158,7 @@ These apply to every loop.
 - **Problem:** in the user's terms, citing the signals.
 - **Evidence:** signals, reproductions, measurements (runs and studies from the project's benchmark tool), desk research.
 - **Options:** two or three ways to address it, each with what it trades off. "Do nothing" is always an option, with its cost of delay.
-- **Value:** in the project's value units, with a **confidence** (a probability that the value materializes if built). The pair is what prioritization uses.
+- **Value:** a positive number in the project's value units, with a **confidence** (a probability that the value materializes if built). The pair is what prioritization uses. The unit is the project's own and it is the same for opportunities and for a milestone's contributions, so a value divided by tokens is a ratio. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering a value, not the only values.
 - **Cost of delay profile:** standard (value lost at a steady rate), urgent (high rate now), fixed-date (value falls to near zero after an external date), or intangible (low rate now, rising later, as with technical debt).
 - **Appetite:** the token budget the problem is worth. Work is shaped to fit the appetite, not estimated after the fact.
 - **Outcome measures:** what would show, after shipping, that the problem is solved. Outcome sensing checks them ([2.10](#210-outcome-sensing)).
@@ -183,7 +183,7 @@ These apply to every loop.
 
 **The ordering rule.** Weighted shortest job first (WSJF, after Reinertsen's work on cost of delay): **cost of delay divided by size**, where size is the token estimate. For dependent items, the critical path dominates: an item that unblocks others carries the cost of delay of everything behind it. Adjustments:
 
-- **Milestones** (planned, [part 3](03-data-model.md#milestones-and-releases)). A milestone's constraint carries the milestone's whole cost of delay, because without it no clause comes true. A contribution carries its own value × confidence, and enters the queue only while it is inside the milestone's scope (the contributions that fit the appetite by value per token). There are no priority labels: what must happen is a constraint, everything else is scored.
+- **Milestones** (planned, [part 3](03-data-model.md#milestones-and-releases)). A milestone's constraint carries the milestone's whole cost of delay, because without it no clause comes true. A contribution carries its own value × confidence (value in the project's value units, the same as an opportunity's), and enters the queue only while it is inside the milestone's scope (the contributions that fit the appetite by value per token). There are no priority labels: what must happen is a constraint, everything else is scored.
 
 - **Value of information.** A study or spike whose verdict would change which option is chosen carries the expected value of that change. This lets cheap experiments jump ahead of expensive builds when the choice is uncertain.
 - **Owner judgement as a prior.** A signal or opportunity carrying an owner judgement ([part 3](03-data-model.md#judgement)) has its value and confidence raised by the judgement's weight. This raises it into shaping; it never settles the bet. When shaping, research or a study revises the estimate, the opportunity records why. When evidence **contradicts** a judgement, the system neither overrides it quietly nor defers to it quietly: it puts the conflict to the owner as a decision, with the evidence and a recommendation, and the answer becomes precedent.

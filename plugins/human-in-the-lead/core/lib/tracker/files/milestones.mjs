@@ -1,14 +1,16 @@
 // Milestones in the files backend (design part 3.2, Milestones and releases).
 //
 // A milestone is a setpoint: an outcome, "done when" clauses, constraints (`needs`, each linked to
-// a clause), contributions (`serves`, with a value and a confidence), an appetite, an optional
+// a clause), contributions (`contributions`, with a value and a confidence), an appetite, an optional
 // external deadline and an independent check. The front matter holds strings and lists of strings
 // only (frontmatter.mjs), so each structured entry is one line of text in a fixed form:
 //
 //   done_when:     "c1: <text>"
 //   needs:         "<ID> c1"          a constraint linked to clause c1
 //                  "<ID> c?"          a constraint still to be linked to a clause at shaping
-//   serves:        "<ID> value=<1|2|3|5|8|13> confidence=<0 to 1>"
+//   contributions:        "<ID> value=<number above 0> confidence=<0 to 1>"
+//                  value is in the project's value units (design part 2), as an opportunity's is;
+//                  1, 2, 3, 5, 8 and 13 are quick choices, not the only values
 //   check:         "<demo|integration-test|study> <target>"
 //   check_results: "<pass|fail|verdict> <YYYY-MM-DD> <role>: <evidence>"
 //   deadline:      "<YYYY-MM-DD> <source>"
@@ -19,7 +21,6 @@
 
 export const MILESTONE_KINDS = ['capability', 'learning'];
 export const MILESTONE_STATES = ['Proposed', 'Planned', 'Done', 'Dropped'];
-export const VALUE_POINTS = [1, 2, 3, 5, 8, 13];
 export const CHECK_KINDS = ['demo', 'integration-test', 'study'];
 export const CHECK_RESULTS = ['pass', 'fail', 'verdict'];
 /** The clause marker of a constraint still to be linked at shaping. */
@@ -28,7 +29,7 @@ export const UNLINKED = 'c?';
 export const AUTHOR_ROLE = 'executor';
 
 /** The milestone keys that hold one structured line each, and the lists of them. */
-export const MILESTONE_LIST_KEYS = ['done_when', 'serves', 'check_results'];
+export const MILESTONE_LIST_KEYS = ['done_when', 'contributions', 'check_results'];
 
 const ID = /^[A-Z][A-Z0-9]*-[1-9]\d*$/;
 const CLAUSE = /^c[1-9]\d*$/;
@@ -67,12 +68,12 @@ export function parseConstraint(s) {
 export function parseContribution(s) {
   const m = /^(\S+)\s+value=(\S+)\s+confidence=(\S+)$/.exec(String(s).trim());
   if (!m || !ID.test(m[1])) {
-    return { error: `"${s}" isn't "<ID> value=<points> confidence=<0 to 1>"` };
+    return { error: `"${s}" isn't "<ID> value=<number above 0> confidence=<0 to 1>"` };
   }
   const value = Number(m[2]);
   const confidence = Number(m[3]);
-  if (!VALUE_POINTS.includes(value)) {
-    return { error: `${m[1]}: value ${m[2]} isn't one of ${VALUE_POINTS.join(', ')}` };
+  if (!/^\d+(\.\d+)?$/.test(m[2]) || !(value > 0) || !Number.isFinite(value)) {
+    return { error: `${m[1]}: value ${m[2]} isn't a number above 0` };
   }
   if (!/^(0(\.\d+)?|1(\.0+)?)$/.test(m[3])) {
     return { error: `${m[1]}: confidence ${m[3]} isn't a number from 0 to 1` };
@@ -142,7 +143,7 @@ export function readMilestone(d) {
   };
   const clauses = each('done_when', parseClause);
   const constraints = each('needs', parseConstraint);
-  const contributions = each('serves', parseContribution);
+  const contributions = each('contributions', parseContribution);
   const check = one('check', parseCheck);
   const results = each('check_results', parseCheckResult);
   const deadline = one('deadline', parseDeadline);
@@ -169,7 +170,7 @@ export function readMilestone(d) {
   }
   const served = contributions.map((c) => c.id);
   for (const [i, id] of served.entries()) {
-    if (served.indexOf(id) !== i) problems.push(`serves ${id} appears twice`);
+    if (served.indexOf(id) !== i) problems.push(`contributions ${id} appears twice`);
     if (constraints.some((c) => c.id === id)) {
       problems.push(`${id} is both a constraint and a contribution; it is one or the other`);
     }
@@ -219,7 +220,7 @@ export function storedMilestoneField(key, v) {
   if (key === 'needs' && Array.isArray(v) && v.some((x) => typeof x === 'object')) {
     return many(formatConstraint);
   }
-  if (key === 'serves') return many(formatContribution);
+  if (key === 'contributions') return many(formatContribution);
   if (key === 'check_results') return many(formatCheckResult);
   if (key === 'check' && typeof v === 'object') return formatCheck(/** @type {Check} */ (v));
   if (key === 'deadline' && typeof v === 'object') {
@@ -240,7 +241,7 @@ export function milestoneFields(d) {
   if (m.outcome !== undefined) e.outcome = m.outcome;
   if (d.done_when !== undefined) e.done_when = m.clauses;
   if (d.needs !== undefined) e.needs = m.constraints;
-  if (d.serves !== undefined) e.serves = m.contributions;
+  if (d.contributions !== undefined) e.contributions = m.contributions;
   if (m.appetite !== undefined) e.appetite_tokens = m.appetite;
   if (m.deadline) e.deadline = m.deadline;
   if (m.check) e.check = m.check;
