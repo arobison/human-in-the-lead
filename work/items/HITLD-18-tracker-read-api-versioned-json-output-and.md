@@ -6,6 +6,7 @@ status: Done
 created: 2026-11-14
 project: HITLD-15
 claimed: D-18
+changelog: "`hitld work show` and `work query` take `--json` with `api_version`; projects can declare their own fields in tracker.json; `hitld work migrate` applies tracker format migrations."
 ---
 
 ## Why

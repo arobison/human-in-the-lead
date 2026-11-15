@@ -2,7 +2,7 @@
 
 A product development system where agents do the work, and people set the direction and make the calls.
 
-**Status: the milestone "Usable in a consuming project" is built and under design review. It is not released yet.** The design is in [docs/design/0001-human-in-the-lead.md](docs/design/0001-human-in-the-lead.md); that milestone and the full slice, "One signal end to end", are defined in [its scope](docs/design/0001-human-in-the-lead/21-scope.md). This README describes the system as designed; what is built is one part of it.
+**Status: v0.1.0-rc.1 is the first release candidate of the milestone "Usable in a consuming project". It is a pre-release for trying and feedback; v0.1.0 follows once it has been tried.** The design is in [docs/design/0001-human-in-the-lead.md](docs/design/0001-human-in-the-lead.md); that milestone and the full slice, "One signal end to end", are defined in [its scope](docs/design/0001-human-in-the-lead/21-scope.md). This README describes the system as designed; what is built is one part of it.
 
 **Why it works: [the systems thinking behind HITLd](docs/systems-thinking.md).** The first principles the design is built on, and how today's agile practices apply the same principles with trade-offs made for human labour.
 
@@ -182,22 +182,32 @@ A system that grades its own work can learn to game the grade, so stage 2 has gu
 
 ## Using it in a project
 
-This applies once the first release is tagged. Until then, the plugin can be tried from a local checkout ([the development loop](docs/design/0001-human-in-the-lead/16-packaging.md#the-development-loop)).
+The first release candidate is the tag `v0.1.0-rc.1`. To try an unreleased checkout instead, see [the development loop](docs/design/0001-human-in-the-lead/16-packaging.md#the-development-loop).
 
-This repository is its own Claude Code plugin marketplace. A project declares it in its committed `.claude/settings.json`, pinned to a release tag:
+This repository is its own Claude Code plugin marketplace. `hitld install` writes the pin for you. `hitld` itself is not published to a package registry, so clone the tag once, anywhere outside your project, and run it from there:
+
+```bash
+git clone --branch v0.1.0-rc.1 --depth 1 https://github.com/arobison/human-in-the-lead.git
+cd your-project
+node ../human-in-the-lead/core/bin/hitld.mjs install --key W --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead
+```
+
+`--key` is your project's tracker ID key (for example `W`); it is needed the first time, when there is no `.human-in-the-lead/policy.json` yet. If you have `hitld` on your path, the command is `hitld install --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead` (plus `--key` the first time). Keep the clone: the pre-commit commit guard that install writes runs the `hitld` it was installed from, so install again from the new tag's checkout when you upgrade.
+
+Install writes the project's committed `.claude/settings.json`, pinned to the tag, so the marketplace needs no separate `claude plugin marketplace add`:
 
 ```json
 {
   "extraKnownMarketplaces": {
     "human-in-the-lead": {
-      "source": { "source": "github", "repo": "arobison/human-in-the-lead", "ref": "v0.1.0" }
+      "source": { "source": "github", "repo": "arobison/human-in-the-lead", "ref": "v0.1.0-rc.1" }
     }
   },
   "enabledPlugins": { "human-in-the-lead@human-in-the-lead": true }
 }
 ```
 
-Each machine then installs the pinned version once:
+Each machine then installs the pinned version once (this is the command `hitld install` prints):
 
 ```bash
 claude plugin install human-in-the-lead@human-in-the-lead --scope project
