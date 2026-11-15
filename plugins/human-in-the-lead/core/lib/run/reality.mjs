@@ -23,7 +23,8 @@ function git(cwd, args) {
 }
 
 /**
- * @param {{ cwd: string, mainBranch?: string }} options
+ * @param {{ cwd: string, mainBranch?: string }} options mainBranch: policy.json merge.main_branch,
+ *   which callers pass; 'main' only where no policy is loaded
  * @returns {Reality}
  */
 export function gitReality({ cwd, mainBranch = 'main' }) {

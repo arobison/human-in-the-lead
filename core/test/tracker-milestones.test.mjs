@@ -22,12 +22,12 @@ import { commitAll, git, itemText, makeRepo, policyFor, put } from './tracker-fi
 const open = (/** @type {string} */ root) =>
   openTracker({ repoRoot: root, policy: policyFor(), env: {} });
 
-/** A capability milestone W-7 under W-2. @param {Record<string, string | string[]>} [extra] */
+/** A milestone W-7 under W-2. @param {Record<string, string | string[]>} [extra] */
 const milestone = (extra = {}) =>
   itemText({
     id: 'W-7',
     title: 'Config errors explained',
-    kind: 'capability',
+    kind: 'milestone',
     state: 'planned',
     project: 'W-2',
     outcome: 'A user with a bad config sees which key is wrong.',
@@ -123,6 +123,14 @@ test('a milestone file passes the check, and its entity validates against the mi
         deadline: '2027-03-01 the conference demo',
         check: 'integration-test test/config/errors.test.ts',
       }),
+      // The project holds the appetite; the milestone's is a share of it.
+      'work/projects/W-2-the-project.md': itemText({
+        id: 'W-2',
+        title: 'The project',
+        kind: 'project',
+        state: 'planned',
+        appetite_tokens: '1000000',
+      }),
     },
   });
   const t = open(root);
@@ -185,7 +193,7 @@ test('the check: clauses exist, contributions are scored, references resolve, no
     'work/milestones/W-8-other.md': itemText({
       id: 'W-8',
       title: 'Other',
-      kind: 'learning',
+      kind: 'milestone',
       state: 'planned',
       project: 'W-2',
       initiative: 'W-1',
@@ -201,22 +209,22 @@ test('the check: clauses exist, contributions are scored, references resolve, no
     }),
   });
   for (const p of [
-    'work/milestones/W-7-config-errors-explained.md: a capability is never in-progress: only work items are claimed',
+    'work/milestones/W-7-config-errors-explained.md: a milestone is never in-progress: only work items are claimed',
     "work/milestones/W-7-config-errors-explained.md: constraints W-4 names clause c9, which done_when doesn't have",
     "work/milestones/W-7-config-errors-explained.md: contributions: W-6: value 0 isn't a number above 0",
-    'work/milestones/W-8-other.md: a milestone needs one parent: project or initiative',
+    'work/milestones/W-8-other.md: "initiative" is retired: initiatives are milestones now: a long outcome is a milestone with no parent (design part 3.2); run hitld work migrate',
   ]) {
     assert.ok(found.includes(p), `missing: ${p}\n${found.join('\n')}`);
   }
   const refs = problems({
     'work/milestones/W-7-config-errors-explained.md': milestone({
-      constraints: ['W-99 c1', 'W-1 c2'],
+      constraints: ['W-99 c1', 'W-2 c2'],
       contributions: ['W-2 value=3 confidence=0.5'],
     }),
     'work/milestones/W-8-other.md': itemText({
       id: 'W-8',
       title: 'Other',
-      kind: 'learning',
+      kind: 'milestone',
       state: 'planned',
       project: 'W-2',
       constraints: ['W-9 c?'],
@@ -232,7 +240,7 @@ test('the check: clauses exist, contributions are scored, references resolve, no
   });
   for (const p of [
     "work/milestones/W-7-config-errors-explained.md: needs W-99, which doesn't exist",
-    'work/milestones/W-7-config-errors-explained.md: needs W-1, a initiative; needs name items and milestones only',
+    'work/milestones/W-7-config-errors-explained.md: needs W-2, a project; needs name items and milestones only',
     'work/milestones/W-7-config-errors-explained.md: contributions W-2, a project; contributions are items',
     'cycle: W-9 → W-8 → W-9',
   ]) {
@@ -241,9 +249,10 @@ test('the check: clauses exist, contributions are scored, references resolve, no
 });
 
 test('Done only from a recorded passing check by a role other than the items’ authors', () => {
-  const files = (/** @type {string[]} */ results, status = 'done', kind = 'capability') => ({
+  // A learning milestone is one whose check is a study.
+  const files = (/** @type {string[]} */ results, status = 'done', learning = false) => ({
     'work/milestones/W-7-config-errors-explained.md': milestone({
-      kind,
+      ...(learning ? { check: 'study FB-3' } : {}),
       state: status,
       constraints: ['W-3 c1'],
       done_when: ['"c1: It works."'],
@@ -265,16 +274,11 @@ test('Done only from a recorded passing check by a role other than the items’ 
   );
   assert.deepEqual(say(problems(files(['pass 2026-12-01 acceptance-author: run 41']))), []);
   assert.deepEqual(
-    say(
-      problems(files(['answered 2026-12-01 researcher: study FB-3 says no'], 'done', 'learning')),
-    ),
+    say(problems(files(['answered 2026-12-01 researcher: study FB-3 says no'], 'done', true))),
     [],
     'a learning milestone is Done when its study has a verdict, whatever it says',
   );
-  assert.equal(
-    say(problems(files(['pass 2026-12-01 researcher: x'], 'done', 'learning'))).length,
-    1,
-  );
+  assert.equal(say(problems(files(['pass 2026-12-01 researcher: x'], 'done', true))).length, 1);
 
   // A role named in the items' commits is an author too.
   const root = makeRepo({ files: files(['pass 2026-12-01 reviewer: looked'], 'planned') });
@@ -358,29 +362,29 @@ test('the read API returns milestones with api_version and entity, and work new 
   settings(root);
   const show = await hitld(['work', 'show', 'W-7', '--json'], root);
   assert.equal(show.code, 0);
-  assert.equal(show.json.api_version, 2);
-  assert.equal(show.json.entity.kind, 'capability');
+  assert.equal(show.json.api_version, 3);
+  assert.equal(show.json.entity.kind, 'milestone');
   assert.equal(show.json.entity.entity, 'milestone');
   assert.equal(show.json.entity.check_due, false);
   assert.deepEqual(
     show.json.entity.unmet_clauses.map((/** @type {any} */ e) => e.clause),
     ['c1', 'c2'],
   );
-  const query = await hitld(['work', 'query', '--kind', 'capability', '--json'], root);
+  const query = await hitld(['work', 'query', '--kind', 'milestone', '--json'], root);
   assert.deepEqual(
     query.json.entities.map((/** @type {any} */ e) => e.id),
-    ['W-7'],
+    ['W-1', 'W-7'],
   );
   const made = await hitld(
     [
       'work',
       'new',
       '--kind',
-      'learning',
+      'milestone',
       '--title',
       'Which cache key',
       '--parent',
-      'W-1',
+      'W-2',
       '--outcome',
       'We know which key to use.',
     ],
@@ -390,8 +394,13 @@ test('the read API returns milestones with api_version and entity, and work new 
   const text = readFileSync(join(root, made.json.path), 'utf8');
   assert.match(
     text,
-    /^---\nid: W-8\ntitle: Which cache key\nkind: learning\nstate: proposed\ncreated: [\d-]+\ninitiative: W-1\noutcome: We know which key to use\.\n---/,
+    /^---\nid: W-8\ntitle: Which cache key\nkind: milestone\nstate: proposed\ncreated: [\d-]+\nproject: W-2\noutcome: We know which key to use\.\n---/,
   );
+  const old = await hitld(
+    ['work', 'new', '--kind', 'learning', '--title', 'x', '--parent', 'W-2'],
+    root,
+  );
+  assert.equal(old.code, 1);
   assert.equal(made.json.path, 'work/milestones/W-8-which-cache-key.md');
   assert.deepEqual(open(root).check().problems, []);
 });
@@ -410,7 +419,12 @@ test('views: milestones with their unmet clauses and scope, and the merged-but-u
   assert.equal(
     texts.milestones,
     [
-      'W-7 Config errors explained [Planned], capability, under W-2 The project',
+      'W-1 The goal [Planned], a long outcome',
+      '  constraints: 0 of 0 done',
+      '  check due: every constraint is done; the check has not passed',
+      '  to shape: outcome; done_when; check',
+      '',
+      'W-7 Config errors explained [Planned], under W-2 The project',
       '  outcome: A user with a bad config sees which key is wrong.',
       '  constraints: 1 of 2 done',
       '  unmet: c1 An unknown key exits with status 2. (check not passed)',
@@ -419,7 +433,7 @@ test('views: milestones with their unmet clauses and scope, and the merged-but-u
       '  scope: appetite 1000; constraints 0 tokens; in scope: none; not sized: W-5',
       '  to shape: check; link W-4 to a clause',
       '',
-      '1 open milestone(s)',
+      '2 open milestone(s)',
       '',
     ].join('\n'),
   );
@@ -431,7 +445,10 @@ test('views: milestones with their unmet clauses and scope, and the merged-but-u
 
 test('migrate: project milestones and item milestone keys become milestone files, in one commit, idempotent', async () => {
   const root = makeRepo({
+    omit: ['work/milestones/W-1-goal.md'],
     files: {
+      'work/initiatives/W-1-goal.md':
+        '---\nid: W-1\ntitle: The goal\nkind: initiative\nstatus: Planned\nlead: owner\n---\n\n## Goal\n\nIt all works.\n',
       'work/projects/W-2-the-project.md':
         '---\nid: W-2\ntitle: "The project"\nkind: project\nstatus: Planned\ncreated: 2026-11-01\ninitiative: W-1\nlead: owner\nmilestones: [alpha, beta-two]\n---\n\n## Milestones\n\n- **alpha** (capability). Outcome: it starts.\n',
       'work/items/W-4-second-step.md': itemText({
@@ -466,18 +483,26 @@ test('migrate: project milestones and item milestone keys become milestone files
   assert.equal(done.code, 0, JSON.stringify(done.json));
   assert.match(
     git(root, 'log', '-1', '--format=%s').trim(),
-    /^migrate: milestone-entities, retire-priority, names-and-states$/,
+    /^migrate: milestone-entities, retire-priority, names-and-states, tracker-structure$/,
   );
   assert.equal(git(root, 'status', '--porcelain'), '');
   const alpha = readFileSync(join(root, 'work/milestones/W-7-alpha.md'), 'utf8');
   assert.match(
     alpha,
-    /^---\nid: W-7\ntitle: Alpha\nkind: capability\nstate: planned\ncreated: 2026-11-01\nproject: W-2\nconstraints: \[W-4 c\?, W-5 c\?\]\n---\n/,
+    /^---\nid: W-7\ntitle: Alpha\nkind: milestone\nstate: planned\ncreated: 2026-11-01\nproject: W-2\nconstraints: \[W-4 c\?, W-5 c\?\]\n---\n/,
   );
   assert.match(alpha, /From W-2:\n\n- \*\*alpha\*\* \(capability\)\. Outcome: it starts\./);
   assert.ok(existsSync(join(root, 'work/milestones/W-8-beta-two.md')));
   const project = readFileSync(join(root, 'work/projects/W-2-the-project.md'), 'utf8');
   assert.equal(project.includes('milestones:'), false);
+  assert.equal(project.includes('initiative:'), false);
+  // The initiative is a long outcome: a milestone with no parent, its projects' milestones its
+  // constraints.
+  assert.equal(existsSync(join(root, 'work/initiatives/W-1-goal.md')), false);
+  assert.match(
+    readFileSync(join(root, 'work/milestones/W-1-goal.md'), 'utf8'),
+    /^---\nid: W-1\ntitle: The goal\nkind: milestone\nstate: planned\nowner: owner\nconstraints: \[W-7 c\?, W-8 c\?\]\n---\n\n## Goal\n\nIt all works\.\n\n## Notes\n\nMade by `hitld work migrate` \(tracker-structure\) from the initiative W-1/,
+  );
   assert.ok(project.includes('title: "The project"'), 'other lines are left as they were');
   assert.ok(project.includes('\nstate: planned\n') && project.includes('\nowner: owner\n'));
   const item = readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8');

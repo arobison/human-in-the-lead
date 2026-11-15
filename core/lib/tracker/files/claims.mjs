@@ -118,7 +118,7 @@ export function findClaims(root, layout) {
   for (const { ref, items } of loadPlaces(root, layout, refs)) {
     for (const it of items) {
       const d = it.data;
-      if (!d?.id || d.state !== 'in-progress' || d.kind === 'project' || d.kind === 'initiative') {
+      if (!d?.id || d.state !== 'in-progress' || d.kind === 'project' || d.kind === 'milestone') {
         continue;
       }
       const here = mainItems.get(String(d.id));
@@ -260,8 +260,11 @@ export function closeItem(root, layout, id, { commit = true } = {}) {
   const d = entry.data;
   const here = currentBranch(root);
   const solo = d.kind === 'decision' || d.kind === 'external';
-  if (d.kind === 'project' || d.kind === 'initiative') {
+  if (d.kind === 'project') {
     throw new Error(`${id} is a ${d.kind}; whether it is active is derived from its items`);
+  }
+  if (d.kind === 'milestone') {
+    throw new Error(`${id} is a milestone; it is done only by a passing check, never closed`);
   }
   if (d.state === 'done') throw new Error(`${id} is already done`);
   if (d.state !== 'in-progress' && !(solo && d.state === 'planned')) {

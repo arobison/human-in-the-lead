@@ -1,15 +1,17 @@
 // Milestones in the files backend (design part 3.2, Milestones and releases).
 //
 // A milestone is a setpoint: an outcome, "done when" clauses, constraints (`constraints`, each
-// linked to a clause), contributions (`contributions`, with a value and a confidence), an appetite, an optional
-// external deadline and an independent check. The front matter holds strings and lists of strings
+// linked to a clause), contributions (`contributions`, with a value and a confidence), a share of
+// its project's appetite, an optional external deadline and an independent check. There is one
+// milestone kind, `milestone`. A learning milestone is one whose check is a study: derived, never
+// stored. A milestone with no project is a long outcome; its constraints are other milestones. The front matter holds strings and lists of strings
 // only (frontmatter.mjs), so each structured entry is one line of text in a fixed form:
 //
 //   done_when:     "c1: <text>"
 //   constraints:   "<ID> c1"          a constraint linked to clause c1
 //                  "<ID> c?"          a constraint still to be linked to a clause at shaping
 //   contributions:        "<ID> value=<number above 0> confidence=<0 to 1>"
-//                  value is in the project's value units (design part 2), as an opportunity's is;
+//                  value is in the project's value units (design part 2), as a project's is;
 //                  1, 2, 3, 5, 8 and 13 are quick choices, not the only values
 //   check:         "<demo|integration-test|study> <target>"
 //   check_results: "<pass|fail|answered> <YYYY-MM-DD> <role>: <evidence>"
@@ -19,7 +21,7 @@
 // scope, tokens_spent, cost_of_delay_rate and to_shape for a milestone; constraint_of and
 // contributes_to for an item. Derived fields are computed on every read and never written.
 
-export const MILESTONE_KINDS = ['capability', 'learning'];
+export const MILESTONE_KINDS = ['milestone'];
 export const MILESTONE_STATES = ['proposed', 'planned', 'done', 'dropped'];
 export const CHECK_KINDS = ['demo', 'integration-test', 'study'];
 export const CHECK_RESULTS = ['pass', 'fail', 'answered'];
@@ -107,6 +109,33 @@ export function parseDeadline(s) {
   return m
     ? { date: m[1], source: m[2].trim() }
     : { error: `deadline "${s}" isn't "<YYYY-MM-DD> <source>": an external date needs its source` };
+}
+
+/**
+ * Words that put a milestone in a sequence when a number follows them ("phase 3", "stage 2").
+ * A milestone is named by its outcome; order comes from the graph and cost of delay.
+ */
+const SEQUENCE_WORDS =
+  'phase|stage|step|sprint|part|wave|iteration|increment|round|batch|milestone|release|version|mvp|level|tier|slice';
+
+/**
+ * The part of a milestone's name that numbers it, or null: a code such as M1, S2 or v2 (also v0.1),
+ * a sequence word with a number (phase 3, stage 2), or a bare leading number (1. Setup, #3).
+ * @param {unknown} title
+ * @returns {string | null}
+ */
+export function numberedName(title) {
+  const t = String(title ?? '');
+  const patterns = [
+    /(?<![\w.])[A-Za-z]{1,2}\d+(?:\.\d+)*(?![\w.])/,
+    new RegExp(`\\b(?:${SEQUENCE_WORDS})\\s*#?\\d+\\b`, 'i'),
+    /^\s*#?\d+(?:\.\d+)*[.):]?(?=\s|$)/,
+  ];
+  for (const p of patterns) {
+    const m = p.exec(t);
+    if (m) return m[0].trim();
+  }
+  return null;
 }
 
 /** @param {unknown} v @returns {string[]} */
@@ -250,15 +279,23 @@ export function milestoneFields(d) {
 }
 
 /**
- * Whether the milestone's check has passed: for a capability, its latest pass or fail is a pass;
- * for a learning milestone, its study is answered (has a verdict), whatever the answer. A run by a role that wrote
- * its items never counts.
- * @param {string} kind @param {CheckResult[]} results @param {Set<string>} authorRoles
+ * Whether a milestone is a learning milestone: its check is a study, so it is done when a question
+ * is answered. Derived from the check, never stored.
+ * @param {{ check?: Check }} m a read milestone
+ */
+export const isLearning = (m) => m.check?.kind === 'study';
+
+/**
+ * Whether the milestone's check has passed: its latest pass or fail is a pass; for a learning
+ * milestone (its check is a study), its study is answered (has a verdict), whatever the answer. A
+ * run by a role that wrote its items never counts.
+ * @param {{ check?: Check, results: CheckResult[] }} m a read milestone
+ * @param {Set<string>} authorRoles
  * @returns {CheckResult | null} the run that passed it
  */
-export function passingCheck(kind, results, authorRoles) {
-  const independent = results.filter((r) => !authorRoles.has(r.role));
-  if (kind === 'learning') return independent.find((r) => r.result === 'answered') ?? null;
+export function passingCheck(m, authorRoles) {
+  const independent = m.results.filter((r) => !authorRoles.has(r.role));
+  if (isLearning(m)) return independent.find((r) => r.result === 'answered') ?? null;
   const last = independent.filter((r) => r.result === 'pass' || r.result === 'fail').at(-1);
   return last?.result === 'pass' ? last : null;
 }
@@ -292,7 +329,7 @@ export function milestoneDerived(d, { get, authorRoles, tokens, rates }) {
   const state = String(d.state);
   const closed = state === 'done' || state === 'dropped';
   const done = (/** @type {string} */ id) => get(id)?.state === 'done';
-  const passed = passingCheck(String(d.kind), m.results, authorRoles) !== null;
+  const passed = passingCheck(m, authorRoles) !== null;
   /** @type {MilestoneDerived['unmet_clauses']} */
   const unmet = [];
   if (!closed) {

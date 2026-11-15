@@ -54,7 +54,7 @@
       ]
     },
     "links": {
-      "description": "Items, opportunities and decisions created from it.",
+      "description": "Items, projects and decisions created from it.",
       "$ref": "common#/$defs/ids"
     },
     "provenance": {

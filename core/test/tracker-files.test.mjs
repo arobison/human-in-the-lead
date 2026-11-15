@@ -15,7 +15,6 @@ import {
   renderLists,
   viewBlocked,
   viewDecisions,
-  viewInitiatives,
   viewProjects,
   viewReady,
 } from '../lib/tracker/files/views.mjs';
@@ -320,7 +319,7 @@ test('the check names what is wrong, in the reference check’s words', () => {
       state: 'planned',
       project: 'W-4',
       milestone: 'gamma',
-      needs: ['W-1', 'W-99', 'W-17'],
+      needs: ['W-2', 'W-99', 'W-17'],
     }),
     'work/items/W-18-a.md': itemText({
       id: 'W-18',
@@ -351,6 +350,8 @@ test('the check names what is wrong, in the reference check’s words', () => {
       kind: 'project',
       state: 'planned',
       plan: 'docs/missing.md',
+      initiative: 'W-1',
+      decision: 'W-3',
     }),
   });
   const expected = [
@@ -370,17 +371,18 @@ test('the check names what is wrong, in the reference check’s words', () => {
     'work/items/W-15-wip.md: in-progress needs claimed_by (who has it)',
     'work/items/W-16-dec.md: a decision needs a decider',
     'work/items/W-17-ext.md: an external item needs waiting_on (who we wait on)',
-    'work/projects/W-20-p.md: a project needs an initiative',
+    'work/projects/W-20-p.md: "initiative" is retired: initiatives are milestones now: a long outcome is a milestone with no parent (design part 3.2); run hitld work migrate',
   ];
   for (const e of expected) assert.ok(problems.includes(e), `missing: ${e}`);
   for (const e of [
     'W-18: in both work/items/W-18-a.md and work/items/W-18-again.md',
     'work/items/W-17-ext.md: project W-4 is a work, not a project',
-    'work/items/W-17-ext.md: needs W-1, a initiative; needs name items and milestones only',
+    'work/items/W-17-ext.md: needs W-2, a project; needs name items and milestones only',
     'work/items/W-17-ext.md: "milestone" is retired: milestones are their own files now (design part 3.2); run hitld work migrate',
     "work/items/W-17-ext.md: needs W-99, which doesn't exist",
     'work/items/W-17-ext.md: needs itself',
     "work/projects/W-20-p.md: plan docs/missing.md doesn't exist",
+    'work/projects/W-20-p.md: decision W-3 is a work, not a decision',
     'cycle: W-18 → W-19 → W-18',
   ]) {
     assert.ok(problems.includes(e), `missing: ${e}\n${problems.join('\n')}`);
@@ -558,10 +560,10 @@ test('paths and key are settings: a tracker elsewhere, under another key, needs 
     project: 'ZZ-2',
   });
   put(root, {
-    'packages/x/tasks/groups/ZZ-1-goal.md': itemText({
+    'packages/x/tasks/goals/ZZ-1-goal.md': itemText({
       id: 'ZZ-1',
       title: 'G',
-      kind: 'initiative',
+      kind: 'milestone',
       state: 'planned',
       owner: 'owner',
     }),
@@ -570,7 +572,6 @@ test('paths and key are settings: a tracker elsewhere, under another key, needs 
       title: 'P',
       kind: 'project',
       state: 'planned',
-      initiative: 'ZZ-1',
       owner: 'owner',
     }),
     'packages/x/tasks/all/ZZ-7-elsewhere.md': text,
@@ -581,7 +582,7 @@ test('paths and key are settings: a tracker elsewhere, under another key, needs 
     JSON.stringify({
       schema_version: 1,
       work_dir: 'packages/x/tasks',
-      folders: { initiative: 'groups', project: 'deliverables', item: 'all' },
+      folders: { milestone: 'goals', project: 'deliverables', item: 'all' },
     }),
   );
   const { config } = loadTrackerConfig({ repoRoot: root, configDir: dir });
@@ -593,7 +594,7 @@ test('paths and key are settings: a tracker elsewhere, under another key, needs 
 
 // --- Views ------------------------------------------------------------------------------
 
-test('views: ready, blocked, decisions, projects and initiatives over the fixture', () => {
+test('views: ready, blocked, decisions and projects over the fixture', () => {
   const root = makeRepo({ commit: false });
   const layout = layoutOf(root);
   const g = buildGraph(loadWorkTree(root, layout));
@@ -614,10 +615,6 @@ test('views: ready, blocked, decisions, projects and initiatives over the fixtur
     viewProjects(g),
     'W-2 The project [Planned], led by owner\n  1 of 4 done, 2 ready, 1 blocked\n  waits on: nothing open\n  waited on by: nothing open\n',
   );
-  assert.equal(
-    viewInitiatives(g),
-    'W-1 The goal [Planned]\n  W-2 The project: 1 of 4 done, 2 ready, 1 blocked\n  all: 1 of 4 done, 2 ready, 1 blocked\n  open decisions: 1; waiting outside: 0\n',
-  );
 });
 
 test('views: the lists carry milestones, links and each status', () => {
@@ -627,7 +624,7 @@ test('views: the lists carry milestones, links and each status', () => {
       'work/milestones/W-7-alpha.md': itemText({
         id: 'W-7',
         title: 'Alpha',
-        kind: 'capability',
+        kind: 'milestone',
         state: 'planned',
         project: 'W-2',
         constraints: ['W-4 c?'],
@@ -638,7 +635,7 @@ test('views: the lists carry milestones, links and each status', () => {
   const lists = renderLists(g, { linkBase: './' });
   assert.match(
     lists,
-    /^### The goal\n\n\[W-1\]\(\.\/initiatives\/W-1-goal\.md\), Planned: 1 of 4 done/,
+    /^### The project\n\n\[W-2\]\(\.\/projects\/W-2-the-project\.md\), Planned, led by owner: 1 of 4 done/,
   );
   assert.match(
     lists,
