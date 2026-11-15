@@ -299,6 +299,16 @@ const examples = {
     at: '2026-11-14T03:00:00Z',
     prev_hash: null,
   },
+  'store-devices': {
+    schema_version: 1,
+    devices: [
+      {
+        name: 'laptop',
+        recipient: 'age1zvkyg2lqzraa2lnjvqej32nkuu0ues2s82hzrye869xeexvn73equnujwj',
+        added: '2026-11-15',
+      },
+    ],
+  },
   quarantine: {
     schema_version: 1,
     tests: [{ id: 'cart > totals', expires: '2026-11-29', fix_item: 'HITLD-140' }],
