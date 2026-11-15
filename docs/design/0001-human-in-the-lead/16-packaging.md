@@ -24,7 +24,8 @@ human-in-the-lead/
     harness/                      # layer 3: claude-code/ (built); copilot and others planned
   schemas/                        # versioned JSON Schemas
   skills/                         # layer 2: SKILL.md sources with portable front matter only
-    chief-of-staff/ orchestrate/  # built; the rest of the design's skills are planned
+    adopt/ chief-of-staff/        # built; the rest of the design's skills are planned
+    orchestrate/
     execute/
   agents/                         # agent definitions beyond the executors (the generalizer),
                                   # portable front matter only; the build adds the harness's
@@ -337,7 +338,7 @@ The consumer commits `.claude/settings.json`:
   claude plugin install human-in-the-lead@human-in-the-lead --scope project
   ```
 
-  `hitld check contract` (or the adopt skill) reports a machine where the pinned version is not installed.
+  The adopt skill reports a machine where the pinned version is not installed (it reads `claude plugin list`); `hitld check contract` checks the repository only.
 - **First run.** The person's first session runs the orchestrator's setup: `hitld machine detect`, one message with every proposed value for the person to accept or change, then `hitld config write` for the person and machine files ([13.4](13-operations.md#134-settings-in-four-layers)). Until then defaults are conservative and autonomous dispatch waits. The setup also offers the status-line usage capture, which is opt-in: it changes the person's own harness settings, so it is installed only on a yes (`hitld install --statusline`).
 - **Before any tag exists**, `hitld install` pins a local checkout path, which puts a machine path in the committed `.claude/settings.json`. It warns; switch to `--ref <tag> --repo <owner/name>` before others clone the project.
 - **Pinning.** The marketplace `ref` pins the catalog to a tag; the plugin's `version` in `plugin.json` is set equal to that tag by the release step, so the version a session loads is the version the tag names. A commit SHA can be used as `ref` for an exact pin.
@@ -437,7 +438,7 @@ A project may already run an in-repo tracker: one file per item with global `<KE
 
 Migration, step by step, each depending on the one before:
 
-1. **Coexist, read-only.** Install the plugin pinned to a release. Set the key and paths in `tracker.json`. Run `hitld work check` and `hitld work views` to a scratch directory and compare with the project's own scripts' output. Any difference is a bug in the backend, fixed upstream, until the outputs agree.
+1. **Coexist, read-only.** Install the plugin pinned to a release. Set the key in `policy.json` (`project.key`) and the paths in `tracker.json`. Run `hitld work check` and `hitld work views` to a scratch directory and compare with the project's own scripts' output. Any difference is a bug in the backend, fixed upstream, until the outputs agree.
 2. **Plugin writes, project scripts check.** Agents create and claim items with `hitld`; the project's own check still runs in its tests as a cross-check.
 3. **Contract.** Replace the tracker section of `AGENTS.md` with the executor contract block; `hitld check contract` passes.
 4. **Move upstream and delete.** Anything the project's scripts or skills do that the plugin does not is added to the plugin. Then the project deletes its tracker scripts, skills and their tests, keeping only its data and settings.
@@ -446,3 +447,5 @@ Migration, step by step, each depending on the one before:
 **Setup through the project's package manager.** Once releases are tagged, the project declares the `hitld` command line as a development dependency pinned to a release tag of this repository, and adds an explicit setup script (for npm, `npm run hitld:setup`) that runs `hitld install --ref <tag>` and the two `claude plugin` commands. Never an install hook that runs on every package install: that would run for every contributor and every CI job. The plugin itself still comes from the marketplace, pinned to the same tag.
 
 Where the plugin and the project's scripts disagree during coexistence, the project's scripts win until the owner decides otherwise.
+
+The steps as commands, with what to commit, how to check and how to undo, are in [the setup guides](../../guide/existing-tracker.md); the `adopt` skill runs them after the owner's yes.
