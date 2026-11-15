@@ -20,6 +20,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { schemas } from '../schema/registry.mjs';
 import { renameSettings } from '../settings/renamed.mjs';
+import { checkRemoteUrl } from '../store/remote-git.mjs';
 
 /**
  * @typedef {import('../schema/validate.mjs').ValidationError} ValidationError
@@ -106,6 +107,15 @@ export function resolvePolicy(raw, registry = schemas()) {
   // The file must say which schema version it was written for; the defaults do not supply it.
   if (!Object.hasOwn(current, 'schema_version')) delete merged.schema_version;
   const errors = registry.validateEntity('policy', merged);
+  // The schema says what shape the address has; the transport says whether it may be used.
+  const url = merged.store?.remote?.url;
+  if (!errors.length && typeof url === 'string') {
+    try {
+      checkRemoteUrl(url);
+    } catch (e) {
+      errors.push({ path: 'store.remote.url', message: /** @type {Error} */ (e).message });
+    }
+  }
   return errors.length
     ? { policy: null, errors, renamed, raw: current }
     : { policy: merged, errors, renamed, raw: current };

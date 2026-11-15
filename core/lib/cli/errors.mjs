@@ -167,6 +167,8 @@ export const ERROR_CODES = Object.freeze({
   'devices-invalid': 'A store-devices.json does not parse or breaks its schema.',
   'devices-no-main':
     'The checkout has no main branch, local or remote-tracking, to read the device list from.',
+  'devices-fetch-failed':
+    'Fetching main from origin failed, so a push refuses rather than use a stale device list.',
   'device-name-invalid': 'A device name is not a short lower-case name.',
   'device-name-required': 'No device name was given and none could be made from the host name.',
   'device-name-taken': 'The device name is enrolled with another key.',
@@ -174,6 +176,16 @@ export const ERROR_CODES = Object.freeze({
   'device-no-keychain': 'This machine has no OS keychain hitld can store the device key in.',
   'device-not-enrolled':
     "This device has no key, or its key is not on main's store-devices.json, so it may not push.",
+
+  // Pushing and pulling the store
+  'no-remote':
+    'No remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine.',
+  'nothing-to-push': 'The store holds no text to push yet.',
+  'remote-not-format-2':
+    "The remote's head is not an age file; nothing writes another format to a remote.",
+  'remote-config-invalid': "This machine's remote override file is damaged.",
+  'sync-state-invalid':
+    'The file that records what this store last merged from the remote is damaged.',
 
   // Secrets and the environment
   'secret-missing': 'No value is stored for a secret the task needs.',

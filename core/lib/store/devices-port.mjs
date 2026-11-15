@@ -38,6 +38,8 @@ import {
  *   rotation is not done: the remote may still hold files their keys open
  */
 
+/** The name the push and pull code uses for a resolution. @typedef {DeviceResolution} Devices */
+
 /**
  * Resolve this device against main's list. Never throws for a device that may not push: the
  * answer says so (enrolled false, problem), and `assertEnrolled` turns it into the refusal.

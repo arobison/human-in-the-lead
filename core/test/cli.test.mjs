@@ -158,6 +158,11 @@ test('every command in design part 16.2 is in the table', () => {
     'store export',
     'store import',
     'store sync',
+    'store push',
+    'store pull',
+    'store status',
+    'store remote set',
+    'store remote show',
   ]) {
     assert.ok(findCommand(name.split(' ')), name);
   }
