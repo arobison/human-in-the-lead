@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | Draft. Every question in section 15 is open. Not built. |
+| **Status** | Decided. The owner answered every question in section 15. Not built; milestone HITLD-101, a release need of v0.1.0-rc.1. |
 | **Date** | 2026-11-15 |
 | **Scope** | Moving a project's private store between the owner's machines and sessions without a person carrying a file: what moves, the shape (a synced copy, not a hosted database), keys and devices, transports, when sync runs, the security limits, the file format, interface changes, migration, evals, and the milestone this design serves |
 | **Builds on** | [0001](0001-human-in-the-lead.md), especially parts [3.2](0001-human-in-the-lead/03-data-model.md#private-store) (private store), [10](0001-human-in-the-lead/10-security.md) (security), [13.1](0001-human-in-the-lead/13-operations.md#resuming-on-any-machine) (resuming on any machine), [13.4](0001-human-in-the-lead/13-operations.md#134-settings-in-four-layers) (settings) and [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-and-compatibility) (compatibility) |
-| **Reading order** | Sections 1 to 4 settle the shape. Sections 5 to 10 are the mechanics. Sections 11 to 13 cover interfaces, migration and evals. Section 14 is the milestone. The open questions are in section 15. |
+| **Reading order** | Sections 1 to 4 settle the shape. Sections 5 to 10 are the mechanics. Sections 11 to 13 cover interfaces, migration and evals. Section 14 is the milestone. The owner's decisions are in section 15. |
 
 ## 1. What this design settles
 
@@ -222,44 +222,60 @@ All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-a
 | **Sync in the run commands and hooks**: start, resume, checkpoint, hand-over, merge; the two hooks in `hitld install` | Push and pull |
 | **Evals and docs**: section 13's scenarios; the setup guide for a cloud environment | Each piece as it lands |
 
-## 15. Questions for the owner
+## 15. Questions, decided by the owner
 
 ### Q1. A synced copy or a hosted database?
+
+**Decided by the owner (2026-11-15): a synced copy on each machine, behind `StoreRemote`; a hosted database is a later backend.**
 
 - **Recommend: a synced copy on each machine, behind a `StoreRemote` interface** (section 4). Works offline, keeps git history, the provider sees only ciphertext, no new dependency. A hosted database is a later backend for several people leading one project.
 - **Alternative: a hosted database now.** Fresh reads for many writers, at the cost of a full-access credential in every session, a provider that reads the data, and live migrations.
 
 ### Q2. Plain or encrypted on the remote?
 
+**Decided by the owner (2026-11-15): encrypted to enrolled devices.**
+
 - **Recommend: encrypted to enrolled devices** (sections 5 and 7). The store holds confidential material; encryption keeps it from the provider and from a leaked repository token.
 - **Alternative: plain git in a private repository.** No keys to manage; GitHub's access control is the only guard, and GitHub can read the store.
 
 ### Q3. Which transport first?
+
+**Decided by the owner (2026-11-15): a private GitHub repository first.**
 
 - **Recommend: a private GitHub repository** (section 7). Authentication is already solved for local machines and cloud sessions; push rejection gives compare and swap.
 - **Alternative: S3-compatible object storage first.** No GitHub dependency for the store, at the cost of a new credential to distribute to every device.
 
 ### Q4. One store repository per project, or one per owner?
 
+**Decided by the owner (2026-11-15): one store repository per project.**
+
 - **Recommend: one per project.** A session given one project's store sees nothing of another's.
 - **Alternative: one per owner, with a folder per project.** One repository to set up, at the cost of every session that reaches it seeing every project's (encrypted) store.
 
 ### Q5. The age format in Node, or the `age` program?
+
+**Decided by the owner (2026-11-15): age-compatible code in Node's built-in crypto, tested against age's published vectors and against the `age` program.**
 
 - **Recommend: age-compatible code in Node's built-in crypto, tested against age's published vectors and against the `age` program** (section 10). No new install on any device.
 - **Alternative: run the `age` program, as `hitld` runs git.** No hand-written cryptography, at the cost of one more program on every device, including cloud environments.
 
 ### Q6. Where does a cloud environment's device key live?
 
+**Decided by the owner (2026-11-15): an environment variable in the owner's personal cloud environment, one device per environment.**
+
 - **Recommend: an environment variable in the owner's personal cloud environment, one device per environment** (section 9). Set once; removable like any device. Its limit: any process in that container can read it.
 - **Alternative: a new device key per session, enrolled each time.** Nothing stored in the environment, at the cost of an enrolment merge before every session can push.
 
 ### Q7. How is a device enrolled?
+
+**Decided by the owner (2026-11-15): a commit to `store-devices.json` that reaches main only through the owner's merge.**
 
 - **Recommend: a commit to `store-devices.json` that reaches main only through the owner's merge** (section 6). Enrolment is reviewable and recorded like any decision.
 - **Alternative: approval from an already enrolled device** (as linked devices work), with no commit. Faster for a new session, at the cost of a record outside the repository's history.
 
 ### Q8. Does v0.1.0-rc.1 wait for this?
 
-- **Recommend: no; it ships in the next pre-release.** rc.1 already carries HITLD-100, so the release gate does not depend on any store. This milestone is several build items and its own review.
+**Decided by the owner (2026-11-15): yes, v0.1.0-rc.1 waits for this milestone.**
+
+- **Was recommended: no; it ships in the next pre-release.** rc.1 already carries HITLD-100, so the release gate does not depend on any store. This milestone is several build items and its own review.
 - **Alternative: rc.1 waits for it.** A live trial from cloud sessions keeps its learning between sessions from the first day, at the cost of delaying rc.1 by this milestone.
