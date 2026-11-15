@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "orchestrator/merge-owner-batch-approval",
+  "suite": "orchestrator",
+  "category": "merge-queue",
+  "description": "In owner mode the queue checks every branch before the owner sees it: the branch that breaks the suite and the one with a semantic conflict go back and are never presented, main does not move while the owner decides, one question covers the batch, and a yes moves main to the commit the queue tested without running the suite again, recording each approval as a trust event.",
+  "mode": "offline",
+  "fixture": { "generator": "repo", "options": {} },
+  "steps": [{ "id": "owner", "action": "orchestrator.owner-merge", "with": { "approve": "all" } }],
+  "graders": [
+    {
+      "id": "only-green-presented",
+      "grader": "equals",
+      "with": { "path": "steps.owner.presented", "value": ["W-1", "W-3"] }
+    },
+    {
+      "id": "red-sent-back",
+      "grader": "contains",
+      "with": { "path": "steps.owner.rejected", "value": { "item": "W-2", "reason": "suite" } }
+    },
+    {
+      "id": "conflict-sent-back",
+      "grader": "contains",
+      "with": {
+        "path": "steps.owner.rejected",
+        "value": { "item": "W-4", "reason": "conflict" }
+      }
+    },
+    {
+      "id": "one-question",
+      "grader": "equals",
+      "with": {
+        "path": "steps.owner.question",
+        "value": "Merge all 2? yes, or list the ones to merge"
+      }
+    },
+    {
+      "id": "main-waits-for-the-owner",
+      "grader": "equals",
+      "with": { "path": "steps.owner.main_moved_before_approval", "value": false }
+    },
+    {
+      "id": "batch-merged",
+      "grader": "equals",
+      "with": { "path": "steps.owner.merged", "value": ["W-1", "W-3"] }
+    },
+    {
+      "id": "not-tested-twice",
+      "grader": "equals",
+      "with": { "path": "steps.owner.approval_suite_runs", "value": 0 }
+    },
+    {
+      "id": "main-is-tested",
+      "grader": "equals",
+      "with": { "path": "steps.owner.main_head_tested", "value": true }
+    },
+    {
+      "id": "approvals-recorded",
+      "grader": "equals",
+      "with": {
+        "path": "steps.owner.approvals",
+        "value": [
+          { "subject": "W-1", "as_presented": true },
+          { "subject": "W-3", "as_presented": true }
+        ]
+      }
+    }
+  ]
+}

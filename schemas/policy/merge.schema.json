@@ -5,9 +5,36 @@
   "type": "object",
   "properties": {
     "mode": {
-      "description": "Who decides each merge. \"queue\": the orchestrator runs the queue whenever branches are waiting. \"owner\": finished branches wait for the owner, who names the ones to merge (hitld merge --only <branch>); the same rebase, fast checks, full suite and fast-forward then run. A new project starts in owner mode; the queue is opted into once the record supports it.",
+      "description": "Who decides each merge. \"queue\": the orchestrator runs the queue whenever branches are waiting. \"owner\": the queue first rebases each finished branch and runs the fast checks, the scanners and the full suite without moving main (hitld merge); a branch that fails goes back to its executor, and only green branches are presented to the owner, with evidence, in one question for the batch. The owner approves all (hitld merge --all) or a list (hitld merge --only <branch>). A new project starts in owner mode; the queue is opted into once the record supports it.",
       "enum": ["queue", "owner"],
       "default": "owner"
+    },
+    "owner_paths": {
+      "description": "In owner mode, limits what waits for the owner: a branch that changes a file under one of these globs waits; a branch that changes nothing here or in owner_areas goes through the queue as in queue mode. With this and owner_areas both empty, every branch waits.",
+      "$ref": "common#/$defs/globs",
+      "default": []
+    },
+    "owner_areas": {
+      "description": "In owner mode, limits what waits for the owner by area (policy rights.areas): a branch that changes a file in one of these areas waits. \"unassigned\" names the files in no area. With this and owner_paths both empty, every branch waits.",
+      "$ref": "common#/$defs/names",
+      "default": []
+    },
+    "public_globs": {
+      "description": "The project's public surface (design 6.6): APIs, formats, names others rely on. In owner mode, a presented branch that changes a file here carries a directed read of the public signatures and docs, and for a JSON schema, the fields added, removed or changed.",
+      "$ref": "common#/$defs/globs",
+      "default": [
+        "**/*.schema.json",
+        "**/openapi.json",
+        "**/openapi.yaml",
+        "**/*.proto",
+        "**/*.d.ts"
+      ]
+    },
+    "propose_queue_after": {
+      "description": "In owner mode, how many merges in a row in one area, each approved as presented and none reverted, before hitld merge proposes letting the queue merge that area without asking. The proposal is a question for the owner; the system never changes merge.mode or the owner settings itself.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 20
     },
     "main_branch": {
       "description": "The integration branch: the one main-branch setting (HITLD-82). Only the merge queue moves it; the orchestrator creates items and gives up claims on it, and claims are read from every other branch.",

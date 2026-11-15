@@ -492,3 +492,15 @@ test('the commands: show, log, rate without a decision, and the digest', async (
   assert.equal((await run('rights trust', {})).areas.api.reversals, 1);
   assert.equal((await run('rights trust', {})).areas.unassigned.stamp_known, 1);
 });
+
+test('trustSummary leaves merge approvals and reverts to their own summary', () => {
+  const merges = [
+    { kind: 'merge-approval', area: 'docs', subject: 'HITLD-1', at: '2026-01-01T00:00:00Z' },
+    { kind: 'merge-reverted', area: 'docs', subject: 'HITLD-1', at: '2026-01-02T00:00:00Z' },
+  ];
+  assert.deepEqual(
+    trustSummary(/** @type {any} */ (merges)),
+    {},
+    'no area entry from merge events alone',
+  );
+});

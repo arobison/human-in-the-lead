@@ -15,7 +15,9 @@
 //                otherwise run the suite on main (a failure there is an incident); otherwise
 //                bisect the batch's stack of commits to the first failing branch, send it back,
 //                and rebuild the batch without it
-//   6. advance   fast-forward main to the tested commit
+//   6. advance   fast-forward main to the tested commit; or, with `hold` (owner merge mode), keep
+//                the tested commit under HELD_REF, build the next batch on it, and leave main
+//                where it is: the owner approves what passed, and advanceTo moves main later
 //
 // The queue never pushes and never merges generated files by hand.
 
@@ -51,7 +53,12 @@ import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs'
  *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string,
  *   findings?: import('./security.mjs').SentBack[] }} Rejected
  * @typedef {{ commit: string, command: string, output: string }} Flake
+ * @typedef {{ item: string, branch: string, commit: string, parent: string, changed: string[],
+ *   dispatch?: string }} Tested a branch that passed every check, rebased onto `parent`
  */
+
+/** The ref that keeps a held batch's tested commit while it waits for the owner. */
+export const HELD_REF = 'refs/hitld/merge-held';
 
 const TAIL = 2000;
 /** @param {string} s */
@@ -113,9 +120,61 @@ export function dependencyOrder(entries) {
 }
 
 /**
- * Run the queue over the waiting entries.
+ * Fast-forward main from `base` to `tip`, only if main is still at `base`.
+ * @param {string} repoRoot @param {string} main @param {string} base @param {string} tip
+ * @returns {string | null} the problem, or null when main moved
+ */
+function advanceMain(repoRoot, main, base, tip) {
+  const now = gitOk(repoRoot, ['rev-parse', `refs/heads/${main}`]);
+  if (now !== base) {
+    return `${main} moved (${base.slice(0, 12)} to ${now.slice(0, 12)}); only the queue may move it`;
+  }
+  const current = git(repoRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']).out;
+  if (current === main) gitOk(repoRoot, ['merge', '--ff-only', '--quiet', tip]);
+  else gitOk(repoRoot, ['update-ref', `refs/heads/${main}`, tip, base]);
+  return null;
+}
+
+/**
+ * Move main to a held batch the owner approved, without testing it again: the commit is the one
+ * the queue tested (`hold`), and main must not have moved since. The scanners' baseline then drops
+ * the findings the merged code fixed, as after any batch.
+ * @param {{ repoRoot: string, mainBranch: string, base: string, commit: string,
+ *   lastBranchCommit: string, security?: import('./security.mjs').SecurityGate }} r
+ * @returns {{ ok: true } | { ok: false, message: string }}
+ */
+export function advanceTo(r) {
+  const held = git(r.repoRoot, ['rev-parse', '--verify', '--quiet', HELD_REF]).out;
+  if (held !== r.commit) {
+    return { ok: false, message: `the held batch is not ${r.commit.slice(0, 12)}` };
+  }
+  const problem = advanceMain(r.repoRoot, r.mainBranch, r.base, r.commit);
+  if (problem) return { ok: false, message: problem };
+  git(r.repoRoot, ['update-ref', '-d', HELD_REF]);
+  if (r.security) {
+    const dir = mkdtempSync(join(tmpdir(), 'hitld-merge-'));
+    gitOk(r.repoRoot, ['worktree', 'add', '--detach', '--force', dir, r.commit]);
+    try {
+      r.security.merged({
+        dir,
+        commit: r.lastBranchCommit,
+        checkout: (sha) => gitOk(dir, ['checkout', '--detach', '--force', '--quiet', sha]),
+      });
+    } finally {
+      git(r.repoRoot, ['worktree', 'remove', '--force', dir]);
+      rmSync(dir, { recursive: true, force: true });
+      git(r.repoRoot, ['worktree', 'prune']);
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Run the queue over the waiting entries. With `hold`, nothing moves main: each batch that passes
+ * is kept for the owner (`ready`), and the next batch is built on it.
  * @param {{ repoRoot: string, entries: Entry[], settings: Settings, exec?: Exec,
- *   regenerateViews?: (dir: string) => void, security?: import('./security.mjs').SecurityGate }} r
+ *   regenerateViews?: (dir: string) => void, security?: import('./security.mjs').SecurityGate,
+ *   hold?: boolean }} r
  */
 export async function runMergeQueue(r) {
   const exec = r.exec ?? shellExec;
@@ -136,6 +195,10 @@ export async function runMergeQueue(r) {
     /** A batch that failed and then passed on a rerun: not merged, nothing blamed, the owner decides.
      * @type {{ kind: 'flake_candidate', commit: string, items: string[], message: string } | null} */
     held: null,
+    /** With `hold`: the tested commit holding every branch that passed, for the owner. Main has
+     * not moved; advanceTo moves it there once the owner approves.
+     * @type {{ base: string, commit: string, branches: Tested[] } | null} */
+    ready: null,
   };
   if (!s.fullSuite.length) {
     throw new Error(
@@ -145,6 +208,8 @@ export async function runMergeQueue(r) {
   const main = s.mainBranch;
   result.main.before = gitOk(r.repoRoot, ['rev-parse', `refs/heads/${main}`]);
   result.main.after = result.main.before;
+  // A held batch from an earlier presentation is no longer the one the owner will be shown.
+  if (r.hold) git(r.repoRoot, ['update-ref', '-d', HELD_REF]);
   if (!r.entries.length) return result;
 
   const dir = mkdtempSync(join(tmpdir(), 'hitld-merge-'));
@@ -205,7 +270,7 @@ export async function runMergeQueue(r) {
     let base = result.main.before;
     while (pending.length) {
       // Build a batch on the current base.
-      /** @type {(Entry & { commit: string })[]} */
+      /** @type {(Entry & { commit: string, parent: string, changed: string[] })[]} */
       const batch = [];
       const rejectedNow = new Set(result.rejected.map((x) => x.item));
       let tip = base;
@@ -264,7 +329,10 @@ export async function runMergeQueue(r) {
           rejectedNow.add(e.item);
           continue;
         }
-        const changed = git(dir, ['diff', '--name-only', tip, rb.sha]).out.replace(/\n/g, ' ');
+        const changedFiles = git(dir, ['diff', '--name-only', tip, rb.sha])
+          .out.split('\n')
+          .filter(Boolean);
+        const changed = changedFiles.join(' ');
         /** @type {{ cmd: string, output: string } | null} */
         let failed = null;
         for (const cmd of s.fastChecks) {
@@ -307,7 +375,7 @@ export async function runMergeQueue(r) {
           rejectedNow.add(e.item);
           continue;
         }
-        batch.push({ ...e, commit: rb.sha });
+        batch.push({ ...e, commit: rb.sha, parent: tip, changed: changedFiles });
         tip = rb.sha;
       }
       if (!batch.length) {
@@ -417,24 +485,43 @@ export async function runMergeQueue(r) {
         });
         // Rebuild without it; the others are rebased again.
         pending = [
-          ...batch.filter((b) => b !== culprit).map(({ commit: _c, ...e }) => e),
+          ...batch
+            .filter((b) => b !== culprit)
+            .map(({ commit: _c, parent: _p, changed: _f, ...e }) => e),
           ...later,
         ];
         continue;
       }
 
-      // Advance main to the tested commit, only if it has not moved meanwhile.
-      const now = gitOk(r.repoRoot, ['rev-parse', `refs/heads/${main}`]);
-      if (now !== base) {
-        result.incident = {
-          kind: 'main_moved',
-          message: `${main} moved during the batch (${base.slice(0, 12)} to ${now.slice(0, 12)}); only the queue may move it`,
+      if (r.hold) {
+        // Keep the tested commit for the owner and build the next batch on it; main stays.
+        gitOk(r.repoRoot, ['update-ref', HELD_REF, tip]);
+        result.ready = {
+          base: result.main.before,
+          commit: tip,
+          branches: [
+            ...(result.ready?.branches ?? []),
+            ...batch.map((b) => ({
+              item: b.item,
+              branch: b.branch,
+              commit: b.commit,
+              parent: b.parent,
+              changed: b.changed,
+              ...(b.dispatch ? { dispatch: b.dispatch } : {}),
+            })),
+          ],
         };
+        base = tip;
+        pending = later;
+        continue;
+      }
+
+      // Advance main to the tested commit, only if it has not moved meanwhile.
+      const moved = advanceMain(r.repoRoot, main, base, tip);
+      if (moved) {
+        result.incident = { kind: 'main_moved', message: `during the batch, ${moved}` };
         break;
       }
-      const current = git(r.repoRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']).out;
-      if (current === main) gitOk(r.repoRoot, ['merge', '--ff-only', '--quiet', tip]);
-      else gitOk(r.repoRoot, ['update-ref', `refs/heads/${main}`, tip, base]);
       r.security?.merged({ dir, commit: batch[batch.length - 1].commit, checkout });
       base = tip;
       result.main.after = tip;

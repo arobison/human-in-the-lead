@@ -2,9 +2,10 @@
 id: HITLD-83
 title: "Owner merge mode: checks before asking, one approval per batch, evidence the executor did not write"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-83
 ---
 
 ## Why
