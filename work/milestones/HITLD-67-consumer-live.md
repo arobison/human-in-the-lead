@@ -5,13 +5,15 @@ kind: milestone
 state: planned
 created: 2026-11-14
 project: HITLD-15
-constraints: [HITLD-25 c?, HITLD-26 c?, HITLD-46 c?, HITLD-47 c?, HITLD-60 c?]
+outcome: A real consuming project runs its work through HITLd. The first one is this repository, running its own development on an installed release.
+done_when:
+  - "c1: The owner directs one item end to end (filed, dispatched, executed, merged and closed) through the chief of staff in the self-hosting cloud environment, on v0.1.0-rc.1 installed in this repository, with no prompt carried between sessions by hand."
+  - "c2: The routine jobs of that run (merging through pull requests, tracker changes from the session, tracker upkeep, removing finished worktrees) are done by hitld commands, not by hand."
+  - "c3: Every choice the owner makes in that run is recorded as a decision, and the trust and attention records show it."
+constraints: [HITLD-26 c1, HITLD-109 c1, HITLD-46 c1, HITLD-47 c1, HITLD-60 c1, HITLD-124 c2, HITLD-125 c2, HITLD-130 c2, HITLD-131 c2, HITLD-132 c2, HITLD-133 c2, HITLD-136 c2, HITLD-134 c3, HITLD-135 c3]
+check: demo the owner directing one item end to end through the chief of staff in the self-hosting environment, run by the owner
 ---
 
 ## Notes
 
-Made by `hitld work migrate` (milestone-entities) from the milestone "consumer-live" of HITLD-15. Shaping gives it an outcome, done-when clauses and a check, and links each constraint marked `c?` to a clause.
-
-From HITLD-15:
-
-- **consumer-live** (capability). Outcome: a real consuming project runs its work through HITLd. Done when: the consumer's setup runs from a package script, and the live test reports items dispatched and merged there. Check: the owner's live test. Constraints: HITLD-25, HITLD-26, HITLD-46, HITLD-47, HITLD-60 (the live test is where feedback on HITLd starts).
+Shaped on the owner's decision (2026-11-15): this repository, self-hosting, is the first consuming project, and the release item for v0.1.0-rc.2 (HITLD-137) needs this milestone. Setup through a package script (HITLD-25) is for an outside consumer and moved to v0.1.0 (HITLD-24).
