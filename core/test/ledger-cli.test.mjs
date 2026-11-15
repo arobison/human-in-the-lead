@@ -79,10 +79,10 @@ test('hitld: a run from the command line, with a second session taking over', as
   const me0 = ['--store', store, '--session', 's-1', '--host', 'laptop'];
   // a forged terminal event, and an event type not on the list, are refused
   for (const forged of [
-    { event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'done' },
+    { event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done' },
     { event: 'abandoned', dispatch: 'D-1', item: 'W-1' },
-    { event: 'released', dispatch: 'D-1', item: 'W-1' },
-    { event: 'claimed', dispatch: 'D-1', item: 'W-1', harness: 'x', handle: 'y' },
+    { event: 'unclaimed', dispatch: 'D-1', item: 'W-1' },
+    { event: 'started', dispatch: 'D-1', item: 'W-1', harness: 'x', harness_ref: 'y' },
     { event: 'lease-taken', run: 'x', session: 's-1', host: 'laptop' },
     { event: 'run-started', run: 'x', session: 's-1', host: 'laptop' },
     { event: 'no-such-event' },
@@ -95,7 +95,7 @@ test('hitld: a run from the command line, with a second session taking over', as
   const state = /** @type {any} */ (loadState(diskStore).state);
   new Run(diskStore, { session: 's-1', host: 'laptop' }, state).record(JSON.parse(event));
 
-  const q = JSON.stringify({ id: 'q-1', event: 'question', decision: 'W-50' });
+  const q = JSON.stringify({ id: 'q-1', event: 'asked', decision: 'W-50' });
   const me = ['--store', store, '--session', 's-1', '--host', 'laptop'];
   const appended = await hitld(['ledger', 'append', q, ...me]);
   assert.deepEqual([appended.code, appended.json.appended], [EXIT.ok, true]);
@@ -108,7 +108,7 @@ test('hitld: a run from the command line, with a second session taking over', as
       id: 'dispatched-D-1',
       run: 'someone-elses',
       at: '1999-01-01',
-      event: 'question',
+      event: 'asked',
       decision: 'W-51',
     }),
     ...me,
@@ -118,7 +118,7 @@ test('hitld: a run from the command line, with a second session taking over', as
   assert.equal(forgedFields.json.event.run, loadState(openStore(store)).state?.run.id);
   assert.notEqual(forgedFields.json.event.at, '1999-01-01');
   // the run state caught up with the appended event
-  assert.equal(loadState(diskStore).state?.open_questions.length, 2);
+  assert.equal(loadState(diskStore).state?.decisions_open.length, 2);
 
   const noLease = await hitld([
     'ledger',
@@ -204,7 +204,7 @@ test('hitld: a run from the command line, with a second session taking over', as
     '--live',
     'none',
   ]);
-  assert.deepEqual([none.json.abandoned, none.json.release_claims], [['D-1'], ['W-1']]);
+  assert.deepEqual([none.json.abandoned, none.json.unclaim_items], [['D-1'], ['W-1']]);
 
   assert.equal((await hitld(['ledger', 'summary', '--store', store])).json.dispatches, 1);
   const rebuilt = await hitld(['run', 'rebuild', '--store', store]);
@@ -268,11 +268,11 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
 
   // unknown fields are refused, naming them
   for (const [e, field] of /** @type {[object, string][]} */ ([
-    [{ event: 'question', decision: 'W-50', tokens: 5 }, 'tokens'],
-    [{ event: 'question', decision: 'W-50', serial_resources: ['gpu'] }, 'serial_resources'],
-    [{ event: 'answered', decision: 'W-50', handle: 'h' }, 'handle'],
+    [{ event: 'asked', decision: 'W-50', tokens: 5 }, 'tokens'],
+    [{ event: 'asked', decision: 'W-50', serial_resources: ['gpu'] }, 'serial_resources'],
+    [{ event: 'answered', decision: 'W-50', harness_ref: 'h' }, 'harness_ref'],
     [{ event: 'merged', item: 'W-1', role: 'executor' }, 'role'],
-    [{ event: 'verified', item: 'W-1', outcome: 'pass', harness: 'x' }, 'harness'],
+    [{ event: 'verified', item: 'W-1', result: 'pass', harness: 'x' }, 'harness'],
     [{ event: 'reverted', item: 'W-1', surprise: 1 }, 'surprise'],
   ])) {
     const r = await append(e);
@@ -281,15 +281,15 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
   }
 
   // schema_version is the system's: dropped, not trusted
-  const sv = await append({ event: 'question', decision: 'W-50', schema_version: 99 });
+  const sv = await append({ event: 'asked', decision: 'W-50', schema_version: 99 });
   assert.equal(sv.code, EXIT.ok);
-  assert.equal(sv.json.event.schema_version, 1);
+  assert.equal(sv.json.event.schema_version, 2);
 
   // a correction may not rewrite a lifecycle event, or point at nothing
   const rewrite = await append({
     event: 'verified',
     item: 'W-1',
-    outcome: 'pass',
+    result: 'pass',
     corrects: lifecycle.event.id,
   });
   assert.deepEqual([rewrite.code, rewrite.json.error], [EXIT.failed, 'forbidden_correction']);
@@ -298,24 +298,24 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
   assert.equal(nowhere.json.error, 'forbidden_correction');
 
   // nor a different kind of event, nor one about another item
-  const wasFail = await append({ event: 'verified', item: 'W-1', outcome: 'fail', defects: 1 });
+  const wasFail = await append({ event: 'verified', item: 'W-1', result: 'fail', defects: 1 });
   const otherKind = await append({ event: 'merged', item: 'W-1', corrects: wasFail.json.event.id });
   assert.equal(otherKind.json.error, 'forbidden_correction');
   assert.match(otherKind.json.message, /earlier merged event/);
   const otherItem = await append({
     event: 'verified',
     item: 'W-2',
-    outcome: 'pass',
+    result: 'pass',
     corrects: wasFail.json.event.id,
   });
   assert.equal(otherItem.json.error, 'forbidden_correction');
 
   // but one raw-append event may correct another of its kind about the same item
-  const first = await append({ event: 'verified', item: 'W-1', outcome: 'fail', defects: 1 });
+  const first = await append({ event: 'verified', item: 'W-1', result: 'fail', defects: 1 });
   const fix = await append({
     event: 'verified',
     item: 'W-1',
-    outcome: 'pass',
+    result: 'pass',
     corrects: first.json.event.id,
   });
   assert.deepEqual([fix.code, fix.json.event.corrects], [EXIT.ok, first.json.event.id]);

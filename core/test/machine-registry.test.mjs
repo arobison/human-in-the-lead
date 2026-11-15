@@ -332,7 +332,7 @@ test('check 11: two projects stay within the person cap, see the same usage, and
       id: 'W-1',
       title: 'Add numbers',
       kind: 'work',
-      status: 'Done',
+      state: 'done',
       priority: 'medium',
       touches: ['src/calc.js'],
     }),

@@ -58,7 +58,7 @@ import { UNASSIGNED, readTrustEvents, recordTrustEvent } from './trust.mjs';
  */
 
 /** The state of a decision that has been asked and not answered. */
-const OPEN_STATES = ['Proposed', 'Planned'];
+const OPEN_STATES = ['proposed', 'planned'];
 
 /**
  * The authority a question was asked under, recorded in the private store when it was asked. A
@@ -241,7 +241,7 @@ export function askQuestion(deps, raw, options = {}) {
       schema_version: 1,
       kind: 'decision',
       title: question.title ?? question.question ?? `Resolved by ${p.id}`,
-      state: 'Done',
+      state: 'done',
       classification,
       ...(area ? { area } : {}),
       ...(question.question ? { question: question.question } : {}),
@@ -263,11 +263,11 @@ export function askQuestion(deps, raw, options = {}) {
     };
     const problem = invalidDraft(deps, { ...draft, ...answered });
     if (problem) return fail('invalid_decision', problem);
-    const made = create(deps, { ...draft, state: 'Planned' });
+    const made = create(deps, { ...draft, state: 'planned' });
     if (typeof made !== 'string') return made;
     const id = made;
     deps.tracker.update(id, answered, versionOf(deps.tracker.get(id)));
-    deps.tracker.transition(id, 'Done', `resolved by precedent ${p.id}`, {});
+    deps.tracker.transition(id, 'done', `resolved by precedent ${p.id}`, {});
     recordTrustEvent(
       deps.store,
       {
@@ -320,7 +320,7 @@ export function askQuestion(deps, raw, options = {}) {
     schema_version: 1,
     kind: 'decision',
     title: question.title ?? question.question,
-    state: 'Planned',
+    state: 'planned',
     classification,
     ...(area ? { area } : {}),
     question: question.question,
@@ -517,7 +517,7 @@ export function answerDecision(deps, input) {
   deps.tracker.update(input.decision, patch, versionOf(entity));
   deps.tracker.transition(
     input.decision,
-    'Done',
+    'done',
     `answered by ${entity.decider ?? 'the decider'}`,
     {},
   );
@@ -722,7 +722,7 @@ export function listApplications(deps, filter = {}) {
   );
   const rules = new Map(deps.precedents.list().map((p) => [p.id, p]));
   return deps.tracker
-    .query({ kind: 'decision', state: 'Done' })
+    .query({ kind: 'decision', state: 'done' })
     .filter((d) => typeof d.resolved_by_precedent === 'string')
     .filter((d) => !filter.precedent || d.resolved_by_precedent === filter.precedent)
     .filter((d) => !filter.since || String(d.answered_at) > filter.since)

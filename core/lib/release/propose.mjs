@@ -201,7 +201,7 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
   const doneAtBase = new Set(
     base
       ? loadPlaces(root, layout, [{ where: base, ref: `refs/tags/${base}` }])[0]
-          .items.filter((e) => e.data?.status === 'Done')
+          .items.filter((e) => e.data?.state === 'done')
           .map((e) => String(e.data?.id))
       : [],
   );
@@ -209,21 +209,21 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     .filter(
       (it) =>
         it.data.kind === 'work' &&
-        it.data.status === 'Done' &&
+        it.data.state === 'done' &&
         !doneAtBase.has(String(it.data.id)) &&
         !released.has(String(it.data.id)),
     )
     .map((it) => String(it.data.id));
   const notes = items.flatMap((id) => {
     const d = g.get(id)?.data;
-    if (!d?.changelog) return [];
+    if (!d?.release_note) return [];
     const credit =
       Array.isArray(d.credit) && d.credit.length ? `, thanks ${d.credit.join(', ')}` : '';
-    return [`${d.changelog} (${id}${credit})`];
+    return [`${d.release_note} (${id}${credit})`];
   });
   const touches = surfaceTouches(root, base);
   const missing = items
-    .filter((id) => touches.has(id) && !g.get(id)?.data.changelog)
+    .filter((id) => touches.has(id) && !g.get(id)?.data.release_note)
     .map((id) => ({ item: id, files: [...(touches.get(id) ?? [])].sort() }));
 
   // Gates: milestones an open release item needs that are not Done.
@@ -239,7 +239,7 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     g
       .needs(it)
       .map((n) => g.get(n))
-      .filter((m) => m && g.isMilestone(m) && m.data.status !== 'Done')
+      .filter((m) => m && g.isMilestone(m) && m.data.state !== 'done')
       .map((m) => {
         const ms = /** @type {NonNullable<typeof m>} */ (m);
         const entity = t.get(String(ms.data.id));
@@ -247,7 +247,7 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
           item: String(it.data.id),
           milestone: String(ms.data.id),
           title: String(ms.data.title),
-          state: String(ms.data.status),
+          state: String(ms.data.state),
           check_due: entity.check_due === true,
         };
       }),
@@ -256,12 +256,12 @@ export async function proposeRelease(t, { pre, item, surfaceOfBase } = {}) {
     records.flatMap((r) => (Array.isArray(r.data?.milestones) ? r.data.milestones : [])),
   );
   const milestones = g.milestones
-    .filter((m) => m.data.status === 'Done' && !recorded.has(String(m.data.id)))
+    .filter((m) => m.data.state === 'done' && !recorded.has(String(m.data.id)))
     .filter((m) => readMilestone(m.data).results.length > 0)
     .map((m) => String(m.data.id));
   const unreleased = g.items.filter(
     (it) =>
-      it.data.kind === 'work' && it.data.status === 'Done' && !released.has(String(it.data.id)),
+      it.data.kind === 'work' && it.data.state === 'done' && !released.has(String(it.data.id)),
   ).length;
 
   let packageVersion = null;

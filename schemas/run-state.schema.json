@@ -1,8 +1,8 @@
 {
   "$id": "run-state",
   "title": "Run state",
-  "description": "The orchestrator's working memory of one run: run-state.json at the root of the private store (design part 13.1). Derived, never authoritative: the ledger, the tracker, git branches and the decision items are the record, and hitld run rebuild reconstructs this file from them. ledger_position says which ledger events it has absorbed.",
-  "x-hitld-schema-version": 1,
+  "description": "The orchestrator's working memory of one run: run-state.json at the root of the private store (design part 13.1). Derived, never authoritative: the ledger, the tracker, git branches and the decision items are the record, and hitld run rebuild reconstructs this file from them. ledger_position says which ledger events it has absorbed. Version 2 (HITLD-82) renamed open_questions to decisions_open, decisions_this_run to decisions_answered, held to held_for_digest and an in-flight entry's handle to harness_ref; a version 1 file is read in the new names until the next minor release.",
+  "x-hitld-schema-version": 2,
   "type": "object",
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
@@ -20,7 +20,7 @@
     },
     "scope": { "$ref": "#/$defs/scope" },
     "in_flight": {
-      "description": "Each dispatch without a terminal event (reported, abandoned or released).",
+      "description": "Each dispatch without a terminal event (reported, abandoned or unclaimed).",
       "type": "array",
       "items": { "$ref": "#/$defs/inFlight" }
     },
@@ -28,8 +28,8 @@
       "description": "The ID of the last ledger event absorbed into this state; null before the first.",
       "type": ["string", "null"]
     },
-    "open_questions": {
-      "description": "Decisions asked and not answered.",
+    "decisions_open": {
+      "description": "Decisions asked and not answered (was open_questions).",
       "type": "array",
       "items": {
         "type": "object",
@@ -37,7 +37,7 @@
           "decision": { "$ref": "common#/$defs/id" },
           "dispatch": { "$ref": "common#/$defs/dispatchId" },
           "asked_at": { "$ref": "common#/$defs/timestamp" },
-          "held": {
+          "held_for_digest": {
             "description": "Held for the next digest rather than sent at once.",
             "type": "boolean"
           }
@@ -46,8 +46,8 @@
         "additionalProperties": false
       }
     },
-    "decisions_this_run": {
-      "description": "Answers received since the run started.",
+    "decisions_answered": {
+      "description": "Answers received since the run started (was decisions_this_run).",
       "type": "array",
       "items": {
         "type": "object",
@@ -116,8 +116,8 @@
     "scope",
     "in_flight",
     "ledger_position",
-    "open_questions",
-    "decisions_this_run",
+    "decisions_open",
+    "decisions_answered",
     "controllers",
     "quotas",
     "merge_queue",
@@ -147,7 +147,7 @@
         "role": { "$ref": "common#/$defs/name" },
         "tier": { "$ref": "common#/$defs/tier" },
         "harness": { "type": ["string", "null"] },
-        "handle": {
+        "harness_ref": {
           "description": "The harness's reference; null until the harness has accepted the dispatch.",
           "type": ["string", "null"]
         },
@@ -161,7 +161,7 @@
         "dispatch",
         "item",
         "harness",
-        "handle",
+        "harness_ref",
         "host",
         "worktree",
         "branch",

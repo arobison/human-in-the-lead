@@ -2,7 +2,7 @@
 // input comes from the item, the policy and the history the caller derives from the ledger.
 //
 // The rule, in order:
-//   1. tier_hint on the item wins (the owner's override).
+//   1. tier_override on the item wins (the owner's override).
 //   2. Base tier: 0 when every touches glob is an inline path (a tracker edit); 3 when the item has
 //      no plan at all, or its area's output is reviewed in person; 1 when "Done when" is executable,
 //      the plan is specific to files, and the touches are few; otherwise 2.
@@ -64,9 +64,9 @@ export function sizeItem(item, policy, history = []) {
   /** @type {number} */
   let tier;
 
-  if (Number.isInteger(item.tier_hint)) {
-    tier = item.tier_hint;
-    reasons.push(`tier_hint ${tier} on the item (the owner's override)`);
+  if (Number.isInteger(item.tier_override)) {
+    tier = item.tier_override;
+    reasons.push(`tier_override ${tier} on the item (the owner's override)`);
   } else {
     const plan = planRef(item);
     if (allWithin(touches, d.inline_globs ?? [])) {
@@ -193,7 +193,7 @@ export function historyFromLedger(events, itemOf) {
   for (const e of events) {
     if (e.event === 'dispatched') dispatched.set(e.dispatch, e);
     if (e.event === 'verified' && !firstVerdict.has(e.item))
-      firstVerdict.set(e.item, e.outcome === 'pass');
+      firstVerdict.set(e.item, e.result === 'pass');
   }
   /** @type {HistoryEntry[]} */
   const out = [];

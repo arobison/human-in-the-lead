@@ -67,7 +67,7 @@ export function preLabelOf(version) {
 /** The text of a record body's "## Notes" section. @param {string} body */
 export function notesOf(body) {
   const m = /(?:^|\n)## Notes\n([\s\S]*?)(?=\n## |$)/.exec(body);
-  return m ? m[1].trim() || 'No changelog lines.' : 'No changelog lines.';
+  return m ? m[1].trim() || 'No release notes.' : 'No release notes.';
 }
 
 /**

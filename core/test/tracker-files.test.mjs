@@ -74,7 +74,7 @@ test('front matter: a hostile key stays data and never touches the prototype', (
 test('front matter: what is written reads back, and the fixed key order holds', () => {
   const layout = { optionalKeys: [], fields: [] };
   const data = {
-    status: 'Planned',
+    state: 'planned',
     title: 'Has: a colon, and a "quote"',
     id: 'W-1',
     kind: 'work',
@@ -84,7 +84,7 @@ test('front matter: what is written reads back, and the fixed key order holds', 
   const text = renderItem(data, keyOrder('work', /** @type {any} */ (layout)), '\n## Done when\n');
   assert.match(
     text,
-    /^---\nid: W-1\ntitle: .*\nkind: work\nstatus: Planned\nproject: W-9\nneeds: \[W-2\]\n---\n/,
+    /^---\nid: W-1\ntitle: .*\nkind: work\nstate: planned\nproject: W-9\nneeds: \[W-2\]\n---\n/,
   );
   const back = parseItem(text);
   assert.deepEqual(back.errors, []);
@@ -129,9 +129,34 @@ test('tracker.json: every setting has a default, and a missing file is the refer
     milestone: 'milestones',
     release: 'releases',
   });
-  assert.equal(config?.main_branch, 'main');
+  assert.equal(config?.main_branch, undefined, 'the main branch is policy.json merge.main_branch');
   assert.deepEqual(config?.bundle_refs, ['refs/bundles/']);
   assert.deepEqual(config?.optional_keys, []);
+});
+
+test('tracker.json: the names before HITLD-82 are still read, each with a warning', () => {
+  const root = makeRepo({ commit: false });
+  const dir = mkdtempSync(join(tmpdir(), 'hitld-cfg-'));
+  writeFileSync(
+    join(dir, 'tracker.json'),
+    JSON.stringify({
+      schema_version: 1,
+      lists_readme: 'README.md',
+      main_branch: 'trunk',
+      optional_keys: ['changelog', 'tier_hint', 'touches'],
+    }),
+  );
+  const { config, errors, warnings } = loadTrackerConfig({ repoRoot: root, configDir: dir });
+  assert.deepEqual(errors, []);
+  assert.equal(config?.lists_file, 'README.md');
+  assert.deepEqual(config?.optional_keys, ['release_note', 'tier_override', 'touches']);
+  assert.equal(warnings.length, 4);
+  assert.match(warnings.join('\n'), /"main_branch" moved to policy\.json merge\.main_branch/);
+  assert.equal(
+    resolveLayout(/** @type {Record<string, any>} */ (config), { project: { key: 'W' } })
+      .mainBranch,
+    'trunk',
+  );
 });
 
 test('tracker.json: paths must stay inside the repository; unknown keys are refused', () => {
@@ -228,7 +253,7 @@ test('the check names what is wrong, in the reference check’s words', () => {
       id: 'W-8',
       title: 'Bad',
       kind: 'work',
-      status: 'Wip',
+      state: 'Wip',
       project: 'W-2',
       priority: 'huge',
       created: '13-11-2026',
@@ -240,59 +265,59 @@ test('the check names what is wrong, in the reference check’s words', () => {
       id: 'W-10',
       title: 'Mismatch',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
     'work/items/W-11-Bad_Slug.md': itemText({
       id: 'W-11',
       title: 'Slug',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
     'work/items/W-12-folder.md': itemText({
       id: 'W-12',
       title: 'F',
       kind: 'project',
-      status: 'Planned',
+      state: 'planned',
       initiative: 'W-1',
-      lead: 'owner',
+      owner: 'owner',
     }),
     'work/items/W-13-dropped.md': itemText({
       id: 'W-13',
       title: 'D',
       kind: 'work',
-      status: 'Dropped',
+      state: 'dropped',
       project: 'W-2',
     }),
     'work/items/W-14-reason.md': itemText({
       id: 'W-14',
       title: 'R',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       reason: 'x',
-      claimed: 'me',
+      claimed_by: 'me',
     }),
     'work/items/W-15-wip.md': itemText({
       id: 'W-15',
       title: 'W',
       kind: 'work',
-      status: 'In progress',
+      state: 'in-progress',
       project: 'W-2',
     }),
     'work/items/W-16-dec.md': itemText({
       id: 'W-16',
       title: 'D',
       kind: 'decision',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
     'work/items/W-17-ext.md': itemText({
       id: 'W-17',
       title: 'E',
       kind: 'external',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-4',
       milestone: 'gamma',
       needs: ['W-1', 'W-99', 'W-17'],
@@ -301,7 +326,7 @@ test('the check names what is wrong, in the reference check’s words', () => {
       id: 'W-18',
       title: 'A',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       needs: ['W-19'],
     }),
@@ -309,7 +334,7 @@ test('the check names what is wrong, in the reference check’s words', () => {
       id: 'W-19',
       title: 'B',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       needs: ['W-18'],
     }),
@@ -317,14 +342,14 @@ test('the check names what is wrong, in the reference check’s words', () => {
       id: 'W-18',
       title: 'A2',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
     }),
     'work/projects/W-20-p.md': itemText({
       id: 'W-20',
       title: 'P',
       kind: 'project',
-      status: 'Planned',
+      state: 'planned',
       plan: 'docs/missing.md',
     }),
   });
@@ -333,19 +358,18 @@ test('the check names what is wrong, in the reference check’s words', () => {
     'work/items/W-8-bad.md: "onStatusChange" is a key some tools run as code; never allowed',
     'work/items/W-8-bad.md: "foo" isn\'t an allowed key for a work',
     'work/items/W-8-bad.md: "needs" must be a list',
-    'work/items/W-8-bad.md: status "Wip" isn\'t one of Proposed, Planned, In progress, Done, Dropped',
+    'work/items/W-8-bad.md: state "Wip" isn\'t one of proposed, planned, in-progress, done, dropped',
     'work/items/W-8-bad.md: "priority" is retired: order is derived (design part 2.4, Q30); run hitld work migrate',
     'work/items/W-8-bad.md: created "13-11-2026" isn\'t YYYY-MM-DD',
     "work/items/W-9-x.md: file name doesn't start with its id W-10",
     "work/items/W-11-Bad_Slug.md: file name isn't W-<n>-<slug>.md (lower-case slug)",
     'work/items/W-12-folder.md: a project belongs in projects/, not items/',
-    'work/items/W-13-dropped.md: Dropped needs a reason',
-    'work/items/W-14-reason.md: a reason is only for Dropped',
-    'work/items/W-14-reason.md: claimed, but Planned',
-    'work/items/W-15-wip.md: In progress needs claimed (who has it)',
-    'work/items/W-16-dec.md: a decision needs decided-by',
-    'work/items/W-17-ext.md: an external item needs party (who we wait on)',
-    'work/projects/W-20-p.md: a project needs a lead',
+    'work/items/W-13-dropped.md: dropped needs a reason',
+    'work/items/W-14-reason.md: a reason is only for dropped',
+    'work/items/W-14-reason.md: claimed_by, but planned',
+    'work/items/W-15-wip.md: in-progress needs claimed_by (who has it)',
+    'work/items/W-16-dec.md: a decision needs a decider',
+    'work/items/W-17-ext.md: an external item needs waiting_on (who we wait on)',
     'work/projects/W-20-p.md: a project needs an initiative',
   ];
   for (const e of expected) assert.ok(problems.includes(e), `missing: ${e}`);
@@ -370,7 +394,7 @@ test('the check refuses a code-running key through the entity schema too', () =>
       id: 'W-7',
       title: 'X',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       script: 'x',
     }),
@@ -384,7 +408,7 @@ test('optional keys are allowed only when tracker.json turns them on, and are ty
       id: 'W-7',
       title: 'Sized',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       estimate_tokens: '180000',
       touches: ['src/a/**', 'test/a*'],
@@ -405,7 +429,7 @@ test('optional keys are allowed only when tracker.json turns them on, and are ty
       id: 'W-7',
       title: 'Sized',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       estimate_tokens: 'lots',
       area: 'Not Lower',
@@ -424,9 +448,9 @@ test('a decision carries its answer keys, typed by the decision schema; a work i
     id: 'W-7',
     title: 'Which licence?',
     kind: 'decision',
-    status: 'Done',
+    state: 'done',
     project: 'W-2',
-    'decided-by': 'owner',
+    decider: 'owner',
     answer: '"A. MIT: the usual one"',
     rationale: 'Simple.',
     answered_at: '2026-11-14T10:00:00Z',
@@ -457,7 +481,7 @@ test('a decision carries its answer keys, typed by the decision schema; a work i
       id: 'W-7',
       title: 'Sized',
       kind: 'work',
-      status: 'Done',
+      state: 'done',
       project: 'W-2',
       answer: 'yes',
     }),
@@ -480,7 +504,7 @@ test('nothing above the repository’s classification ceiling', () => {
       id: 'W-7',
       title: 'S',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       project: 'W-2',
       classification: 'confidential',
     }),
@@ -491,34 +515,36 @@ test('nothing above the repository’s classification ceiling', () => {
   ]);
 });
 
-test('no work item is In progress on the main branch, but containers and external items may be', () => {
+test('no work item is in-progress on the main branch, and nothing but a work item is ever in-progress', () => {
   const files = {
     'work/items/W-7-claimed.md': itemText({
       id: 'W-7',
       title: 'C',
       kind: 'work',
-      status: 'In progress',
+      state: 'in-progress',
       project: 'W-2',
-      claimed: 'D-1',
+      claimed_by: 'D-1',
     }),
     'work/items/W-8-asked.md': itemText({
       id: 'W-8',
       title: 'E',
       kind: 'external',
-      status: 'In progress',
+      state: 'in-progress',
       project: 'W-2',
-      party: 'them',
+      waiting_on: 'them',
     }),
   };
   const root = makeRepo({ files, commit: false });
   const layout = layoutOf(root);
   const items = loadWorkTree(root, layout);
-  assert.deepEqual(checkItems(items, layout, { root }), []);
+  assert.deepEqual(checkItems(items, layout, { root }), [
+    'work/items/W-8-asked.md: a external is never in-progress: only work items are claimed',
+  ]);
   const onMain = checkItems(items, layout, { root, onMain: true });
-  assert.equal(onMain.length, 1);
+  assert.equal(onMain.length, 2);
   assert.match(
     onMain[0],
-    /W-7-claimed\.md: In progress on main; a claim belongs on the executor's branch/,
+    /W-7-claimed\.md: in-progress on main; a claim belongs on the executor's branch/,
   );
 });
 
@@ -528,7 +554,7 @@ test('paths and key are settings: a tracker elsewhere, under another key, needs 
     id: 'ZZ-7',
     title: 'Elsewhere',
     kind: 'work',
-    status: 'Planned',
+    state: 'planned',
     project: 'ZZ-2',
   });
   put(root, {
@@ -536,16 +562,16 @@ test('paths and key are settings: a tracker elsewhere, under another key, needs 
       id: 'ZZ-1',
       title: 'G',
       kind: 'initiative',
-      status: 'Planned',
-      lead: 'owner',
+      state: 'planned',
+      owner: 'owner',
     }),
     'packages/x/tasks/deliverables/ZZ-2-p.md': itemText({
       id: 'ZZ-2',
       title: 'P',
       kind: 'project',
-      status: 'Planned',
+      state: 'planned',
       initiative: 'ZZ-1',
-      lead: 'owner',
+      owner: 'owner',
     }),
     'packages/x/tasks/all/ZZ-7-elsewhere.md': text,
   });
@@ -602,9 +628,9 @@ test('views: the lists carry milestones, links and each status', () => {
         id: 'W-7',
         title: 'Alpha',
         kind: 'capability',
-        status: 'Planned',
+        state: 'planned',
         project: 'W-2',
-        needs: ['W-4 c?'],
+        constraints: ['W-4 c?'],
       }),
     },
   });
@@ -630,7 +656,7 @@ test('views: the critical path is the longest open chain, weighted by estimate_t
         id: 'W-4',
         title: 'Second step',
         kind: 'work',
-        status: 'Planned',
+        state: 'planned',
         project: 'W-2',
         needs: ['W-3'],
         estimate_tokens: '500',

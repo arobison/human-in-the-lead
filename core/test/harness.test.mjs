@@ -38,7 +38,7 @@ test('a dispatch completes when the test completes it', async () => {
   assert.deepEqual(fake.inFlight(), ['D-1']);
   const done = fake.onComplete(handle);
   fake.complete('D-1', {
-    report: 'item: W-1\nstatus: done',
+    report: 'item: W-1\nresult: done',
     commit: 'abc1234',
     usage: { tokens: 1000, toolCalls: 5, durationMs: 2000 },
   });
@@ -54,10 +54,10 @@ test('a dispatch completes when the test completes it', async () => {
 
 test('a respond function completes dispatches on its own', async () => {
   const fake = createFakeAdapter({
-    respond: (r) => ({ report: `item: ${r.item}\nstatus: done`, usage: null }),
+    respond: (r) => ({ report: `item: ${r.item}\nresult: done`, usage: null }),
   });
   const completion = await fake.onComplete(await fake.dispatch(request('D-2')));
-  assert.match(completion.report, /status: done/);
+  assert.match(completion.report, /result: done/);
 });
 
 test('without parallel subagents, one dispatch at a time', async () => {

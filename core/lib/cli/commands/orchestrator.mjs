@@ -3,7 +3,7 @@
 //
 // Claude Code's tools cannot be called from Node, so dispatch is three calls around one harness
 // call: `dispatch start` records the dispatch (write-ahead) and prints the exact tool call; the
-// main session makes it; `dispatch started` records the handle. The completion notice arrives as
+// main session makes it; `dispatch handle` records the harness_ref. The completion notice arrives as
 // a new turn and goes to `dispatch complete`, which records it and plans the refill.
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
@@ -273,7 +273,7 @@ const planJson = (r, setup) => ({
   next: !setup.done
     ? 'setup is not done: run the first-run setup with the owner (orchestrate skill, first run); a hand-started item runs with hitld dispatch start <ID> --by-hand when the owner asks for it'
     : r.start.length
-      ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch started'
+      ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch handle'
       : r.gate.notify_owner
         ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
         : 'nothing to start: wait for the next completion notice; do not poll',
@@ -530,8 +530,8 @@ export const commands = [
         );
         const then =
           call.tool === 'session'
-            ? `ask the owner to start a session in ${worktree} with the brief in ${briefPath}; then hitld dispatch started --dispatch ${dispatch} --handle <session name>`
-            : `hitld dispatch started --dispatch ${dispatch} --handle <the ${call.tool === 'Agent' ? 'agent ID' : 'background task ID'} the call returns>`;
+            ? `ask the owner to start a session in ${worktree} with the brief in ${briefPath}; then hitld dispatch handle --dispatch ${dispatch} --harness-ref <session name>`
+            : `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the ${call.tool === 'Agent' ? 'agent ID' : 'background task ID'} the call returns>`;
         return {
           ok: true,
           dispatch,
@@ -551,16 +551,17 @@ export const commands = [
       }),
   },
   {
-    name: 'dispatch started',
-    summary: 'Record the handle the harness gave a dispatch (the agent ID, the background task ID)',
+    name: 'dispatch handle',
+    summary:
+      'Record the reference the harness gave a dispatch (harness_ref: the agent ID, the background task ID)',
     piece: 'h',
     args: [
       DISPATCH,
       {
-        name: 'handle',
+        name: 'harness-ref',
         type: 'string',
         required: true,
-        description: "The harness's own reference",
+        description: "The harness's own reference for the dispatch",
       },
       SESSION,
       HOST,
@@ -573,12 +574,12 @@ export const commands = [
         const entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
         if (!entry) throw new Refusal('not_in_flight', `${d} is not in flight`);
         const { appended } = run.record({
-          id: lifecycleId('claimed', d),
-          event: 'claimed',
+          id: lifecycleId('started', d),
+          event: 'started',
           dispatch: d,
           item: entry.item,
           harness: 'claude-code',
-          handle: String(input.handle),
+          harness_ref: String(input['harness-ref']),
           host: run.host,
         });
         return {
@@ -663,19 +664,20 @@ export const commands = [
           out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;
         } else {
           const r = parsed.report;
-          out.status = r.status;
+          out.result = r.result;
+          if (parsed.warnings.length) out.report_warnings = parsed.warnings;
           out.questions = r.questions;
           out.calls = r.calls.map((/** @type {any} */ c) => c.text);
           out.deviations = r.deviations;
           if (r.item !== entry.item) {
             out.next = `the report is about ${r.item}, not ${entry.item}: follow up`;
-          } else if (r.status === 'done' && r.commit) {
+          } else if (r.result === 'done' && r.commit) {
             const branch = r.commit.branch ?? entry.branch;
             run.record({
               id: `verified-${d}`,
               event: 'verified',
               item: entry.item,
-              outcome: 'pass',
+              result: 'pass',
               branch,
               commit: r.commit.sha,
               notes: 'report shape and branch checked; acceptance checks run as merge fast checks',
@@ -710,9 +712,9 @@ export const commands = [
         const from = String(input.dispatch);
         const events = readLedger(p.store).events;
         const first = events.find((e) => e.dispatch === from && e.event === 'dispatched');
-        const claimed = events.find((e) => e.dispatch === from && e.event === 'claimed');
-        if (!first || !claimed?.handle) {
-          throw new Refusal('unknown_dispatch', `${from} has no recorded handle to continue`);
+        const started = events.find((e) => e.dispatch === from && e.event === 'started');
+        if (!first || !started?.harness_ref) {
+          throw new Refusal('unknown_dispatch', `${from} has no recorded harness_ref to continue`);
         }
         if (run.state.in_flight.some((/** @type {any} */ x) => x.dispatch === from)) {
           throw new Refusal(
@@ -748,12 +750,12 @@ export const commands = [
           notes: `follow-up of ${from}`,
         });
         run.record({
-          id: lifecycleId('claimed', dispatch),
-          event: 'claimed',
+          id: lifecycleId('started', dispatch),
+          event: 'started',
           dispatch,
           item: first.item,
           harness: 'claude-code',
-          handle: claimed.handle,
+          harness_ref: started.harness_ref,
           host: run.host,
         });
         p.store.write(briefKey(dispatch), message);
@@ -764,7 +766,7 @@ export const commands = [
           sessionId = null;
         }
         const call = followUpInstruction({
-          handle: claimed.handle,
+          harnessRef: started.harness_ref,
           message,
           tier: first.tier ?? 1,
           dispatch,
@@ -968,7 +970,7 @@ export const commands = [
               id: `verified-fail-${x.item}-${result.main.before.slice(0, 12)}`,
               event: 'verified',
               item: x.item,
-              outcome: 'fail',
+              result: 'fail',
               branch: x.branch,
               notes: `merge queue: ${x.reason}${x.files?.length ? ` in ${x.files.slice(0, 5).join(', ')}` : ''}`,
             });

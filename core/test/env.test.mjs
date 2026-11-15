@@ -709,12 +709,12 @@ function dispatchesIn(store, list, options = {}) {
     });
     if (d.claimed !== false) {
       run.record({
-        id: `claimed-${d.id}`,
-        event: 'claimed',
+        id: `started-${d.id}`,
+        event: 'started',
         dispatch: d.id,
         item: 'W-1',
         harness: 'fake',
-        handle: `handle-${d.id}`,
+        harness_ref: `ref-${d.id}`,
         host: run.host,
       });
     }
@@ -724,7 +724,7 @@ function dispatchesIn(store, list, options = {}) {
         event: 'reported',
         dispatch: d.id,
         item: 'W-1',
-        outcome: 'done',
+        result: 'done',
       });
     }
   }

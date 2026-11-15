@@ -19,6 +19,40 @@ const clock = (start = '2026-11-14T03:00:00Z', stepMs = 1000) => {
 /** @param {Record<string, unknown>} event */
 const dispatched = (event) => ({ event: 'dispatched', role: 'executor', tier: 2, ...event });
 
+test('a ledger written before HITLD-82 is read in the new names, and never rewritten', () => {
+  const store = memoryStore();
+  const old = [
+    { event: 'dispatched', dispatch: 'D-1', item: 'W-1', role: 'executor' },
+    { event: 'claimed', dispatch: 'D-1', item: 'W-1', harness: 'fake', handle: 'fake-1' },
+    { event: 'question', decision: 'W-9', dispatch: 'D-1' },
+    { event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'done' },
+    { event: 'verified', item: 'W-1', outcome: 'pass' },
+    { event: 'released', item: 'W-2' },
+  ].map((e, i) => ({ schema_version: 1, id: `E-${i + 1}`, at: '2026-11-01T00:00:00Z', ...e }));
+  const text = old.map((e) => `${JSON.stringify(e)}\n`).join('');
+  store.write(LEDGER_KEY, text);
+  const { events, problems } = readLedger(store);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(
+    events.map((e) => [e.event, e.result ?? null, e.harness_ref ?? null, e.schema_version]),
+    [
+      ['dispatched', null, null, 1],
+      ['started', null, 'fake-1', 1],
+      ['asked', null, null, 1],
+      ['reported', 'done', null, 1],
+      ['verified', 'pass', null, 1],
+      ['unclaimed', null, null, 1],
+    ],
+  );
+  assert.equal(
+    events.some((e) => 'outcome' in e || 'handle' in e),
+    false,
+  );
+  assert.deepEqual(inflight(events), []);
+  appendEvent(store, { event: 'asked', decision: 'W-10' });
+  assert.ok((store.read(LEDGER_KEY) ?? '').startsWith(text), 'old lines are kept as written');
+});
+
 test('append fills in the schema version, a unique ID and the time, and writes one line', () => {
   const store = memoryStore();
   const now = clock();
@@ -26,7 +60,7 @@ test('append fills in the schema version, a unique ID and the time, and writes o
   const b = appendEvent(store, dispatched({ dispatch: 'D-2', item: 'W-2' }), { now });
   assert.equal(a.event.id, 'E-1');
   assert.equal(b.event.id, 'E-2');
-  assert.equal(a.event.schema_version, 1);
+  assert.equal(a.event.schema_version, 2);
   assert.match(a.event.at, /^2026-11-14T03:00:01/);
   const lines = (store.read(LEDGER_KEY) ?? '').trimEnd().split('\n');
   assert.equal(lines.length, 2);
@@ -43,9 +77,9 @@ test('append refuses invalid events with the reason', () => {
     );
   refused({ event: 'exploded' }, /event/);
   refused({ event: 'dispatched', dispatch: 'D-1' }, /item is required for dispatched/);
-  refused({ event: 'verified', item: 'W-1' }, /outcome is required for verified/);
-  refused({ event: 'verified', item: 'W-1', outcome: 'done' }, /must be pass or fail/);
-  refused({ event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'pass' }, /must be done/);
+  refused({ event: 'verified', item: 'W-1' }, /result is required for verified/);
+  refused({ event: 'verified', item: 'W-1', result: 'done' }, /must be pass or fail/);
+  refused({ event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'pass' }, /must be done/);
   refused({ event: 'merged', item: 'W-1', defects: 2 }, /only for a failed verification/);
   refused({ event: 'merged', item: 'W-1', surprise: 1 }, /not a known key/);
   refused({ event: 'merged', item: 'not an id' }, /item/);
@@ -72,13 +106,13 @@ test('a dispatch is dispatched once and ends once', () => {
     () => appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1' })),
     /already dispatched/,
   );
-  appendEvent(store, { event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'done' });
+  appendEvent(store, { event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done' });
   assert.throws(
     () => appendEvent(store, { event: 'abandoned', dispatch: 'D-1', item: 'W-1' }),
     /already ended with reported/,
   );
   // work on it can still be verified and merged
-  appendEvent(store, { event: 'verified', dispatch: 'D-1', item: 'W-1', outcome: 'pass' });
+  appendEvent(store, { event: 'verified', dispatch: 'D-1', item: 'W-1', result: 'pass' });
 });
 
 test('a correction names an event that exists', () => {
@@ -150,14 +184,14 @@ test('inflight: dispatches without a terminal event', () => {
   appendEvent(store, dispatched({ dispatch: 'D-3', item: 'W-3' }), { now });
   appendEvent(
     store,
-    { event: 'claimed', dispatch: 'D-1', item: 'W-1', harness: 'fake', handle: 'fake-1' },
+    { event: 'started', dispatch: 'D-1', item: 'W-1', harness: 'fake', harness_ref: 'fake-1' },
     { now },
   );
-  appendEvent(store, { event: 'reported', dispatch: 'D-2', item: 'W-2', outcome: 'done' }, { now });
+  appendEvent(store, { event: 'reported', dispatch: 'D-2', item: 'W-2', result: 'done' }, { now });
   appendEvent(store, { event: 'abandoned', dispatch: 'D-3', item: 'W-3' }, { now });
   const list = inflight(store);
   assert.deepEqual(
-    list.map((d) => [d.dispatch, d.item, d.harness, d.handle, d.host, d.branch]),
+    list.map((d) => [d.dispatch, d.item, d.harness, d.harness_ref, d.host, d.branch]),
     [['D-1', 'W-1', 'fake', 'fake-1', 'laptop', 'hitld/W-1-a']],
   );
 });
@@ -170,38 +204,38 @@ function fixtureEvents() {
   const add = (e) => appendEvent(store, e, { now });
   // W-1: accepted at first pass. 1000 executor tokens, 200 verifier tokens.
   add(dispatched({ dispatch: 'D-1', item: 'W-1' }));
-  add({ event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'done', tokens: 1000 });
-  add({ event: 'verified', dispatch: 'D-1', item: 'W-1', outcome: 'pass' });
+  add({ event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done', tokens: 1000 });
+  add({ event: 'verified', dispatch: 'D-1', item: 'W-1', result: 'pass' });
   add({ event: 'dispatched', dispatch: 'D-2', item: 'W-1', role: 'acceptance', tier: 1 });
   add({
     event: 'reported',
     dispatch: 'D-2',
     item: 'W-1',
     role: 'acceptance',
-    outcome: 'done',
+    result: 'done',
     tokens: 200,
   });
   add({ event: 'merged', item: 'W-1' });
   // W-2: failed verification, redone, accepted. D-3 (500) is waste; D-4 (700) is not.
   add(dispatched({ dispatch: 'D-3', item: 'W-2' }));
-  add({ event: 'reported', dispatch: 'D-3', item: 'W-2', outcome: 'done', tokens: 500 });
-  add({ event: 'verified', dispatch: 'D-3', item: 'W-2', outcome: 'fail', defects: 2 });
+  add({ event: 'reported', dispatch: 'D-3', item: 'W-2', result: 'done', tokens: 500 });
+  add({ event: 'verified', dispatch: 'D-3', item: 'W-2', result: 'fail', defects: 2 });
   add(dispatched({ dispatch: 'D-4', item: 'W-2' }));
-  add({ event: 'reported', dispatch: 'D-4', item: 'W-2', outcome: 'done', tokens: 700 });
-  add({ event: 'verified', dispatch: 'D-4', item: 'W-2', outcome: 'pass' });
+  add({ event: 'reported', dispatch: 'D-4', item: 'W-2', result: 'done', tokens: 700 });
+  add({ event: 'verified', dispatch: 'D-4', item: 'W-2', result: 'pass' });
   add({ event: 'merged', item: 'W-2' });
   // W-3: abandoned (300 tokens), never accepted.
   add(dispatched({ dispatch: 'D-5', item: 'W-3' }));
   add({ event: 'abandoned', dispatch: 'D-5', item: 'W-3', tokens: 300 });
   // W-4: merged, then reverted: not accepted; its 400 tokens are waste.
   add(dispatched({ dispatch: 'D-6', item: 'W-4' }));
-  add({ event: 'reported', dispatch: 'D-6', item: 'W-4', outcome: 'done', tokens: 400 });
+  add({ event: 'reported', dispatch: 'D-6', item: 'W-4', result: 'done', tokens: 400 });
   add({ event: 'merged', item: 'W-4' });
   add({ event: 'reverted', dispatch: 'D-6', item: 'W-4' });
   // Two decisions: one answered after 10 minutes, one after 30, one still open.
-  add({ event: 'question', decision: 'W-90' });
-  add({ event: 'question', decision: 'W-91' });
-  add({ event: 'question', decision: 'W-92' });
+  add({ event: 'asked', decision: 'W-90' });
+  add({ event: 'asked', decision: 'W-91' });
+  add({ event: 'asked', decision: 'W-92' });
   add({ event: 'answered', decision: 'W-90' });
   return readLedger(store).events;
 }
@@ -231,7 +265,7 @@ test('summary: a correction replaces the event it names', () => {
   appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1' }), { now });
   const wrong = appendEvent(
     store,
-    { event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'done', tokens: 9999 },
+    { event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done', tokens: 9999 },
     { now },
   );
   appendEvent(
@@ -240,7 +274,7 @@ test('summary: a correction replaces the event it names', () => {
       event: 'reported',
       dispatch: 'D-1',
       item: 'W-1',
-      outcome: 'done',
+      result: 'done',
       tokens: 900,
       corrects: wrong.event.id,
     },
@@ -266,7 +300,7 @@ test('summary: dispatches without token counts are counted, not treated as zero'
     event: 'reported',
     dispatch: 'D-1',
     item: 'W-1',
-    outcome: 'done',
+    result: 'done',
     tokens: null,
   });
   appendEvent(store, { event: 'merged', item: 'W-1' });
@@ -288,17 +322,17 @@ test('liveDispatch: only a claimed dispatch that has not ended, with its role an
     }),
   );
   assert.equal(liveDispatch(store, 'D-1', 'R1'), null, 'not claimed yet');
-  add({ event: 'claimed', dispatch: 'D-1', item: 'W-1', harness: 'fake', handle: 'fake-1' });
+  add({ event: 'started', dispatch: 'D-1', item: 'W-1', harness: 'fake', harness_ref: 'fake-1' });
   const live = liveDispatch(store, 'D-1', 'R1');
   assert.deepEqual(
-    [live?.role, live?.grants, live?.handle, live?.item],
+    [live?.role, live?.grants, live?.harness_ref, live?.item],
     ['executor', ['gpu'], 'fake-1', 'W-1'],
   );
   assert.equal(liveDispatch(store, 'D-9', 'R1'), null, 'unknown');
-  add({ event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'done' });
+  add({ event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done' });
   assert.equal(liveDispatch(store, 'D-1', 'R1'), null, 'reported');
   add(dispatched({ dispatch: 'D-2', item: 'W-2', run: 'R1' }));
-  add({ event: 'claimed', dispatch: 'D-2', item: 'W-2', harness: 'fake', handle: 'fake-2' });
+  add({ event: 'started', dispatch: 'D-2', item: 'W-2', harness: 'fake', harness_ref: 'fake-2' });
   add({ event: 'abandoned', dispatch: 'D-2', item: 'W-2' });
   assert.equal(liveDispatch(store, 'D-2', 'R1'), null, 'abandoned');
 });
@@ -309,7 +343,7 @@ test('liveDispatch: a dispatch recorded under another run is not live', () => {
   appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1', run: 'R-old' }), { now });
   appendEvent(
     store,
-    { event: 'claimed', dispatch: 'D-1', item: 'W-1', harness: 'fake', handle: 'h' },
+    { event: 'started', dispatch: 'D-1', item: 'W-1', harness: 'fake', harness_ref: 'h' },
     { now },
   );
   assert.equal(liveDispatch(store, 'D-1', 'R-old')?.dispatch, 'D-1');
@@ -317,7 +351,7 @@ test('liveDispatch: a dispatch recorded under another run is not live', () => {
   appendEvent(store, dispatched({ dispatch: 'D-2', item: 'W-2' }), { now }); // no run at all
   appendEvent(
     store,
-    { event: 'claimed', dispatch: 'D-2', item: 'W-2', harness: 'fake', handle: 'h' },
+    { event: 'started', dispatch: 'D-2', item: 'W-2', harness: 'fake', harness_ref: 'h' },
     { now },
   );
   assert.equal(liveDispatch(store, 'D-2', 'R-new'), null);
@@ -329,13 +363,13 @@ test('summary: a stray correction (another kind, or another item) hides nothing'
   appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1' }), { now });
   const reported = appendEvent(
     store,
-    { event: 'reported', dispatch: 'D-1', item: 'W-1', outcome: 'done', tokens: 900 },
+    { event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done', tokens: 900 },
     { now },
   );
   // a verified event (another kind) and a reported event about another item both name it
   appendEvent(
     store,
-    { event: 'verified', item: 'W-1', outcome: 'pass', corrects: reported.event.id },
+    { event: 'verified', item: 'W-1', result: 'pass', corrects: reported.event.id },
     { now },
   );
   appendEvent(store, dispatched({ dispatch: 'D-2', item: 'W-2' }), { now });
@@ -345,7 +379,7 @@ test('summary: a stray correction (another kind, or another item) hides nothing'
       event: 'reported',
       dispatch: 'D-2',
       item: 'W-2',
-      outcome: 'done',
+      result: 'done',
       tokens: 1,
       corrects: reported.event.id,
     },

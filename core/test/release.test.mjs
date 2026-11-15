@@ -102,13 +102,13 @@ test('versions order as semver does, pre-releases first', () => {
 
 test('the surface reads schemas, built commands, the report shape, trailers and the read API', async () => {
   const s = await surfaceOf(ROOT);
-  assert.equal(s.read_api, 1);
+  assert.equal(s.read_api, 2);
   assert.deepEqual(s.report, [
     'item',
-    'status',
+    'result',
     'commit',
     'evidence',
-    'runs',
+    'bench_runs',
     'deviations',
     'calls',
     'questions',
@@ -120,7 +120,7 @@ test('the surface reads schemas, built commands, the report shape, trailers and 
     'Agent-Model',
     'Agent-Effort',
   ]);
-  assert.ok(s.schemas.milestone.fields['needs[].clause']);
+  assert.ok(s.schemas.milestone.fields['constraints[].clause']);
   assert.ok(s.schemas.release.fields.interface_delta);
   assert.deepEqual(s.cli['release propose'].output?.includes('interface_delta'), true);
   assert.equal(s.cli['mcp'], undefined, 'a command not yet built is not surface');
@@ -139,7 +139,7 @@ function surface(over = {}) {
         version: 1,
         fields: {
           id: { type: 'string', required: true },
-          state: { type: 'enum', required: true, values: ['Planned', 'Done'] },
+          state: { type: 'enum', required: true, values: ['planned', 'done'] },
         },
       },
     },
@@ -167,7 +167,7 @@ test('the delta marks each change breaking, additive or fix', () => {
         version: 2,
         fields: {
           id: { type: 'integer', required: true },
-          state: { type: 'enum', required: true, values: ['Planned', 'Dropped'] },
+          state: { type: 'enum', required: true, values: ['planned', 'dropped'] },
           note: { type: 'string', required: false },
         },
       },
@@ -191,8 +191,8 @@ test('the delta marks each change breaking, additive or fix', () => {
   assert.deepEqual(diffSurface(base, next), [
     { impact: 'breaking', area: 'schemas', what: 'item: id type string → integer' },
     { impact: 'additive', area: 'schemas', what: 'item: note added' },
-    { impact: 'breaking', area: 'schemas', what: 'item: state no longer allows Done' },
-    { impact: 'additive', area: 'schemas', what: 'item: state allows Dropped' },
+    { impact: 'breaking', area: 'schemas', what: 'item: state no longer allows done' },
+    { impact: 'additive', area: 'schemas', what: 'item: state allows dropped' },
     { impact: 'additive', area: 'schemas', what: 'schema release added' },
     { impact: 'additive', area: 'cli', what: 'hitld work show --json added' },
     { impact: 'breaking', area: 'cli', what: 'hitld work show JSON: api_version removed' },
@@ -321,7 +321,7 @@ test('release make writes the record and the tag, never pushes, and the record i
   assert.deepEqual(t.check().problems, []);
   assert.equal(t.get('W-3').released_in, 'v0.1.0');
   const shown = await hitld(['work', 'show', 'v0.1.0', '--json'], root);
-  assert.equal(shown.json.api_version, 1);
+  assert.equal(shown.json.api_version, 2);
   assert.equal(shown.json.entity.kind, 'release');
   assert.equal(shown.json.entity.decision, 'W-6');
   assert.equal(shown.json.entity.prerelease, false);
@@ -375,7 +375,7 @@ test('after a release, the delta is read against the tag’s own surface', async
   assert.equal(internal.json.version, '0.1.1');
 });
 
-test('propose lists unmet gates, missing changelog lines and drafts notes; make waits for gates', async () => {
+test('propose lists unmet gates, missing release_note lines and drafts notes; make waits for gates', async () => {
   const root = makeRepo({
     files: {
       '.human-in-the-lead/policy.json': JSON.stringify({
@@ -384,13 +384,13 @@ test('propose lists unmet gates, missing changelog lines and drafts notes; make 
       }),
       '.human-in-the-lead/tracker.json': JSON.stringify({
         schema_version: 1,
-        optional_keys: ['changelog'],
+        optional_keys: ['release_note'],
       }),
       'work/milestones/W-7-ready.md': itemText({
         id: 'W-7',
         title: 'Ready',
         kind: 'capability',
-        status: 'Planned',
+        state: 'planned',
         project: 'W-2',
         needs: ['W-3 c?'],
       }),
@@ -398,7 +398,7 @@ test('propose lists unmet gates, missing changelog lines and drafts notes; make 
         id: 'W-8',
         title: 'Release',
         kind: 'work',
-        status: 'Planned',
+        state: 'planned',
         project: 'W-2',
         needs: ['W-7'],
       }),
@@ -406,9 +406,9 @@ test('propose lists unmet gates, missing changelog lines and drafts notes; make 
         id: 'W-9',
         title: 'Shipped',
         kind: 'work',
-        status: 'Done',
+        state: 'done',
         project: 'W-2',
-        changelog: 'Config errors name the key.',
+        release_note: 'Config errors name the key.',
       }),
     },
     commit: false,
@@ -422,7 +422,7 @@ test('propose lists unmet gates, missing changelog lines and drafts notes; make 
   const t = open(root);
   const p = await proposeRelease(t, {});
   assert.deepEqual(p.gates, [
-    { item: 'W-8', milestone: 'W-7', title: 'Ready', state: 'Planned', check_due: true },
+    { item: 'W-8', milestone: 'W-7', title: 'Ready', state: 'planned', check_due: true },
   ]);
   assert.deepEqual(p.notes, ['Config errors name the key. (W-9)']);
   assert.deepEqual(p.missing_changelog, [{ item: 'W-3', files: ['schemas/thing.schema.json'] }]);
@@ -430,7 +430,7 @@ test('propose lists unmet gates, missing changelog lines and drafts notes; make 
   assert.equal(refused.code, 1);
   assert.match(
     refused.json.message,
-    /the release waits for its gates: W-7 Ready \(Planned, check due\)/,
+    /the release waits for its gates: W-7 Ready \(planned, check due\)/,
   );
 });
 
@@ -493,7 +493,7 @@ test('the record-to-tag check passes a squash-merged release pull request', asyn
   assert.equal(r.pr, 7);
   assert.equal(r.proposed, '0.1.0');
   assert.equal(r.record, 'work/releases/v0.1.0.md');
-  assert.equal(r.message, 'v0.1.0\n\nNo changelog lines.');
+  assert.equal(r.message, 'v0.1.0\n\nNo release notes.');
   assert.equal(git(root, 'worktree', 'list').trim().split('\n').length, 1, 'no worktree left');
 
   const elsewhere = await checkReleaseCommit({ root, prs: [8] });
@@ -594,7 +594,7 @@ test('the release-check script prints the result and writes the workflow files',
     readFileSync(join(dir, 'out'), 'utf8'),
     'tag=v0.1.0\nversion=0.1.0\nprerelease=false\nrecord=work/releases/v0.1.0.md\n',
   );
-  assert.equal(readFileSync(join(dir, 'msg'), 'utf8'), 'v0.1.0\n\nNo changelog lines.\n');
+  assert.equal(readFileSync(join(dir, 'msg'), 'utf8'), 'v0.1.0\n\nNo release notes.\n');
   assert.match(
     readFileSync(join(dir, 'notes'), 'utf8'),
     /Release record: `work\/releases\/v0\.1\.0\.md`/,

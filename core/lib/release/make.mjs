@@ -93,7 +93,7 @@ export async function makeRelease(
     milestones: p.milestones,
     classification: layout.defaultClassification,
   };
-  const notes = p.notes.length ? p.notes.map((n) => `- ${n}`).join('\n') : 'No changelog lines.';
+  const notes = p.notes.length ? p.notes.map((n) => `- ${n}`).join('\n') : 'No release notes.';
   const body = [
     '',
     '## Notes',

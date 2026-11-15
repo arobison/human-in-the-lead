@@ -19,8 +19,11 @@ test('the template is short, carries every rule the contract names, and no code-
   for (const must of [
     'first commit',
     'another machine',
-    '`state: Done`',
-    '`status`',
+    '`state: in-progress`',
+    '`claimed_by: <your dispatch ID>`',
+    '`state: done`',
+    '`result`',
+    '`bench_runs: none`',
     '`calls`',
     '(reversible)',
     'decision item',
@@ -116,12 +119,12 @@ test('hitld check contract runs through the command line', async () => {
 });
 
 const GOOD = `item: W-214
-status: done | partial | blocked
+result: done | partial | blocked
 commit: 3f9c2a1 (branch hitld/W-214-response-cache)
 evidence:
   - npm test -- test/cache/http.test.ts: 14 passed
   - property test cache-key-stability: 1000 cases, 0 failures
-runs: R-1251 (first frame -27% vs R-1203)
+bench_runs: R-1251 (first frame -27% vs R-1203)
 deviations: touched src/cache/client.ts (one call site; key type changed)
 calls:
   - kept the old cache directory name for compatibility (reversible)
@@ -131,7 +134,7 @@ questions: none
 test('parseReport reads the design example', () => {
   const { report, errors } = parseReport(GOOD);
   assert.deepEqual(errors, []);
-  assert.equal(report?.status, 'done');
+  assert.equal(report?.result, 'done');
   assert.deepEqual(report?.commit, {
     sha: '3f9c2a1',
     branch: 'hitld/W-214-response-cache',
@@ -154,13 +157,13 @@ test('parseReport refuses departures from the shape, each named', () => {
       `${re} in ${JSON.stringify(r.errors)}`,
     );
   };
-  bad(GOOD.replace('status: done', 'status: finished'), /status/);
-  bad(GOOD.replace('status: done', 'status: done | partial | blocked'), /status/);
+  bad(GOOD.replace('result: done', 'result: finished'), /result/);
+  bad(GOOD.replace('result: done', 'result: done | partial | blocked'), /result/);
   bad(GOOD.replace(/^calls:\n.*\n/m, ''), /calls is missing/);
   bad(GOOD.replace('(reversible)', ''), /not marked \(reversible\)/);
   bad(GOOD.replace('item: W-214', 'item: 214'), /item/);
   bad('Here is my report:\n' + GOOD, /unexpected line/);
-  bad(GOOD + 'status: partial\n', /status appears twice/);
+  bad(GOOD + 'result: partial\n', /result appears twice/);
   bad(
     GOOD.replace('commit: 3f9c2a1 (branch hitld/W-214-response-cache)', 'commit: soon'),
     /commit/,
@@ -168,8 +171,21 @@ test('parseReport refuses departures from the shape, each named', () => {
   bad('', /is missing/);
 });
 
+test('a report in the names before HITLD-82 (status, runs) parses, with a warning', () => {
+  const old = GOOD.replace('result: done', 'status: done').replace('bench_runs:', 'runs:');
+  const { report, errors, warnings } = parseReport(old);
+  assert.deepEqual(errors, []);
+  assert.equal(report?.result, 'done');
+  assert.deepEqual(report?.bench_runs, ['R-1251 (first frame -27% vs R-1203)']);
+  assert.deepEqual(warnings, [
+    'status is now result: update the contract block (hitld install)',
+    'runs is now bench_runs: update the contract block (hitld install)',
+  ]);
+  assert.deepEqual(parseReport(GOOD).warnings, []);
+});
+
 test('a blocked report may have no commit, and calls: none is an empty list', () => {
-  const text = GOOD.replace('status: done', 'status: blocked')
+  const text = GOOD.replace('result: done', 'result: blocked')
     .replace(/commit: .*/, 'commit: none')
     .replace(/calls:\n.*\n/, 'calls: none\n')
     .replace('questions: none', 'questions:\n  - W-412: which key type?');

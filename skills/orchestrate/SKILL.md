@@ -56,7 +56,7 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
    - `Agent` (tiers 1 and 2): every input field as given, including `name`, `isolation`, `model`, `effort` and `run_in_background`. Do not edit the prompt: the brief points to the item and plan on purpose.
    - `Bash` (tier 3, headless): the command as given, with `run_in_background: true`.
    - `session` (tier 3, interactive): ask the owner to start a session in that worktree with the brief file.
-3. `hitld dispatch started --dispatch D-<n> --handle <the agent ID or background task ID>`.
+3. `hitld dispatch handle --dispatch D-<n> --harness-ref <the agent ID or background task ID>`.
 
 Then do useful work between notices: merge, answer questions, triage. Do not wait.
 

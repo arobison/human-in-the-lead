@@ -87,7 +87,7 @@ const itemScenario = (name, { expectValid, category = 'schema', extra = {} }) =>
           id: 'FX-1',
           kind: 'work',
           title: 'x',
-          state: 'Proposed',
+          state: 'proposed',
           classification: 'public',
         },
       },
@@ -262,7 +262,7 @@ test('the gate: tokens above tolerance fail, within it pass; wall time is never 
 test('the gate: a scenario that was not applicable is not counted as passing', () => {
   const base = fakeResult({ x: 1 });
   const now = fakeResult({ x: 1 });
-  now.scenarios[0].status = 'not_applicable';
+  now.scenarios[0].state = 'not_applicable';
   now.scenarios[0].reason = 'lacks a capability';
   now.summary.categories = {};
   const verdict = compareToBaseline(now, base, thresholds());

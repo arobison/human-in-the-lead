@@ -230,7 +230,7 @@ test('an item needing a resource this machine lacks is not dispatched, and the p
     {
       id: 'W-1',
       kind: 'work',
-      state: 'Planned',
+      state: 'planned',
       classification: 'public',
       touches: ['a/**'],
       resources: ['gpu'],
@@ -238,12 +238,12 @@ test('an item needing a resource this machine lacks is not dispatched, and the p
     {
       id: 'W-2',
       kind: 'work',
-      state: 'Planned',
+      state: 'planned',
       classification: 'public',
       touches: ['b/**'],
       resources: ['browser'],
     },
-    { id: 'W-3', kind: 'work', state: 'Planned', classification: 'public', touches: ['c/**'] },
+    { id: 'W-3', kind: 'work', state: 'planned', classification: 'public', touches: ['c/**'] },
   ];
   const sizing = { tier: 2, model: 'sonnet', effort: 'medium', estimate_tokens: 1000 };
   const sizes = new Map(items.map((i) => [i.id, /** @type {any} */ (sizing)]));

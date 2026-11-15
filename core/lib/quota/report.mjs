@@ -71,7 +71,7 @@ function ownerWaiting(policy, ledger, now) {
   for (const e of ledger) {
     if (e.event === 'verified') {
       waiting.delete(e.item);
-      if (e.outcome === 'pass') waiting.set(e.item, { item: e.item, branch: e.branch ?? null });
+      if (e.result === 'pass') waiting.set(e.item, { item: e.item, branch: e.branch ?? null });
     } else if (e.event === 'merged' || e.event === 'reverted') waiting.delete(e.item);
   }
   return waitingForOwner([...waiting.values()], ledger, now);

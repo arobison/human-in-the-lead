@@ -97,7 +97,6 @@ const examples = {
       milestone: 'milestones',
       release: 'releases',
     },
-    main_branch: 'main',
     optional_keys: ['touches', 'estimate_tokens'],
   },
   // Design part 3.2, Milestones and releases.
@@ -107,11 +106,11 @@ const examples = {
     kind: 'capability',
     title: 'Config errors explained',
     parent: 'W-201',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
     outcome: 'A user with a bad config file sees which key is wrong and why.',
     done_when: [{ id: 'c1', text: 'An unknown key exits with status 2 and names the key.' }],
-    needs: [
+    constraints: [
       { id: 'W-214', clause: 'c1' },
       { id: 'W-215', clause: null },
     ],
@@ -134,7 +133,7 @@ const examples = {
     version: '0.4.0-rc.1',
     previous: 'v0.3.2',
     bump: 'minor',
-    interface_delta: [{ impact: 'additive', area: 'schemas', what: 'item gains changelog' }],
+    interface_delta: [{ impact: 'additive', area: 'schemas', what: 'item gains release_note' }],
     decision: 'owner',
     items: ['W-214'],
     milestones: ['W-230'],
@@ -147,7 +146,7 @@ const examples = {
     kind: 'work',
     title: 'Cache responses by request key',
     parent: 'W-201',
-    state: 'Planned',
+    state: 'planned',
     area: 'cache',
     category: 'platform',
     needs: ['W-209', 'W-213'],
@@ -185,7 +184,7 @@ const examples = {
     id: 'W-412',
     kind: 'decision',
     title: 'Response cache key and locale',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
     question: 'Should the response cache key include the locale?',
     context: 'Keys without it are stable across driver updates.',
@@ -203,7 +202,7 @@ const examples = {
     id: 'W-1',
     kind: 'initiative',
     title: 'Request pipeline',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
   },
   project: {
@@ -212,7 +211,7 @@ const examples = {
     kind: 'project',
     title: 'Response cache',
     parent: 'W-1',
-    state: 'Planned',
+    state: 'planned',
     owner: 'owner',
     classification: 'public',
   },
@@ -262,7 +261,7 @@ const examples = {
     item: 'W-214',
     tier: 2,
     at: '2026-11-14T03:00:00Z',
-    outcome: 'done',
+    result: 'done',
     tokens: null,
     commit: '3f9c2a1',
   },
@@ -272,8 +271,8 @@ const examples = {
     scope: { items: ['W-214'], concurrency_cap: 3 },
     in_flight: [],
     ledger_position: null,
-    open_questions: [],
-    decisions_this_run: [],
+    decisions_open: [],
+    decisions_answered: [],
     controllers: {},
     quotas: null,
     merge_queue: { waiting: [], batch: null },
@@ -435,7 +434,7 @@ test('a public judgement carries what, basis and who; the time is not public', (
 });
 
 test('item states are the five of the reference format', () => {
-  for (const state of ['Proposed', 'Planned', 'In progress', 'Done', 'Dropped']) {
+  for (const state of ['proposed', 'planned', 'in-progress', 'done', 'dropped']) {
     assert.deepEqual(registry.validateEntity('item', { ...examples.item, state }), [], state);
   }
   assert.equal(registry.validateEntity('item', { ...examples.item, state: 'Open' }).length, 1);

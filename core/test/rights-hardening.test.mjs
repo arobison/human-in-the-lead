@@ -145,7 +145,7 @@ test('a decision that was not asked through the rights flow makes no precedent',
     schema_version: 1,
     kind: 'decision',
     title: 'Hand-made',
-    state: 'Planned',
+    state: 'planned',
     classification: 'public',
     decider: 'owner',
     options: [
@@ -173,7 +173,7 @@ test('only a decider, or the owner, may answer', () => {
   const asked = askQuestion(project, areaQuestion());
   const r = answerDecision(project, { decision: asked.decision, answer: 'A yes', by: 'C-4' });
   assert.equal(r.error, 'not_a_decider');
-  assert.equal(/** @type {any} */ (project.tracker.get(asked.decision)).state, 'Planned');
+  assert.equal(/** @type {any} */ (project.tracker.get(asked.decision)).state, 'planned');
   const owner = answerDecision(project, { decision: asked.decision, answer: 'A yes', by: 'owner' });
   assert.equal(owner.ok, true);
   assert.equal(project.precedents.get('P-1')?.decider, 'owner', 'the owner made it');
@@ -197,7 +197,7 @@ test('an owner-routed question is never resolved by a precedent an area owner ma
   assert.equal(r.route.decider, 'owner');
   assert.equal(r.outcome, 'asked', 'the owner is asked');
   assert.deepEqual(r.candidates, []);
-  assert.equal(project.tracker.query({ kind: 'decision', state: 'Done' }).length, 0);
+  assert.equal(project.tracker.query({ kind: 'decision', state: 'done' }).length, 0);
 });
 
 test('a precedent with no recorded decider resolves nothing', () => {

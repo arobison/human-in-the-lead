@@ -39,7 +39,7 @@ const BODY2 =
 
 test('sizing: tier 1 for mechanical work, 2 inside a plan, 3 without one, 0 for tracker edits', () => {
   const p = policy();
-  const base = { kind: 'work', state: 'Planned', classification: 'public' };
+  const base = { kind: 'work', state: 'planned', classification: 'public' };
   assert.equal(sizeItem({ ...base, id: 'W-1', touches: ['src/a.js'], body: BODY1 }, p).tier, 1);
   assert.equal(sizeItem({ ...base, id: 'W-2', touches: ['src/**'], body: BODY2 }, p).tier, 2);
   assert.equal(
@@ -51,11 +51,11 @@ test('sizing: tier 1 for mechanical work, 2 inside a plan, 3 without one, 0 for 
     0,
   );
   const hinted = sizeItem(
-    { ...base, id: 'W-5', tier_hint: 3, touches: ['src/a.js'], body: BODY1 },
+    { ...base, id: 'W-5', tier_override: 3, touches: ['src/a.js'], body: BODY1 },
     p,
   );
   assert.equal(hinted.tier, 3);
-  assert.match(hinted.reasons[0], /tier_hint/);
+  assert.match(hinted.reasons[0], /tier_override/);
 });
 
 test('sizing: up one for blast radius, down one for familiar ground, estimates from history', () => {
@@ -67,7 +67,7 @@ test('sizing: up one for blast radius, down one for familiar ground, estimates f
       ],
     },
   });
-  const base = { kind: 'work', state: 'Planned', classification: 'public', body: BODY1 };
+  const base = { kind: 'work', state: 'planned', classification: 'public', body: BODY1 };
   const sensitive = sizeItem({ ...base, id: 'W-1', touches: ['package.json'] }, p);
   assert.equal(sensitive.tier, 2);
   assert.match(sensitive.reasons.join(' '), /sensitive path/);
@@ -102,7 +102,7 @@ test('sizing: up one for blast radius, down one for familiar ground, estimates f
 const ready = (id, extra = {}) => ({
   id,
   kind: 'work',
-  state: 'Planned',
+  state: 'planned',
   classification: 'public',
   touches: [`src/${id}.js`],
   body: BODY1,
@@ -502,7 +502,7 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
   assert.equal(start.result.instruction.tool, 'Agent');
   assert.equal(start.result.instruction.input.name, 'D-1');
   assert.equal(
-    (await c.hitld(['dispatch', 'started', '--dispatch', 'D-1', '--handle', 'agent-1'])).exit,
+    (await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1'])).exit,
     0,
   );
 
@@ -515,7 +515,7 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
       id: 'W-1',
       title: 'Add numbers',
       kind: 'work',
-      status: 'Done',
+      state: 'done',
       touches: ['src/calc.js'],
     }),
   });
@@ -541,7 +541,7 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
   const merged = await c.hitld(['merge']);
   assert.equal(merged.exit, 0, JSON.stringify(merged.result));
   assert.deepEqual(merged.result.merged, ['W-1']);
-  assert.match(readFileSync(join(c.root, 'work/items/W-1-add-numbers.md'), 'utf8'), /status: Done/);
+  assert.match(readFileSync(join(c.root, 'work/items/W-1-add-numbers.md'), 'utf8'), /state: done/);
   assert.ok(existsSync(join(c.root, 'work/views')), 'views regenerated on main');
   // W-3 needed W-1: now it is ready.
   const ready = await c.hitld(['ready']);
@@ -567,7 +567,7 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
     }),
   ).events;
   const kinds = events.map((e) => e.event);
-  for (const k of ['dispatched', 'claimed', 'reported', 'verified', 'merged'])
+  for (const k of ['dispatched', 'started', 'reported', 'verified', 'merged'])
     assert.ok(kinds.includes(k), k);
   assert.equal(events.find((e) => e.event === 'reported')?.tokens, 5000);
 });
@@ -603,8 +603,8 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
         id: 'W-4',
         title: 'Redesign',
         kind: 'work',
-        status: 'Planned',
-        tier_hint: '3',
+        state: 'planned',
+        tier_override: '3',
         touches: ['src/other.js'],
       }),
       // Two items wait on W-4, so it unblocks the most and comes first in the queue.
@@ -612,14 +612,14 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
         id: 'W-5',
         title: 'After redesign',
         kind: 'work',
-        status: 'Planned',
+        state: 'planned',
         needs: ['W-4'],
       }),
       'work/items/W-6-also-after.md': item({
         id: 'W-6',
         title: 'Also after',
         kind: 'work',
-        status: 'Planned',
+        state: 'planned',
         needs: ['W-4'],
       }),
     },
@@ -636,7 +636,7 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
     start.result.instruction.input.command,
     /HITLD_DISPATCH=D-1 HITLD_PROJECT=orch-fixture HITLD_ROLE=executor claude -p/,
   );
-  await c.hitld(['dispatch', 'started', '--dispatch', 'D-1', '--handle', 'bash-7']);
+  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'bash-7']);
   const resultFile = start.result.on_complete.split('--result-file ')[1];
   writeFileSync(
     resultFile,
@@ -648,7 +648,7 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
         item: 'W-4',
         sha: 'abcdef1',
         branch: start.result.branch,
-        status: 'partial',
+        result: 'partial',
         questions: 'should the API be renamed?',
       }),
       usage: { input_tokens: 100, output_tokens: 50 },
@@ -663,7 +663,7 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
     resultFile,
   ]);
   assert.equal(done.exit, 0, JSON.stringify(done.result));
-  assert.equal(done.result.status, 'partial');
+  assert.equal(done.result.result, 'partial');
   assert.deepEqual(done.result.questions, ['should the API be renamed?']);
   assert.ok(done.result.question_protocol);
   assert.equal(done.result.queued_to_merge, undefined);

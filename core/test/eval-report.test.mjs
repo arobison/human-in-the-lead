@@ -375,7 +375,7 @@ function workspace() {
               id: 'FX-1',
               kind: 'work',
               title: 'x',
-              state: 'Proposed',
+              state: 'proposed',
               classification: 'public',
             },
           },

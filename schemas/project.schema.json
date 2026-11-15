@@ -21,10 +21,10 @@
       "$ref": "common#/$defs/id"
     },
     "state": {
-      "$ref": "common#/$defs/itemState"
+      "$ref": "common#/$defs/plannedState"
     },
     "owner": {
-      "description": "The human accountable, if not the project owner.",
+      "description": "Who is accountable for this record. Defaults to the owner: the person who holds the project's decision rights.",
       "$ref": "common#/$defs/person"
     },
     "area": {

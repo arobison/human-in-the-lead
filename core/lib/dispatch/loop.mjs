@@ -62,7 +62,7 @@ export async function runDispatchLoop(r) {
     const id = /** @type {string} */ (itemOf.get(dispatch));
     const { report } = parseReport(completion.report);
     const item = r.items.find((i) => String(i.id) === id);
-    if (item) item.state = report?.status === 'done' ? 'Done' : 'Planned';
+    if (item) item.state = report?.result === 'done' ? 'done' : 'planned';
     trace.push({ step: 'complete', dispatch, item: id, running: pending.size });
   };
 
@@ -92,7 +92,7 @@ export async function runDispatchLoop(r) {
 
     for (const p of plan.inline) {
       const item = /** @type {Item} */ (r.items.find((i) => String(i.id) === p.item));
-      item.state = 'Done';
+      item.state = 'done';
       trace.push({ step: 'inline', item: p.item, running: pending.size });
     }
 
@@ -167,6 +167,6 @@ export async function runDispatchLoop(r) {
     trace,
     dispatches,
     maxRunning,
-    remaining: r.items.filter((i) => i.state !== 'Done').map((i) => String(i.id)),
+    remaining: r.items.filter((i) => i.state !== 'done').map((i) => String(i.id)),
   };
 }

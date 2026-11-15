@@ -42,7 +42,7 @@ const ITEMS = {
 
 /** @param {string} id */
 const doneReport = (id) =>
-  `item: ${id}\nstatus: done\ncommit: abc1234 (branch hitld/${id})\nevidence:\n  - npm test: passed\nruns: none\ndeviations: none\ncalls: none\nquestions: none\n`;
+  `item: ${id}\nresult: done\ncommit: abc1234 (branch hitld/${id})\nevidence:\n  - npm test: passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n`;
 
 /** @type {Record<string, import('./builtin.mjs').Action>} */
 export const actions = {

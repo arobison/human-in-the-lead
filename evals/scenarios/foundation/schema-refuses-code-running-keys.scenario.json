@@ -18,7 +18,7 @@
           "id": "FX-1",
           "kind": "work",
           "title": "A work item",
-          "state": "Proposed",
+          "state": "proposed",
           "classification": "public"
         }
       }
@@ -34,7 +34,7 @@
           "id": "FX-1",
           "kind": "work",
           "title": "A work item",
-          "state": "Proposed",
+          "state": "proposed",
           "classification": "public"
         },
         "set": [{ "key_path": ["on_merge"], "value": "deploy.sh" }]
@@ -51,7 +51,7 @@
           "id": "FX-1",
           "kind": "work",
           "title": "A work item",
-          "state": "Proposed",
+          "state": "proposed",
           "classification": "public"
         },
         "set": [{ "key_path": ["command"], "value": "echo hello" }]

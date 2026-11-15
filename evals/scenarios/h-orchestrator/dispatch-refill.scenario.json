@@ -17,7 +17,7 @@
           {
             "id": "W-1",
             "kind": "work",
-            "state": "Planned",
+            "state": "planned",
             "classification": "public",
             "touches": ["src/a.js"],
             "body": "\n## Done when\n\n`npm test` passes.\n\n## Plan\n\nChange `src/a.js`.\n"
@@ -25,7 +25,7 @@
           {
             "id": "W-2",
             "kind": "work",
-            "state": "Planned",
+            "state": "planned",
             "classification": "public",
             "touches": ["src/b.js"],
             "body": "\n## Done when\n\n`npm test` passes.\n\n## Plan\n\nChange `src/b.js`.\n"
@@ -33,7 +33,7 @@
           {
             "id": "W-3",
             "kind": "work",
-            "state": "Planned",
+            "state": "planned",
             "classification": "public",
             "touches": ["src/c.js"],
             "body": "\n## Done when\n\n`npm test` passes.\n\n## Plan\n\nChange `src/c.js`.\n"
@@ -41,7 +41,7 @@
           {
             "id": "W-4",
             "kind": "work",
-            "state": "Planned",
+            "state": "planned",
             "classification": "public",
             "needs": ["W-1"],
             "touches": ["src/d.js"],

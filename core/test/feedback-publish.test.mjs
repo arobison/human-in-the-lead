@@ -41,7 +41,7 @@ writeFileSync(
       id: 'E-2',
       dispatch: 'D-3',
       item: 'SHOP-9',
-      outcome: 'done',
+      result: 'done',
       branch: 'hitld/SHOP-9-cart-totals',
     },
   ]

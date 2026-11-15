@@ -2,7 +2,9 @@
 // the entity schema, every reference resolves, no dependency cycles (through items and
 // milestones), nothing above the classification ceiling, no duplicate IDs. For milestones (design
 // part 3.2): every constraint names a clause that exists, every contribution has a value and a
-// confidence, and Done only with a recorded passing check by a role other than its items' authors. Problems are strings, one per line, in the form
+// confidence, and done only with a recorded passing check by a role other than its items' authors.
+// A key or a state value in the format before HITLD-82 is named with the migration that moves it.
+// Problems are strings, one per line, in the form
 // "<path>: <what is wrong>". The messages and their order are those of the reference check,
 // which this must agree with (design part 16.7).
 
@@ -15,13 +17,14 @@ import {
   FOLDER_GROUP,
   KINDS,
   RETIRED_KEYS,
-  STATUSES,
+  STATES,
   allowedKeys,
   fieldProblems,
   listKeys,
   toEntity,
 } from './format.mjs';
 import { ITEM_KINDS, buildGraph, findCycles } from './graph.mjs';
+import { LEGACY_STATES, renamesFor } from './legacy.mjs';
 import { AUTHOR_ROLE, MILESTONE_KINDS, passingCheck, readMilestone } from './milestones.mjs';
 import { insidePath } from './safe.mjs';
 import { idNumber, patterns } from './tree.mjs';
@@ -37,7 +40,7 @@ import { idNumber, patterns } from './tree.mjs';
  * @param {Layout} layout
  * @param {{ root?: string, onMain?: boolean, authorRoles?: (ids: string[]) => Set<string> }} [options]
  *   root lets `plan` paths be checked for existence; onMain turns on the rule that no work item
- *   on the main branch is In progress (a claim belongs on the executor's branch); authorRoles
+ *   on the main branch is in-progress (a claim belongs on the executor's branch); authorRoles
  *   gives the roles that wrote the named items (from their commits' Agent-Role trailers), whose
  *   runs of a milestone's check do not count (default: the executor role only).
  * @returns {string[]}
@@ -72,9 +75,13 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
       return;
     }
     const allowed = allowedKeys(kind, layout);
+    const renamed = renamesFor(kind);
     for (const key of Object.keys(d)) {
       if (Object.hasOwn(RETIRED_KEYS, key) && !allowed.includes(key)) {
         say(it, `"${key}" is retired: ${RETIRED_KEYS[key]}; run hitld work migrate`);
+        continue;
+      } else if (Object.hasOwn(renamed, key) && !allowed.includes(key)) {
+        say(it, `"${key}" is now "${renamed[key]}"; run hitld work migrate`);
         continue;
       } else if (!allowed.includes(key) && !CODE_KEYS.includes(key)) {
         say(it, `"${key}" isn't an allowed key for a ${kind}`);
@@ -95,40 +102,46 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
     const folder = layout.folders[FOLDER_GROUP[/** @type {keyof typeof FOLDER_GROUP} */ (kind)]];
     if (folder !== it.folder) say(it, `a ${kind} belongs in ${folder}/, not ${it.folder}/`);
     if (!d.title) say(it, 'no title');
-    const status = String(d.status ?? '');
-    if (!STATUSES.includes(status)) {
-      say(it, `status "${status}" isn't one of ${STATUSES.join(', ')}`);
+    const state = String(d.state ?? d.status ?? '');
+    if (!STATES.includes(state)) {
+      say(
+        it,
+        Object.hasOwn(LEGACY_STATES, state)
+          ? `state "${state}" is now "${LEGACY_STATES[state]}"; run hitld work migrate`
+          : `state "${state}" isn't one of ${STATES.join(', ')}`,
+      );
     }
     if (d.created !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(d.created))) {
       say(it, `created "${d.created}" isn't YYYY-MM-DD`);
     }
-    if (status === 'Dropped' && !d.reason) say(it, 'Dropped needs a reason');
-    if (d.reason && status !== 'Dropped') say(it, 'a reason is only for Dropped');
+    if (state === 'dropped' && !d.reason) say(it, 'dropped needs a reason');
+    if (d.reason && state !== 'dropped') say(it, 'a reason is only for dropped');
     if (ITEM_KINDS.includes(kind)) {
       if (!d.project) say(it, 'no project');
-      if (kind === 'work' && status === 'In progress' && !d.claimed) {
-        say(it, 'In progress needs claimed (who has it)');
+      if (kind === 'work' && state === 'in-progress' && !d.claimed_by) {
+        say(it, 'in-progress needs claimed_by (who has it)');
       }
-      if (d.claimed && !['In progress', 'Done'].includes(status)) {
-        say(it, `claimed, but ${status}`);
+      if (d.claimed_by && !['in-progress', 'done'].includes(state)) {
+        say(it, `claimed_by, but ${state}`);
       }
-      if (onMain && kind === 'work' && status === 'In progress') {
+      if (onMain && kind === 'work' && state === 'in-progress') {
         say(
           it,
-          `In progress on ${layout.mainBranch}; a claim belongs on the executor's branch, and ${layout.mainBranch} goes from Planned straight to Done`,
+          `in-progress on ${layout.mainBranch}; a claim belongs on the executor's branch, and ${layout.mainBranch} goes from planned straight to done`,
         );
       }
     }
-    if (kind === 'decision' && !d['decided-by']) say(it, 'a decision needs decided-by');
-    if (kind === 'external' && !d.party) say(it, 'an external item needs party (who we wait on)');
-    if (['project', 'initiative'].includes(kind) && !d.lead) say(it, `a ${kind} needs a lead`);
+    if (kind !== 'work' && state === 'in-progress') {
+      say(it, `a ${kind} is never in-progress: only work items are claimed`);
+    }
+    if (kind === 'decision' && !d.decider) say(it, 'a decision needs a decider');
+    if (kind === 'external' && !d.waiting_on) {
+      say(it, 'an external item needs waiting_on (who we wait on)');
+    }
     if (kind === 'project' && !d.initiative) say(it, 'a project needs an initiative');
     if (MILESTONE_KINDS.includes(kind)) {
       if (!d.project === !d.initiative) {
         say(it, 'a milestone needs one parent: project or initiative');
-      }
-      if (status === 'In progress') {
-        say(it, 'a milestone is never In progress: items are claimed, milestones are not');
       }
       for (const p of readMilestone(d).problems) say(it, p);
     }
@@ -169,7 +182,7 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
         if (!target) say(it, `needs ${n}, which doesn't exist`);
         else if (!g.isItem(target) && !g.isMilestone(target)) {
           say(it, `needs ${n}, a ${target.data.kind}; needs name items and milestones only`);
-        } else if (target.data.status === 'Dropped' && g.isOpen(it)) {
+        } else if (target.data.state === 'dropped' && g.isOpen(it)) {
           say(it, `needs ${n}, which was dropped; it can never be ${milestone ? 'met' : 'ready'}`);
         }
         if (n === d.id) say(it, 'needs itself');
@@ -184,15 +197,15 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
           say(it, `contributions ${c.id}, a ${target.data.kind}; contributions are items`);
         }
       }
-      if (d.status === 'Done') {
+      if (d.state === 'done') {
         const ids = [...g.needs(it), ...m.contributions.map((c) => c.id)];
         const roles = authorRoles ? authorRoles(ids) : new Set([AUTHOR_ROLE]);
         if (!passingCheck(String(d.kind), m.results, roles)) {
           say(
             it,
             d.kind === 'learning'
-              ? 'Done needs its study to have a verdict, recorded in check_results'
-              : `Done needs a passing check in check_results, run by a role other than its items' authors (${[...roles].join(', ')})`,
+              ? 'done needs its study answered, recorded in check_results as answered'
+              : `done needs a passing check in check_results, run by a role other than its items' authors (${[...roles].join(', ')})`,
           );
         }
       }

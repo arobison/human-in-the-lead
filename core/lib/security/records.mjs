@@ -299,7 +299,7 @@ export function decisionProblem(id, entity) {
     entity.answer.trim() !== '' &&
     typeof entity.answered_at === 'string' &&
     entity.answered_at !== '';
-  if (entity.state !== 'Done' || !answered) {
+  if (entity.state !== 'done' || !answered) {
     return `${id} is ${String(entity.state)} and not answered: the owner answers it first (hitld rights answer)`;
   }
   if (entity.resolved_by_precedent) {

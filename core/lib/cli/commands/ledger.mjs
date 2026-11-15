@@ -92,16 +92,16 @@ async function guarded(fn) {
 
 /**
  * The only events raw append may write: about decisions and about work already reported. Every
- * dispatch lifecycle event (dispatched, claimed, reported, abandoned, released) and the run and
+ * dispatch lifecycle event (dispatched, started, reported, abandoned, unclaimed) and the run and
  * lease events belong to the run module alone, since they decide what is live and who may act.
  */
 /** @type {Record<string, string[]>} */
 const RAW_APPEND_FIELDS = {
-  question: ['decision', 'dispatch', 'notes'],
+  asked: ['decision', 'dispatch', 'notes'],
   answered: ['decision', 'notes'],
   verified: [
     'item',
-    'outcome',
+    'result',
     'defects',
     'dispatch',
     'branch',
@@ -122,7 +122,7 @@ export const commands = [
   {
     name: 'ledger append',
     summary:
-      'Append a question, answered, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
+      'Append an asked, answered, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
     piece: 'b',
     args: [
       {
@@ -386,7 +386,7 @@ export const commands = [
           reported: r.reported,
           adopted: r.adopted,
           abandoned: r.abandoned,
-          release_claims: r.released_items,
+          unclaim_items: r.unclaimed_items,
           follow_up: r.follow_up,
           foreign: r.foreign,
           unverified: r.unverified,
@@ -400,7 +400,7 @@ export const commands = [
     piece: 'b',
     args: [
       {
-        name: 'branch_prefix',
+        name: 'branch-prefix',
         type: 'string',
         description: 'The claim-branch prefix to cross-check (default "hitld")',
       },
@@ -412,7 +412,7 @@ export const commands = [
         const r = rebuildRun(s.store, {
           kept: s.kept,
           reality: gitReality({ cwd: s.cwd }),
-          branchPrefix: /** @type {string | undefined} */ (input.branch_prefix),
+          branchPrefix: /** @type {string | undefined} */ (input['branch-prefix']),
         });
         return {
           ok: true,

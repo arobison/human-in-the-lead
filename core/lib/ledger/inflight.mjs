@@ -13,7 +13,7 @@ import { TERMINAL_EVENTS, readLedger } from './ledger.mjs';
  * @property {string} [role]
  * @property {number} [tier]
  * @property {string | null} harness null until the harness accepted the dispatch (claimed)
- * @property {string | null} handle
+ * @property {string | null} harness_ref the harness's own reference for the dispatch
  * @property {string | null} host
  * @property {string | null} worktree
  * @property {string | null} branch
@@ -36,17 +36,17 @@ export function applyInflight(list, e) {
       ...(e.role !== undefined ? { role: e.role } : {}),
       ...(e.tier !== undefined ? { tier: e.tier } : {}),
       harness: null,
-      handle: null,
+      harness_ref: null,
       host: e.host ?? null,
       worktree: e.worktree ?? null,
       branch: e.branch ?? null,
       serial_resources: e.serial_resources ? [...e.serial_resources] : [],
       started_at: e.at,
     });
-  } else if (e.event === 'claimed' && at >= 0) {
+  } else if (e.event === 'started' && at >= 0) {
     const d = list[at];
     d.harness = e.harness ?? d.harness;
-    d.handle = e.handle ?? d.handle;
+    d.harness_ref = e.harness_ref ?? d.harness_ref;
     d.host = e.host ?? d.host;
     d.worktree = e.worktree ?? d.worktree;
     d.branch = e.branch ?? d.branch;
@@ -83,6 +83,6 @@ export function liveDispatch(source, dispatch, run) {
   const recorded = events.find((e) => e.event === 'dispatched' && e.dispatch === dispatch);
   if (!recorded || recorded.run !== run) return null;
   const d = inflight(events).find((x) => x.dispatch === dispatch);
-  if (!d || d.handle === null) return null;
+  if (!d || d.harness_ref === null) return null;
   return { ...d, grants: [...d.serial_resources] };
 }

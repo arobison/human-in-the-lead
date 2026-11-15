@@ -46,7 +46,7 @@ const ledger = [
     id: 'E-2',
     dispatch: 'D-3',
     item: 'W-9',
-    outcome: 'done',
+    result: 'done',
     schema_version: 1,
     at: '2026-11-14T11:00:00Z',
   },

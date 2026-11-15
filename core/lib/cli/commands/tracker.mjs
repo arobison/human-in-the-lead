@@ -141,13 +141,13 @@ export const commands = [
         name: 'state',
         type: 'string',
         description:
-          'Planned (default) or Proposed (the default for a milestone, which the owner commits)',
+          'planned (default) or proposed (the default for a milestone, which the owner commits)',
       },
       {
         name: 'needs',
         type: 'string',
         description:
-          'Comma-separated IDs that must be Done first (items and milestones). A milestone links each constraint to a clause in its file',
+          'Comma-separated IDs that must be done first (items and milestones). For a milestone, its constraints: each is linked to a clause in its file ("<ID> c1")',
       },
       {
         name: 'outcome',
@@ -156,11 +156,11 @@ export const commands = [
           "A milestone's outcome: one sentence, the state for users or the question answered",
       },
       { name: 'decider', type: 'string', description: 'Who decides a decision (default owner)' },
-      { name: 'party', type: 'string', description: 'Who an external item waits on' },
+      { name: 'waiting-on', type: 'string', description: 'Who an external item waits on' },
       {
-        name: 'lead',
+        name: 'owner',
         type: 'string',
-        description: 'Who leads a project or initiative (default owner)',
+        description: 'Who is accountable for a project or initiative (default owner)',
       },
       {
         name: 'plan',
@@ -185,8 +185,8 @@ export const commands = [
         needs: csv(input.needs),
         outcome: input.outcome,
         decider: input.decider,
-        party: input.party,
-        lead: input.lead,
+        waiting_on: input['waiting-on'],
+        owner: input.owner,
         plan: input.plan,
       });
       return { ok: true, id: made.id, path: made.path, block: made.block };
@@ -220,7 +220,7 @@ export const commands = [
       {
         name: 'state',
         type: 'string',
-        description: 'Proposed, Planned, In progress, Done or Dropped',
+        description: 'proposed, planned, in-progress, done or dropped',
       },
       { name: 'area', type: 'string', description: 'An area (needs the area key turned on)' },
       { name: 'needs', type: 'string', description: 'Entities that need this ID' },
@@ -263,9 +263,9 @@ export const commands = [
     args: [
       idArg,
       {
-        name: 'claimant',
+        name: 'dispatch',
         type: 'string',
-        description: "The executor's dispatch ID, such as D-12",
+        description: "The executor's dispatch ID, such as D-12 (stored as claimed_by)",
         required: true,
       },
       {
@@ -277,23 +277,28 @@ export const commands = [
     ],
     run(input, ctx) {
       const t = open(input, ctx);
-      const ref = t.claim(idOf(input), String(input.claimant), String(input.branch ?? ''));
-      return { ok: true, id: idOf(input), claimant: input.claimant, ...ref };
+      const ref = t.claim(idOf(input), String(input.dispatch), String(input.branch ?? ''));
+      return { ok: true, id: idOf(input), dispatch: input.dispatch, ...ref };
     },
   },
   {
-    name: 'work release',
-    summary: 'Release an abandoned claim on main, with the reason',
+    name: 'work unclaim',
+    summary: 'Give up an abandoned claim on main, with the reason (commit message unclaim:)',
     piece: 'a',
     args: [
       idArg,
-      { name: 'reason', type: 'string', description: 'Why the claim is released', required: true },
-      { name: 'branch', type: 'string', description: 'Release only the claim on this branch' },
+      {
+        name: 'reason',
+        type: 'string',
+        description: 'Why the claim is given up',
+        required: true,
+      },
+      { name: 'branch', type: 'string', description: 'Unclaim only the claim on this branch' },
       ...where,
     ],
     run(input, ctx) {
       const t = open(input, ctx);
-      const done = t.release(
+      const done = t.unclaim(
         idOf(input),
         String(input.reason),
         typeof input.branch === 'string' ? input.branch : undefined,
@@ -303,7 +308,7 @@ export const commands = [
   },
   {
     name: 'work close',
-    summary: 'Set an item to Done in the branch that does the work',
+    summary: 'Set an item to done in the branch that does the work',
     piece: 'a',
     args: [
       idArg,
@@ -392,10 +397,12 @@ export const commands = [
       const t = open(input, ctx, { readOnly: true });
       const inflight = csv(input.inflight);
       const { problems, files } = t.check({ branches: Boolean(input.branches), inflight });
+      const warnings = t.warnings();
       return {
         ok: problems.length === 0,
         files,
         problems,
+        ...(warnings.length ? { warnings } : {}),
         summary: problems.length ? `${problems.length} problem(s)` : `${files} files, no problems`,
       };
     },

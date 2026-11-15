@@ -133,11 +133,11 @@ export function parseRefs(text) {
 /** The loop each ledger event belongs to, for an area the person did not give. */
 const LOOP_OF = Object.freeze({
   dispatched: 'dispatch',
-  claimed: 'dispatch',
+  started: 'dispatch',
   reported: 'dispatch',
   abandoned: 'dispatch',
-  released: 'dispatch',
-  question: 'decision rights',
+  unclaimed: 'dispatch',
+  asked: 'decision rights',
   answered: 'decision rights',
   verified: 'verification',
   merged: 'merge',
@@ -151,8 +151,8 @@ const short = (e) =>
   [
     e.id,
     e.event,
-    ...['dispatch', 'item', 'decision', 'outcome', 'branch', 'commit'].map((k) =>
-      e[k] === undefined ? null : k === 'outcome' ? `outcome=${e[k]}` : e[k],
+    ...['dispatch', 'item', 'decision', 'result', 'branch', 'commit'].map((k) =>
+      e[k] === undefined ? null : k === 'result' ? `result=${e[k]}` : e[k],
     ),
   ]
     .filter(Boolean)

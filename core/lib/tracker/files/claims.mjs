@@ -1,15 +1,20 @@
-// Claims, closing and releasing (design part 3.4, "Claims and closing").
+// Claims, closing and unclaiming (design part 3.4, "Claims and closing").
 //
 // - A claim is the first commit of the executor's branch: it changes only the item file, to
-//   `status: In progress` and `claimed: <dispatch ID>`, with the message `claim: <ID>`.
-// - The branch is where the claim lives. The main branch never shows a work item In progress, so
+//   `state: in-progress` and `claimed_by: <dispatch ID>`, with the message `claim: <ID>`. Only a
+//   work item is claimed: decisions, external items and milestones have no in-progress state.
+// - The branch is where the claim lives. The main branch never shows a work item in-progress, so
 //   which items are claimed is read from branches: local ones, remote-tracking ones and the ref
 //   prefixes where a second machine's bundles are fetched.
-// - Closing rides with the work: a commit on the same branch sets `status: Done`. Merging the
+// - Closing rides with the work: a commit on the same branch sets `state: done`. Merging the
 //   branch closes the item.
-// - An abandoned claim is released by the orchestrator with a commit on the main branch that
-//   names the branch and the claim commit and records why. The commit may be empty: main already
-//   shows the item Planned. A claim whose commit a release names stops counting.
+// - An abandoned claim is given up (unclaimed) by the orchestrator with a commit on the main
+//   branch whose message starts `unclaim:`, naming the branch and the claim commit and recording
+//   why. The commit may be empty: main already shows the item planned. A claim whose commit an
+//   unclaim commit names stops counting. Commits from before HITLD-82 start `release:`; the scan
+//   still reads them.
+// - Claim branches made before HITLD-82 hold the old keys (`status: In progress`, `claimed:`);
+//   the branches are read through `fromLegacy` (tree.mjs), so those claims still count.
 //
 // Claim and close commits carry `Work-Item:` and `Dispatch:`; the executor's own commits add the
 // `Agent-*` trailers (the owner's answer to Q5, 2026-11-14)
@@ -24,7 +29,7 @@ import { git, idNumber, loadPlaces, refPlaces } from './tree.mjs';
  * @typedef {import('./tree.mjs').Entry} Entry
  *
  * @typedef {object} Claim
- * @property {string} claimant the `claimed` value: a dispatch ID, a session or a person's handle
+ * @property {string} claimant the `claimed_by` value: a dispatch ID, a session or a person's handle
  * @property {string} branch the ref's short name, such as `exec/app-5` or `origin/exec/app-5`
  * @property {string} ref the full ref
  * @property {string | null} commit the claim commit, when it can be found
@@ -51,14 +56,15 @@ function mainRef(root, layout) {
 }
 
 /**
- * Claim commits that a release on the main branch has retired, by their hashes.
+ * Claim commits that an unclaim commit on the main branch has retired, by their hashes. A commit
+ * from before HITLD-82 starts `release:` and counts the same.
  * @param {string} root @param {Layout} layout
  * @returns {Set<string>}
  */
-export function releasedClaims(root, layout) {
+export function unclaimedClaims(root, layout) {
   const main = mainRef(root, layout);
   if (!main) return new Set();
-  const log = git(root, ['log', main, '-E', '--grep=^release: ', '--format=%B%x1e'], {
+  const log = git(root, ['log', main, '-E', '--grep=^(unclaim|release): ', '--format=%B%x1e'], {
     allowFail: true,
   });
   return new Set([...log.matchAll(/^Claim-Commit: ([0-9a-f]{7,64})\s*$/gm)].map((m) => m[1]));
@@ -66,7 +72,7 @@ export function releasedClaims(root, layout) {
 
 /**
  * The claim commit on a ref for an item: the first commit since the main branch that sets the
- * item In progress (message `claim: <ID>`), or failing that the oldest commit touching its file.
+ * item in-progress (message `claim: <ID>`), or failing that the oldest commit touching its file.
  * @param {string} root @param {Layout} layout @param {string} ref @param {string} id @param {string} path
  * @returns {{ commit: string, at: string } | null}
  */
@@ -88,9 +94,9 @@ function claimCommit(root, layout, ref, id, path) {
 }
 
 /**
- * Claims read from branches: every item that is In progress on a ref other than the main branch
- * where the main branch's copy differs (it shows it Planned). Claims a release has retired do not
- * count.
+ * Claims read from branches: every item that is in-progress on a ref other than the main branch
+ * where the main branch's copy differs (it shows it planned). Claims an unclaim commit has retired
+ * do not count.
  * @param {string} root @param {Layout} layout
  * @returns {ClaimedItem[]}
  */
@@ -106,22 +112,22 @@ export function findClaims(root, layout) {
         ),
       )
     : new Map();
-  const released = releasedClaims(root, layout);
+  const unclaimed = unclaimedClaims(root, layout);
   /** @type {Map<string, ClaimedItem>} */
   const claimed = new Map();
   for (const { ref, items } of loadPlaces(root, layout, refs)) {
     for (const it of items) {
       const d = it.data;
-      if (!d?.id || d.status !== 'In progress' || d.kind === 'project' || d.kind === 'initiative') {
+      if (!d?.id || d.state !== 'in-progress' || d.kind === 'project' || d.kind === 'initiative') {
         continue;
       }
       const here = mainItems.get(String(d.id));
-      if (here && here.status === d.status && here.claimed === d.claimed) continue; // not news
+      if (here && here.state === d.state && here.claimed_by === d.claimed_by) continue; // not news
       const id = String(d.id);
       const found = claimCommit(root, layout, String(ref), id, it.path);
       if (
         found &&
-        [...released].some((r) => found.commit.startsWith(r) || r.startsWith(found.commit))
+        [...unclaimed].some((r) => found.commit.startsWith(r) || r.startsWith(found.commit))
       ) {
         continue;
       }
@@ -129,7 +135,7 @@ export function findClaims(root, layout) {
         claimed.set(id, { id, title: String(d.title), claims: [], double: false });
       }
       /** @type {ClaimedItem} */ (claimed.get(id)).claims.push({
-        claimant: String(d.claimed ?? '?'),
+        claimant: String(d.claimed_by ?? '?'),
         branch: String(ref).replace(/^refs\/(heads|remotes)\//, ''),
         ref: String(ref),
         commit: found?.commit ?? null,
@@ -219,10 +225,13 @@ export function claimItem(root, layout, id, claimant, { branch } = {}) {
   const entry = findEntry(root, layout, id);
   if (!entry?.data) throw new Error(`${id} is not in this working tree`);
   const d = entry.data;
-  if (d.kind === 'project' || d.kind === 'initiative')
-    throw new Error(`${id} is a ${d.kind}; claim items`);
-  if (d.status !== 'Planned') {
-    throw new Error(`${id} is ${d.status}; only a Planned item can be claimed`);
+  if (d.kind !== 'work') {
+    throw new Error(
+      `${id} is a ${d.kind}; only a work item is claimed (decisions, external items and milestones have no in-progress state)`,
+    );
+  }
+  if (d.state !== 'planned') {
+    throw new Error(`${id} is ${d.state}; only a planned item can be claimed`);
   }
   for (const c of findClaims(root, layout)) {
     if (c.id === id) {
@@ -230,7 +239,7 @@ export function claimItem(root, layout, id, claimant, { branch } = {}) {
       throw new Error(`${id} is already claimed by ${by}`);
     }
   }
-  const stored = applyPatch(entry.data, { status: 'In progress', claimed: claimant }, layout);
+  const stored = applyPatch(entry.data, { state: 'in-progress', claimed_by: claimant }, layout);
   writeStored(root, layout, entry.path, stored, entry.body);
   const commit = commitOnly(root, [entry.path], {
     subject: `claim: ${id}`,
@@ -240,7 +249,7 @@ export function claimItem(root, layout, id, claimant, { branch } = {}) {
 }
 
 /**
- * Set an item to Done in the working tree, and commit that one file unless told not to.
+ * Set an item to done in the working tree, and commit that one file unless told not to.
  * @param {string} root @param {Layout} layout @param {string} id
  * @param {{ commit?: boolean }} [options]
  * @returns {{ commit: string | null, branch: string | null, path: string, version: string }}
@@ -252,20 +261,20 @@ export function closeItem(root, layout, id, { commit = true } = {}) {
   const here = currentBranch(root);
   const solo = d.kind === 'decision' || d.kind === 'external';
   if (d.kind === 'project' || d.kind === 'initiative') {
-    throw new Error(`${id} is a ${d.kind}; its lead moves its status by editing the file`);
+    throw new Error(`${id} is a ${d.kind}; whether it is active is derived from its items`);
   }
-  if (d.status === 'Done') throw new Error(`${id} is already Done`);
-  if (d.status !== 'In progress' && !(solo && d.status === 'Planned')) {
+  if (d.state === 'done') throw new Error(`${id} is already done`);
+  if (d.state !== 'in-progress' && !(solo && d.state === 'planned')) {
     throw new Error(
-      `${id} is ${d.status}; close an item that this branch claimed (In progress)${solo ? ', or a Planned decision or external item' : ''}`,
+      `${id} is ${d.state}; close an item that this branch claimed (in-progress)${solo ? ', or a planned decision or external item' : ''}`,
     );
   }
   if (!solo && here === layout.mainBranch) {
     throw new Error(`close ${id} in the branch that does the work, not on ${layout.mainBranch}`);
   }
-  const stored = applyPatch(entry.data, { status: 'Done' }, layout);
+  const stored = applyPatch(entry.data, { state: 'done' }, layout);
   const version = writeStored(root, layout, entry.path, stored, entry.body);
-  const claimant = String(d.claimed ?? '');
+  const claimant = String(d.claimed_by ?? '');
   const sha = commit
     ? commitOnly(root, [entry.path], { subject: `close: ${id}`, body: trailers(id, claimant) })
     : null;
@@ -273,19 +282,19 @@ export function closeItem(root, layout, id, { commit = true } = {}) {
 }
 
 /**
- * Release an abandoned claim with a commit on the main branch that records why. The commit is
- * empty when main already shows the item Planned, as it should; it carries the claim branch and
- * claim commit so `findClaims` stops counting the claim.
+ * Give up (unclaim) an abandoned claim with a commit on the main branch that records why. The
+ * commit is empty when main already shows the item planned, as it should; it carries the claim
+ * branch and claim commit so `findClaims` stops counting the claim.
  * @param {string} root @param {Layout} layout @param {string} id @param {string} reason
- * @param {{ branch?: string }} [options] release only the claim on this branch
- * @returns {{ commit: string, branch: string, released: { claimant: string, branch: string, commit: string | null }[] }}
+ * @param {{ branch?: string }} [options] unclaim only the claim on this branch
+ * @returns {{ commit: string, branch: string, unclaimed: { claimant: string, branch: string, commit: string | null }[] }}
  */
-export function releaseClaim(root, layout, id, reason, { branch } = {}) {
-  if (!reason.trim()) throw new Error('a release needs a reason');
+export function unclaimItem(root, layout, id, reason, { branch } = {}) {
+  if (!reason.trim()) throw new Error('an unclaim needs a reason');
   const here = currentBranch(root);
   if (here !== layout.mainBranch) {
     throw new Error(
-      `release on ${layout.mainBranch}, in the orchestrator's working tree (this is ${here})`,
+      `unclaim on ${layout.mainBranch}, in the orchestrator's working tree (this is ${here})`,
     );
   }
   const item = findClaims(root, layout).find((c) => c.id === id);
@@ -294,8 +303,8 @@ export function releaseClaim(root, layout, id, reason, { branch } = {}) {
   const entry = findEntry(root, layout, id);
   /** @type {string[]} */
   const files = [];
-  if (entry?.data?.status === 'In progress') {
-    const stored = applyPatch(entry.data, { status: 'Planned', claimed: null }, layout);
+  if (entry?.data?.state === 'in-progress') {
+    const stored = applyPatch(entry.data, { state: 'planned', claimed_by: null }, layout);
     writeStored(root, layout, entry.path, stored, entry.body);
     files.push(entry.path);
   }
@@ -308,14 +317,14 @@ export function releaseClaim(root, layout, id, reason, { branch } = {}) {
       ...(c.commit ? [`Claim-Commit: ${c.commit}`] : []),
     ]),
   ];
-  const message = `release: ${id}\n\n${lines.join('\n')}\n`;
+  const message = `unclaim: ${id}\n\n${lines.join('\n')}\n`;
   if (files.length) {
     git(root, [
       'commit',
       '--only',
       '--no-verify',
       '-m',
-      `release: ${id}`,
+      `unclaim: ${id}`,
       '-m',
       lines.join('\n'),
       '--',
@@ -329,7 +338,7 @@ export function releaseClaim(root, layout, id, reason, { branch } = {}) {
     git(root, [
       'update-ref',
       '-m',
-      `release: ${id}`,
+      `unclaim: ${id}`,
       `refs/heads/${layout.mainBranch}`,
       made,
       head,
@@ -338,6 +347,6 @@ export function releaseClaim(root, layout, id, reason, { branch } = {}) {
   return {
     commit: git(root, ['rev-parse', 'HEAD']).trim(),
     branch: here,
-    released: claims.map((c) => ({ claimant: c.claimant, branch: c.branch, commit: c.commit })),
+    unclaimed: claims.map((c) => ({ claimant: c.claimant, branch: c.branch, commit: c.commit })),
   };
 }

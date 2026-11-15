@@ -3,7 +3,7 @@
   "id": "d-contract/report-shape",
   "piece": "d-contract",
   "category": "contract",
-  "description": "The report parser accepts the fixed shape with status and calls, and names a missing field and a call not marked reversible.",
+  "description": "The report parser accepts the fixed shape with result and calls, and names a missing field and a call not marked reversible.",
   "mode": "offline",
   "fixture": { "generator": "repo", "options": { "language": "javascript" } },
   "steps": [
@@ -11,14 +11,14 @@
       "id": "good",
       "action": "report.parse",
       "with": {
-        "text": "item: W-214\nstatus: partial\ncommit: 3f9c2a1 (branch hitld/W-214-cache)\nevidence:\n  - npm test: 14 passed\nruns: none\ndeviations: none\ncalls:\n  - kept the old cache directory name (reversible)\nquestions: none\n"
+        "text": "item: W-214\nresult: partial\ncommit: 3f9c2a1 (branch hitld/W-214-cache)\nevidence:\n  - npm test: 14 passed\nbench_runs: none\ndeviations: none\ncalls:\n  - kept the old cache directory name (reversible)\nquestions: none\n"
       }
     },
     {
       "id": "bad",
       "action": "report.parse",
       "with": {
-        "text": "item: W-214\nstatus: done\ncommit: 3f9c2a1\nevidence:\n  - npm test: 14 passed\nruns: none\ncalls:\n  - renamed the public export\nquestions: none\n"
+        "text": "item: W-214\nresult: done\ncommit: 3f9c2a1\nevidence:\n  - npm test: 14 passed\nbench_runs: none\ncalls:\n  - renamed the public export\nquestions: none\n"
       }
     }
   ],
@@ -29,9 +29,9 @@
       "with": { "path": "steps.good.errors", "equals": 0 }
     },
     {
-      "id": "good-status",
+      "id": "good-result",
       "grader": "equals",
-      "with": { "path": "steps.good.report.status", "value": "partial" }
+      "with": { "path": "steps.good.report.result", "value": "partial" }
     },
     {
       "id": "good-call",

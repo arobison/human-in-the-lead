@@ -1,8 +1,8 @@
 {
   "$id": "ledger-entry",
   "title": "Ledger entry",
-  "description": "One line of ledger.jsonl in the private store (design parts 5.4 and 13.1). Append-only: corrections are new events that reference the old one. The ledger is internal as a whole, so lines carry no classification. Events: the ten of part 5.4, plus run-started and lease-taken for orchestrator continuity (part 13.1). dispatched is recorded before the harness is called; claimed is recorded when the harness has accepted the dispatch, and carries its handle.",
-  "x-hitld-schema-version": 1,
+  "description": "One line of ledger.jsonl in the private store (design parts 5.4 and 13.1). Append-only: corrections are new events that reference the old one. The ledger is internal as a whole, so lines carry no classification. Events: the ten of part 5.4, plus run-started and lease-taken for orchestrator continuity (part 13.1). dispatched is recorded before the harness is called; started is recorded when the harness has accepted the dispatch, and carries its harness_ref. Version 2 (HITLD-82) renamed claimed to started, question to asked, released to unclaimed, outcome to result and handle to harness_ref; the reader takes a version 1 line in the old names, permanently, since the ledger is never rewritten.",
+  "x-hitld-schema-version": 2,
   "type": "object",
   "properties": {
     "schema_version": {
@@ -15,14 +15,14 @@
     "event": {
       "enum": [
         "dispatched",
-        "claimed",
-        "question",
+        "started",
+        "asked",
         "answered",
         "reported",
         "verified",
         "merged",
         "reverted",
-        "released",
+        "unclaimed",
         "abandoned",
         "run-started",
         "lease-taken"
@@ -79,8 +79,8 @@
     "at": {
       "$ref": "common#/$defs/timestamp"
     },
-    "outcome": {
-      "description": "For reported: done, partial or blocked. For verified: pass or fail.",
+    "result": {
+      "description": "How the attempt ended. For reported: done, partial or blocked. For verified: pass or fail.",
       "enum": ["done", "partial", "blocked", "pass", "fail"]
     },
     "defects": {
@@ -128,11 +128,11 @@
       "$ref": "common#/$defs/text"
     },
     "harness": {
-      "description": "The harness adapter ID, on claimed.",
+      "description": "The harness adapter ID, on started.",
       "$ref": "common#/$defs/text"
     },
-    "handle": {
-      "description": "The harness's own reference for the dispatch (an agent ID, a process ID, a task URL), on claimed.",
+    "harness_ref": {
+      "description": "The harness's own reference for the dispatch (an agent ID, a process ID, a task URL), on started.",
       "$ref": "common#/$defs/text"
     },
     "serial_resources": {

@@ -260,12 +260,12 @@ test('a confidential file committed past the hook (--no-verify, or hitld claim) 
       id: 'W-2',
       title: 'Another thing',
       kind: 'work',
-      status: 'Planned',
+      state: 'planned',
       priority: 'high',
       classification: 'confidential',
     }),
   });
-  const claimed = await c.hitld(['work', 'claim', 'W-2', '--claimant', 'D-9']);
+  const claimed = await c.hitld(['work', 'claim', 'W-2', '--dispatch', 'D-9']);
   assert.equal(claimed.exit, 0, JSON.stringify(claimed.result));
   assert.match(
     git(c.root, 'show', 'HEAD:work/items/W-2-another-thing.md'),

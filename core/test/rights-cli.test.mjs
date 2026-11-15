@@ -119,7 +119,7 @@ test('rights ask and rights answer write the files tracker of the primary checko
   const c = makeConsumer({
     files: {
       'work/initiatives/W-6-tools.md': item(
-        { id: 'W-6', title: 'Tools', kind: 'initiative', status: 'Planned', lead: 'owner' },
+        { id: 'W-6', title: 'Tools', kind: 'initiative', state: 'planned', owner: 'owner' },
         '\n## Goal\n\n',
       ),
       'work/projects/W-7-dependencies.md': item(
@@ -127,9 +127,9 @@ test('rights ask and rights answer write the files tracker of the primary checko
           id: 'W-7',
           title: 'Dependencies',
           kind: 'project',
-          status: 'Planned',
+          state: 'planned',
           initiative: 'W-6',
-          lead: 'owner',
+          owner: 'owner',
         },
         '\n## Summary\n\n',
       ),
@@ -141,7 +141,7 @@ test('rights ask and rights answer write the files tracker of the primary checko
   assert.equal(asked.result.outcome, 'asked');
   const id = asked.result.decision;
   const open = await c.hitld(['work', 'show', id, '--json']);
-  assert.equal(open.result.entity.state, 'Planned');
+  assert.equal(open.result.entity.state, 'planned');
   assert.equal(open.result.entity.parent, 'W-7');
   assert.equal(open.result.entity.answer, undefined);
   // The question, options and offer are the body's, for the decider to read.
@@ -164,9 +164,9 @@ test('rights ask and rights answer write the files tracker of the primary checko
   assert.equal(answered.exit, EXIT.ok, JSON.stringify(answered.result));
   assert.equal(answered.result.precedent.id, 'P-1');
   const done = (await c.hitld(['work', 'show', id, '--json'])).result;
-  assert.equal(done.api_version, 1);
-  const { body: _, path: __, version: ___, ...fields } = done.entity;
-  assert.equal(fields.state, 'Done');
+  assert.equal(done.api_version, 2);
+  const { body: _, path: __, version: ___, entity: ____, ...fields } = done.entity;
+  assert.equal(fields.state, 'done');
   assert.equal(fields.answer, 'A. Add it: one small MIT dependency');
   assert.match(fields.answered_at, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(fields.answered_via, 'main-session');
@@ -181,7 +181,7 @@ test('rights ask and rights answer write the files tracker of the primary checko
   const resolved = await c.hitld(['rights', 'ask', '--question', JSON.stringify(like)]);
   assert.equal(resolved.result.outcome, 'precedent', JSON.stringify(resolved.result));
   const applied = (await c.hitld(['work', 'show', resolved.result.decision, '--json'])).result;
-  assert.equal(applied.entity.state, 'Done');
+  assert.equal(applied.entity.state, 'done');
   assert.equal(applied.entity.resolved_by_precedent, 'P-1');
   assert.equal(applied.entity.answered_via, 'precedent');
   assert.equal(applied.entity.answered_by, undefined);

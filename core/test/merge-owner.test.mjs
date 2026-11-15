@@ -43,7 +43,7 @@ async function ownerConsumer(mode = 'owner') {
         id: 'W-1',
         title: 'Add numbers',
         kind: 'work',
-        status: 'Done',
+        state: 'done',
         touches: ['src/calc.js'],
       }),
       'src/calc.js': 'export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n',
@@ -55,7 +55,7 @@ async function ownerConsumer(mode = 'owner') {
     n += 1;
     const start = await c.hitld(['dispatch', 'start', id]);
     assert.equal(start.exit, 0, JSON.stringify(start.result));
-    await c.hitld(['dispatch', 'started', '--dispatch', `D-${n}`, '--handle', `agent-${n}`]);
+    await c.hitld(['dispatch', 'handle', '--dispatch', `D-${n}`, '--harness-ref', `agent-${n}`]);
     const branch = start.result.branch;
     branches[id] = branch;
     git(c.root, 'switch', '-q', '-c', branch);
@@ -87,7 +87,7 @@ test('owner mode: hitld merge lists what waits and merges nothing', async () => 
   assert.equal(r.result.mode, 'owner');
   assert.deepEqual(r.result.merged, []);
   assert.deepEqual(
-    r.result.waiting.map((/** @type {any} */ w) => [w.item, w.branch, w.status, w.fast_check]),
+    r.result.waiting.map((/** @type {any} */ w) => [w.item, w.branch, w.result, w.fast_check]),
     [
       ['W-1', branches['W-1'], 'done', 'not run'],
       ['W-2', branches['W-2'], 'done', 'not run'],
@@ -102,7 +102,7 @@ test('owner mode: --only merges exactly the branch named, of two', async () => {
   const r = await c.hitld(['merge', '--only', branches['W-1']]);
   assert.equal(r.exit, 0, JSON.stringify(r.result));
   assert.deepEqual(r.result.merged, ['W-1']);
-  assert.match(readFileSync(join(c.root, 'work/items/W-1-add-numbers.md'), 'utf8'), /status: Done/);
+  assert.match(readFileSync(join(c.root, 'work/items/W-1-add-numbers.md'), 'utf8'), /state: done/);
   assert.match(readFileSync(join(c.root, 'src/calc.js'), 'utf8'), /sub/);
   const left = await c.hitld(['merge']);
   assert.deepEqual(
@@ -150,7 +150,7 @@ test('the digest shows branches waiting for the owner, and how long', () => {
       id: 'v1',
       event: 'verified',
       item: 'W-1',
-      outcome: 'pass',
+      result: 'pass',
       branch: 'hitld/W-1',
       at: '2026-11-14T10:00:00.000Z',
     },
@@ -158,7 +158,7 @@ test('the digest shows branches waiting for the owner, and how long', () => {
       id: 'v2',
       event: 'verified',
       item: 'W-2',
-      outcome: 'pass',
+      result: 'pass',
       branch: 'hitld/W-2',
       at: '2026-11-14T10:30:00.000Z',
     },

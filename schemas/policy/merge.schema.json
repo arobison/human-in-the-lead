@@ -10,7 +10,7 @@
       "default": "owner"
     },
     "main_branch": {
-      "description": "The integration branch. Only the merge queue moves it.",
+      "description": "The integration branch: the one main-branch setting (HITLD-82). Only the merge queue moves it; the orchestrator creates items and gives up claims on it, and claims are read from every other branch.",
       "$ref": "common#/$defs/name",
       "default": "main"
     },

@@ -85,9 +85,9 @@ export function summarize(allEvents) {
       d.tokenless = false;
     }
     if (e.event === 'abandoned') d.abandoned = true;
-    if (e.event === 'verified' && e.outcome === 'fail') d.failed = true;
+    if (e.event === 'verified' && e.result === 'fail') d.failed = true;
     if (e.event === 'reverted') d.reverted = true;
-    if (['reported', 'abandoned', 'released'].includes(e.event)) d.ended = true;
+    if (['reported', 'abandoned', 'unclaimed'].includes(e.event)) d.ended = true;
   }
 
   // Accepted items: merged, and not reverted since.
@@ -124,7 +124,7 @@ export function summarize(allEvents) {
         .filter((e) => e.event === 'dispatched' && (e.role ?? 'executor') === 'executor')
         .map((e) => e.dispatch),
     );
-    const verdicts = evs.filter((e) => e.event === 'verified').map((e) => e.outcome);
+    const verdicts = evs.filter((e) => e.event === 'verified').map((e) => e.result);
     if (executors.size === 1 && verdicts[0] === 'pass' && !verdicts.includes('fail')) firstPass++;
   }
 
@@ -153,7 +153,7 @@ export function summarize(allEvents) {
   const latencies = [];
   for (const e of events) {
     if (e.decision === undefined) continue;
-    if (e.event === 'question') asked.set(e.decision, Date.parse(e.at));
+    if (e.event === 'asked') asked.set(e.decision, Date.parse(e.at));
     if (e.event === 'answered' && asked.has(e.decision)) {
       latencies.push(Date.parse(e.at) - /** @type {number} */ (asked.get(e.decision)));
       asked.delete(e.decision);
