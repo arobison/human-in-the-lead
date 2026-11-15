@@ -25,8 +25,8 @@ const clock = (offset = 0) => {
   return () => new Date(BASE + (offset + n++) * 1000);
 };
 const EXPIRY = 1800;
-const A = { session: 's-1', host: 'laptop' };
-const B = { session: 's-2', host: 'laptop' };
+const A = { session: 's-1', host: 'example-laptop' };
+const B = { session: 's-2', host: 'example-laptop' };
 
 /** @param {Record<string, unknown>} [extra] */
 const request = (extra = {}) => ({
@@ -129,7 +129,7 @@ test('the state is always the ledger folded to its position: rebuild gives the s
     role: 'executor',
     tier: 2,
     branch: 'hitld/W-1-a',
-    host: 'laptop',
+    host: 'example-laptop',
   });
   run.record({
     event: 'dispatched',
@@ -145,7 +145,7 @@ test('the state is always the ledger folded to its position: rebuild gives the s
     item: 'W-1',
     harness: 'fake',
     harness_ref: 'fake-1',
-    host: 'laptop',
+    host: 'example-laptop',
   });
   run.record({ event: 'asked', decision: 'W-50', dispatch: 'D-2' });
   run.record({ event: 'asked', decision: 'W-51' });
@@ -179,7 +179,10 @@ test('a lease that has not expired is not taken; an expired one is, and that is 
     now: clock(EXPIRY + 60),
     expirySeconds: EXPIRY,
   });
-  assert.deepEqual(tookOver, { from: { session: 's-1', host: 'laptop' }, reason: 'expired' });
+  assert.deepEqual(tookOver, {
+    from: { session: 's-1', host: 'example-laptop' },
+    reason: 'expired',
+  });
   const events = readLedger(store).events;
   assert.deepEqual(
     events.map((e) => e.event),
@@ -461,7 +464,7 @@ async function killAndResume(autoFinish, k, resumeKills) {
   for (const kill of [...resumeKills, Infinity]) {
     const killer2 = new Killer(kill);
     const store = memoryStore(world.files, killer2);
-    const who = { session: `s-${session}`, host: 'laptop' };
+    const who = { session: `s-${session}`, host: 'example-laptop' };
     const now = clock(session * 86400);
     try {
       if (!loadState(store).state) {
@@ -632,10 +635,10 @@ test('resume: a completion that arrived while no orchestrator ran is recorded; f
   const store = memoryStore();
   const run = startRun(store, { ...A, now: clock() });
   for (const [d, item, host] of [
-    ['D-1', 'W-1', 'laptop'],
-    ['D-2', 'W-2', 'laptop'],
+    ['D-1', 'W-1', 'example-laptop'],
+    ['D-2', 'W-2', 'example-laptop'],
     ['D-3', 'W-3', 'other-box'],
-    ['D-4', 'W-4', 'laptop'],
+    ['D-4', 'W-4', 'example-laptop'],
   ]) {
     run.record({ event: 'dispatched', dispatch: d, item, role: 'executor', tier: 2, host });
   }
@@ -690,7 +693,7 @@ test('resume: without a view of the harness nothing is called dead', async () =>
     item: 'W-1',
     role: 'executor',
     tier: 2,
-    host: 'laptop',
+    host: 'example-laptop',
   });
   const r = await resumeRun(store, { ...B, now: clock(EXPIRY + 10), expirySeconds: EXPIRY });
   assert.deepEqual(r.unverified, ['D-1']);

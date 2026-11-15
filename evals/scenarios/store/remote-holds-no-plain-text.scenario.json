@@ -9,18 +9,18 @@
     {
       "id": "project",
       "action": "store.fixture",
-      "with": { "devices": ["laptop"] }
+      "with": { "devices": ["example-laptop"] }
     },
     {
       "id": "start",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "start", "--host", "laptop"] }
+      "with": { "device": "example-laptop", "argv": ["run", "start", "--host", "example-laptop"] }
     },
     {
       "id": "log_first",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": [
           "rights",
           "log",
@@ -35,26 +35,29 @@
       "id": "ask",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": [
           "ledger",
           "append",
           "{\"event\":\"asked\",\"decision\":\"SAM-4711\"}",
           "--host",
-          "laptop"
+          "example-laptop"
         ]
       }
     },
     {
       "id": "checkpoint_first",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+      "with": {
+        "device": "example-laptop",
+        "argv": ["run", "checkpoint", "--host", "example-laptop"]
+      }
     },
     {
       "id": "log_second",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": [
           "rights",
           "log",
@@ -68,12 +71,15 @@
     {
       "id": "checkpoint_second",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "checkpoint", "--host", "laptop"] }
+      "with": {
+        "device": "example-laptop",
+        "argv": ["run", "checkpoint", "--host", "example-laptop"]
+      }
     },
     {
       "id": "local",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["ledger", "tail", "--limit", "20"] }
+      "with": { "device": "example-laptop", "argv": ["ledger", "tail", "--limit", "20"] }
     },
     {
       "id": "remote",
@@ -89,7 +95,7 @@
           "pricing",
           ".bundle"
         ],
-        "open_with": ["laptop"]
+        "open_with": ["example-laptop"]
       }
     }
   ],
@@ -130,7 +136,7 @@
     {
       "id": "the-enrolled-device-opens-every-file",
       "grader": "equals",
-      "with": { "path": "steps.remote.opens.laptop", "value": 2 }
+      "with": { "path": "steps.remote.opens.example-laptop", "value": 2 }
     }
   ]
 }

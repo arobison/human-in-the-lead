@@ -7,6 +7,7 @@
 // the same text.
 
 import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { executorSignal } from '../executor.mjs';
 import { loadPolicy, findRepoRoot } from '../../policy/policy.mjs';
@@ -167,7 +168,10 @@ async function openRights(ctx, openTracker, needs = {}) {
   const tracker = needs.tracker
     ? await openTracker({ repoRoot: repoRoot ?? ctx.cwd, policy, env: ctx.env })
     : /** @type {TrackerAdapter} */ (/** @type {unknown} */ (null));
-  return { deps: { policy, policyHash: loaded.hash, tracker, precedents, store }, loaded };
+  // The session and machine this runs in: written on the ledger events no dispatch writes.
+  const session = ctx.env.HITLD_SESSION;
+  const who = { ...(session ? { session } : {}), host: hostname() };
+  return { deps: { policy, policyHash: loaded.hash, tracker, precedents, store, who }, loaded };
 }
 
 /**
@@ -397,6 +401,16 @@ export function makeCommands({ openTracker }) {
         { name: 'item', type: 'string', description: 'The work item it was about' },
         { name: 'dispatch', type: 'string', description: 'The dispatch it came up in (D-<n>)' },
         { name: 'area', type: 'string', description: 'The area it belongs to' },
+        {
+          name: 'session',
+          type: 'string',
+          description: 'The session making the call. Default: $HITLD_SESSION',
+        },
+        {
+          name: 'host',
+          type: 'string',
+          description: "The machine. Default: this machine's host name",
+        },
       ],
       run: async (input, ctx) => {
         const o = await open(ctx);
@@ -421,7 +435,7 @@ export function makeCommands({ openTracker }) {
           name: 'answer',
           type: 'string',
           description:
-            'The answer as given: "A", "A yes", "B just this one", "A, only for cache keys", or free text',
+            'The answer as given: "A", "A yes", "B just this one", "A, only for cache keys", or the words of one option\'s label. Words that name no option are refused',
           required: true,
         },
         {

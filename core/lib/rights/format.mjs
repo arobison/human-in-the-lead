@@ -3,13 +3,15 @@
 // A question stands alone, so it can be answered from a phone without opening anything: the title
 // line, the question, the context, the recommendation, the options, the precedent offer, and last
 // an optional tap to say whether it was worth asking. The decider can answer `A`, `A yes`,
-// `B just this one`, or in free text.
+// `B just this one`, or in words that name one option's label ("enrol it"). Words that name no
+// option, or more than one, are not an answer.
 
 /**
  * @typedef {Record<string, any>} Decision a decision item as in schemas/decision.schema.json
  *
  * @typedef {object} ParsedAnswer
  * @property {number | null} option index into the decision's options, null if no option was named
+ * @property {boolean} ambiguous true when the free words fit more than one option's label
  * @property {string | null} letter
  * @property {'yes' | 'narrowed' | 'just-this-one' | null} generalization null when the decider did not say
  * @property {string | null} narrowing for narrowed: what they narrowed it to
@@ -116,17 +118,77 @@ export function formatQuestion(decision, about = {}) {
   return out.join('\n') + '\n';
 }
 
+/** Words that carry no choice: dropped before a label and the words are compared. */
+const FILLER = new Set(['it', 'the', 'a', 'an', 'this', 'that', 'please', 'ok', 'okay']);
+
 /**
- * Read an answer: an option, then optionally what the decider says to the precedent offer, then
- * a reason. Free text with no option is returned as a rationale for the caller to settle.
+ * The words of a phrase, lower case and without punctuation, filler dropped, repeated letters
+ * collapsed (so "enroll" and "enrol" agree), and "-ize" and "-our" spelled as "-ise" and "-or".
+ * @param {string} text @returns {string[]}
+ */
+function words(text) {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !FILLER.has(w))
+    .map((w) =>
+      w
+        .replace(/iz(e|ed|es|ing|ation)$/, 'is$1')
+        .replace(/our(s|ed)?$/, 'or$1')
+        .replace(/(.)\1+/g, '$1'),
+    );
+}
+
+/**
+ * Whether two words are the same word: equal, or one letter apart in a word of six letters or more
+ * (a slip of the keys, not a different word).
+ * @param {string} a @param {string} b
+ */
+function sameWord(a, b) {
+  if (a === b) return true;
+  if (a.length < 6 || b.length < 6 || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1);
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  return short.slice(i) === long.slice(i + 1);
+}
+
+/**
+ * The options whose label the free words name. The words must be the label and nothing else (after
+ * filler words and simple spelling variants are set aside), so an added word such as "not" never
+ * turns "enrol it" into "do not enrol it".
+ * @param {string} text @param {Record<string, any>[]} options @returns {number[]}
+ */
+export function optionsNamedBy(text, options) {
+  const given = words(text);
+  if (given.length === 0) return [];
+  /** @type {number[]} */
+  const hits = [];
+  for (const [i, o] of options.entries()) {
+    const label = words(String(o.label ?? ''));
+    if (label.length === 0 || label.length !== given.length) continue;
+    const covers = (/** @type {string[]} */ xs, /** @type {string[]} */ ys) =>
+      xs.every((x) => ys.some((y) => sameWord(x, y)));
+    if (covers(given, label) && covers(label, given)) hits.push(i);
+  }
+  return hits;
+}
+
+/**
+ * Read an answer: an option (by its letter, or by words that name exactly one label), then
+ * optionally what the decider says to the precedent offer, then optionally a reason. Words that
+ * name no option, or more than one, name none: `option` is null (and `ambiguous` says which).
  * @param {string} text @param {Decision} decision @returns {ParsedAnswer}
  */
 export function parseAnswer(text, decision) {
   const given = text.trim();
-  const count = (decision.options ?? []).length;
+  const options = /** @type {Record<string, any>[]} */ (decision.options ?? []);
+  const count = options.length;
   /** @type {ParsedAnswer} */
   const out = {
     option: null,
+    ambiguous: false,
     letter: null,
     generalization: null,
     narrowing: null,
@@ -137,8 +199,28 @@ export function parseAnswer(text, decision) {
   const m = /^([A-Za-z])(?![A-Za-z0-9])\s*[,:.;-]?\s*([\s\S]*)$/.exec(given);
   if (m && m[1].toUpperCase().charCodeAt(0) - 65 < count) {
     out.option = m[1].toUpperCase().charCodeAt(0) - 65;
-    out.letter = m[1].toUpperCase();
     rest = m[2];
+  } else if (count > 0) {
+    // The whole answer, or the words before the first comma, may be an option's label.
+    const split = /^([^,;:.]+)[,;:.]\s*([\s\S]*)$/.exec(given);
+    for (const [head, tail] of split
+      ? [
+          [given, ''],
+          [split[1], split[2]],
+        ]
+      : [[given, '']]) {
+      const hits = optionsNamedBy(head, options);
+      if (hits.length === 1) {
+        out.option = hits[0];
+        rest = tail;
+        break;
+      }
+      if (hits.length > 1) out.ambiguous = true;
+    }
+  }
+  if (out.option !== null) {
+    out.ambiguous = false;
+    out.letter = optionLetter(out.option);
   }
   const sep = /^[\s,;:.-]*/;
   /** @param {RegExp} re */

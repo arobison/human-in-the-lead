@@ -225,8 +225,31 @@ export function summarize(allEvents) {
       queue: spread(queues),
       owner: spread(owners),
     },
+    logged_calls: loggedMeasures(events),
     stalls,
   };
+}
+
+/**
+ * The calls made without asking, and who made them: the count per session and machine. A call
+ * logged before the ledger recorded who made it counts under a null session and host.
+ * @param {LedgerEntry[]} events
+ */
+export function loggedMeasures(events) {
+  /** @type {Map<string, { session: string | null, host: string | null, calls: number }>} */
+  const by = new Map();
+  let total = 0;
+  for (const e of events) {
+    if (e.event !== 'logged') continue;
+    total++;
+    const session = e.session ?? null;
+    const host = e.host ?? null;
+    const key = JSON.stringify([session, host]);
+    const row = by.get(key) ?? { session, host, calls: 0 };
+    row.calls++;
+    by.set(key, row);
+  }
+  return { total, by_session: [...by.values()] };
 }
 
 /**

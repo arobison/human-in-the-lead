@@ -289,7 +289,7 @@ const examples = {
     controllers: {},
     quotas: null,
     merge_queue: { waiting: [], batch: null },
-    lease: { host: 'laptop', session: 's-1', renewed_at: '2026-11-14T03:00:00Z' },
+    lease: { host: 'example-laptop', session: 's-1', renewed_at: '2026-11-14T03:00:00Z' },
     checkpoint: { number: 1, prev_hash: null },
   },
   'audit-record': {
@@ -303,7 +303,7 @@ const examples = {
     schema_version: 1,
     devices: [
       {
-        name: 'laptop',
+        name: 'example-laptop',
         recipient: 'age1zvkyg2lqzraa2lnjvqej32nkuu0ues2s82hzrye869xeexvn73equnujwj',
         added: '2026-11-15',
       },

@@ -130,11 +130,11 @@
       "$ref": "common#/$defs/text"
     },
     "session": {
-      "description": "The orchestrator session: on run-started and lease-taken, the session that now holds the lease; on lease-released, the session that gave it up or was retired.",
+      "description": "The orchestrator session: on run-started and lease-taken, the session that now holds the lease; on lease-released, the session that gave it up or was retired. On logged, and on any other event a session writes without a dispatch (asked, sent, answered, verified, merged, reverted): the session that wrote it.",
       "$ref": "common#/$defs/text"
     },
     "host": {
-      "description": "The machine the executor runs on (dispatched, claimed), or the orchestrator's machine (run-started, lease-taken, lease-released).",
+      "description": "The machine the executor runs on (dispatched, claimed), or the orchestrator's machine (run-started, lease-taken, lease-released). On logged, and on any other event a session writes without a dispatch: the machine that session runs on.",
       "$ref": "common#/$defs/text"
     },
     "harness": {

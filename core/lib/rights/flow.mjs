@@ -33,7 +33,13 @@ import {
   narrowPrecedent,
   retirePrecedent,
 } from '../precedent/create.mjs';
-import { describeOption, formatQuestion, optionIndex, parseAnswer } from './format.mjs';
+import {
+  describeOption,
+  formatQuestion,
+  optionIndex,
+  optionLetter,
+  parseAnswer,
+} from './format.mjs';
 import { enforceOffer, ownerOnly } from './offer.mjs';
 import { factsOf, fromLegacyQuestion, normalizeQuestion, routeQuestion } from './route.mjs';
 import { UNASSIGNED, readTrustEvents, recordTrustEvent } from './trust.mjs';
@@ -60,6 +66,8 @@ import {
  * @property {PrecedentStore} precedents
  * @property {PrivateStore} store
  * @property {() => string} [now] ISO 8601, for tests
+ * @property {{ session?: string, host?: string }} [who] the session and machine this runs in,
+ *   written on the ledger events it appends
  *
  * @typedef {{ ok: false, error: string, message: string, [key: string]: unknown }} Failure
  * @typedef {{ ok: boolean } & Record<string, any>} Result
@@ -419,8 +427,9 @@ export function askQuestion(deps, given, options = {}) {
     },
     at,
   );
-  recordDecisionEvent(deps.store, 'asked', id, at);
-  if (options.send) recordDecisionEvent(deps.store, 'sent', id, at, { delivery: 'interrupt' });
+  recordDecisionEvent(deps.store, 'asked', id, at, { who: deps.who });
+  if (options.send)
+    recordDecisionEvent(deps.store, 'sent', id, at, { delivery: 'interrupt', who: deps.who });
   return {
     ok: true,
     outcome: 'asked',
@@ -479,9 +488,10 @@ export function showQuestion(deps, input) {
   }
   const at = nowOf(deps);
   // A decision asked before the ledger recorded questions still gets its `asked`, at this time.
-  recordDecisionEvent(deps.store, 'asked', input.decision, at);
+  recordDecisionEvent(deps.store, 'asked', input.decision, at, { who: deps.who });
   const { event, appended } = recordDecisionEvent(deps.store, 'sent', input.decision, at, {
     delivery: input.interrupt ? 'interrupt' : 'digest',
+    who: deps.who,
   });
   return {
     ok: true,
@@ -507,7 +517,8 @@ export function showQuestion(deps, input) {
  *   agrees_with?: string[],
  *   narrow?: Narrowing,
  * }} input
- *   answer: as the decider gave it ("A", "A yes", "B just this one", or free text).
+ *   answer: as the decider gave it ("A", "A yes", "B just this one", or the words of one option's label).
+ *   An answer that names no option is refused (`answer-matches-no-option`) and nothing is recorded.
  *   narrow: structured narrowing, when the decider's words are not enough.
  *   by: who answered, "owner" or a contributor ID; it must be one of the decision's deciders, or the owner.
  * @returns {Result}
@@ -550,6 +561,25 @@ export function answerDecision(deps, input) {
     );
   }
   const parsed = parseAnswer(input.answer, question);
+  // An answer that names no option is not an answer: nothing is recorded, here or anywhere else
+  // (a device decision would otherwise be applied as a refusal). A decision with no options at all
+  // takes its answer as words.
+  const offered = /** @type {Record<string, any>[]} */ (question.options ?? []);
+  if (parsed.option === null && offered.length > 0) {
+    const listed = offered.map((o, i) => describeOption(o, i)).join(' | ');
+    return fail(
+      'answer-matches-no-option',
+      `${parsed.ambiguous ? 'the words fit more than one option' : 'the answer names none of the options'} of ${input.decision}, so nothing was recorded. Answer with a letter or an option's label: ${listed}`,
+      {
+        decision: input.decision,
+        options: offered.map((o, i) => ({
+          letter: optionLetter(i),
+          label: o.label,
+          what_happens: o.what_happens,
+        })),
+      },
+    );
+  }
   const at = nowOf(deps);
   const answerText =
     parsed.option === null
@@ -673,7 +703,7 @@ export function answerDecision(deps, input) {
     },
     at,
   );
-  recordDecisionEvent(deps.store, 'answered', input.decision, at);
+  recordDecisionEvent(deps.store, 'answered', input.decision, at, { who: deps.who });
   if (typeof input.worth_asking === 'boolean') {
     recordTrustEvent(
       deps.store,
@@ -846,7 +876,8 @@ export function recordReversal(deps, input) {
  * Record a call made without asking (design part 4.2): a ledger event the digest lists with the
  * way to reverse it. The holder decides a two-way door that is in no way the owner's, logs it and
  * moves on; this is the log.
- * @param {Deps} deps @param {{ text: string, item?: string, dispatch?: string, area?: string }} input
+ * @param {Deps} deps @param {{ text: string, item?: string, dispatch?: string, area?: string, session?: string, host?: string }} input
+ *   session, host: who made the call; by default the session and machine this runs in
  * @returns {Result}
  */
 export function logCall(deps, input) {
@@ -859,7 +890,18 @@ export function logCall(deps, input) {
     );
   }
   try {
-    const event = recordLoggedCall(deps.store, { ...input, text }, nowOf(deps));
+    const event = recordLoggedCall(
+      deps.store,
+      {
+        ...input,
+        text,
+        ...((input.session ?? deps.who?.session)
+          ? { session: input.session ?? deps.who?.session }
+          : {}),
+        ...((input.host ?? deps.who?.host) ? { host: input.host ?? deps.who?.host } : {}),
+      },
+      nowOf(deps),
+    );
     return { ok: true, id: event.id, event, reverse_with: reverseCommand(event.id) };
   } catch (e) {
     return fail('invalid-call', e instanceof Error ? e.message : String(e));
@@ -885,6 +927,8 @@ export function listLoggedCalls(deps, filter = {}) {
     text: e.text,
     ...(e.item ? { item: e.item } : {}),
     ...(e.dispatch ? { dispatch: e.dispatch } : {}),
+    ...(e.session ? { session: e.session } : {}),
+    ...(e.host ? { host: e.host } : {}),
     area: e.area ?? UNASSIGNED,
     at: e.at,
     reversed: reversed.has(e.id),

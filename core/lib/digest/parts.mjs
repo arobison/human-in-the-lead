@@ -241,6 +241,15 @@ const merged = {
 
 // Calls made without asking, and defaults applied, each with how to reverse it.
 
+/**
+ * Who made a logged call: its session and machine, as far as they are recorded.
+ * @param {{ session?: string, host?: string }} c
+ */
+const madeBy = (c) =>
+  c.session || c.host
+    ? ` (by ${[c.session ? `session ${c.session}` : null, c.host ? `on ${c.host}` : null].filter(Boolean).join(' ')})`
+    : '';
+
 /** @type {Part} */
 const calls = {
   id: 'calls',
@@ -250,7 +259,7 @@ const calls = {
     const defaults = listDefaults(deps, { since });
     const entries = [
       ...logged.map((c) =>
-        wrap(`${c.text}${c.reversed ? ' (reversed)' : ''}`, `${c.id} `, '   ', 2),
+        wrap(`${c.text}${madeBy(c)}${c.reversed ? ' (reversed)' : ''}`, `${c.id} `, '   ', 2),
       ),
       ...defaults.map((d) =>
         wrap(

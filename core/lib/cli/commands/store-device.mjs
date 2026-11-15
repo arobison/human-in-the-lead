@@ -319,7 +319,7 @@ export const deviceCommands = [
         throw new DevicesError(
           'device-name-required',
           cloud
-            ? 'name the cloud environment with --name, for example --name cloud-main'
+            ? 'name the cloud environment with --name, a name of your own (not an example from the guide), such as --name example-cloud'
             : "this machine's host name makes no device name; give one with --name",
         );
       }
@@ -531,11 +531,20 @@ export const deviceCommands = [
       const p = project(input, ctx);
       const pp = await import('../../store/push-pull.mjs');
       const fetched = await pp.fetchRequests(p.storeRoot, p.address?.url ?? null);
-      const here = resolveDevices({
+      const own = resolveDevices({
         store: openStore(p.storeRoot),
         env: ctx.env,
         projectId: p.projectId,
       });
+      // The remote's head decides whether this device is enrolled: its own copy of the approvals
+      // may be from before the owner removed it.
+      const access = p.address
+        ? await pp.headAccess({
+            remote: pp.openRemote(p.storeRoot, p.address).remote,
+            devices: own,
+          })
+        : { opens: null, problem: null };
+      const here = pp.seenFromRemote(own, access);
       const warnings = [
         ...(p.address ? [] : [`${NO_ADDRESS}, so no device request can be read`]),
         ...legacyWarnings(p.repoRoot),
@@ -547,6 +556,7 @@ export const deviceCommands = [
         this_device: {
           name: here.device,
           enrolled: here.enrolled,
+          opens_remote: access.opens,
           key_source: here.key_source,
           ...(here.recipient ? { fingerprint: fingerprint(here.recipient) } : {}),
           ...(here.problem ? { problem: here.problem } : {}),

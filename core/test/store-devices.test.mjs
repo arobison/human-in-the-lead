@@ -74,23 +74,29 @@ const resolve = (store, env) => resolveDevices({ store, env, keychain: fakeKeych
 // --- a request --------------------------------------------------------------------------------
 
 test('a request is a device list of one: public keys, names and dates only; keys checked', () => {
-  const ok = checkDevices(devicesText(device('laptop', LAPTOP), device('cloud-main', CLOUD)));
+  const ok = checkDevices(
+    devicesText(device('example-laptop', LAPTOP), device('example-cloud', CLOUD)),
+  );
   assert.deepEqual(ok.problems, []);
   assert.equal(ok.file?.devices.length, 2);
-  assert.deepEqual(checkDevices(requestText(device('laptop', LAPTOP))).file?.devices, [
-    device('laptop', LAPTOP),
+  assert.deepEqual(checkDevices(requestText(device('example-laptop', LAPTOP))).file?.devices, [
+    device('example-laptop', LAPTOP),
   ]);
 
-  const twice = checkDevices(devicesText(device('laptop', LAPTOP), device('laptop', CLOUD)));
-  assert.match(twice.problems.join(), /the name "laptop" appears twice/);
-  const sameKey = checkDevices(devicesText(device('laptop', LAPTOP), device('other', LAPTOP)));
+  const twice = checkDevices(
+    devicesText(device('example-laptop', LAPTOP), device('example-laptop', CLOUD)),
+  );
+  assert.match(twice.problems.join(), /the name "example-laptop" appears twice/);
+  const sameKey = checkDevices(
+    devicesText(device('example-laptop', LAPTOP), device('other', LAPTOP)),
+  );
   assert.match(sameKey.problems.join(), /enrolled twice/);
 
   // A private key, or anything else, is not a key the file may hold.
   const secret = checkDevices(
     JSON.stringify({
       schema_version: 1,
-      devices: [{ name: 'laptop', recipient: LAPTOP.identity, added: DAY }],
+      devices: [{ name: 'example-laptop', recipient: LAPTOP.identity, added: DAY }],
     }),
   );
   assert.match(secret.problems.join(), /recipient/);
@@ -98,7 +104,7 @@ test('a request is a device list of one: public keys, names and dates only; keys
   const extra = checkDevices(
     JSON.stringify({
       schema_version: 1,
-      devices: [{ ...device('laptop', LAPTOP), identity: 'x' }],
+      devices: [{ ...device('example-laptop', LAPTOP), identity: 'x' }],
     }),
   );
   assert.match(extra.problems.join(), /identity: is not a known key/);
@@ -106,7 +112,11 @@ test('a request is a device list of one: public keys, names and dates only; keys
   // A key with a broken checksum passes the pattern and fails the check.
   const last = LAPTOP.recipient.at(-1) === 'q' ? 'p' : 'q';
   const broken = checkDevices(
-    devicesText({ name: 'laptop', recipient: LAPTOP.recipient.slice(0, -1) + last, added: DAY }),
+    devicesText({
+      name: 'example-laptop',
+      recipient: LAPTOP.recipient.slice(0, -1) + last,
+      added: DAY,
+    }),
   );
   assert.match(broken.problems.join(), /not an age public key/);
 
@@ -126,22 +136,26 @@ test('a request is a device list of one: public keys, names and dates only; keys
 test("the approved set is the owner's answers: approved, then removed; a request alone is nothing", () => {
   const store = freshStore();
   assert.deepEqual(approvedDevices(readApprovals(store)), []);
-  approve(store, ['laptop', LAPTOP], ['gpu', GPU]);
+  approve(store, ['example-laptop', LAPTOP], ['example-gpu', GPU]);
   assert.deepEqual(
     approvedDevices(readApprovals(store)).map((d) => d.name),
-    ['gpu', 'laptop'],
+    ['example-gpu', 'example-laptop'],
   );
-  removeApproved(store, 'gpu', GPU);
+  removeApproved(store, 'example-gpu', GPU);
   const records = readApprovals(store);
   assert.deepEqual(
     approvedDevices(records).map((d) => d.name),
-    ['laptop'],
+    ['example-laptop'],
   );
   // A request for a key the owner approved, refused or removed is not waiting; a new one is.
-  const requests = [device('laptop', LAPTOP), device('gpu', GPU), device('cloud-main', CLOUD)];
+  const requests = [
+    device('example-laptop', LAPTOP),
+    device('example-gpu', GPU),
+    device('example-cloud', CLOUD),
+  ];
   assert.deepEqual(
     pendingRequests(requests, records).map((d) => d.name),
-    ['cloud-main'],
+    ['example-cloud'],
   );
   // A line that does not parse, or names another event, is skipped; lines merged in either order
   // fold by their time.
@@ -157,7 +171,7 @@ test("the approved set is the owner's answers: approved, then removed; a request
   assert.equal(readApprovals(store)[0].name, 'old');
   assert.deepEqual(
     approvedDevices(readApprovals(store)).map((d) => d.name),
-    ['laptop', 'old'],
+    ['example-laptop', 'old'],
   );
 });
 
@@ -174,8 +188,8 @@ test('an answer to a device decision applies it: A approves or removes, anything
       added: DAY,
       at: `2026-11-15T10:0${decision.slice(-1)}:00.000Z`,
     });
-  ask('W-1', 'enrol', 'laptop', LAPTOP);
-  ask('W-2', 'enrol', 'cloud-main', CLOUD);
+  ask('W-1', 'enrol', 'example-laptop', LAPTOP);
+  ask('W-2', 'enrol', 'example-cloud', CLOUD);
   assert.deepEqual(
     openDeviceAsks(readApprovals(store)).map((r) => r.decision),
     ['W-1', 'W-2'],
@@ -197,7 +211,7 @@ test('an answer to a device decision applies it: A approves or removes, anything
     applyDeviceAnswer(store, { decision: 'W-1', option: 'B', at: '2026-11-15T11:02:00Z' }),
     null,
   );
-  ask('W-3', 'remove', 'laptop', LAPTOP);
+  ask('W-3', 'remove', 'example-laptop', LAPTOP);
   assert.equal(
     applyDeviceAnswer(store, { decision: 'W-3', option: 'A', at: '2026-11-15T11:03:00Z' })?.event,
     'removed',
@@ -206,13 +220,13 @@ test('an answer to a device decision applies it: A approves or removes, anything
   assert.deepEqual(approvedDevices(records), []);
   assert.deepEqual(openDeviceAsks(records), []);
   // The refused key stays out: it asks again only with a new key.
-  assert.deepEqual(pendingRequests([device('cloud-main', CLOUD)], records), []);
+  assert.deepEqual(pendingRequests([device('example-cloud', CLOUD)], records), []);
 });
 
 test('the device question names a fingerprint, not the device, goes to the owner and carries no default', () => {
-  const q = deviceQuestion('enrol', device('owners-laptop', LAPTOP), 'W-1');
+  const q = deviceQuestion('enrol', device('example-main-device', LAPTOP), 'W-1');
   const text = JSON.stringify(q);
-  assert.doesNotMatch(text, /owners-laptop/);
+  assert.doesNotMatch(text, /example-main-device/);
   assert.doesNotMatch(text, new RegExp(LAPTOP.recipient));
   assert.match(q.question, new RegExp(fingerprint(LAPTOP.recipient)));
   assert.deepEqual(
@@ -221,25 +235,25 @@ test('the device question names a fingerprint, not the device, goes to the owner
   );
   assert.equal('default_if_unanswered' in q, false);
   assert.equal(q.parent, 'W-1');
-  assert.match(deviceQuestion('remove', device('gpu', GPU), undefined).title, /Remove/);
+  assert.match(deviceQuestion('remove', device('example-gpu', GPU), undefined).title, /Remove/);
 });
 
 // --- the port ----------------------------------------------------------------------------------
 
 test('the port: recipients from the approved set, the identity from the environment or the keychain', () => {
   const store = freshStore();
-  approve(store, ['laptop', LAPTOP], ['cloud-main', CLOUD]);
+  approve(store, ['example-laptop', LAPTOP], ['example-cloud', CLOUD]);
 
   const cloud = resolve(store, { HITLD_STORE_IDENTITY: CLOUD.identity });
   assert.deepEqual(cloud.recipients.sort(), [CLOUD.recipient, LAPTOP.recipient].sort());
   assert.equal(cloud.identity, CLOUD.identity);
   assert.equal(cloud.enrolled, true);
-  assert.equal(cloud.device, 'cloud-main');
+  assert.equal(cloud.device, 'example-cloud');
   assert.equal(cloud.key_source, 'environment');
-  assert.equal(assertEnrolled(cloud).device, 'cloud-main');
+  assert.equal(assertEnrolled(cloud).device, 'example-cloud');
 
   const local = resolveDevices({ store, env: {}, keychain: fakeKeychain(LAPTOP.identity) });
-  assert.equal(local.device, 'laptop');
+  assert.equal(local.device, 'example-laptop');
   assert.equal(local.key_source, 'keychain');
 
   // Several keys in the variable: the approved one is this device's.
@@ -247,12 +261,12 @@ test('the port: recipients from the approved set, the identity from the environm
     HITLD_STORE_IDENTITY: `# another project\n${STRANGER.identity}\n${CLOUD.identity}\n`,
   });
   assert.equal(several.identity, CLOUD.identity);
-  assert.equal(several.device, 'cloud-main');
+  assert.equal(several.device, 'example-cloud');
 });
 
 test('a push from a device the owner has not approved is refused by name: device-not-enrolled', () => {
   const store = freshStore();
-  approve(store, ['laptop', LAPTOP]);
+  approve(store, ['example-laptop', LAPTOP]);
   /** @param {ReturnType<typeof resolveDevices>} res */
   const refused = (res) =>
     assert.throws(
@@ -292,7 +306,7 @@ test('a push from a device the owner has not approved is refused by name: device
 
 test('c3: after the owner approves a removal, nothing pushed opens with the removed key, and older files are pruned', async () => {
   const store = freshStore();
-  approve(store, ['laptop', LAPTOP], ['gpu', GPU]);
+  approve(store, ['example-laptop', LAPTOP], ['example-gpu', GPU]);
   const remote = memoryRemote().open();
   const manifest = {
     project: 'fixture',
@@ -327,24 +341,24 @@ test('c3: after the owner approves a removal, nothing pushed opens with the remo
   assert.deepEqual(first.rotation, { rotated: [], removed: [] });
   assert.equal(await opens(GPU, first.version), true);
 
-  // The owner's answer removes gpu.
-  removeApproved(store, 'gpu', GPU);
+  // The owner's answer removes example-gpu.
+  removeApproved(store, 'example-gpu', GPU);
   const pending = resolve(store, {}).rotation.pending;
   assert.deepEqual(
     pending.map((p) => p.name),
-    ['gpu'],
+    ['example-gpu'],
   );
 
   const second = await push('after the removal');
   assert.equal(await opens(GPU, second.version), false, 'not encrypted to the removed key');
   assert.equal(await opens(LAPTOP, second.version), true);
-  assert.deepEqual(second.rotation, { rotated: ['gpu'], removed: [first.version] });
+  assert.deepEqual(second.rotation, { rotated: ['example-gpu'], removed: [first.version] });
   // The remote holds nothing the removed key opens.
   assert.equal(await remote.head(), second.version);
   await assert.rejects(remote.fetch(first.version), /no v1/);
   assert.deepEqual(
     readRotations(store).map((x) => [x.event, x.name]),
-    [['rotated', 'gpu']],
+    [['rotated', 'example-gpu']],
   );
 
   // Done once: the next push prunes nothing.
@@ -356,7 +370,7 @@ test('c3: after the owner approves a removal, nothing pushed opens with the remo
 
 test('a removal is pending until rotated after it; enrolled again and removed again, it is pending again', () => {
   const at = (/** @type {number} */ h) => `2026-11-15T${String(h).padStart(2, '0')}:00:00Z`;
-  const removal = { name: 'gpu', recipient: GPU.recipient, at: at(10), commit: 'W-4' };
+  const removal = { name: 'example-gpu', recipient: GPU.recipient, at: at(10), commit: 'W-4' };
   assert.deepEqual(
     pendingRotations({ removals: [removal], records: [], current: [LAPTOP.recipient] }),
     [removal],
@@ -368,7 +382,7 @@ test('a removal is pending until rotated after it; enrolled again and removed ag
   );
   const rotated = /** @type {const} */ ({
     event: 'rotated',
-    name: 'gpu',
+    name: 'example-gpu',
     recipient: GPU.recipient,
     at: at(11),
     version: 'v2',
@@ -382,7 +396,7 @@ test('a removal is pending until rotated after it; enrolled again and removed ag
   // A removal recorded before the owner's answers were kept in the store counts too.
   const recorded = /** @type {const} */ ({
     event: 'removed',
-    name: 'gpu',
+    name: 'example-gpu',
     recipient: GPU.recipient,
     at: at(9),
   });
@@ -391,7 +405,12 @@ test('a removal is pending until rotated after it; enrolled again and removed ag
 
 test('rotation records are append-only lines in the private store; a bad line is skipped', () => {
   const store = freshStore();
-  recordRotation(store, { event: 'removed', name: 'gpu', recipient: GPU.recipient, at: DAY });
+  recordRotation(store, {
+    event: 'removed',
+    name: 'example-gpu',
+    recipient: GPU.recipient,
+    at: DAY,
+  });
   store.append(ROTATIONS_KEY, 'not json\n{"event":"other"}\n');
   assert.deepEqual(
     readRotations(store).map((x) => x.event),
@@ -565,10 +584,10 @@ test(
   async () => {
     const p = project();
     const kc = fakeKeychainTools(p.base);
-    const env = p.envOf('laptop', { PATH: kc.PATH });
-    const out = await hitld(['store', 'device', 'init', '--name', 'laptop'], p.root, env);
+    const env = p.envOf('example-laptop', { PATH: kc.PATH });
+    const out = await hitld(['store', 'device', 'init', '--name', 'example-laptop'], p.root, env);
     assert.equal(out.code, EXIT.ok, JSON.stringify(out.json));
-    assert.equal(out.json.device, 'laptop');
+    assert.equal(out.json.device, 'example-laptop');
     assert.equal(out.json.status, 'requested');
     assert.equal(out.json.key_created, true);
     assert.deepEqual(out.json.key, {
@@ -580,19 +599,19 @@ test(
     assert.equal(out.json.fingerprint, fingerprint(out.json.recipient));
     assert.deepEqual(out.json.request, {
       branch: 'hitld-devices',
-      file: 'proposals/laptop.json',
+      file: 'proposals/example-laptop.json',
       pushed: true,
     });
-    assert.deepEqual(requestsOnHost(p.host), ['laptop']);
+    assert.deepEqual(requestsOnHost(p.host), ['example-laptop']);
     // The first device of an empty store asks the owner itself.
     const decision = out.json.decision.decision;
     assert.match(decision, /^W-\d+$/);
     assert.match(out.json.decision.text, new RegExp(out.json.fingerprint));
-    assert.doesNotMatch(out.json.decision.text, /laptop/);
+    assert.doesNotMatch(out.json.decision.text, /example-laptop/);
     // The decision item, a file in the project's repository, names neither the device nor its key.
     const items = readdirSync(join(p.root, 'work', 'items'));
     const item = readFileSync(join(p.root, 'work', 'items', items[0]), 'utf8');
-    assert.doesNotMatch(item, /laptop|age1/);
+    assert.doesNotMatch(item, /example-laptop|age1/);
 
     const stored = readdirSync(kc.vault);
     assert.deepEqual(stored, ['hitld-store-fixture__device-identity']);
@@ -602,20 +621,20 @@ test(
     assert.ok(!JSON.stringify(out.json).includes(identity));
 
     // Nothing is pushed until the owner answers, and no sweep answers for them.
-    await hitld(['run', 'start', '--host', 'laptop'], p.root, env);
+    await hitld(['run', 'start', '--host', 'example-laptop'], p.root, env);
     assert.equal((await hitld(['store', 'push'], p.root, env)).json.error, 'device-not-enrolled');
     const swept = await hitld(['rights', 'sweep'], p.root, env);
     assert.deepEqual(swept.json.applied, [], JSON.stringify(swept.json));
     const status = await hitld(['store', 'status'], p.root, env);
     assert.deepEqual(
       status.json.devices.decisions.map((/** @type {any} */ d) => [d.decision, d.name]),
-      [[decision, 'laptop']],
+      [[decision, 'example-laptop']],
     );
     assert.equal(status.json.reminders, undefined, 'no branch to protect');
     assert.equal(await createGitRemote({ url: p.url, dir: join(p.base, 'peek') }).head(), null);
 
     // Again before the answer: the same request, the same decision.
-    const again = await hitld(['store', 'device', 'init', '--name', 'laptop'], p.root, env);
+    const again = await hitld(['store', 'device', 'init', '--name', 'example-laptop'], p.root, env);
     assert.equal(again.json.changed, false);
     assert.equal(again.json.decision.decision, decision);
 
@@ -629,21 +648,21 @@ test(
     const listed = await hitld(['store', 'device', 'list'], p.root, env);
     assert.deepEqual(
       listed.json.approved.map((/** @type {any} */ d) => [d.name, d.status]),
-      [['laptop', 'approved']],
+      [['example-laptop', 'approved']],
     );
     assert.deepEqual(listed.json.requests, []);
     assert.equal(listed.json.this_device.enrolled, true);
-    const done = await hitld(['store', 'device', 'init', '--name', 'laptop'], p.root, env);
+    const done = await hitld(['store', 'device', 'init', '--name', 'example-laptop'], p.root, env);
     assert.deepEqual([done.json.status, done.json.changed], ['approved', false]);
   },
 );
 
 test('device init: a name another key uses is refused before any key is made; no keychain is refused with a way on', async () => {
   const p = project();
-  plantRequest(p.host, device('laptop', LAPTOP));
+  plantRequest(p.host, device('example-laptop', LAPTOP));
   const kc = fakeKeychainTools(p.base);
   const env = p.envOf('desk', { PATH: kc.PATH });
-  const taken = await hitld(['store', 'device', 'init', '--name', 'laptop'], p.root, env);
+  const taken = await hitld(['store', 'device', 'init', '--name', 'example-laptop'], p.root, env);
   assert.equal(taken.json.error, 'device-name-taken');
   assert.deepEqual(readdirSync(kc.vault), [], 'no orphan key');
 
@@ -677,7 +696,7 @@ test('device init --cloud: the key is printed once for the environment variable,
   assert.equal(unnamed.json.error, 'device-name-required');
 
   const out = await hitld(
-    ['store', 'device', 'init', '--cloud', '--name', 'cloud-main'],
+    ['store', 'device', 'init', '--cloud', '--name', 'example-cloud'],
     p.root,
     env,
   );
@@ -692,7 +711,7 @@ test('device init --cloud: the key is printed once for the environment variable,
   // In the environment, with the variable set: ask for that key, print nothing secret.
   const q = project();
   const set = await hitld(
-    ['store', 'device', 'init', '--cloud', '--name', 'cloud-main'],
+    ['store', 'device', 'init', '--cloud', '--name', 'example-cloud'],
     q.root,
     q.envOf('cloud', { HITLD_STORE_IDENTITY: CLOUD.identity }),
   );
@@ -704,99 +723,99 @@ test('device init --cloud: the key is printed once for the environment variable,
 });
 
 /**
- * A project whose laptop the owner approved and which has pushed once.
+ * A project whose first device (example-laptop) the owner approved and which has pushed once.
  */
 async function withLaptop() {
   const p = project();
-  const laptop = p.envOf('laptop', { HITLD_STORE_IDENTITY: LAPTOP.identity });
+  const owner = p.envOf('example-laptop', { HITLD_STORE_IDENTITY: LAPTOP.identity });
   const first = await hitld(
-    ['store', 'device', 'init', '--cloud', '--name', 'laptop'],
+    ['store', 'device', 'init', '--cloud', '--name', 'example-laptop'],
     p.root,
-    laptop,
+    owner,
   );
-  await hitld(['rights', 'answer', first.json.decision.decision, '--answer', 'A'], p.root, laptop);
-  assert.equal((await hitld(['store', 'push'], p.root, laptop)).json.result, 'pushed');
-  return { ...p, laptop };
+  await hitld(['rights', 'answer', first.json.decision.decision, '--answer', 'A'], p.root, owner);
+  assert.equal((await hitld(['store', 'push'], p.root, owner)).json.result, 'pushed');
+  return { ...p, owner };
 }
 
 test('a second device: its request is never a recipient until an approved device asks and the owner answers', async () => {
   const p = await withLaptop();
-  const tablet = p.envOf('tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  const joiner = p.envOf('example-tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
   const asked = await hitld(
-    ['store', 'device', 'init', '--cloud', '--name', 'tablet'],
+    ['store', 'device', 'init', '--cloud', '--name', 'example-tablet'],
     p.root,
-    tablet,
+    joiner,
   );
   assert.equal(asked.code, EXIT.ok, JSON.stringify(asked.json));
   assert.equal(asked.json.decision, null, 'not the first device: it does not ask for itself');
   assert.match(asked.json.next, /hitld store device ask/);
   // Someone who can write the store repository plants a request of their own.
-  plantRequest(p.host, device('intruder', STRANGER));
-  assert.deepEqual(requestsOnHost(p.host).sort(), ['intruder', 'laptop', 'tablet']);
+  plantRequest(p.host, device('example-intruder', STRANGER));
+  assert.deepEqual(requestsOnHost(p.host).sort(), [
+    'example-intruder',
+    'example-laptop',
+    'example-tablet',
+  ]);
 
-  // The tablet may not push, and a push from the laptop is sealed to the laptop alone.
-  await hitld(['run', 'start', '--host', 'tablet'], p.root, tablet);
-  assert.equal((await hitld(['store', 'push'], p.root, tablet)).json.error, 'device-not-enrolled');
-  p.storeOf(p.laptop).write('notes/n.md', 'more\n');
-  assert.equal((await hitld(['store', 'push'], p.root, p.laptop)).json.recipients, 1);
-  const status = await hitld(['store', 'status'], p.root, p.laptop);
+  // example-tablet may not push, and a push from example-laptop is sealed to it alone.
+  await hitld(['run', 'start', '--host', 'example-tablet'], p.root, joiner);
+  assert.equal((await hitld(['store', 'push'], p.root, joiner)).json.error, 'device-not-enrolled');
+  p.storeOf(p.owner).write('notes/n.md', 'more\n');
+  assert.equal((await hitld(['store', 'push'], p.root, p.owner)).json.recipients, 1);
+  const status = await hitld(['store', 'status'], p.root, p.owner);
   assert.deepEqual(
     status.json.devices.requests.map((/** @type {any} */ d) => [d.name, d.status]),
     [
-      ['intruder', 'requested'],
-      ['tablet', 'requested'],
+      ['example-intruder', 'requested'],
+      ['example-tablet', 'requested'],
     ],
   );
 
-  // Only an approved device asks; the tablet is not one.
+  // Only an approved device asks; example-tablet is not one.
   assert.equal(
-    (await hitld(['store', 'device', 'ask'], p.root, tablet)).json.error,
+    (await hitld(['store', 'device', 'ask'], p.root, joiner)).json.error,
     'device-not-enrolled',
   );
-  const ask = await hitld(['store', 'device', 'ask'], p.root, p.laptop);
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.owner);
   assert.equal(ask.code, EXIT.ok, JSON.stringify(ask.json));
   assert.deepEqual(
     ask.json.asked.map((/** @type {any} */ a) => a.name),
-    ['intruder', 'tablet'],
+    ['example-intruder', 'example-tablet'],
   );
   // Asked again, nothing new is asked.
-  assert.deepEqual((await hitld(['store', 'device', 'ask'], p.root, p.laptop)).json.asked, []);
+  assert.deepEqual((await hitld(['store', 'device', 'ask'], p.root, p.owner)).json.asked, []);
   // With room in the digest for one decision, the other would take its recommendation if it
   // could; a device decision never does.
   writeSettingsFile(
     'person',
     { schema_version: 2, attention: { decisions_per_digest: 1 } },
-    { env: p.laptop, cwd: p.base },
+    { env: p.owner, cwd: p.base },
   );
-  const pending = await hitld(['rights', 'pending'], p.root, p.laptop);
+  const pending = await hitld(['rights', 'pending'], p.root, p.owner);
   assert.equal(pending.json.ok, true, JSON.stringify(pending.json));
   assert.equal(
     pending.json.decisions.some((/** @type {any} */ d) => d.deliver === 'default'),
     false,
     JSON.stringify(pending.json.decisions),
   );
-  assert.deepEqual((await hitld(['rights', 'sweep'], p.root, p.laptop)).json.applied, []);
+  assert.deepEqual((await hitld(['rights', 'sweep'], p.root, p.owner)).json.applied, []);
   const [intruder, tab] = ask.json.asked;
-  const no = await hitld(
-    ['rights', 'answer', intruder.decision, '--answer', 'B'],
-    p.root,
-    p.laptop,
-  );
+  const no = await hitld(['rights', 'answer', intruder.decision, '--answer', 'B'], p.root, p.owner);
   assert.equal(no.json.device.event, 'refused');
-  const yes = await hitld(['rights', 'answer', tab.decision, '--answer', 'A'], p.root, p.laptop);
+  const yes = await hitld(['rights', 'answer', tab.decision, '--answer', 'A'], p.root, p.owner);
   assert.equal(yes.json.device.event, 'approved');
 
-  const pushed = await hitld(['store', 'push'], p.root, p.laptop);
+  const pushed = await hitld(['store', 'push'], p.root, p.owner);
   assert.equal(pushed.json.recipients, 2, JSON.stringify(pushed.json));
   const remote = createGitRemote({ url: p.url, dir: join(p.base, 'reader') });
   const bytes = await remote.fetch(/** @type {string} */ (await remote.head()));
   assert.throws(() => open(bytes, { identities: [STRANGER.identity] }), { code: 'age-no-match' });
   open(bytes, { identities: [CLOUD.identity] });
-  assert.equal((await hitld(['store', 'pull'], p.root, tablet)).json.ok, true);
-  const listed = await hitld(['store', 'device', 'list'], p.root, tablet);
+  assert.equal((await hitld(['store', 'pull'], p.root, joiner)).json.ok, true);
+  const listed = await hitld(['store', 'device', 'list'], p.root, joiner);
   assert.deepEqual(
     listed.json.approved.map((/** @type {any} */ d) => d.name),
-    ['laptop', 'tablet'],
+    ['example-laptop', 'example-tablet'],
   );
   assert.deepEqual(listed.json.requests, [], 'a refused key does not ask again');
   assert.equal(listed.json.this_device.enrolled, true);
@@ -804,51 +823,202 @@ test('a second device: its request is never a recipient until an approved device
 
 test('device remove asks the owner; a no keeps the device, a yes removes it and the next push rotates', async () => {
   const p = await withLaptop();
-  const tablet = p.envOf('tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
-  await hitld(['store', 'device', 'init', '--cloud', '--name', 'tablet'], p.root, tablet);
-  const ask = await hitld(['store', 'device', 'ask'], p.root, p.laptop);
-  await hitld(['rights', 'answer', ask.json.asked[0].decision, '--answer', 'A'], p.root, p.laptop);
-  assert.equal((await hitld(['store', 'push'], p.root, p.laptop)).json.recipients, 2);
+  const joiner = p.envOf('example-tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  await hitld(['store', 'device', 'init', '--cloud', '--name', 'example-tablet'], p.root, joiner);
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.owner);
+  await hitld(['rights', 'answer', ask.json.asked[0].decision, '--answer', 'A'], p.root, p.owner);
+  assert.equal((await hitld(['store', 'push'], p.root, p.owner)).json.recipients, 2);
 
   assert.equal(
-    (await hitld(['store', 'device', 'remove', 'nobody'], p.root, p.laptop)).json.error,
+    (await hitld(['store', 'device', 'remove', 'nobody'], p.root, p.owner)).json.error,
     'device-unknown',
   );
-  const first = await hitld(['store', 'device', 'remove', 'tablet'], p.root, p.laptop);
+  const first = await hitld(['store', 'device', 'remove', 'example-tablet'], p.root, p.owner);
   assert.equal(first.code, EXIT.ok, JSON.stringify(first.json));
   assert.equal(first.json.decision.action, 'remove');
   const no = await hitld(
     ['rights', 'answer', first.json.decision.decision, '--answer', 'B'],
     p.root,
-    p.laptop,
+    p.owner,
   );
   assert.equal(no.json.device.event, 'refused');
-  assert.equal((await hitld(['store', 'push'], p.root, p.laptop)).json.recipients, 2);
+  assert.equal((await hitld(['store', 'push'], p.root, p.owner)).json.recipients, 2);
 
-  const second = await hitld(['store', 'device', 'remove', 'tablet'], p.root, p.laptop);
-  const again = await hitld(['store', 'device', 'remove', 'tablet'], p.root, p.laptop);
+  const second = await hitld(['store', 'device', 'remove', 'example-tablet'], p.root, p.owner);
+  const again = await hitld(['store', 'device', 'remove', 'example-tablet'], p.root, p.owner);
   assert.equal(again.json.decision.decision, second.json.decision.decision, 'asked once');
   const yes = await hitld(
     ['rights', 'answer', second.json.decision.decision, '--answer', 'A'],
     p.root,
-    p.laptop,
+    p.owner,
   );
   assert.equal(yes.json.device.event, 'removed');
-  const listed = await hitld(['store', 'device', 'list'], p.root, p.laptop);
+  const listed = await hitld(['store', 'device', 'list'], p.root, p.owner);
   assert.deepEqual(
     listed.json.rotation.pending.map((/** @type {any} */ r) => r.name),
-    ['tablet'],
+    ['example-tablet'],
   );
-  const pushed = await hitld(['store', 'push'], p.root, p.laptop);
+  const pushed = await hitld(['store', 'push'], p.root, p.owner);
   assert.equal(pushed.json.recipients, 1);
-  assert.deepEqual(pushed.json.rotation.rotated, ['tablet']);
-  assert.equal((await hitld(['store', 'pull'], p.root, tablet)).json.error, 'age-no-match');
+  assert.deepEqual(pushed.json.rotation.rotated, ['example-tablet']);
+  assert.equal((await hitld(['store', 'pull'], p.root, joiner)).json.error, 'age-no-match');
+});
+
+/** What a device answer could change: the approvals, the ledger, the trust record and the tracker. @param {string} root @param {ReturnType<typeof openStore>} store */
+function everythingAnAnswerChanges(root, store) {
+  const items = join(root, 'work', 'items');
+  return JSON.stringify({
+    approvals: store.read(APPROVALS_KEY),
+    ledger: store.read('ledger.jsonl'),
+    trust: store.read('trust/events.jsonl'),
+    items: readdirSync(items).map((f) => [f, readFileSync(join(items, f), 'utf8')]),
+  });
+}
+
+test('an answer that names no option changes nothing for a device decision', async () => {
+  const p = await withLaptop();
+  const joiner = p.envOf('example-tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  await hitld(['store', 'device', 'init', '--cloud', '--name', 'example-tablet'], p.root, joiner);
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.owner);
+  const decision = ask.json.asked[0].decision;
+  const store = p.storeOf(p.owner);
+  const before = everythingAnAnswerChanges(p.root, store);
+
+  for (const answer of ['let me think about it', 'maybe, yes', 'enrol the other one', 'C']) {
+    const r = await hitld(['rights', 'answer', decision, '--answer', answer], p.root, p.owner);
+    assert.equal(r.code, EXIT.failed, answer);
+    assert.equal(r.json.error, 'answer-matches-no-option', answer);
+    assert.deepEqual(
+      r.json.options.map((/** @type {any} */ o) => [o.letter, o.label]),
+      [
+        ['A', 'Enrol it'],
+        ['B', 'Do not enrol it'],
+      ],
+    );
+    assert.equal(r.json.device, undefined, 'no device change is reported');
+    assert.equal(everythingAnAnswerChanges(p.root, store), before, `nothing changed: ${answer}`);
+  }
+  const waiting = await hitld(['store', 'device', 'list'], p.root, p.owner);
+  assert.deepEqual(
+    waiting.json.decisions.map((/** @type {any} */ d) => [d.name, d.status]),
+    [['example-tablet', 'waiting-for-owner']],
+  );
+  assert.equal(
+    (await hitld(['store', 'push'], p.root, p.owner)).json.recipients,
+    1,
+    'still not a recipient',
+  );
+
+  // "do not enrol it" holds the words of "enrol it" and means the opposite: it is B, not A.
+  const no = await hitld(
+    ['rights', 'answer', decision, '--answer', 'do not enroll it'],
+    p.root,
+    p.owner,
+  );
+  assert.equal(no.json.option, 'B', JSON.stringify(no.json));
+  assert.equal(no.json.device.event, 'refused');
+});
+
+test('label words answer a device decision: "enroll it" approves, "remove it" removes, "keep it" keeps', async () => {
+  const p = await withLaptop();
+  const joiner = p.envOf('example-tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  await hitld(['store', 'device', 'init', '--cloud', '--name', 'example-tablet'], p.root, joiner);
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.owner);
+  const yes = await hitld(
+    ['rights', 'answer', ask.json.asked[0].decision, '--answer', 'enroll it'],
+    p.root,
+    p.owner,
+  );
+  assert.equal(yes.json.option, 'A', JSON.stringify(yes.json));
+  assert.equal(yes.json.device.event, 'approved');
+  assert.equal((await hitld(['store', 'push'], p.root, p.owner)).json.recipients, 2);
+
+  const first = await hitld(['store', 'device', 'remove', 'example-tablet'], p.root, p.owner);
+  const keep = await hitld(
+    ['rights', 'answer', first.json.decision.decision, '--answer', 'Keep it'],
+    p.root,
+    p.owner,
+  );
+  assert.equal(keep.json.device.event, 'refused');
+  const second = await hitld(['store', 'device', 'remove', 'example-tablet'], p.root, p.owner);
+  const gone = await hitld(
+    ['rights', 'answer', second.json.decision.decision, '--answer', 'remove it'],
+    p.root,
+    p.owner,
+  );
+  assert.equal(gone.json.device.event, 'removed');
+});
+
+test("a removed device's own view says it cannot open the store, not enrolled: true from its stale copy", async () => {
+  const p = await withLaptop();
+  const joiner = p.envOf('example-tablet', { HITLD_STORE_IDENTITY: CLOUD.identity });
+  await hitld(['store', 'device', 'init', '--cloud', '--name', 'example-tablet'], p.root, joiner);
+  const ask = await hitld(['store', 'device', 'ask'], p.root, p.owner);
+  await hitld(['rights', 'answer', ask.json.asked[0].decision, '--answer', 'A'], p.root, p.owner);
+  assert.equal((await hitld(['store', 'push'], p.root, p.owner)).json.recipients, 2);
+  assert.equal((await hitld(['store', 'pull'], p.root, joiner)).json.ok, true);
+
+  // Before the removal both devices open the head, and the second one's own copy says enrolled.
+  const before = await hitld(['store', 'device', 'list'], p.root, joiner);
+  assert.deepEqual(
+    [before.json.this_device.enrolled, before.json.this_device.opens_remote],
+    [true, true],
+  );
+  const beforeStatus = await hitld(['store', 'status'], p.root, joiner);
+  assert.deepEqual(
+    [beforeStatus.json.device.enrolled, beforeStatus.json.device.opens_remote],
+    [true, true],
+  );
+
+  // The owner removes it; the first device pushes a head sealed to itself alone.
+  const remove = await hitld(['store', 'device', 'remove', 'example-tablet'], p.root, p.owner);
+  await hitld(
+    ['rights', 'answer', remove.json.decision.decision, '--answer', 'A'],
+    p.root,
+    p.owner,
+  );
+  assert.equal((await hitld(['store', 'push'], p.root, p.owner)).json.recipients, 1);
+
+  // The removed device's own copy still lists itself as approved. It reports what the remote says.
+  const stale = await hitld(['store', 'device', 'list'], p.root, joiner);
+  assert.equal(stale.code, EXIT.ok, JSON.stringify(stale.json));
+  assert.equal(stale.json.this_device.enrolled, false);
+  assert.equal(stale.json.this_device.opens_remote, false);
+  assert.match(stale.json.this_device.problem, /cannot open the store/);
+  assert.match(stale.json.this_device.problem, /probably removed/);
+  const status = await hitld(['store', 'status'], p.root, joiner);
+  assert.equal(status.json.device.enrolled, false);
+  assert.equal(status.json.device.opens_remote, false);
+  assert.match(status.json.device.problem, /cannot open the store/);
+  assert.ok(
+    status.json.problems.some((/** @type {string} */ m) => /cannot open the store/.test(m)),
+  );
+  assert.doesNotMatch(JSON.stringify(stale.json), /AGE-SECRET-KEY/);
+
+  // The device that stays still sees itself as enrolled.
+  const mine = await hitld(['store', 'device', 'list'], p.root, p.owner);
+  assert.deepEqual(
+    [mine.json.this_device.enrolled, mine.json.this_device.opens_remote],
+    [true, true],
+  );
+
+  // A device the head is not sealed to, because no approved device has pushed since its approval,
+  // gets the same words.
+  const third = p.envOf('example-cloud-2', { HITLD_STORE_IDENTITY: GPU.identity });
+  await hitld(['store', 'device', 'init', '--cloud', '--name', 'example-cloud-2'], p.root, third);
+  const asked = await hitld(['store', 'device', 'ask'], p.root, p.owner);
+  const thirdAsk = asked.json.asked.find((/** @type {any} */ a) => a.name === 'example-cloud-2');
+  await hitld(['rights', 'answer', thirdAsk.decision, '--answer', 'A'], p.root, p.owner);
+  const unsealed = await hitld(['store', 'device', 'list'], p.root, third);
+  assert.equal(unsealed.json.this_device.opens_remote, false);
+  assert.equal(unsealed.json.this_device.enrolled, false);
+  assert.match(unsealed.json.this_device.problem, /cannot open the store/);
 });
 
 test('a store from before device decisions: a key that opens the head, in a store with no approval, asks for itself', async () => {
   const p = project();
-  // The remote's head was sealed to the laptop and another device under the old device list.
-  const env = p.envOf('laptop', { HITLD_STORE_IDENTITY: LAPTOP.identity });
+  // The remote's head was sealed to example-laptop and another device under the old device list.
+  const env = p.envOf('example-laptop', { HITLD_STORE_IDENTITY: LAPTOP.identity });
   const old = p.storeOf(env);
   old.write('notes/n.md', 'from before\n');
   const { openRemote, pushStore } = await import('../lib/store/push-pull.mjs');
@@ -857,7 +1027,7 @@ test('a store from before device decisions: a key that opens the head, in a stor
   const legacy = {
     ...sealedTo,
     enrolled: true,
-    device: 'laptop',
+    device: 'example-laptop',
     recipients: [LAPTOP.recipient, GPU.recipient],
   };
   assert.equal(
@@ -866,10 +1036,10 @@ test('a store from before device decisions: a key that opens the head, in a stor
     'pushed',
   );
 
-  // A fresh container with the laptop's key opens that head, finds no approval, and asks.
+  // A fresh container with example-laptop's key opens that head, finds no approval, and asks.
   const fresh = p.envOf('fresh', { HITLD_STORE_IDENTITY: LAPTOP.identity });
   const asked = await hitld(
-    ['store', 'device', 'init', '--cloud', '--name', 'laptop'],
+    ['store', 'device', 'init', '--cloud', '--name', 'example-laptop'],
     p.root,
     fresh,
   );
@@ -893,7 +1063,7 @@ test('executors are refused every device command', async () => {
     ['store', 'device', 'init', '--cloud', '--name', 'x'],
     ['store', 'device', 'ask'],
     ['store', 'device', 'list'],
-    ['store', 'device', 'remove', 'laptop'],
+    ['store', 'device', 'remove', 'example-laptop'],
   ]) {
     for (const extra of [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-3' }]) {
       const out = await hitld(argv, p.root, p.envOf('x', extra));

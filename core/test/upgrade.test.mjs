@@ -85,7 +85,7 @@ function startedOn(store, version) {
     event: 'run-started',
     run: 'r1',
     session: 'old',
-    host: 'laptop',
+    host: 'example-laptop',
     skill_versions: { hitld_version: version },
   });
 }
@@ -166,7 +166,7 @@ test('a pin ahead of the release that last wrote the data says an upgrade is due
 
 test('hitld run start and run resume check the release first, and record nothing when refused', async () => {
   const off = project(github(`v${NEXT_MINOR}`));
-  const me = ['--store', off.storeDir, '--session', 's-1', '--host', 'laptop'];
+  const me = ['--store', off.storeDir, '--session', 's-1', '--host', 'example-laptop'];
   const refused = await hitld(['run', 'start', ...me], off.root);
   assert.deepEqual([refused.code, refused.json.error], [EXIT.failed, 'version-not-pinned']);
   assert.equal(refused.json.version.pin.version, NEXT_MINOR);
@@ -174,14 +174,14 @@ test('hitld run start and run resume check the release first, and record nothing
 
   // A run an earlier release started, and handed over.
   const p = project(github(`v${VERSION}`));
-  startRun(p.store, { session: 'old', host: 'laptop' });
+  startRun(p.store, { session: 'old', host: 'example-laptop' });
   const text = /** @type {string} */ (p.store.read(LEDGER_KEY));
   p.store.write(
     LEDGER_KEY,
     text.replace(`"hitld_version":"${VERSION}"`, `"hitld_version":"${OLDER_SAME_MINOR}"`),
   );
-  releaseLease(p.store, { session: 'old', host: 'laptop', reason: 'handover' });
-  const mine = ['--store', p.storeDir, '--session', 's-2', '--host', 'laptop'];
+  releaseLease(p.store, { session: 'old', host: 'example-laptop', reason: 'handover' });
+  const mine = ['--store', p.storeDir, '--session', 's-2', '--host', 'example-laptop'];
   const resumed = await hitld(['run', 'resume', '--live', 'none', ...mine], p.root);
   assert.equal(resumed.code, EXIT.ok, JSON.stringify(resumed.json));
   assert.equal(resumed.json.version.upgrade.due, true);
@@ -209,7 +209,7 @@ test('rollback: an older release refuses data a newer release wrote, and writes 
   const newer = bumpVersion(VERSION, 'minor');
   p.store.append(
     LEDGER_KEY,
-    `${JSON.stringify({ schema_version: LEDGER_V + 1, id: 'E-90', event: 'lease-taken', at: '2026-11-15T00:00:00Z', run: 'r1', session: 'new', host: 'laptop', skill_versions: { hitld_version: newer } })}\n`,
+    `${JSON.stringify({ schema_version: LEDGER_V + 1, id: 'E-90', event: 'lease-taken', at: '2026-11-15T00:00:00Z', run: 'r1', session: 'new', host: 'example-laptop', skill_versions: { hitld_version: newer } })}\n`,
   );
   const state = JSON.parse(p.store.read(STATE_KEY) ?? 'null') ?? {};
   p.store.write(STATE_KEY, JSON.stringify({ ...state, schema_version: STATE_V + 1 }));
@@ -225,14 +225,14 @@ test('rollback: an older release refuses data a newer release wrote, and writes 
   );
   assert.equal(d.data.newest, newer);
   assert.throws(
-    () => startRun(p.store, { session: 's-3', host: 'laptop', cwd: p.root, replace: true }),
+    () => startRun(p.store, { session: 's-3', host: 'example-laptop', cwd: p.root, replace: true }),
     (e) => e instanceof VersionDriftError && e.code === 'newer-schema',
   );
   await assert.rejects(
-    resumeRun(p.store, { session: 's-3', host: 'laptop', cwd: p.root, force: true }),
+    resumeRun(p.store, { session: 's-3', host: 'example-laptop', cwd: p.root, force: true }),
     (e) => e instanceof VersionDriftError && e.code === 'newer-schema',
   );
-  const me = ['--store', p.storeDir, '--session', 's-3', '--host', 'laptop'];
+  const me = ['--store', p.storeDir, '--session', 's-3', '--host', 'example-laptop'];
   const start = await hitld(['run', 'start', '--replace', ...me], p.root);
   assert.deepEqual([start.code, start.json.error], [EXIT.failed, 'newer-schema']);
   assert.match(start.json.message, /never writes ahead/);

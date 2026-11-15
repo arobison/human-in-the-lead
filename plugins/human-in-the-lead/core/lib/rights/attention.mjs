@@ -33,13 +33,24 @@ function currentRun(store) {
 }
 
 /**
+ * The session and host that wrote an event no dispatch wrote. Either may be unknown.
+ * @typedef {{ session?: string, host?: string }} Who
+ */
+
+/** @param {Who | undefined} who */
+const whoFields = (who) => ({
+  ...(who?.session ? { session: who.session } : {}),
+  ...(who?.host ? { host: who.host } : {}),
+});
+
+/**
  * Record asked, sent or answered for a decision, once.
  * @param {PrivateStore} store
  * @param {'asked' | 'sent' | 'answered'} event
  * @param {string} decision
  * @param {string} at ISO 8601
- * @param {{ delivery?: 'interrupt' | 'digest', via?: 'default' }} [extra] on sent: how it was
- *   sent; on answered: that a default took it
+ * @param {{ delivery?: 'interrupt' | 'digest', via?: 'default', who?: Who }} [extra] on sent: how it
+ *   was sent; on answered: that a default took it; who: the session and host that write it
  * @returns {{ event: LedgerEntry, appended: boolean }} the event now in the ledger
  */
 export function recordDecisionEvent(store, event, decision, at, extra = {}) {
@@ -55,6 +66,7 @@ export function recordDecisionEvent(store, event, decision, at, extra = {}) {
     ...(run ? { run } : {}),
     ...(extra.delivery ? { delivery: extra.delivery } : {}),
     ...(extra.via ? { via: extra.via } : {}),
+    ...whoFields(extra.who),
     at,
   });
   return { event: written, appended };
@@ -116,7 +128,8 @@ export function latestAnswered(store) {
  * Record a call the orchestrator made without asking (design part 4.2): the digest lists it, and
  * the owner can reverse it by the event's ID.
  * @param {PrivateStore} store
- * @param {{ text: string, item?: string, dispatch?: string, area?: string }} call
+ * @param {{ text: string, item?: string, dispatch?: string, area?: string, session?: string, host?: string }} call
+ *   session and host: who made the call (the session that logs it, and its machine)
  * @param {string} at ISO 8601
  * @returns {LedgerEntry}
  */
@@ -128,6 +141,7 @@ export function recordLoggedCall(store, call, at) {
     ...(call.item ? { item: call.item } : {}),
     ...(call.dispatch ? { dispatch: call.dispatch } : {}),
     ...(call.area ? { area: call.area } : {}),
+    ...whoFields(call),
     ...(run ? { run } : {}),
     at,
   }).event;

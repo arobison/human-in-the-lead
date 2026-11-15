@@ -40,6 +40,7 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 | **Mutation score on changed lines** | Killed mutants over all mutants in changed code | Verification output |
 | **Flake rate** | Test failures that pass on rerun with no change, over all failures | Per-test history from the test reporter ([part 14.7](14-integration.md#147-flaky-tests)), merge queue logs |
 | **Stall rate** | Share of executor dispatches the watchdog found stalled ([part 5](05-execution.md#the-watchdog)), by model, tier and area, with the ladder steps taken. Executors cut off by a usage limit are counted apart: the limit is not the executor's failure. `hitld ledger summary` reports it | Ledger |
+| **Calls made without asking** | Logged calls, per session and host that made them, so a call can be traced to who made it. `hitld ledger summary` reports it | Ledger |
 
 ### Attention and relationships
 

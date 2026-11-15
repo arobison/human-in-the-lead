@@ -120,11 +120,80 @@ test('answers: A, A yes, B just this one, with a reason or narrowing', () => {
   assert.equal(p('A narrow to response caches').narrowing, 'response caches');
 });
 
-test('free text names no option, and an out-of-range letter is not an option', () => {
-  const free = parseAnswer('Include it, but check with the driver team first', decision);
+test('free words that are not a label name no option, and an out-of-range letter is not an option', () => {
+  const free = parseAnswer('Let us check with the driver team first', decision);
   assert.equal(free.option, null);
+  assert.equal(free.ambiguous, false);
   assert.equal(free.generalization, null);
-  assert.equal(free.rationale, 'Include it, but check with the driver team first');
+  assert.equal(free.rationale, 'Let us check with the driver team first');
   assert.equal(parseAnswer('I think so', decision).option, null);
   assert.equal(parseAnswer('D yes', decision).option, null);
+  assert.equal(parseAnswer('maybe', decision).letter, null);
+});
+
+test('words that are exactly one label name that option; the rest of the answer is read as usual', () => {
+  /** @param {string} t */
+  const p = (t) => parseAnswer(t, decision);
+  assert.deepEqual([p('Exclude it').option, p('Exclude it').letter], [1, 'B']);
+  assert.equal(p('exclude it').option, 1);
+  assert.equal(p('Please exclude it.').option, 1);
+  assert.equal(p('exclude').option, 1, 'filler words such as "it" do not count');
+  // A label that opens another option's label is told apart by the whole label.
+  assert.equal(p('include it').option, 0);
+  assert.equal(
+    p('Include it only on drivers with known compiler changes').option,
+    2,
+    'the longer label is its own option',
+  );
+  // After the label come the generalization and a reason, as after a letter.
+  const yes = p('Include it, yes, because the bug was real');
+  assert.deepEqual(
+    [yes.option, yes.generalization, yes.rationale],
+    [0, 'yes', 'because the bug was real'],
+  );
+  assert.equal(p('Exclude it. Just this one').generalization, 'just-this-one');
+  assert.equal(p('Include it, but check with the driver team first').option, 0);
+});
+
+test('simple spelling variants and slips of the keys still name the label', () => {
+  const enrol = {
+    options: [
+      { label: 'Enrol it', what_happens: 'a' },
+      { label: 'Do not enrol it', what_happens: 'b' },
+      { label: 'Organise the files', what_happens: 'c' },
+    ],
+  };
+  /** @param {string} t */
+  const p = (t) => parseAnswer(t, enrol).option;
+  assert.equal(p('enrol it'), 0);
+  assert.equal(p('enroll it'), 0);
+  assert.equal(p('Enroll'), 0);
+  assert.equal(p('do not enroll it'), 1);
+  assert.equal(p('organize the files'), 2);
+  assert.equal(p('orgnaise the files'), null, 'a transposition is not a slip it forgives');
+  assert.equal(p('oraganise the files'), 2, 'one letter off, in a long word');
+});
+
+test('words that add to a label, or fit two labels, name no option', () => {
+  const enrol = {
+    options: [
+      { label: 'Enrol it', what_happens: 'a' },
+      { label: 'Do not enrol it', what_happens: 'b' },
+    ],
+  };
+  // "not enrol it" holds the words of "Enrol it", and means the opposite.
+  const negated = parseAnswer('not enrol it', enrol);
+  assert.deepEqual([negated.option, negated.ambiguous], [null, false]);
+  assert.equal(parseAnswer('enrol it now', enrol).option, null);
+  assert.equal(parseAnswer('I would not enrol it', enrol).option, null);
+  // Two labels that are the same words: the answer fits both, so it names neither.
+  const twins = {
+    options: [
+      { label: 'Keep it', what_happens: 'a' },
+      { label: 'Keep', what_happens: 'b' },
+    ],
+  };
+  const both = parseAnswer('keep it', twins);
+  assert.deepEqual([both.option, both.ambiguous], [null, true]);
+  assert.equal(parseAnswer('A', twins).option, 0, 'a letter always names one');
 });

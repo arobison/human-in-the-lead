@@ -3,24 +3,24 @@
   "id": "store/two-devices-take-turns",
   "suite": "store",
   "category": "store",
-  "description": "Milestone c2 (design 0003 section 14). A laptop and a cloud environment, both enrolled, work on one project in turn. Each one's run start or resume pulls the other's records through the store remote, and each hand-over or checkpoint pushes them: after its next pull, each device sees the other's records, decisions and all.",
+  "description": "Milestone c2 (design 0003 section 14). Two devices, example-laptop and example-cloud,, both enrolled, work on one project in turn. Each one's run start or resume pulls the other's records through the store remote, and each hand-over or checkpoint pushes them: after its next pull, each device sees the other's records, decisions and all.",
   "mode": "offline",
   "steps": [
     {
       "id": "project",
       "action": "store.fixture",
-      "with": { "devices": ["cloud-main", "laptop"] }
+      "with": { "devices": ["example-cloud", "example-laptop"] }
     },
     {
       "id": "laptop_start",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "start", "--host", "laptop"] }
+      "with": { "device": "example-laptop", "argv": ["run", "start", "--host", "example-laptop"] }
     },
     {
       "id": "laptop_log",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": [
           "rights",
           "log",
@@ -35,36 +35,36 @@
       "id": "laptop_ask",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": [
           "ledger",
           "append",
           "{\"event\":\"asked\",\"decision\":\"SAM-9\"}",
           "--host",
-          "laptop"
+          "example-laptop"
         ]
       }
     },
     {
       "id": "laptop_handover",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["handover", "--host", "laptop"] }
+      "with": { "device": "example-laptop", "argv": ["handover", "--host", "example-laptop"] }
     },
     {
       "id": "cloud_resume",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["run", "resume", "--host", "cloud-1"] }
+      "with": { "device": "example-cloud", "argv": ["run", "resume", "--host", "example-host-1"] }
     },
     {
       "id": "cloud_sees_laptop",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["ledger", "tail", "--limit", "20"] }
+      "with": { "device": "example-cloud", "argv": ["ledger", "tail", "--limit", "20"] }
     },
     {
       "id": "cloud_log",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": ["rights", "log", "--text", "Kept the retry limit at three", "--area", "api"]
       }
     },
@@ -72,37 +72,37 @@
       "id": "cloud_ask",
       "action": "store.hitld",
       "with": {
-        "device": "cloud-main",
+        "device": "example-cloud",
         "argv": [
           "ledger",
           "append",
           "{\"event\":\"asked\",\"decision\":\"SAM-10\"}",
           "--host",
-          "cloud-1"
+          "example-host-1"
         ]
       }
     },
     {
       "id": "cloud_handover",
       "action": "store.hitld",
-      "with": { "device": "cloud-main", "argv": ["handover", "--host", "cloud-1"] }
+      "with": { "device": "example-cloud", "argv": ["handover", "--host", "example-host-1"] }
     },
     {
       "id": "laptop_resume",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["run", "resume", "--host", "laptop"] }
+      "with": { "device": "example-laptop", "argv": ["run", "resume", "--host", "example-laptop"] }
     },
     {
       "id": "laptop_sees_cloud",
       "action": "store.hitld",
-      "with": { "device": "laptop", "argv": ["ledger", "tail", "--limit", "20"] }
+      "with": { "device": "example-laptop", "argv": ["ledger", "tail", "--limit", "20"] }
     }
   ],
   "graders": [
     {
       "id": "both-enrolled",
       "grader": "equals",
-      "with": { "path": "steps.project.enrolled", "value": ["cloud-main", "laptop"] }
+      "with": { "path": "steps.project.enrolled", "value": ["example-cloud", "example-laptop"] }
     },
     {
       "id": "laptop-handover-pushed",

@@ -10,39 +10,46 @@
       "id": "project",
       "action": "store.fixture",
       "with": {
-        "devices": ["laptop", "tablet"],
-        "enrolled": ["laptop"]
+        "devices": ["example-laptop", "example-tablet"],
+        "enrolled": ["example-laptop"]
       }
     },
     {
       "id": "start",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["run", "start", "--host", "laptop"]
+        "device": "example-laptop",
+        "argv": ["run", "start", "--host", "example-laptop"]
       }
     },
     {
       "id": "log_first",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["rights", "log", "--text", "Recorded before the tablet joined", "--area", "api"]
+        "device": "example-laptop",
+        "argv": [
+          "rights",
+          "log",
+          "--text",
+          "Recorded before example-tablet joined",
+          "--area",
+          "api"
+        ]
       }
     },
     {
       "id": "checkpoint_first",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["run", "checkpoint", "--host", "laptop"]
+        "device": "example-laptop",
+        "argv": ["run", "checkpoint", "--host", "example-laptop"]
       }
     },
     {
       "id": "tablet_push_unenrolled",
       "action": "store.hitld",
       "with": {
-        "device": "tablet",
+        "device": "example-tablet",
         "argv": ["store", "push"]
       }
     },
@@ -50,15 +57,15 @@
       "id": "tablet_request",
       "action": "store.hitld",
       "with": {
-        "device": "tablet",
-        "argv": ["store", "device", "init", "--cloud", "--name", "tablet"]
+        "device": "example-tablet",
+        "argv": ["store", "device", "init", "--cloud", "--name", "example-tablet"]
       }
     },
     {
       "id": "tablet_push_requested",
       "action": "store.hitld",
       "with": {
-        "device": "tablet",
+        "device": "example-tablet",
         "argv": ["store", "push"]
       }
     },
@@ -66,7 +73,7 @@
       "id": "laptop_status_requested",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "status"]
       }
     },
@@ -74,15 +81,22 @@
       "id": "laptop_log_again",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["rights", "log", "--text", "Recorded while the tablet only asked", "--area", "api"]
+        "device": "example-laptop",
+        "argv": [
+          "rights",
+          "log",
+          "--text",
+          "Recorded while example-tablet only asked",
+          "--area",
+          "api"
+        ]
       }
     },
     {
       "id": "laptop_push_requested",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "push"]
       }
     },
@@ -90,14 +104,14 @@
       "id": "remote_requested",
       "action": "store.inspect-remote",
       "with": {
-        "open_with": ["laptop", "tablet"]
+        "open_with": ["example-laptop", "example-tablet"]
       }
     },
     {
       "id": "laptop_ask",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "device", "ask"]
       }
     },
@@ -105,7 +119,7 @@
       "id": "laptop_sweep",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["rights", "sweep"]
       }
     },
@@ -113,7 +127,7 @@
       "id": "answer",
       "action": "store.owner-answers",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "answer": "A"
       }
     },
@@ -121,7 +135,7 @@
       "id": "laptop_status",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "status"]
       }
     },
@@ -129,15 +143,15 @@
       "id": "checkpoint_second",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["run", "checkpoint", "--host", "laptop"]
+        "device": "example-laptop",
+        "argv": ["run", "checkpoint", "--host", "example-laptop"]
       }
     },
     {
       "id": "tablet_pull",
       "action": "store.hitld",
       "with": {
-        "device": "tablet",
+        "device": "example-tablet",
         "argv": ["store", "pull"]
       }
     },
@@ -145,7 +159,7 @@
       "id": "tablet_ledger",
       "action": "store.hitld",
       "with": {
-        "device": "tablet",
+        "device": "example-tablet",
         "argv": ["ledger", "tail", "--limit", "20"]
       }
     },
@@ -153,7 +167,7 @@
       "id": "tablet_status",
       "action": "store.hitld",
       "with": {
-        "device": "tablet",
+        "device": "example-tablet",
         "argv": ["store", "status"]
       }
     },
@@ -161,7 +175,7 @@
       "id": "tablet_push",
       "action": "store.hitld",
       "with": {
-        "device": "tablet",
+        "device": "example-tablet",
         "argv": ["store", "push"]
       }
     }
@@ -220,7 +234,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.laptop_status_requested.result.devices.requests[*].name",
-        "value": ["tablet"]
+        "value": ["example-tablet"]
       }
     },
     {
@@ -235,7 +249,7 @@
       "id": "the-requester-opens-nothing",
       "grader": "equals",
       "with": {
-        "path": "steps.remote_requested.opens.tablet",
+        "path": "steps.remote_requested.opens.example-tablet",
         "value": 0
       }
     },
@@ -244,7 +258,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.laptop_ask.result.asked[*].name",
-        "value": ["tablet"]
+        "value": ["example-tablet"]
       }
     },
     {
@@ -292,7 +306,7 @@
       "grader": "matches",
       "with": {
         "path": "steps.tablet_ledger.result.events[*].text",
-        "pattern": "Recorded before the tablet joined"
+        "pattern": "Recorded before example-tablet joined"
       }
     },
     {

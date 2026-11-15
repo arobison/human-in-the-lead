@@ -130,7 +130,9 @@ test('the baseline key is the mode, the seed and the profiles: nothing of the ma
 
   // The same suite from two directories, two private stores, and two machines' worth of
   // environment gives the same key and the same committed baseline.
-  const one = workspace({ env: { HOSTNAME: 'laptop', USER: 'someone', HOME: '/home/someone' } });
+  const one = workspace({
+    env: { HOSTNAME: 'example-laptop', USER: 'someone', HOME: '/home/someone' },
+  });
   const two = workspace({ env: { HOSTNAME: 'runner-1', USER: 'runner', CI: 'true' } });
   const a = await one.offline();
   const b = await two.offline();
@@ -196,7 +198,7 @@ test('the check finds paths, hosts, accounts, addresses and private-store conten
     '/x/.local/share/human-in-the-lead',
     'someone@example.org',
     'build-host.internal',
-    'laptop.local',
+    'example-laptop.local',
     '10.0.3.7',
     // This machine's own names (the check skips ones under four characters).
     ...[hostname(), `account ${userInfo().username}`].filter(
@@ -446,9 +448,9 @@ test('--require-baseline fails without a committed baseline, the private store n
 });
 
 test('a baseline accepted on one machine gates a machine with an empty private store, as CI does', async () => {
-  const laptop = workspace();
-  const ran = await laptop.offline();
-  const accepted = await laptop.hitld(['eval', 'accept', '--result', ran.json.run]);
+  const machine = workspace();
+  const ran = await machine.offline();
+  const accepted = await machine.hitld(['eval', 'accept', '--result', ran.json.run]);
   assert.equal(accepted.code, 0);
   const file = accepted.json.committed;
 

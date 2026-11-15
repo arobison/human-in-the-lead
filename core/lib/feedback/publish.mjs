@@ -22,6 +22,8 @@ import {
   parseAnswer,
   sendApproved,
 } from '../sendgate/gate.mjs';
+import { findTerms, matchMessage } from '../guard/private-terms.mjs';
+import { PrivateTermsError, loadTerms } from '../store/private-terms.mjs';
 import { FEEDBACK_REPO, issueUrlPattern } from './filer.mjs';
 import { assertPrivate, checkRecord, keyOf, readRecord, readRecords } from './record.mjs';
 import { HEADINGS, harnessText } from './render.mjs';
@@ -391,6 +393,43 @@ export function pending(store) {
 }
 
 /**
+ * Refuse a publication that holds a term from the private term list (design part 10.3, rule 7),
+ * naming the kind and line of each, in the title or the body, and never the term. A list that does
+ * not read refuses too: nothing is sent unchecked.
+ * @param {PrivateStore} store @param {{ title: string, body: string }} content
+ * @param {{ ctx: Ctx, policy: Record<string, any> }} o
+ */
+function refuseIfPrivate(store, content, o) {
+  /** @type {ReturnType<typeof loadTerms>} */
+  let terms;
+  try {
+    terms = loadTerms({
+      store,
+      projectId: String(o.policy.project?.id ?? ''),
+      env: o.ctx.env,
+    });
+  } catch (e) {
+    if (e instanceof PrivateTermsError) {
+      throw new GateRefusal(
+        e.code,
+        `nothing is sent: the private term list could not be checked (${e.message})`,
+      );
+    }
+    throw e;
+  }
+  const found = [
+    ['title', content.title],
+    ['body', content.body],
+  ].flatMap(([where, text]) => findTerms(text, terms.matchers).map((m) => matchMessage(m, where)));
+  if (found.length) {
+    throw new GateRefusal(
+      'private-term',
+      `nothing is sent: the issue holds ${found.length} private term(s) from the private term list (${found.join('; ')}). Edit the draft to refer to each by its role, then answer again`,
+    );
+  }
+}
+
+/**
  * The person's answer on one drafted record: approve, edit (the person's changes, then approve),
  * by-hand (approve; the person posts it), drop. With --url, the issue the person posted by hand.
  * @param {PrivateStore} store @param {string} id
@@ -475,6 +514,10 @@ export async function answerPublication(store, id, input, o) {
   } else if (Object.keys(edits).length) {
     throw new GateRefusal('edits-need-edit', 'changed text goes with the answer edit');
   }
+
+  // Before anything is approved or sent: the issue is checked against the private term list, as
+  // hitld publish check does. The refusal names each term's kind and line, never the term.
+  if (mode !== null) refuseIfPrivate(store, publication(record, draft), o);
 
   const approved = approvePublication({
     subject: id,

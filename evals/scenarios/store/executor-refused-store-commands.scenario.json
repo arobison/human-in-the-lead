@@ -10,14 +10,14 @@
       "id": "project",
       "action": "store.fixture",
       "with": {
-        "devices": ["laptop"]
+        "devices": ["example-laptop"]
       }
     },
     {
       "id": "executor_push",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "push"],
         "as_executor": true
       }
@@ -26,7 +26,7 @@
       "id": "executor_pull",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "pull"],
         "as_executor": true
       }
@@ -35,7 +35,7 @@
       "id": "executor_status",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "status"],
         "as_executor": true
       }
@@ -44,7 +44,7 @@
       "id": "executor_enrol",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "device", "init", "--cloud", "--name", "injected"],
         "as_executor": true
       }
@@ -53,7 +53,7 @@
       "id": "executor_list",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "device", "list"],
         "as_executor": true
       }
@@ -62,8 +62,8 @@
       "id": "executor_remove",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["store", "device", "remove", "laptop"],
+        "device": "example-laptop",
+        "argv": ["store", "device", "remove", "example-laptop"],
         "as_executor": true
       }
     },
@@ -71,7 +71,7 @@
       "id": "executor_redirect",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "remote", "set", "https://example.invalid/attacker/store.git"],
         "as_executor": true
       }
@@ -80,7 +80,7 @@
       "id": "executor_export",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": [
           "store",
           "export",
@@ -100,7 +100,7 @@
       "id": "owner_remote",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "remote", "show"]
       }
     },
@@ -108,7 +108,7 @@
       "id": "owner_devices",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
+        "device": "example-laptop",
         "argv": ["store", "device", "list"]
       }
     },
@@ -116,16 +116,16 @@
       "id": "owner_start",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["run", "start", "--host", "laptop"]
+        "device": "example-laptop",
+        "argv": ["run", "start", "--host", "example-laptop"]
       }
     },
     {
       "id": "owner_checkpoint",
       "action": "store.hitld",
       "with": {
-        "device": "laptop",
-        "argv": ["run", "checkpoint", "--host", "laptop"]
+        "device": "example-laptop",
+        "argv": ["run", "checkpoint", "--host", "example-laptop"]
       }
     }
   ],
@@ -215,7 +215,7 @@
       "grader": "equals",
       "with": {
         "path": "steps.owner_devices.result.approved[*].name",
-        "value": ["laptop"]
+        "value": ["example-laptop"]
       }
     },
     {
