@@ -73,7 +73,7 @@ test('defaults: rights rules route to the owner unless an area owner is allowed'
 });
 
 test("defaults: the owner's gut checks start high", () => {
-  const { weights } = policyDefaults().judgement;
+  const { weights } = policyDefaults().judgment;
   assert.equal(weights.owner['gut-check'], 0.8);
   assert.ok(weights.owner['gut-check'] > weights.default['gut-check']);
 });
@@ -120,13 +120,31 @@ test('objects merge with the defaults; arrays replace them', () => {
   const { policy } = resolvePolicy({
     ...minimal,
     execution: { concurrency: { value: 5 } },
-    judgement: { weights: { 'C-3': { 'gut-check': 0.5, considered: 0.7 } } },
+    judgment: { weights: { 'C-3': { 'gut-check': 0.5, considered: 0.7 } } },
     quota: { limits: [] },
   });
   assert.deepEqual(policy?.execution.max_executors, { value: 5, min: 1, max: 6 });
-  assert.equal(policy?.judgement.weights.owner['gut-check'], 0.8);
-  assert.equal(policy?.judgement.weights['C-3'].considered, 0.7);
+  assert.equal(policy?.judgment.weights.owner['gut-check'], 0.8);
+  assert.equal(policy?.judgment.weights['C-3'].considered, 0.7);
   assert.deepEqual(policy?.quota.limits, []);
+});
+
+test('a policy section under its name before HITLD-121 is read under the new one, with a warning', () => {
+  const old = { weights: { 'C-3': { 'gut-check': 0.5, considered: 0.7 } }, lift: 0.25 };
+  const { policy, errors, renamed } = resolvePolicy({ ...minimal, judgement: old }); // spelling-ok
+  assert.deepEqual(errors, []);
+  assert.equal(policy?.judgment.weights['C-3'].considered, 0.7);
+  assert.equal(policy?.judgment.lift, 0.25);
+  assert.equal(policy?.judgment.weights.owner['gut-check'], 0.8, 'the rest is the default');
+  assert.deepEqual(
+    renamed.map((r) => [r.from, r.to]),
+    [['judgement', 'judgment']], // spelling-ok
+  );
+  assert.match(renamed[0].message, /judgement is now judgment/); // spelling-ok
+  // Both names: the new one wins, and the old one is not read.
+  const both = resolvePolicy({ ...minimal, judgement: old, judgment: { lift: 0.75 } }); // spelling-ok
+  assert.equal(both.policy?.judgment.lift, 0.75);
+  assert.equal(both.policy?.judgment.weights['C-3'], undefined);
 });
 
 test('a value outside its bounds is refused', () => {

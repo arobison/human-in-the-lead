@@ -430,7 +430,7 @@ const question = (/** @type {Record<string, any>} */ more = {}) => ({
     { label: 'Add it', what_happens: 'one small dependency, MIT licensed' },
     { label: 'Hand-roll', what_happens: 'no dependency; we fix the bugs ourselves' },
   ],
-  recommendation: { option: 'A', why: 'A permissive licence and a tiny surface.' },
+  recommendation: { option: 'A', why: 'A permissive license and a tiny surface.' },
   triggers: [{ basis: 'security', reason: 'it adds a dependency' }],
   paths: ['package.json'],
   item_kind: 'work',

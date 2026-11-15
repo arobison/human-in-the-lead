@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Opt-in cross-project learning: shared precedents and patterns, generalized and filtered by classification first."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

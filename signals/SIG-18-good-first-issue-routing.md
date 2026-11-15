@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Good-first-issue routing for human contributors, with agent-drafted mentoring notes that a human sends."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

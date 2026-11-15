@@ -215,3 +215,18 @@ test('the command reports a directory that is not a repository as a bad call', (
     assert.match(r.stderr, /spelling-check:/);
   });
 });
+
+test('this repository holds no British spelling in its tracked text files', (t) => {
+  /** @type {ReturnType<typeof checkSpelling>} */
+  let report;
+  try {
+    report = checkSpelling(CHECKOUT);
+  } catch {
+    t.skip('not a git checkout');
+    return;
+  }
+  assert.ok(report.checked > 100, 'the check read the tracked files');
+  assert.deepEqual(formatSpellingReport(report).split('\n').slice(0, 20), [
+    `spelling: ${report.checked} files, no British spellings`,
+  ]);
+});

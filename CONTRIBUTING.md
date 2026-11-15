@@ -11,7 +11,8 @@ npm ci                 # dev dependencies only: TypeScript (type checking), Pret
 npm test               # node:test, no test framework
 npm run typecheck      # tsc --noEmit over core/
 npm run format         # Prettier; npm run format:check to check only
-npm run check          # all three
+npm run spelling       # fails on British spellings in tracked text files
+npm run check          # typecheck, format check, spelling and tests
 node core/bin/hitld.mjs --help
 ```
 

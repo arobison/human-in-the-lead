@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Canary items: known-answer tasks injected periodically to detect skill or model regressions (synthetic monitoring)."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

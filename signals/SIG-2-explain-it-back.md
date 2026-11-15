@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Explain it back: the executor restates its brief in two lines before starting, so a mismatch is caught early."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

@@ -34,7 +34,7 @@
       "additionalProperties": false
     },
     "exceptions": {
-      "description": "Cases explicitly not covered. Plain text needs a judgement to apply; an object with a structured \"when\" is matched by script, so a narrowing by overrule stays machine-checkable.",
+      "description": "Cases explicitly not covered. Plain text needs a judgment to apply; an object with a structured \"when\" is matched by script, so a narrowing by overrule stays machine-checkable.",
       "type": "array",
       "items": { "anyOf": [{ "$ref": "common#/$defs/text" }, { "$ref": "#/$defs/exception" }] }
     },

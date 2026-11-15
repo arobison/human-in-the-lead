@@ -225,7 +225,7 @@ test("an area owner's precedent resolves only the questions of area owners it co
     project,
     areaQuestion({
       paths: ['src/api/x.ts'],
-      triggers: [{ basis: 'blast-radius', reason: 'it changes behaviour users rely on' }],
+      triggers: [{ basis: 'blast-radius', reason: 'it changes behavior users rely on' }],
       precedent_offer: undefined,
     }),
   );
@@ -244,7 +244,7 @@ test("an owner's precedent resolves an area owner's question: the owner could ha
   );
 });
 
-test("addressing a judgement conflict cannot hand the owner's question to a contributor", () => {
+test("addressing a judgment conflict cannot hand the owner's question to a contributor", () => {
   const project = makeProject();
   const q = ownerQuestion({ addressed_to: 'C-9', precedent_offer: undefined });
   const r = askQuestion(project, q);
@@ -263,12 +263,12 @@ test('an overrule of a more confidential decision does not write its attributes 
   const first = askQuestion(
     project,
     ownerQuestion({
-      tags: ['dependency-licence'],
+      tags: ['dependency-license'],
       paths: ['package.json'],
       precedent_offer: {
-        summary: 'licences',
-        rule: 'Allow permissive licences.',
-        conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
+        summary: 'licenses',
+        rule: 'Allow permissive licenses.',
+        conditions: { rights_basis: ['security'], tags: ['dependency-license'] },
       },
     }),
   );
@@ -280,7 +280,7 @@ test('an overrule of a more confidential decision does not write its attributes 
       project,
       ownerQuestion({
         classification: 'confidential',
-        tags: ['dependency-licence', 'acme-partner'],
+        tags: ['dependency-license', 'acme-partner'],
         paths: ['package.json'],
         precedent_offer: undefined,
       }),
@@ -319,7 +319,7 @@ test('an overrule of a more confidential decision does not write its attributes 
   const restricted = askQuestion(
     project,
     ownerQuestion({
-      tags: ['dependency-licence', 'restricted'],
+      tags: ['dependency-license', 'restricted'],
       paths: ['package.json'],
       precedent_offer: undefined,
     }),
@@ -516,7 +516,7 @@ test('--file is denied by default: only the human command line sets ctx.interact
   const commands = makeCommands({ openTracker: () => project.tracker });
   writeFileSync(join(project.root, 'q.json'), JSON.stringify({ spend_tokens: 1 }));
   const bare = { cwd: project.root, env: project.env }; // what an MCP dispatcher builds
-  for (const name of ['rights who', 'precedent match', 'judgement weigh', 'judgement conflict']) {
+  for (const name of ['rights who', 'precedent match', 'judgment weigh', 'judgment conflict']) {
     const c = /** @type {any} */ (commands.find((x) => x.name === name));
     await assert.rejects(
       async () => c.run({ file: 'q.json' }, bare),

@@ -41,18 +41,18 @@ const dependency = (/** @type {Record<string, any>} */ more = {}) =>
       ],
       recommendation: {
         option: 'A',
-        why: 'A permissive licence and a tiny surface; the bugs are real.',
+        why: 'A permissive license and a tiny surface; the bugs are real.',
       },
       triggers: [{ basis: 'security', reason: 'it adds a dependency' }],
-      tags: ['dependency-licence'],
+      tags: ['dependency-license'],
       paths: ['package.json'],
       item_kind: 'work',
       classification: 'public',
       reversibility: 'two-way',
       precedent_offer: {
-        summary: 'new dependencies with permissive licences',
-        rule: 'When a new dependency has a permissive licence (MIT, BSD, Apache-2.0), allow it.',
-        conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
+        summary: 'new dependencies with permissive licenses',
+        rule: 'When a new dependency has a permissive license (MIT, BSD, Apache-2.0), allow it.',
+        conditions: { rights_basis: ['security'], tags: ['dependency-license'] },
       },
       ...more,
     }),
@@ -88,7 +88,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
     'the waiting item needs the answer',
   );
   assert.match(asked.text, /Recommend: A\./);
-  assert.match(asked.text, /Future cases like this \(new dependencies with permissive licences\)/);
+  assert.match(asked.text, /Future cases like this \(new dependencies with permissive licenses\)/);
   assert.deepEqual(precedents.list(), [], 'nothing generalized before the decider confirms');
 
   // 2. The answer, with its generalization confirmed, becomes precedent.
@@ -121,7 +121,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
       title: 'Add chalk as a dependency?',
       question: 'May we add chalk (MIT) as a runtime dependency?',
       paths: ['package.json'],
-      tags: ['dependency-licence', 'npm'],
+      tags: ['dependency-license', 'npm'],
       blocks: undefined,
       precedent_offer: undefined,
     }),
@@ -130,7 +130,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
   assert.equal(later.precedent, 'P-1');
   assert.match(
     later.answer,
-    /^Resolved by precedent P-1: When a new dependency has a permissive licence/,
+    /^Resolved by precedent P-1: When a new dependency has a permissive license/,
   );
   const resolved = tracker.get(later.decision);
   assert.equal(resolved.state, 'done');
@@ -148,7 +148,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
     digest.map((a) => [a.decision, a.precedent, a.overruled]),
     [[later.decision, 'P-1', false]],
   );
-  assert.match(String(digest[0].rule), /permissive licence/);
+  assert.match(String(digest[0].rule), /permissive license/);
 
   // 4. An overrule narrows it: cases like the reversed one are no longer resolved by it.
   const reversed = overrule(project, {
@@ -160,7 +160,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
   assert.deepEqual(reversed.exception.when, {
     item_kinds: ['work'],
     paths: ['package.json'],
-    tags: ['dependency-licence', 'npm'],
+    tags: ['dependency-license', 'npm'],
   });
   assert.equal(precedents.get('P-1')?.state, 'active');
   assert.equal(listApplications(project)[0].overruled, true);
@@ -170,7 +170,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
     dependency({
       title: 'Add colors?',
       question: 'May we add colors?',
-      tags: ['dependency-licence', 'npm'],
+      tags: ['dependency-license', 'npm'],
     }),
   );
   assert.equal(sameAgain.outcome, 'asked', 'a case like the overruled one goes to the owner again');
@@ -181,7 +181,7 @@ test('acceptance: ask, answer into precedent, resolve a later question, list it,
     dependency({
       title: 'Add a tool?',
       paths: ['tools/package.json'],
-      tags: ['dependency-licence'],
+      tags: ['dependency-license'],
       blocks: undefined,
     }),
   );
@@ -197,7 +197,7 @@ test('a decision that carries no confirmation makes no precedent', () => {
   for (const [answer, generalization] of [
     ['A', 'none-given'],
     ['A just this one', 'just-this-one'],
-    ['Add it, but check the licence file first', 'none-given'],
+    ['Add it, but check the license file first', 'none-given'],
   ]) {
     const asked = askQuestion(project, dependency());
     const r = answerDecision(project, { decision: asked.decision, answer });
@@ -220,11 +220,11 @@ test('narrowing the generalization: the words go into the precedent', () => {
   const p = project.precedents.get('P-1');
   assert.equal(p?.conditions.text, 'development tools');
   assert.match(p?.rule, /only for development tools\.$/);
-  // The plain-language narrowing needs a judgement before it resolves anything.
+  // The plain-language narrowing needs a judgment before it resolves anything.
   const next = askQuestion(project, dependency({ precedent_offer: undefined }));
   assert.equal(next.outcome, 'asked');
   assert.deepEqual(next.candidates, [
-    { id: 'P-1', needs_judgement: true, judge: ['condition: development tools'] },
+    { id: 'P-1', needs_judgment: true, judge: ['condition: development tools'] },
   ]);
   assert.match(
     tracker(project, next.decision).context,
@@ -452,7 +452,7 @@ test('the owner may say what to narrow it to, or retire it', () => {
   answerDecision(project, { decision: asked.decision, answer: 'A yes' });
   const later = askQuestion(
     project,
-    dependency({ tags: ['dependency-licence', 'npm'], precedent_offer: undefined }),
+    dependency({ tags: ['dependency-license', 'npm'], precedent_offer: undefined }),
   );
   const r = overrule(project, {
     decision: later.decision,
@@ -463,7 +463,7 @@ test('the owner may say what to narrow it to, or retire it', () => {
   assert.equal(
     askQuestion(
       project,
-      dependency({ tags: ['dependency-licence', 'npm'], precedent_offer: undefined }),
+      dependency({ tags: ['dependency-license', 'npm'], precedent_offer: undefined }),
     ).outcome,
     'asked',
   );
@@ -477,7 +477,7 @@ test('a precedent overruled too often is put to the owner for review', () => {
   const project = makeProject({ rights: undefined });
   const asked = askQuestion(
     project,
-    dependency({ tags: ['dependency-licence'], paths: undefined }),
+    dependency({ tags: ['dependency-license'], paths: undefined }),
   );
   answerDecision(project, { decision: asked.decision, answer: 'A yes' });
   /** @type {string[]} */
@@ -487,7 +487,7 @@ test('a precedent overruled too often is put to the owner for review', () => {
       project,
       dependency({
         title: `Dep ${i}`,
-        tags: ['dependency-licence'],
+        tags: ['dependency-license'],
         paths: undefined,
         precedent_offer: undefined,
       }),
@@ -516,7 +516,7 @@ test('trust-calibration data: reversals, worth-asking ratings, overrules, per ar
     dependency({
       paths: ['src/cache/b.ts'],
       precedent_offer: undefined,
-      tags: ['dependency-licence', 'x'],
+      tags: ['dependency-license', 'x'],
     }),
   );
   assert.equal(later.outcome, 'precedent');
@@ -668,6 +668,22 @@ test('a tracker item that is not the question asked under its ID is refused; the
   const back = project.tracker.get(asked.decision);
   project.tracker.update(asked.decision, { title: dependency().title }, String(back._version));
   assert.equal(answerDecision(project, { decision: asked.decision, answer: 'B' }).ok, true);
+});
+
+test('a question asked before HITLD-121 binds the old spelling of enroll, and the action that applies is enroll', () => {
+  const project = makeProject();
+  const old = { action: 'enrol', name: 'example-tablet', fingerprint: '0000-1111-2222-3333' }; // spelling-ok
+  const asked = askQuestion(project, dependency(), { binds: old });
+  const now = { ...old, action: 'enroll' };
+  const ok = answerDecision(project, { decision: asked.decision, answer: 'A', applies: [now] });
+  assert.equal(ok.ok, true);
+  const other = askQuestion(project, dependency(), { binds: old });
+  const wrong = answerDecision(project, {
+    decision: other.decision,
+    answer: 'A',
+    applies: [{ ...now, name: 'example-laptop' }],
+  });
+  assert.equal(wrong.error, 'answer-question-changed');
 });
 
 test('an action bound into the question must be the one that would apply', () => {

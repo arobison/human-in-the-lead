@@ -112,9 +112,9 @@
       "description": "The decision item whose answer is the owner's bet on it. A planned or done project's decision is answered; who made the bet (bet_by) is derived from it.",
       "$ref": "common#/$defs/id"
     },
-    "judgements": {
-      "description": "Judgements carried over from its signals, plus any made on the project. Inputs, never a decision. Not stored by the files backend yet.",
-      "$ref": "common#/$defs/judgements"
+    "judgments": {
+      "description": "Judgments carried over from its signals, plus any made on the project. Inputs, never a decision. Not stored by the files backend yet.",
+      "$ref": "common#/$defs/judgments"
     },
     "revisions": {
       "description": "Each change to value or confidence after shaping began, with its reason and evidence. Not stored by the files backend yet.",

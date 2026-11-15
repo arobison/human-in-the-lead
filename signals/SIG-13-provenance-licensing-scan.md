@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "A provenance and licensing scan of generated code for similarity to known open-source code."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

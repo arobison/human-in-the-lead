@@ -170,7 +170,7 @@ async function firstDevice(p, ctx, identity) {
  * Put a device decision to the owner, through `hitld rights ask`: owner only, no precedent, no
  * default. The decision item names the device only by its key's fingerprint; the request is
  * recorded in the private store the rights commands use, where `hitld rights answer` finds it.
- * @param {Ctx} ctx @param {'enrol' | 'remove'} action @param {Device} device
+ * @param {Ctx} ctx @param {'enroll' | 'remove'} action @param {Device} device
  * @param {string | undefined} parent
  */
 async function askOwner(ctx, action, device, parent) {
@@ -242,7 +242,7 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
   if (why) {
     return fail(
       'not-permitted',
-      `hitld ${name} is the owner's, run from the main session in the primary checkout (${why}); executors never enrol, list or remove store devices`,
+      `hitld ${name} is the owner's, run from the main session in the primary checkout (${why}); executors never enroll, list or remove store devices`,
     );
   }
   try {
@@ -444,13 +444,13 @@ export const deviceCommands = [
             message: `Request for the store device ${name}`,
           });
       const open = openDeviceAsks(records).find(
-        (r) => r.recipient === recipient && r.action === 'enrol',
+        (r) => r.recipient === recipient && r.action === 'enroll',
       );
       // The first device of an empty store asks the owner itself; nothing is pushed before the
       // answer. Any other device waits for an approved device to ask (hitld store device ask).
       const decision =
         !open && (await firstDevice(p, ctx, own))
-          ? await askOwner(ctx, 'enrol', entry, /** @type {string | undefined} */ (input.parent))
+          ? await askOwner(ctx, 'enroll', entry, /** @type {string | undefined} */ (input.parent))
           : null;
       const waiting = open
         ? {
@@ -511,7 +511,9 @@ export const deviceCommands = [
       );
       const out = [];
       for (const d of waiting) {
-        out.push(await askOwner(ctx, 'enrol', d, /** @type {string | undefined} */ (input.parent)));
+        out.push(
+          await askOwner(ctx, 'enroll', d, /** @type {string | undefined} */ (input.parent)),
+        );
       }
       return {
         ok: true,

@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Calibrated confidence: agents attach a confidence to their claims, tracked against outcomes per model (Brier score), with verification effort aimed where calibration is weakest."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

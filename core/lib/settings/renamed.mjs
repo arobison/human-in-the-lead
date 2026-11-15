@@ -1,6 +1,7 @@
-// Settings renamed by HITLD-82 (consistent names), read under their old names until the next minor
-// release, each with a warning (design part 16.5). policy.json keeps its old names until the owner
-// renames them; `hitld config migrate` rewrites the person and machine files.
+// Settings renamed by HITLD-82 (consistent names) and HITLD-121 (American spelling), read under
+// their old names until the next minor release, each with a warning (design part 16.5). policy.json
+// keeps its old names until the owner renames them; `hitld config migrate` rewrites the person and
+// machine files.
 //
 // A path is dot-separated; `*` stands for any one key (a tier's number) or array member.
 
@@ -27,6 +28,7 @@ export const RENAMED_SETTINGS = Object.freeze(
       ['rights.agent_spend_max', 'rights.agent_spend_max_tokens'],
       ['execution.concurrency', 'execution.max_executors'],
       ['tiers.*.executor', 'tiers.*.runs_as'],
+      ['judgement', 'judgment'], // spelling-ok: the section before HITLD-121
     ],
     person: [
       ['executors_max', 'max_executors'],

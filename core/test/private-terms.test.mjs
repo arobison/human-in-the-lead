@@ -202,7 +202,7 @@ test("implied terms: the store address in use and the device names in the owner'
   const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-terms-')));
   store.append(
     APPROVALS_KEY,
-    `${JSON.stringify({ event: 'approved', decision: 'D-1', action: 'enrol', name: DEVICE, recipient: 'age1x', at: '2026-01-01T00:00:00Z' })}\n`,
+    `${JSON.stringify({ event: 'approved', decision: 'D-1', action: 'enroll', name: DEVICE, recipient: 'age1x', at: '2026-01-01T00:00:00Z' })}\n`,
   );
   const t = loadTerms({ store, projectId: 'app', env: { HITLD_STORE_REMOTE: ADDRESS } });
   assert.equal(t.listed, 0);

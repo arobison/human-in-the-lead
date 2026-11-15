@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Scout agents: scan upstream changelogs, papers and the ecosystem for things relevant to active initiatives, and file signals with a recommendation."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner

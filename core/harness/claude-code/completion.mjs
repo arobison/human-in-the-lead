@@ -3,7 +3,7 @@
 //
 //   subagent  the background-agent notification: the agent's final message, and the token,
 //             tool-use and duration counts the desktop app was observed to include (undocumented,
-//             so recorded when present and labelled)
+//             so recorded when present and labeled)
 //   headless  the JSON result of claude -p --output-format json: result, session_id, usage,
 //             total_cost_usd (documented)
 

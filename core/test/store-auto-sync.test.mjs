@@ -220,7 +220,7 @@ test('a hand-over pushes after the lease is released, so a successor takes it wi
   ]);
   assert.equal(resumed.code, EXIT.ok, JSON.stringify(resumed.json));
   assert.equal(resumed.json.took_over.reason, 'handover');
-  // The hand-over note travelled with the store.
+  // The hand-over note traveled with the store.
   assert.ok(two.store.list('orchestrator/').some((k) => k.startsWith('orchestrator/handover-')));
 });
 
@@ -690,7 +690,7 @@ test('a release refused at run start or resume pulls nothing and records nothing
   await refusedAll('newer-schema');
 });
 
-test('enrolment: with nothing new, the next push makes the store readable by the new device', async () => {
+test('enrollment: with nothing new, the next push makes the store readable by the new device', async () => {
   const f = fixture({ onlyA: true });
   const A = { name: 'device-a', id: DEVICE_A };
   const B = { name: 'device-b', id: DEVICE_B };
@@ -714,7 +714,7 @@ test('enrolment: with nothing new, the next push makes the store readable by the
   const pushed = await a.hitld(['store', 'push']);
   assert.equal(pushed.json.result, 'pushed', JSON.stringify(pushed.json));
   assert.equal(pushed.json.recipients, 2);
-  assert.deepEqual(pushed.json.rotation.rotated, [], 'an enrolment prunes nothing');
+  assert.deepEqual(pushed.json.rotation.rotated, [], 'an enrollment prunes nothing');
   const after = await a.hitld(['store', 'status']);
   assert.equal(after.json.push_due, false);
   assert.equal((await a.hitld(['store', 'push'])).json.result, 'up-to-date');
@@ -741,7 +741,7 @@ test('enrolment: with nothing new, the next push makes the store readable by the
   assert.equal(started.json.store_sync.pull.status, 'done');
 });
 
-test('enrolment: a checkpoint with nothing new pushes once the device list has changed', async () => {
+test('enrollment: a checkpoint with nothing new pushes once the device list has changed', async () => {
   const f = fixture({ onlyA: true });
   const A = { name: 'device-a', id: DEVICE_A };
   const B = { name: 'device-b', id: DEVICE_B };

@@ -18,9 +18,9 @@ The 68 vectors that apply to X25519 recipients in the binary format. Left out:
 
 Each file is a short text header (`expect`, `payload`, `identity`, and others), an empty line, then the age file, compressed with zlib where the header says `compressed: zlib`. The format is described in the CCTV `age/README.md`.
 
-## Licence
+## License
 
-The vectors are available under the Zero-Clause BSD licence (0BSD), CC0 1.0, or the Unlicense, at the user's choice. Copyright (c) 2022 The age Authors.
+The vectors are available under the Zero-Clause BSD license (0BSD), CC0 1.0, or the Unlicense, at the user's choice. Copyright (c) 2022 The age Authors.
 
 > Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted.
 >

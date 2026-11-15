@@ -31,7 +31,7 @@ const question = (/** @type {Record<string, any>} */ more = {}) => ({
     { label: 'Add it', what_happens: 'one small dependency, MIT licensed' },
     { label: 'Hand-roll', what_happens: 'no dependency; we fix the bugs ourselves' },
   ],
-  recommendation: { option: 'A', why: 'A permissive licence and a tiny surface.' },
+  recommendation: { option: 'A', why: 'A permissive license and a tiny surface.' },
   triggers: [{ basis: 'security', reason: 'it adds a dependency' }],
   paths: ['package.json'],
   item_kind: 'work',
@@ -113,16 +113,16 @@ test('showing refuses what it cannot show', () => {
 test('a decision a precedent resolves is neither asked nor answered in the ledger', () => {
   const { project } = clocked();
   const offer = {
-    summary: 'new dependencies with permissive licences',
-    rule: 'When a new dependency has a permissive licence, allow it.',
-    conditions: { rights_basis: ['security'], tags: ['dependency-licence'] },
+    summary: 'new dependencies with permissive licenses',
+    rule: 'When a new dependency has a permissive license, allow it.',
+    conditions: { rights_basis: ['security'], tags: ['dependency-license'] },
   };
   const first = askQuestion(
     project,
-    question({ tags: ['dependency-licence'], precedent_offer: offer }),
+    question({ tags: ['dependency-license'], precedent_offer: offer }),
   );
   answerDecision(project, { decision: first.decision, answer: 'A yes' });
-  const second = askQuestion(project, question({ tags: ['dependency-licence', 'x'] }));
+  const second = askQuestion(project, question({ tags: ['dependency-license', 'x'] }));
   assert.equal(second.outcome, 'precedent');
   assert.deepEqual([events(project, 'asked').length, events(project, 'answered').length], [1, 1]);
   assert.equal(

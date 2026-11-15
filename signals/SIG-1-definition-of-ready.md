@@ -9,7 +9,7 @@ received_at: 2026-11-14
 summary: "Definition of ready before dispatch: done-when, files, needs and a size present, or the item goes back to shaping."
 route: null
 classification: public
-judgements:
+judgments:
   - what: fits the strategy and is plausibly valuable
     basis: gut-check
     by: owner
