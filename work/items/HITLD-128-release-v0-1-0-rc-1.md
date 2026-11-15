@@ -2,7 +2,7 @@
 id: HITLD-128
 title: "Release v0.1.0-rc.1"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
 release: 0.1.0-rc.1
