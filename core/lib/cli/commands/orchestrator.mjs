@@ -15,10 +15,18 @@ import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { loadSettingsFile } from '../../settings/files.mjs';
 import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
-import { readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
+import { appendEvent, readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { LeaseError } from '../../run/lease.mjs';
-import { Run, handOver } from '../../run/run.mjs';
+import {
+  Run,
+  handOver,
+  handoverDue,
+  handoverKey,
+  releaseLease,
+  reportingHere,
+} from '../../run/run.mjs';
+import { absorb } from '../../run/state.mjs';
 import { reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
@@ -53,6 +61,8 @@ import {
   presentationCurrent,
   queueProposals,
   readPresentation,
+  recordedApproval,
+  selectPresented,
   waitingForOwner,
   waitsForOwner,
 } from '../../merge/owner.mjs';
@@ -93,6 +103,29 @@ const DISPATCH = {
   description: 'The dispatch ID, such as D-12',
 };
 
+/** @type {import('../args.mjs').ArgSpec} */
+const CONTEXT_PERCENT = {
+  name: 'context-percent',
+  type: 'integer',
+  description:
+    'The percentage of its context this session has used, as its harness shows it; at policy orchestrator.handover_context_share the hand-over is due',
+};
+
+/** --context-percent as a share, or null. @param {Record<string, unknown>} input */
+const contextShareOf = (input) =>
+  typeof input['context-percent'] === 'number' ? input['context-percent'] / 100 : null;
+
+/**
+ * Whether this session's hand-over is due (design part 13.1).
+ * @param {Run} run @param {Record<string, any>} policy @param {Record<string, unknown>} input
+ */
+const dueFor = (run, policy, input) =>
+  handoverDue(run.state, readLedger(run.store).events, {
+    afterCompletions: policy.orchestrator?.handover_after_completions,
+    contextShare: policy.orchestrator?.handover_context_share,
+    contextUsed: contextShareOf(input),
+  });
+
 class Refusal extends Error {
   /** @param {string} code @param {string} message @param {Record<string, unknown>} [more] */
   constructor(code, message, more = {}) {
@@ -100,6 +133,45 @@ class Refusal extends Error {
     this.code = code;
     this.more = more;
   }
+}
+
+/**
+ * Refuse an approval that does not pick out presented, unmoved branches (selectPresented), with
+ * the reason: stale (a branch moved since it was shown), ambiguous, or not presented.
+ * @param {NonNullable<ReturnType<typeof selectPresented>['refused']>} r
+ * @param {import('../../merge/owner.mjs').Presentation} presentation @param {string} what
+ * @returns {never}
+ */
+function refuseSelection(r, presentation, what) {
+  const shown = presentation.branches.map((b) => ({ item: b.item, branch: b.branch }));
+  if (r.moved.length) {
+    throw new Refusal(
+      'stale',
+      `${r.moved.join(', ')} changed since it was presented, so the owner approved other code; nothing was ${what}; run hitld merge to check it again`,
+      { presented: shown },
+    );
+  }
+  if (r.ambiguous.length || r.mismatched.length) {
+    throw new Refusal(
+      'ambiguous',
+      [
+        r.ambiguous.length
+          ? `${r.ambiguous.join(', ')} matches more than one presented branch; name the branch`
+          : '',
+        r.mismatched.length
+          ? `${r.mismatched.join(', ')} is on a branch other than the one its item was dispatched on`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('; ') + `; nothing was ${what}`,
+      { presented: shown },
+    );
+  }
+  throw new Refusal(
+    'not_presented',
+    `${r.unknown.join(', ')} ${r.unknown.length === 1 ? 'was' : 'were'} not presented to the owner (only branches that passed the checks are); nothing was ${what}`,
+    { presented: shown },
+  );
 }
 
 /** @param {() => Result | Promise<Result>} fn @returns {Promise<Result>} */
@@ -280,6 +352,7 @@ const planJson = (r, setup) => ({
     model: s.sizing.model,
     effort: s.sizing.effort,
     estimate_tokens: s.sizing.estimate_tokens,
+    ...(s.sizing.owner_review ? { owner_review: s.sizing.owner_review } : {}),
     serial: s.serial,
     notes: s.notes,
   })),
@@ -345,7 +418,7 @@ const ownerPresentation = (o) => ({
   waiting: o.waiting,
   reused: o.reused,
   next: o.presentation
-    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations), and each directed read with its question. Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]. Send each rejected follow_up"
+    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations), and each directed read with its question (with a chief of staff, in your message to it). Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]; when the chief of staff recorded the answer (hitld merge approve), plain hitld merge applies it. Send each rejected follow_up"
     : 'nothing passed the checks to present: for each rejected entry with a follow_up, hitld dispatch follow-up; then refill with hitld dispatch plan',
 });
 
@@ -461,6 +534,14 @@ export const commands = [
         const p = project(ctx);
         const run = runOf(p, input, ctx);
         const id = String(input.item);
+        const due = dueFor(run, p.policy, input);
+        if (due.due && input['by-hand'] !== true) {
+          throw new Refusal(
+            'handover_due',
+            `this session's hand-over is due (${due.reasons.join('; ')}): start nothing new; once the work it started has reported, hitld handover. A successor dispatches ${id}`,
+            { handover: due },
+          );
+        }
         const { q, result, setup } = plan(p, ctx, input['by-hand'] === true ? id : undefined);
         const planned = result.start.find((s) => s.item === id);
         if (!planned) {
@@ -508,6 +589,7 @@ export const commands = [
           skill_versions: { hitld_version: VERSION },
           estimate_tokens: sizing.estimate_tokens,
           host: run.host,
+          ...(tier === 3 ? { mode } : {}),
           ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
         });
 
@@ -599,7 +681,7 @@ export const commands = [
         );
         const then =
           call.tool === 'session'
-            ? `ask the owner to start a session in ${worktree} with the brief in ${briefPath}; then hitld dispatch handle --dispatch ${dispatch} --harness-ref <session name>`
+            ? `ask the chief of staff to start a session in ${worktree} with the brief in ${briefPath} (when you are both, start it yourself; without a way to start sessions, ask the owner); then hitld dispatch handle --dispatch ${dispatch} --harness-ref <the session's reference>`
             : `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the ${call.tool === 'Agent' ? 'agent ID' : 'background task ID'} the call returns>`;
         return {
           ok: true,
@@ -680,6 +762,7 @@ export const commands = [
       },
       { name: 'tool-calls', type: 'integer', description: 'Tool calls from the notification' },
       { name: 'duration-ms', type: 'integer', description: 'Duration from the notification' },
+      CONTEXT_PERCENT,
       SESSION,
       HOST,
     ],
@@ -759,7 +842,24 @@ export const commands = [
           }
         }
         const again = plan(project(ctx), ctx);
-        out.refill = planJson(again.result, again.setup);
+        const refill = planJson(again.result, again.setup);
+        out.refill = refill;
+        // A session whose hand-over is due starts nothing new: it lets what it started report to
+        // it, then hands over, and its successor refills the slots (design part 13.1).
+        const due = dueFor(run, p.policy, input);
+        out.handover = due;
+        if (due.due) {
+          const waiting = reportingHere(run.state, run.host).map((x) => x.dispatch);
+          out.refill = {
+            ...refill,
+            start: [],
+            inline: [],
+            held_for_handover: [...refill.start.map((x) => x.item), ...refill.inline],
+            next: waiting.length
+              ? `the hand-over is due (${due.reasons.join('; ')}): start nothing new; process the completions of ${waiting.join(', ')}, then hitld handover`
+              : `the hand-over is due (${due.reasons.join('; ')}): hitld handover now`,
+          };
+        }
         return out;
       }),
   },
@@ -812,6 +912,7 @@ export const commands = [
           ...(first.effort ? { effort: first.effort } : {}),
           ...(first.branch ? { branch: first.branch } : {}),
           ...(first.worktree ? { worktree: first.worktree } : {}),
+          ...(first.mode ? { mode: first.mode } : {}),
           brief_hash: createHash('sha256').update(message).digest('hex'),
           skill_versions: { hitld_version: VERSION },
           host: run.host,
@@ -908,8 +1009,8 @@ export const commands = [
             `${owner ? "in owner mode the merge is the owner's" : "the merge queue is the orchestrator's"}, run from the main session in the primary checkout (${why})`,
           );
         }
-        const all = input.all === true;
-        const names =
+        let all = input.all === true;
+        let names =
           typeof input.only === 'string'
             ? input.only
                 .split(',')
@@ -923,7 +1024,7 @@ export const commands = [
             '--all approves a batch presented in owner mode; in queue mode, hitld merge merges what is waiting',
           );
         }
-        const approving = owner && (all || names !== null);
+        let approving = owner && (all || names !== null);
         let waiting = /** @type {{ item: string, branch: string | null }[]} */ (
           run.state.merge_queue.waiting
         );
@@ -959,6 +1060,27 @@ export const commands = [
           waiting = chosen;
         }
         const presented = readPresentation(p.store);
+        // The owner's answer given in another session (the chief of staff's), recorded against
+        // this presentation: this session applies exactly it, and chooses nothing itself. One that
+        // no longer holds (a branch moved since) is not applied; the batch is checked again.
+        const recorded =
+          owner && !approving ? recordedApproval(readLedger(p.store).events, presented) : null;
+        /** @type {string[] | null} */
+        let staleApproval = null;
+        if (recorded && presented) {
+          const pick = selectPresented({
+            repoRoot: p.repoRoot,
+            presentation: presented,
+            names: recorded.branches,
+            events: readLedger(p.store).events,
+          });
+          if (pick.refused) staleApproval = pick.refused.moved;
+          else {
+            approving = true;
+            all = false;
+            names = recorded.branches;
+          }
+        }
         if (approving && !presented) {
           throw new Refusal(
             'not_presented',
@@ -1133,43 +1255,31 @@ export const commands = [
               events,
             });
             if (approved.refused) {
-              const r = approved.refused;
-              const shown = /** @type {Presentation} */ (presented).branches.map((b) => ({
-                item: b.item,
-                branch: b.branch,
-              }));
-              if (r.moved.length) {
-                throw new Refusal(
-                  'stale',
-                  `${r.moved.join(', ')} changed since it was presented, so the owner approved other code; nothing was merged; run hitld merge to check it again`,
-                  { presented: shown },
-                );
-              }
-              if (r.ambiguous.length || r.mismatched.length) {
-                throw new Refusal(
-                  'ambiguous',
-                  [
-                    r.ambiguous.length
-                      ? `${r.ambiguous.join(', ')} matches more than one presented branch; name the branch`
-                      : '',
-                    r.mismatched.length
-                      ? `${r.mismatched.join(', ')} is on a branch other than the one its item was dispatched on`
-                      : '',
-                  ]
-                    .filter(Boolean)
-                    .join('; ') + '; nothing was merged',
-                  { presented: shown },
-                );
-              }
-              throw new Refusal(
-                'not_presented',
-                `${r.unknown.join(', ')} ${r.unknown.length === 1 ? 'was' : 'were'} not presented to the owner (only branches that passed the checks are); nothing was merged`,
-                { presented: shown },
-              );
+              refuseSelection(approved.refused, /** @type {Presentation} */ (presented), 'merged');
             }
             const result = /** @type {QueueResult} */ (approved.result);
+            // The approval, once, in the ledger: given here in the owner's own turn, or already
+            // recorded by the session the owner said it in. Its time is the owner's answer.
+            let at = new Date();
+            if (recorded) at = new Date(recorded.at);
+            else {
+              const pres = /** @type {Presentation} */ (presented);
+              run.record({
+                event: 'merge-approved',
+                branches: selectPresented({
+                  repoRoot: p.repoRoot,
+                  presentation: pres,
+                  all,
+                  names: names ?? [],
+                  events,
+                }).chosen.map((b) => b.branch),
+                presented_at: pres.at,
+                commit: pres.commit,
+                by: run.session,
+                notes: "from the owner's own message in the session holding the lease",
+              });
+            }
             await record(result);
-            const at = new Date();
             for (const ev of approvalEvents(
               /** @type {Presentation} */ (presented),
               result.merged,
@@ -1186,6 +1296,7 @@ export const commands = [
               mode: 'owner',
               as_presented: approved.as_presented,
               checked_again: approved.rechecked,
+              approved_by: recorded ? recorded.by : run.session,
               approvals: approvalSummary(readTrustEvents(p.store)),
               proposals,
               next: o.incident
@@ -1228,6 +1339,15 @@ export const commands = [
               ok: o.ok,
               merged: o.merged,
               rejected: o.rejected,
+              ...(staleApproval
+                ? {
+                    approval_refused: {
+                      reason: 'stale',
+                      moved: staleApproval,
+                      by: recorded?.by ?? null,
+                    },
+                  }
+                : {}),
               ...(o.incident ? { next: 'an incident: tell the owner at once' } : {}),
             };
           }
@@ -1252,17 +1372,145 @@ export const commands = [
       }),
   },
   {
+    name: 'merge approve',
+    summary:
+      "Owner merge mode: record the owner's answer to the batch the last hitld merge presented (all, or a list), from the owner's own message in this session, bound to that presentation. Needs no lease: the chief of staff records it, and the session holding the lease applies it with hitld merge. Without --all or --only, shows the presentation",
+    built_by: 'h',
+    args: [
+      {
+        name: 'all',
+        type: 'boolean',
+        description: 'The owner approved the whole batch as presented',
+      },
+      {
+        name: 'only',
+        type: 'string',
+        description: 'The presented branches (or items) the owner approved, comma-separated',
+      },
+      SESSION,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const why = executorSignal(ctx.env, ctx.cwd);
+        if (why) {
+          throw new Refusal(
+            'not_permitted',
+            `a merge approval is the owner's, recorded from the owner's own message (${why})`,
+          );
+        }
+        const p = project(ctx);
+        if (p.policy.merge.mode !== 'owner') {
+          throw new Refusal(
+            'not_owner_mode',
+            'merge.mode is not owner: the queue merges whatever passes, with no approval to record',
+          );
+        }
+        if (!p.state) throw new Refusal('no_run', 'no run has started: hitld run start');
+        const all = input.all === true;
+        const names =
+          typeof input.only === 'string'
+            ? input.only
+                .split(',')
+                .map((n) => n.trim())
+                .filter(Boolean)
+            : null;
+        if (all && names) throw new Refusal('usage', 'give --all or --only, not both');
+        const presented = readPresentation(p.store);
+        if (!presented) {
+          throw new Refusal(
+            'not_presented',
+            'nothing has been presented to the owner: the session holding the lease runs hitld merge first; nothing was approved',
+          );
+        }
+        if (!all && names === null) {
+          return {
+            ok: true,
+            mode: 'owner',
+            presented: presented.branches,
+            question: presented.question,
+            presented_at: presented.at,
+            next: "put the question to the owner; on the owner's own answer, hitld merge approve --all, or --only <branch>[,<branch>]",
+          };
+        }
+        const by = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
+        if (!by) {
+          throw new Refusal('usage', 'a session ID is needed: pass --session or set HITLD_SESSION');
+        }
+        const events = readLedger(p.store).events;
+        const pick = selectPresented({
+          repoRoot: p.repoRoot,
+          presentation: presented,
+          all,
+          names: names ?? [],
+          events,
+        });
+        if (pick.refused) refuseSelection(pick.refused, presented, 'approved');
+        const branches = pick.chosen.map((b) => b.branch);
+        const existing = recordedApproval(events, presented);
+        const same =
+          existing &&
+          existing.branches.length === branches.length &&
+          branches.every((b) => existing.branches.includes(b));
+        if (!same) {
+          appendEvent(p.store, {
+            event: 'merge-approved',
+            run: p.state.run.id,
+            branches,
+            presented_at: presented.at,
+            commit: presented.commit,
+            by,
+            notes: "from the owner's own message",
+          });
+        }
+        return {
+          ok: true,
+          approved: branches,
+          as_presented: branches.length === presented.branches.length,
+          already: Boolean(same),
+          next: 'wake the session that holds the lease (hitld run status names it): its hitld merge applies this approval, and nothing else',
+        };
+      }),
+  },
+  {
     name: 'handover',
     summary:
-      'Checkpoint and write the hand-over note for a fresh orchestrator session, from the ledger and run state',
+      'Write the hand-over note for a successor orchestrator session, from the ledger and run state, and give up the lease. Waits until the work this session started has reported to it',
     built_by: 'h',
-    args: [SESSION, HOST],
+    args: [
+      {
+        name: 'now',
+        type: 'boolean',
+        description:
+          'Hand over although work this session started still reports to it (its notices will reach no session; the successor continues it from its branch or abandons it). For a context that cannot wait, or the owner asking',
+      },
+      {
+        name: 'keep-lease',
+        type: 'boolean',
+        description: 'Write the note only, and keep driving the run (the owner asked for a note)',
+      },
+      CONTEXT_PERCENT,
+      SESSION,
+      HOST,
+    ],
     run: (input, ctx) =>
       guarded(() => {
         const p = project(ctx);
         const run = runOf(p, input, ctx);
+        const keep = input['keep-lease'] === true;
         const state = run.checkpoint();
+        const waiting = reportingHere(state, run.host).map((/** @type {any} */ d) => d.dispatch);
+        if (waiting.length && !keep && input.now !== true) {
+          throw new Refusal(
+            'draining',
+            `${waiting.join(', ')} still report to this session, and no successor would hear of them: start nothing new, process their completions, then hitld handover (or --now)`,
+            { reporting_here: waiting },
+          );
+        }
+        const due = dueFor(run, p.policy, input);
         const h = handOver(state, readLedger(p.store).events);
+        const sessions = state.in_flight
+          .filter((/** @type {any} */ d) => d.mode === 'interactive')
+          .map((/** @type {any} */ d) => d.dispatch);
         let next = '';
         try {
           next = readyQueue(project(ctx), ctx)
@@ -1277,14 +1525,41 @@ export const commands = [
           '',
           h.text,
           `Ready next: ${next || 'none'}.`,
+          ...(due.due ? [`Why now: ${due.reasons.join('; ')}.`] : []),
+          ...(waiting.length && !keep
+            ? [
+                `Reported to the previous session only: ${waiting.join(', ')}. Their notices reach no session; resume decides from their branches.`,
+              ]
+            : []),
           '',
           'To continue, in a fresh session: the orchestrate skill, which begins with',
-          'hitld run resume --live <the dispatch IDs Claude Code still shows running, or none>.',
+          `hitld run resume --live <those of ${sessions.join(', ') || 'none'} still running, or none>.`,
+          keep
+            ? 'The session that wrote this note still holds the lease.'
+            : 'The lease is released: the successor takes it without --force.',
           '',
         ].join('\n');
-        const key = `orchestrator/handover-${h.run}-${h.checkpoint}.md`;
+        const key = handoverKey(h.run, h.checkpoint);
         p.store.write(key, text);
-        return { ok: true, file: join(p.store.root, key), text };
+        const released = keep
+          ? null
+          : releaseLease(p.store, {
+              session: run.session,
+              host: run.host,
+              kept: p.policy.run?.checkpoints_kept,
+              reason: 'handover',
+              notes: due.reasons.join('; ') || (input.now === true ? 'at once' : 'asked'),
+            }).released;
+        return {
+          ok: true,
+          file: join(p.store.root, key),
+          text,
+          released,
+          handover: due,
+          next: keep
+            ? 'give the owner the text and the file; this session still drives the run'
+            : 'stop driving the run: tell the chief of staff the file (when you are both, the owner); a successor session resumes from it with hitld run resume',
+        };
       }),
   },
   {

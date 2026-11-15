@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../lib/store/store.mjs';
 import { readTrustEvents } from '../lib/rights/trust.mjs';
+import { readLedger } from '../lib/ledger/ledger.mjs';
 import { SURFACE_PATHS } from '../lib/release/surface.mjs';
 import { matchesAny } from '../lib/precedent/glob.mjs';
 import { MERGE_SETTINGS, commitAll, fixtureGit } from '../lib/eval/orchestrator-fixtures.mjs';
@@ -199,6 +200,103 @@ test('owner mode: only presented branches can be approved, and one that moved si
   assert.equal(git(c.root, 'rev-parse', 'main'), before);
   const both = await c.hitld(['merge', '--all', '--only', 'W-1']);
   assert.equal(both.result.error, 'usage');
+});
+
+test('owner mode with a chief of staff: it records the answer against the presentation, and the holder applies exactly that', async () => {
+  const { c, store } = await ownerConsumer('owner', { green: true });
+  const cos = { env: { HITLD_SESSION: 'cos' } };
+  const early = await c.hitld(['merge', 'approve', '--all'], cos);
+  assert.equal(early.result.error, 'not_presented', 'nothing presented yet');
+  const shown = await c.hitld(['merge']);
+  const tested = shown.result.tested;
+  // Without a selection it shows the presentation, for the chief of staff to put to the owner.
+  const view = await c.hitld(['merge', 'approve'], cos);
+  assert.equal(view.result.question, shown.result.question);
+  assert.equal(view.result.presented.length, 2);
+  assert.equal(
+    (await c.hitld(['merge', 'approve', '--only', 'W-9'], cos)).result.error,
+    'not_presented',
+  );
+  const ok = await c.hitld(['merge', 'approve', '--all'], cos);
+  assert.equal(ok.exit, 0, JSON.stringify(ok.result));
+  assert.equal(ok.result.as_presented, true);
+  assert.equal((await c.hitld(['merge', 'approve', '--all'], cos)).result.already, true);
+  assert.equal(
+    readTrustEvents(store).filter((e) => e.kind === 'merge-approval').length,
+    0,
+    'no trust event until it is applied',
+  );
+
+  // The holder's plain hitld merge applies the recorded answer: the batch at its tested commit.
+  const r = await c.hitld(['merge']);
+  assert.equal(r.exit, 0, JSON.stringify(r.result));
+  assert.deepEqual(r.result.merged, ['W-1', 'W-2']);
+  assert.equal(r.result.as_presented, true);
+  assert.equal(r.result.approved_by, 'cos');
+  assert.equal(git(c.root, 'rev-parse', 'main'), tested);
+  const trust = readTrustEvents(store).filter((e) => e.kind === 'merge-approval');
+  assert.deepEqual(
+    trust.map((e) => e.subject),
+    ['W-1', 'W-2'],
+    'one trust event per approved branch, written once',
+  );
+  const approvals = readLedger(store).events.filter((e) => e.event === 'merge-approved');
+  assert.equal(approvals.length, 1);
+  assert.equal(approvals[0].by, 'cos');
+  // Applied once: nothing is left to merge, and the old answer matches no presentation.
+  const again = await c.hitld(['merge']);
+  assert.deepEqual(again.result.merged, []);
+});
+
+test('owner mode with a chief of staff: a list is applied as a list; an answer to code that moved is not applied', async () => {
+  const { c, branches, store } = await ownerConsumer('owner', { green: true });
+  const cos = { env: { HITLD_SESSION: 'cos' } };
+  await c.hitld(['merge']);
+  await c.hitld(['merge', 'approve', '--only', 'W-1'], cos);
+  const r = await c.hitld(['merge']);
+  assert.deepEqual(r.result.merged, ['W-1']);
+  assert.equal(r.result.as_presented, false);
+
+  // A fresh presentation of W-2, approved, then W-2 moves before the holder applies it.
+  const shown = await c.hitld(['merge']);
+  assert.deepEqual(
+    shown.result.presented.map((/** @type {any} */ b) => b.item),
+    ['W-2'],
+  );
+  await c.hitld(['merge', 'approve', '--all'], cos);
+  git(c.root, 'switch', '-q', branches['W-2']);
+  put(c.root, { 'src/other.js': 'export const one = 1;\nexport const three = 3;\n' });
+  git(c.root, 'commit', '-q', '-am', 'later');
+  git(c.root, 'switch', '-q', 'main');
+  const before = git(c.root, 'rev-parse', 'main');
+  const stale = await c.hitld(['merge']);
+  assert.equal(stale.exit, 0, JSON.stringify(stale.result));
+  assert.deepEqual(stale.result.merged, []);
+  assert.deepEqual(stale.result.approval_refused.moved, [branches['W-2']]);
+  assert.equal(git(c.root, 'rev-parse', 'main'), before);
+  assert.equal(stale.result.reused, false, 'the moved branch is checked again and presented anew');
+  // The new presentation is what the owner answers now.
+  const late = await c.hitld(['merge', 'approve', '--all'], cos);
+  assert.equal(late.exit, 0, 'the new presentation can be approved');
+  assert.equal(
+    readTrustEvents(store).filter((e) => e.kind === 'merge-approval').length,
+    1,
+    'only the applied approval counted',
+  );
+  const executor = await c.hitld(['merge', 'approve', '--all'], {
+    env: { HITLD_SESSION: 'x', HITLD_DISPATCH: 'D-1' },
+  });
+  assert.equal(executor.result.error, 'not_permitted');
+});
+
+test('owner mode: an approval in the holder session is recorded once in the ledger too', async () => {
+  const { c, store } = await ownerConsumer('owner', { green: true });
+  await c.hitld(['merge']);
+  await c.hitld(['merge', '--all']);
+  const approvals = readLedger(store).events.filter((e) => e.event === 'merge-approved');
+  assert.equal(approvals.length, 1);
+  assert.deepEqual(approvals[0].branches.length, 2);
+  assert.equal(approvals[0].by, 'test-session');
 });
 
 test('owner mode: an executor is refused, listing and approving alike', async () => {

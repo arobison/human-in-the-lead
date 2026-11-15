@@ -22,6 +22,7 @@
 
 import { isAbsolute, relative, resolve } from 'node:path';
 import { loadPolicy, policyDefaults } from '../policy/policy.mjs';
+import { effectiveAttention } from './attention.mjs';
 import { loadSettingsFile } from './files.mjs';
 
 /**
@@ -44,6 +45,7 @@ import { loadSettingsFile } from './files.mjs';
  * @typedef {object} Effective
  * @property {Entry[]} values
  * @property {number} cap the effective executor cap
+ * @property {import('./attention.mjs').AttentionSettings} attention the effective attention budget
  * @property {Record<string, any>} policy the project policy with the layered values in place
  * @property {MovedWarning[]} warnings
  * @property {ValidationError[]} errors
@@ -456,6 +458,8 @@ export function effectiveSettings(l) {
   const root = worktreeRootOf(l, errors);
   const secrets = secretProviderOf(l, defaults);
   values.push(ports, root, secrets);
+  const attention = effectiveAttention(l, errors);
+  values.push(...attention.entries);
 
   const policy = structuredClone(l.project);
   const valueOf = (/** @type {string} */ key) => values.find((e) => e.key === key)?.value;
@@ -477,6 +481,7 @@ export function effectiveSettings(l) {
   return {
     values,
     cap: /** @type {number} */ (cap.value),
+    attention: attention.attention,
     policy,
     warnings: movedKeyWarnings(l),
     errors,
@@ -544,7 +549,7 @@ export function loadEffectivePolicy(options = {}) {
       ...movedKeyWarnings(layers, { person: person.path, machine: machine.path }),
       ...renamedWarnings(loaded.renamed, person.renamed, machine.renamed),
     ],
-    settings: { cap: eff.cap, values: eff.values },
+    settings: { cap: eff.cap, attention: eff.attention, values: eff.values },
     layers: { person: person.data, machine: machine.data },
     files,
   };

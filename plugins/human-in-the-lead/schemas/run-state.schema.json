@@ -98,7 +98,22 @@
       "properties": {
         "host": { "$ref": "common#/$defs/text" },
         "session": { "$ref": "common#/$defs/text" },
-        "renewed_at": { "$ref": "common#/$defs/timestamp" }
+        "renewed_at": { "$ref": "common#/$defs/timestamp" },
+        "harness_ref": {
+          "description": "The session's own reference in its harness, where it gave one: where wakes for the run are sent.",
+          "$ref": "common#/$defs/text"
+        },
+        "released": {
+          "description": "Set when the holder handed over or was retired: a successor takes the lease without waiting for it to expire, and the holder can no longer record.",
+          "type": "object",
+          "properties": {
+            "at": { "$ref": "common#/$defs/timestamp" },
+            "reason": { "enum": ["handover", "ended"] },
+            "by": { "$ref": "common#/$defs/text" }
+          },
+          "required": ["at", "reason", "by"],
+          "additionalProperties": false
+        }
       },
       "required": ["host", "session", "renewed_at"],
       "additionalProperties": false
@@ -150,6 +165,10 @@
         "item": { "$ref": "common#/$defs/id" },
         "role": { "$ref": "common#/$defs/name" },
         "tier": { "$ref": "common#/$defs/tier" },
+        "mode": {
+          "description": "For tier 3: headless or interactive.",
+          "enum": ["headless", "interactive"]
+        },
         "harness": { "type": ["string", "null"] },
         "harness_ref": {
           "description": "The harness's reference; null until the harness has accepted the dispatch.",

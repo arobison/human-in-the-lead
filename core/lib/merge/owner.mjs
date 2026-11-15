@@ -11,8 +11,11 @@
 //                passed, the files changed against touches, sensitive paths hit, the
 //                public-surface delta and the deviations found; a directed read only where a
 //                trigger of design 6.6 fires; and one question for the batch
-//   4. approve   the owner's answer: all, or a list. All, with main unmoved, moves main to the
-//                tested commit; a list is checked again on its own, since its stack differs
+//   4. approve   the owner's answer: all, or a list, recorded as a merge-approved ledger event
+//                bound to the presentation (by the session the owner said it in, which may be the
+//                chief of staff's) and applied by the session holding the lease. All, with main
+//                unmoved, moves main to the tested commit; a list is checked again on its own,
+//                since its stack differs
 //   5. record    each approval is a trust event (latency, approved as presented or not), and a
 //                later revert another; after a run of clean merges in an area, the queue is
 //                proposed there, and the owner decides
@@ -392,6 +395,49 @@ export function readPresentation(store) {
 }
 
 /**
+ * The presented branches an approval picks out, checked: `all` is the whole batch; otherwise each
+ * name must pick out one presented branch. A branch that moved since it was checked is refused,
+ * since the owner was shown other code. Used both when the approval is recorded and when it is
+ * applied, so the two cannot disagree.
+ * @param {{ repoRoot: string, presentation: Presentation, all?: boolean, names?: string[],
+ *   events?: Record<string, any>[] }} o
+ * @returns {{ chosen: Evidence[], refused: { unknown: string[], ambiguous: string[], mismatched: string[], moved: string[] } | null }}
+ */
+export function selectPresented(o) {
+  const p = o.presentation;
+  const names = o.names ?? [];
+  const pick = o.all
+    ? { chosen: p.branches, unknown: [], ambiguous: [], mismatched: [] }
+    : chooseNamed(p.branches, names, o.events ?? []);
+  const unknown = !o.all && !names.length ? ['(none named)'] : pick.unknown;
+  const moved = pick.chosen
+    .filter((b) => branchTip(o.repoRoot, b.branch) !== b.branch_sha)
+    .map((b) => b.branch);
+  const refused =
+    unknown.length || pick.ambiguous.length || pick.mismatched.length || moved.length
+      ? { unknown, ambiguous: pick.ambiguous, mismatched: pick.mismatched, moved }
+      : null;
+  return { chosen: pick.chosen, refused };
+}
+
+/**
+ * The owner's recorded approval of a presentation that has not been applied yet: the last
+ * merge-approved ledger event naming this presentation (its time and tested commit). The
+ * chief of staff records it from the owner's own message; the session holding the lease applies
+ * it with hitld merge. Applying it clears the presentation, so an approval is applied once.
+ * @param {Record<string, any>[]} events @param {Presentation | null} p
+ * @returns {Record<string, any> | null}
+ */
+export function recordedApproval(events, p) {
+  if (!p) return null;
+  return (
+    events.findLast(
+      (e) => e.event === 'merge-approved' && e.presented_at === p.at && e.commit === p.commit,
+    ) ?? null
+  );
+}
+
+/**
  * Step 4: merge what the owner approved. `all` is the whole batch as presented; otherwise each
  * name must pick out one presented branch. A branch that moved since it was checked is refused:
  * the owner was shown other code. All, with main unmoved, moves main to the held, tested commit
@@ -406,21 +452,9 @@ export function readPresentation(store) {
 export async function approvePresented(o) {
   const p = o.presentation;
   const main = o.settings.mainBranch;
-  const names = o.names ?? [];
-  const pick = o.all
-    ? { chosen: p.branches, unknown: [], ambiguous: [], mismatched: [] }
-    : chooseNamed(p.branches, names, o.events ?? []);
-  const unknown = !o.all && !names.length ? ['(none named)'] : pick.unknown;
-  const moved = pick.chosen
-    .filter((b) => branchTip(o.repoRoot, b.branch) !== b.branch_sha)
-    .map((b) => b.branch);
-  if (unknown.length || pick.ambiguous.length || pick.mismatched.length || moved.length) {
-    return {
-      refused: { unknown, ambiguous: pick.ambiguous, mismatched: pick.mismatched, moved },
-      result: null,
-      as_presented: false,
-      rechecked: false,
-    };
+  const pick = selectPresented(o);
+  if (pick.refused) {
+    return { refused: pick.refused, result: null, as_presented: false, rechecked: false };
   }
   const asPresented = pick.chosen.length === p.branches.length;
   if (asPresented && branchTip(o.repoRoot, main) === p.base) {

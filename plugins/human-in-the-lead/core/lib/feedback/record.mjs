@@ -144,6 +144,8 @@ const LOOP_OF = Object.freeze({
   reverted: 'merge',
   'run-started': 'run continuity',
   'lease-taken': 'run continuity',
+  'lease-released': 'run continuity',
+  'merge-approved': 'merge',
 });
 
 /** @param {Record<string, any>} e */

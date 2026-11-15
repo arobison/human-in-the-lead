@@ -1,6 +1,6 @@
 // Actions for piece (h)'s scenarios: sizing, the dispatch-refill cycle against the profile's fake
-// adapter, the merge queue on a fixture repository, and the orchestrator's commands in a fixture
-// consumer (for kill and resume). Every repository is built inside the sandbox; the private store
+// adapter, the merge queue on a fixture repository, and the orchestrator's and chief of staff's
+// commands in a fixture consumer (for kill and resume, and hand-over). Every repository is built inside the sandbox; the private store
 // sits beside it, never inside it.
 
 import { join } from 'node:path';
@@ -233,6 +233,11 @@ export const actions = {
     input: {
       type: 'object',
       properties: {
+        policy: {
+          type: 'object',
+          description:
+            "Policy sections over the fixture's own, such as orchestrator or merge (merged at the top level)",
+        },
         setup: {
           type: 'boolean',
           description:
@@ -242,7 +247,9 @@ export const actions = {
       additionalProperties: false,
     },
     run: (input, ctx) => {
-      const root = buildConsumer(join(ctx.sandbox, 'consumer'));
+      const root = buildConsumer(join(ctx.sandbox, 'consumer'), {
+        ...(input.policy ? { policy: input.policy } : {}),
+      });
       const env = {
         XDG_DATA_HOME: join(ctx.sandbox, 'data'),
         XDG_CONFIG_HOME: join(ctx.sandbox, 'config'),

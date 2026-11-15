@@ -38,9 +38,11 @@ function currentRun(store) {
  * @param {'asked' | 'sent' | 'answered'} event
  * @param {string} decision
  * @param {string} at ISO 8601
+ * @param {{ delivery?: 'interrupt' | 'digest', via?: 'default' }} [extra] on sent: how it was
+ *   sent; on answered: that a default took it
  * @returns {{ event: LedgerEntry, appended: boolean }} the event now in the ledger
  */
-export function recordDecisionEvent(store, event, decision, at) {
+export function recordDecisionEvent(store, event, decision, at, extra = {}) {
   const existing = readLedger(store).events.find(
     (e) => e.event === event && e.decision === decision && e.corrects === undefined,
   );
@@ -51,6 +53,8 @@ export function recordDecisionEvent(store, event, decision, at) {
     event,
     decision,
     ...(run ? { run } : {}),
+    ...(extra.delivery ? { delivery: extra.delivery } : {}),
+    ...(extra.via ? { via: extra.via } : {}),
     at,
   });
   return { event: written, appended };
@@ -68,12 +72,44 @@ export function decisionTimes(store, decision) {
 }
 
 /**
- * The decision answered last, for a rating given right after an answer.
+ * What the ledger says of each decision's life: when it was asked, first shown and how, and when
+ * it was answered and by whom.
+ * @param {PrivateStore} store
+ * @returns {Map<string, { asked: string | null, sent: string | null, delivery: 'interrupt' | 'digest' | null, answered: string | null, via: string | null }>}
+ */
+export function decisionLives(store) {
+  /** @type {Map<string, { asked: string | null, sent: string | null, delivery: 'interrupt' | 'digest' | null, answered: string | null, via: string | null }>} */
+  const lives = new Map();
+  for (const e of effectiveEvents(readLedger(store).events)) {
+    if (e.decision === undefined || !['asked', 'sent', 'answered'].includes(e.event)) continue;
+    const life = lives.get(e.decision) ?? {
+      asked: null,
+      sent: null,
+      delivery: null,
+      answered: null,
+      via: null,
+    };
+    lives.set(e.decision, life);
+    if (e.event === 'asked') life.asked ??= e.at;
+    else if (e.event === 'sent' && life.sent === null) {
+      life.sent = e.at;
+      life.delivery = e.delivery ?? 'digest';
+    } else if (e.event === 'answered' && life.answered === null) {
+      life.answered = e.at;
+      life.via = e.via ?? null;
+    }
+  }
+  return lives;
+}
+
+/**
+ * The decision the person answered last, for a rating given right after an answer. A decision
+ * that took its default was not answered by anyone, so it is not rated.
  * @param {PrivateStore} store @returns {string | null}
  */
 export function latestAnswered(store) {
   const events = effectiveEvents(readLedger(store).events);
-  return events.findLast((e) => e.event === 'answered')?.decision ?? null;
+  return events.findLast((e) => e.event === 'answered' && e.via === undefined)?.decision ?? null;
 }
 
 /**

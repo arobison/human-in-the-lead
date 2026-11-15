@@ -24,7 +24,8 @@ human-in-the-lead/
     harness/                      # layer 3: claude-code/ (built); copilot and others planned
   schemas/                        # versioned JSON Schemas
   skills/                         # layer 2: SKILL.md sources with portable front matter only
-    orchestrate/ execute/         # built; the rest of the design's skills are planned
+    chief-of-staff/ orchestrate/  # built; the rest of the design's skills are planned
+    execute/
   agents/                         # agent definitions beyond the executors (the generalizer),
                                   # portable front matter only; the build adds the harness's
   templates/                      # AGENTS.contract.md, policy.json and the item, decision and
@@ -54,6 +55,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
 | `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection |
+| `hitld run status / retire` and `hitld handover` | Read who holds the run lease and where wakes go; release the lease of a session that ended; write the hand-over and give up the lease ([part 13](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)) |
 | `hitld ledger append / tail / in-flight / summary` | Ledger operations; `in-flight` for restart; `summary` for the run report |
 | `hitld rights who --file <question.json>` | Which decider, by which rule |
 | `hitld precedent match <question.json>` | Candidate precedents |
@@ -75,7 +77,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
-Built as well: `run`, `env`, `handover`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, and `merge --all` and `merge --only` for owner merge mode. `hitld --help` lists every built command; this table is the design, not the list.
+Built as well: `run`, `env`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, and for owner merge mode `merge --all`, `merge --only` and `merge approve`. `hitld --help` lists every built command; this table is the design, not the list.
 
 ## 16.3 How a consuming project gets the plugin
 
@@ -157,6 +159,8 @@ The plugin's **public interface** is: the executor contract; the report shape; t
 
 **While the version is 0.y.z** (before 1.0), a minor release may break formats or commands, and ships the migration for whatever it changes: `hitld data migrate` for data files, `hitld work migrate` for the tracker format. Patch releases never break. Minor and major releases are the owner's call; a patch release may follow a precedent the owner confirmed. The first tag is `v0.1.0`. The rules below apply from 1.0.
 
+**What a 0.y.z release still keeps.** Data people keep (tracker files, settings, the ledger, private-store records) follows the rename rule below even before 1.0: an old name is read for one minor release, with a warning, and the release ships its migration. Output (error codes, the `hitld` command's JSON and text, generated pages) may change in any minor release with no fallback; the release notes list each change.
+
 Compatibility rules for data:
 
 - **Every data file and ledger line carries `schema_version`.**
@@ -165,6 +169,7 @@ Compatibility rules for data:
 - **The ledger is never rewritten.** It is append-only, so readers handle every schema version that appears in it, and every name it ever used (HITLD-82: `claimed`, `question`, `released`, `outcome` and `handle` are read as `started`, `asked`, `unclaimed`, `result` and `harness_ref`).
 - **A rename is read under the old name for one minor release, with a warning**, wherever the data lives outside the repository: private-store records (feedback, run state, the environment manager's holders file), eval results and baselines, precedent files, the person and machine files (`hitld config migrate` rewrites those two) and `policy.json`. Tracker files move with `hitld work migrate`; claim branches, file history and release tags from before are read in the new names. `hitld install` rewrites the contract block.
 - **No writing ahead.** A release refuses to write a file whose `schema_version` is newer than it knows, so a machine on an older pin cannot corrupt data written by a newer one (relevant when two machines exchange bundles).
+- **The person and machine files follow one rule, because every project on the machine reads them, each with the release it is pinned to.** A reader accepts a `schema_version` at or below its own and refuses a newer one, with a message that says to upgrade human-in-the-lead and leaves the file as it is. A writer stamps the lowest version that expresses the file's content, so a file that uses nothing new stays readable by the older release a project may still be pinned to. `hitld config explain` warns when a project pinned on this machine cannot read the file as it is, naming the project, the version it reads and the release that reads more. It finds the pin in the project's `.claude/settings.json` (a tag, or a checkout whose own schemas say what it reads) and, for every other project with a private store, the release its last run started with.
 - **`policy.json` migrations** add new settings with their defaults and bounds; they never change a value the owner set.
 
 ### Release mechanics

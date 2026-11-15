@@ -162,7 +162,7 @@ test('a key in the wrong layer is refused with its home named', () => {
 
 test('a newer schema_version is refused', () => {
   const { env } = home();
-  plant(env, 'person', { schema_version: 2 });
+  plant(env, 'person', { schema_version: 3 });
   assert.match(loadSettingsFile('person', { env }).errors[0].message, /newer than this release/);
 });
 

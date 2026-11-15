@@ -20,7 +20,7 @@
       "default": { "runs_as": "background", "model": "small", "effort": "high" }
     },
     "3": {
-      "description": "Its own session: design-heavy, risky or long work, or work the owner reviews in person.",
+      "description": "Its own session: design-heavy, risky or long work.",
       "$ref": "#/$defs/tier",
       "default": { "runs_as": "session", "model": "large", "effort": "high" }
     }

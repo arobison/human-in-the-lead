@@ -56,10 +56,17 @@ export function applyEvent(state, e) {
       };
       state.scope = e.scope ? structuredClone(e.scope) : {};
       state.decisions_answered = [];
-      state.lease = { host: e.host, session: e.session, renewed_at: e.at };
+      state.lease = leaseOf(e);
       break;
     case 'lease-taken':
-      state.lease = { host: e.host, session: e.session, renewed_at: e.at };
+      state.lease = leaseOf(e);
+      break;
+    case 'lease-released':
+      // Only the holder's lease is released: an event about a session that no longer holds it
+      // (it was taken over meanwhile) changes nothing.
+      if (state.lease && state.lease.session === e.session && state.lease.host === e.host) {
+        state.lease.released = { at: e.at, reason: e.reason, by: e.by };
+      }
       break;
     case 'asked':
       if (!state.decisions_open.some((/** @type {any} */ q) => q.decision === e.decision)) {
@@ -102,6 +109,14 @@ export function applyEvent(state, e) {
   state.ledger_position = e.id;
   return state;
 }
+
+/** A fresh lease from a run-started or lease-taken event. @param {LedgerEntry} e */
+const leaseOf = (e) => ({
+  host: e.host,
+  session: e.session,
+  renewed_at: e.at,
+  ...(e.harness_ref !== undefined ? { harness_ref: e.harness_ref } : {}),
+});
 
 /**
  * Apply the ledger events after the state's position. Nothing is applied twice: events up to and

@@ -33,6 +33,7 @@ import { schemas } from '../schema/registry.mjs';
 import { mergePolicy, ownershipProblem, readTrustedFile } from '../policy/policy.mjs';
 import { executorSignal } from '../cli/executor.mjs';
 import { renameSettings } from './renamed.mjs';
+import { newerRefusal, stampLowest } from './versions.mjs';
 
 /**
  * @typedef {import('../schema/validate.mjs').ValidationError} ValidationError
@@ -54,6 +55,9 @@ import { renameSettings } from './renamed.mjs';
  * @property {ValidationError[]} errors
  * @property {import('./renamed.mjs').RenamedSetting[]} [renamed] names from before HITLD-82, read
  *   under the new ones
+ * @property {{ found: number, known: number }} [newer] set when the file was written by a newer
+ *   release than this one reads, and so was refused (design part 16.5)
+ * @property {number} [stamped] the file's own schema_version, when it was read
  */
 
 export const SETTINGS_KINDS = /** @type {const} */ (['person', 'machine']);
@@ -307,6 +311,16 @@ export function loadSettingsFile(kind, options = {}) {
     });
     return out;
   }
+  // A reader accepts its own schema_version and older ones, and refuses a newer one without
+  // reading anything else from the file (design part 16.5).
+  const newer = newerRefusal(kind, data, { known: options.registry?.currentVersion(kind) });
+  if (newer) {
+    out.errors.push({ path: `${loc.path}: schema_version`, message: newer.message });
+    out.newer = { found: newer.found, known: newer.known };
+    return out;
+  }
+  const own = /** @type {Record<string, unknown> | null} */ (data)?.schema_version;
+  if (Number.isInteger(own)) out.stamped = /** @type {number} */ (own);
   // Names from before HITLD-82 are read under the new ones, with a warning, until the next minor.
   const current = renameSettings(kind, data);
   out.renamed = current.renamed;
@@ -335,7 +349,8 @@ export function writerRefusal(env, cwd) {
 
 /**
  * Validate and write a settings file, replacing it atomically with mode 600 in directories created
- * with mode 700. With merge, objects in `data` merge key by key into the current file and arrays
+ * with mode 700. The file is stamped with the lowest schema_version that expresses its content
+ * (design part 16.5), and a file that a newer release wrote is never replaced. With merge, objects in `data` merge key by key into the current file and arrays
  * replace. Refused when the file or its directories would not pass trusted loading, or when the
  * location is inside a git working tree.
  * @param {SettingsKind} kind
@@ -365,6 +380,10 @@ export function writeSettingsFile(kind, data, options = {}) {
   }
   let next = data;
   if (existing) {
+    const there = loadSettingsFile(kind, { ...options, registry });
+    if (there.newer) {
+      throw new Error(`${loc.path} ${there.errors[0].message}; nothing was written`);
+    }
     if (existing.isSymbolicLink()) {
       throw new Error(
         `${loc.path} is a symbolic link; not replaced, so the link stays. Edit its target, or remove the link and write again`,
@@ -387,6 +406,7 @@ export function writeSettingsFile(kind, data, options = {}) {
   if (errors.length) {
     throw new Error(`refused: ${errors.map((e) => `${e.path} ${e.message}`).join('; ')}`);
   }
+  next = stampLowest(kind, /** @type {Record<string, any>} */ (next));
   // Trust boundary: the directory comes from the current user's own XDG variables or home, never
   // from a repository; it is checked below before anything is written into it.
   mkdirSync(loc.dir, { recursive: true, mode: 0o700 });
