@@ -77,7 +77,7 @@ A release goes through a release pull request ([design 16.5, Release mechanics](
 4. The release workflow starts on that push to main, checks the record (`core/bin/release-check.mjs`), and waits: approve it from the run's page (Actions → Release → the run → Review deployments → check `release` → Approve and deploy). It then tags the squash commit, builds, attests provenance and drafts the GitHub release.
 5. The owner publishes the draft (Releases → the draft → Edit → Publish release).
 
-The check refuses a record whose tag exists, whose version is not the one `release propose` gives at the merged commit's parent, or that did not arrive through a pull request. A release at a version above the proposal (`--version`) is tagged by hand: `hitld release make` on main at a terminal, then `git push origin main <tag>`; the same workflow drafts it on the tag push.
+The release item for a version is the work item whose `release` key is that version (`release: 0.1.0-rc.1`); it needs every item and milestone the release waits for. `release make` and the check refuse while any of them is not done or dropped. The check also refuses a record whose tag exists, whose version is not the one `release propose` gives at the merged commit's parent, or that did not arrive through a pull request. A release at a version above the proposal (`--version`) is tagged by hand: `hitld release make` on main at a terminal, then `git push origin main <tag>`; the same workflow drafts it on the tag push.
 
 ### Repository settings for releases
 

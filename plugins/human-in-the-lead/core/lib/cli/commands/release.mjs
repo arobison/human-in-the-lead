@@ -23,7 +23,7 @@ const itemArg = {
   name: 'item',
   type: 'string',
   description:
-    'The release item: its gates (milestones it needs that are not Done) are the ones that count',
+    'The release item, when it is not the work item whose release key is this version: everything it needs that is not done or dropped is a gate. Its release key, if it has one, must be this version',
 };
 
 /** The top-level fields `release propose` prints, for the interface delta. */
@@ -44,6 +44,7 @@ const PROPOSAL_FIELDS = [
   'items',
   'notes',
   'missing_release_note',
+  'release_item',
   'gates',
   'milestones',
   'unreleased',

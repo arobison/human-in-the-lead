@@ -117,6 +117,11 @@ export const ERROR_CODES = Object.freeze({
   'dirty-tree': 'The run, or the checkout, has uncommitted changes.',
   'not-on-main': "The checkout is not on the main branch, or the run's commit is not on it.",
 
+  // Releases
+  'release-gates-open':
+    'The release item for this version still needs an item or milestone that is not done or dropped.',
+  'release-item-mismatch': 'The release item named is the release item for another version.',
+
   // Security and quarantine
   security: 'The security command stopped on an error; the message says what.',
   scanner: 'A scanner failed.',

@@ -17,6 +17,7 @@
 //              once the owner approves the run (core/lib/release/check.mjs).
 
 import { existsSync, rmSync } from 'node:fs';
+import { CodedError } from '../cli/errors.mjs';
 import { renderItem } from '../tracker/files/frontmatter.mjs';
 import { RELEASE_KEYS, formatDeltaEntry, releasesDir } from '../tracker/files/releases.mjs';
 import { createExclusive, insidePath, mkdirInside } from '../tracker/files/safe.mjs';
@@ -62,7 +63,7 @@ export async function makeRelease(
   if (version !== undefined && pre !== undefined)
     throw new Error('give --version or --pre, not both');
   if (onto !== undefined) checkNewBranch(root, onto, layout.mainBranch);
-  const p = await proposeRelease(t, { pre, item });
+  const p = await proposeRelease(t, { pre, item, version });
   const made = version ?? p.version;
   if (!SEMVER.test(made)) throw new Error(`"${made}" is not a semantic version`);
   const bump = bumpBetween(p.base_version, made);
@@ -76,12 +77,7 @@ export async function makeRelease(
   if (git(root, ['tag', '--list', tag]).trim()) throw new Error(`tag ${tag} already exists`);
   const path = `${releasesDir(layout)}/${tag}.md`;
   if (existsSync(insidePath(root, path))) throw new Error(`${path} already exists`);
-  const gates = item ? p.gates.filter((g) => g.item === item) : [];
-  if (gates.length) {
-    throw new Error(
-      `the release waits for its gates: ${gates.map((g) => `${g.milestone} ${g.title} (${g.state}${g.check_due ? ', check due' : ''})`).join('; ')}`,
-    );
-  }
+  if (p.release_item) assertGatesMet(p);
   const data = {
     id: tag,
     version: made,
@@ -157,6 +153,23 @@ export async function makeRelease(
     next: `Nothing was pushed. When ready: git push origin ${layout.mainBranch} ${tag}`,
   };
 }
+
+/**
+ * Refuse a release whose release item still waits for something.
+ * @param {Pick<Proposal, 'release_item' | 'gates'>} p
+ */
+export function assertGatesMet(p) {
+  if (p.gates.length) {
+    throw new CodedError(
+      'release-gates-open',
+      `the release waits for its gates: ${describeGates(p.gates)}`,
+    );
+  }
+}
+
+/** @param {import('./propose.mjs').Gate[]} gates */
+export const describeGates = (gates) =>
+  gates.map((g) => `${g.id} ${g.title} (${g.state}${g.check_due ? ', check due' : ''})`).join('; ');
 
 /**
  * The annotated tag's message: the tag, then the notes. The release workflow writes the same
