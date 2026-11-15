@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | Draft for the owner's review |
+| **Status** | Decided by the owner (2026-11-15): every question in section 17 is answered. Not built yet. |
 | **Date** | 2026-11-15 |
 | **Scope** | Running HITLd on a hosted tracker (Linear, Jira, GitHub Issues): mapping a team's workflow onto HITLd's model, what lives where, the transport, claims and closing, capabilities per backend, untrusted text, import and switch, the mirror out, migration between backends, evals, and the milestone this design serves |
 | **Builds on** | [0001](0001-human-in-the-lead.md), especially parts [3](0001-human-in-the-lead/03-data-model.md), [4](0001-human-in-the-lead/04-decision-rights.md), [5](0001-human-in-the-lead/05-execution.md), [10](0001-human-in-the-lead/10-security.md), [14](0001-human-in-the-lead/14-integration.md), [15](0001-human-in-the-lead/15-architecture.md), [16](0001-human-in-the-lead/16-packaging.md) and [21](0001-human-in-the-lead/21-scope.md) |
-| **Reading order** | Sections 1 to 3 settle the shape. Sections 4 to 9 are the mechanics. Sections 10 to 13 cover the first slice, the mirror, migration and evals. Section 16 is the milestone. Open questions are in section 17. |
+| **Reading order** | Sections 1 to 3 settle the shape. Sections 4 to 9 are the mechanics. Sections 10 to 13 cover the first slice, the mirror, migration and evals. Section 16 is the milestone. The owner's decisions are in section 17. |
 
 Names follow the rename pass (HITLD-82) and the tracker structure change (HITLD-90): the stored lifecycle key is `state`, with the values `proposed`, `planned`, `in-progress`, `done` and `dropped`; the claim is `claimed_by`; items carry `release_note` and `tier_override`; external items carry `waiting_on`; an abandoned claim is released with `hitld work unclaim`; milestones have `constraints` and `contributions`; initiatives retire into milestones; opportunities are projects being shaped. Some parts of 0001 still show the older names.
 
@@ -462,74 +462,102 @@ Constraints of the milestone, in dependency order where one needs another:
 
 Contributions, which add to the outcome but are not needed for it: the one-way mirror out ([11](#11-the-one-way-mirror-out)); migration from files to hosted ([12](#12-migration-between-backends)); views from the snapshot on the dashboard.
 
-## 17. Open questions for the owner
+## 17. Questions, decided by the owner
 
 ### Q1. Which sync path backs the full backends?
+
+**Decided by the owner (2026-11-15): the core path; the agent path serves import and switch, and a read-only fetch where no token is given.**
 
 - **Recommend: the core path** (the tracker's API with a token injected by `hitld env exec`), for the reasons in [7.4](#74-recommendation). The agent path serves import and switch, and a read-only fetch where no token is given.
 - **Alternative: both paths for full backends**, the agent path writing too. No token for HITLd to hold, at the cost of nondeterministic sync, no headless or CI runs, model tokens on every sync, and an agent that reads tracker text holding a write tool.
 
 ### Q2. Where do projects live?
 
+**Decided by the owner (2026-11-15): repository files, each linked to one grouping in the tracker.**
+
 - **Recommend: in repository files, each linked to one grouping in the tracker** (a Linear project, a Jira epic, a GitHub parent issue). The project's shaping fields, appetite and bet decision are HITLd's planning record; its items are read from the linked grouping.
 - **Alternative: in the tracker**, with shaping text in the description and numbers in custom fields where they exist. One place for the team, but Linear cannot hold the numbers, and the bet would not be checkable.
 
 ### Q3. How does a hosted item need a repository-side decision?
+
+**Decided by the owner (2026-11-15): a stub issue in the tracker that the hosted item's blocked-by relation points at.**
 
 - **Recommend: a stub issue in the tracker** ("Decision W-412", a decision label, a link, no content), which the hosted item's blocked-by relation points at, closed when the decision is answered. The team sees what blocks the item; the content stays in the repository or the private store.
 - **Alternative: hold the edge on the repository side only.** Nothing extra in the tracker, but the team sees an item as ready that HITLd will not dispatch.
 
 ### Q4. Who counts as a committer in the tracker?
 
+**Decided by the owner (2026-11-15): an explicit map in `policy.json`; anyone else's move is a proposal.**
+
 - **Recommend: an explicit map in `policy.json`** from tracker identities to people with the commitment right. A move to planned by anyone else is a proposal, put to the owner in a batch.
 - **Alternative: trust the tracker's own permissions**, so anyone who can move an item commits it. Less setup, but HITLd would dispatch agents on any teammate's say, and in a public repository on any triager's.
 
 ### Q5. Does the queue write the close itself when the keyword did not fire?
+
+**Decided by the owner (2026-11-15): yes, the queue confirms every close.**
 
 - **Recommend: yes.** The keyword stays, for the team's integration, but the queue confirms every close and queues the `done` transition from the `Closes:` trailer when the tracker has not moved ([8.3](#83-ways-around-it-and-which-hold)).
 - **Alternative: the keyword only, with the sweep reporting misses.** Fewer HITLd writes to the tracker, but each miss waits for a person.
 
 ### Q6. Does a merged item count as done for HITLd before the tracker shows it?
 
+**Decided by the owner (2026-11-15): yes, from the `Closes:` trailer on `main`.**
+
 - **Recommend: yes**, from the `Closes:` trailer on `main`, so dependants, milestones and releases see the close with the work, as on files.
 - **Alternative: follow the tracker's state.** One view for HITLd and the team, but every dependant waits on the tracker's integration, and on the push.
 
 ### Q7. Which identity does HITLd write as?
+
+**Decided by the owner (2026-11-15): a dedicated account or app per workspace.**
 
 - **Recommend: a dedicated account or app per workspace**, so its writes, claims and comments are told apart from people's, and its permissions are only what the mapping needs.
 - **Alternative: the owner's own token.** No extra account, but every agent write looks like the owner's, which breaks "who decided?" ([1.1](0001-human-in-the-lead.md#11-what-human-in-the-lead-means)).
 
 ### Q8. May import and switch come first?
 
+**Decided by the owner (2026-11-15): yes, import and switch comes first.**
+
 - **Recommend: yes, before the rest of this milestone and without waiting for its interface-stability need.** It uses only the files backend, adds commands without changing any interface, and lets a project on a hosted tracker move without waiting for the full backends.
 - **Alternative: build it with the full backends.** One design pass, but no project can move until the whole milestone lands.
 
 ### Q9. Which backend comes first?
+
+**Decided by the owner (2026-11-15): GitHub Issues, then Linear, then Jira.**
 
 - **Recommend: GitHub Issues, then Linear, then Jira.** Intake already reads GitHub Issues; a public sandbox repository costs nothing for the live conformance run; and its thin state model forces the label and project-field mapping the others reuse. Linear next, for its clean state types and its lack of custom fields. Jira last, for its configurable workflows.
 - **Alternative: the tracker a consuming project already uses.** Real use first, at the cost of a sandbox that may need a paid plan.
 
 ### Q10. Where does the read copy live?
 
+**Decided by the owner (2026-11-15): the private store, machine-local, not synced.**
+
 - **Recommend: the private store, machine-local, not synced**, rebuilt by a full fetch on each machine.
 - **Alternative: synced through `hitld store sync`.** A second machine starts warm, but two machines' copies of a third party's state would need merging, for no gain over fetching.
 
 ### Q11. What happens to edits made in a mirror?
+
+**Decided by the owner (2026-11-15): each edit becomes a signal.**
 
 - **Recommend: each becomes a signal**, read by the quarantined triager. Nothing is applied to the truth, and nothing is lost.
 - **Alternative: overwrite them silently at the next mirror run.** Simpler, but people's edits vanish without a reply.
 
 ### Q12. Do edits after commitment take an item out of the ready queue?
 
+**Decided by the owner (2026-11-15): yes, until a decider endorses the new version.**
+
 - **Recommend: yes, until a decider endorses the new version.** An edit by a decider endorses it.
 - **Alternative: warn only.** No item stalls, but an executor may follow a spec nobody committed.
 
 ### Q13. Is the tracker secret task for the orchestrator only?
 
+**Decided by the owner (2026-11-15): yes, the orchestrator only.**
+
 - **Recommend: yes.** Executors never hold tracker credentials; their claims and closes go through intents the orchestrator's sync applies.
 - **Alternative: let tier-3 sessions sync too.** Fewer round trips, but every executor session becomes a holder of the token.
 
 ### Q14. Does the fenced metadata block retire?
+
+**Decided by the owner (2026-11-15): yes, it retires.**
 
 - **Recommend: yes.** [3.3](0001-human-in-the-lead/03-data-model.md#tracker-adapter) said fields a backend cannot hold go into a fenced block in the description. This design replaces that with named description sections and HITLd's own record, each opt-in per field ([4](#4-mapping-a-teams-workflow)).
 - **Alternative: keep the block as a fallback.** Every field always has a home, but a hidden block that anyone can break by hand, and "fails loudly" no longer holds.
