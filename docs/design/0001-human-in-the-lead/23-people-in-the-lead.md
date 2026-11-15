@@ -66,7 +66,7 @@ Calibration weighs inputs; it does not grade people. A weight never changes anyo
 
 ## 23.4 Feedback to the person: the calibration review
 
-The **calibration review** is a periodic report to one person about their own calls. Its purpose is that person's improvement.
+The **calibration review** is a report to one person about their own calls, made when enough evidence has arrived. Its purpose is that person's improvement.
 
 | Section | Content |
 |---|---|
@@ -78,7 +78,7 @@ The **calibration review** is a periodic report to one person about their own ca
 | **Your weights** | The person's current weights per area, basis and confidence level, and how they moved since the last review (23.3) |
 | **Proposed changes** | Interface defaults the record suggests (23.6) |
 
-**When.** After `review.every_outcomes` new outcomes, or at the person's cadence. It counts as a read against their attention budget, and its first screen fits a phone.
+**When.** On evidence, never on a date. `hitld cadence due` ([13.3](13-operations.md#133-the-scheduler-later-milestone)) counts each person's new outcomes since their last review and lists the review once they reach `review.every_outcomes`, or `review.first_after_outcomes` for a person who has had none. An outcome is a recorded fact about how a call turned out: an overruled precedent application, a call that was reversed, a merge the person approved that was later reverted, or a rating of whether a question was worth asking. Each person has their own count and their own last review. A review counts as a read against their attention budget, quiet hours hold it, and its first screen fits a phone.
 
 **Private by default.**
 
@@ -101,7 +101,7 @@ Most of the interface is specified elsewhere; this section gathers the principle
 |---|---|
 | **Questions stand alone**: recommendation first, then each option with what it costs and whether it is reversible, then the precedent offer | [Part 4](04-decision-rights.md#the-decision-question) |
 | **Questions arrive when they are worth the interruption**: batched into digests; at once for the critical path, idle slots or a sev-1, and, if the person's setting allows, for non-urgent questions while they are answering quickly (each counts against their attention budget); quiet hours held | [Part 2](02-loops.md#the-owners-attention-as-a-budget), [part 5](05-execution.md#55-the-question-protocol), question timing in [part 11](11-metrics-and-control.md#114-feedback-controllers) |
-| **Each person has an attention budget**: decisions, interrupts and reads, with their own cadence and quiet hours | [Part 2](02-loops.md#the-owners-attention-as-a-budget), [part 4](04-decision-rights.md#45-several-humans-in-the-lead) |
+| **Each person has an attention budget**: decisions, interrupts and reads, with their own quiet hours, and digests that arrive on evidence | [Part 2](02-loops.md#the-owners-attention-as-a-budget), [part 4](04-decision-rights.md#45-several-humans-in-the-lead) |
 | **Everything answers from a phone**: questions, review packs and reports, through the harness's remote access | [Part 7](07-ux.md#76-owner-review-made-phone-friendly), [part 12](12-reporting-and-limits.md#122-progress-reports), [part 15](15-architecture.md) |
 | **The person rates the question**: the one-tap "worth asking?" signal | [Part 2](02-loops.md#215-trust-calibration) |
 
@@ -117,7 +117,7 @@ Three additions:
   4. When the digest is full, a two-way question is `default`: it takes its default, else the recommendation. A question that is hard to undo is `hold`, and waits for room.
 
   Only a sev-1 breaks quiet hours, and a sev-1 is a page, not a question. A question counts as sent at once when it was asked with `--send` or shown with `hitld rights show --interrupt`; shown without it, it counts as part of a digest. The same ranking and the same budget apply to each person, from their own file.
-- **Settings are per person.** Context level, cadence, quiet hours, channel, the confidence line, whether non-urgent questions may go at once, and how much the status line shows ([part 12](12-reporting-and-limits.md#1211-the-status-line-planned)) live in the person's own settings file, outside any repository ([part 13](13-operations.md#134-settings-in-four-layers)). A person changes their own interface settings without a rule change. The project's `policy.json` keeps what the owner sets for each person: their decision rights and the ceiling of their decision budget.
+- **Settings are per person.** Context level, quiet hours, channel, the confidence line, whether non-urgent questions may go at once, and how much the status line shows ([part 12](12-reporting-and-limits.md#1211-the-status-line-planned)) live in the person's own settings file, outside any repository ([part 13](13-operations.md#134-settings-in-four-layers)). A person changes their own interface settings without a rule change. The project's `policy.json` keeps what the owner sets for each person: their decision rights and the ceiling of their decision budget.
 - **Question quality is evaluated.** The eval suite ([part 17](17-evals.md)) gains scenarios that check generated questions for recommendation first, cost and reversibility on every option, and length, deterministically; and for standing alone, by a judge checked against human labels.
 
 ## 23.6 Different people, different defaults
@@ -130,7 +130,7 @@ People new to the lead need more help. The defaults differ, and both adapt from 
 | **Starting prior weight** | The design's default | Higher, from their person layer, then tuned by the record |
 | **Decision rights** | Narrow: a few rule bases in one area | As delegated |
 | **Owner visibility** | First decisions shown to the owner in the digest ([part 4](04-decision-rights.md#45-several-humans-in-the-lead)) | The audit trail only |
-| **Calibration review** | After fewer outcomes, so feedback comes early | At the person's cadence |
+| **Calibration review** | After `review.first_after_outcomes`, fewer outcomes, so feedback comes early | After `review.every_outcomes` new outcomes since the last |
 
 **Adapting.** A person who often opens the full context or asks follow-ups gets more; one who answers without opening it gets less. The review proposes these changes; the person accepts or declines.
 

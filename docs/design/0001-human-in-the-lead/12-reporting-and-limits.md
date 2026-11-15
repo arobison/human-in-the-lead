@@ -49,7 +49,18 @@ The milestone graph shows progress at the level people plan at. It complements t
 
 ## 12.2 Progress reports
 
-A **progress report** is a periodic digest, sent through the notification channel at a cadence the owner sets (`report.cadence`), inside the attention budget ([part 2](02-loops.md#the-owners-attention-as-a-budget)).
+A **progress report** is a digest of progress, sent through the notification channel inside the attention budget ([part 2](02-loops.md#the-owners-attention-as-a-budget)). It is sent when there is something to say, not on a calendar. `hitld cadence due` ([13.3](13-operations.md#133-the-scheduler-later-milestone)) says when, from these triggers:
+
+| Trigger | Setting | Due when |
+|---|---|---|
+| **Merges** | `reports.every_merges` | This many items have merged since the last report |
+| **Decisions** | `reports.every_decisions` | This many decisions have been asked or answered, or calls logged, since the last report |
+| **Value** | `reports.every_merged_estimate_tokens` | The items merged since the last report add up to this many estimate tokens |
+| **The owner's presence** | `reports.when_owner_writes`, `reports.min_changes` | The owner writes in the chief of staff's session and at least `min_changes` merges or decisions are waiting |
+| **An idle machine** | `reports.when_idle`, `reports.min_changes` | No executor is running, load is low, and at least `min_changes` are waiting |
+| **A ceiling on silence** | `reports.silence_max_hours` | This long has passed with no report while a run is active or work changed |
+
+The ceiling limits how long the owner may hear nothing. It is not a schedule: a report sent for any other reason restarts it, and with no run and no change, silence stays silent. A threshold of 0 is off. Quiet hours hold a report unless the owner is the one who wrote. Digests of questions and logged calls use the same triggers under `digests.*`, without the value trigger.
 
 - **One phone screen first.** The message itself fits a phone screen: per project, one line on what was built and one on what is next; decisions made and pending; study verdicts; blocked items; quota headroom. A link opens the full HTML report.
 - **Charts** in the full report: queue stocks over time, token use against accepted items, critical-path progress per milestone, quota burn.
@@ -153,6 +164,7 @@ In "One signal end to end" ([part 21](21-scope.md)):
 - quotas declared in the person's settings, including the owner's reserve, and the run budget in `policy.json` ([part 13](13-operations.md#134-settings-in-four-layers));
 - opt-in status-line snapshots of window percentages, where the harness provides them;
 - a forecast per quota, and the reserve rule enforced at dispatch;
-- `hitld dashboard` producing a static HTML report and a text digest.
+- `hitld dashboard` producing a static HTML report and a text digest;
+- `hitld cadence due`, which says when a digest or report is due, from thresholds, the owner's presence, an idle machine and a ceiling on silence (12.2).
 
 Explorable dashboards, controller replay, per-audience reports and vendor API readers come later ([part 21](21-scope.md)).

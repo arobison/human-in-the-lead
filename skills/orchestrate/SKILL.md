@@ -156,9 +156,9 @@ In this repository, HITLd is the project, so feedback about HITLd is a note.
   4. End your turn with `handover: <the file>` in your message, and stop. Anything this session tries to record after that is refused. When you are both, give the owner the text and the file instead; a fresh session resumes from it (step 1).
 - When the owner asks only for a note and you keep working: `hitld handover --keep-lease`.
 
-## The digest, at merge-batch boundaries or when the owner next writes
+## The digest, when it is due
 
-With a chief of staff, say `digest: ready` in your message; it builds and sends the digest from the same commands. Otherwise:
+With a chief of staff, say `digest: ready` in your message; it builds and sends the digest from the same commands, and decides when one is due with `hitld cadence due`. When you are both, run `hitld cadence due` at each wake (chief of staff skill, step 2) and send what it lists. The digest holds:
 
 Merged items, items in flight, questions waiting (each with its recommendation), the quota mode and forecast, flakes and incidents. Short. `hitld ledger summary` and `hitld dashboard` have the numbers.
 
