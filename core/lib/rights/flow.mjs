@@ -169,7 +169,7 @@ function create(deps, draft) {
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
     return fail(
-      'not_created',
+      'not-created',
       `the tracker refused the decision item: ${why}${draft.parent ? '' : "; the question's parent names the project to file it under"}`,
     );
   }
@@ -227,12 +227,12 @@ export function askQuestion(deps, given, options = {}) {
   const raw = fromLegacyQuestion(given);
   const invalid = schemas().validate('question', raw);
   if (invalid.length) {
-    return fail('invalid_question', formatErrors(invalid), { errors: invalid });
+    return fail('invalid-question', formatErrors(invalid), { errors: invalid });
   }
   // Paths are normalized before routing and matching; one that leaves the repository is refused.
   const normalized = normalizeQuestion(raw);
   if (normalized.errors.length) {
-    return fail('invalid_question', normalized.errors.join('; '), { errors: normalized.errors });
+    return fail('invalid-question', normalized.errors.join('; '), { errors: normalized.errors });
   }
   const question = normalized.question;
   const route = routeQuestion(question, deps.policy);
@@ -277,7 +277,7 @@ export function askQuestion(deps, given, options = {}) {
       resolved_by_precedent: p.id,
     };
     const problem = invalidDraft(deps, { ...draft, ...answered });
-    if (problem) return fail('invalid_decision', problem);
+    if (problem) return fail('invalid-decision', problem);
     const made = create(deps, { ...draft, state: 'planned' });
     if (typeof made !== 'string') return made;
     const id = made;
@@ -309,7 +309,7 @@ export function askQuestion(deps, given, options = {}) {
   const missing = missingFromQuestion(question);
   if (missing.length) {
     return fail(
-      'incomplete_question',
+      'incomplete-question',
       `a question for ${route.deciders.join(', ')} must stand alone; it lacks: ${missing.join(', ')}`,
       { missing, route },
     );
@@ -317,7 +317,7 @@ export function askQuestion(deps, given, options = {}) {
   if (question.default_if_unanswered) {
     if (question.reversibility !== 'two-way') {
       return fail(
-        'invalid_default',
+        'invalid-default',
         'default_if_unanswered is for a two-way door only: set reversibility to two-way, or leave the default out. A call that is hard to undo always waits for the owner',
       );
     }
@@ -326,7 +326,7 @@ export function askQuestion(deps, given, options = {}) {
       null
     ) {
       return fail(
-        'invalid_default',
+        'invalid-default',
         `default_if_unanswered.option "${question.default_if_unanswered.option}" must name one of the options, by letter or label`,
       );
     }
@@ -344,7 +344,7 @@ export function askQuestion(deps, given, options = {}) {
       basis: route.basis,
       policy: deps.policy,
     });
-    if ('error' in enforced) warnings.push(`offer_not_permitted: ${enforced.error}`);
+    if ('error' in enforced) warnings.push(`offer-not-permitted: ${enforced.error}`);
     else offer = enforced.offer;
   }
   /** @type {Record<string, any>} */
@@ -370,7 +370,7 @@ export function askQuestion(deps, given, options = {}) {
     ...(question.parent ? { parent: question.parent } : {}),
   };
   const problem = invalidDraft(deps, draft);
-  if (problem) return fail('invalid_decision', problem);
+  if (problem) return fail('invalid-decision', problem);
   const made = create(deps, draft);
   if (typeof made !== 'string') return made;
   const id = made;
@@ -431,13 +431,13 @@ export function showQuestion(deps, input) {
   try {
     entity = deps.tracker.get(input.decision);
   } catch (e) {
-    return fail('not_found', e instanceof Error ? e.message : String(e));
+    return fail('not-found', e instanceof Error ? e.message : String(e));
   }
   if (entity.kind !== 'decision')
-    return fail('not_a_decision', `${input.decision} is a ${entity.kind}`);
+    return fail('not-a-decision', `${input.decision} is a ${entity.kind}`);
   if (!OPEN_STATES.includes(entity.state)) {
     return fail(
-      'not_open',
+      'not-open',
       `${input.decision} is ${entity.state}; only an open decision is shown to a decider`,
     );
   }
@@ -453,7 +453,7 @@ export function showQuestion(deps, input) {
   };
   if (!asked?.text && !(question.question && question.options)) {
     return fail(
-      'no_question_record',
+      'no-question-record',
       `${input.decision} was not asked through hitld rights ask, and the tracker does not hold its question, so there is no text to show`,
     );
   }
@@ -498,13 +498,13 @@ export function answerDecision(deps, input) {
   try {
     entity = deps.tracker.get(input.decision);
   } catch (e) {
-    return fail('not_found', e instanceof Error ? e.message : String(e));
+    return fail('not-found', e instanceof Error ? e.message : String(e));
   }
   if (entity.kind !== 'decision')
-    return fail('not_a_decision', `${input.decision} is a ${entity.kind}`);
+    return fail('not-a-decision', `${input.decision} is a ${entity.kind}`);
   if (!OPEN_STATES.includes(entity.state)) {
     return fail(
-      'not_open',
+      'not-open',
       `${input.decision} is ${entity.state}; only an open decision takes an answer`,
     );
   }
@@ -525,7 +525,7 @@ export function answerDecision(deps, input) {
   };
   if (input.by && input.by !== 'owner' && !deciders.includes(input.by)) {
     return fail(
-      'not_a_decider',
+      'not-a-decider',
       `${input.by} is not among the deciders of ${input.decision} (${deciders.join(', ')})`,
     );
   }
@@ -574,7 +574,7 @@ export function answerDecision(deps, input) {
         policy: deps.policy,
       }))
     ) {
-      warnings.push(`offer_not_permitted: ${enforced.error}`);
+      warnings.push(`offer-not-permitted: ${enforced.error}`);
     } else {
       // Re-clamped here from the recorded authority as well as at ask time.
       try {
@@ -589,10 +589,10 @@ export function answerDecision(deps, input) {
           at,
         });
       } catch (e) {
-        return fail('bad_narrowing', e instanceof Error ? e.message : String(e));
+        return fail('bad-narrowing', e instanceof Error ? e.message : String(e));
       }
       const errors = schemas().validateEntity('precedent', precedent);
-      if (errors.length) return fail('invalid_precedent', formatErrors(errors));
+      if (errors.length) return fail('invalid-precedent', formatErrors(errors));
     }
   }
 
@@ -701,15 +701,15 @@ export function overrule(deps, input) {
   const application = events.find((e) => e.kind === 'application' && e.subject === input.decision);
   if (!application) {
     return fail(
-      'not_an_application',
+      'not-an-application',
       `${input.decision} was not resolved by a precedent, so there is nothing to overrule`,
     );
   }
   if (events.some((e) => e.kind === 'overrule' && e.subject === input.decision)) {
-    return fail('already_overruled', `${input.decision} was already overruled`);
+    return fail('already-overruled', `${input.decision} was already overruled`);
   }
   const p = deps.precedents.get(application.precedent);
-  if (!p) return fail('no_precedent', `precedent ${application.precedent} is not in the store`);
+  if (!p) return fail('no-precedent', `precedent ${application.precedent} is not in the store`);
   const at = nowOf(deps);
   const policyHash = deps.policyHash ?? null;
   // A decision more confidential than the precedent must not leak into it: neither its attributes
@@ -720,14 +720,14 @@ export function overrule(deps, input) {
   try {
     reversed = deps.tracker.get(input.decision);
   } catch (e) {
-    return fail('not_found', e instanceof Error ? e.message : String(e));
+    return fail('not-found', e instanceof Error ? e.message : String(e));
   }
   const unsafe = safePaths(input.when?.paths ?? []).errors[0];
-  if (unsafe) return fail('invalid_exception', `when.paths: ${unsafe}`);
+  if (unsafe) return fail('invalid-exception', `when.paths: ${unsafe}`);
   const sensitive = moreRestrictedThan(reversed.classification, p.classification);
   if (sensitive && input.when === undefined && input.retire !== true) {
     return fail(
-      'sensitive_exception',
+      'sensitive-exception',
       `${input.decision} is ${reversed.classification} and ${p.id} is ${p.classification}, so the exception is not derived from the reversed case. Give --when with attributes fit for ${p.id}, or --retire`,
     );
   }
@@ -743,7 +743,7 @@ export function overrule(deps, input) {
         at,
       });
   const errors = schemas().validateEntity('precedent', changed);
-  if (errors.length) return fail('invalid_precedent', formatErrors(errors));
+  if (errors.length) return fail('invalid-precedent', formatErrors(errors));
   deps.precedents.put(changed);
   recordTrustEvent(
     deps.store,
@@ -796,7 +796,7 @@ export function recordReversal(deps, input) {
   const defaulted = trust.find((e) => e.kind === 'default' && e.subject === input.subject);
   const target = call?.id ?? (defaulted ? input.subject : null);
   if (target && trust.some((e) => e.kind === 'reversal' && e.subject === target)) {
-    return fail('already_reversed', `${target} was already reversed`);
+    return fail('already-reversed', `${target} was already reversed`);
   }
   const line = recordTrustEvent(
     deps.store,
@@ -831,10 +831,10 @@ export function recordReversal(deps, input) {
  */
 export function logCall(deps, input) {
   const text = String(input.text ?? '').trim();
-  if (text === '') return fail('invalid_call', 'a logged call needs its text: what was decided');
+  if (text === '') return fail('invalid-call', 'a logged call needs its text: what was decided');
   if (text.length > LOGGED_TEXT_MAX) {
     return fail(
-      'invalid_call',
+      'invalid-call',
       `a logged call is a sentence, at most ${LOGGED_TEXT_MAX} characters; this one is ${text.length}`,
     );
   }
@@ -842,7 +842,7 @@ export function logCall(deps, input) {
     const event = recordLoggedCall(deps.store, { ...input, text }, nowOf(deps));
     return { ok: true, id: event.id, event, reverse_with: reverseCommand(event.id) };
   } catch (e) {
-    return fail('invalid_call', e instanceof Error ? e.message : String(e));
+    return fail('invalid-call', e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -883,7 +883,7 @@ export function rateWorthAsking(deps, input) {
   const decision = input.decision ?? latestAnswered(deps.store);
   if (!decision) {
     return fail(
-      'nothing_to_rate',
+      'nothing-to-rate',
       'no decision has been answered yet, so there is nothing to rate',
     );
   }
@@ -892,7 +892,7 @@ export function rateWorthAsking(deps, input) {
   try {
     entity = deps.tracker.get(decision);
   } catch (e) {
-    return fail('not_found', e instanceof Error ? e.message : String(e));
+    return fail('not-found', e instanceof Error ? e.message : String(e));
   }
   const line = recordTrustEvent(
     deps.store,

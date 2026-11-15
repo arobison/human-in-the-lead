@@ -700,7 +700,7 @@ export function makeCommands({ openTracker }) {
       return why
         ? {
             ok: false,
-            error: 'not_permitted',
+            error: 'not-permitted',
             message: `${c.name} is ${EXECUTOR_REFUSED.get(c.name)}, through the main session in the primary checkout (${why}); an executor sends questions in its report`,
           }
         : run(input, ctx);

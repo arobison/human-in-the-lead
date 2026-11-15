@@ -402,7 +402,7 @@ export async function answerPublication(store, id, input, o) {
   const why = approvalRefusal(o.ctx);
   if (why) {
     throw new GateRefusal(
-      'not_permitted',
+      'not-permitted',
       `publishing is approved only by a person, through the main session in the primary checkout (${why}); an executor puts it in its report`,
     );
   }
@@ -413,19 +413,19 @@ export async function answerPublication(store, id, input, o) {
   if (input.url !== undefined) {
     if (record.state !== 'drafted' || record.approval?.mode !== 'by-hand') {
       throw new GateRefusal(
-        'not_by_hand',
+        'not-by-hand',
         `${id} was not approved by-hand; only a record the person posted themselves takes --url`,
       );
     }
     if (!approvers.includes(by)) {
       throw new GateRefusal(
-        'not_an_approver',
+        'not-an-approver',
         `${by} may not approve this (policy feedback.approvers: ${approvers.join(', ')})`,
       );
     }
     if (!issueUrlPattern(FEEDBACK_REPO).test(input.url)) {
       throw new GateRefusal(
-        'not_an_issue',
+        'not-an-issue',
         `--url must be an issue in ${FEEDBACK_REPO}, such as https://github.com/${FEEDBACK_REPO}/issues/12`,
       );
     }
@@ -435,7 +435,7 @@ export async function answerPublication(store, id, input, o) {
 
   if (record.state !== 'drafted') {
     throw new GateRefusal(
-      'not_drafted',
+      'not-drafted',
       `${id} is ${record.state}; only a drafted record is published${record.state === 'withheld' ? ` (${record.reason})` : ''}`,
     );
   }
@@ -454,7 +454,7 @@ export async function answerPublication(store, id, input, o) {
   if (mode === 'edit') {
     if (!Object.keys(edits).length) {
       throw new GateRefusal(
-        'no_edits',
+        'no-edits',
         'edit needs the changed text: --title, --what-happened, ...',
       );
     }
@@ -470,10 +470,10 @@ export async function answerPublication(store, id, input, o) {
     });
     const reasons = screenText(draftText(draft), record, context);
     if (reasons.length) {
-      throw new GateRefusal('not_public', `the edited draft is not public: ${reasons.join('; ')}`);
+      throw new GateRefusal('not-public', `the edited draft is not public: ${reasons.join('; ')}`);
     }
   } else if (Object.keys(edits).length) {
-    throw new GateRefusal('edits_need_edit', 'changed text goes with the answer edit');
+    throw new GateRefusal('edits-need-edit', 'changed text goes with the answer edit');
   }
 
   const approved = approvePublication({

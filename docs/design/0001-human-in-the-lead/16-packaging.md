@@ -80,6 +80,210 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 
 Built as well: `run`, `env`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, and for owner merge mode `merge --all`, `merge --only` and `merge approve`. `hitld --help` lists every built command; this table is the design, not the list.
 
+### Failed commands and their error codes
+
+A command that fails prints one JSON object: `ok` is false, `error` is a code, `message` says what happened for a person, and some codes add fields. Exit codes: 0 ok, 1 the command ran and found a problem or failed, 2 usage error, 3 not yet built. Scripts and agents match on `error`; the `message` may change in any release. `hitld mcp` (planned) serves the same results, so it returns the same codes.
+
+A code is lowercase kebab-case and means one thing. Two commands that refuse the same thing return the same code: a caller whose role may not run a command always gets `not-permitted`, whichever command it was. A code that means something different gets a name that says so (`no-run` is no orchestrator run, `no-eval-run` is no stored eval run). The list below is `core/lib/cli/errors.mjs`. A test fails on a code in the library that is not on the list or not kebab-case, and on a code on the list that the library never writes.
+
+**The command line itself**
+
+- `usage`: The input is wrong: an unknown command, a missing or malformed argument, or a value out of range.
+- `failed`: The command stopped on an error it did not expect; the message says what.
+- `not-built`: The command is in the table but is not built yet.
+
+**Who may run it**
+
+- `not-permitted`: The caller may not run this command: an owner-only or orchestrator-only command run by an executor, or run outside the main session in the primary checkout.
+- `not-an-approver`: The named person is not among policy feedback.approvers.
+- `not-a-decider`: The named person is not among the deciders of that decision.
+- `not-owner-mode`: The command is for merge.mode owner, and the project is not in it.
+- `not-a-dispatch`: The caller is not a live dispatched executor (HITLD_DISPATCH is unset, malformed or not live), so it may not use a secret task.
+- `task-not-granted`: The dispatch role has no grant for that secret task.
+
+**The project, its files and the run**
+
+- `policy`: policy.json is missing, invalid or not trusted.
+- `settings`: A settings file is invalid.
+- `tracker`: tracker.json is invalid.
+- `contract`: The contract block in AGENTS.md could not be installed.
+- `not-a-repository`: The working directory is not in a git repository.
+- `output-path`: The output directory is outside the repository and the private store, or the page would overwrite a file the report did not create.
+- `no-run`: No orchestrator run has started; start one with hitld run start.
+- `no-eval-run`: No stored eval run has that ID, or none is stored yet.
+- `invalid-eval-run`: A stored eval run is not a valid eval result.
+- `setup-failed`: The worktree's setup commands failed.
+
+**The run lease and locks**
+
+- `lease-held`: Another session holds the run lease.
+- `lease-lost`: This session no longer holds the run lease.
+- `lease-released`: This session released the run lease, so it can no longer record.
+- `lock-held`: A named resource lock is held by someone else.
+- `lock-timeout`: A named resource lock was not free before the wait ended.
+
+**Ledger**
+
+- `invalid-event`: The ledger event does not match its schema or lacks a field its kind needs.
+- `forbidden-event`: The event kind is written only by the orchestrator, not by this caller.
+- `forbidden-field`: The event carries a field this caller may not set.
+- `forbidden-correction`: The correction would change an entry this caller may not correct.
+
+**Dispatch, handover and the merge queue**
+
+- `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready).
+- `not-in-flight`: The dispatch is not in flight.
+- `unknown-dispatch`: The dispatch has no recorded harness reference, so it cannot be continued.
+- `still-running`: The dispatch is still running; its completion notice comes first.
+- `handover-due`: This session's hand-over is due, so nothing new starts.
+- `draining`: Executors still report to this session, and no successor would hear of them.
+- `cap`: The maximum number of live executors is reached.
+- `merge-busy`: The merge queue is held by another process.
+- `not-presented`: The branch was not presented to the owner, or nothing has been presented yet.
+- `not-waiting`: The branch is not waiting to merge.
+- `stale`: A presented branch changed after the owner saw it.
+- `ambiguous`: The name matches more than one presented branch, or a branch other than the item was dispatched on.
+
+**Decisions and precedents**
+
+- `invalid-question`: The question does not match its schema or normalise.
+- `incomplete-question`: The question does not stand alone; it lacks fields a decider needs.
+- `invalid-default`: The default if unanswered is not allowed here: not a two-way door, or not one of the options.
+- `invalid-decision`: The decision record or answer is not valid.
+- `not-created`: The tracker refused to create the decision item.
+- `not-a-decision`: The ID names an item that is not a decision.
+- `not-open`: The decision is not open.
+- `no-question-record`: The question text is not recorded, so there is nothing to show.
+- `bad-narrowing`: The precedent cannot be narrowed that way.
+- `invalid-precedent`: The precedent does not match its schema.
+- `not-an-application`: The decision was not resolved by a precedent, so there is nothing to overrule.
+- `already-overruled`: The decision was already overruled.
+- `no-precedent`: The precedent is not in the store.
+- `invalid-exception`: The exception it would add is not valid.
+- `sensitive-exception`: The exception is not derived from the reversed case and needs its own conditions.
+- `already-reversed`: The call was already reversed.
+- `invalid-call`: The logged call is empty or not valid.
+- `nothing-to-rate`: No decision has been answered yet.
+- `not-found`: The ID is not in the tracker or the store.
+
+**Feedback and the send gate**
+
+- `not-an-approval`: The answer is not approve, edit or by-hand.
+- `not-approved`: Only an approved publication from the send gate is sent.
+- `by-hand`: The person posts this one themselves; nothing is sent.
+- `not-by-hand`: The record was not approved by hand, so it takes no --url.
+- `not-an-issue`: The URL is not an issue in the feedback repository.
+- `not-drafted`: The record is not drafted, so it cannot be published.
+- `no-edits`: The answer edit has no changed text.
+- `edits-need-edit`: Changed text goes only with the answer edit.
+- `not-public`: The edited draft holds material that is not public.
+- `empty`: The publication has no repository, title or body.
+
+**Eval and baselines**
+
+- `no-scenarios`: No scenario matches, or none is found.
+- `no-committed-baseline`: The gate has no committed baseline to compare with.
+- `not-accepted`: The run does not qualify as a baseline, or writing the baseline failed.
+- `no-commit`: The run did not record the commit it ran on.
+- `dirty-tree`: The run, or the checkout, has uncommitted changes.
+- `not-on-main`: The checkout is not on the main branch, or the run's commit is not on it.
+
+**Security and quarantine**
+
+- `security`: The security command stopped on an error; the message says what.
+- `scanner`: A scanner failed.
+- `decision`: The decision ID is not an answered owner decision that allows this.
+- `quarantine`: The quarantine file is invalid or the entry is refused.
+- `fix-item`: The fix item is not an open work item in the tracker.
+- `already-quarantined`: The test is already quarantined, and the entry has not expired.
+- `no-evidence`: There is no recorded evidence that the test is flaky.
+- `fix-not-done`: The fix item is not done and the entry has not expired.
+
+**The private store**
+
+- `no-passphrase`: No passphrase was given, or it is empty.
+- `no-identity`: No age private key was given for a file that opens with one.
+- `no-recipients`: No age public key was given to encrypt the export to.
+- `no-file`: There is no export file at that path.
+- `age-header-invalid`: The age header does not parse, or breaks a rule of the format.
+- `age-no-match`: The header parses, but no key given opens it.
+- `age-mac-mismatch`: A key opens the header, but its MAC is wrong: the header was changed.
+- `age-payload-invalid`: The age payload does not decrypt and authenticate to its end.
+- `age-bad-recipient`: An age public key does not parse, or cannot be used.
+- `age-bad-identity`: An age private key does not parse.
+- `age-no-recipients`: There is no age public key to encrypt to.
+- `age-no-identities`: There is no age private key to decrypt with.
+- `bad-bech32`: A Bech32 string, such as an age key, is malformed.
+- `bad-header`: The export file's header is not one this version reads.
+- `not-export`: The file is not a hitld store export.
+- `unknown-format`: The export format is not one this version reads.
+- `cannot-open`: The file does not open: the passphrase is wrong, or the file was changed or damaged.
+- `damaged`: The file is damaged.
+- `git-failed`: A git command failed inside the store.
+- `bad-bundle`: The bundle does not verify or does not match its manifest.
+- `bad-path`: The export file is inside the store.
+- `another-project`: The file is from another project.
+- `newer-schema`: The file was written by a newer release; upgrade hitld first.
+- `store-changed`: A file changed in the store during the import; nothing was merged.
+- `conflict`: The import stopped on a merge conflict; nothing was merged.
+
+**The store remote**
+
+- `remote-moved`: The remote's head is not the one the push expected.
+- `remote-url-invalid`: The remote URL is not one that is accepted.
+- `remote-unreachable`: The remote cannot be reached.
+- `remote-version-missing`: The remote no longer holds that version.
+- `remote-version-invalid`: The version ID is not valid.
+- `remote-corrupt`: What the remote holds does not match what was pushed.
+- `remote-too-large`: The bytes are larger than the remote accepts.
+- `remote-argument-invalid`: An argument to the remote is not valid.
+- `remote-dir-invalid`: The local directory for the remote is not usable.
+- `remote-git-failed`: A git command against the remote failed.
+
+**Pushing and pulling the store**
+
+- `no-remote`: No remote is set: put store.remote.url in policy.json, or run hitld store remote set <url> for this machine.
+- `not-enrolled`: This device is not on the project's device list, so it cannot push until its enrolment is merged.
+- `not-a-recipient`: The push would not be encrypted to this device's own key, so this device could not open it afterwards.
+- `nothing-to-push`: The store holds no text to push yet.
+- `remote-not-format-2`: The remote's head is not an age file; nothing writes another format to a remote.
+- `remote-config-invalid`: This machine's remote override file is damaged.
+- `sync-state-invalid`: The file that records what this store last merged from the remote is damaged.
+
+**Secrets and the environment**
+
+- `secret-missing`: No value is stored for a secret the task needs.
+- `spawn-failed`: The task process could not start.
+- `task-undeclared`: The task is not declared in policy.json env.secret_tasks.
+- `task-invalid`: The declared task cannot run as written.
+- `worktree-mismatch`: The caller is not inside the dispatch's own worktree.
+- `project-unknown`: HITLD_PROJECT_ID is not set or names no project.
+- `primary-unrecorded`: No primary checkout is recorded for the project.
+- `primary-mismatch`: The recorded primary checkout is not the one this process is in.
+
+**Names before v0.1.0-rc.1.** Error codes were partly snake_case, and some meanings had more than one code. There is no fallback for the old names ([16.5](#165-releases-and-compatibility)).
+
+| Before | Now | Note |
+|---|---|---|
+| `not_permitted` | `not-permitted` | One code for "the caller's role may not run this". |
+| `not_allowed` | `not-permitted` | `hitld eval accept` run by an executor. |
+| `refused` | `not-permitted` | `hitld cadence done`, `hitld config write` and `migrate`, `hitld machine detect --write`, run by an executor. |
+| `refused` | `not-accepted` | `hitld eval accept`: the run does not qualify as a baseline, or writing it failed. A different meaning from a role refusal. |
+| `no_run` | `no-run` | No orchestrator run has started. |
+| `no_run` | `no-eval-run` | `hitld eval report` and `eval accept`: no stored eval run has that ID. A different meaning from `no-run`. |
+| `bad_run` | `invalid-eval-run` | A stored eval run is not a valid result. |
+| `no_policy` | `policy` | The store commands, now the same code as every other missing or invalid `policy.json`. |
+| `dirty` | `dirty-tree` | `hitld security baseline`, now the same code as the eval baseline check. |
+| `exists` | `already-quarantined` |  |
+| `dispatch_refused` | `not-a-dispatch` |  |
+| `lease_held`, `lease_lost`, `lease_released` | `lease-held`, `lease-lost`, `lease-released` |  |
+
+Every other snake_case code is the same word with hyphens: `not_built`, `not_a_repository`, `setup_failed`, `output_path`, `forbidden_event`, `forbidden_field`, `forbidden_correction`, `invalid_event`, `fix_item`, `no_evidence`, `fix_not_done`, `not_found`, `not_on_main`, `lock_timeout`, `lock_held`, `invalid_question`, `invalid_decision`, `invalid_default`, `invalid_precedent`, `invalid_exception`, `invalid_call`, `not_created`, `incomplete_question`, `not_a_decision`, `not_open`, `no_question_record`, `not_a_decider`, `bad_narrowing`, `not_an_application`, `already_overruled`, `no_precedent`, `sensitive_exception`, `already_reversed`, `nothing_to_rate`, `not_an_approver`, `not_an_approval`, `not_approved`, `by_hand`, `not_by_hand`, `not_an_issue`, `not_drafted`, `no_edits`, `not_public`, `edits_need_edit`, `not_presented`, `handover_due`, `not_planned`, `not_in_flight`, `unknown_dispatch`, `still_running`, `not_waiting`, `merge_busy`, `not_owner_mode`, `project_unknown`, `primary_unrecorded`, `primary_mismatch`, `task_undeclared`, `task_not_granted`, `worktree_mismatch`, `task_invalid`, `secret_missing`, `spawn_failed`, `no_passphrase`, `bad_header`, `not_export`, `unknown_format`, `cannot_open`, `git_failed`, `bad_bundle`, `store_changed`, `bad_path`, `another_project`, `newer_schema`, `no_scenarios`, `no_committed_baseline`.
+
+### Pages the commands write
+
+`hitld dashboard` writes `dashboard.html` and `digest.txt` into its output directory (`--out`; the private store's `reports/` by default). The directory keeps a marker, `.hitld-report.json`, naming the files a report made there, and a report overwrites only files the marker lists. A directory written before v0.1.0-rc.1 holds `report.html` (the page's earlier name) and is accepted as it is: the next run removes the `report.html` the marker lists, writes `dashboard.html` and rewrites the marker with the new names. A `report.html` the marker does not list is not touched. `hitld eval report` writes `eval-<run>.html`.
+
 ## 16.3 How a consuming project gets the plugin
 
 ### This repository is its own marketplace
@@ -160,7 +364,7 @@ The plugin's **public interface** is: the executor contract; the report shape; t
 
 **While the version is 0.y.z** (before 1.0), a minor release may break formats or commands, and ships the migration for whatever it changes: `hitld data migrate` for data files, `hitld work migrate` for the tracker format. Patch releases never break. Minor and major releases are the owner's call; a patch release may follow a precedent the owner confirmed. The first tag is `v0.1.0`. The rules below apply from 1.0.
 
-**What a 0.y.z release still keeps.** Data people keep (tracker files, settings, the ledger, private-store records) follows the rename rule below even before 1.0: an old name is read for one minor release, with a warning, and the release ships its migration. Output (error codes, the `hitld` command's JSON and text, generated pages) may change in any minor release with no fallback; the release notes list each change.
+**What a 0.y.z release still keeps.** Data people keep (tracker files, settings, the ledger, private-store records) follows the rename rule below even before 1.0: an old name is read for one minor release, with a warning, and the release ships its migration. Output (error codes, the `hitld` command's JSON and text, generated pages) may change in any minor release with no fallback; the release notes list each change. The error codes are listed in [16.2](#failed-commands-and-their-error-codes).
 
 Compatibility rules for data:
 

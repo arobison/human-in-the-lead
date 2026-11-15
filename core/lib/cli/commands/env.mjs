@@ -26,7 +26,7 @@ function open(ctx) {
     return {
       error: {
         ok: false,
-        error: 'not_a_repository',
+        error: 'not-a-repository',
         message: `${ctx.cwd} is not in a git repository`,
       },
     };
@@ -90,7 +90,7 @@ function openForExec(ctx) {
   const projectId = ctx.env.HITLD_PROJECT_ID ?? ctx.env.HITLD_PROJECT;
   if (!projectId) {
     return refuse(
-      'project_unknown',
+      'project-unknown',
       'HITLD_PROJECT_ID is not set: only a dispatched executor may use a task',
     );
   }
@@ -98,28 +98,28 @@ function openForExec(ctx) {
   try {
     store = openStore(privateStorePath(projectId, { env: ctx.env }));
   } catch (e) {
-    return refuse('project_unknown', `HITLD_PROJECT_ID: ${/** @type {Error} */ (e).message}`);
+    return refuse('project-unknown', `HITLD_PROJECT_ID: ${/** @type {Error} */ (e).message}`);
   }
   const record = readPrimaryCheckout(store);
   if (!record) {
     return refuse(
-      'primary_unrecorded',
+      'primary-unrecorded',
       `no primary checkout is recorded for ${projectId}; the orchestrator records it when it starts a run (hitld run start)`,
     );
   }
   if (record.project_id !== projectId) {
     return refuse(
-      'primary_mismatch',
+      'primary-mismatch',
       `the recorded primary checkout belongs to ${record.project_id}, not ${projectId}`,
     );
   }
   const root = record.root;
   try {
     if (realpathSync(root) !== root || !lstatSync(join(root, '.git')).isDirectory()) {
-      return refuse('primary_mismatch', `${root} is not the canonical path of a primary checkout`);
+      return refuse('primary-mismatch', `${root} is not the canonical path of a primary checkout`);
     }
   } catch {
-    return refuse('primary_mismatch', `the recorded primary checkout ${root} cannot be read`);
+    return refuse('primary-mismatch', `the recorded primary checkout ${root} cannot be read`);
   }
   const policyPath = join(root, POLICY_PATH);
   const loaded = loadPolicy({ path: policyPath, cwd: root });
@@ -136,11 +136,11 @@ function openForExec(ctx) {
     policyReal = null;
   }
   if (policyReal !== policyPath) {
-    return refuse('primary_mismatch', `policy.json is not a plain file inside ${root}`);
+    return refuse('primary-mismatch', `policy.json is not a plain file inside ${root}`);
   }
   if (loaded.policy.project.id !== projectId) {
     return refuse(
-      'primary_mismatch',
+      'primary-mismatch',
       `the policy at ${root} is for project ${loaded.policy.project.id}, not ${projectId}`,
     );
   }
@@ -236,7 +236,7 @@ export const commands = [
         ...(setup.ok
           ? {}
           : {
-              error: 'setup_failed',
+              error: 'setup-failed',
               message:
                 'worktree setup failed; the worktree is kept so the failure can be inspected',
             }),
@@ -390,7 +390,7 @@ export const commands = [
           }
         : {
             ok: false,
-            error: r.timed_out ? 'lock_timeout' : 'lock_held',
+            error: r.timed_out ? 'lock-timeout' : 'lock-held',
             message: `${input.resource} is held by ${r.held_by?.holder ?? 'someone else'}`,
             held_by: r.held_by?.holder ?? null,
             waited_ms: r.waited_ms,

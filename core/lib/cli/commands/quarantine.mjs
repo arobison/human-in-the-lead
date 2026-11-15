@@ -50,7 +50,7 @@ const git = (cwd, args) =>
 function project(ctx) {
   const repoRoot = ownerCheckoutOf(ctx.cwd);
   if (!repoRoot) {
-    return { failure: fail('not_a_repository', `${ctx.cwd} is not in a git repository`) };
+    return { failure: fail('not-a-repository', `${ctx.cwd} is not in a git repository`) };
   }
   const loaded = loadPolicy({ cwd: repoRoot });
   if (!loaded.policy) {
@@ -74,7 +74,7 @@ const orchestratorOnly = (name, run) => (input, ctx) => {
   const why = executorSignal(ctx.env, ctx.cwd);
   if (why) {
     return fail(
-      'not_permitted',
+      'not-permitted',
       `hitld ${name} is the orchestrator's, in the primary checkout (${why}); an executor never quarantines a test: say in your report which test failed and the rerun that shows it flaky`,
     );
   }
@@ -184,7 +184,7 @@ export const commands = [
       }
       if (branch !== main) {
         return fail(
-          'not_on_main',
+          'not-on-main',
           `the primary checkout is not on ${main}: the quarantine is main's`,
         );
       }
@@ -205,11 +205,11 @@ export const commands = [
       };
       const fix = entityOf(fixItem);
       if (!fix || fix.kind !== 'work') {
-        return fail('fix_item', `${fixItem} is not a work item in the tracker; create it first`);
+        return fail('fix-item', `${fixItem} is not a work item in the tracker; create it first`);
       }
       if (fix.state === 'done' || fix.state === 'dropped') {
         return fail(
-          'fix_item',
+          'fix-item',
           `${fixItem} is ${String(fix.state)}: a fix item that is open holds the entry`,
         );
       }
@@ -224,7 +224,7 @@ export const commands = [
         const expired = expiredEntries(q.file, new Date()).includes(existing);
         if (!expired) {
           return fail(
-            'exists',
+            'already-quarantined',
             `"${test}" is quarantined until ${existing.expires} (${existing.fix_item})`,
           );
         }
@@ -242,7 +242,7 @@ export const commands = [
         const evidence = quarantineEvidence(readFlakes(p.store), test);
         if (!evidence) {
           return fail(
-            'no_evidence',
+            'no-evidence',
             `no recorded evidence for "${test}": the queue has to have seen it fail and then pass on the same commit, fail on the base as well, and not be a test a branch under test added or changed. Without that it belongs to the change (design 14.7)`,
           );
         }
@@ -280,7 +280,7 @@ export const commands = [
       }
       const want = { id: String(input.test), environments: names(input.environment) };
       const entry = q.file.tests.find((e) => sameEntry(e, want));
-      if (!entry) return fail('not_found', `"${want.id}" is not in the quarantine`);
+      if (!entry) return fail('not-found', `"${want.id}" is not in the quarantine`);
       let state = '';
       try {
         state = String(
@@ -293,7 +293,7 @@ export const commands = [
       const expired = expiredEntries(q.file, new Date()).includes(entry);
       if (state !== 'done' && !expired) {
         return fail(
-          'fix_not_done',
+          'fix-not-done',
           `${entry.fix_item} is ${state}: the entry stays until the fix merges (it ends ${entry.expires} on its own)`,
         );
       }

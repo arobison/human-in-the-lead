@@ -629,13 +629,13 @@ test("hitld quarantine add needs the queue's evidence and a fix item, and sets t
   const args = ['quarantine', 'add', '--test', 't1', '--fix-item', 'W-1'];
   const none = await c.hitld(args);
   assert.equal(none.exit, 1);
-  assert.equal(none.result.error, 'no_evidence');
+  assert.equal(none.result.error, 'no-evidence');
 
   recordFlakes(consumerStore(c), { failures: [failure()], excused: [], burn_ins: [] });
   const missing = await c.hitld(['quarantine', 'add', '--test', 't1', '--fix-item', 'W-999']);
-  assert.equal(missing.result.error, 'fix_item');
+  assert.equal(missing.result.error, 'fix-item');
   const decision = await c.hitld(['quarantine', 'add', '--test', 't9', '--fix-item', 'W-1']);
-  assert.equal(decision.result.error, 'no_evidence');
+  assert.equal(decision.result.error, 'no-evidence');
 
   const ok = await c.hitld([...args, '--environment', 'linux']);
   assert.equal(ok.exit, 0, JSON.stringify(ok.result));
@@ -647,7 +647,7 @@ test("hitld quarantine add needs the queue's evidence and a fix item, and sets t
   ]);
   assert.equal((await c.hitld(['check', 'quarantine'])).exit, 0);
   const again = await c.hitld([...args, '--environment', 'linux']);
-  assert.equal(again.result.error, 'exists');
+  assert.equal(again.result.error, 'already-quarantined');
 
   const list = await c.hitld(['quarantine', 'list']);
   assert.equal(list.exit, 0);
@@ -664,7 +664,7 @@ test('hitld quarantine: an executor may not, and a stale entry needs the owner t
     env: { HITLD_ROLE: 'executor' },
   });
   assert.equal(denied.exit, 1);
-  assert.equal(denied.result.error, 'not_permitted');
+  assert.equal(denied.result.error, 'not-permitted');
   assert.equal((await c.hitld(['check', 'quarantine'])).result.present, false);
 
   writeFileSync(
@@ -696,10 +696,10 @@ test('hitld quarantine remove: held until the fix is done, or the entry has expi
     file(entry({ id: 't1', expires: '2999-01-01', fix_item: 'W-1' })),
   );
   const held = await c.hitld(['quarantine', 'remove', '--test', 't1']);
-  assert.equal(held.result.error, 'fix_not_done');
+  assert.equal(held.result.error, 'fix-not-done');
   assert.equal(
     (await c.hitld(['quarantine', 'remove', '--test', 'nope'])).result.error,
-    'not_found',
+    'not-found',
   );
   writeFileSync(
     join(c.root, QUARANTINE_PATH),

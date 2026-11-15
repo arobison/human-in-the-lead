@@ -255,14 +255,14 @@ test('release make refuses outside the owner’s own turn', async () => {
   const root = releaseRepo();
   const executor = await hitld(['release', 'make'], root, { HITLD_ROLE: 'executor' });
   assert.equal(executor.code, 1);
-  assert.equal(executor.json.error, 'not_permitted');
+  assert.equal(executor.json.error, 'not-permitted');
   assert.match(executor.json.message, /owner's, through the main session/);
   const dispatched = await hitld(['release', 'make'], root, { HITLD_DISPATCH: 'D-4' });
-  assert.equal(dispatched.json.error, 'not_permitted');
+  assert.equal(dispatched.json.error, 'not-permitted');
   const make = releaseCommands.find((c) => c.name === 'release make');
   assert.equal(make?.mcp, false);
   const viaTool = await make?.run?.({}, { cwd: root, env: {} });
-  assert.equal(viaTool?.error, 'not_permitted');
+  assert.equal(viaTool?.error, 'not-permitted');
   assert.match(String(viaTool?.message), /not the human command line/);
   git(root, 'worktree', 'add', '-q', '-b', 'side', join(root, '..', `wt-${Date.now()}`));
   const wt = git(root, 'worktree', 'list', '--porcelain').match(/^worktree (.*wt-\d+)$/m)?.[1];
@@ -476,7 +476,7 @@ test('release make --branch puts the record on a new branch, tags nothing and re
   const guarded = await hitld(['release', 'make', '--branch', 'other'], root, {
     HITLD_ROLE: 'executor',
   });
-  assert.equal(guarded.json.error, 'not_permitted');
+  assert.equal(guarded.json.error, 'not-permitted');
   assert.equal(git(root, 'branch', '--list', 'other').trim(), '');
 });
 

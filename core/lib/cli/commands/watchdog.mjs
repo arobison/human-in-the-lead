@@ -132,7 +132,7 @@ export const commands = [
         if (!p.state) {
           return {
             ok: false,
-            error: 'no_run',
+            error: 'no-run',
             message: 'no run has started: nothing to watch',
           };
         }

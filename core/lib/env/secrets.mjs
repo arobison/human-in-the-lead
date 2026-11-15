@@ -206,7 +206,7 @@ export async function runWithSecrets(ctx, request) {
   if (missing.length) {
     return {
       ok: false,
-      error: 'secret_missing',
+      error: 'secret-missing',
       message: `no value is stored for: ${missing.join(', ')}`,
       missing,
     };
@@ -304,7 +304,7 @@ export async function runWithSecrets(ctx, request) {
     output_truncated: stdout.cut || stderr.cut,
     secrets_injected: names,
     redactions: { ...redactor.counts },
-    ...(r.spawnError ? { error: 'spawn_failed', message: r.spawnError.message } : {}),
+    ...(r.spawnError ? { error: 'spawn-failed', message: r.spawnError.message } : {}),
   };
   return redactor.redactDeep(result);
 }

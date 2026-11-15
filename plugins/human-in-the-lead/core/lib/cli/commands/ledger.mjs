@@ -117,10 +117,10 @@ async function guarded(fn) {
     return await fn();
   } catch (e) {
     if (e instanceof LeaseError) {
-      return { ok: false, error: `lease_${e.code}`, message: e.message, holder: e.holder };
+      return { ok: false, error: `lease-${e.code}`, message: e.message, holder: e.holder };
     }
     if (e instanceof LedgerError)
-      return { ok: false, error: 'invalid_event', message: e.message, errors: e.errors };
+      return { ok: false, error: 'invalid-event', message: e.message, errors: e.errors };
     throw e;
   }
 }
@@ -192,7 +192,7 @@ export const commands = [
         if (!RAW_APPEND_EVENTS.includes(event.event)) {
           return {
             ok: false,
-            error: 'forbidden_event',
+            error: 'forbidden-event',
             message: `raw append writes only ${RAW_APPEND_EVENTS.join(', ')} events, not ${JSON.stringify(event.event)}; dispatch, report, abandon, release, run and lease events are written only by the run module`,
           };
         }
@@ -218,7 +218,7 @@ export const commands = [
         if (unknown.length) {
           return {
             ok: false,
-            error: 'forbidden_field',
+            error: 'forbidden-field',
             message: `a ${event.event} event may carry only ${allowed.join(', ')}; not ${unknown.join(', ')}`,
           };
         }
@@ -233,7 +233,7 @@ export const commands = [
           ) {
             return {
               ok: false,
-              error: 'forbidden_correction',
+              error: 'forbidden-correction',
               message: `corrects ${JSON.stringify(fields.corrects)}, which is ${target ? `a ${target.event} event about ${target.item ?? target.dispatch ?? 'something else'}` : 'not in the ledger'}; a correction must name an earlier ${fields.event} event with the same item or dispatch`,
             };
           }
@@ -462,7 +462,7 @@ export const commands = [
         if (!loaded.state) {
           return {
             ok: false,
-            error: 'no_run',
+            error: 'no-run',
             message: `no run state (${loaded.problems.join('; ')}); start a run with hitld run start, or hitld run rebuild`,
           };
         }
@@ -536,7 +536,7 @@ export const commands = [
         if (why) {
           return {
             ok: false,
-            error: 'not_permitted',
+            error: 'not-permitted',
             message: `hitld run retire is the chief of staff's, run in the primary checkout (${why}); executors never touch the lease`,
           };
         }

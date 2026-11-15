@@ -175,7 +175,7 @@ test('commands: the chief of staff reads the lease, retires a killed orchestrato
   assert.equal(status.result.in_flight, 2);
 
   const early = await c.hitld(['run', 'resume', '--live', 'D-2'], orch2);
-  assert.equal(early.result.error, 'lease_held', 'a fresh lease is not taken without cause');
+  assert.equal(early.result.error, 'lease-held', 'a fresh lease is not taken without cause');
 
   const retired = await c.hitld(['run', 'retire', '--holder', 'orch-1'], cos);
   assert.equal(retired.exit, 0, JSON.stringify(retired.result));
@@ -195,12 +195,12 @@ test('commands: the chief of staff reads the lease, retires a killed orchestrato
   assert.deepEqual(resumed.result.adopted, ['D-2']);
   assert.equal((await c.hitld(['run', 'status'], cos)).result.wake_to, 'cloud-orch-2');
   const stale = await c.hitld(['dispatch', 'start', 'W-1'], orch1);
-  assert.equal(stale.result.error, 'lease_lost');
+  assert.equal(stale.result.error, 'lease-lost');
 
   const executor = await c.hitld(['run', 'retire', '--holder', 'orch-2'], {
     env: { HITLD_SESSION: 'x', HITLD_ROLE: 'executor' },
   });
-  assert.equal(executor.result.error, 'not_permitted');
+  assert.equal(executor.result.error, 'not-permitted');
 });
 
 test('commands: after enough completions the refill is held, the hand-over waits for its own work, then releases the lease', async () => {
@@ -225,7 +225,7 @@ test('commands: after enough completions the refill is held, the hand-over waits
   assert.deepEqual(done.result.refill.start, []);
   assert.match(done.result.refill.next, /process the completions of D-2, then hitld handover/);
   const refused = await c.hitld(['dispatch', 'start', 'W-3'], orch1);
-  assert.equal(refused.result.error, 'handover_due');
+  assert.equal(refused.result.error, 'handover-due');
 
   const early = await c.hitld(['handover'], orch1);
   assert.equal(early.result.error, 'draining');
@@ -241,12 +241,12 @@ test('commands: after enough completions the refill is held, the hand-over waits
   assert.equal(status.result.handover_file, handed.result.file);
   assert.equal(status.result.lease.free, true);
   const after = await c.hitld(['run', 'checkpoint'], orch1);
-  assert.equal(after.result.error, 'lease_released');
+  assert.equal(after.result.error, 'lease-released');
 
   const resumed = await c.hitld(['run', 'resume', '--live', 'none'], orch2);
   assert.equal(resumed.exit, 0, JSON.stringify(resumed.result));
   assert.equal(resumed.result.took_over.reason, 'handover');
   // The successor counts from its own lease: W-3 is refused only for not being ready yet.
   const next = await c.hitld(['dispatch', 'start', 'W-3'], orch2);
-  assert.equal(next.result.error, 'not_planned');
+  assert.equal(next.result.error, 'not-planned');
 });

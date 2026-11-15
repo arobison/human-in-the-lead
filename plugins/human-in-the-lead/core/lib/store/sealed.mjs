@@ -97,11 +97,11 @@ function checkScrypt(s) {
   for (const k of /** @type {const} */ (['N', 'r', 'p'])) {
     const [lo, hi] = SCRYPT_BOUNDS[k];
     if (!Number.isInteger(s[k]) || s[k] < lo || s[k] > hi) {
-      throw new SealedError('bad_header', `scrypt ${k} ${s[k]} is outside ${lo}..${hi}`);
+      throw new SealedError('bad-header', `scrypt ${k} ${s[k]} is outside ${lo}..${hi}`);
     }
   }
   if ((s.N & (s.N - 1)) !== 0)
-    throw new SealedError('bad_header', 'scrypt N must be a power of two');
+    throw new SealedError('bad-header', 'scrypt N must be a power of two');
 }
 
 /** @param {string} passphrase @param {Buffer} salt @param {{ N: number, r: number, p: number }} s */
@@ -119,20 +119,20 @@ const deriveKey = (passphrase, salt, s) =>
  */
 export function readHeader(file) {
   const end = file.subarray(0, HEADER_MAX).indexOf(0x0a);
-  if (end < 0) throw new SealedError('not_export', 'not a hitld store export (no header line)');
+  if (end < 0) throw new SealedError('not-export', 'not a hitld store export (no header line)');
   /** @type {any} */
   let h;
   try {
     h = JSON.parse(file.subarray(0, end).toString('utf8'));
   } catch {
-    throw new SealedError('not_export', 'not a hitld store export (the header is not JSON)');
+    throw new SealedError('not-export', 'not a hitld store export (the header is not JSON)');
   }
   if (!h || typeof h !== 'object' || h.file !== FILE_KIND) {
-    throw new SealedError('not_export', 'not a hitld store export');
+    throw new SealedError('not-export', 'not a hitld store export');
   }
   if (h.format !== FORMAT_1) {
     throw new SealedError(
-      'unknown_format',
+      'unknown-format',
       `the file is export format ${JSON.stringify(h.format)}; this version reads format 1 (a passphrase) and format 2 (age)`,
     );
   }
@@ -140,7 +140,7 @@ export function readHeader(file) {
   const extra = Object.keys(h).filter((k) => !keys.includes(k));
   if (extra.length || h.cipher !== CIPHER || h.kdf !== 'scrypt' || typeof h.scrypt !== 'object') {
     throw new SealedError(
-      'bad_header',
+      'bad-header',
       'the header names a cipher or field this version does not use',
     );
   }
@@ -148,7 +148,7 @@ export function readHeader(file) {
   const salt = Buffer.from(String(h.salt), 'base64');
   const nonce = Buffer.from(String(h.nonce), 'base64');
   if (salt.length !== 16 || nonce.length !== 12) {
-    throw new SealedError('bad_header', 'the header salt or nonce has the wrong length');
+    throw new SealedError('bad-header', 'the header salt or nonce has the wrong length');
   }
   return {
     header: file.subarray(0, end + 1),
@@ -165,7 +165,7 @@ export function readHeader(file) {
 function openFormat1(file, passphrase) {
   const h = readHeader(file);
   if (!passphrase) {
-    throw new SealedError('no_passphrase', 'the file is format 1, which opens with a passphrase');
+    throw new SealedError('no-passphrase', 'the file is format 1, which opens with a passphrase');
   }
   if (file.length < h.header.length + TAG_BYTES) {
     throw new SealedError('damaged', 'the file is too short to hold its authentication tag');
@@ -181,7 +181,7 @@ function openFormat1(file, passphrase) {
     return Buffer.concat([decipher.update(body), decipher.final()]);
   } catch {
     throw new SealedError(
-      'cannot_open',
+      'cannot-open',
       'the file does not open: the passphrase is wrong, or the file was changed or damaged',
     );
   }

@@ -218,7 +218,7 @@ test('install refuses to run for an executor', async () => {
   for (const env of [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-4' }]) {
     const r = await c.hitld(['install', '--marketplace', CHECKOUT], { env });
     assert.equal(r.exit, 1);
-    assert.equal(r.result.error, 'not_permitted');
+    assert.equal(r.result.error, 'not-permitted');
   }
   assert.equal(existsSync(join(c.root, '.git', 'hooks', 'pre-commit')), false);
 });

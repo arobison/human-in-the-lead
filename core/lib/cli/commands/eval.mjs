@@ -30,7 +30,7 @@ const isExecutor = (ctx) =>
 
 const EXECUTOR_REFUSAL = {
   ok: false,
-  error: 'not_allowed',
+  error: 'not-permitted',
   message: "accepting a baseline is the owner's decision (design part 17.9); executors never do it",
 };
 
@@ -79,7 +79,7 @@ function readRun(store, id) {
   if (errors.length) {
     return {
       ok: /** @type {const} */ (false),
-      error: 'bad_run',
+      error: 'invalid-eval-run',
       message: `the stored run ${id} is not a valid eval result: ${formatErrors(errors)}`,
     };
   }
@@ -139,7 +139,7 @@ export const commands = [
     run: async (input, ctx) => {
       if (input.live) {
         const { LiveNotBuilt } = await import('../../eval/live.mjs');
-        return { ok: false, error: 'not_built', message: new LiveNotBuilt().message };
+        return { ok: false, error: 'not-built', message: new LiveNotBuilt().message };
       }
       if (!input.offline) {
         return {
@@ -193,14 +193,14 @@ export const commands = [
         if (!id) {
           return {
             ok: false,
-            error: 'no_run',
+            error: 'no-eval-run',
             message: 'no eval run is stored yet; run hitld eval --offline first',
           };
         }
       } else if (typeof id !== 'string' || !RUN_ID.test(id) || !stored.includes(id)) {
         return {
           ok: false,
-          error: 'no_run',
+          error: 'no-eval-run',
           message: `no stored eval run ${JSON.stringify(id)}; stored runs: ${stored.slice(-5).join(', ') || 'none'}`,
         };
       }
@@ -224,7 +224,7 @@ export const commands = [
       const file = `eval-${id}.html`;
       const kind = { marker: MARKER, files: [file] };
       const problem = outputProblem(dir, roots, kind);
-      if (problem) return { ok: false, error: 'output_path', message: problem };
+      if (problem) return { ok: false, error: 'output-path', message: problem };
       const real = writeReportFiles(dir, MARKER, { [file]: html });
       return {
         ok: true,
@@ -259,7 +259,7 @@ export const commands = [
       if (typeof id !== 'string' || !RUN_ID.test(id) || !stored.includes(id)) {
         return {
           ok: false,
-          error: 'no_run',
+          error: 'no-eval-run',
           message: `no stored eval run ${JSON.stringify(id)}; stored runs: ${stored.slice(-5).join(', ') || 'none'}`,
         };
       }
@@ -272,7 +272,7 @@ export const commands = [
       if (refusal) {
         return {
           ok: false,
-          error: 'refused',
+          error: 'not-accepted',
           run: id,
           message: `run ${id} was not accepted: ${refusal}`,
         };
@@ -293,7 +293,7 @@ export const commands = [
       } catch (e) {
         return {
           ok: false,
-          error: 'refused',
+          error: 'not-accepted',
           run: id,
           message: `run ${id} was not accepted: ${e instanceof Error ? e.message : String(e)}`,
         };

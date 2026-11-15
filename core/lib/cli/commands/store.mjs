@@ -100,7 +100,7 @@ const passphrase = (input, ctx) =>
     option: 'passphrase-fd',
     env: PASSPHRASE_ENV,
     what: 'passphrase',
-    code: 'no_passphrase',
+    code: 'no-passphrase',
   }).split(/\r?\n/)[0];
 
 /**
@@ -145,7 +145,7 @@ function project(input, ctx) {
   if (!loaded.policy) {
     const why = loaded.errors.map((e) => `${e.path} ${e.message}`).join('; ');
     throw new Refusal(
-      'no_policy',
+      'policy',
       `the store commands need the project's ID from a valid policy.json (${why})`,
     );
   }
@@ -171,7 +171,7 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
   if (why) {
     return {
       ok: false,
-      error: 'not_permitted',
+      error: 'not-permitted',
       message: `hitld ${name} is the owner's, run from the main session in the primary checkout (${why}); executors never move the private store`,
     };
   }
@@ -181,7 +181,10 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
     const code = /** @type {{ code?: unknown }} */ (e).code;
     const known =
       e instanceof Refusal ||
-      (e instanceof Error && ['StoreGitError', 'SealedError', 'AgeError'].includes(e.name));
+      (e instanceof Error &&
+        ['StoreGitError', 'SealedError', 'AgeError', 'StoreRemoteError', 'PushPullError'].includes(
+          e.name,
+        ));
     if (known && typeof code === 'string') {
       return { ok: false, error: code, message: /** @type {Error} */ (e).message };
     }
@@ -294,42 +297,6 @@ function remoteCommands() {
   }
 
   /**
-   * Like `ownerOnly`, with kebab-case codes and the remote's own errors.
-   * @param {string} name
-   * @param {(input: Record<string, unknown>, ctx: import('../table.mjs').CommandContext) => Promise<import('../table.mjs').CommandResult> | import('../table.mjs').CommandResult} fn
-   * @returns {NonNullable<import('../table.mjs').Command['run']>}
-   */
-  const remoteOnly = (name, fn) => async (input, ctx) => {
-    const why = executorSignal(ctx.env, ctx.cwd);
-    if (why) {
-      return {
-        ok: false,
-        error: 'not-permitted',
-        message: `hitld ${name} is the owner's, run from the main session in the primary checkout (${why}); executors never move the private store`,
-      };
-    }
-    try {
-      return await fn(input, ctx);
-    } catch (e) {
-      const code = /** @type {{ code?: unknown }} */ (e).code;
-      const known =
-        e instanceof Refusal ||
-        (e instanceof Error &&
-          [
-            'StoreGitError',
-            'SealedError',
-            'AgeError',
-            'StoreRemoteError',
-            'PushPullError',
-          ].includes(e.name));
-      if (known && typeof code === 'string') {
-        return { ok: false, error: code, message: /** @type {Error} */ (e).message };
-      }
-      throw e;
-    }
-  };
-
-  /**
    * The project and its store, and the remote address policy.json carries (store.remote.url).
    * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
    */
@@ -357,7 +324,7 @@ function remoteCommands() {
       built_by: 'consumer-live',
       mcp: false,
       args: [TO, IDENTITY_FD, STORE],
-      run: remoteOnly('store push', async (input, ctx) => {
+      run: ownerOnly('store push', async (input, ctx) => {
         const { projectId, root, policyUrl, pp, devices: d } = await setUp(input, ctx);
         const { remote, url } = pp.openRemote(root, policyUrl);
         return pp.pushStore({ root, projectId, remote, url, devices: d, now: ctx.now });
@@ -370,7 +337,7 @@ function remoteCommands() {
       built_by: 'consumer-live',
       mcp: false,
       args: [IDENTITY_FD, STORE],
-      run: remoteOnly('store pull', async (input, ctx) => {
+      run: ownerOnly('store pull', async (input, ctx) => {
         const { projectId, root, policyUrl, pp, devices: d } = await setUp(input, ctx);
         const { remote, url } = pp.openRemote(root, policyUrl);
         return pp.pullStore({ root, projectId, remote, url, devices: d });
@@ -383,7 +350,7 @@ function remoteCommands() {
       built_by: 'consumer-live',
       mcp: false,
       args: [TO, STORE],
-      run: remoteOnly('store status', async (input, ctx) => {
+      run: ownerOnly('store status', async (input, ctx) => {
         const { projectId, root, policyUrl, pp, devices: d } = await setUp(input, ctx);
         const choice = pp.chooseRemote(root, policyUrl);
         const opened = choice ? pp.openRemote(root, policyUrl) : null;
@@ -406,7 +373,7 @@ function remoteCommands() {
         },
         STORE,
       ],
-      run: remoteOnly('store remote set', async (input, ctx) => {
+      run: ownerOnly('store remote set', async (input, ctx) => {
         const p = projectRemote(input, ctx);
         const pp = await import('../../store/push-pull.mjs');
         const url = String(input.url);
@@ -421,7 +388,7 @@ function remoteCommands() {
         if (input.policy) {
           if (!p.loaded.path || !p.loaded.raw) {
             throw new Refusal(
-              'no_policy',
+              'policy',
               'policy.json is missing or invalid; run hitld check policy',
             );
           }
@@ -462,7 +429,7 @@ function remoteCommands() {
       built_by: 'consumer-live',
       mcp: false,
       args: [STORE],
-      run: remoteOnly('store remote clear', async (input, ctx) => {
+      run: ownerOnly('store remote clear', async (input, ctx) => {
         const p = projectRemote(input, ctx);
         const { clearRemote } = await import('../../store/push-pull.mjs');
         return { ok: true, project: p.projectId, ...clearRemote(p.root) };
@@ -475,7 +442,7 @@ function remoteCommands() {
       built_by: 'consumer-live',
       mcp: false,
       args: [STORE],
-      run: remoteOnly('store remote show', async (input, ctx) => {
+      run: ownerOnly('store remote show', async (input, ctx) => {
         const p = projectRemote(input, ctx);
         const pp = await import('../../store/push-pull.mjs');
         return {

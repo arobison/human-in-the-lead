@@ -120,7 +120,7 @@ export function git(root, args, options = {}) {
     const err = /** @type {{ stdout?: Buffer, stderr?: Buffer, message: string }} */ (e);
     const stderr = err.stderr?.toString('utf8').trim() || err.message;
     if (options.allowFail) return { ok: false, stdout: err.stdout ?? Buffer.alloc(0), stderr };
-    throw new StoreGitError('git_failed', `git ${args[0]} failed in the store: ${stderr}`);
+    throw new StoreGitError('git-failed', `git ${args[0]} failed in the store: ${stderr}`);
   }
 }
 
@@ -210,7 +210,7 @@ export function fetchBundle(root, bundle, expectedHead) {
   try {
     const verified = git(root, ['bundle', 'verify', '-q', tmp], { allowFail: true });
     if (!verified.ok) {
-      throw new StoreGitError('bad_bundle', `the bundle does not verify: ${verified.stderr}`);
+      throw new StoreGitError('bad-bundle', `the bundle does not verify: ${verified.stderr}`);
     }
     const heads = git(root, ['bundle', 'list-heads', tmp, `refs/heads/${BRANCH}`])
       .stdout.toString('utf8')
@@ -220,7 +220,7 @@ export function fetchBundle(root, bundle, expectedHead) {
       .map((l) => l.split(' ')[0]);
     if (heads.length !== 1 || heads[0] !== expectedHead) {
       throw new StoreGitError(
-        'bad_bundle',
+        'bad-bundle',
         `the bundle's ${BRANCH} is ${heads.join(', ') || 'missing'}, but the manifest says ${expectedHead}`,
       );
     }
@@ -236,7 +236,7 @@ export function fetchBundle(root, bundle, expectedHead) {
     ]);
     const got = gitText(root, ['rev-parse', '--verify', INCOMING]);
     if (got !== expectedHead) {
-      throw new StoreGitError('bad_bundle', `fetched ${got}, expected ${expectedHead}`);
+      throw new StoreGitError('bad-bundle', `fetched ${got}, expected ${expectedHead}`);
     }
     return got;
   } finally {
@@ -420,7 +420,7 @@ export function mergeIncoming(root, theirs) {
     const committed = to.has(path) ? blob(root, /** @type {TreeEntry} */ (to.get(path)).sha) : null;
     if ((now === null) !== (committed === null) || (now && committed && !now.equals(committed))) {
       throw new StoreGitError(
-        'store_changed',
+        'store-changed',
         `${path} changed in the store during the import; nothing was merged, run it again`,
       );
     }

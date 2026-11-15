@@ -823,7 +823,7 @@ test('a free-form command is refused: only a declared task name is accepted', as
   ]) {
     const r = await env.execTask({ task, dispatch: 'D-1' });
     assert.equal(r.ok, false);
-    assert.equal(/** @type {any} */ (r).error, 'task_undeclared', task);
+    assert.equal(/** @type {any} */ (r).error, 'task-undeclared', task);
   }
   assert.ok(!existsSync(marker), 'nothing ran');
   assert.equal(env.events().filter((e) => e.kind === 'secret_refused').length, 4);
@@ -839,14 +839,14 @@ test('an undeclared task is refused, even with a live dispatch and a declared ta
   });
   dispatchesIn(store, [{ id: 'D-1', role: 'executor' }]);
   const r = await env.execTask({ task: 'deploy', dispatch: 'D-1' });
-  assert.equal(/** @type {any} */ (r).error, 'task_undeclared');
+  assert.equal(/** @type {any} */ (r).error, 'task-undeclared');
   assert.ok(!existsSync(marker));
   // with no tasks declared at all, nothing can use a secret
   const bare = await makeEnv({ repoRoot, read: () => SECRET });
   dispatchesIn(bare.store, [{ id: 'D-1', role: 'executor' }]);
   assert.equal(
     /** @type {any} */ (await bare.env.execTask({ task: 'publish', dispatch: 'D-1' })).error,
-    'task_undeclared',
+    'task-undeclared',
   );
 });
 
@@ -867,12 +867,12 @@ test('a forged or missing role is refused: the role comes from the dispatch reco
   ]);
   /** @type {[string | undefined, string][]} */
   const cases = [
-    ['D-1', 'task_not_granted'],
-    ['D-2', 'dispatch_refused'],
-    ['D-3', 'dispatch_refused'],
-    ['D-99', 'dispatch_refused'], // no such dispatch
-    [undefined, 'dispatch_refused'], // HITLD_DISPATCH not set
-    ['../../etc', 'dispatch_refused'], // not a dispatch ID
+    ['D-1', 'task-not-granted'],
+    ['D-2', 'not-a-dispatch'],
+    ['D-3', 'not-a-dispatch'],
+    ['D-99', 'not-a-dispatch'], // no such dispatch
+    [undefined, 'not-a-dispatch'], // HITLD_DISPATCH not set
+    ['../../etc', 'not-a-dispatch'], // not a dispatch ID
   ];
   for (const [dispatch, error] of cases) {
     const r = await env.execTask({ task: 'publish', dispatch });
@@ -892,7 +892,7 @@ test('with no run state at all, no task runs', async () => {
     env: { secret_tasks: [publishTask('/nonexistent/marker')] },
   });
   const r = await env.execTask({ task: 'publish', dispatch: 'D-1' });
-  assert.equal(/** @type {any} */ (r).error, 'dispatch_refused');
+  assert.equal(/** @type {any} */ (r).error, 'not-a-dispatch');
 });
 
 test('a task that is declared badly is refused rather than guessed at', async () => {
@@ -920,7 +920,7 @@ test('a task that is declared badly is refused rather than guessed at', async ()
   dispatchesIn(store, [{ id: 'D-1', role: 'executor' }]);
   for (const task of ['relative', 'both', 'neither', 'escape']) {
     const r = await env.execTask({ task, dispatch: 'D-1' });
-    assert.equal(/** @type {any} */ (r).error, 'task_invalid', task);
+    assert.equal(/** @type {any} */ (r).error, 'task-invalid', task);
   }
   // a fixed script inside the repository runs, and its output is filtered
   const ok = await env.execTask({ task: 'script', dispatch: 'D-1' });
@@ -961,7 +961,7 @@ test('a task that runs in the worktree runs there; a dispatch with no worktree i
   assert.match(String(inRepo.stdout), new RegExp(`cwd=${repoRoot}\\n`));
   assert.equal(
     /** @type {any} */ (await env.execTask({ task: 'where', dispatch: 'D-2' })).error,
-    'worktree_mismatch',
+    'worktree-mismatch',
   );
 });
 
@@ -988,13 +988,13 @@ test('a worktree whose .git points elsewhere, or a caller outside it, gets nothi
     dispatch: 'D-1',
     callerCwd: dir('else'),
   });
-  assert.equal(/** @type {any} */ (elsewhere).error, 'worktree_mismatch');
+  assert.equal(/** @type {any} */ (elsewhere).error, 'worktree-mismatch');
   const sibling = await env.execTask({
     task: 'publish',
     dispatch: 'D-1',
     callerCwd: wtPaths.get(`${store.root}|D-2`),
   });
-  assert.equal(/** @type {any} */ (sibling).error, 'worktree_mismatch');
+  assert.equal(/** @type {any} */ (sibling).error, 'worktree-mismatch');
 
   // an executor rewrites its worktree's .git to point at a repository it controls
   const evil = makeRepo();
@@ -1002,12 +1002,12 @@ test('a worktree whose .git points elsewhere, or a caller outside it, gets nothi
   const evilAdmin = join(evil, '.git', 'worktrees', 'wt');
   writeFileSync(join(/** @type {string} */ (wt1), '.git'), `gitdir: ${evilAdmin}\n`);
   const tampered = await env.execTask({ task: 'publish', dispatch: 'D-1' });
-  assert.equal(/** @type {any} */ (tampered).error, 'worktree_mismatch');
+  assert.equal(/** @type {any} */ (tampered).error, 'worktree-mismatch');
   // pointing at nothing at all is refused too
   writeFileSync(join(/** @type {string} */ (wt1), '.git'), 'gitdir: /nonexistent/x\n');
   assert.equal(
     /** @type {any} */ (await env.execTask({ task: 'publish', dispatch: 'D-1' })).error,
-    'worktree_mismatch',
+    'worktree-mismatch',
   );
   // a .git that is a symbolic link is never followed, even to a genuine pointer
   const genuine = join(dir('pointer'), 'dotgit');
@@ -1016,7 +1016,7 @@ test('a worktree whose .git points elsewhere, or a caller outside it, gets nothi
   symlinkSync(genuine, join(/** @type {string} */ (wt1), '.git'));
   assert.equal(
     /** @type {any} */ (await env.execTask({ task: 'publish', dispatch: 'D-1' })).error,
-    'worktree_mismatch',
+    'worktree-mismatch',
   );
   assert.ok(!existsSync(marker), 'the task never ran');
 });
@@ -1030,7 +1030,7 @@ test('a missing secret is reported by name only', async () => {
   });
   dispatchesIn(store, [{ id: 'D-1', role: 'executor' }]);
   const r = await env.execTask({ task: 'publish', dispatch: 'D-1' });
-  assert.equal(/** @type {any} */ (r).error, 'secret_missing');
+  assert.equal(/** @type {any} */ (r).error, 'secret-missing');
   assert.deepEqual(/** @type {any} */ (r).missing, ['NPM_TOKEN']);
 });
 
@@ -1173,7 +1173,7 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
 
   // the orchestrator starts a run, which records the primary checkout, then dispatches an
   // executor and a reviewer
-  assert.equal((await hitld(['env', 'exec', 'publish'])).json.error, 'project_unknown');
+  assert.equal((await hitld(['env', 'exec', 'publish'])).json.error, 'project-unknown');
   const started = await hitld(['run', 'start'], { HITLD_SESSION: 's1' });
   assert.equal(started.code, 0, started.out);
   const store = openStore(privateStorePath('cli-fixture', { env: { XDG_DATA_HOME: xdg } }));
@@ -1246,11 +1246,11 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   assert.equal((await hitld(['env', 'exec', '--secret', 'NPM_TOKEN', 'publish'])).code, 2);
   const freeform = await asExecutor(['env', 'exec', 'echo hi'], 'D-7');
   assert.equal(freeform.code, 1);
-  assert.equal(freeform.json.error, 'task_undeclared');
+  assert.equal(freeform.json.error, 'task-undeclared');
   // the reviewer's dispatch has no grant; no dispatch at all is refused
   assert.equal(
     (await asExecutor(['env', 'exec', 'publish'], 'D-8')).json.error,
-    'task_not_granted',
+    'task-not-granted',
   );
   assert.equal(
     (
@@ -1260,7 +1260,7 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
         executor('D-7').cwd,
       )
     ).json.error,
-    'dispatch_refused',
+    'not-a-dispatch',
   );
 
   // an executor editing policy.json in its own worktree cannot declare itself a task: the
@@ -1274,7 +1274,7 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
     argv: ['/bin/cat', '/etc/hosts'],
   });
   writeFileSync(stolen, JSON.stringify(edited), { mode: 0o600 });
-  assert.equal((await asExecutor(['env', 'exec', 'steal'], 'D-7')).json.error, 'task_undeclared');
+  assert.equal((await asExecutor(['env', 'exec', 'steal'], 'D-7')).json.error, 'task-undeclared');
   git(['checkout', '--', '.human-in-the-lead/policy.json'], executor('D-7').cwd);
 
   // ...nor by rewriting the worktree's .git to point at a repository holding a policy it wrote
@@ -1299,8 +1299,8 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   // not declared in the policy the manager loads
   const tampered = await asExecutor(['env', 'exec', 'publish'], 'D-7');
   assert.equal(tampered.code, 1);
-  assert.equal(tampered.json.error, 'worktree_mismatch');
-  assert.equal((await asExecutor(['env', 'exec', 'steal'], 'D-7')).json.error, 'task_undeclared');
+  assert.equal(tampered.json.error, 'worktree-mismatch');
+  assert.equal((await asExecutor(['env', 'exec', 'steal'], 'D-7')).json.error, 'task-undeclared');
 
   // a project whose record is missing, or names another project, or another repository's policy
   const noRecord = await hitld(
@@ -1308,18 +1308,18 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
     { ...executor('D-7').env, XDG_DATA_HOME: dir('empty-xdg') },
     executor('D-7').cwd,
   );
-  assert.equal(noRecord.json.error, 'primary_unrecorded');
+  assert.equal(noRecord.json.error, 'primary-unrecorded');
   const record = JSON.parse(/** @type {string} */ (store.read(PRIMARY_KEY)));
   store.write(PRIMARY_KEY, JSON.stringify({ ...record, project_id: 'someone-else' }));
   assert.equal(
     (await asExecutor(['env', 'exec', 'publish'], 'D-7')).json.error,
-    'primary_mismatch',
+    'primary-mismatch',
   );
   // a record that points at a repository whose policy is for a different project
   store.write(PRIMARY_KEY, JSON.stringify({ ...record, root: realpathSync(evil) }));
   const wrongPolicy = await asExecutor(['env', 'exec', 'steal'], 'D-7');
   assert.equal(wrongPolicy.code, 1);
-  assert.equal(wrongPolicy.json.error, 'primary_mismatch');
+  assert.equal(wrongPolicy.json.error, 'primary-mismatch');
   store.write(PRIMARY_KEY, JSON.stringify(record));
   // put the worktree pointer back: the normal path works again
   writeFileSync(join(executor('D-7').cwd, '.git'), originalGit);

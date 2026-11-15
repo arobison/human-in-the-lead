@@ -88,7 +88,7 @@
     {
       "id": "fresh-lease-not-taken",
       "grader": "equals",
-      "with": { "path": "steps.too_early.result.error", "value": "lease_held" }
+      "with": { "path": "steps.too_early.result.error", "value": "lease-held" }
     },
     {
       "id": "retired-as-ended",
@@ -151,7 +151,7 @@
     {
       "id": "killed-session-refused",
       "grader": "equals",
-      "with": { "path": "steps.stale.result.error", "value": "lease_lost" }
+      "with": { "path": "steps.stale.result.error", "value": "lease-lost" }
     }
   ]
 }
