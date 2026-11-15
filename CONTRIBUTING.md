@@ -15,6 +15,20 @@ npm run check          # all three
 node core/bin/hitld.mjs --help
 ```
 
+## The merge scanner
+
+This repository's merge queue runs CodeQL ([design 10.5](docs/design/0001-human-in-the-lead/10-security.md#105-security-in-done-when)), declared in `.human-in-the-lead/policy.json` under `merge.scanners`. The queue runs `scripts/codeql-scan.mjs` from the primary checkout (`$HITLD_PRIMARY_ROOT`), never a branch's copy. The script refuses to run until the pinned CLI is installed. On the merge machine:
+
+```bash
+curl -fLO https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-linux64.tar.gz
+echo '89ed56c8ec6bfccef6a0d2e7fe86da0469ca24b4db08b88016ec134b942c17a4  codeql-bundle-linux64.tar.gz' | sha256sum -c
+mkdir -p ~/.cache/hitld-codeql/v2.27.4
+tar -xzf codeql-bundle-linux64.tar.gz -C ~/.cache/hitld-codeql/v2.27.4
+export HITLD_CODEQL=~/.cache/hitld-codeql/v2.27.4/codeql/codeql   # in the shell that runs hitld merge
+```
+
+The checksum is the one the release publishes (`codeql-bundle-linux64.tar.gz.checksum.txt`). The bundle holds its own query packs and needs no network to scan. Raising the version changes `scripts/codeql-scan.mjs`, this section and the baseline: the new version's first run on main extends it. The CodeQL licence allows this use because the repository is open source on GitHub.com; it does not cover private code.
+
 ## Rules
 
 - **No third-party runtime dependencies** ([design part 16.1](docs/design/0001-human-in-the-lead/16-packaging.md#161-this-repositorys-layout)). Only Node built-ins in `core/`. Dev dependencies are allowed and pinned to exact versions.
