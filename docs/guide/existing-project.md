@@ -63,31 +63,33 @@ Work on a branch, so nothing reaches `main` before you have read it.
 
    `work check` reports `0 files`: there are no items yet, which is correct here.
 
-8. **Put the backlog in.** One project for the effort, one item for each piece of work you already know about. Items start `planned`; use `--state proposed` for an idea you have not committed to.
+8. **Commit and merge** the setup through your usual route:
 
    ```bash
-   hitld work new --kind project --title "Sample app v1"
-   hitld work new --title "Add a health endpoint" --parent SAM-1
-   hitld work check
-   hitld ready
-   ```
-
-   Open each item and fill in `## Done when`. Describe an outcome that can be checked, not the steps.
-
-9. **Commit and merge** the setup through your usual route:
-
-   ```bash
-   git add .human-in-the-lead AGENTS.md CLAUDE.md .claude/settings.json work
+   git add .human-in-the-lead AGENTS.md CLAUDE.md .claude/settings.json
    git commit -m "Set up human-in-the-lead"
    ```
 
-   Leave out `CLAUDE.md` if you have none. Do not commit `.claude/settings.local.json`. Then open your usual review or merge it.
+   Leave out `CLAUDE.md` if you have none. Do not commit `.claude/settings.local.json`. Then open your usual review, or merge it yourself.
 
-10. **Install the plugin on each machine** once, and run the first-run setup in your first session. Both are the same as in [A new project](new-project.md), steps 9 and 10:
+9. **Install the plugin on each machine** once, and run the first-run setup in your first session. Both are the same as in [A new project](new-project.md), steps 9 and 10:
+
+   ```bash
+   claude plugin install human-in-the-lead@human-in-the-lead --scope project
+   ```
+
+10. **Put the backlog in**, on `main` after the merge: `hitld work new` creates items only on `main`, in the main checkout, and refuses on any other branch. One project for the effort, one item for each piece of work you already know about. Items start `planned`; use `--state proposed` for an idea you have not committed to.
 
     ```bash
-    claude plugin install human-in-the-lead@human-in-the-lead --scope project
+    git switch main
+    hitld work new --kind project --title "Sample app v1"
+    hitld work new --title "Add a health endpoint" --parent SAM-1
+    hitld work check
+    hitld ready
+    git add work && git commit -m "Add the first project and items"
     ```
+
+    Open each item and fill in `## Done when` before you commit. Describe an outcome that can be checked, not the steps.
 
 ## Check that it worked
 
@@ -95,8 +97,8 @@ Work on a branch, so nothing reaches `main` before you have read it.
 hitld version                  # 0.1.0-rc.1
 hitld check contract           # ok: true, block: "current"
 hitld check policy             # ok: true
-hitld work check               # ok: true, and "files" equals the items you made
-hitld ready                    # your first items, with tiers
+hitld work check               # ok: true, and "files" equals the items you made (0 before step 10)
+hitld ready                    # your first items, with tiers (after step 10)
 hitld config explain --json    # setup.done is true once the first-run setup is finished
 ```
 

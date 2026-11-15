@@ -6,7 +6,7 @@ For a project that plans its work in Linear, Jira or GitHub Issues. Release tag:
 
 ## What works today, and what is planned
 
-At `v0.1.0-rc.1` HITLd has **one tracker backend: files in the repository**. There is no connection to Linear, Jira or GitHub Issues: nothing reads from them, writes to them or closes their issues. The plan is in [design 0002](../design/0002-hosted-tracker-backends.md), decided by the owner and not built yet. It is not on `main`; treat everything in the second column as planned.
+At `v0.1.0-rc.1` HITLd has **one tracker backend: files in the repository**. There is no connection to Linear, Jira or GitHub Issues: nothing reads from them, writes to them or closes their issues. The plan is in [design 0002](../design/0002-hosted-tracker-backends.md), decided by the owner and not built yet. Treat everything in the second column as planned.
 
 | | Today | Planned (design 0002) |
 |---|---|---|
@@ -31,7 +31,7 @@ You can still use HITLd on a **new** project, or a new effort with its own items
 For a small backlog, you can do now by hand what the planned import will do for you. It is a one-time cutover, not a sync. It has none of the import's checks (no mapping, no dry run), so do not use it for a large backlog or for a workflow with many states.
 
 1. **Decide who stops writing, and when.** From the cutover on, nobody creates, edits or moves items in the hosted tracker for this project. Tell the team. If the tracker allows it, archive the project or make it read-only.
-2. **Set the project up in files**, following [An existing project with no tracker](existing-project.md) through its check step.
+2. **Set the project up in files**, following [An existing project with no tracker](existing-project.md) through step 9, and merge it. `hitld work new` creates items only on `main`.
 3. **Copy the open items**, one file each. Take only items that are still open. Use a tracker key (`SAM`) that differs from the hosted one (`APP`): a hosted key and a HITLd key must never overlap.
 
    ```bash
@@ -59,7 +59,7 @@ For a small backlog, you can do now by hand what the planned import will do for 
    hitld ready
    ```
 
-5. **Commit** `work/` with the rest of the setup, and merge.
+5. **Commit** `work/` on `main`.
 6. **Freeze the old tracker.** Add a link to the repository at the top of the hosted project's description, so nobody adds work there.
 
 ### C. Wait for import and switch
@@ -80,7 +80,7 @@ And in the hosted tracker: nobody has changed an item there since the cutover, a
 ## Undo it
 
 - **Choice A** changed nothing.
-- **Choice B**: revert the commit that added `work/` and the setup (see the undo section of [An existing project with no tracker](existing-project.md)), and tell the team to use the hosted tracker again. Because nobody wrote to it after the cutover, it is still right, except for what you finished in files since. Move those results back by hand.
+- **Choice B**: revert the commit that added `work/`, then the setup (see the undo section of [An existing project with no tracker](existing-project.md)), and tell the team to use the hosted tracker again. Because nobody wrote to it after the cutover, it is still right, except for what you finished in files since. Move those results back by hand.
 - **Choice C** changes nothing until the import exists.
 
 Do not undo by running both trackers for a while "to be safe". That is the two sources of truth this page is about.
