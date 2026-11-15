@@ -39,7 +39,7 @@
             "$ref": "common#/$defs/name"
           },
           "command": {
-            "description": "The command that scans the current directory.",
+            "description": "The command that scans the current directory, which is the branch under test. $HITLD_PRIMARY_ROOT is the primary checkout the policy was read from: a script kept in the repository is run from there (node \"$HITLD_PRIMARY_ROOT/scripts/scan.mjs\"), never by a relative path, which would run the branch's own copy.",
             "type": "string",
             "minLength": 1,
             "x-hitld-executes": "run through the shell in the merge queue's worktree"

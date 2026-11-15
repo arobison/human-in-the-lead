@@ -20,7 +20,8 @@ import { MAX_SARIF_BYTES, fingerprintRuns, readSarif } from './sarif.mjs';
  * @typedef {import('./sarif.mjs').Finding} Finding
  * @typedef {{ ok: true, scanner: string, tools: { tool: string, version: string }[], findings: Finding[] }
  *   | { ok: false, scanner: string, command: string, output: string }} ScanResult
- * @typedef {(scanner: Scanner, cwd: string) => ScanResult} RunScanner
+ * @typedef {{ primaryRoot?: string, timeoutMs?: number }} ScanOptions
+ * @typedef {(scanner: Scanner, cwd: string, options?: ScanOptions) => ScanResult} RunScanner
  */
 
 const TAIL = 2000;
@@ -48,8 +49,14 @@ function readOutput(path) {
  * directory under test, so a file the branch commits cannot stand in for the scanner's output.
  * The exit status is not the verdict: many scanners exit non-zero when they find something. A
  * scanner that writes no SARIF has failed.
+ *
+ * `primaryRoot` is the primary checkout the policy was read from. It is exported to the scanner
+ * as $HITLD_PRIMARY_ROOT, so a command that runs a script kept in the repository can run the
+ * primary checkout's copy (`node "$HITLD_PRIMARY_ROOT/scripts/scan.mjs"`) and never the copy in
+ * the branch under test, which a branch could edit to report nothing. Without it the variable is
+ * unset, whatever this process's environment holds.
  * @param {Scanner} scanner @param {string} cwd
- * @param {{ timeoutMs?: number }} [options]
+ * @param {ScanOptions} [options]
  * @returns {ScanResult}
  */
 export function runScanner(scanner, cwd, options = {}) {
@@ -57,17 +64,30 @@ export function runScanner(scanner, cwd, options = {}) {
   const sarifPath = join(out, 'out.sarif');
   try {
     // Not this process's test-runner context: a project's own `node --test` would report to it.
-    const { NODE_TEST_CONTEXT: _context, ...inherited } = process.env;
+    // HITLD_SARIF and HITLD_PRIMARY_ROOT come only from here, never from the inherited environment.
+    const {
+      NODE_TEST_CONTEXT: _context,
+      HITLD_SARIF: _sarif,
+      HITLD_PRIMARY_ROOT: _primary,
+      ...inherited
+    } = process.env;
     // Trust boundary (design parts 10 and 14.2): `scanner.command` is an entry of policy.json
     // merge.scanners, a key marked x-hitld-executes. The owner declares it as a shell command and
     // the queue runs it on purpose, so a shell is the declared contract. It reaches here only from
     // a policy that came through loadPolicy's trusted read (owner, mode, no link, inside the
     // repository root) in the primary checkout, never from the branch under test; this function
-    // takes no command from anywhere else. The branch's code is what is scanned, as data.
+    // takes no command from anywhere else. The branch's code is what is scanned, as data. The
+    // working directory is the branch, so a script the command names by a relative path is the
+    // branch's copy, which the branch controls; $HITLD_PRIMARY_ROOT (the trusted primary checkout,
+    // as given by the caller) is how a command names the owner's copy instead.
     const r = spawnSync(scanner.command, {
       shell: true,
       cwd,
-      env: { ...inherited, HITLD_SARIF: sarifPath },
+      env: {
+        ...inherited,
+        HITLD_SARIF: sarifPath,
+        ...(options.primaryRoot ? { HITLD_PRIMARY_ROOT: options.primaryRoot } : {}),
+      },
       encoding: 'utf8',
       maxBuffer: MAX_SARIF_BYTES,
       timeout: options.timeoutMs ?? 30 * 60 * 1000,

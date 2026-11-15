@@ -39,11 +39,15 @@ import { runScanner } from '../security/scan.mjs';
  */
 
 /**
- * @param {{ store: PrivateStore, scanners: Scanner[], run?: RunScanner, now?: () => Date }} o
+ * `primaryRoot` is the primary checkout the policy came from; each scanner gets it as
+ * $HITLD_PRIMARY_ROOT (see runScanner).
+ * @param {{ store: PrivateStore, scanners: Scanner[], primaryRoot?: string, run?: RunScanner, now?: () => Date }} o
  * @returns {SecurityGate}
  */
 export function securityGate(o) {
-  const run = o.run ?? runScanner;
+  const runWith = o.run ?? runScanner;
+  /** @param {Scanner} scanner @param {string} dir */
+  const run = (scanner, dir) => runWith(scanner, dir, { primaryRoot: o.primaryRoot });
   const now = o.now ?? (() => new Date());
   /** @type {import('../security/records.mjs').Records | null} */
   let records = null;

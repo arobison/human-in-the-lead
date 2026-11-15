@@ -892,7 +892,11 @@ export const commands = [
         if (lock && !lock.acquired) {
           throw new Refusal('merge_busy', `the merge queue is held by ${lock.held_by?.holder}`);
         }
-        const security = securityGate({ store: p.store, scanners: p.policy.merge.scanners });
+        const security = securityGate({
+          store: p.store,
+          scanners: p.policy.merge.scanners,
+          primaryRoot: p.repoRoot,
+        });
         try {
           const result = await runMergeQueue({
             repoRoot: p.repoRoot,

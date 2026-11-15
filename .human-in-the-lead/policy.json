@@ -3,5 +3,14 @@
   "project": {
     "id": "human-in-the-lead",
     "key": "HITLD"
+  },
+  "merge": {
+    "scanners": [
+      {
+        "name": "codeql",
+        "command": "node \"${HITLD_PRIMARY_ROOT:?set by the hitld merge queue to the primary checkout}/scripts/codeql-scan.mjs\"",
+        "format": "sarif"
+      }
+    ]
   }
 }

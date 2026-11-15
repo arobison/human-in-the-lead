@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -348,6 +355,76 @@ test('scanner: SARIF from $HITLD_SARIF or standard output; no SARIF is a failure
   const none = runScanner({ name: 'none', command: 'echo hello' }, root);
   assert.equal(none.ok, false);
   assert.match(none.ok ? '' : none.output, /wrote no SARIF/);
+});
+
+test("scanner: $HITLD_PRIMARY_ROOT is the caller's primary checkout, never inherited", () => {
+  const root = tmp();
+  const print = {
+    name: 'print',
+    command: `printf '%s' '${sarif([])}'; printf '%s' "\${HITLD_PRIMARY_ROOT-unset}" > "${join(root, 'seen')}"`,
+  };
+  const saved = process.env.HITLD_PRIMARY_ROOT;
+  process.env.HITLD_PRIMARY_ROOT = '/somewhere/else';
+  try {
+    assert.ok(runScanner(print, root).ok);
+    assert.equal(readFileSync(join(root, 'seen'), 'utf8'), 'unset');
+    assert.ok(runScanner(print, root, { primaryRoot: '/the/primary' }).ok);
+    assert.equal(readFileSync(join(root, 'seen'), 'utf8'), '/the/primary');
+  } finally {
+    if (saved === undefined) delete process.env.HITLD_PRIMARY_ROOT;
+    else process.env.HITLD_PRIMARY_ROOT = saved;
+  }
+});
+
+test('gate: a scanner script kept in the repository runs from the primary checkout, so a branch editing its copy changes nothing', async () => {
+  const base = tmp();
+  writeFixtureScanner(join(base, 'honest.mjs'));
+  const honest = readFileSync(join(base, 'honest.mjs'), 'utf8');
+  // The branch's copy reports nothing, whatever the code holds.
+  const quiet = `import { writeFileSync } from 'node:fs';
+writeFileSync(process.env.HITLD_SARIF, JSON.stringify({ version: '2.1.0', runs: [{ tool: { driver: { name: 'fixture-scanner', version: '1.0.0' } }, results: [] }] }));
+`;
+  const { root } = buildSecurityRepo(join(base, 'repo'), {
+    main: { 'scripts/scan.mjs': honest, 'src/app.js': 'export const ok = 1;\n' },
+    branches: [
+      {
+        branch: 'hitld/W-1-quiet',
+        item: 'W-1',
+        files: { 'scripts/scan.mjs': quiet, 'src/new.js': 'UNSAFE(input);\n' },
+      },
+    ],
+  });
+  /** @param {string} command @param {string} storeDir */
+  const merge = async (command, storeDir) =>
+    runMergeQueue({
+      repoRoot: root,
+      entries: [{ item: 'W-1', branch: 'hitld/W-1-quiet' }],
+      settings: { ...SECURITY_MERGE_SETTINGS, generated: [] },
+      security: securityGate({
+        store: openStore(join(base, storeDir)),
+        scanners: [{ name: 'repo-script', command }],
+        primaryRoot: root,
+      }),
+    });
+  const before = git(root, 'rev-parse', 'main');
+  // As this repository declares CodeQL: the primary checkout's copy runs on the branch's code.
+  const primary = await merge(
+    `"${process.execPath}" "\${HITLD_PRIMARY_ROOT:?unset}/scripts/scan.mjs"`,
+    'store-primary',
+  );
+  assert.deepEqual(primary.merged, []);
+  assert.equal(primary.rejected[0].reason, 'security');
+  assert.deepEqual(
+    primary.rejected[0].findings?.map((x) => [x.path, x.line]),
+    [['src/new.js', 1]],
+  );
+  assert.equal(git(root, 'rev-parse', 'main'), before);
+  // A relative path would run the branch's own copy, which hides the finding: why the variable.
+  const relative = await merge(`"${process.execPath}" scripts/scan.mjs`, 'store-relative');
+  assert.deepEqual(
+    relative.merged.map((m) => m.item),
+    ['W-1'],
+  );
 });
 
 // --- The gate in the merge queue ----------------------------------------------------------------

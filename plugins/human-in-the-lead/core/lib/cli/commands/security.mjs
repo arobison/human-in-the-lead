@@ -176,7 +176,7 @@ export const commands = [
       const r = readRecords(p.store);
       const done = [];
       for (const scanner of p.policy.merge.scanners) {
-        const res = runScanner(scanner, p.repoRoot);
+        const res = runScanner(scanner, p.repoRoot, { primaryRoot: p.repoRoot });
         if (!res.ok) return fail('scanner', res.output, { scanner: scanner.name });
         if (res.tools.every((t) => knowsTool(r, t))) {
           done.push({ scanner: scanner.name, added: 0, tools: [] });
