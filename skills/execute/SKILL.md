@@ -17,7 +17,13 @@ Prefix every `hitld` command with the environment the brief gives (`HITLD_DISPAT
 1. **Set up.** If the brief says so (a background agent in its own worktree): `hitld env setup --dispatch D-<n> --adopt "$PWD"`, then `git branch -m <branch>`. A failed setup is a `blocked` report, not something to work around.
 2. **Claim.** `hitld work claim <ID> --dispatch D-<n> --branch <branch>`. That commit changes only the item file.
 3. **Work.** Stay inside the item's `touches`; if you must go outside, note why for `deviations`. Measure only through the project's benchmark tool. Secrets only through `hitld env exec <task>` (owner-declared tasks); never read secret files.
-4. **Calls.** Decide cheap-to-undo calls within the plan yourself and note each, marked `(reversible)`. A call the contract says is not yours: do not block. Do the parts that do not depend on it, and put the question under `questions` with your recommendation.
+4. **Calls.** Decide cheap-to-undo calls within the plan yourself and note each, marked `(reversible)`. Before you list any question, settle what the system already settles:
+   - Write the question as JSON (`title`, `triggers` for each rule that holds with a reason, `tags`, `paths`, `item_kind`, `reversibility`, `spend_tokens` where they apply; the schema is `schemas/question.schema.json`) and run `hitld rights who --question '<json>'`. Decider `system` means it is your call.
+   - Run `hitld precedent match --question '<json>'`. One candidate that needs no judgement fits: apply it. One that needs judgement: read its `judge` lines against the question; if each holds, apply it. Several candidates that disagree, or a doubtful fit: ask, and cite the candidates.
+   - When you apply it, put the call under `calls` with the precedent ID, as in `<call>, per P-<n> (reversible)`. The owner can overrule it from the digest. Do not run `hitld rights ask`, `answer` or `overrule`: they are refused to you.
+   - A precedent never settles a rule change, and `precedent match` reports it as `blocked`. Ask.
+
+   If the decider is not `system` and no precedent fits, the contract says the call is not yours: do not block. Do the parts that do not depend on it, and put the question under `questions` with your recommendation.
 5. **Stop when "Done when" holds**, or at the brief's report-at budget, whichever comes first.
 6. **Close.** `hitld work close <ID>` in the same branch, as the last change. Commit with the trailers `Work-Item: <ID>`, `Dispatch: D-<n>`, `Agent-Role:`, `Agent-Model:` (your model ID) and `Agent-Effort:`. Never push, never touch `main`.
 7. **Report**, as your final message, in the fixed shape and nothing else:
