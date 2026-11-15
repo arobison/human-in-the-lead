@@ -21,13 +21,14 @@ import { git, head, snapshot } from '../lib/store/git.mjs';
 import { createGitRemote, remoteDir } from '../lib/store/remote-git.mjs';
 import { pushStore, storeStatus } from '../lib/store/push-pull.mjs';
 import { resolveDevices } from '../lib/store/devices-port.mjs';
+import { DEVICES_PATH, readRotations, serializeDevices } from '../lib/store/devices.mjs';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
+import { commitAll, fixtureGit, putFiles } from '../lib/eval/orchestrator-fixtures.mjs';
 
 /** Two enrolled devices and one that is not. */
 const DEVICE_A = generateIdentity();
 const DEVICE_B = generateIdentity();
 const STRANGER = generateIdentity();
-const BOTH = ['--recipient', DEVICE_A.recipient, '--recipient', DEVICE_B.recipient];
 const at = (/** @type {number} */ n) => `2026-11-14T10:${String(n).padStart(2, '0')}:00.000Z`;
 
 /** Strings of the fixture store that must never appear in the remote. */
@@ -60,21 +61,58 @@ function otherHost(f, name) {
   return { bare, url: `file://${bare}` };
 }
 
-/** A project directory with a policy, a bare repository standing in for the host, and stores. */
+/**
+ * A project checkout whose main enrols devices A and B in store-devices.json, with an origin it
+ * was pushed to; a bare repository standing in for the store's host; and stores.
+ */
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'hitld-push-pull-'));
   const project = join(dir, 'project');
-  mkdirSync(join(project, '.human-in-the-lead'), { recursive: true });
-  mkdirSync(join(project, '.git'));
-  writeFileSync(
-    join(project, '.human-in-the-lead', 'policy.json'),
-    JSON.stringify({ schema_version: 1, project: { id: 'fixture', key: 'W' } }),
-  );
+  mkdirSync(project);
+  fixtureGit(project, 'init', '-q', '-b', 'main');
+  fixtureGit(project, 'config', 'user.name', 'Fixture');
+  fixtureGit(project, 'config', 'user.email', 'fixture@example.invalid');
+  fixtureGit(project, 'config', 'commit.gpgsign', 'false');
+  putFiles(project, {
+    '.human-in-the-lead/policy.json': JSON.stringify({
+      schema_version: 1,
+      project: { id: 'fixture', key: 'W' },
+    }),
+    [DEVICES_PATH]: devicesFile(['device-a', DEVICE_A], ['device-b', DEVICE_B]),
+  });
+  commitAll(project, 'enrol a and b');
+  const origin = join(dir, 'origin.git');
+  fixtureGit(dir, 'init', '-q', '--bare', '-b', 'main', origin);
+  fixtureGit(project, 'remote', 'add', 'origin', origin);
+  fixtureGit(project, 'push', '-q', 'origin', 'main');
   const bare = join(dir, 'host', 'store.git');
   mkdirSync(bare, { recursive: true });
   const init = spawnSync('git', ['init', '-q', '--bare'], { cwd: bare, encoding: 'utf8' });
   assert.equal(init.status, 0, init.stderr);
-  return { dir, project, bare, url: `file://${bare}` };
+  return { dir, project, origin, bare, url: `file://${bare}` };
+}
+
+/** @param {...[string, { recipient: string }]} devices */
+const devicesFile = (...devices) =>
+  serializeDevices({
+    schema_version: 1,
+    devices: devices.map(([name, d]) => ({ name, recipient: d.recipient, added: '2026-11-15' })),
+  });
+
+/**
+ * The owner changes the device list on origin's main, as their merge would; this checkout's
+ * local main is left behind, so only a fetch sees it.
+ * @param {ReturnType<typeof fixture>} f @param {string} text
+ */
+function mergeOnOrigin(f, text) {
+  const other = join(f.dir, `owner-${Math.random().toString(36).slice(2)}`);
+  fixtureGit(f.dir, 'clone', '-q', f.origin, other);
+  fixtureGit(other, 'config', 'user.name', 'Owner');
+  fixtureGit(other, 'config', 'user.email', 'owner@example.invalid');
+  fixtureGit(other, 'config', 'commit.gpgsign', 'false');
+  putFiles(other, { [DEVICES_PATH]: text });
+  commitAll(other, 'devices');
+  fixtureGit(other, 'push', '-q', 'origin', 'main');
 }
 
 /** @param {import('../lib/store/store.mjs').PrivateStore} store @param {string} id @param {number} n */
@@ -221,10 +259,10 @@ test('push then pull on a second store; status before and after', async () => {
 
   // No remote set: push and pull say so, status reports it.
   for (const sub of ['push', 'pull']) {
-    const r = await a.run(sub === 'push' ? [sub, ...BOTH] : [sub]);
+    const r = await a.run([sub]);
     assert.equal(r.json.error, 'no-remote', sub);
   }
-  const bare = await a.run(['status', ...BOTH]);
+  const bare = await a.run(['status']);
   assert.equal(bare.code, EXIT.ok, JSON.stringify(bare.json));
   assert.deepEqual(
     [bare.json.remote, bare.json.push_due, bare.json.pull_due, bare.json.device.enrolled],
@@ -235,33 +273,33 @@ test('push then pull on a second store; status before and after', async () => {
   await b.run(['remote', 'set', f.url]);
 
   // Before: a has text to push and the remote is empty.
-  const before = await a.run(['status', ...BOTH]);
+  const before = await a.run(['status']);
   assert.equal(before.json.remote.url, f.url);
   assert.equal(before.json.remote_version, null);
   assert.equal(before.json.push_due, true);
   assert.equal(before.json.pull_due, false);
   assert.equal(before.json.synced, null);
 
-  const pushed = await a.run(['push', ...BOTH]);
+  const pushed = await a.run(['push']);
   assert.equal(pushed.code, EXIT.ok, JSON.stringify(pushed.json));
   assert.equal(pushed.json.result, 'pushed');
   assert.equal(pushed.json.recipients, 2);
   assert.equal(pushed.json.head, head(a.store.root));
 
   // After: nothing due, and the version this store merged is recorded.
-  const after = await a.run(['status', ...BOTH]);
+  const after = await a.run(['status']);
   assert.equal(after.json.push_due, false);
   assert.equal(after.json.pull_due, false);
   assert.equal(after.json.remote_version, pushed.json.version);
   assert.deepEqual(after.json.synced, { version: pushed.json.version, head: head(a.store.root) });
   assert.equal(after.json.local_changed, false);
   // Pushing again changes nothing.
-  const again = await a.run(['push', ...BOTH]);
+  const again = await a.run(['push']);
   assert.equal(again.json.result, 'up-to-date');
   assert.equal(again.json.version, pushed.json.version);
 
   // b is behind: a pull is due until it pulls.
-  const behind = await b.run(['status', ...BOTH]);
+  const behind = await b.run(['status']);
   assert.equal(behind.json.pull_due, true);
   assert.equal(behind.json.push_due, false);
   assert.equal(behind.json.local_version, null);
@@ -273,7 +311,7 @@ test('push then pull on a second store; status before and after', async () => {
   assert.equal(b.store.read('ledger.jsonl'), a.store.read('ledger.jsonl'));
   assert.equal(b.store.read('notes/cache.md'), `${SECRET_NOTE}\n`);
   assert.equal(pulled.json.index.events, 2);
-  const caughtUp = await b.run(['status', ...BOTH]);
+  const caughtUp = await b.run(['status']);
   assert.equal(caughtUp.json.pull_due, false);
   assert.equal(caughtUp.json.push_due, false);
   assert.equal(caughtUp.json.synced.version, pushed.json.version);
@@ -282,9 +320,9 @@ test('push then pull on a second store; status before and after', async () => {
 
   // b writes; its push is due, and a pulls it.
   question(b.store, 'E-b1', 3);
-  assert.equal((await b.run(['status', ...BOTH])).json.push_due, true);
-  assert.equal((await b.run(['push', ...BOTH])).json.result, 'pushed');
-  assert.equal((await a.run(['status', ...BOTH])).json.pull_due, true);
+  assert.equal((await b.run(['status'])).json.push_due, true);
+  assert.equal((await b.run(['push'])).json.result, 'pushed');
+  assert.equal((await a.run(['status'])).json.pull_due, true);
   assert.equal((await a.run(['pull'])).json.result, 'fast-forward');
   assert.equal(a.store.read('ledger.jsonl'), b.store.read('ledger.jsonl'));
 });
@@ -294,9 +332,9 @@ test('the remote holds no plain text of the store (milestone c4)', async () => {
   const a = device(f, 'a', DEVICE_A);
   fill(a.store);
   await a.run(['remote', 'set', f.url]);
-  assert.equal((await a.run(['push', ...BOTH])).code, EXIT.ok);
+  assert.equal((await a.run(['push'])).code, EXIT.ok);
   question(a.store, 'E-3', 3);
-  assert.equal((await a.run(['push', ...BOTH])).code, EXIT.ok);
+  assert.equal((await a.run(['push'])).code, EXIT.ok);
 
   const markers = [
     ...(a.store.read('ledger.jsonl') ?? '').trim().split('\n'),
@@ -341,7 +379,7 @@ test('machine-local files are never pushed', async () => {
   const a = device(f, 'a', DEVICE_A);
   fill(a.store);
   await a.run(['remote', 'set', f.url]);
-  const pushed = await a.run(['push', ...BOTH]);
+  const pushed = await a.run(['push']);
   assert.equal(pushed.code, EXIT.ok, JSON.stringify(pushed.json));
   // The bundle a device opens holds the text and nothing else.
   assert.deepEqual(await pushedPaths(f, DEVICE_B.identity), [
@@ -375,7 +413,7 @@ test('a push against a moved remote pulls, merges and pushes again; both records
   question(a.store, 'E-1', 1);
   await a.run(['remote', 'set', f.url]);
   await b.run(['remote', 'set', f.url]);
-  const v1 = await a.run(['push', ...BOTH]);
+  const v1 = await a.run(['push']);
   assert.equal(v1.json.result, 'pushed');
   assert.equal((await b.run(['pull'])).code, EXIT.ok);
 
@@ -383,9 +421,9 @@ test('a push against a moved remote pulls, merges and pushes again; both records
   question(a.store, 'E-a1', 2);
   question(b.store, 'E-b1', 3);
   b.store.write('notes/b.md', 'written on b\n');
-  const first = await a.run(['push', ...BOTH]);
+  const first = await a.run(['push']);
   assert.equal(first.json.result, 'pushed');
-  const second = await b.run(['push', ...BOTH]);
+  const second = await b.run(['push']);
   assert.equal(second.code, EXIT.ok, JSON.stringify(second.json));
   assert.equal(second.json.result, 'pushed');
   assert.equal(second.json.merged.length, 1);
@@ -402,7 +440,7 @@ test('a push against a moved remote pulls, merges and pushes again; both records
   }
   assert.equal(a.store.read('ledger.jsonl'), b.store.read('ledger.jsonl'));
   assert.equal(a.store.read('notes/b.md'), 'written on b\n');
-  assert.equal((await a.run(['status', ...BOTH])).json.push_due, false);
+  assert.equal((await a.run(['status'])).json.push_due, false);
 });
 
 test('two devices pushing at once both land', async () => {
@@ -412,11 +450,11 @@ test('two devices pushing at once both land', async () => {
   question(a.store, 'E-1', 1);
   await a.run(['remote', 'set', f.url]);
   await b.run(['remote', 'set', f.url]);
-  await a.run(['push', ...BOTH]);
+  await a.run(['push']);
   await b.run(['pull']);
   question(a.store, 'E-a1', 2);
   question(b.store, 'E-b1', 3);
-  const [ra, rb] = await Promise.all([a.run(['push', ...BOTH]), b.run(['push', ...BOTH])]);
+  const [ra, rb] = await Promise.all([a.run(['push']), b.run(['push'])]);
   assert.equal(ra.code, EXIT.ok, JSON.stringify(ra.json));
   assert.equal(rb.code, EXIT.ok, JSON.stringify(rb.json));
   await a.run(['pull']);
@@ -436,13 +474,13 @@ test('a real conflict stops the push and changes nothing on either side', async 
   a.store.write('precedents/P-1.json', '{"id":"P-1","v":1}\n');
   await a.run(['remote', 'set', f.url]);
   await b.run(['remote', 'set', f.url]);
-  const firstVersion = (await a.run(['push', ...BOTH])).json.version;
+  const firstVersion = (await a.run(['push'])).json.version;
   await b.run(['pull']);
   a.store.write('precedents/P-1.json', '{"id":"P-1","v":2}\n');
   b.store.write('precedents/P-1.json', '{"id":"P-1","v":3}\n');
-  const landed = await a.run(['push', ...BOTH]);
+  const landed = await a.run(['push']);
   assert.equal(landed.json.result, 'pushed');
-  const stopped = await b.run(['push', ...BOTH]);
+  const stopped = await b.run(['push']);
   assert.equal(stopped.code, EXIT.failed);
   assert.equal(stopped.json.error, 'conflict');
   assert.deepEqual(
@@ -465,7 +503,7 @@ test('pull with the wrong identity, no identity or a malformed one is refused', 
   const a = device(f, 'a', DEVICE_A);
   fill(a.store);
   await a.run(['remote', 'set', f.url]);
-  assert.equal((await a.run(['push', ...BOTH])).code, EXIT.ok);
+  assert.equal((await a.run(['push'])).code, EXIT.ok);
 
   const stranger = device(f, 'stranger', STRANGER);
   await stranger.run(['remote', 'set', f.url]);
@@ -492,7 +530,7 @@ test('the identity may come from a file descriptor; neither secret is ever an ar
   const a = device(f, 'a', DEVICE_A);
   fill(a.store);
   await a.run(['remote', 'set', f.url]);
-  assert.equal((await a.run(['push', ...BOTH])).code, EXIT.ok);
+  assert.equal((await a.run(['push'])).code, EXIT.ok);
 
   const b = device(f, 'b', { identity: '' });
   await b.run(['remote', 'set', f.url]);
@@ -531,7 +569,7 @@ test('every command is refused to executors', async () => {
   ];
   for (const sub of subs) {
     for (const env of [{ HITLD_ROLE: 'executor' }, { HITLD_DISPATCH: 'D-3' }]) {
-      const r = await a.run([...sub, ...(['push', 'status'].includes(sub[0]) ? BOTH : [])], env);
+      const r = await a.run(sub, env);
       assert.equal(r.code, EXIT.failed, sub.join(' '));
       assert.equal(r.json.error, 'not-permitted', sub.join(' '));
     }
@@ -540,7 +578,7 @@ test('every command is refused to executors', async () => {
   assert.equal(existsSync(join(a.store.root, '.git', 'hitld-remote.json')), false);
 });
 
-test('a push needs an enrolled device, a recipient list that includes this device, and some text', async () => {
+test("a push needs a device on main's list, and some text", async () => {
   const f = fixture();
   const a = device(f, 'a', DEVICE_A);
   await a.run(['remote', 'set', f.url]);
@@ -550,29 +588,21 @@ test('a push needs an enrolled device, a recipient list that includes this devic
     root: f.project,
     store: a.store.root,
     env: { HITLD_STORE_IDENTITY: DEVICE_A.identity },
-    recipients: [DEVICE_A.recipient],
   });
-  assert.deepEqual(devices, {
-    recipients: [DEVICE_A.recipient],
-    identity: DEVICE_A.identity,
-    enrolled: true,
-    device: null,
-  });
+  assert.deepEqual(devices.recipients.sort(), [DEVICE_A.recipient, DEVICE_B.recipient].sort());
+  assert.equal(devices.identity, DEVICE_A.identity);
+  assert.equal(devices.enrolled, true);
+  assert.equal(devices.device, 'device-a');
 
   await assert.rejects(pushStore({ ...base, devices }), { code: 'nothing-to-push' });
   question(a.store, 'E-1', 1);
   await assert.rejects(pushStore({ ...base, devices: { ...devices, enrolled: false } }), {
-    code: 'not-enrolled',
-  });
-  await assert.rejects(
-    pushStore({ ...base, devices: { ...devices, recipients: [DEVICE_B.recipient] } }),
-    { code: 'not-a-recipient' },
-  );
-  await assert.rejects(pushStore({ ...base, devices: { ...devices, recipients: [] } }), {
-    code: 'no-recipients',
+    code: 'device-not-enrolled',
   });
   assert.equal(await remote.head(), null, 'nothing was pushed');
-  assert.equal((await pushStore({ ...base, devices })).result, 'pushed');
+  const pushed = await pushStore({ ...base, devices });
+  assert.equal(pushed.result, 'pushed');
+  assert.equal(pushed.device, 'device-a');
 
   // Status reports the enrolment the resolver gave.
   const status = await storeStatus({
@@ -585,8 +615,117 @@ test('a push needs an enrolled device, a recipient list that includes this devic
     name: 'laptop',
     enrolled: false,
     has_identity: true,
-    recipients: 1,
+    recipients: 2,
   });
+});
+
+test('push takes no recipient flag: it is encrypted to the keys on main and nothing else', async () => {
+  const f = fixture();
+  const a = device(f, 'a', DEVICE_A);
+  fill(a.store);
+  await a.run(['remote', 'set', f.url]);
+  const extra = await a.run(['push', '--recipient', STRANGER.recipient]);
+  assert.equal(extra.code, EXIT.usage);
+  assert.equal(extra.json.error, 'usage');
+  const remote = createGitRemote({ url: f.url, dir: join(f.dir, 'reader') });
+  assert.equal(await remote.head(), null, 'nothing was pushed');
+
+  const pushed = await a.run(['push']);
+  assert.equal(pushed.code, EXIT.ok, JSON.stringify(pushed.json));
+  assert.equal(pushed.json.recipients, 2);
+  const bytes = await remote.fetch(/** @type {string} */ (await remote.head()));
+  assert.throws(() => open(bytes, { identities: [STRANGER.identity] }), { code: 'age-no-match' });
+  for (const d of [DEVICE_A, DEVICE_B]) open(bytes, { identities: [d.identity] });
+});
+
+test("a device not on main's list is refused by name, and nothing is pushed", async () => {
+  const f = fixture();
+  const s = device(f, 's', STRANGER);
+  fill(s.store);
+  await s.run(['remote', 'set', f.url]);
+  const r = await s.run(['push']);
+  assert.equal(r.code, EXIT.failed);
+  assert.equal(r.json.error, 'device-not-enrolled');
+  assert.match(r.json.message, new RegExp(STRANGER.recipient));
+  // Enrolled in the working tree only: still refused.
+  putFiles(f.project, {
+    [DEVICES_PATH]: devicesFile(['device-a', DEVICE_A], ['s', STRANGER]),
+  });
+  assert.equal((await s.run(['push'])).json.error, 'device-not-enrolled');
+  const remote = createGitRemote({ url: f.url, dir: join(f.dir, 'reader') });
+  assert.equal(await remote.head(), null);
+});
+
+test('c3 through store push: a device removed on main opens nothing pushed after, and nothing older is left', async () => {
+  const f = fixture();
+  const a = device(f, 'a', DEVICE_A);
+  const b = device(f, 'b', DEVICE_B);
+  fill(a.store);
+  await a.run(['remote', 'set', f.url]);
+  await b.run(['remote', 'set', f.url]);
+  const first = await a.run(['push']);
+  assert.equal(first.code, EXIT.ok, JSON.stringify(first.json));
+  assert.deepEqual(first.json.rotation, { rotated: [], removed: [] });
+  assert.equal((await b.run(['pull'])).code, EXIT.ok, 'b reads it while enrolled');
+
+  // The owner removes b on origin's main; this checkout's local main has not moved. The push
+  // fetches main first, so it sees the removal anyway.
+  mergeOnOrigin(f, devicesFile(['device-a', DEVICE_A]));
+  // Nothing new in the store, and still the push replaces the head the removed key opens.
+  const second = await a.run(['push']);
+  assert.equal(second.code, EXIT.ok, JSON.stringify(second.json));
+  assert.equal(second.json.result, 'pushed');
+  assert.equal(second.json.recipients, 1);
+  assert.deepEqual(second.json.rotation, {
+    rotated: ['device-b'],
+    removed: [first.json.version],
+  });
+  assert.deepEqual(
+    readRotations(a.store).map((x) => [x.event, x.name]),
+    [['rotated', 'device-b']],
+  );
+
+  // What the remote holds: one file, which the removed key does not open.
+  const remote = createGitRemote({ url: f.url, dir: join(f.dir, 'reader') });
+  assert.equal(await remote.head(), second.json.version);
+  await assert.rejects(remote.fetch(first.json.version), { code: 'remote-version-missing' });
+  const tree = spawnSync('git', ['ls-tree', '-r', '--name-only', 'hitld-store'], {
+    cwd: f.bare,
+    env: { PATH: process.env.PATH ?? '', GIT_DIR: f.bare },
+    encoding: 'utf8',
+  });
+  assert.deepEqual(tree.stdout.trim().split('\n'), [`bundles/${second.json.version}.bundle`]);
+  const bytes = await remote.fetch(second.json.version);
+  assert.throws(() => open(bytes, { identities: [DEVICE_B.identity] }), { code: 'age-no-match' });
+  question(b.store, 'E-9', 9);
+  const pulled = await b.run(['pull']);
+  assert.equal(pulled.json.error, 'age-no-match');
+  // b may not push either.
+  assert.equal((await b.run(['push'])).json.error, 'device-not-enrolled');
+
+  // The rotation is done once. The next push carries its record (store text) and prunes nothing;
+  // the one after, with nothing new, is up to date.
+  const third = await a.run(['push']);
+  assert.equal(third.json.result, 'pushed');
+  assert.deepEqual(third.json.rotation, { rotated: [], removed: [] });
+  assert.equal((await a.run(['push'])).json.result, 'up-to-date');
+});
+
+test('a push refuses when main cannot be fetched, rather than use a stale device list', async () => {
+  const f = fixture();
+  const a = device(f, 'a', DEVICE_A);
+  fill(a.store);
+  await a.run(['remote', 'set', f.url]);
+  fixtureGit(f.project, 'remote', 'set-url', 'origin', join(f.dir, 'gone.git'));
+  const r = await a.run(['push']);
+  assert.equal(r.code, EXIT.failed);
+  assert.equal(r.json.error, 'devices-fetch-failed');
+  const remote = createGitRemote({ url: f.url, dir: join(f.dir, 'reader') });
+  assert.equal(await remote.head(), null);
+
+  // A checkout with no origin has nothing to fetch: its local main is the list.
+  fixtureGit(f.project, 'remote', 'remove', 'origin');
+  assert.equal((await a.run(['push'])).json.result, 'pushed');
 });
 
 test('status reports an unreachable remote instead of failing, and pull of an empty remote is a no-op', async () => {
@@ -602,14 +741,14 @@ test('status reports an unreachable remote instead of failing, and pull of an em
 
   await a.run(['remote', 'set', `file://${join(f.dir, 'missing.git')}`]);
   const listed = [a.store.list(), head(a.store.root)];
-  const down = await a.run(['status', ...BOTH]);
+  const down = await a.run(['status']);
   assert.equal(down.code, EXIT.ok, JSON.stringify(down.json));
   assert.equal(down.json.remote_error.code, 'remote-unreachable');
   assert.equal(down.json.pull_due, null);
   assert.equal(down.json.push_due, true);
   // Status changed nothing in the store.
   assert.deepEqual([a.store.list(), head(a.store.root)], listed);
-  assert.equal((await a.run(['push', ...BOTH])).json.error, 'remote-unreachable');
+  assert.equal((await a.run(['push'])).json.error, 'remote-unreachable');
 });
 
 test('the remote comes from policy.json alone, with no remote set on this machine', async () => {
@@ -621,15 +760,15 @@ test('the remote comes from policy.json alone, with no remote set on this machin
   const shown = await a.run(['remote', 'show']);
   assert.deepEqual(shown.json.remote, { url: f.url, source: 'policy' });
   assert.deepEqual([shown.json.policy_url, shown.json.override_url], [f.url, null]);
-  const before = await a.run(['status', ...BOTH]);
+  const before = await a.run(['status']);
   assert.deepEqual(before.json.remote, { url: f.url, source: 'policy' });
   assert.equal(before.json.push_due, true);
 
-  const pushed = await a.run(['push', ...BOTH]);
+  const pushed = await a.run(['push']);
   assert.equal(pushed.code, EXIT.ok, JSON.stringify(pushed.json));
   assert.equal(pushed.json.result, 'pushed');
   assert.equal(existsSync(join(a.store.root, '.git', 'hitld-remote.json')), false);
-  const after = await a.run(['status', ...BOTH]);
+  const after = await a.run(['status']);
   assert.equal(after.json.push_due, false);
   assert.equal(after.json.remote_version, pushed.json.version);
 });
@@ -639,12 +778,12 @@ test('a fresh store with the policy set pulls without remote set', async () => {
   setPolicyUrl(f, f.url);
   const a = device(f, 'a', DEVICE_A);
   fill(a.store);
-  assert.equal((await a.run(['push', ...BOTH])).code, EXIT.ok);
+  assert.equal((await a.run(['push'])).code, EXIT.ok);
 
   // A new container: an empty store directory, the checkout's policy.json, this device's key.
   const fresh = device(f, 'fresh', DEVICE_B);
   assert.deepEqual(fresh.store.list(), []);
-  const status = await fresh.run(['status', ...BOTH]);
+  const status = await fresh.run(['status']);
   assert.equal(status.json.pull_due, true);
   assert.equal(status.json.synced, null);
   const pulled = await fresh.run(['pull']);
@@ -671,12 +810,12 @@ test('a machine override wins over policy.json and is reported; clear returns to
   const shown = await a.run(['remote', 'show']);
   assert.deepEqual(shown.json.remote, { url: mirror.url, source: 'machine' });
   assert.deepEqual([shown.json.policy_url, shown.json.override_url], [f.url, mirror.url]);
-  const status = await a.run(['status', ...BOTH]);
+  const status = await a.run(['status']);
   assert.deepEqual(status.json.remote, { url: mirror.url, source: 'machine' });
   assert.equal(status.json.policy_url, f.url);
 
   // The push goes to the override; the policy's remote stays empty.
-  assert.equal((await a.run(['push', ...BOTH])).json.result, 'pushed');
+  assert.equal((await a.run(['push'])).json.result, 'pushed');
   assert.equal(await createGitRemote({ url: f.url, dir: join(f.dir, 'r1') }).head(), null);
   assert.notEqual(await createGitRemote({ url: mirror.url, dir: join(f.dir, 'r2') }).head(), null);
   // Policy.json was not touched by the override.
@@ -689,11 +828,11 @@ test('a machine override wins over policy.json and is reported; clear returns to
   // Back on the policy's address, what was merged from the mirror does not count: the push is due.
   const cleared = await a.run(['remote', 'clear']);
   assert.deepEqual([cleared.json.ok, cleared.json.removed], [true, mirror.url]);
-  const back = await a.run(['status', ...BOTH]);
+  const back = await a.run(['status']);
   assert.deepEqual(back.json.remote, { url: f.url, source: 'policy' });
   assert.equal(back.json.synced, null);
   assert.equal(back.json.push_due, true);
-  assert.equal((await a.run(['push', ...BOTH])).json.result, 'pushed');
+  assert.equal((await a.run(['push'])).json.result, 'pushed');
   assert.notEqual(await createGitRemote({ url: f.url, dir: join(f.dir, 'r3') }).head(), null);
 });
 

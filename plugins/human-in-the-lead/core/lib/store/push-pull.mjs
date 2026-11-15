@@ -14,23 +14,27 @@
 //   <store>/.git/hitld-sync.json     the remote version this store last merged or pushed, and the
 //                                    local commit that version holds, written by pull and push
 //
-// No key is read here: recipients and the private key come from `resolveDevices` through the
-// caller. No passphrase is used: nothing writes format 1 to a remote.
+// Recipients and the private key come from `resolveDevices` (devices-port.mjs) and nowhere else:
+// a push is encrypted to the devices on main's store-devices.json, fetched from origin first, and
+// a device not on that list may not push. After a removal, the first push prunes the remote's
+// older files (completeRotation). No passphrase is used: nothing writes format 1 to a remote.
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { formatOf, checkRecipients } from './sealed.mjs';
-import { parseIdentities, parseRecipient } from './age.mjs';
+import { AgeError, parseIdentities } from './age.mjs';
 import { StoreRemoteError, pushWithRetry } from './remote.mjs';
 import { STORE_BRANCH, checkRemoteUrl, createGitRemote, remoteDir } from './remote-git.mjs';
 import { ensureRepo, git, hasText, head as localHead } from './git.mjs';
 import { importStore, sealStore } from './sync.mjs';
+import { openStore } from './store.mjs';
+import { assertEnrolled, completeRotation, resolveDevices } from './devices-port.mjs';
 
 /**
  * Every code this module throws. Lowercase kebab-case.
  *   no-remote           no remote is set for this store
- *   not-enrolled        this device is not on the project's device list, so it cannot push
- *   not-a-recipient     the push would not be encrypted to this device's own key
+ *   devices-fetch-failed  main could not be fetched from origin before a push
  *   no-identity         opening the remote's head needs this device's private key
  *   nothing-to-push     the store holds no text yet
  *   remote-not-format-2 the remote's head is not an age file
@@ -197,10 +201,18 @@ export function openRemote(root, policyUrl) {
  * @param {import('./devices-port.mjs').Devices} devices
  */
 function identitiesOf(devices) {
+  if (!devices.identity && devices.key_source) {
+    const where =
+      devices.key_source === 'environment' ? 'HITLD_STORE_IDENTITY' : "the keychain's device key";
+    throw new AgeError(
+      'age-bad-identity',
+      `${where} is not an age private key (AGE-SECRET-KEY-1...)`,
+    );
+  }
   if (!devices.identity) {
     throw new PushPullError(
       'no-identity',
-      "opening what the remote holds needs this device's age private key: set HITLD_STORE_IDENTITY or pass --identity-fd <n>; never on the command line",
+      "opening what the remote holds needs this device's age private key: run hitld store device init (the OS keychain), or set HITLD_STORE_IDENTITY or pass --identity-fd <n>; never on the command line",
     );
   }
   return parseIdentities(devices.identity);
@@ -260,23 +272,11 @@ export async function pullStore(o) {
  * @param {PushPullOptions} o
  */
 export async function pushStore(o) {
-  if (!o.devices.enrolled) {
-    throw new PushPullError(
-      'not-enrolled',
-      "this device is not on the project's device list; it cannot push until its enrolment is merged",
-    );
-  }
+  // Refused unless this device's key is on main's list. Enrolled means its own key is among the
+  // recipients, so the device can always open what it pushed.
+  assertEnrolled(o.devices);
   const recipients = checkRecipients(o.devices.recipients);
-  if (o.devices.identity) {
-    const own = parseIdentities(o.devices.identity).map((i) => i.publicKey);
-    const to = recipients.map(parseRecipient);
-    if (!own.some((k) => to.some((r) => r.equals(k)))) {
-      throw new PushPullError(
-        'not-a-recipient',
-        "the push is not encrypted to this device's own key, so this device could not open it afterwards; add its public key to the recipients",
-      );
-    }
-  }
+  const rotating = o.devices.rotation.pending.length > 0;
   ensureRepo(o.root);
   if (!hasText(o.root)) {
     throw new PushPullError('nothing-to-push', 'the store holds no text to push yet');
@@ -285,7 +285,9 @@ export async function pushStore(o) {
   let sealed = sealStore(sealOptions);
   const synced = readSynced(o.root, o.url);
   const remoteHead = await o.remote.head();
-  if (synced && remoteHead === synced.version && sealed.head === synced.head) {
+  // Nothing new is still pushed while a rotation is pending: the remote's head was encrypted to
+  // the removed key, and must be replaced by one that is not.
+  if (!rotating && synced && remoteHead === synced.version && sealed.head === synced.head) {
     return {
       ok: true,
       result: 'up-to-date',
@@ -317,6 +319,13 @@ export async function pushStore(o) {
     return { ...version.merged, remote_version: version.version };
   }
   writeSynced(o.root, o.url, { version, head: sealed.head });
+  const rotation = await completeRotation({
+    remote: o.remote,
+    store: openStore(o.root),
+    resolution: o.devices,
+    version,
+    now: o.now,
+  });
   return {
     ok: true,
     result: 'pushed',
@@ -327,7 +336,78 @@ export async function pushStore(o) {
     recipients: recipients.length,
     bytes: sealed.bytes.length,
     merged: merges,
+    device: o.devices.device,
+    rotation,
   };
+}
+
+/**
+ * @typedef {object} DeviceLookup
+ * @property {string} checkout the project's checkout, where main and store-devices.json are read
+ * @property {string} store the private store's directory
+ * @property {NodeJS.ProcessEnv} env
+ * @property {string} projectId
+ * @property {string} mainBranch policy.json merge.main_branch
+ */
+
+/**
+ * This device as main's list sees it, without fetching: for pull and status.
+ * @param {DeviceLookup} l
+ */
+export const devicesHere = (l) =>
+  resolveDevices({
+    root: l.checkout,
+    store: l.store,
+    env: l.env,
+    projectId: l.projectId,
+    mainBranch: l.mainBranch,
+  });
+
+/**
+ * This device for a push: fetch main from origin so the list is current, resolve, and refuse a
+ * device that is not on it (device-not-enrolled). A fetch that fails refuses the push rather than
+ * use a list that may still hold a removed device. A checkout with no origin remote has nothing
+ * to fetch, and its local main is the list.
+ * @param {DeviceLookup} l
+ */
+export function devicesForPush(l) {
+  const fetched = fetchMain(l.checkout, l.mainBranch, l.env);
+  return { ...assertEnrolled(devicesHere(l)), fetched };
+}
+
+/**
+ * Fetch the main branch from origin into its remote-tracking ref. Run as git.mjs runs git: an
+ * argument list, hooks and fsmonitor off, no prompt. The owner's own git configuration is used, so
+ * the credential helper or proxy their checkout already uses keeps working.
+ * @param {string} checkout @param {string} mainBranch @param {NodeJS.ProcessEnv} env
+ * @returns {'fetched' | 'no-origin'}
+ */
+export function fetchMain(checkout, mainBranch, env) {
+  /** @param {string[]} args */
+  const run = (args) =>
+    spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args], {
+      cwd: checkout,
+      env: { ...env, GIT_TERMINAL_PROMPT: '0' },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120_000,
+    });
+  if (run(['remote', 'get-url', 'origin']).status !== 0) return 'no-origin';
+  const r = run([
+    'fetch',
+    '--quiet',
+    '--no-tags',
+    'origin',
+    `+refs/heads/${mainBranch}:refs/remotes/origin/${mainBranch}`,
+  ]);
+  if (r.status !== 0) {
+    const why = (r.stderr || r.error?.message || 'failed').trim().split('\n')[0];
+    throw new PushPullError(
+      'devices-fetch-failed',
+      `could not fetch ${mainBranch} from origin to read the current store-devices.json (${why}); nothing was pushed. Fix the connection and push again`,
+    );
+  }
+  return 'fetched';
 }
 
 /** A merge during a push stopped on a conflict. */

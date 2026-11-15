@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { privateStorePath } from '../../store/store.mjs';
 import { executorSignal } from '../executor.mjs';
+import { deviceCommands } from './store-device.mjs';
 
 /** The environment variable that may carry the passphrase (format 1 files). */
 export const PASSPHRASE_ENV = 'HITLD_STORE_PASSPHRASE';
@@ -182,9 +183,14 @@ const ownerOnly = (name, fn) => async (input, ctx) => {
     const known =
       e instanceof Refusal ||
       (e instanceof Error &&
-        ['StoreGitError', 'SealedError', 'AgeError', 'StoreRemoteError', 'PushPullError'].includes(
-          e.name,
-        ));
+        [
+          'StoreGitError',
+          'SealedError',
+          'AgeError',
+          'StoreRemoteError',
+          'PushPullError',
+          'DevicesError',
+        ].includes(e.name));
     if (known && typeof code === 'string') {
       return { ok: false, error: code, message: /** @type {Error} */ (e).message };
     }
@@ -247,6 +253,8 @@ export const commands = [
     }),
   },
   ...remoteCommands(),
+  // store device init | list | remove (design 0003 section 6), in store-device.mjs.
+  ...deviceCommands,
 ];
 
 /**
@@ -264,20 +272,13 @@ function remoteCommands() {
     description:
       'The store repository: https://host/owner/repo.git, ssh://git@host/owner/repo.git, user@host:path or an absolute path. No password in it: sign in through git',
   };
-  /** @type {import('../args.mjs').ArgSpec} */
-  const TO = {
-    ...RECIPIENT,
-    description:
-      "An age public key (age1...) to encrypt the pushed store to; once per recipient, this device's own included. Where a device list supplies the recipients, these are what it adds to",
-  };
-
   /**
-   * What the resolver needs from this process: the project's root, the store, the environment
-   * (with the key from --identity-fd put where the resolver reads it) and the recipients given.
+   * The environment the resolver reads, with the key from --identity-fd put where it reads it.
+   * There are no recipient flags: a push is encrypted to main's store-devices.json and nothing
+   * else, so a removed device never gets a later push (design 0003 section 6).
    * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
-   * @param {{ root: string }} p
    */
-  async function devices(input, ctx, p) {
+  function deviceEnv(input, ctx) {
     const env = { ...ctx.env };
     if (typeof input['identity-fd'] === 'number') {
       env[IDENTITY_ENV] = secret(input, ctx, {
@@ -287,13 +288,7 @@ function remoteCommands() {
         code: 'no-identity',
       });
     }
-    const { resolveDevices } = await import('../../store/devices-port.mjs');
-    return resolveDevices({
-      root: findRepoRoot(ctx.cwd) ?? ctx.cwd,
-      store: p.root,
-      env,
-      recipients: recipients(input),
-    });
+    return env;
   }
 
   /**
@@ -308,11 +303,24 @@ function remoteCommands() {
     return { ...p, policyUrl, loaded };
   }
 
-  /** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
-  async function setUp(input, ctx) {
+  /**
+   * The project, the push and pull module, and this device as main's list sees it. For a push,
+   * main is fetched from origin first, and a device not on the list is refused.
+   * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+   * @param {{ forPush?: boolean }} [o]
+   */
+  async function setUp(input, ctx, o = {}) {
     const p = projectRemote(input, ctx);
     const pp = await import('../../store/push-pull.mjs');
-    return { ...p, pp, devices: await devices(input, ctx, p) };
+    const lookup = {
+      checkout: findRepoRoot(ctx.cwd) ?? ctx.cwd,
+      store: p.root,
+      env: deviceEnv(input, ctx),
+      projectId: p.projectId,
+      mainBranch: p.loaded.policy?.merge?.main_branch ?? 'main',
+    };
+    const devices = o.forPush ? pp.devicesForPush(lookup) : pp.devicesHere(lookup);
+    return { ...p, pp, devices };
   }
 
   /** @type {import('../table.mjs').Command[]} */
@@ -323,9 +331,17 @@ function remoteCommands() {
         "Push the private store's text history to its remote, encrypted to the enrolled devices: a compare and swap on the remote's head; when the remote has moved, pull, merge and try again (owner only)",
       built_by: 'consumer-live',
       mcp: false,
-      args: [TO, IDENTITY_FD, STORE],
+      args: [IDENTITY_FD, STORE],
       run: ownerOnly('store push', async (input, ctx) => {
-        const { projectId, root, policyUrl, pp, devices: d } = await setUp(input, ctx);
+        const {
+          projectId,
+          root,
+          policyUrl,
+          pp,
+          devices: d,
+        } = await setUp(input, ctx, {
+          forPush: true,
+        });
         const { remote, url } = pp.openRemote(root, policyUrl);
         return pp.pushStore({ root, projectId, remote, url, devices: d, now: ctx.now });
       }),
@@ -349,7 +365,7 @@ function remoteCommands() {
         "Report the remote and where its address came from, the local and remote versions, whether a push or a pull is due, and this device's enrolment; changes nothing in the store (owner only)",
       built_by: 'consumer-live',
       mcp: false,
-      args: [TO, STORE],
+      args: [STORE],
       run: ownerOnly('store status', async (input, ctx) => {
         const { projectId, root, policyUrl, pp, devices: d } = await setUp(input, ctx);
         const choice = pp.chooseRemote(root, policyUrl);

@@ -1,0 +1,39 @@
+{
+  "$id": "store-devices",
+  "title": "store-devices.json",
+  "description": "The devices enrolled for the project's private store (design 0003, sections 5 and 6): each machine or cloud environment that may push the store, with its age X25519 public key. Every pushed file is encrypted to the devices on main's copy of this file, and a device that is not on it may not push. It lives in the repository at .human-in-the-lead/store-devices.json and holds public keys only, so it is safe in a public repository. A change reaches main only through the owner's merge; the merge queue refuses a branch that changes it.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "devices": {
+      "description": "The enrolled devices, sorted by name. Names and public keys are each unique.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "The device's name: lower-case letters, digits, '.', '_' and '-', at most 64 characters. A laptop's host name, or a name for a cloud environment.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+          },
+          "recipient": {
+            "description": "The device's age X25519 public key (age1...). Its private key never leaves the device: the operating system's keychain on a local machine, an environment variable in a cloud environment.",
+            "type": "string",
+            "pattern": "^age1[02-9ac-hj-np-z]{58}$"
+          },
+          "added": {
+            "description": "The day the key pair was made, YYYY-MM-DD (UTC).",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": ["name", "recipient", "added"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["schema_version", "devices"],
+  "additionalProperties": false
+}
