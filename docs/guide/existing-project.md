@@ -2,7 +2,7 @@
 
 For a project that already has code, tests and probably CI, and whose backlog lives in people's heads, a document or a chat. There is no tracker to bring along. Release tag: `v0.1.0-rc.1`. Read the [guide index](README.md) first if you have not.
 
-If you work from more than one machine, or from cloud sessions, read [Moving the private store between machines and cloud sessions](store-remote.md) after this page. It is written separately and may not be in your checkout yet.
+If you work from more than one machine, or from cloud sessions, read [Moving the private store between machines and cloud sessions](store-remote.md) after this page.
 
 You can also ask Claude Code to do all of this: the `adopt` skill inspects the repository, shows you the whole setup in one message and runs it only after you say yes. The steps below are what it runs.
 

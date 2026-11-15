@@ -4,7 +4,7 @@ For a project that already tracks its work in the repository: one file per item,
 
 HITLd's files backend takes that format as it is. The key and every path are settings, and the file format, lifecycle, claim convention and views are the same, so your items need **no conversion**. You move over in four steps, each depending on the one before. The project's own scripts win wherever they disagree with `hitld`, until you decide otherwise.
 
-If you work from more than one machine, or from cloud sessions, read [Moving the private store between machines and cloud sessions](store-remote.md) after this page. It is written separately and may not be in your checkout yet.
+If you work from more than one machine, or from cloud sessions, read [Moving the private store between machines and cloud sessions](store-remote.md) after this page.
 
 You can also ask Claude Code to do the setup: the `adopt` skill inspects the repository, shows you the whole plan in one message and runs it only after you say yes. It stops before step 4 (the switch), which is your decision.
 

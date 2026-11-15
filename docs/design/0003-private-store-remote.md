@@ -223,6 +223,20 @@ All additive, under [16.5](0001-human-in-the-lead/16-packaging.md#165-releases-a
 - **Roles:** an executor is refused every store and device command, in a scenario where an injected instruction asks for one.
 - **Lifecycle:** a cloud session is discarded after a checkpoint, and a new session resumes with the ledger and trust record intact.
 
+**As built.** The format and sync tests are in `core/test/` (`age-vectors`, `age`, `store-sync`, `store-push-pull`, `store-devices`, `store-auto-sync`). The scenarios are the `store` suite in `evals/scenarios/store/`, run offline by `hitld eval --offline`. Each device in them is a container with a fresh clone of a bare origin, a private store of its own and a key in `HITLD_STORE_IDENTITY`, and a bare repository stands in for the store's host (`core/lib/eval/actions/store.mjs`):
+
+| Scenario | What it shows |
+|---|---|
+| `two-devices-take-turns` | c2: each device sees the other's records and open decisions after its next pull |
+| `discarded-session-resumes` | c1: a run resumes in a new session with its ledger, trust record and open decisions |
+| `removed-device-locked-out` | c3: a removed device's key opens nothing on the remote; its pull and push are refused |
+| `remote-holds-no-plain-text` | c4: a scan of every object on the host finds none of the store's text |
+| `unreleased-lease-refused` | another machine's unreleased lease is refused (`lease-held`) until a hand-over |
+| `unenrolled-device-cannot-push` | a device that is not on main's list cannot push; the owner's merge enrols it |
+| `executor-refused-store-commands` | an executor is refused every store and device command |
+
+`core/test/store-prompts.test.mjs` is c5: it reads the skills, templates, agents and the executor briefs, and fails on a key, a passphrase, a store file or a store move that is not a `hitld` command. The setup guide is [`docs/guide/store-remote.md`](../guide/store-remote.md).
+
 ## 14. The milestone and its build items
 
 ### The store follows the owner

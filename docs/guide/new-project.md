@@ -2,7 +2,7 @@
 
 For a project that starts now: an empty or nearly empty repository, and no tracker to bring along. Release tag: `v0.1.0-rc.1`. Read the [guide index](README.md) first if you have not: it says what `hitld` stands for in the commands below and what `hitld install` writes.
 
-If you work from more than one machine, or from cloud sessions, read [Moving the private store between machines and cloud sessions](store-remote.md) after this page. It is written separately and may not be in your checkout yet.
+If you work from more than one machine, or from cloud sessions, read [Moving the private store between machines and cloud sessions](store-remote.md) after this page.
 
 ## Steps
 
