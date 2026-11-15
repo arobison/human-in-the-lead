@@ -11,8 +11,8 @@ npm ci                 # dev dependencies only: TypeScript (type checking), Pret
 npm test               # node:test, no test framework
 npm run typecheck      # tsc --noEmit over core/
 npm run format         # Prettier; npm run format:check to check only
-npm run spelling       # fails on British spellings in tracked text files
-npm run check          # typecheck, format check, spelling and tests
+npm run spelling       # lists British spellings in tracked text files
+npm run check          # typecheck, format check and tests
 node core/bin/hitld.mjs --help
 ```
 
@@ -37,7 +37,7 @@ The checksum is the one the release publishes (`codeql-bundle-linux64.tar.gz.che
 - **Data never runs code.** Schemas reject unknown keys and refuse keys that name code to run. A new schema goes in `schemas/`; a new `policy.json` section goes in `schemas/policy/`, with a `default` and a `description` for every setting.
 - **Every data file carries `schema_version`.** Raising a version follows [part 16.5](docs/design/0001-human-in-the-lead/16-packaging.md#165-releases-and-compatibility).
 - **One command table.** A new `hitld` command is an entry in the piece's file under `core/lib/cli/commands/`, with its arguments declared, so the MCP server can be generated from the same table.
-- **Writing.** American English in prose, messages and names: enroll, judgment, license, behavior, labeled, -ize. `npm run check` runs a spelling check (`core/bin/spelling-check.mjs`) that fails on British forms. Plain, precise wording. No time estimates. Nothing about a consuming project's confidential details.
+- **Writing.** American English in prose, messages and names: enroll, judgment, license, behavior, labeled, -ize. `npm run spelling` (`core/bin/spelling-check.mjs`) lists British forms. It is not a gate: run it before a pull request that adds prose; the curator's pass (HITLD-132) runs it too. Plain, precise wording. No time estimates. Nothing about a consuming project's confidential details.
 - **Push your own branch only.** Agents push their branch, never main, and never force-push. Agents open no pull request to main; the owner opens it or merges the branch.
 
 ## Giving feedback
