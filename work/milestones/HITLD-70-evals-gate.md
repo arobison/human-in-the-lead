@@ -1,7 +1,7 @@
 ---
 id: HITLD-70
 title: Evals gate
-kind: capability
+kind: milestone
 state: planned
 created: 2026-11-14
 project: HITLD-28
