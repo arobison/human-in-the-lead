@@ -21,7 +21,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { policyDefaults } from '../policy/policy.mjs';
 import { MODEL_CLASSES } from '../../harness/claude-code/capabilities.mjs';
@@ -103,8 +103,12 @@ export function expectedFiles() {
   /** @type {Map<string, Buffer | string>} */
   const files = new Map();
   for (const dir of COPIED) {
-    for (const f of walk(join(REPO, dir)))
+    for (const f of walk(join(REPO, dir))) {
+      // The accepted eval baselines are this repository's own record (the owner commits them
+      // after a run); a consuming project keeps its own, so they stay out of the plugin.
+      if (dir === 'evals' && f.startsWith(`baselines${sep}`)) continue;
       files.set(join(dir, f), readFileSync(join(REPO, dir, f)));
+    }
   }
   for (const name of readdirSync(join(REPO, 'skills')).sort()) {
     const src = join(REPO, 'skills', name, 'SKILL.md');

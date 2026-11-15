@@ -52,7 +52,7 @@ An executor can hang without ever sending its completion notice. The watchdog fi
 
 Liveness alone is not progress: a process can be alive and hung.
 
-**`hitld dispatch watch`** is a script. It reads the recorded signals and the ledger and uses no model tokens. The chief of staff runs it on its hourly check-in ([part 13](13-operations.md#the-watchdog-and-resuming-after-limits)). A dispatch is stalled when it shows no progress for `dispatch.stall_after`, or when it passes its start-to-finish `dispatch.deadline`. Both are set for a tier-1 dispatch at its tier's default estimate and scale with the tier (`dispatch.stall_tier_scale`) and with the dispatch's own estimate (up to `dispatch.stall_estimate_max` times).
+**`hitld dispatch watch`** is a script. It reads the recorded signals and the ledger and uses no model tokens. The chief of staff runs it at each of its wakes, the hourly check-in among them ([part 13](13-operations.md#the-watchdog-and-resuming-after-limits)). A dispatch is stalled when it shows no progress for `dispatch.stall_after`, or when it passes its start-to-finish `dispatch.deadline`. Both are set for a tier-1 dispatch at its tier's default estimate and scale with the tier (`dispatch.stall_tier_scale`) and with the dispatch's own estimate (up to `dispatch.stall_estimate_max` times).
 
 **The ladder.** A stalled dispatch climbs one step at a time, and each step waits for the one before it to fail:
 

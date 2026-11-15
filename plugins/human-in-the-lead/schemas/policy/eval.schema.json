@@ -22,6 +22,12 @@
       "type": "number",
       "minimum": 0,
       "default": 0.1
+    },
+    "every_merges": {
+      "description": "Offline evals run on an idle machine once this many items have merged since the last run (design part 13.3). `hitld cadence due` reads it with the ledger and the machine's state.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 1
     }
   },
   "additionalProperties": false

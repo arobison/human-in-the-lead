@@ -2,9 +2,10 @@
 id: HITLD-35
 title: Notification digests
 kind: work
-state: planned
+state: done
 created: 2026-11-14
 project: HITLD-28
+claimed_by: D-35
 ---
 
 ## Why

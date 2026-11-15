@@ -49,12 +49,23 @@ The milestone graph shows progress at the level people plan at. It complements t
 
 ## 12.2 Progress reports
 
-A **progress report** is a periodic digest, sent through the notification channel at a cadence the owner sets (`report.cadence`), inside the attention budget ([part 2](02-loops.md#the-owners-attention-as-a-budget)).
+A **progress report** is a digest of progress, sent through the notification channel inside the attention budget ([part 2](02-loops.md#the-owners-attention-as-a-budget)). It is sent when there is something to say, not on a calendar. `hitld cadence due` ([13.3](13-operations.md#133-the-scheduler-later-milestone)) says when, from these triggers:
+
+| Trigger | Setting | Due when |
+|---|---|---|
+| **Merges** | `reports.every_merges` | This many items have merged since the last report |
+| **Decisions** | `reports.every_decisions` | This many decisions have been asked or answered, or calls logged, since the last report |
+| **Value** | `reports.every_merged_estimate_tokens` | The items merged since the last report add up to this many estimate tokens |
+| **The owner's presence** | `reports.when_owner_writes`, `reports.min_changes` | The owner writes in the chief of staff's session and at least `min_changes` merges or decisions are waiting |
+| **An idle machine** | `reports.when_idle`, `reports.min_changes` | No executor is running, load is low, and at least `min_changes` are waiting |
+| **A ceiling on silence** | `reports.silence_max_hours` | This long has passed with no report while a run is active or work changed |
+
+The ceiling limits how long the owner may hear nothing. It is not a schedule: a report sent for any other reason restarts it, and with no run and no change, silence stays silent. A threshold of 0 is off. Quiet hours hold a report unless the owner is the one who wrote. Digests of questions and logged calls use the same triggers under `digests.*`, without the value trigger.
 
 - **One phone screen first.** The message itself fits a phone screen: per project, one line on what was built and one on what is next; decisions made and pending; study verdicts; blocked items; quota headroom. A link opens the full HTML report.
 - **Charts** in the full report: queue stocks over time, token use against accepted items, critical-path progress per milestone, quota burn.
 - **Facts, not adjectives.** Every line cites items, decisions, studies or run IDs. No "great progress".
-- **It counts as a read** against the attention budget; a report that grows past its budget is shortened, not sent longer.
+- **It counts as a read** against the attention budget; a report that grows past its budget is shortened, not sent longer. The digest `hitld rights digest` builds and the `digest.txt` of `hitld dashboard` are the same text, with a size budget of 30 lines of 56 characters ([part 23.5](23-people-in-the-lead.md)).
 
 ## 12.3 Inspectable controllers
 
@@ -132,7 +143,7 @@ Quotas are **constraints for the controllers**. The budget controller ([part 11]
 A stop at the reserve is a pause, not an end. Nothing else wakes the run when the window resets, so the pause says when it will.
 
 - **Recorded with its reset.** When the gate stops dispatch for every item, the session holding the lease records `paused` in the ledger: the limit that stopped it, the gate's reason, and when that limit's window resets. The reset comes from the latest reading (the status line's `resets_at`) or, without one, from the limit's declared `resets_at`. An item held because its own estimate would cross the reserve is a hold, not a pause.
-- **A wake at the reset.** `hitld dispatch plan` gives the reset as `wake_at`, and `hitld run status` shows it, so the chief of staff schedules one wake for that time ([part 13](13-operations.md#the-watchdog-and-resuming-after-limits)). When no reset time is known, the chief of staff's hourly check-in looks again.
+- **A wake at the reset.** `hitld dispatch plan` gives the reset as `wake_at`, and `hitld run status` shows it, so the chief of staff has a wake pending for that time ([part 13](13-operations.md#the-watchdog-and-resuming-after-limits)). When no reset time is known, the watchdog looks again at each of the chief of staff's wakes.
 - **Resumed.** At the wake the orchestrator re-plans. The gate decides from the next reading; once it no longer stops dispatch, the run records `resumed` with reason `reset`.
 - **A raised budget re-plans at once.** When the person raises a limit or lowers their reserve with `hitld config write`, the command says whether the new settings lift the pause. If they do, the chief of staff wakes the orchestrator straight away, and its plan records `resumed` with reason `budget`, without waiting for the reset.
 - **Executors cut off by the limit.** An executor that stopped because the account reached its limit is found by the watchdog after the reset and continued as a follow-up ([part 5](05-execution.md#the-watchdog)). Until the reset, the watchdog does not count quiet executors as stalled.
@@ -164,6 +175,7 @@ In "One signal end to end" ([part 21](21-scope.md)):
 - quotas declared in the person's settings, including the owner's reserve, and the run budget in `policy.json` ([part 13](13-operations.md#134-settings-in-four-layers));
 - opt-in status-line snapshots of window percentages, where the harness provides them;
 - a forecast per quota, and the reserve rule enforced at dispatch;
-- `hitld dashboard` producing a static HTML report and a text digest.
+- `hitld dashboard` producing a static HTML report and a text digest;
+- `hitld cadence due`, which says when a digest or report is due, from thresholds, the owner's presence, an idle machine and a ceiling on silence (12.2).
 
 Explorable dashboards, controller replay, per-audience reports and vendor API readers come later ([part 21](21-scope.md)).

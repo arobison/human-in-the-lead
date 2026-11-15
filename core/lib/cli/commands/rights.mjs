@@ -22,11 +22,8 @@ import { applyPriors, conflictQuestion } from '../../judgement/judgement.mjs';
 import {
   answerDecision,
   askQuestion,
-  listApplications,
-  listLoggedCalls,
   logCall,
   overrule,
-  precedentHealth,
   rateWorthAsking,
   recordReversal,
   showQuestion,
@@ -37,16 +34,16 @@ import {
   normalizeQuestion,
   routeQuestion,
 } from '../../rights/route.mjs';
-import { listDefaults, pendingDecisions, sweepDefaults } from '../../rights/pending.mjs';
-import { readTrustEvents, rubberStamps, trustSummary } from '../../rights/trust.mjs';
+import { pendingDecisions, sweepDefaults } from '../../rights/pending.mjs';
+import { readTrustEvents, trustSummary } from '../../rights/trust.mjs';
+import { TRIGGERS, buildDigest, markDigest } from '../../digest/digest.mjs';
+import { buildReport } from '../../quota/report.mjs';
+import { readQuotaInputs } from '../../quota/inputs.mjs';
 
 /**
  * @typedef {import('../../tracker/interface.mjs').TrackerAdapter} TrackerAdapter
  * @typedef {(options: { repoRoot: string, policy: Record<string, any>, env: NodeJS.ProcessEnv }) => Promise<TrackerAdapter> | TrackerAdapter} OpenTracker
  */
-
-/** The private store key of the digest cursor. */
-const DIGEST_KEY = 'rights/digest.json';
 
 /**
  * Open the files tracker backend (piece (a)) of the owner's checkout, as `hitld work` and
@@ -134,6 +131,7 @@ const EXECUTOR_REFUSED = new Map([
   ['rights show', "the orchestrator's"],
   ['rights pending', "the orchestrator's"],
   ['rights sweep', "the orchestrator's"],
+  ['rights digest', "the orchestrator's"],
   ['rights log', "the orchestrator's"],
   ['rights answer', "the owner's"],
   ['rights overrule', "the owner's"],
@@ -141,6 +139,103 @@ const EXECUTOR_REFUSED = new Map([
   ['rights rate', "the owner's"],
   ['rights trust', "the owner's"],
 ]);
+
+/**
+ * Open what the rights commands work on, in the owner's checkout.
+ * @param {import('../table.mjs').CommandContext} ctx
+ * @param {OpenTracker} openTracker
+ * @param {{ tracker?: boolean }} [needs]
+ */
+async function openRights(ctx, openTracker, needs = {}) {
+  // The primary checkout, even from inside a linked worktree: decision rights, the tracker the
+  // owner's answers are recorded in, and main are the owner's there, never a branch's copy.
+  const repoRoot = ownerCheckoutOf(ctx.cwd);
+  const loaded = loadPolicy({ cwd: repoRoot ?? ctx.cwd });
+  if (!loaded.policy) {
+    return { failure: { ok: false, error: 'policy', path: loaded.path, errors: loaded.errors } };
+  }
+  const policy = loaded.policy;
+  const store = openStore(
+    privateStorePath(policy.project.id, { env: ctx.env, repoRoot: repoRoot ?? undefined }),
+  );
+  const precedents = openPrecedentStore({
+    repoRoot,
+    store,
+    ceiling: policy.project.classification_ceiling,
+  });
+  const tracker = needs.tracker
+    ? await openTracker({ repoRoot: repoRoot ?? ctx.cwd, policy, env: ctx.env })
+    : /** @type {TrackerAdapter} */ (/** @type {unknown} */ (null));
+  return { deps: { policy, policyHash: loaded.hash, tracker, precedents, store }, loaded };
+}
+
+/**
+ * The person's effective attention budget and the executor cap: the person file under the
+ * project's ceilings, or the conservative defaults when no person file exists. `policy` is the
+ * project's policy with the person's and machine's settings layered over it.
+ * @param {import('../table.mjs').CommandContext} ctx
+ * @param {import('../../policy/policy.mjs').PolicyResult} loaded
+ */
+function settingsOf(ctx, loaded) {
+  const eff = loadEffectivePolicy({ env: ctx.env, policyResult: loaded });
+  if (!eff.settings) {
+    return { failure: { ok: false, error: 'settings', errors: eff.errors } };
+  }
+  if (eff.errors.length) {
+    return {
+      failure: {
+        ok: false,
+        error: 'settings',
+        message: 'a settings file does not load; run hitld config explain',
+        errors: eff.errors,
+      },
+    };
+  }
+  return {
+    settings: { attention: eff.settings.attention, cap: eff.settings.cap },
+    policy: eff.policy,
+  };
+}
+
+/**
+ * The digest for the owner, built from the records of the owner's checkout (design part 23.5).
+ * `hitld rights digest` and `hitld dashboard` both come here, so there is one digest. It reads
+ * only; marking is the caller's.
+ * @param {import('../table.mjs').CommandContext} ctx
+ * @param {{ trigger?: typeof TRIGGERS[number], since?: string, now?: string, full?: boolean, report?: Record<string, any> | null, openTracker?: OpenTracker }} [options]
+ */
+export async function ownerDigest(ctx, options = {}) {
+  const o = await openRights(ctx, options.openTracker ?? defaultOpenTracker, { tracker: true });
+  if (o.failure) return o.failure;
+  const s = settingsOf(ctx, o.loaded);
+  if (s.failure) return s.failure;
+  const now = options.now ?? new Date().toISOString();
+  let report = options.report ?? null;
+  if (!report && s.policy) {
+    // The quota and merge lines are best-effort: a project with no usage data has none.
+    try {
+      const inputs = readQuotaInputs(o.deps.store);
+      report = buildReport({
+        policy: s.policy,
+        snapshots: inputs.snapshots,
+        ledger: inputs.ledger,
+        now: Date.parse(now),
+      });
+    } catch {
+      report = null;
+    }
+  }
+  const digest = buildDigest(o.deps, {
+    settings: s.settings,
+    trigger: options.trigger,
+    since: options.since,
+    now,
+    report,
+    root: ownerCheckoutOf(ctx.cwd),
+    full: options.full,
+  });
+  return { ok: true, deps: o.deps, digest };
+}
 
 /**
  * @param {{ openTracker: OpenTracker }} deps
@@ -151,52 +246,7 @@ export function makeCommands({ openTracker }) {
    * @param {import('../table.mjs').CommandContext} ctx
    * @param {{ tracker?: boolean }} [needs]
    */
-  async function open(ctx, needs = {}) {
-    // The primary checkout, even from inside a linked worktree: decision rights, the tracker the
-    // owner's answers are recorded in, and main are the owner's there, never a branch's copy.
-    const repoRoot = ownerCheckoutOf(ctx.cwd);
-    const loaded = loadPolicy({ cwd: repoRoot ?? ctx.cwd });
-    if (!loaded.policy) {
-      return { failure: { ok: false, error: 'policy', path: loaded.path, errors: loaded.errors } };
-    }
-    const policy = loaded.policy;
-    const store = openStore(
-      privateStorePath(policy.project.id, { env: ctx.env, repoRoot: repoRoot ?? undefined }),
-    );
-    const precedents = openPrecedentStore({
-      repoRoot,
-      store,
-      ceiling: policy.project.classification_ceiling,
-    });
-    const tracker = needs.tracker
-      ? await openTracker({ repoRoot: repoRoot ?? ctx.cwd, policy, env: ctx.env })
-      : /** @type {TrackerAdapter} */ (/** @type {unknown} */ (null));
-    return { deps: { policy, policyHash: loaded.hash, tracker, precedents, store }, loaded };
-  }
-
-  /**
-   * The person's effective attention budget and the executor cap: the person file under the
-   * project's ceilings, or the conservative defaults when no person file exists.
-   * @param {import('../table.mjs').CommandContext} ctx
-   * @param {import('../../policy/policy.mjs').PolicyResult} loaded
-   */
-  function settingsOf(ctx, loaded) {
-    const eff = loadEffectivePolicy({ env: ctx.env, policyResult: loaded });
-    if (!eff.settings) {
-      return { failure: { ok: false, error: 'settings', errors: eff.errors } };
-    }
-    if (eff.errors.length) {
-      return {
-        failure: {
-          ok: false,
-          error: 'settings',
-          message: 'a settings file does not load; run hitld config explain',
-          errors: eff.errors,
-        },
-      };
-    }
-    return { settings: { attention: eff.settings.attention, cap: eff.settings.cap } };
-  }
+  const open = (ctx, needs = {}) => openRights(ctx, openTracker, needs);
 
   /** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
   const questionOf = (input, ctx) => {
@@ -494,55 +544,60 @@ export function makeCommands({ openTracker }) {
     {
       name: 'rights digest',
       summary:
-        'For the digest: applications of precedent (with those the owner overruled), precedents due for review, calls logged without asking and defaults applied (each with how to reverse it), and the rubber-stamp indicator per area',
+        'The digest, from the records and one phone screen long: questions first, ranked by cost of delay with the recommendation inline, then calls made, precedent applied and items merged since the last digest marked. Says whether to send it (delivery) and how loudly (urgency); at a merge batch, quiet hours hold it back',
       built_by: 'e',
       args: [
         {
+          name: 'trigger',
+          type: 'string',
+          description:
+            'merge-batch (a batch of merges landed; quiet hours hold it back) or owner-writes (the owner just wrote; the default)',
+        },
+        {
           name: 'since',
           type: 'string',
-          description: 'Only applications after this time. Default: the last digest marked',
+          description: 'Only what is new after this time. Default: the last digest marked',
         },
         {
           name: 'mark',
           type: 'boolean',
-          description: 'Mark this digest as sent, so the next lists only what is newer',
+          description:
+            'The digest is being sent: record its questions as shown and move the read cursor, so the next one lists only what is newer. Does nothing for a digest that is held or empty',
+        },
+        {
+          name: 'full',
+          type: 'boolean',
+          description: 'The whole text, without the size budget (for reading at a desk)',
+        },
+        {
+          name: 'now',
+          type: 'string',
+          description: 'Build it as of this time (a timestamp), for tests',
         },
       ],
       run: async (input, ctx) => {
-        const o = await open(ctx, { tracker: true });
-        if (o.failure) return o.failure;
-        const { store } = o.deps;
-        const cursor = store.read(DIGEST_KEY);
-        const since =
-          /** @type {string | undefined} */ (input.since) ??
-          (cursor ? JSON.parse(cursor).through : null);
-        const applications = listApplications(o.deps, { since });
-        const logged = listLoggedCalls(o.deps, { since });
-        const defaults = listDefaults(o.deps, { since });
-        const health = precedentHealth(o.deps);
-        if (input.mark) {
-          const latest =
-            [
-              ...applications.map((a) => String(a.at)),
-              ...logged.map((c) => c.at),
-              ...defaults.map((d) => String(d.at)),
-            ]
-              .sort()
-              .at(-1) ?? since;
-          if (latest) store.write(DIGEST_KEY, JSON.stringify({ through: latest }) + '\n');
+        const trigger = /** @type {string | undefined} */ (input.trigger) ?? 'owner-writes';
+        if (!TRIGGERS.includes(/** @type {any} */ (trigger))) {
+          return {
+            ok: false,
+            error: 'usage',
+            message: `--trigger must be ${TRIGGERS.join(' or ')}`,
+          };
         }
-        return {
-          ok: true,
-          since,
-          applications,
-          overruled: applications.filter((a) => a.overruled).length,
-          review: health.filter((h) => h.needs_review),
-          logged_calls: logged,
-          defaults,
-          rubber_stamp: rubberStamps(readTrustEvents(store), {
-            rubberStampSeconds: o.deps.policy.trust?.rubber_stamp_seconds,
-          }),
-        };
+        const now = /** @type {string | undefined} */ (input.now);
+        if (now !== undefined && Number.isNaN(Date.parse(now))) {
+          return { ok: false, error: 'usage', message: '--now is not a timestamp' };
+        }
+        const made = await ownerDigest(ctx, {
+          trigger: /** @type {any} */ (trigger),
+          since: /** @type {string | undefined} */ (input.since),
+          now: now === undefined ? undefined : new Date(now).toISOString(),
+          full: input.full === true,
+          openTracker,
+        });
+        if (!made.ok || !('digest' in made)) return made;
+        const { deps, digest } = made;
+        return { ...digest, ...(input.mark ? { marked: markDigest(deps, digest) } : {}) };
       },
     },
     {

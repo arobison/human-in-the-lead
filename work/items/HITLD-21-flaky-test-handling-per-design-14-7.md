@@ -2,9 +2,10 @@
 id: HITLD-21
 title: Flaky-test handling per design 14.7
 kind: work
-state: planned
+state: done
 created: 2026-11-14
 project: HITLD-15
+claimed_by: D-21
 needs: [HITLD-20, HITLD-19]
 ---
 

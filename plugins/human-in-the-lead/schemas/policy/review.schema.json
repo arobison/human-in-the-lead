@@ -1,0 +1,21 @@
+{
+  "$id": "policy/review",
+  "title": "policy.json: review",
+  "description": "When a calibration review is due for a person (design part 23.4). It is due on evidence: enough new outcomes of that person's calls since their last review. An outcome is a recorded fact about how a call turned out: an overruled precedent application, a reversed call, a reverted merge the person approved, or a rating of whether a question was worth asking. `hitld cadence due` counts them from the trust record.",
+  "type": "object",
+  "properties": {
+    "every_outcomes": {
+      "description": "Due once this many new outcomes have arrived for a person since their last review.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 10
+    },
+    "first_after_outcomes": {
+      "description": "Due for a person who has had no review yet once this many outcomes have arrived: fewer, so the first feedback comes early (design part 23.6).",
+      "type": "integer",
+      "minimum": 1,
+      "default": 5
+    }
+  },
+  "additionalProperties": false
+}
