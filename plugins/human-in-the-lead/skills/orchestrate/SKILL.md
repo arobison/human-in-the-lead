@@ -164,6 +164,7 @@ In this repository, HITLd is the project, so feedback about HITLd is a note.
 ## 8. Checkpoints and the hand-over
 
 - Every `hitld` call that records something writes a checkpoint. At a clean point with nothing to record, and before you end a turn: `hitld run checkpoint`.
+- When the project has a store remote, `hitld run start` and `hitld run resume` pull the private store first, and `hitld run checkpoint`, `hitld handover` and `hitld merge` push it. Each result carries `store_sync`. If it says a push `failed` or was `unreachable`, tell the owner; the next checkpoint tries again. A `store-pull-refused` stops the run from starting: tell the owner, and use `--no-sync` only when they say so.
 - This session is disposable. Hand over when `handover.due` is true in `hitld dispatch complete` (after `orchestrator.handover_after_completions` completions), when your context passes the share in `orchestrator.handover_context_share` (`hitld run status --context-percent <N>` tells you), or when the owner asks.
   1. Start nothing new. `hitld dispatch start` refuses with `handover-due` once the count is reached.
   2. Process the completions of the background agents and headless runs you started: no successor would hear of them. Follow-ups keep their agent in flight, so send only those that cannot wait.

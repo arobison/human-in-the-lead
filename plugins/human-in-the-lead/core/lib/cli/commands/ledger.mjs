@@ -26,6 +26,7 @@ import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
+import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
 import { activePause } from '../../quota/pause.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
@@ -56,6 +57,14 @@ const HARNESS_REF = {
   type: 'string',
   description:
     "This session's own reference in its harness, where it has one (a cloud session's ID): recorded with the lease, so the chief of staff sends wakes there",
+};
+
+/** @type {import('../args.mjs').ArgSpec} */
+const NO_SYNC = {
+  name: 'no-sync',
+  type: 'boolean',
+  description:
+    "Do not pull the private store from its remote first (the owner's way past a remote whose head does not open or merge). Without a remote, nothing is pulled either way",
 };
 
 /** --context-percent as a share, or null. @param {Record<string, unknown>} input */
@@ -98,6 +107,19 @@ function setup(input, ctx) {
   };
 }
 
+/**
+ * A store pulled onto a machine that never ran the project holds the ledger but no run state (the
+ * state is machine-local and never leaves it). Rebuild it from the ledger so the run resumes.
+ * @param {import('../../store/store.mjs').PrivateStore} store @param {number | undefined} kept
+ * @returns {boolean} whether the state was rebuilt
+ */
+function restoreState(store, kept) {
+  if (loadState(store).state) return false;
+  if (!readLedger(store).events.some((e) => e.event === 'run-started')) return false;
+  rebuildRun(store, { kept });
+  return true;
+}
+
 /** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
 function who(input, ctx) {
   const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
@@ -121,6 +143,15 @@ async function guarded(fn) {
     }
     if (e instanceof LedgerError)
       return { ok: false, error: 'invalid-event', message: e.message, errors: e.errors };
+    if (e instanceof SyncRefused) {
+      return {
+        ok: false,
+        error: e.code,
+        message: e.message,
+        cause: e.report.error,
+        store_sync: { pull: e.report },
+      };
+    }
     throw e;
   }
 }
@@ -155,7 +186,7 @@ const RAW_APPEND_EVENTS = Object.keys(RAW_APPEND_FIELDS);
 const SYSTEM_FIELDS = ['id', 'run', 'at', 'schema_version'];
 
 /** @type {import('../table.mjs').Command[]} */
-export const commands = [
+const table = [
   {
     name: 'ledger append',
     summary:
@@ -301,14 +332,16 @@ export const commands = [
         description:
           'Start even though the last run still holds a fresh lease or has work in flight',
       },
+      NO_SYNC,
       SESSION,
       HOST,
       HARNESS_REF,
       STORE,
     ],
     run: (input, ctx) =>
-      guarded(() => {
+      guarded(async () => {
         const s = setup(input, ctx);
+        const pull = await pullBeforeRun('run start', input, ctx);
         /** @type {Record<string, unknown>} */
         let scope = {};
         if (typeof input.scope === 'string') {
@@ -355,6 +388,7 @@ export const commands = [
           checkpoint: run.state.checkpoint.number,
           primary_checkout: primary,
           handover: handOver(run.state, readLedger(s.store).events),
+          ...(pull ? { store_sync: { pull } } : {}),
         };
       }),
   },
@@ -400,6 +434,7 @@ export const commands = [
         description:
           'Take the lease although it has not expired and was not released (the owner says so, for example when moving machines)',
       },
+      NO_SYNC,
       SESSION,
       HOST,
       HARNESS_REF,
@@ -408,6 +443,8 @@ export const commands = [
     run: (input, ctx) =>
       guarded(async () => {
         const s = setup(input, ctx);
+        const pull = await pullBeforeRun('run resume', input, ctx);
+        const rebuilt = pull?.status === 'done' && restoreState(s.store, s.kept);
         const live =
           typeof input.live === 'string'
             ? input.live
@@ -438,6 +475,7 @@ export const commands = [
           foreign: r.foreign,
           unverified: r.unverified,
           handover: handOver(r.run.state, readLedger(s.store).events),
+          ...(pull ? { store_sync: { pull, rebuilt_state: rebuilt } } : {}),
         };
       }),
   },
@@ -598,3 +636,6 @@ export const commands = [
       }),
   },
 ];
+
+/** `run checkpoint` ends by pushing the store (design 0003, section 8). */
+export const commands = pushingAfter(table, ['run checkpoint']);
