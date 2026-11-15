@@ -24,7 +24,8 @@ human-in-the-lead/
     harness/                      # layer 3: claude-code/ (built); copilot and others planned
   schemas/                        # versioned JSON Schemas
   skills/                         # layer 2: SKILL.md sources with portable front matter only
-    orchestrate/ execute/         # built; the rest of the design's skills are planned
+    chief-of-staff/ orchestrate/  # built; the rest of the design's skills are planned
+    execute/
   agents/                         # agent definitions beyond the executors (the generalizer),
                                   # portable front matter only; the build adds the harness's
   templates/                      # AGENTS.contract.md, policy.json and the item, decision and
@@ -54,6 +55,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
 | `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection |
+| `hitld run status / retire` and `hitld handover` | Read who holds the run lease and where wakes go; release the lease of a session that ended; write the hand-over and give up the lease ([part 13](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)) |
 | `hitld ledger append / tail / in-flight / summary` | Ledger operations; `in-flight` for restart; `summary` for the run report |
 | `hitld rights who --file <question.json>` | Which decider, by which rule |
 | `hitld precedent match <question.json>` | Candidate precedents |
@@ -75,7 +77,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld install` | Set up a consuming project: policy, contract block, `.claude/settings.json` pin, the commit guard's pre-commit hook, and the opt-in status-line capture (`--statusline`) |
 | `hitld install --harness <h>` (planned) | Place skills, agents, hooks and instructions where a harness reads them, for harnesses without a plugin path |
 
-Built as well: `run`, `env`, `handover`, `rights ask / answer`, `quota`, `dashboard`, `eval accept` and `merge --only`. `hitld --help` lists every built command; this table is the design, not the list.
+Built as well: `run`, `env`, `rights ask / answer`, `quota`, `dashboard`, `eval accept`, `merge --only` and `merge approve`. `hitld --help` lists every built command; this table is the design, not the list.
 
 ## 16.3 How a consuming project gets the plugin
 

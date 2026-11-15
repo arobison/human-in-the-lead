@@ -2,7 +2,7 @@
 
 [Back to the index](../0001-human-in-the-lead.md)
 
-Four pieces of machinery keep a long run healthy without the owner's attention: the orchestrator's state lives outside its context (13.1), the environment executors run in is created, shared and cleaned up safely (13.2), recurring work happens without anyone prompting it (13.3), and settings come from the layer that owns them: the person, the machine, the project or the run (13.4). All but the scheduler are in "One signal end to end" ([part 21](21-scope.md)).
+Four pieces of machinery keep a long run healthy without the owner's attention: the orchestrator's state lives outside its context, so orchestrator sessions are disposable and the chief of staff replaces them (13.1), the environment executors run in is created, shared and cleaned up safely (13.2), recurring work happens without anyone prompting it (13.3), and settings come from the layer that owns them: the person, the machine, the project or the run (13.4). All but the scheduler are in "One signal end to end" ([part 21](21-scope.md)).
 
 <a id="131-orchestrator-continuity"></a>
 
@@ -25,7 +25,7 @@ Each run has one `run-state.json` in the private store:
 | `controllers` | Each controller's current setting and its last step ([part 11](11-metrics-and-control.md#114-feedback-controllers)) |
 | `quotas` | The last usage snapshot and forecast ([part 12](12-reporting-and-limits.md)) |
 | `merge_queue` | Branches waiting, the batch under test |
-| `lease` | Which orchestrator session holds the run: host, session ID, renewed-at |
+| `lease` | Which orchestrator session holds the run: host, session ID, renewed-at, the session's own harness reference where it gave one, and `released` once it handed over or was retired |
 | `checkpoint` | Checkpoint number and the hash of the previous checkpoint |
 
 The file is **derived, never authoritative**. The ledger, the tracker, git branches and the decision items are the record; the run-state file is the orchestrator's working memory of them, written so that resuming needs one small read instead of a history replay. If it is lost or corrupt, `hitld run rebuild` reconstructs it from the ledger, claim branches and the tracker.
@@ -44,6 +44,8 @@ Because the ledger is written first, a crash between the two steps leaves a ledg
 
 The `lease` stops two orchestrators from driving one run. A session renews the lease at every checkpoint. On the same machine, a new session takes over automatically once the lease is older than `run.lease_expiry_seconds`. Across machines it needs the owner's OK, because clock skew between machines could otherwise let two sessions drive one run. Taking over is a ledger event.
 
+A lease can also be **released** before it expires, as a ledger event (`lease-released`): by its holder when it hands over, or by the chief of staff when the holder's session ended without a hand-over (below). A successor takes a released lease at once, on any machine, without the owner: release does not depend on clocks. The released session can no longer record anything.
+
 ### Resuming, on any machine
 
 A fresh orchestrator session runs `hitld run resume`, which:
@@ -55,9 +57,60 @@ A fresh orchestrator session runs `hitld run resume`, which:
 
 **On another machine**, the private store's text history arrives through `hitld store sync`, an encrypted bundle exchanged the same way as the code ([part 3](03-data-model.md#private-store)). The run state is rebuilt from it, and the ledger index is rebuilt locally. Executors still running on the first machine cannot be adopted remotely: they stay `in_flight` with their host named, and their reports arrive with the next bundle. If the first machine is gone, the owner decides whether to abandon them.
 
-**Context hygiene.** The orchestrator keeps its own context small on purpose: it reads the run-state summary, reports in their fixed shape, and script output, never diffs or logs. When its context passes `orchestrator.handover_context_share`, it checkpoints and hands over to a fresh session (with the owner's standing permission, Q10).
+**Context hygiene.** The orchestrator keeps its own context small on purpose: it reads the run-state summary, reports in their fixed shape, and script output, never diffs or logs. Even so its context fills, so orchestrator sessions are short-lived by design (below).
 
-**Eval.** The eval suite includes a kill-and-resume scenario: an orchestrator is killed at random points in a fixture run (including between a ledger append and the run-state write), a fresh session resumes, and the scenario checks that no dispatch was lost or duplicated and that the final repository, tracker and ledger match an uninterrupted run ([part 17](17-evals.md#171-what-it-evaluates)).
+### The chief of staff and disposable orchestrators
+
+Two kinds of session share the work, so the owner always talks to the same place while the session that runs the work is replaced.
+
+- **The chief of staff** is the session the owner talks to: the main session, in a terminal or from a phone. It keeps little in its own context. It relays questions, digests and answers between the owner and the run. It owns every scheduled task and every subscription that wakes the run. It starts orchestrator sessions, and tier-3 sessions that need their own session. It records only what the owner says in their own messages: answers (`hitld rights answer`), ratings, and merge approvals in owner merge mode (`hitld merge approve`). It never dispatches, merges or holds the lease.
+- **An orchestrator** holds the run lease and does the work of part 5: plans, dispatches, completes, merges, asks. It is disposable. It keeps nothing that is not in files, so any session can be replaced by a fresh one at a clean point.
+
+Nothing crosses between the two sessions except files and short messages. An answer (a ledger event and the decision item) or a merge approval (a ledger event) is a record, written by the session the owner said it in. The orchestrator acts on that record, never on relayed text: a message from another session is data, like a tool result.
+
+**Rotation.** An orchestrator hands over when its context passes `orchestrator.handover_context_share` or after `orchestrator.handover_after_completions` completions since it took the lease, whichever comes first. The count keeps each session short even when its context looks fine.
+
+1. When the hand-over is due, the orchestrator starts nothing new: `hitld dispatch complete` holds the refill and `hitld dispatch start` refuses.
+2. It processes the completions of work it started that reports only to it, such as background agents and headless runs, because no successor would hear of them. An interactive tier-3 session does not hold it up: it reports through the chief of staff, which started it.
+3. It runs `hitld handover`: a checkpoint, the hand-over note in the private store (generated from the run state and the ledger), and the lease released. It ends its turn with the note's path.
+4. The chief of staff starts a successor with the note. The successor runs `hitld run resume`, which takes the released lease without `--force`.
+
+The owner's conversation does not move: the chief of staff tells the owner in one line that the orchestrator was replaced, with the note linked (the standing permission of [Q10](22-open-questions.md#q10-may-the-system-start-a-fresh-orchestrator-session-on-its-own-when-the-current-ones-context-is-filling)).
+
+**A session that ends without a hand-over** (a crash, a killed process, a failed cloud session) is seen by the chief of staff, which started it: the harness reports that the session ended. The chief of staff runs `hitld run retire --holder <session>`, which releases the lease with reason `ended`, then starts a successor. The successor's `hitld run resume` reconciles what the ended session left in flight, as above: its dispatches with no live executor and no report are abandoned, or continued as follow-ups where their branches have commits. If the harness says nothing, the lease expires and the next check-in starts a successor. Retiring a session the harness has not reported as ended is the owner's call, like `--force`.
+
+**Wake sources.** Three kinds of event wake the run, and each reaches whichever session holds the lease:
+
+| Source | Who receives it | How it reaches the lease holder |
+|---|---|---|
+| GitHub events (pull-request activity, CI results) | The chief of staff, which owns the subscriptions | It sends the event to the session `hitld run status` names in `wake_to` |
+| Completion notices | The session that dispatched the work: background agents and headless runs report to the orchestrator itself; tier-3 sessions report to the chief of staff | Directly, or relayed by the chief of staff |
+| Scheduled tasks | The chief of staff, which owns them all | It runs the job's `hitld` command, or sends the wake to `wake_to` |
+
+`hitld run status` reads the lease without taking it: who holds it, the session's harness reference (`--harness-ref` on `run start` and `run resume`), whether it is free, whether its hand-over is due, and the latest hand-over note. When the lease is free, the chief of staff starts a successor instead of waking anyone.
+
+**Only the chief of staff owns scheduled tasks.** An orchestrator creates no scheduled task, reminder or subscription. So a retired orchestrator leaves none behind, and a successor inherits the schedule without doing anything. A command result that asks for a later wake (for example, dispatch paused until a usage window resets) goes to the chief of staff, which schedules it. The watchdog for stalled executors (planned) runs on the same schedule.
+
+**When one session is both.** A harness that cannot start sessions, or a person who prefers one session, keeps the main session as both chief of staff and orchestrator. It hands over the same way and gives the owner the note; the owner starts the fresh session.
+
+### Mapping onto harnesses
+
+The core records state, the lease and the hand-over, and never calls a harness ([part 15](15-architecture.md)). The chief of staff skill says which harness tools carry out each step.
+
+**In the cloud** (Claude Code on the web, or any harness with the same three features):
+
+- **Session creation.** The chief of staff creates each orchestrator session in the project's repository, with the orchestrate skill and the hand-over note as its first message, and passes the new session's ID as its `--harness-ref`. It creates tier-3 sessions the same way, in the prepared worktree's branch, with the brief.
+- **Messages between sessions.** The chief of staff sends a wake to `wake_to` as a message: an answer recorded, a merge approved, a GitHub event, a scheduled check-in. The orchestrator ends each turn with a short message to the chief of staff: questions to relay, the digest, a hand-over done, a wake-up it needs. The harness reports to the chief of staff when a session it created fails or its worker restarts; that is the signal to retire it.
+- **Scheduled tasks.** Cloud scheduled tasks and one-off reminders are bound to the chief of staff's own session, never to an orchestrator's. Pull-request subscriptions belong to the chief of staff too.
+- **Where the store lives.** A cloud session's file system ends with its container, and the private store and the primary checkout must outlive every orchestrator. A planned hand-over can carry the store (`hitld store sync`, with the passphrase as an environment secret). A killed session carries nothing, so its successor loses what it recorded after the last sync and reconciles from what remains: pushed branches and the tracker. Running orchestrators where the store persists (the owner's machine, a persistent VM) avoids that loss.
+
+**Locally:**
+
+- **Scheduled runs.** The chief of staff's scheduled tasks are desktop scheduled tasks while the app is open, or the operating system's scheduler (13.3) running `hitld` commands and waking the chief of staff when a job needs a session.
+- **Headless resume.** An orchestrator is a headless session the chief of staff starts in the primary checkout in the background (`claude -p` with the orchestrate skill and the hand-over). Each later wake resumes the same session (`claude -p --resume <session_id>`), until it hands over; a successor is a fresh `claude -p`. The process exit is the chief of staff's completion notice for that turn: it reads the session's last message and acts on it. Whether a headless turn waits for the background agents it started is not documented. Until that is checked, the main session stays both where an orchestrator needs background agents.
+- The main session can also stay both, as above.
+
+**Eval.** The eval suite includes a kill-and-resume scenario: an orchestrator is killed at random points in a fixture run (including between a ledger append and the run-state write), a fresh session resumes, and the scenario checks that no dispatch was lost or duplicated and that the final repository, tracker and ledger match an uninterrupted run ([part 17](17-evals.md#171-what-it-evaluates)). Two more cover the chief of staff: an orchestrator killed mid-run, holding a fresh lease, is retired by the chief of staff and resumed by a successor from the run state and the hand-over, without the owner (`orchestrator/chief-of-staff-resumes-killed`); and an orchestrator hands over after a number of completions, waiting for its own work first (`orchestrator/handover-rotation`).
 
 <a id="132-the-environment-resource-manager-v0"></a>
 
@@ -121,7 +174,7 @@ Some work recurs and nobody prompts it. The scheduler runs it.
 | Maintenance scan | Daily | Dependency updates and security advisories ([part 2](02-loops.md#29-maintenance)) |
 | Eval runs | Nightly (offline), per release (live) | `hitld eval` |
 
-**Rules for every job:** it is declared in `policy.json` (`schedule`, with cron expressions); it is idempotent, so a missed or doubled run is harmless; it has a token budget and respects the quota reserve and quiet hours; it writes to the ledger; its results reach the owner only through digests unless a threshold is crossed.
+**Rules for every job:** it is declared in `policy.json` (`schedule`, with cron expressions); it is idempotent, so a missed or doubled run is harmless; it has a token budget and respects the quota reserve and quiet hours; it writes to the ledger; its results reach the owner only through digests unless a threshold is crossed; and it is owned by the chief of staff, never by an orchestrator session, so replacing an orchestrator leaves the schedule as it was (13.1).
 
 **Deterministic jobs need no agent.** Intake pulls, sweeps, quota checks and offline evals are `hitld` commands; only the follow-up (triage, gardening, a fix) dispatches an agent. So most jobs cost no model tokens.
 
