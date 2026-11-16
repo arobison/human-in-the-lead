@@ -2,10 +2,11 @@
 id: HITLD-150
 title: "Merge authority holds on the pull-request path: the paths and areas that wait, and earning the queue"
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-133]
+claimed_by: D-22
 ---
 
 ## Why
