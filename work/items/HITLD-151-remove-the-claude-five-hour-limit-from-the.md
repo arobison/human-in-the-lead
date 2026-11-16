@@ -2,9 +2,10 @@
 id: HITLD-151
 title: Remove the Claude five-hour limit from the design, defaults, code, docs and evals
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-30
 ---
 
 ## Why
