@@ -17,7 +17,7 @@ The chief-of-staff skill says that on the web, when an orchestrator's turn ends,
 - The chief-of-staff skill's start prompt says the owner is not present, that the orchestrator decides operational calls itself and records them with `hitld rights log`, and that only real owner decisions go in `questions`.
 - `hitld dispatch watch` (or `run status`) reports an orchestrator whose last turn ended with no message to the chief of staff, so the hourly check-in finds a stalled one without the owner asking.
 - The skills' harness table says what actually delivers a turn's end on the web, and what does not.
-- A test finds out whether a Stop hook in a cloud session can block the end of a turn until the message to the chief of staff has been sent, and whether any command a hook runs can send a message to another session. The result is recorded here, and a hook is added only if it works; the skill and the watchdog remain the fallback.
+- A test finds out whether a Stop hook in a cloud session can block the end of a turn until the message to the chief of staff has been sent, and whether any command a hook runs can send a message to another session. The same test covers an interactive executor session, whose end-of-turn report also does not reach its orchestrator without an explicit message (HITLD-147). The result is recorded here, and a hook is added only if it works; the skill and the watchdog remain the fallback.
 - Tests or an eval scenario cover an orchestrator that ends a turn without sending, and one that asks the owner a question it should have decided.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
 
