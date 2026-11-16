@@ -11,8 +11,10 @@ import { NAME, VERSION } from '../version.mjs';
 /**
  * @typedef {import('./table.mjs').Command} Command
  * @typedef {{ out: (text: string) => void, err: (text: string) => void, cwd: string, env: NodeJS.ProcessEnv,
- *   machine?: import('../machine/detect.mjs').Sources, now?: () => Date }} Io machine: fake probe
- *   sources, for tests; now: a clock, for tests and offline evals
+ *   machine?: import('../machine/detect.mjs').Sources, now?: () => Date,
+ *   github?: (repo: string) => import('../merge/github.mjs').GitHub }} Io machine: fake probe
+ *   sources, for tests; now: a clock, for tests and offline evals; github: a fake GitHub API, for
+ *   tests and offline evals of merge.via pull-request
  */
 
 export const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2, notBuilt: 3 });
@@ -125,6 +127,7 @@ export async function main(argv, io) {
       interactive: true,
       machine: io.machine,
       ...(io.now ? { now: io.now } : {}),
+      ...(io.github ? { github: io.github } : {}),
     });
     json(io, result);
     return result.ok ? EXIT.ok : EXIT.failed;

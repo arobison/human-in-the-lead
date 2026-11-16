@@ -50,6 +50,14 @@ import { planDispatch } from '../../dispatch/plan.mjs';
 import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
 import { runMergeQueue } from '../../merge/queue.mjs';
+import { ghGitHub, remoteUrl, repoFromRemote } from '../../merge/github.mjs';
+import {
+  PULL_STATE_KEY,
+  approvePulls,
+  readPullState,
+  runPullRequestQueue,
+  validSignoff,
+} from '../../merge/pull-request.mjs';
 import { duplicateIds } from '../../tracker/files/check.mjs';
 import { loadWorkTree } from '../../tracker/files/tree.mjs';
 import {
@@ -571,6 +579,245 @@ function securitySentBack(x, main) {
   return `Your branch, rebased onto ${main}, adds security findings that are in neither the baseline nor the recorded verdicts:\n${list}\nFor each: fix it with a test that would have caught it, or propose a verdict in your report under calls, with the finding's key: by design (name the trust boundary at the sink) or false positive (a one-line reason). Accepting a real finding as a risk is the owner's decision.`;
 }
 
+/** The private store key of the evidence a verified report gave, for its pull request's body. @param {string} item */
+const reportEvidenceKey = (item) => `merge/reports/${item}.json`;
+
+/** The owner's sign-off, from --signoff, checked. @param {Record<string, unknown>} input */
+function signoffOf(input) {
+  const s = typeof input.signoff === 'string' ? input.signoff.trim() : '';
+  if (!s) {
+    throw new Refusal(
+      'usage',
+      'with merge.via pull-request, an approval carries the owner\'s sign-off for the squash commit: give --signoff "Name <email>", as the owner signs their commits',
+    );
+  }
+  if (!validSignoff(s)) throw new Refusal('usage', '--signoff must be "Name <email>"');
+  return s;
+}
+
+/**
+ * The GitHub client for this project's remote: the one the context gives (tests and evals pass a
+ * fake), else `gh api` with the session's own sign-in.
+ * @param {{ repoRoot: string, policy: Record<string, any> }} p @param {Ctx} ctx
+ * @returns {import('../../merge/github.mjs').GitHub}
+ */
+function githubFor(p, ctx) {
+  const remote = p.policy.merge.pull_request.remote;
+  const url = remoteUrl(p.repoRoot, remote);
+  const repo = url ? repoFromRemote(url) : null;
+  if (!repo) {
+    throw new Refusal(
+      'no-github-remote',
+      `merge.via is pull-request, and the git remote "${remote}" (merge.pull_request.remote) names no GitHub repository; nothing was merged`,
+    );
+  }
+  return ctx.github ? ctx.github(repo) : ghGitHub({ repo, env: ctx.env });
+}
+
+/**
+ * Record the owner's approval of presented pull requests (owner mode, merge.via pull-request):
+ * in the queue's state, with the sign-off, and as a merge-approved ledger event. Refused unless each
+ * named pull request is presented and its head has not moved since.
+ * @param {{ p: any, all: boolean, names: string[] | null, signedOffBy: string, by: string,
+ *   run?: string, github: import('../../merge/github.mjs').GitHub }} o
+ */
+function approvePullRequests(o) {
+  const state = readPullState(o.p.store);
+  if (!state.presented) {
+    throw new Refusal(
+      'not-presented',
+      'no pull request is waiting for the owner: the session holding the lease runs hitld merge first; nothing was approved',
+    );
+  }
+  const shown = state.presented.branches.map((b) => ({
+    item: b.item,
+    branch: b.branch,
+    pull_request: b.url,
+  }));
+  const r = approvePulls({
+    state,
+    all: o.all,
+    names: o.names ?? [],
+    signedOffBy: o.signedOffBy,
+    by: o.by,
+    at: new Date().toISOString(),
+    heads: (branch) => o.github.findPull(branch, o.p.policy.merge.main_branch)?.head ?? null,
+  });
+  if (r.refused?.moved.length) {
+    throw new Refusal(
+      'stale',
+      `${r.refused.moved.join(', ')} changed since it was presented, so the owner approved other code; nothing was approved; run hitld merge to check it again`,
+      { presented: shown },
+    );
+  }
+  if (r.refused) {
+    throw new Refusal(
+      'not-presented',
+      `${r.refused.unknown.join(', ')} ${r.refused.unknown.length === 1 ? 'is' : 'are'} not among the pull requests presented to the owner; nothing was approved`,
+      { presented: shown },
+    );
+  }
+  o.p.store.write(PULL_STATE_KEY, JSON.stringify(state));
+  // One event per pull request, naming the head the owner approved.
+  for (const b of r.approved) {
+    appendEvent(o.p.store, {
+      event: 'merge-approved',
+      ...(o.run ? { run: o.run } : {}),
+      branches: [b.branch],
+      presented_at: state.presented.at,
+      commit: b.head,
+      by: o.by,
+      notes: `from the owner's own message; pull request #${b.number}, with the owner's sign-off`,
+    });
+  }
+  return r.approved;
+}
+
+/**
+ * hitld merge with merge.via pull-request: record the owner's approval given in this session, if
+ * any, then one pass of the pull-request queue (merge/pull-request.mjs), recorded in the ledger as
+ * the local queue's results are: merged items, branches sent back, the worktrees of merged branches
+ * released.
+ * @param {{ p: any, run: any, ctx: Ctx, input: Record<string, unknown>, owner: boolean,
+ *   approve: { all: boolean, names: string[] | null } | null,
+ *   entries: import('../../merge/queue.mjs').Entry[],
+ *   settings: import('../../merge/queue.mjs').Settings, env: any }} o
+ */
+async function pullRequestMerge(o) {
+  const { p, run, ctx } = o;
+  const main = p.policy.merge.main_branch;
+  const pr = p.policy.merge.pull_request;
+  const github = githubFor(p, ctx);
+  /** @type {import('../../merge/pull-request.mjs').Presented[]} */
+  let approved = [];
+  if (o.approve) {
+    approved = approvePullRequests({
+      p,
+      all: o.approve.all,
+      names: o.approve.names,
+      signedOffBy: signoffOf(o.input),
+      by: run.session,
+      run: p.state?.run?.id,
+      github,
+    });
+  }
+  const layout = readWorkItems({
+    repoRoot: p.repoRoot,
+    policy: p.policy,
+    env: ctx.env,
+  }).tracker.layout();
+  const result = await runPullRequestQueue({
+    repoRoot: p.repoRoot,
+    entries: o.entries,
+    settings: {
+      mainBranch: main,
+      remote: pr.remote,
+      checks: pr.checks,
+      checkTimeoutMinutes: pr.check_timeout_minutes,
+      generated: p.policy.merge.generated,
+      setup: o.settings.setup,
+      classification: o.settings.classification,
+      trackerCheck: o.settings.trackerCheck,
+      itemAt: (dir, item) => {
+        if (!existsSync(join(dir, layout.workDir))) return null;
+        const found = loadWorkTree(dir, layout).find((x) => String(x.data?.id) === item);
+        if (!found?.data) return null;
+        return {
+          state: typeof found.data.state === 'string' ? found.data.state : null,
+          title: String(found.data.title ?? item),
+          release_note:
+            typeof found.data.release_note === 'string' ? found.data.release_note : null,
+          body: found.body,
+        };
+      },
+    },
+    policy: p.policy,
+    github,
+    state: readPullState(p.store),
+    evidence: (item) => {
+      try {
+        const r = JSON.parse(p.store.read(reportEvidenceKey(item)) ?? 'null');
+        return Array.isArray(r?.evidence) ? r.evidence.map(String) : [];
+      } catch {
+        return [];
+      }
+    },
+    ...(ctx.now ? { now: ctx.now } : {}),
+  });
+  p.store.write(PULL_STATE_KEY, JSON.stringify(result.state));
+  for (const m of result.merged) {
+    run.record({
+      id: `merged-${m.item}-${m.commit.slice(0, 12)}`,
+      event: 'merged',
+      item: m.item,
+      commit: m.commit,
+      branch: m.branch,
+      notes: `squash-merged as pull request #${m.number}${m.signed_off ? ", with the owner's sign-off" : ''}`,
+      ...(m.dispatch ? { dispatch: m.dispatch } : {}),
+    });
+    // The worktrees hitld env made for this branch (tier 3) go; adopted ones are the harness's.
+    for (const w of Object.values(o.env.registry().worktrees)) {
+      const wt = /** @type {{ branch?: string, adopted?: boolean, holder: string }} */ (w);
+      if (wt.branch === m.branch && !wt.adopted) {
+        await o.env.releaseHolder({ holder: wt.holder, result: 'merged' }).catch(() => null);
+      }
+    }
+  }
+  for (const x of result.rejected) {
+    run.record({
+      id: `verified-fail-${x.item}-${(result.main.before || 'none').slice(0, 12)}`,
+      event: 'verified',
+      item: x.item,
+      result: 'fail',
+      branch: x.branch,
+      notes: `merge queue (pull request): ${x.reason}${x.files?.length ? ` in ${x.files.slice(0, 5).join(', ')}` : ''}`,
+    });
+  }
+  const waiting = result.awaiting_owner;
+  return {
+    ok: result.incident === null,
+    via: 'pull-request',
+    mode: o.owner ? 'owner' : 'queue',
+    main: result.main,
+    ...(o.approve ? { approved: approved.map((b) => b.branch) } : {}),
+    merged: result.merged.map((m) => m.item),
+    pull_requests: result.merged,
+    rejected: result.rejected.map((x) => ({
+      ...rejectedJson(/** @type {any} */ (x), main),
+      ...(x.checks ? { checks: x.checks } : {}),
+      ...(x.url ? { pull_request: x.url } : {}),
+    })),
+    pending: result.pending,
+    stalled: result.stalled,
+    updated: result.updated,
+    presented: waiting,
+    question: waiting.length
+      ? waiting.length === 1
+        ? `Merge ${waiting[0].url}? yes, or no`
+        : `Merge all ${waiting.length}? yes, or list the ones to merge`
+      : null,
+    incident: result.incident,
+    next: result.incident
+      ? 'an incident: tell the owner at once'
+      : [
+          result.rejected.some((x) => x.dispatch)
+            ? 'send each rejected follow_up with hitld dispatch follow-up'
+            : '',
+          waiting.length
+            ? 'put the question to the owner in one message, one line per pull request (item, link, the checks passed, the files changed); merge only on the owner\'s own message: hitld merge --all or --only <branch> with --signoff "<the owner\'s sign-off>" (or the chief of staff records it with hitld merge approve)'
+            : '',
+          result.pending.length || result.updated.length
+            ? 'run hitld merge again when the named checks finish (watch the pull requests rather than poll)'
+            : '',
+          result.stalled.length
+            ? `tell the owner which named checks have run past ${pr.check_timeout_minutes} minutes; those pull requests stay waiting`
+            : '',
+        ]
+          .filter(Boolean)
+          .join('; ') || 'refill with hitld dispatch plan',
+  };
+}
+
 /** @type {import('../table.mjs').Command[]} */
 const table = [
   {
@@ -959,6 +1206,11 @@ const table = [
               notes: 'report shape and branch checked; acceptance checks run as merge fast checks',
             });
             out.queued_to_merge = branch;
+            // The evidence goes in the body of the branch's pull request (merge.via pull-request).
+            p.store.write(
+              reportEvidenceKey(entry.item),
+              JSON.stringify({ dispatch: d, evidence: r.evidence }),
+            );
           }
           if (r.questions.length) {
             out.question_protocol =
@@ -1119,6 +1371,12 @@ const table = [
         description:
           'Owner mode: the owner approved the whole batch the last hitld merge presented',
       },
+      {
+        name: 'signoff',
+        type: 'string',
+        description:
+          'With merge.via pull-request, in owner mode: the owner\'s sign-off for the squash commits they approve, "Name <email>"',
+      },
       SESSION,
       HOST,
     ],
@@ -1151,6 +1409,8 @@ const table = [
             '--all approves a batch presented in owner mode; in queue mode, hitld merge merges what is waiting',
           );
         }
+        // Through GitHub pull requests (merge.via pull-request), for a session that cannot push main.
+        const viaPR = p.policy.merge.via === 'pull-request';
         let approving = owner && (all || names !== null);
         let waiting = /** @type {{ item: string, branch: string | null }[]} */ (
           run.state.merge_queue.waiting
@@ -1186,7 +1446,7 @@ const table = [
           }
           waiting = chosen;
         }
-        const presented = readPresentation(p.store);
+        const presented = viaPR ? null : readPresentation(p.store);
         // The owner's answer given in another session (the chief of staff's), recorded against
         // this presentation: this session applies exactly it, and chooses nothing itself. One that
         // no longer holds (a branch moved since) is not applied; the batch is checked again.
@@ -1208,7 +1468,7 @@ const table = [
             names = recorded.branches;
           }
         }
-        if (approving && !presented) {
+        if (approving && !presented && !viaPR) {
           throw new Refusal(
             'not-presented',
             'nothing has been presented to the owner: run hitld merge first; it checks the waiting branches and presents the ones that pass; nothing was merged',
@@ -1295,7 +1555,7 @@ const table = [
         });
         // An owner-mode listing that changes nothing needs no lock: the stored presentation is
         // still what checking again would give.
-        if (!approving && owner) {
+        if (!approving && owner && !viaPR) {
           const entries = waiting.map(entryOf);
           const toOwner = entries.filter((e) =>
             waitsForOwner(changedOnBranch(p.repoRoot, main, e.branch), p.policy),
@@ -1380,6 +1640,19 @@ const table = [
           };
         };
         try {
+          if (viaPR) {
+            return await pullRequestMerge({
+              p,
+              run,
+              ctx,
+              input,
+              owner,
+              approve: approving ? { all, names } : null,
+              entries: waiting.map(entryOf),
+              settings,
+              env,
+            });
+          }
           if (owner && approving) {
             const approved = await approvePresented({
               repoRoot: p.repoRoot,
@@ -1525,6 +1798,12 @@ const table = [
         type: 'string',
         description: 'The presented branches (or items) the owner approved, comma-separated',
       },
+      {
+        name: 'signoff',
+        type: 'string',
+        description:
+          'With merge.via pull-request: the owner\'s sign-off for the squash commits they approve, "Name <email>"',
+      },
       SESSION,
     ],
     run: (input, ctx) =>
@@ -1553,6 +1832,43 @@ const table = [
                 .filter(Boolean)
             : null;
         if (all && names) throw new Refusal('usage', 'give --all or --only, not both');
+        if (p.policy.merge.via === 'pull-request') {
+          const shown = readPullState(p.store).presented;
+          if (!all && names === null) {
+            if (!shown) {
+              throw new Refusal(
+                'not-presented',
+                'no pull request is waiting for the owner: the session holding the lease runs hitld merge first',
+              );
+            }
+            return {
+              ok: true,
+              mode: 'owner',
+              via: 'pull-request',
+              presented: shown.branches,
+              presented_at: shown.at,
+              next: 'put the question to the owner; on the owner\'s own answer, hitld merge approve --all, or --only <branch>[,<branch>], with --signoff "<the owner\'s sign-off>"',
+            };
+          }
+          const by = identityOf(p, input, ctx).session;
+          if (!by) throw new Refusal('usage', NO_SESSION);
+          const approved = approvePullRequests({
+            p,
+            all,
+            names,
+            signedOffBy: signoffOf(input),
+            by,
+            run: p.state.run.id,
+            github: githubFor(p, ctx),
+          });
+          return {
+            ok: true,
+            via: 'pull-request',
+            approved: approved.map((b) => b.branch),
+            pull_requests: approved.map((b) => b.url),
+            next: 'wake the session that holds the lease (hitld run status names it): its hitld merge merges these pull requests once their checks pass, with the sign-off',
+          };
+        }
         const presented = readPresentation(p.store);
         if (!presented) {
           throw new Refusal(

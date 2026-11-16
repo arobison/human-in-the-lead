@@ -40,6 +40,9 @@ import { commands as privateTerms } from './commands/private.mjs';
  *   pass fakes, everything else leaves it unset for this machine
  * @property {() => Date} [now] the clock, for tests and offline evals that judge time (the
  *   watchdog, a quota reset); everything else leaves it unset for the real one
+ * @property {(repo: string) => import('../merge/github.mjs').GitHub} [github] the GitHub API for a
+ *   repository (owner/name), for merge.via pull-request; tests and offline evals pass a fake,
+ *   everything else leaves it unset for `gh api` with the session's own sign-in
  *
  * @typedef {{ ok: boolean } & Record<string, unknown>} CommandResult
  *   JSON out. ok false means the command ran and found a problem (exit code 1).

@@ -9,6 +9,35 @@
       "enum": ["queue", "owner"],
       "default": "owner"
     },
+    "via": {
+      "description": "How main moves. \"push\": the queue fast-forwards main to the tested commit locally. \"pull-request\": for a session that cannot push main (a cloud session, a protected main), the queue opens or updates a GitHub pull request for each waiting branch, waits for the checks merge.pull_request.checks names, and squash-merges it through the GitHub API with the item's trailers and, in owner mode, the owner's Signed-off-by from the recorded approval; after each merge the next branch is brought up to date with main (merged, never force-pushed), rebuilt and checked again. GitHub is reached through the GitHub command line's own sign-in; HITLd stores no token.",
+      "enum": ["push", "pull-request"],
+      "default": "push"
+    },
+    "pull_request": {
+      "description": "With merge.via pull-request: which checks gate a pull request, how long one may run, and the remote that is GitHub.",
+      "type": "object",
+      "properties": {
+        "checks": {
+          "description": "The checks a pull request waits for, by check-run name or status context; others are not waited for. With none, the queue merges nothing.",
+          "$ref": "common#/$defs/texts",
+          "default": []
+        },
+        "check_timeout_minutes": {
+          "description": "How long a named check may stay unfinished on a pull request's head before the queue goes on without it; the pull request is reported as stalled and stays waiting.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "default": 60
+        },
+        "remote": {
+          "description": "The git remote that is the GitHub repository; its URL names the repository.",
+          "$ref": "common#/$defs/name",
+          "default": "origin"
+        }
+      },
+      "additionalProperties": false
+    },
     "owner_paths": {
       "description": "In owner mode, limits what waits for the owner: a branch that changes a file under one of these globs waits; a branch that changes nothing here or in owner_areas goes through the queue as in queue mode. With this and owner_areas both empty, every branch waits.",
       "$ref": "common#/$defs/globs",
