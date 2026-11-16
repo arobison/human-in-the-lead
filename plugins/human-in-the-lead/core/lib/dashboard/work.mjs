@@ -157,6 +157,13 @@ export function workModel({
         title: String(m.title ?? m.id),
         state: String(m.state),
         long_outcome: !m.parent,
+        scopes: [
+          ...new Set([
+            ...(m.parent ? [String(m.parent)] : []),
+            String(m.id),
+            ...(outcomesOf.get(String(m.id)) ?? []),
+          ]),
+        ],
       }))
       .sort((a, b) => byId(a.id, b.id)),
     critical_path: path,

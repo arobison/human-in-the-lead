@@ -160,8 +160,8 @@ export function renderPlan(w, settings, { fileBase = null } = {}) {
       const label = `${it.id} ${it.title}: ${stage}${kindNote(it)}${it.critical ? ', on the critical path' : ''}${it.open_needs.length ? `; needs ${it.open_needs.join(', ')}` : ''}`;
       const inner = `<g class="pg-node st-${it.stage}${it.critical ? ' critical' : ''}"><title>${esc(label)}</title><rect class="pg-box" x="${x}" y="${y}" width="${W}" height="${H}" rx="6"/><rect class="pg-strip" x="${x + 1}" y="${y + 1}" width="4" height="${H - 2}" rx="2"/><text class="pg-id" x="${x + 12}" y="${y + 18}">${esc(it.id)}${it.kind === 'decision' ? ' ◆' : it.kind === 'external' ? ' ◇' : ''}</text><text class="pg-stage" x="${x + W - 8}" y="${y + 18}" text-anchor="end">${esc(stage)}</text><text class="pg-title" x="${x + 12}" y="${y + 36}">${esc(cut(it.title, 29))}</text></g>`;
       return it.path
-        ? `<a href="${esc(fileHref(it.path, { base: fileBase }))}" data-item="${esc(it.id)}" aria-label="${esc(label)}">${inner}</a>`
-        : `<g data-item="${esc(it.id)}" role="img" aria-label="${esc(label)}">${inner}</g>`;
+        ? `<a href="${esc(fileHref(it.path, { base: fileBase }))}" data-item="${esc(it.id)}" data-node="${esc(it.id)}" aria-label="${esc(label)}">${inner}</a>`
+        : `<g data-item="${esc(it.id)}" data-node="${esc(it.id)}" role="img" aria-label="${esc(label)}">${inner}</g>`;
     })
     .join('\n');
   const svg = `<svg class="mg pg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="Item graph: ${shown.length} items in ${lanes.length} lanes over ${layers.length} steps, ${edges.length} needs between them, ${crossings} crossings">${laneSvg}${ticks}${sepSvg}${edgeSvg}\n${nodeSvg}</svg>`;

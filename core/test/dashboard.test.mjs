@@ -8,6 +8,7 @@ import { chmodSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { git, isolatedEnv, itemText, makeRepo, put } from './tracker-fixture.mjs';
+import { assertPageSafe } from './helpers/page-safety.mjs';
 
 const HOME = isolatedEnv();
 const NOW = '2026-11-16T12:00:00Z';
@@ -184,7 +185,7 @@ test('the plan: the diamond and the chain as inline SVG in project lanes, with t
   assert.match(plan, /<g class="pg-node st-ready critical">/);
   assert.match(
     plan,
-    /<a href="work\/items\/W-12-diamond-right.md" data-item="W-12" aria-label="W-12 Diamond right: Ready"><g class="pg-node st-ready">/,
+    /<a href="work\/items\/W-12-diamond-right.md" data-item="W-12" data-node="W-12" aria-label="W-12 Diamond right: Ready"><g class="pg-node st-ready">/,
   );
   assert.match(plan, /aria-label="W-13 Diamond bottom: Blocked; needs W-11, W-12"/);
   assert.match(plan, /aria-label="W-11 Diamond left: In progress"/);
@@ -386,4 +387,43 @@ test('Flow: stage bands day by day from the committed history, then the measures
     /<th scope="row" data-label="Measure">Throughput<\/th><td data-label="Now">2 items done in the last 7 days; 0 in the 7 before<\/td><td data-label="Its pair">Change failure rate<\/td><td data-label="Pair now">No merges in the ledger yet<\/td>/,
   );
   assert.match(flow, /Median 2.0 days, over 1 item done in the last 30 days/);
+});
+
+test('one inline script: allowed by its hash alone, data as escaped JSON, and tracker text cannot end it', async () => {
+  const root = fixture();
+  put(
+    root,
+    item('W-42', 'Hostile', {
+      state: 'proposed',
+      title: '</script><script>alert(1)</script><!-- & more',
+    }),
+  );
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'hostile');
+  const { html } = await dashboard(root);
+  assertPageSafe(html);
+  const code = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+  const data = JSON.parse(/const D = (\{.*?\});\n/s.exec(code)?.[1] ?? 'null');
+  assert.equal(data.items['W-42'].t, '</script><script>alert(1)</script><!-- & more');
+  const { scriptJson } = await import('../lib/dashboard/script.mjs');
+  assert.equal(scriptJson(['<>&\u2028\u2029']), '["\\u003c\\u003e\\u0026\\u2028\\u2029"]');
+  assert.deepEqual(data.items['W-13'], { t: 'Diamond bottom', s: ['W-2'] });
+  assert.deepEqual(
+    data.groups.map((/** @type {any} */ g) => g[0]),
+    ['Long outcomes', 'Projects'],
+  );
+  assert.ok(data.edges.some((/** @type {string[]} */ e) => e[0] === 'W-11' && e[1] === 'W-13'));
+  // Everything the script narrows or lights carries the item's ID; the page reads without it.
+  assert.match(view(html, 'plan'), /data-node="W-13"/);
+  assert.match(view(html, 'roadmap'), /data-node="W-1" data-item="W-1"/);
+  assert.match(html, /<section class="view" id="move" aria-label="Your move">/);
+});
+
+test('a page without a tracker has no script and no policy tag', async () => {
+  const { buildReport, renderHtml } = await import('../lib/quota/report.mjs');
+  const { resolvePolicy } = await import('../lib/policy/policy.mjs');
+  const policy = /** @type {any} */ (
+    resolvePolicy({ schema_version: 1, project: { id: 'x', key: 'W' } })
+  ).policy;
+  assertPageSafe(renderHtml(buildReport({ policy }), policy), { scripted: false });
 });

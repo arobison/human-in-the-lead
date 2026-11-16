@@ -13,6 +13,7 @@ import { renderYourMove } from '../dashboard/move.mjs';
 import { renderPlan } from '../dashboard/plan.mjs';
 import { renderProposals } from '../dashboard/proposals.mjs';
 import { renderFlow } from '../dashboard/flow.mjs';
+import { pageScript, scriptData } from '../dashboard/script.mjs';
 import { fewestCrossings } from '../dashboard/layout.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
@@ -492,7 +493,7 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
         const stroke = (1.25 + Math.min(e.items, 10) * 0.35).toFixed(2);
         const label = `${e.to} waits on ${e.from}: ${e.items ? `${e.items} item(s) behind the wait` : 'directly, no items behind it'}${e.critical ? ', on the critical path' : ''}`;
         // The curve ends level, so its arrowhead is drawn pointing right: no marker, no url().
-        return `<g><title>${esc(label)}</title><path class="mg-edge${cls}" style="stroke-width:${stroke}" d="M${x1} ${y1}C${x1 + GX / 2} ${y1} ${x2 - GX / 2} ${y2} ${x2 - 7} ${y2}"/><path class="mg-head${e.critical ? ' critical' : ''}" d="M${x2 - 8} ${y2 - 4}L${x2} ${y2}L${x2 - 8} ${y2 + 4}z"/></g>`;
+        return `<g data-from="${esc(e.from)}" data-to="${esc(e.to)}"><title>${esc(label)}</title><path class="mg-edge${cls}" style="stroke-width:${stroke}" d="M${x1} ${y1}C${x1 + GX / 2} ${y1} ${x2 - GX / 2} ${y2} ${x2 - 7} ${y2}"/><path class="mg-head${e.critical ? ' critical' : ''}" d="M${x2 - 8} ${y2 - 4}L${x2} ${y2}L${x2 - 8} ${y2 + 4}z"/></g>`;
       })
       .join('');
 
@@ -549,7 +550,7 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
         const bar = rx < x + W - 8 ? rx - (x + 12) - 6 : W - 24;
         const label = `${n.id} ${n.title}, ${STAGES.find(([k]) => k === n.stage)?.[1] ?? n.stage}${n.critical ? ', on the critical path' : ''}${n.in_cycle ? ', in a loop of needs' : ''}: ${oneSentence(n.outcome) || 'no outcome yet'}; ${n.in_progress} in progress, ${f.constraints}; ${f.tokens}; ${f.check}`;
         const cls = `mg-node ${n.stage} ${started ? 'started' : 'hollow'}${n.critical ? ' critical' : ''}${n.in_cycle ? ' loop' : ''}`;
-        return `<a href="#${milestoneAnchor(n.id)}" aria-label="${esc(label)}"><g class="${cls}"><title>${esc(label)}</title><rect class="mg-box" x="${x}" y="${y}" width="${W}" height="${H}" rx="8"/>${started ? `<rect class="mg-strip" x="${x + 1}" y="${y + 1}" width="4" height="${H - 2}" rx="2"/>` : `<circle class="mg-dot" cx="${x + 13}" cy="${y + 15}" r="4"/>`}
+        return `<a href="#${milestoneAnchor(n.id)}" aria-label="${esc(label)}" data-node="${esc(n.id)}" data-item="${esc(n.id)}"><g class="${cls}"><title>${esc(label)}</title><rect class="mg-box" x="${x}" y="${y}" width="${W}" height="${H}" rx="8"/>${started ? `<rect class="mg-strip" x="${x + 1}" y="${y + 1}" width="4" height="${H - 2}" rx="2"/>` : `<circle class="mg-dot" cx="${x + 13}" cy="${y + 15}" r="4"/>`}
   <text x="${x + (started ? 12 : 22)}" y="${y + 19}" class="mg-title">${esc(cut(`${n.id} ${n.title}`, nameRoom))}</text>${pills}${outcome
     .map((t, k) => `<text x="${x + 12}" y="${y + 37 + k * 14}" class="mg-outcome">${esc(t)}</text>`)
     .join(
@@ -818,13 +819,15 @@ ${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>$
       : []),
     { id: 'spend', label: 'Quota and spend', html: spend },
   ]);
+  // The one inline script, with the work views only; the page is complete without it.
+  const script = r.work ? pageScript(scriptData(r.work, r.milestones)) : null;
   return `<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
+<meta charset="utf-8">${script ? `\n${script.csp}` : ''}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>${esc(r.project)}: quotas and spend</title>
+<title>${esc(r.project)}: ${r.work ? 'work, quotas and spend' : 'quotas and spend'}</title>
 <style>
 :root{--sel:#eaf1fb;--st-proposed:#c4c8ce;--st-waiting:#d14348;--st-ready:#2457c2;--st-flight:#b08cf6;--st-done:#45c486;--zebra:#f1f2f4;--bg:#fbfbfa;--fg:#1c1d20;--muted:#60646c;--line:#d9dbe0;--card:#fff;--used:#2f6fb3;--reserve:#e5b64a55;--track:#e9eaee;--mark:#8a8f98;--stop:#b3261e;--stop-bg:#fbe9e7;--warn-bg:#fff4dc}
 @media (prefers-color-scheme:dark){:root{--sel:#1d2a3a;--st-proposed:#62676f;--st-waiting:#b8363d;--st-ready:#2f68d2;--st-flight:#9b7fe6;--st-done:#2fac6a;--zebra:#1a1b1e;--bg:#141517;--fg:#e8e9ec;--muted:#9a9fa8;--line:#34373d;--card:#1b1c1f;--used:#6aa5e6;--reserve:#d9a53a44;--track:#2a2c31;--mark:#8a8f98;--stop:#ff8a80;--stop-bg:#3a1f1c;--warn-bg:#3a3018}}
@@ -842,6 +845,8 @@ code{font-size:.85em;overflow-wrap:anywhere}
 .layouts{display:flex;flex-wrap:wrap;gap:.25rem .5rem;align-items:center}.layouts>label{cursor:pointer;font-size:.85rem;padding:.15rem .6rem;border:1px solid var(--line);border-radius:999px;color:var(--muted)}#rm-lanes:checked+label,#rm-fewest:checked+label{border-color:var(--used);color:var(--fg)}#rm-lanes:focus-visible+label,#rm-fewest:focus-visible+label{outline:2px solid var(--used)}.layouts>.wrap{flex-basis:100%}.rm-fewest{display:none}#rm-fewest:checked~.rm-fewest{display:block}#rm-fewest:checked~.rm-lanes{display:none}
 svg.flow{display:block;width:100%;max-width:720px;height:auto;pointer-events:auto}.fl{fill:var(--st)}
 @media (max-width:600px){table.stack th[scope=row]{display:block;border:0;padding:.1rem .2rem}}
+.filters{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.75rem 0 0}.filters select,.filters input{font:inherit;font-size:.9rem;padding:.25rem .4rem;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);max-width:100%}.filters select{max-width:min(22rem,100%)}
+.hide{display:none}svg .dim{opacity:.15}svg.hovering [data-node]:not(.lit){opacity:.25}svg.hovering [data-from]:not(.lit){opacity:.12}svg.hovering [data-node].lit .mg-box,svg.hovering [data-node].lit .pg-box{stroke:var(--used);stroke-width:2}
 .pg-sep{stroke:var(--line);stroke-dasharray:2 3}.plan-list{margin:.75rem 0}.plan-list summary{cursor:pointer;color:var(--muted)}.plan-list h4{font-size:.9rem;margin:.75rem 0 .25rem}.plan-list li{margin:.15rem 0}table.stack{min-width:0}
 @media (max-width:600px){table.stack thead{display:none}table.stack tr{display:block;border-bottom:1px solid var(--line);padding:.4rem 0}table.stack td{display:block;border:0;padding:.1rem .2rem}table.stack td[data-label]::before{content:attr(data-label) ": ";color:var(--muted);font-size:.8rem}}
 h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem}
@@ -890,7 +895,7 @@ ${tabs.nav}
 <main>
 ${tabs.sections}
 </main>
-${roadmap.drawers}
+${roadmap.drawers}${script ? `\n${script.tag}` : ''}
 </body>
 </html>
 `;
