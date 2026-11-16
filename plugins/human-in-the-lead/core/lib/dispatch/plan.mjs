@@ -4,8 +4,11 @@
 // caller passes what is in flight, which locks other holders have, and the gate.
 //
 // The plan only chooses. Starting is `hitld dispatch start`, one item at a time, which records the
-// dispatch in the ledger before the harness is asked.
+// dispatch in the ledger before the harness is asked. The start list is advice: slots, serial
+// resources and overlap are taken only by dispatches that run, never by what the plan proposes,
+// so any ready item that is not held may start while a slot is free (HITLD-153).
 
+import { effectiveEvents } from '../ledger/summary.mjs';
 import { overlapShare } from './item.mjs';
 import { CONTRACT_COMMANDS, PERMISSIONS_REASON } from './permissions.mjs';
 
@@ -94,8 +97,14 @@ export function planDispatch(r) {
   const inline = [];
   /** @type {Held[]} */
   const held = [];
+  // What running dispatches hold: an item they block is held. What the start list proposes holds
+  // nothing: an item that would clash with a proposal waits behind it, and may start instead.
   const busy = new Set(r.running.flatMap((d) => d.serial_resources));
   const runningTouches = r.running.flatMap((d) => d.touches ?? []);
+  /** @type {Set<string>} */
+  const proposedSerial = new Set();
+  /** @type {string[]} */
+  const proposedTouches = [];
   let gateMode = 'normal';
   /** @type {GateAnswer | null} */
   let lastGate = null;
@@ -206,10 +215,11 @@ export function planDispatch(r) {
     const serial = /** @type {string[]} */ (item.serial ?? []);
     const taken = serial.find((s) => busy.has(s));
     if (taken) {
+      const holder = r.running.find((d) => d.serial_resources.includes(taken));
       held.push({
         item: id,
         reason: 'serial',
-        why: `${taken} is held by a running or planned dispatch`,
+        why: `${taken} is held by a running dispatch${holder ? ` (${holder.dispatch} on ${holder.item})` : ''}`,
       });
       continue;
     }
@@ -232,7 +242,12 @@ export function planDispatch(r) {
       });
       continue;
     }
-    if (r.running.length + start.length >= cap) {
+    if (
+      r.running.length + start.length >= cap ||
+      serial.some((s) => proposedSerial.has(s)) ||
+      (proposedTouches.length &&
+        overlapShare(touches.touches, proposedTouches) >= (r.overlapSerialize ?? 0.5))
+    ) {
       waiting++;
       continue;
     }
@@ -255,14 +270,16 @@ export function planDispatch(r) {
       if (modeNote) itemNotes.push(modeNote);
     }
     start.push(planned);
-    for (const s of serial) busy.add(s);
-    runningTouches.push(...touches.touches);
+    for (const s of serial) proposedSerial.add(s);
+    proposedTouches.push(...touches.touches);
   }
 
   return {
     cap,
     running: r.running.length,
-    free: Math.max(0, cap - r.running.length - start.length),
+    // The slots running dispatches leave: the start list is a proposal for them, not a taker.
+    free: Math.max(0, cap - r.running.length),
+    slots: slotsText(cap, r.running),
     gate: {
       mode: gateMode,
       reason: lastGate?.reason ?? null,
@@ -276,4 +293,70 @@ export function planDispatch(r) {
     waiting,
     notes,
   };
+}
+
+/**
+ * The slots in words, as the plan prints them and a refused start repeats them: the cap, who holds
+ * each slot, how many are free, and, when none is, what frees one.
+ * @param {number} cap @param {{ dispatch: string, item: string }[]} running
+ */
+export function slotsText(cap, running) {
+  const free = Math.max(0, cap - running.length);
+  const holders = running.map((d) => `${d.dispatch} on ${d.item}`).join(', ');
+  const text = `cap ${cap}, ${running.length} running${holders ? ` (${holders})` : ''}, ${free} free`;
+  return free > 0 || !running.length
+    ? text
+    : `${text}: a slot frees when one of them reports or is abandoned`;
+}
+
+/**
+ * @typedef {object} AwaitingMerge an item whose dispatch reported its work done on a branch that
+ *   has not merged: it is not ready, takes no slot, and is not planned again until the branch
+ *   merges or is reverted, or its dispatch is abandoned (HITLD-153)
+ * @property {string} item
+ * @property {string | null} dispatch the dispatch that reported the work
+ * @property {string} branch
+ * @property {string} since when the work was verified and queued to merge
+ * @property {string} verified the ID of that `verified` event: a correction of it releases the item
+ * @property {boolean} sent_back the merge queue sent the branch back: it waits for the follow-up
+ */
+
+/**
+ * The items awaiting merge, from the ledger as corrected: a `verified` pass with a branch queues an
+ * item's work to merge; `merged`, `reverted`, `abandoned` and `unclaimed` for the item end the
+ * wait, and the tracker decides again. A `verified` fail keeps the wait: the merge queue sends the
+ * branch back to the same executor as a follow-up, which a fresh dispatch would duplicate. A
+ * correction of a pass (a `verified` fail with `corrects` naming it) releases the item: the owner
+ * dropped the branch.
+ * @param {import('../ledger/ledger.mjs').LedgerEntry[]} events
+ * @returns {AwaitingMerge[]}
+ */
+export function awaitingMerge(events) {
+  /** @type {Map<string, AwaitingMerge>} */
+  const waiting = new Map();
+  /** @type {Map<string, string>} the dispatch that last reported on each item */
+  const reported = new Map();
+  for (const e of effectiveEvents(events)) {
+    const item = e.item;
+    if (typeof item !== 'string') continue;
+    if (e.event === 'reported' && typeof e.dispatch === 'string') reported.set(item, e.dispatch);
+    if (e.event === 'verified' && e.result === 'pass' && typeof e.branch === 'string') {
+      waiting.set(item, {
+        item,
+        dispatch: typeof e.dispatch === 'string' ? e.dispatch : (reported.get(item) ?? null),
+        branch: e.branch,
+        since: typeof e.at === 'string' ? e.at : '',
+        verified: String(e.id),
+        sent_back: false,
+      });
+    } else if (e.event === 'verified' && e.result === 'fail' && e.corrects !== undefined) {
+      waiting.delete(item);
+    } else if (e.event === 'verified' && e.result === 'fail') {
+      const w = waiting.get(item);
+      if (w) w.sent_back = true;
+    } else if (['merged', 'reverted', 'abandoned', 'unclaimed'].includes(e.event)) {
+      waiting.delete(item);
+    }
+  }
+  return [...waiting.values()];
 }

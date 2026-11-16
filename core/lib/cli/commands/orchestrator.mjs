@@ -50,7 +50,7 @@ import { parseReport } from '../../contract/report.mjs';
 import { readWorkItems } from '../../dispatch/items.mjs';
 import { historyFromLedger, sizeItem } from '../../dispatch/sizing.mjs';
 import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mjs';
-import { planDispatch } from '../../dispatch/plan.mjs';
+import { awaitingMerge, planDispatch } from '../../dispatch/plan.mjs';
 import {
   PERMISSIONS_REASON,
   mentionedRefusals,
@@ -341,13 +341,49 @@ export function readyQueue(p, ctx) {
   const byId = new Map(work.items.map((i) => [String(i.id), i]));
   const events = readLedger(p.store).events;
   const history = historyFromLedger(events, (id) => byId.get(id));
-  const ready = work.items.filter((i) => work.ready.has(String(i.id)));
+  // Work finished on a branch that has not merged is not ready: the tracker on main shows it done
+  // only once it merges, and planning it again would do the work twice (HITLD-153).
+  const awaiting = awaitingOf(p, events);
+  const waitingIds = new Set(awaiting.map((a) => a.item));
+  const ready = work.items.filter(
+    (i) => work.ready.has(String(i.id)) && !waitingIds.has(String(i.id)),
+  );
   const sizes = new Map(ready.map((i) => [String(i.id), sizeItem(i, p.policy, history)]));
   const unblocks = unblockCounts(work.items);
   const queue = orderQueue(ready, sizes, unblocks);
   const critical = criticalPath(ready, unblocks);
-  return { work, byId, queue, sizes, unblocks, critical, inFlight };
+  // Only the awaiting items the tracker would otherwise call ready are shown: one that merged
+  // without a merged event recorded is done on main and needs no mention.
+  const awaitingReady = awaiting.filter((a) => work.ready.has(a.item));
+  return { work, byId, queue, sizes, unblocks, critical, inFlight, awaiting: awaitingReady };
 }
+
+/**
+ * The items awaiting merge, each with its pull request when the pull-request queue knows it.
+ * @param {ReturnType<typeof project>} p @param {import('../../ledger/ledger.mjs').LedgerEntry[]} events
+ */
+function awaitingOf(p, events) {
+  const pulls = readPullState(p.store).branches;
+  return awaitingMerge(events).map((a) => {
+    const pr = pulls[a.branch];
+    return {
+      item: a.item,
+      dispatch: a.dispatch,
+      branch: a.branch,
+      pull_request: pr ? { number: pr.number, url: pr.url } : null,
+      since: a.since,
+      verified: a.verified,
+      ...(a.sent_back ? { sent_back: true } : {}),
+    };
+  });
+}
+
+/**
+ * Why an item is not started because it awaits merge, in the plan's words.
+ * @param {{ item: string, dispatch: string | null, branch: string, pull_request: { number: number, url: string } | null, sent_back?: boolean }} a
+ */
+export const awaitingText = (a) =>
+  `${a.item} awaits merge: ${a.dispatch ?? 'its dispatch'} reported it done on ${a.branch}${a.pull_request ? ` (pull request #${a.pull_request.number}, ${a.pull_request.url})` : ''}${a.sent_back ? ', which the merge queue sent back for a follow-up' : ''}. It is planned again when that branch merges or is reverted, or its dispatch is abandoned`;
 
 /**
  * An item's file, repository-relative, from the files tracker on this checkout; undefined when
@@ -368,9 +404,11 @@ function itemPathOf(p, ctx, id) {
 /**
  * The dispatch plan for the free slots.
  * `byHand`: the item the person started by hand; it is the only one that runs before setup is done.
- * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand]
+ * `only`: plan this one item alone, against running work and nothing the plan would propose
+ * before it, which is how `dispatch start` decides whether it may start (HITLD-153).
+ * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand] @param {string} [only]
  */
-export function plan(p, ctx, byHand) {
+export function plan(p, ctx, byHand, only) {
   const q = readyQueue(p, ctx);
   // Snapshots: this project's own, and every account's from the machine registry, so all projects
   // on the machine see the same use.
@@ -436,7 +474,7 @@ export function plan(p, ctx, byHand) {
   const result = planDispatch({
     machine,
     disk,
-    queue: q.queue,
+    queue: only === undefined ? q.queue : q.queue.filter((i) => String(i.id) === only),
     sizes: q.sizes,
     running,
     cap: p.cap,
@@ -462,7 +500,12 @@ export function plan(p, ctx, byHand) {
     touches: (item) => touchesFor(item),
     executorModes: () => refusals,
   });
-  return { q, result: { ...result, disk: diskWarning(disk) }, setup: p.setup, running };
+  return {
+    q,
+    result: { ...result, disk: diskWarning(disk), awaiting_merge: q.awaiting },
+    setup: p.setup,
+    running,
+  };
 }
 
 /**
@@ -474,6 +517,7 @@ export const planJson = (r, setup) => ({
   cap: r.cap,
   running: r.running,
   free: r.free,
+  slots: r.slots,
   gate: r.gate,
   start: r.start.map((s) => ({
     item: s.item,
@@ -491,6 +535,7 @@ export const planJson = (r, setup) => ({
   inline: r.inline.map((s) => s.item),
   held: r.held,
   waiting: r.waiting,
+  awaiting_merge: r.awaiting_merge,
   notes: r.notes,
   ...(r.disk ? { disk: r.disk } : {}),
   next: !setup.done
@@ -971,6 +1016,7 @@ const table = [
             };
           }),
           in_flight: q.inFlight.map((d) => ({ dispatch: d.dispatch, item: d.item })),
+          awaiting_merge: q.awaiting,
         };
       }),
   },
@@ -1027,11 +1073,10 @@ const table = [
             { handover: due },
           );
         }
-        const { q, result, setup, running } = plan(
-          p,
-          ctx,
-          input['by-hand'] === true ? id : undefined,
-        );
+        const byHand = input['by-hand'] === true ? id : undefined;
+        // The item is planned alone, against what runs: its place in the plan's start list does
+        // not matter, and the plan's other proposals hold nothing (HITLD-153).
+        const { q, result, setup, running } = plan(p, ctx, byHand, id);
         const planned = result.start.find((s) => s.item === id);
         if (!planned && result.disk?.state === 'below') {
           throw new Refusal('disk-floor', `${id} waits: ${result.disk.reason}`, {
@@ -1040,14 +1085,18 @@ const table = [
         }
         if (!planned) {
           const held = result.held.find((h) => h.item === id);
+          const awaiting = result.awaiting_merge.find((a) => a.item === id);
           const why = held
             ? `${id} is held: ${held.why}`
             : result.inline.some((s) => s.item === id)
               ? `${id} is tier 0: the orchestrator does it itself`
               : q.queue.some((i) => String(i.id) === id)
-                ? `${id} is ready but no slot is free (${result.running} running, cap ${result.cap})`
-                : `${id} is not ready (or is already in flight)`;
-          throw new Refusal('not-planned', why, { plan: planJson(result, setup) });
+                ? `${id} is ready but no slot is free: ${result.slots}`
+                : awaiting
+                  ? awaitingText(awaiting)
+                  : `${id} is not ready (or is already in flight)`;
+          const whole = plan(p, ctx, byHand).result;
+          throw new Refusal('not-planned', why, { plan: planJson(whole, setup) });
         }
         const item = /** @type {Item} */ (q.byId.get(id));
         const dispatch = nextDispatchId(readLedger(p.store).events);
