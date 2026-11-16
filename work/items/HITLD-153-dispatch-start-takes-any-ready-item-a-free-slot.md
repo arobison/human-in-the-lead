@@ -32,3 +32,6 @@ Also reported as GitHub issue #151 (bug): The refill after dispatch complete off
 And as GitHub issue #159 (bug): dispatch start --by-hand is refused as not-planned after setup with both slots free, because the planner filled the slots with its own top picks.
 
 Triage 2026-11-16: both duplicate this item, which covers them; the issues are untouched on GitHub, and the two reports raise this item's reach.
+
+Second finding, from orch-1 (2026-11-16): the overlap rule counts the plan's own proposals as running work. With nothing in flight (`ledger in-flight` empty), `dispatch start HITLD-150` was refused with "HITLD-150 is held: 100% of its touches overlap running work", because the proposed HITLD-109's derived touches (`.human-in-the-lead/policy.json`, `plugins/**`, `templates/policy.json`) are the paths HITLD-150 touches, and 109 sat on the start list although it would not be started. So a proposal that is not started holds other items, and the plan's start list and `dispatch start` disagree. The fix belongs here: overlap is judged against dispatches that are running, not against what the plan proposes, and a proposal that is not started frees what it held. The same behavior held back 62, 152, 227 and 228 behind HITLD-57 earlier.
+

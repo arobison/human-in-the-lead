@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-15
 project: HITLD-15
-needs: [HITLD-124, HITLD-125, HITLD-130, HITLD-131, HITLD-132, HITLD-133, HITLD-134, HITLD-135, HITLD-136, HITLD-141, HITLD-142, HITLD-144]
+needs: [HITLD-124, HITLD-125, HITLD-130, HITLD-131, HITLD-132, HITLD-133, HITLD-134, HITLD-135, HITLD-136, HITLD-141, HITLD-142, HITLD-144, HITLD-243]
 ---
 
 ## Why
@@ -20,3 +20,5 @@ HITLd is built to run itself. Once v0.1.0-rc.1 is tagged, this repository instal
 - From a fresh cloud session, the chief of staff starts an orchestrator, `hitld check contract` and `hitld work check` pass, and one item is dispatched, merged and closed through the installed rc.1.
 - The commit and commit-message hooks are installed in each environment's sessions for this repository.
 - Moving the pin to a later release is a one-line PR the owner merges; the guide for this repository says so.
+
+Sequenced after HITLD-243 (landing the Windows pull request) on the owner's instruction of 2026-11-16, "start with the windows PR": the owner's order, and the self-host install then pins a build that includes the Windows fixes. Not a technical dependency; remove the `needs` on HITLD-243 if the order changes. The planner also held a start slot for this item while it was proposed but not started, which kept HITLD-243 from starting (HITLD-153).
