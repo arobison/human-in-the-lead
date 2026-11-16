@@ -39,6 +39,7 @@ import {
   readApprovals,
   requestsOnBranch,
 } from './devices.mjs';
+import { syncCauses } from './reach.mjs';
 import { NO_ADDRESS, chooseRemote, clearRemote, readRemoteConfig, setRemote } from './address.mjs';
 
 export { chooseRemote, clearRemote, readRemoteConfig, setRemote };
@@ -456,8 +457,10 @@ export function seenFromRemote(devices, access) {
  *   warnings?: string[],
  *   requests?: { requests: import('./devices.mjs').Device[], problems: string[] } | null,
  *   requestsError?: { code: string, message: string } | null,
+ *   env?: NodeJS.ProcessEnv,
  * }} o required: policy.json store.remote.required; warnings: the caller's; requests: what the
- *   store repository's hitld-devices branch holds, fetched by the caller
+ *   store repository's hitld-devices branch holds, fetched by the caller; env: to tell a cloud
+ *   session, where an unattached store repository is a cause of its own
  */
 export async function storeStatus(o) {
   // A store that holds files but no repository yet (a fresh one) gets its git bookkeeping, so its
@@ -504,6 +507,16 @@ export async function storeStatus(o) {
     problems.push(`policy.json store.remote.required is true, and ${NO_ADDRESS}`);
   }
   if (access.problem) problems.push(access.problem);
+  // The one check a run's first-run setup makes: whether the store syncs here, and if not, why.
+  const sync = syncCauses({
+    address: o.opened?.url ?? null,
+    required: o.required === true,
+    env: o.env ?? {},
+    remoteError,
+    remoteEmpty: !remoteError && remoteVersion === null,
+    opens: access.opens,
+    devices: o.devices,
+  });
   return {
     ok: true,
     project: o.projectId,
@@ -528,6 +541,7 @@ export async function storeStatus(o) {
       ...(access.problem ? { problem: access.problem } : {}),
     },
     devices: deviceSummary(o.root, devices, o.requests ?? null, o.requestsError ?? null),
+    sync,
     ...(problems.length ? { problems } : {}),
     ...(o.warnings?.length ? { warnings: o.warnings } : {}),
   };

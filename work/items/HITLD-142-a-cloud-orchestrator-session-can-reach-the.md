@@ -2,9 +2,10 @@
 id: HITLD-142
 title: A cloud orchestrator session can reach the private store, or says exactly why not
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-8
 ---
 
 ## Why
