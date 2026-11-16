@@ -14,15 +14,17 @@
 
 export class LeaseError extends Error {
   /**
-   * @param {'held' | 'lost' | 'released' | 'none'} code
+   * @param {'held' | 'lost' | 'host-mismatch' | 'released' | 'none'} code
    * @param {string} message
    * @param {{ session: string, host: string, renewed_at: string } | null} [holder]
+   * @param {('session' | 'host')[]} [differs] for lost and host-mismatch: what differs from the holder
    */
-  constructor(code, message, holder = null) {
+  constructor(code, message, holder = null, differs = []) {
     super(message);
     this.name = 'LeaseError';
     this.code = code;
     this.holder = holder;
+    this.differs = differs;
   }
 }
 
@@ -41,16 +43,29 @@ export const leaseExpired = (state, now, expirySeconds) =>
   leaseAgeSeconds(state, now) > expirySeconds;
 
 /**
- * Throw unless this session holds the lease.
+ * Throw unless this session holds the lease. The refusal says what differs: the session (`lost`,
+ * another session holds it), or only the host (`host-mismatch`, this session holds it on another
+ * host, which is not a lost lease).
  * @param {RunState} state @param {string} session @param {string} host
  */
 export function assertHolds(state, session, host) {
   const l = state.lease;
-  if (l.session !== session || l.host !== host) {
+  const run = state.run.id;
+  if (l.session === session && l.host !== host) {
+    throw new LeaseError(
+      'host-mismatch',
+      `this session (${session}) holds the lease on run ${run} on host ${l.host}, but this call gives host ${host}. On the same machine, pass --host ${l.host}; a session that moved machines takes the lease again with hitld run resume --force`,
+      l,
+      ['host'],
+    );
+  }
+  if (l.session !== session) {
+    const both = l.host !== host;
     throw new LeaseError(
       'lost',
-      `the lease on run ${state.run.id} is held by session ${l.session} on ${l.host}, not by this session`,
+      `the lease on run ${run} is held by session ${l.session} on ${l.host}, not by this session (${session}${both ? ` on ${host}` : ''}): ${both ? 'the session and the host differ' : 'the session differs'}`,
       l,
+      both ? ['session', 'host'] : ['session'],
     );
   }
   if (l.released) {
