@@ -49,6 +49,12 @@ import { readWorkItems } from '../../dispatch/items.mjs';
 import { historyFromLedger, sizeItem } from '../../dispatch/sizing.mjs';
 import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mjs';
 import { planDispatch } from '../../dispatch/plan.mjs';
+import {
+  PERMISSIONS_REASON,
+  refusalsInRun,
+  refusedCommands,
+  refusedNote,
+} from '../../dispatch/permissions.mjs';
 import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
 import {
@@ -376,9 +382,13 @@ export function plan(p, ctx, byHand) {
   // recorded. The repository is listed only when some item has no touches of its own.
   /** @type {Map<string, string[]>} */
   const recorded = new Map();
-  for (const e of readLedger(p.store).events) {
+  const events = readLedger(p.store).events;
+  for (const e of events) {
     if (e.event === 'dispatched' && Array.isArray(e.touches)) recorded.set(e.dispatch, e.touches);
   }
+  // The ways of running an item's executor that a report in this run showed refused the
+  // contract's commands: the item is not dispatched into the same refusal again (HITLD-141).
+  const refusals = refusalsInRun(events, p.state?.run?.id);
   /** @type {string[] | null} */
   let files = null;
   const inline = /** @type {string[]} */ (p.policy.dispatch?.inline_globs ?? []);
@@ -439,6 +449,13 @@ export function plan(p, ctx, byHand) {
     critical: q.critical,
     setup: { ...p.setup, byHand },
     touches: (item) => touchesFor(item),
+    executorModes: (item) =>
+      Object.fromEntries(
+        Object.entries(refusals.get(String(item.id)) ?? {}).map(([mode, why]) => [
+          mode,
+          { able: false, why },
+        ]),
+      ),
   });
   return { q, result: { ...result, disk: diskWarning(disk) }, setup: p.setup, running };
 }
@@ -463,6 +480,7 @@ export const planJson = (r, setup) => ({
     serial: s.serial,
     touches: s.touches.touches,
     touches_source: s.touches.source,
+    ...(s.modes ? { mode: s.mode ?? null, modes: s.modes } : {}),
     notes: s.notes,
   })),
   inline: r.inline.map((s) => s.item),
@@ -1001,10 +1019,17 @@ const table = [
         const branch = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
         const tier = planned.tier;
         const mode = /** @type {'headless' | 'interactive'} */ (
-          String(input.mode ?? p.policy.dispatch.tier3_mode)
+          String(input.mode ?? planned.mode ?? p.policy.dispatch.tier3_mode)
         );
         if (tier === 3 && !['headless', 'interactive'].includes(mode)) {
           throw new Refusal('usage', '--mode is headless or interactive');
+        }
+        if (tier === 3 && planned.modes?.[mode] === 'unable') {
+          throw new Refusal(
+            PERMISSIONS_REASON,
+            `${id} does not run ${mode}: ${mode === 'headless' ? 'headless runs' : 'interactive sessions'} here cannot run the contract's commands (${planned.notes.join('; ')}); start it without --mode`,
+            { plan: planJson(result, setup) },
+          );
         }
         const xenv = executorEnv(dispatch, p.policy.project.id);
         const briefPath = join(p.store.root, briefKey(dispatch));
@@ -1270,11 +1295,23 @@ const table = [
         releaseExecutor(p.machineRoot, p.policy.project.id, d);
         const parsed = parseReport(completion.report);
         const commit = parsed.report?.commit?.sha;
+        // A report that shows the contract's commands refused is blocked by permissions, never a
+        // missing report shape: a follow-up would meet the same refusal (HITLD-141).
+        const refused = refusedCommands({
+          report: completion.report,
+          denials: completion.permissionDenials,
+          done: parsed.report?.result === 'done',
+        });
+        const notes = [
+          ...(refused.length ? [refusedNote(refused)] : []),
+          ...(completion.usageSource === 'observed'
+            ? ['usage from the completion notification (observed; undocumented)']
+            : []),
+        ];
         run.record({
           ...reportedEvent(entry, { ...completion, ...(commit ? { commit } : {}) }),
-          ...(completion.usageSource === 'observed'
-            ? { notes: 'usage from the completion notification (observed; undocumented)' }
-            : {}),
+          ...(notes.length ? { notes: notes.join('; ') } : {}),
+          ...(refused.length ? { result: 'blocked', reason: PERMISSIONS_REASON } : {}),
         });
 
         /** @type {Result} */
@@ -1283,7 +1320,12 @@ const table = [
         // report is accepted within the same minor (design part 16.5, Upgrades).
         const executor = reportVersion(dispatchedOn(readLedger(p.store).events, d));
         if (executor) out.executor_version = executor;
-        if (!parsed.report) {
+        if (refused.length) {
+          out.result = 'blocked';
+          out.blocked_by = PERMISSIONS_REASON;
+          out.refused_commands = refused;
+          out.next = `the executor's permission mode ${refusedNote(refused)}, which the contract requires: recorded as blocked by permissions. Send no follow-up, which would meet the same refusal. The refill does not dispatch ${entry.item} the same way again in this run: it runs it in the other tier-3 mode, or holds it (reason ${PERMISSIONS_REASON}); tell the owner`;
+        } else if (!parsed.report) {
           out.report_errors = parsed.errors;
           out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;
         } else {

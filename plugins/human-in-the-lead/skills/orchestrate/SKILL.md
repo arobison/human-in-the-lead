@@ -83,14 +83,15 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
 `hitld dispatch plan`. It sizes the ready queue into tiers 0 to 3 from policy, applies the concurrency cap, serial-resource locks, overlap, the harness's capabilities and the quota gate.
 
 - `inline`: tier 0. Do it yourself on a `hitld/<ID>-<slug>` branch (claim, change, close), then `hitld merge`. Never commit to `main` directly.
-- `held`: leave them; the reason says why (serial, overlap, quota, classification, resource, disk, setup). Reason `setup` means the first-run setup is not done: go to step 0. Reason `disk` means free disk is below the machine's floor: tell the owner with `disk.reason`, and start nothing.
+- `held`: leave them; the reason says why (serial, overlap, quota, classification, resource, disk, setup, executor-permissions). Reason `setup` means the first-run setup is not done: go to step 0. Reason `disk` means free disk is below the machine's floor: tell the owner with `disk.reason`, and start nothing. Reason `executor-permissions` means no way of running that item's executor here can run `hitld`, `node`, `npm` and `git`: tell the owner with its `why`, and launch nothing for it.
+- A tier-3 entry in `start` has `mode` and `modes`: whether headless runs and interactive sessions can run the contract's commands (`able`, `unable` or `unknown`). A `mode` the plan chose is the only one that can.
 - `gate.mode` other than `normal`: say so in your next message to the owner. `stop` means autonomous dispatch has stopped at the reserve: tell the owner at once with `gate.reason`, and do not start anything.
 - `paused`: the pause is recorded, with `wake_at`, when the limit's window resets. Put `wake_at: <wake_at> quota reset` in your message, so the chief of staff wakes the run then (when you are both, schedule that wake yourself). Without `wake_at`, the check-in looks again.
 - `hitld ready` shows the whole queue with each item's tier, estimate and reasons, if you need to explain an ordering.
 
 ## 3. Dispatch, for each item in `start`
 
-1. `hitld dispatch start <ID>`. It records the dispatch first, writes the brief, and prints `instruction`: one exact tool call.
+1. `hitld dispatch start <ID>`. It records the dispatch first, writes the brief, and prints `instruction`: one exact tool call. In a cloud harness (Claude Code on the web), start a tier-3 item with `--mode interactive`, so the chief of staff starts it on `start_session`, unless the plan's entry says `modes.headless` is `able`: a headless run there may be refused the commands the contract requires. When the plan chose a `mode`, give no `--mode`.
 2. Make that call exactly as printed:
    - `Agent` (tiers 1 and 2): every input field as given, including `name`, `isolation`, `model`, `effort` and `run_in_background`. Do not edit the prompt: the brief points to the item and plan on purpose.
    - `Bash` (tier 3, headless): the command as given, with `run_in_background: true`.
@@ -104,7 +105,8 @@ Then do useful work between notices: merge, answer questions, triage. Do not wai
 ## 4. On each completion notice
 
 1. Save the notification text to a temporary file (for a tier-3 session, the report the chief of staff sent). `hitld dispatch complete --dispatch D-<n> --report-file <file>`, adding `--tokens`, `--tool-calls` and `--duration-ms` when the notification shows them, and `--context-percent` when your harness shows how much of your context is used. For a headless run: `--result-file <the path in on_complete>`.
-2. Read `result`, `questions`, `calls`, `deviations` and `report_errors`. A `done` report is queued to merge. In owner merge mode (policy `merge.mode` is `owner`) it waits there for the owner: see step 6. `executor_version` means the executor ran an earlier release: its report is accepted within the same minor. A `warning` there means another minor: handle the report as usual.
+2. `blocked_by: executor-permissions` means the executor's permission mode refused commands the contract requires (`refused_commands`). It is recorded as blocked, not as a bad report shape: send no follow-up, which would meet the same refusal, and tell the owner. The refill does not dispatch the item the same way again in this run.
+   Otherwise read `result`, `questions`, `calls`, `deviations` and `report_errors`. A `done` report is queued to merge. In owner merge mode (policy `merge.mode` is `owner`) it waits there for the owner: see step 6. `executor_version` means the executor ran an earlier release: its report is accepted within the same minor. A `warning` there means another minor: handle the report as usual.
 3. The output's `refill` is the new plan: start its items (step 3). This is the only way slots are refilled.
 4. When `handover.due` is true, `refill` starts nothing: follow `refill.next` and step 8.
 
