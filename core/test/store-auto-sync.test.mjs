@@ -282,6 +282,82 @@ test('a remote that cannot be reached: start and resume go on, a push is reporte
   assert.equal(resumed.json.store_sync.pull.status, 'unreachable');
 });
 
+test('run start names the cause of an unreachable remote and what fixes it', async () => {
+  const f = fixture();
+  // A local repository that is not there: the host answered, and there is no such repository.
+  const gone = session(f, 'gone', { identity: DEVICE_A.identity });
+  rmSync(f.bare, { recursive: true, force: true });
+  const started = await gone.hitld(['run', 'start', '--session', 's-1', '--host', 'h']);
+  assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
+  const pull = started.json.store_sync.pull;
+  assert.equal(pull.status, 'unreachable');
+  assert.deepEqual(
+    pull.causes.map((/** @type {any} */ c) => c.cause),
+    ['repository-not-found'],
+  );
+  assert.ok(pull.causes[0].fix);
+  assert.match(pull.line, /could not be reached \(repository-not-found\).*To fix: /);
+  // A cloud session does not take a local repository for one it has not attached.
+  const cloud = await gone.hitld(['run', 'resume', '--session', 's-1', '--host', 'h'], {
+    CLAUDE_CODE_REMOTE: 'true',
+  });
+  assert.equal(cloud.json.store_sync.pull.causes[0].cause, 'repository-not-found');
+
+  // A host that does not answer, in a fresh container whose copy of the store holds no approvals:
+  // the device's own enrollment is not known until a pull.
+  const fresh = session(f, 'fresh', {
+    identity: DEVICE_B.identity,
+    seed: false,
+    env: { HITLD_STORE_REMOTE: 'https://127.0.0.1:9/owner/store.git' },
+  });
+  const down = await fresh.hitld(['run', 'start', '--session', 's-2', '--host', 'h'], {
+    CLAUDE_CODE_REMOTE: 'true',
+  });
+  assert.equal(down.code, EXIT.ok, JSON.stringify(down.json));
+  assert.deepEqual(
+    down.json.store_sync.pull.causes.map((/** @type {any} */ c) => c.cause),
+    ['host-unreachable', 'device-not-pulled'],
+  );
+  // The causes name the store by its role; git's words, with the address, stay in `error`.
+  assert.doesNotMatch(JSON.stringify(down.json.store_sync.pull.causes), /127\.0\.0\.1/);
+});
+
+test('run start without a device key names it as the cause', async () => {
+  const f = fixture();
+  const s = session(f, 's1');
+  const started = await s.hitld(['run', 'start', '--session', 's-1', '--host', 'h']);
+  assert.equal(started.code, EXIT.ok, JSON.stringify(started.json));
+  assert.equal(started.json.store_sync.pull.reason, 'no-identity');
+  assert.equal(started.json.store_sync.pull.causes[0].cause, 'device-no-key');
+});
+
+test('store status says whether the store syncs here, and each cause when it does not', async () => {
+  const f = fixture();
+  const one = session(f, 'one', { identity: DEVICE_A.identity });
+  await one.hitld(['run', 'start', '--session', 's-1', '--host', 'h']);
+  await one.hitld(['run', 'checkpoint', '--session', 's-1', '--host', 'h']);
+  const ok = await one.hitld(['store', 'status']);
+  assert.equal(ok.code, EXIT.ok, JSON.stringify(ok.json));
+  assert.deepEqual(ok.json.sync, { ready: true, local_only: false, causes: [] });
+
+  const stranger = session(f, 'stranger', { identity: STRANGER.identity, seed: false });
+  const locked = await stranger.hitld(['store', 'status']);
+  assert.equal(locked.json.sync.ready, false);
+  assert.deepEqual(
+    locked.json.sync.causes.map((/** @type {any} */ c) => c.cause),
+    ['device-not-enrolled'],
+  );
+
+  rmSync(f.bare, { recursive: true, force: true });
+  const fresh = session(f, 'fresh', { identity: DEVICE_B.identity, seed: false });
+  const down = await fresh.hitld(['store', 'status']);
+  assert.equal(down.json.sync.ready, false);
+  assert.deepEqual(
+    down.json.sync.causes.map((/** @type {any} */ c) => c.cause),
+    ['repository-not-found', 'device-not-pulled'],
+  );
+});
+
 test('a reachable remote whose head does not open stops run start; --no-sync goes on', async () => {
   const f = fixture();
   const one = session(f, 'one', { identity: DEVICE_A.identity });
@@ -294,6 +370,8 @@ test('a reachable remote whose head does not open stops run start; --no-sync goe
   assert.equal(refused.code, EXIT.failed);
   assert.equal(refused.json.error, 'store-pull-refused');
   assert.equal(refused.json.cause.code, 'age-no-match');
+  assert.equal(refused.json.store_sync.pull.causes[0].cause, 'device-not-enrolled');
+  assert.match(refused.json.message, /device-not-enrolled: /);
   assert.equal(refused.json.store_sync.pull.status, 'failed');
   assert.equal(loadState(other.store).state, null, 'nothing was started');
   const refusedResume = await other.hitld(['run', 'resume', '--session', 's-9', '--host', 'h']);

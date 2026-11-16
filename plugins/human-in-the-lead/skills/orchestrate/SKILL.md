@@ -44,7 +44,7 @@ When no chief of staff runs (nothing can start sessions, or the owner prefers on
 
 If the project is not set up for HITLd (no `.human-in-the-lead/policy.json`, so `hitld` commands fail with `policy`), stop and use the `adopt` skill (`skills/adopt`) first.
 
-Before anything else, run `hitld config explain --json` and read `setup`. When `setup.done` is true, go to step 1. When it is false, the person file or the machine file is missing (`setup.missing` names them). With a chief of staff, it runs the setup with the owner: say so in your message and stop. Until both exist, `hitld dispatch plan` holds all autonomous work (reason `setup`) with a cap of one, and `hitld dispatch start` refuses items except `--by-hand`. Walk the owner through the setup now, in this session. Never delegate it: executors are refused by `hitld config write`, and so are you if you are running as one.
+Before anything else, run `hitld config explain --json` and read `setup`. When `setup.done` is true, go to the store check at the end of this step. When it is false, the person file or the machine file is missing (`setup.missing` names them). With a chief of staff, it runs the setup with the owner: say so in your message and stop. Until both exist, `hitld dispatch plan` holds all autonomous work (reason `setup`) with a cap of one, and `hitld dispatch start` refuses items except `--by-hand`. Walk the owner through the setup now, in this session. Never delegate it: executors are refused by `hitld config write`, and so are you if you are running as one.
 
 Keep the messages short and self-contained, so they can be answered from a phone. Show all the values in one message, not one question per message.
 
@@ -64,6 +64,11 @@ Keep the messages short and self-contained, so they can be answered from a phone
 5. Show `hitld config explain` and give the owner its text with the layer of each value. Confirm `setup.done` is true. Then continue with step 1.
 
 If the owner says to skip setup for now, do not write anything. Work the owner starts by hand still runs: `hitld dispatch start <ID> --by-hand`, only for an item they name in their own message, one at a time. Offer the setup again at the next digest.
+
+**Store check**, in every new session before step 1: `hitld store status`, and read `sync`. When `sync.ready` is true, go to step 1 (`local_only` means the store is this machine's alone, as the owner set it up). When it is false, the ledger, trust record and decisions would stay in this session's container and be lost with it: do not start or resume the run. Give the owner each entry of `sync.causes`, its `message` and `fix`, and stop until `hitld store status` shows `ready`, or the owner says in their own message to go on without the store. With a chief of staff, put the causes in your message; its wake `store: go on without it` is that word, recorded on its side.
+
+- `repository-not-attached`: attach the store repository yourself first (`add_repo`, with the owner and name in `hitld store remote show`), then check again. If the attach is refused, say so with the refusal's reason, naming it "the store repository", never by name, and stop.
+- `device-not-pulled` next to a remote cause: fix the remote cause; the pull brings this device's approval in.
 
 ## 1. Start or resume
 
