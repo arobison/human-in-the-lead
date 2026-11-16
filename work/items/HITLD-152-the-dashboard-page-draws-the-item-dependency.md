@@ -2,7 +2,7 @@
 id: HITLD-152
 title: The dashboard page shows the plan, the milestones, what is happening now, and quota and spend, in one file
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-62, HITLD-135]
