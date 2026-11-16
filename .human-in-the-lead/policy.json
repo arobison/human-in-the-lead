@@ -21,5 +21,8 @@
         "format": "sarif"
       }
     ]
+  },
+  "sweep": {
+    "proposed_max_age": 30
   }
 }
