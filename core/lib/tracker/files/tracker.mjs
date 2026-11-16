@@ -106,7 +106,7 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
  * @property {(options?: { tokens?: Map<string, number> }) => import('./views.mjs').MilestoneGraph} milestoneGraph
  *   the milestone graph (design part 12.1.2); with tokens spent per item (from the ledger), each
- *   node's tokens_spent, otherwise null
+ *   node's tokens_spent, or null when the ledger has no record for any of its items
  * @property {(options?: { only?: string, dryRun?: boolean, commit?: boolean, migrations?: readonly import('./migrate.mjs').Migration[] }) => ReturnType<typeof migrateTracker>} migrate
  *   apply the registered format migrations to every file (idempotent; dryRun shows the diff)
  * @property {() => Entry[]} releases the release records
@@ -318,7 +318,18 @@ export function openTracker({
         if (passingCheck(readMilestone(d), milestoneRoles(ctx, m))) return 'passed';
         return derivedOf(ctx, m).check_due ? 'due' : 'not yet due';
       },
-      tokensSpent: (m) => (tokens ? derivedOf(ctx, m, tokens).tokens_spent : null),
+      // Spent only as far as the ledger knows: with no record for any of its items, unknown (a
+      // dash), not 0.
+      tokensSpent: (m) => {
+        if (!tokens) return null;
+        const ids = [
+          ...ctx.g.needs(m),
+          ...readMilestone(/** @type {Record<string, unknown>} */ (m.data)).contributions.map(
+            (c) => c.id,
+          ),
+        ];
+        return ids.some((id) => tokens.has(id)) ? derivedOf(ctx, m, tokens).tokens_spent : null;
+      },
     });
 
   /**

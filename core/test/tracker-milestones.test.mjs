@@ -16,6 +16,7 @@ import {
   tokensByItem,
 } from '../lib/tracker/files/milestones.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
+import { milestoneFacts } from '../lib/tracker/files/views.mjs';
 import {
   buildReport,
   renderHtml,
@@ -712,7 +713,8 @@ test('the milestone graph: nodes, the one edge, progress, the check and the crit
     ],
   );
   assert.deepEqual([mg.nodes[0].layer, mg.nodes[1].layer, mg.nodes[2].layer], [1, 0, 0]);
-  // With tokens from the ledger, over constraints and contributions.
+  // With tokens from the ledger, over constraints and contributions; a milestone none of whose
+  // items the ledger has a record of shows a dash (null), not 0.
   const spent = t.milestoneGraph({
     tokens: new Map([
       ['W-4', 120],
@@ -722,8 +724,10 @@ test('the milestone graph: nodes, the one edge, progress, the check and the crit
   });
   assert.deepEqual(
     spent.nodes.map((n) => n.tokens_spent),
-    [0, 150, 50],
+    [null, 150, 50],
   );
+  assert.equal(milestoneFacts(spent.nodes[0]).tokens, '— tokens, no appetite set');
+  assert.equal(milestoneFacts(spent.nodes[1]).tokens, '150 of 1000 tokens');
 });
 
 test('no critical path when no open milestone has estimate tokens remaining', () => {
@@ -798,8 +802,8 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   assert.deepEqual(r.json.report.milestones.critical_path, ['W-7', 'W-1']);
   assert.deepEqual(
     r.json.report.milestones.nodes.map((/** @type {any} */ n) => n.tokens_spent),
-    [0, 0, 0],
-    'an empty ledger: nothing spent',
+    [null, null, null],
+    'an empty ledger: not known, so a dash rather than 0',
   );
   const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
   assert.doesNotMatch(html, /<script|https?:\/\/|@import|url\(|<link|src=/i);
@@ -823,10 +827,19 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
     panel,
     /<tr><td>W-9 Nice to have<\/td><td>contribution<\/td><td>Planned<\/td><td><\/td><\/tr>/,
   );
-  // Lanes with their names, steps across, and the release gate in its own lane.
-  for (const lane of ['Long outcomes', 'project', 'Releases']) {
-    assert.match(html, new RegExp(`<text class="mg-lane-name" x="8" y="\\d+">${lane}</text>`));
-  }
+  // Lanes with their names, top to bottom: the release gates first, then long outcomes, then
+  // each project; steps across.
+  assert.deepEqual(
+    [...html.matchAll(/<text class="mg-lane-name" x="8" y="(\d+)">([^<]*)<\/text>/g)]
+      .sort((a, b) => Number(a[1]) - Number(b[1]))
+      .map((m) => m[2]),
+    ['Releases', 'Long outcomes', 'project'],
+  );
+  assert.match(
+    html,
+    /<rect class="mg-lane" x="0" y="26" [^>]*\/><text class="mg-lane-name" x="8" y="\d+">Releases</,
+  );
+  assert.ok(!html.includes('>0 tokens'), 'no card claims 0 tokens without a ledger record');
   assert.match(html, /<text class="mg-step"[^>]*>Step 3<\/text>/);
   assert.match(
     html,

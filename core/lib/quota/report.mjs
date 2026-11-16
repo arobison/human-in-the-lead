@@ -264,7 +264,7 @@ const STAGES = /** @type {const} */ ([
 
 /**
  * The milestone board as inline SVG, then one panel per milestone with its items (design part
- * 12.1.2). Lanes are projects (long outcomes first), with releases in a lane of their own; across
+ * 12.1.2). Lanes are projects (long outcomes first), under a lane of release gates at the top; across
  * are steps, a milestone starting once everything it waits on is done. A started milestone is
  * solid with a strip in its stage color on the leading edge; one not started is hollow. Edges are
  * the waits between milestones, thicker for more items behind the wait, dashed with none. Only
@@ -297,9 +297,24 @@ export function renderMilestoneSection(mg) {
   // Each lane's height: its fullest step.
   /** @type {{ title: string, top: number, height: number, release?: boolean }[]} */
   const lanes = [];
+  let top = HEAD;
+  // The release gates first, at the top (the owner's choice), aligned to the steps below.
+  /** @type {Map<string, { x: number, y: number }>} */
+  const flagAt = new Map();
+  if (mg.releases.length) {
+    /** @type {number[]} */
+    const filled = [];
+    for (const r of mg.releases) {
+      const k = filled[r.layer] ?? 0;
+      filled[r.layer] = k + 1;
+      flagAt.set(r.id, { x: colX(r.layer), y: top + PAD + k * FLAG });
+    }
+    const height = PAD * 2 + Math.max(...filled.filter((x) => x !== undefined)) * FLAG;
+    lanes.push({ title: 'Releases', top, height, release: true });
+    top += height;
+  }
   /** @type {Map<string, { x: number, y: number }>} */
   const at = new Map();
-  let top = HEAD;
   for (const lane of mg.lanes) {
     const own = board.filter((n) => n.project === lane.id);
     if (!own.length) continue;
@@ -313,20 +328,6 @@ export function renderMilestoneSection(mg) {
     const most = Math.max(...filled.filter((x) => x !== undefined));
     const height = PAD * 2 + most * H + (most - 1) * GY;
     lanes.push({ title: lane.title, top, height });
-    top += height;
-  }
-  /** @type {Map<string, { x: number, y: number }>} */
-  const flagAt = new Map();
-  if (mg.releases.length) {
-    /** @type {number[]} */
-    const filled = [];
-    for (const r of mg.releases) {
-      const k = filled[r.layer] ?? 0;
-      filled[r.layer] = k + 1;
-      flagAt.set(r.id, { x: colX(r.layer), y: top + PAD + k * FLAG });
-    }
-    const height = PAD * 2 + Math.max(...filled.filter((x) => x !== undefined)) * FLAG;
-    lanes.push({ title: 'Releases', top, height, release: true });
     top += height;
   }
   const height = top;
