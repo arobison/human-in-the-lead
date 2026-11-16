@@ -15,6 +15,7 @@ import { renderProposals } from '../dashboard/proposals.mjs';
 import { renderFlow } from '../dashboard/flow.mjs';
 import { pageScript, scriptData } from '../dashboard/script.mjs';
 import { fewestCrossings } from '../dashboard/layout.mjs';
+import { releaseStages } from '../dashboard/stages.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
 
@@ -236,15 +237,100 @@ function bar(s, q) {
 }
 
 /**
- * The roadmap's second layout (HITLD-307): no lanes; linked milestones grouped, each group in
- * columns by longest path with its crossings reduced by barycenter sweeps, the critical path's
- * group first; unlinked milestones in a grid under them. Computed when the page is generated.
- * @param {import('../tracker/files/views.mjs').MilestoneGraphNode[]} board the committed milestones
- * @param {MilestoneGraph} mg
- * @param {(at: Map<string, { x: number, y: number }>) => { edges: string, nodes: string }} draw
- * @param {{ W: number, H: number, GX: number, GY: number }} size
+ * The places both layouts of the board share (decision HITLD-420): the columns, release stage by
+ * release stage; each release's flag at the right edge of its stage, in a strip at the top, one row
+ * per release in stage order; its rule down the board from there; and the column heads.
+ * @typedef {object} Frame
+ * @property {(column: number) => number} colX a column's left edge
+ * @property {number} width
+ * @property {number} stripTop @property {number} bodyTop where the strip of flags starts and ends
+ * @property {(height: number) => string} heads the column heads and the ticks between columns
+ * @property {(height: number) => string} rules each release's rule, over the waits, under the boxes
+ * @property {string} flags
  */
-function fewest(board, mg, draw, { W, H, GX, GY }) {
+
+/**
+ * @param {import('../dashboard/stages.mjs').Stages} st
+ * @param {number} left where the columns start: after the lane names, or 0
+ * @param {{ W: number, GX: number, PAD: number, HEAD: number, FLAG: number }} size
+ * @returns {Frame}
+ */
+function stageFrame(st, left, { W, GX, PAD, HEAD, FLAG }) {
+  const colX = (/** @type {number} */ c) => left + GX / 2 + c * (W + GX);
+  /** A release's rule runs down the board unless it is done with nothing in its stage. */
+  const runsDown = (/** @type {import('../dashboard/stages.mjs').Stage} */ s) =>
+    s.release?.state !== 'done' || s.width > 0;
+  /** @type {Map<string, number>} */
+  const flagX = new Map();
+  /** @type {Map<number, number>} */
+  const atEdge = new Map();
+  /** @type {Set<number>} the column edges a rule runs down */
+  const ruled = new Set();
+  for (const s of st.stages) {
+    if (!s.release) continue;
+    // Just right of its stage's last column; releases at the same edge (a stage with no
+    // milestone) stand a little apart, earlier stages to the left.
+    const end = s.start + s.width;
+    const k = atEdge.get(end) ?? 0;
+    atEdge.set(end, k + 1);
+    flagX.set(s.release.id, (end ? colX(end) - GX + 10 : left + 8) + k * 14);
+    if (runsDown(s)) ruled.add(end);
+  }
+  const label = (/** @type {string} */ v) => Math.ceil(v.length * 7) + 24;
+  const width = Math.max(
+    colX(st.columns) - GX / 2,
+    ...st.releases.map((r) => /** @type {number} */ (flagX.get(r.id)) + label(r.release)),
+  );
+  const stripTop = HEAD;
+  const bodyTop = stripTop + (st.releases.length ? PAD * 2 + st.releases.length * FLAG : 0);
+  const flagAt = new Map(
+    st.releases.map((r, row) => [
+      r.id,
+      { x: /** @type {number} */ (flagX.get(r.id)), y: stripTop + PAD + row * FLAG },
+    ]),
+  );
+  const headOf = (/** @type {number} */ c) => {
+    const s = st.stages.find((x) => c >= x.start && c < x.start + x.width);
+    if (!s) return 'No release';
+    const name = s.release ? `Before ${s.release.release}` : 'No release';
+    return s.width > 1 ? `${name}, step ${c - s.start + 1}` : name;
+  };
+  const heads = (/** @type {number} */ height) =>
+    Array.from({ length: st.columns }, (_, c) => {
+      const x = colX(c) - GX / 2;
+      return `<text class="mg-step" x="${colX(c) + W / 2}" y="17" text-anchor="middle">${esc(headOf(c))}</text>${c && !ruled.has(c) ? `<line class="mg-tick" x1="${x}" x2="${x}" y1="${HEAD - 4}" y2="${height}"/>` : ''}`;
+    }).join('');
+  const rules = (/** @type {number} */ height) =>
+    st.stages
+      .map((s) => {
+        if (!s.release) return '';
+        const { x, y } = /** @type {{ x: number, y: number }} */ (flagAt.get(s.release.id));
+        return `<g class="mg-rule ${s.release.state === 'done' ? 'done' : 'open'}"><line class="mg-rule-top" x1="${x}" x2="${x}" y1="${y + 12}" y2="${bodyTop}"/>${runsDown(s) ? `<line class="mg-rule-down" x1="${x}" x2="${x}" y1="${bodyTop}" y2="${height}"/>` : ''}</g>`;
+      })
+      .join('');
+  const flags = st.releases
+    .map((r) => {
+      const { x, y } = /** @type {{ x: number, y: number }} */ (flagAt.get(r.id));
+      const before = r.milestones.length ? `; after ${r.milestones.join(', ')}` : '';
+      return `<a href="#${releaseAnchor(r.id)}" aria-label="${esc(`Release ${r.release}: ${r.id} ${r.title}`)}"><g class="mg-flag ${r.state === 'done' ? 'done' : 'open'}"><title>${esc(`Release gate ${r.release}: ${r.id} ${r.title} (${STATE_LABELS[r.state] ?? r.state})${before}`)}</title><line x1="${x}" x2="${x}" y1="${y + 2}" y2="${y + 14}"/><path d="M${x + 1} ${y + 2}L${x + 11} ${y + 6}L${x + 1} ${y + 10}z"/><text x="${x + 16}" y="${y + 11}">${esc(r.release)}</text></g></a>`;
+    })
+    .join('');
+  return { colX, width, stripTop, bodyTop, heads, rules, flags };
+}
+
+/**
+ * The roadmap's second layout (HITLD-307): no lanes; linked milestones grouped, the critical path's
+ * group first, each group's crossings reduced by barycenter sweeps within the same release-stage
+ * columns as the board, so the flags stand where they stand there; unlinked milestones under the
+ * groups, each in its column. Computed when the page is generated.
+ * @param {import('../tracker/files/views.mjs').MilestoneGraphNode[]} board the milestones drawn
+ * @param {MilestoneGraph} mg
+ * @param {import('../dashboard/stages.mjs').Stages} st
+ * @param {Frame} frame
+ * @param {(at: Map<string, { x: number, y: number }>) => { edges: string, nodes: string }} draw
+ * @param {{ H: number, GY: number }} size
+ */
+function fewest(board, mg, st, frame, draw, { H, GY }) {
   const ids = board.map((n) => n.id);
   const shown = new Set(ids);
   const { groups, grid } = fewestCrossings(
@@ -252,13 +338,11 @@ function fewest(board, mg, draw, { W, H, GX, GY }) {
     mg.edges
       .filter((e) => shown.has(e.from) && shown.has(e.to))
       .map((e) => /** @type {[string, string]} */ ([e.from, e.to])),
-    { first: mg.critical_path },
+    { first: mg.critical_path, layerOf: st.columnOf },
   );
-  const PAD = 16;
   /** @type {Map<string, { x: number, y: number }>} */
   const at = new Map();
-  let top = PAD;
-  let cols = 1;
+  let top = frame.bodyTop + GY;
   let crossings = 0;
   for (const g of groups) {
     const rows = Math.max(...g.layers.map((c) => c.length));
@@ -266,23 +350,26 @@ function fewest(board, mg, draw, { W, H, GX, GY }) {
       // A column shorter than its group's tallest is centered against it.
       const shift = Math.floor((rows - col.length) / 2);
       for (const [r, id] of col.entries()) {
-        at.set(id, { x: PAD + l * (W + GX), y: top + (r + shift) * (H + GY) });
+        at.set(id, { x: frame.colX(l), y: top + (r + shift) * (H + GY) });
       }
     }
-    cols = Math.max(cols, g.layers.length);
     crossings += g.crossings;
-    top += rows * (H + GY) + GY * 2;
+    top += rows * (H + GY) + GY;
   }
-  const across = Math.max(cols, 3);
-  for (const [k, id] of grid.entries()) {
-    at.set(id, { x: PAD + (k % across) * (W + GX), y: top + Math.floor(k / across) * (H + GY) });
+  /** @type {string[][]} the unlinked milestones, by column */
+  const lone = Array.from({ length: st.columns }, () => /** @type {string[]} */ ([]));
+  for (const id of grid) lone[/** @type {number} */ (st.columnOf.get(id))].push(id);
+  const rows = Math.max(0, ...lone.map((c) => c.length));
+  for (const [c, col] of lone.entries()) {
+    for (const [r, id] of col.entries()) at.set(id, { x: frame.colX(c), y: top + r * (H + GY) });
   }
-  if (grid.length) top += Math.ceil(grid.length / across) * (H + GY);
-  const width =
-    PAD * 2 + (grid.length ? Math.max(cols, Math.min(across, grid.length)) : cols) * (W + GX) - GX;
-  const height = top + PAD - GY;
+  const height = top + rows * (H + GY);
   const { edges, nodes } = draw(at);
-  return `<svg class="mg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="Milestone map, fewest crossings: ${board.length} milestones in ${groups.length} linked group${groups.length === 1 ? '' : 's'} and ${grid.length} unlinked, ${crossings} crossings">${edges}\n${nodes}</svg>`;
+  const strip =
+    frame.bodyTop > frame.stripTop
+      ? `<rect class="mg-lane" x="0" y="${frame.stripTop}" width="${frame.width}" height="${frame.bodyTop - frame.stripTop}"/>`
+      : '';
+  return `<svg class="mg" width="${frame.width}" height="${height}" viewBox="0 0 ${frame.width} ${height}" role="group" aria-label="Milestone map, fewest crossings: ${board.length} milestones in ${groups.length} linked group${groups.length === 1 ? '' : 's'} and ${grid.length} unlinked, ${crossings} crossings">${strip}${frame.heads(height)}${edges}${frame.rules(height)}\n${nodes}${frame.flags}</svg>`;
 }
 
 /** A milestone's anchor on the page. @param {string} id */
@@ -353,15 +440,19 @@ const STAGES = /** @type {const} */ ([
 
 /**
  * The milestone board as inline SVG, then one panel per milestone with its items (design part
- * 12.1.2). Lanes are projects (long outcomes first), under a lane of release gates at the top; across
- * are steps, a milestone starting once everything it waits on is done. A started milestone is
- * solid with a strip in its stage color on the leading edge; one not started is hollow. Edges are
- * the waits between milestones, thicker for more items behind the wait, dashed with none. Only
- * committed milestones are on the board: proposed and dropped ones are listed under it. Each node
- * is a link to its panel; a panel shows when it is the page's target (CSS `:target`), so a node
- * opens to its items with no script. Every item, milestone and release ID in a panel or on a flag
- * links to its file: on the forge when `fileBase` is known, else by its repository-relative path.
- * A link is a plain anchor; nothing is fetched until it is followed.
+ * 12.1.2). Lanes are projects (long outcomes first), under a lane of release gates at the top;
+ * across are release stages (decision HITLD-420): a milestone stands in the column of the earliest
+ * release that needs it, a release's flag and rule at the right edge of its stage, and milestones
+ * no release needs after every release; within a stage, a milestone stands right of those it needs
+ * there, and where the needs and a release disagree, the needs win and the board says so. A
+ * started milestone is solid with a strip in its stage color on the leading edge; one not started
+ * is hollow. Proposed milestones are on the board with a dashed border and a mark (decision
+ * HITLD-419), and in a table under it; dropped ones are listed under it. Edges are the waits
+ * between milestones, thicker for more items behind the wait, dashed with none. Each node is a link
+ * to its panel; a panel shows when it is the page's target (CSS `:target`), so a node opens to its
+ * items with no script. Every item, milestone and release ID in a panel or on a flag links to its
+ * file: on the forge when `fileBase` is known, else by its repository-relative path. A link is a
+ * plain anchor; nothing is fetched until it is followed.
  * @param {MilestoneGraph} mg
  * @param {{ fileBase?: string | null }} [where] the forge's address for the repository's files
  */
@@ -395,61 +486,41 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
   const GX = 64;
   const GY = 14;
   const PAD = 12; // inside a lane, above and below its nodes
-  const HEAD = 26; // the step labels
+  const HEAD = 26; // the column heads
   const FLAG = 22; // one release flag's height
-  const board = mg.nodes.filter((n) => n.state === 'planned' || n.state === 'done');
-  const steps = Math.max(
-    1,
-    ...board.map((n) => n.layer + 1),
-    ...mg.releases.map((r) => r.layer + 1),
+  // Committed and proposed milestones (decision HITLD-419); dropped ones are listed under the board.
+  const board = mg.nodes.filter((n) => n.state !== 'dropped');
+  const st = releaseStages(
+    mg,
+    board.map((n) => n.id),
   );
-  const colX = (/** @type {number} */ step) => LABEL + GX / 2 + step * (W + GX);
-  // Release flags, in the model's order (by step, then version). A done release stands at the
-  // left edge, before the first step; an open one just after its step's milestones. Releases at
-  // the same place stand a little apart, earlier versions to the left; each has its own row, so
-  // no label covers another.
-  /** @type {Map<number, number>} */
-  const atStep = new Map();
-  /** @type {Map<string, number>} */
-  const flagX = new Map();
-  for (const r of mg.releases) {
-    const k = atStep.get(r.layer) ?? 0;
-    atStep.set(r.layer, k + 1);
-    flagX.set(r.id, (r.layer < 0 ? LABEL + 8 : colX(r.layer) + W + 10) + k * 14);
-  }
-  const label = (/** @type {string} */ v) => Math.ceil(v.length * 7) + 24;
-  // Room for every release's label, which runs right of its flag.
-  const width = Math.max(
-    colX(steps) - GX / 2,
-    ...mg.releases.map((r) => /** @type {number} */ (flagX.get(r.id)) + label(r.release)),
-  );
+  const frame = stageFrame(st, LABEL, { W, GX, PAD, HEAD, FLAG });
+  const { colX, width } = frame;
 
-  // Each lane's height: its fullest step.
+  // Each lane's height: its fullest column.
   /** @type {{ title: string, top: number, height: number, release?: boolean }[]} */
   const lanes = [];
   let top = HEAD;
-  // The release gates first, at the top (the owner's choice), aligned to the steps below.
-  /** @type {Map<string, { x: number, y: number }>} */
-  const flagAt = new Map();
-  if (mg.releases.length) {
-    for (const [row, r] of mg.releases.entries()) {
-      flagAt.set(r.id, { x: /** @type {number} */ (flagX.get(r.id)), y: top + PAD + row * FLAG });
-    }
-    const height = PAD * 2 + mg.releases.length * FLAG;
-    lanes.push({ title: 'Releases', top, height, release: true });
-    top += height;
+  // The release gates first, at the top (the owner's choice), at the edges of their stages.
+  if (st.releases.length) {
+    lanes.push({ title: 'Releases', top, height: frame.bodyTop - top, release: true });
+    top = frame.bodyTop;
   }
   /** @type {Map<string, { x: number, y: number }>} */
   const at = new Map();
+  /** @type {Set<string>} the milestones in a zebra lane, whose hollow boxes take its color */
+  const onZebra = new Set();
   for (const lane of mg.lanes) {
     const own = board.filter((n) => n.project === lane.id);
     if (!own.length) continue;
+    if (lanes.length % 2) for (const n of own) onZebra.add(n.id);
     /** @type {number[]} */
     const filled = [];
     for (const n of own) {
-      const k = filled[n.layer] ?? 0;
-      filled[n.layer] = k + 1;
-      at.set(n.id, { x: colX(n.layer), y: top + PAD + k * (H + GY) });
+      const c = /** @type {number} */ (st.columnOf.get(n.id));
+      const k = filled[c] ?? 0;
+      filled[c] = k + 1;
+      at.set(n.id, { x: colX(c), y: top + PAD + k * (H + GY) });
     }
     const most = Math.max(...filled.filter((x) => x !== undefined));
     const height = PAD * 2 + most * H + (most - 1) * GY;
@@ -473,73 +544,128 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
           .join('')}`,
     )
     .join('');
-  const ticks = Array.from({ length: steps }, (_, k) => {
-    const x = colX(k) - GX / 2;
-    return `<text class="mg-step" x="${colX(k) + W / 2}" y="17" text-anchor="middle">Step ${k + 1}</text>${k ? `<line class="mg-tick" x1="${x}" x2="${x}" y1="${HEAD - 4}" y2="${height}"/>` : ''}`;
-  }).join('');
 
+  /** @type {Map<string, import('../dashboard/stages.mjs').Pulled>} */
+  const pulledOf = new Map(st.pulled.map((p) => [p.id, p]));
   /**
-   * The waits and the milestone boxes, at the given places: the same drawing for both layouts.
+   * The waits and the milestone boxes, at the given places: the same drawing for both layouts. A
+   * hollow box is filled with its lane's color, so a wait passing behind it never runs over text.
    * @param {Map<string, { x: number, y: number }>} at
+   * @param {Set<string>} [zebra] the milestones in a zebra lane
    */
-  const draw = (at) => {
-    const edges = mg.edges
+  const draw = (at, zebra = new Set()) => {
+    const drawn = mg.edges.filter((e) => at.has(e.from) && at.has(e.to));
+    const place = (/** @type {string} */ id) =>
+      /** @type {{ x: number, y: number }} */ (at.get(id));
+    // Waits into one milestone, or out of one, meet its side apart, in the order of their other
+    // ends, so many waits into one milestone stay apart instead of running together.
+    /** @type {Map<MilestoneGraph['edges'][number], number>} */
+    const inAt = new Map();
+    /** @type {Map<MilestoneGraph['edges'][number], number>} */
+    const outAt = new Map();
+    /**
+     * @param {Map<MilestoneGraph['edges'][number], number>} into
+     * @param {'from' | 'to'} end the end whose side the waits meet
+     */
+    const spread = (into, end) => {
+      const far = end === 'to' ? 'from' : 'to';
+      for (const id of new Set(drawn.map((e) => e[end]))) {
+        const list = drawn
+          .filter((e) => e[end] === id)
+          .sort((a, b) => place(a[far]).y - place(b[far]).y || place(a[far]).x - place(b[far]).x);
+        const gap = list.length > 1 ? Math.min(12, (H * 0.6) / (list.length - 1)) : 0;
+        for (const [k, e] of list.entries()) into.set(e, (k - (list.length - 1) / 2) * gap);
+      }
+    };
+    spread(inAt, 'to');
+    spread(outAt, 'from');
+    const edges = drawn
       .map((e) => {
-        const a = at.get(e.from);
-        const b = at.get(e.to);
-        if (!a || !b) return '';
-        const [x1, y1, x2, y2] = [a.x + W, a.y + H / 2, b.x, b.y + H / 2];
+        const a = place(e.from);
+        const b = place(e.to);
+        const x1 = a.x + W;
+        const y1 = a.y + H / 2 + /** @type {number} */ (outAt.get(e));
+        const x2 = b.x;
+        const y2 = b.y + H / 2 + /** @type {number} */ (inAt.get(e));
+        const bend = Math.max(GX / 2, (x2 - x1) / 3);
         const cls = `${e.critical ? ' critical' : ''}${e.items ? '' : ' direct'}`;
         const stroke = (1.25 + Math.min(e.items, 10) * 0.35).toFixed(2);
         const label = `${e.to} waits on ${e.from}: ${e.items ? `${e.items} item(s) behind the wait` : 'directly, no items behind it'}${e.critical ? ', on the critical path' : ''}`;
         // The curve ends level, so its arrowhead is drawn pointing right: no marker, no url().
-        return `<g data-from="${esc(e.from)}" data-to="${esc(e.to)}"><title>${esc(label)}</title><path class="mg-edge${cls}" style="stroke-width:${stroke}" d="M${x1} ${y1}C${x1 + GX / 2} ${y1} ${x2 - GX / 2} ${y2} ${x2 - 7} ${y2}"/><path class="mg-head${e.critical ? ' critical' : ''}" d="M${x2 - 8} ${y2 - 4}L${x2} ${y2}L${x2 - 8} ${y2 + 4}z"/></g>`;
+        return `<g data-from="${esc(e.from)}" data-to="${esc(e.to)}"><title>${esc(label)}</title><path class="mg-edge${cls}" style="stroke-width:${stroke}" d="M${x1} ${y1}C${x1 + bend} ${y1} ${x2 - bend} ${y2} ${x2 - 7} ${y2}"/><path class="mg-head${e.critical ? ' critical' : ''}" d="M${x2 - 8} ${y2 - 4}L${x2} ${y2}L${x2 - 8} ${y2 + 4}z"/></g>`;
       })
       .join('');
 
     const nodes = board
       .map((n) => {
-        const { x, y } = /** @type {{ x: number, y: number }} */ (at.get(n.id));
+        const { x, y } = place(n.id);
         const f = milestoneFacts(n);
         const started = n.stage === 'in-flight' || n.stage === 'done';
+        const proposed = n.state === 'proposed';
+        /** @type {[string, string, string][]} class, text, tooltip */
         const badges = [
-          ...(n.holds.decisions.length
+          .../** @type {[string, string, string][]} */ (
+            proposed ? [['proposed', 'proposed', 'Proposed: not committed yet']] : []
+          ),
+          .../** @type {[string, string, string][]} */ (
+            n.in_cycle ? [['loop', 'in a loop', 'In a loop of needs: the check reports it']] : []
+          ),
+          .../** @type {[string, string, string][]} */ (
+            n.holds.decisions.length
+              ? [
+                  [
+                    'decision',
+                    `${n.holds.decisions.length} decision${n.holds.decisions.length > 1 ? 's' : ''}`,
+                    `Held up by ${n.holds.decisions.join(', ')}`,
+                  ],
+                ]
+              : []
+          ),
+          .../** @type {[string, string, string][]} */ (
+            n.holds.external.length
+              ? [
+                  [
+                    'external',
+                    `${n.holds.external.length} outside wait${n.holds.external.length > 1 ? 's' : ''}`,
+                    `Held up by ${n.holds.external.join(', ')}`,
+                  ],
+                ]
+              : []
+          ),
+        ];
+        // The releases it lands before, as pills on the progress bar's row, which they shorten;
+        // and a mark where the needs put it in an earlier stage than its own release.
+        const pulled = pulledOf.get(n.id);
+        const rowPills = [
+          ...mg.releases
+            .filter((r) => r.milestones.includes(n.id))
+            .map((r) => ['release', r.release, `Lands before release ${r.release} (${r.id})`]),
+          ...(pulled
             ? [
                 [
-                  'decision',
-                  `${n.holds.decisions.length} decision${n.holds.decisions.length > 1 ? 's' : ''}`,
-                  n.holds.decisions,
-                ],
-              ]
-            : []),
-          ...(n.holds.external.length
-            ? [
-                [
-                  'external',
-                  `${n.holds.external.length} outside wait${n.holds.external.length > 1 ? 's' : ''}`,
-                  n.holds.external,
+                  'pulled',
+                  'needed earlier',
+                  `Drawn before ${pulled.drawn.release}: ${pulled.by} needs it${pulled.own ? `, though the first release that needs it is ${pulled.own.release}` : ', though no release needs it'}`,
                 ],
               ]
             : []),
         ];
-        // The releases it lands before, as pills on the progress bar's row, which they shorten.
         let rx = x + W - 8;
-        const releasePills = mg.releases
-          .filter((r) => r.milestones.includes(n.id))
-          .map((r) => {
-            const w = Math.round(r.release.length * 5.6 + 10);
+        const releasePills = rowPills
+          .map(([cls, text, title]) => {
+            const w = Math.round(text.length * 5.6 + 10);
             rx -= w;
-            const pill = `<g class="mg-badge release"><title>${esc(`Lands before release ${r.release} (${r.id})`)}</title><rect x="${rx}" y="${y + 57}" width="${w}" height="14" rx="7"/><text x="${rx + w / 2}" y="${y + 67.5}" text-anchor="middle">${esc(r.release)}</text></g>`;
+            const pill = `<g class="mg-badge ${cls}"><title>${esc(title)}</title><rect x="${rx}" y="${y + 57}" width="${w}" height="14" rx="7"/><text x="${rx + w / 2}" y="${y + 67.5}" text-anchor="middle">${esc(text)}</text></g>`;
             rx -= 4;
             return pill;
           })
           .join('');
         let right = x + W - 8;
         const pills = badges
-          .map(([cls, text, ids]) => {
-            const w = Math.round(String(text).length * 5.6 + 10);
+          .map(([cls, text, title]) => {
+            const w = Math.round(text.length * 5.6 + 10);
             right -= w;
-            const pill = `<g class="mg-badge ${cls}"><title>${esc(`Held up by ${Array.isArray(ids) ? ids.join(', ') : ''}`)}</title><rect x="${right}" y="${y + 7}" width="${w}" height="15" rx="7.5"/><text x="${right + w / 2}" y="${y + 18}" text-anchor="middle">${esc(text)}</text></g>`;
+            const pill = `<g class="mg-badge ${cls}"><title>${esc(title)}</title><rect x="${right}" y="${y + 7}" width="${w}" height="15" rx="7.5"/><text x="${right + w / 2}" y="${y + 18}" text-anchor="middle">${esc(text)}</text></g>`;
             right -= 4;
             return pill;
           })
@@ -548,8 +674,8 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
         const outcome = clamp(oneSentence(n.outcome, 200) || 'No outcome yet', 34, 2);
         const share = n.constraints.total ? n.constraints.done / n.constraints.total : 0;
         const bar = rx < x + W - 8 ? rx - (x + 12) - 6 : W - 24;
-        const label = `${n.id} ${n.title}, ${STAGES.find(([k]) => k === n.stage)?.[1] ?? n.stage}${n.critical ? ', on the critical path' : ''}${n.in_cycle ? ', in a loop of needs' : ''}: ${oneSentence(n.outcome) || 'no outcome yet'}; ${n.in_progress} in progress, ${f.constraints}; ${f.tokens}; ${f.check}`;
-        const cls = `mg-node ${n.stage} ${started ? 'started' : 'hollow'}${n.critical ? ' critical' : ''}${n.in_cycle ? ' loop' : ''}`;
+        const label = `${n.id} ${n.title}, ${STAGES.find(([k]) => k === n.stage)?.[1] ?? n.stage}${proposed ? ', not committed' : ''}${n.critical ? ', on the critical path' : ''}${n.in_cycle ? ', in a loop of needs' : ''}${pulled ? `, drawn before ${pulled.drawn.release} because ${pulled.by} needs it` : ''}: ${oneSentence(n.outcome) || 'no outcome yet'}; ${n.in_progress} in progress, ${f.constraints}; ${f.tokens}; ${f.check}`;
+        const cls = `mg-node ${n.stage} ${started ? 'started' : 'hollow'}${n.critical ? ' critical' : ''}${n.in_cycle ? ' loop' : ''}${zebra.has(n.id) ? ' on-zebra' : ''}`;
         return `<a href="#${milestoneAnchor(n.id)}" aria-label="${esc(label)}" data-node="${esc(n.id)}" data-item="${esc(n.id)}"><g class="${cls}"><title>${esc(label)}</title><rect class="mg-box" x="${x}" y="${y}" width="${W}" height="${H}" rx="8"/>${started ? `<rect class="mg-strip" x="${x + 1}" y="${y + 1}" width="4" height="${H - 2}" rx="2"/>` : `<circle class="mg-dot" cx="${x + 13}" cy="${y + 15}" r="4"/>`}
   <text x="${x + (started ? 12 : 22)}" y="${y + 19}" class="mg-title">${esc(cut(`${n.id} ${n.title}`, nameRoom))}</text>${pills}${outcome
     .map((t, k) => `<text x="${x + 12}" y="${y + 37 + k * 14}" class="mg-outcome">${esc(t)}</text>`)
@@ -561,33 +687,24 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
       .join('\n');
     return { edges, nodes };
   };
-  const { edges, nodes } = draw(at);
+  const { edges, nodes } = draw(at, onZebra);
 
-  const releaseLane = lanes.find((l) => l.release);
-  const releaseBottom = releaseLane ? releaseLane.top + releaseLane.height : 0;
-  // Each open release's rule runs down through the milestone lanes, behind the boxes: in the
-  // flag's color within the Releases lane, then dashed and muted, so what lands before it is to its
-  // left. A done release's rule stays in the Releases lane: nothing on the board lands before it.
-  const rules = mg.releases
-    .map((r) => {
-      const { x, y } = /** @type {{ x: number, y: number }} */ (flagAt.get(r.id));
-      const done = r.state === 'done';
-      return `<g class="mg-rule ${done ? 'done' : 'open'}"><line class="mg-rule-top" x1="${x}" x2="${x}" y1="${y + 12}" y2="${releaseBottom}"/>${done ? '' : `<line class="mg-rule-down" x1="${x}" x2="${x}" y1="${releaseBottom}" y2="${height}"/>`}</g>`;
-    })
-    .join('');
-  const flags = mg.releases
-    .map((r) => {
-      const { x, y } = /** @type {{ x: number, y: number }} */ (flagAt.get(r.id));
-      const before = r.milestones.length ? `; after ${r.milestones.join(', ')}` : '';
-      return `<a href="#${releaseAnchor(r.id)}" aria-label="${esc(`Release ${r.release}: ${r.id} ${r.title}`)}"><g class="mg-flag ${r.state === 'done' ? 'done' : 'open'}"><title>${esc(`Release gate ${r.release}: ${r.id} ${r.title} (${STATE_LABELS[r.state] ?? r.state})${before}`)}</title><line x1="${x}" x2="${x}" y1="${y + 2}" y2="${y + 14}"/><path d="M${x + 1} ${y + 2}L${x + 11} ${y + 6}L${x + 1} ${y + 10}z"/><text x="${x + 16}" y="${y + 11}">${esc(r.release)}</text></g></a>`;
-    })
-    .join('');
-
-  const svg = `<svg class="mg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="Milestone board: ${board.length} milestones in ${lanes.length} lanes over ${steps} steps, ${mg.edges.length} waits between them">${laneRects}${ticks}${rules}${edges}\n${nodes}${flags}</svg>`;
+  // Each release's rule runs down through the milestone lanes from the right edge of its stage,
+  // over the waits and behind the boxes, so what lands before it is to its left and no wait hides
+  // it. A done release with nothing in its stage keeps its rule in the Releases lane.
+  const svg = `<svg class="mg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="Milestone board: ${board.length} milestones in ${lanes.length} lanes over ${st.columns} column${st.columns === 1 ? '' : 's'}, ${mg.edges.length} waits between them">${laneRects}${frame.heads(height)}${edges}${frame.rules(height)}\n${nodes}${frame.flags}</svg>`;
   const path = mg.critical_path.length
     ? `Critical path: ${mg.critical_path.map(esc).join(' → ')}.`
     : 'No critical path: no open milestone has estimate tokens remaining.';
-  const legend = `<div class="mg-legend">${STAGES.map(([k, name]) => `<span><i class="sw ${k}"></i>${name}</span>`).join('')}<span><i class="sw critical"></i>Critical path</span><span>Thicker wait: more items behind it; dashed: none</span><span>Dashed border: in a loop of needs</span><span>Release rule: what lands before a release is to its left; the release's version marks the milestones it needs</span></div>`;
+  const pulledNote = st.pulled.length
+    ? `<p class="muted mg-pulled">Where a milestone's needs and its release disagree, the needs win: ${st.pulled
+        .map(
+          (p) =>
+            `${esc(p.id)} stands before ${esc(p.drawn.release)} because ${esc(p.by)} needs it, though ${p.own ? `the first release that needs it is ${esc(p.own.release)}` : 'no release needs it'}`,
+        )
+        .join('; ')}.</p>`
+    : '';
+  const legend = `<div class="mg-legend">${STAGES.map(([k, name]) => `<span><i class="sw ${k}"></i>${name}</span>`).join('')}<span><i class="sw critical"></i>Critical path</span><span>Dashed border: proposed, not committed</span><span>Thicker wait: more items behind it; dashed: none</span><span>Amber border: in a loop of needs</span><span>Columns are release stages: a milestone stands before the first release that needs it, and a release's flag and rule at the right edge of its stage</span></div>`;
   /** A milestone's name, linked to its panel. @param {import('../tracker/files/views.mjs').MilestoneGraphNode} n */
   const idea = (n) => `<a href="#${milestoneAnchor(n.id)}">${esc(n.id)} ${esc(n.title)}</a>`;
   /** What stands between a proposed milestone and committing it. @param {import('../tracker/files/views.mjs').MilestoneGraphNode} n */
@@ -627,7 +744,7 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
       : []),
   ];
   const proposals = proposed.length
-    ? `<h3 class="mg-h">Proposed milestones, not on the board</h3><div class="wrap"><table class="mg-props"><thead><tr><th>Idea</th><th>What stands between it and committing</th><th>Open items and milestones waiting on it</th></tr></thead><tbody>${groups.join('')}</tbody></table></div>`
+    ? `<h3 class="mg-h">Proposed milestones: what stands between each and committing</h3><div class="wrap"><table class="mg-props"><thead><tr><th>Idea</th><th>What stands between it and committing</th><th>Open items and milestones waiting on it</th></tr></thead><tbody>${groups.join('')}</tbody></table></div>`
     : '';
   const dropped = mg.nodes.filter((n) => n.state === 'dropped');
   const droppedTable = dropped.length
@@ -692,10 +809,10 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
   return {
     board: `<h2 id="milestones">Milestones</h2>
 <p class="muted">${path} Open a milestone to see its items.</p>
-${legend}
+${pulledNote}${legend}
 <div class="layouts" role="radiogroup" aria-label="Layout"><input class="tab-input" type="radio" name="roadmap-layout" id="rm-lanes" checked><label for="rm-lanes">By project</label><input class="tab-input" type="radio" name="roadmap-layout" id="rm-fewest"><label for="rm-fewest">Fewest crossings</label>
 <div class="wrap rm-lanes">${svg}</div>
-<div class="wrap rm-fewest">${fewest(board, mg, draw, { W, H, GX, GY })}</div></div>
+<div class="wrap rm-fewest">${fewest(board, mg, st, stageFrame(st, 0, { W, GX, PAD, HEAD, FLAG }), draw, { H, GY })}</div></div>
 ${proposals}${droppedTable}`,
     drawers: `<a class="drawer-backdrop" href="#milestones" aria-label="Close" tabindex="-1"></a>
 ${panels}
@@ -860,13 +977,13 @@ th,td{text-align:left;vertical-align:top;padding:.5rem .6rem;border-bottom:1px s
 thead th{font-size:.8rem;color:var(--muted);font-weight:600}tr.binding{background:var(--warn-bg)}
 .bar{width:100%;max-width:20rem;height:1rem;display:block;border-radius:3px;overflow:hidden}
 .mg{display:block;font:12px system-ui,sans-serif}.mg text{fill:var(--fg)}.mg-lane{fill:var(--bg)}.mg-lane.zebra{fill:var(--zebra)}.mg-lane-name{font-weight:600;fill:var(--muted)}.mg-step{fill:var(--muted)}.mg-tick{stroke:var(--line);stroke-dasharray:4 4}
-.mg-box{stroke:var(--mark);stroke-width:1}.started .mg-box{fill:var(--card)}.hollow .mg-box{fill:transparent;stroke:var(--line)}.mg-node.critical .mg-box{stroke:var(--used);stroke-width:2}.mg-node.loop .mg-box{stroke-dasharray:5 3}.mg-title{font-weight:600}.mg .mg-outcome{fill:var(--muted)}
+.mg-box{stroke:var(--mark);stroke-width:1}.started .mg-box{fill:var(--card)}.hollow .mg-box{fill:var(--bg);stroke:var(--line)}.hollow.on-zebra .mg-box{fill:var(--zebra)}.mg-node.proposed .mg-box{stroke:var(--mark);stroke-width:1.25;stroke-dasharray:6 4}.mg-node.critical .mg-box{stroke:var(--used);stroke-width:2}.mg-node.loop .mg-box{stroke:#d9a53a;stroke-width:2}.mg-title{font-weight:600}.mg .mg-outcome{fill:var(--muted)}
 .mg a{cursor:pointer}.mg a:focus{outline:none}.mg a:focus-visible .mg-box,.mg a:hover .mg-box{stroke:var(--used);stroke-width:2.5}.mg a:focus-visible .mg-box{stroke-width:3}.mg a:hover .mg-flag text,.mg a:focus-visible .mg-flag text{text-decoration:underline;fill:var(--used)}a.file{font-weight:600}a:focus-visible{outline:2px solid var(--used);outline-offset:2px}.mg-bar{fill:var(--track)}.mg-bar-done{fill:var(--st-done)}
 .mg-strip,.mg-dot{fill:var(--st)}.mg-node.proposed{--st:var(--st-proposed)}.mg-node.waiting{--st:var(--st-waiting)}.mg-node.ready{--st:var(--st-ready)}.mg-node.in-flight{--st:var(--st-flight)}.mg-node.done{--st:var(--st-done)}
-.mg-badge rect{fill:var(--warn-bg);stroke:#d9a53a}.mg-badge.external rect{fill:var(--track);stroke:var(--mark)}.mg .mg-badge text{font-size:10px}
+.mg-badge rect{fill:var(--warn-bg);stroke:#d9a53a}.mg-badge.external rect{fill:var(--track);stroke:var(--mark)}.mg-badge.proposed rect{fill:var(--card);stroke:var(--mark);stroke-dasharray:3 2}.mg .mg-badge text{font-size:10px}
 .mg-edge{fill:none;stroke:var(--mark)}.mg-edge.direct{stroke-dasharray:4 3}.mg-edge.critical{stroke:var(--used)}.mg-head{fill:var(--mark)}.mg-head.critical{fill:var(--used)}
 .mg-flag line{stroke:var(--mark);stroke-width:1.5}.mg-flag path{fill:var(--st-ready)}.mg-flag.done path{fill:var(--st-done)}
-.mg-rule-top{stroke:var(--st-ready);stroke-width:1.5}.mg-rule.done .mg-rule-top{stroke:var(--st-done)}.mg-rule-down{stroke:var(--mark);stroke-width:1;stroke-dasharray:3 4}.mg-badge.release rect{fill:var(--card);stroke:var(--st-ready)}
+.mg-rule-top{stroke:var(--st-ready);stroke-width:1.5}.mg-rule.done .mg-rule-top{stroke:var(--st-done)}.mg-rule-down{stroke:var(--st-ready);stroke-opacity:.7;stroke-width:1.25;stroke-dasharray:3 4}.mg-rule.done .mg-rule-down{stroke:var(--st-done)}.mg-badge.release rect{fill:var(--card);stroke:var(--st-ready)}
 .mg-h{font-size:.95rem;margin:1.25rem 0 .25rem}table.mg-props{min-width:0}.mg-props .mg-group th{background:var(--track);font-size:.85rem}
 @media (max-width:600px){.mg-props thead{display:none}.mg-props tr{display:block;border-bottom:1px solid var(--line);padding:.4rem 0}.mg-props td,.mg-props th{display:block;border:0;padding:.1rem .2rem}.mg-props td[data-label]::before{content:attr(data-label) ": ";color:var(--muted);font-size:.8rem}}
 .mg-legend{display:flex;flex-wrap:wrap;gap:.25rem 1rem;font-size:.8rem;color:var(--muted);margin:.25rem 0 .5rem}.mg-legend .sw{display:inline-block;width:.8rem;height:.8rem;border-radius:3px;margin-right:.3rem;vertical-align:-.1rem}

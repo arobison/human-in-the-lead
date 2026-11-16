@@ -183,10 +183,13 @@ export function reduceCrossings(layerOf, edges, { groupOf = () => 0, sweeps = 12
  * The fewest-crossings layout of a whole graph: linked nodes grouped by connected component, each
  * laid out in columns by longest path with its crossings reduced; the group holding `first` (the
  * critical path) first, then larger groups, then by their smallest ID; unlinked nodes in a grid.
- * @param {string[]} ids @param {Edge[]} edges @param {{ first?: string[] }} [options]
+ * With `layerOf`, every node keeps the column it gives (the Roadmap's release stages, which run
+ * every edge left to right), and a group's `layers` are indexed by those columns.
+ * @param {string[]} ids @param {Edge[]} edges
+ * @param {{ first?: string[], layerOf?: Map<string, number> }} [options]
  * @returns {{ groups: { ids: string[], layers: string[][], crossings: number }[], grid: string[] }}
  */
-export function fewestCrossings(ids, edges, { first = [] } = {}) {
+export function fewestCrossings(ids, edges, { first = [], layerOf } = {}) {
   const dag = acyclic(ids, edges);
   /** @type {Map<string, string>} union-find parents */
   const parent = new Map(ids.map((id) => [id, id]));
@@ -212,7 +215,10 @@ export function fewestCrossings(ids, edges, { first = [] } = {}) {
     .map((members) => {
       const set = new Set(members);
       const own = dag.filter(([a]) => set.has(a));
-      const { layers, crossings } = reduceCrossings(longestPathLayers(members, own), own);
+      const columns = layerOf
+        ? new Map(members.map((id) => [id, /** @type {number} */ (layerOf.get(id))]))
+        : longestPathLayers(members, own);
+      const { layers, crossings } = reduceCrossings(columns, own);
       return { ids: [...members].sort(byId), layers, crossings };
     })
     .sort(
