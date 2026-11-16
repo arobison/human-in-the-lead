@@ -58,6 +58,8 @@ export const ERROR_CODES = Object.freeze({
   'forbidden-event': 'The event kind is written only by the orchestrator, not by this caller.',
   'forbidden-field': 'The event carries a field this caller may not set.',
   'forbidden-correction': 'The correction would change an entry this caller may not correct.',
+  'already-corrected':
+    'The ledger event was already corrected; correct the event that corrected it, which now stands.',
 
   // Dispatch, handover and the merge queue
   'not-planned':
@@ -65,6 +67,8 @@ export const ERROR_CODES = Object.freeze({
   'disk-floor':
     "Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.",
   'not-in-flight': 'The dispatch is not in flight.',
+  'tokens-over-estimate':
+    "The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.",
   'unknown-dispatch': 'The dispatch has no recorded harness reference, so it cannot be continued.',
   'still-running': 'The dispatch is still running; its completion notice comes first.',
   'handover-due': "This session's hand-over is due, so nothing new starts.",
