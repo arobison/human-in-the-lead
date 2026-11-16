@@ -46,7 +46,9 @@ export const ERROR_CODES = Object.freeze({
 
   // The run lease and locks
   'lease-held': 'Another session holds the run lease.',
-  'lease-lost': 'This session no longer holds the run lease.',
+  'lease-lost': 'This session no longer holds the run lease: another session holds it.',
+  'lease-host-mismatch':
+    'This session holds the run lease, but on another host than the call gives; the lease is not lost.',
   'lease-released': 'This session released the run lease, so it can no longer record.',
   'lock-held': 'A named resource lock is held by someone else.',
   'lock-timeout': 'A named resource lock was not free before the wait ended.',

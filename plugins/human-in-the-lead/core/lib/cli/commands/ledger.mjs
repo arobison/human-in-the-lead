@@ -2,13 +2,13 @@
 // chief of staff reads and records about the run: who holds the lease, and retiring a session that
 // ended without a hand-over.
 
-import { hostname } from 'node:os';
 import { findRepoRoot, loadPolicy, policyDefaults } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { LedgerError, appendEvent, correctsValidly, readLedger } from '../../ledger/ledger.mjs';
 import { inflight } from '../../ledger/inflight.mjs';
 import { summary } from '../../ledger/summary.mjs';
 import { LeaseError } from '../../run/lease.mjs';
+import { NO_SESSION, recordSession, resolveIdentity } from '../../run/identity.mjs';
 import {
   Run,
   handOver,
@@ -46,13 +46,14 @@ const SESSION = {
   name: 'session',
   type: 'string',
   description:
-    "This orchestrator session's ID, the same on every call of the session. Default: $HITLD_SESSION",
+    "This orchestrator session's ID. Default: $HITLD_SESSION, else the harness's session ID, else the one run start recorded for this worktree (run start makes one when there is none)",
 };
 /** @type {import('../args.mjs').ArgSpec} */
 const HOST = {
   name: 'host',
   type: 'string',
-  description: "The machine this session runs on. Default: this machine's host name",
+  description:
+    "The machine this session runs on. Default: the host run start or run resume recorded for this session, else this machine's host name",
 };
 /** @type {import('../args.mjs').ArgSpec} */
 const HARNESS_REF = {
@@ -111,16 +112,33 @@ function setup(input, ctx) {
   };
 }
 
-/** @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx */
-function who(input, ctx) {
-  const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
-  if (!session) throw new Error('a session ID is needed: pass --session or set HITLD_SESSION');
+/**
+ * This session's identity, resolved once per command (run/identity.mjs). Only run start may make a
+ * new session ID; with none, every other command is refused.
+ * @param {Record<string, unknown>} input @param {import('../table.mjs').CommandContext} ctx
+ * @param {import('../../store/store.mjs').PrivateStore} store @param {{ start?: boolean }} [o]
+ */
+function who(input, ctx, store, o = {}) {
+  const id = resolveIdentity({ input, env: ctx.env, cwd: ctx.cwd, store, start: o.start });
+  if (!id.session) throw new CodedError('usage', NO_SESSION);
   return {
-    session,
-    host: /** @type {string | undefined} */ (input.host) ?? hostname(),
+    session: id.session,
+    host: id.host,
+    source: /** @type {import('../../run/identity.mjs').SessionSource} */ (id.source),
     cwd: ctx.cwd,
     ...(ctx.now ? { now: ctx.now } : {}),
   };
+}
+
+/**
+ * What run start and run resume say about the identity they took the lease with, after recording it
+ * for later calls in this worktree.
+ * @param {import('../../store/store.mjs').PrivateStore} store
+ * @param {ReturnType<typeof who>} me @param {import('../table.mjs').CommandContext} ctx
+ */
+function remember(store, me, ctx) {
+  recordSession(store, ctx.cwd, me, ctx.now ? ctx.now() : new Date());
+  return { session: me.session, host: me.host, source: me.source };
 }
 
 /**
@@ -145,7 +163,13 @@ async function guarded(fn) {
     return await fn();
   } catch (e) {
     if (e instanceof LeaseError) {
-      return { ok: false, error: `lease-${e.code}`, message: e.message, holder: e.holder };
+      return {
+        ok: false,
+        error: `lease-${e.code}`,
+        message: e.message,
+        holder: e.holder,
+        ...(e.differs.length ? { differs: e.differs } : {}),
+      };
     }
     if (e instanceof LedgerError)
       return { ok: false, error: 'invalid-event', message: e.message, errors: e.errors };
@@ -245,7 +269,7 @@ const table = [
           );
         }
         // Run.record refuses a session that does not hold the lease, then appends and checkpoints.
-        const by = who(input, ctx);
+        const by = who(input, ctx, s.store);
         const run = new Run(
           s.store,
           { ...by, kept: s.kept, expirySeconds: s.expirySeconds },
@@ -357,11 +381,12 @@ const table = [
     run: (input, ctx) =>
       guarded(async () => {
         const s = setup(input, ctx);
-        runVersionCheck(s.store, who(input, ctx)); // before the pull: a refused release fetches nothing
+        const me = who(input, ctx, s.store, { start: true });
+        runVersionCheck(s.store, me); // before the pull: a refused release fetches nothing
         const pull = await pullBeforeRun('run start', input, ctx);
         if (input.replace !== true) {
           refuseHeldElsewhere({
-            ...who(input, ctx),
+            ...me,
             store: s.store,
             kept: s.kept,
             pull,
@@ -385,7 +410,7 @@ const table = [
           scope.max_executors = s.concurrency;
         }
         const run = startRun(s.store, {
-          ...who(input, ctx),
+          ...me,
           id: /** @type {string | undefined} */ (input.id),
           scope,
           policyHash: s.hash,
@@ -408,9 +433,11 @@ const table = [
             primary = { recorded: false, error: /** @type {Error} */ (e).message };
           }
         }
+        const identity = remember(s.store, me, ctx);
         return {
           ok: true,
           run: run.state.run,
+          identity,
           checkpoint: run.state.checkpoint.number,
           primary_checkout: primary,
           version: versionOut(run.drift),
@@ -436,7 +463,7 @@ const table = [
           );
         const run = new Run(
           s.store,
-          { ...who(input, ctx), kept: s.kept, expirySeconds: s.expirySeconds },
+          { ...who(input, ctx, s.store), kept: s.kept, expirySeconds: s.expirySeconds },
           loaded.state,
         );
         const state = run.checkpoint();
@@ -473,12 +500,13 @@ const table = [
     run: (input, ctx) =>
       guarded(async () => {
         const s = setup(input, ctx);
-        runVersionCheck(s.store, who(input, ctx)); // before the pull: a refused release fetches nothing
+        const me = who(input, ctx, s.store);
+        runVersionCheck(s.store, me); // before the pull: a refused release fetches nothing
         const pull = await pullBeforeRun('run resume', input, ctx);
         const rebuilt = pull?.status === 'done' && restoreState(s.store, s.kept);
         if (input.force !== true) {
           refuseHeldElsewhere({
-            ...who(input, ctx),
+            ...me,
             store: s.store,
             kept: s.kept,
             pull,
@@ -495,15 +523,17 @@ const table = [
         const reality = gitReality({ cwd: s.cwd, mainBranch: s.mainBranch });
         if (live) reality.live = () => live;
         const r = await resumeRun(s.store, {
-          ...who(input, ctx),
+          ...me,
           force: input.force === true,
           kept: s.kept,
           expirySeconds: s.expirySeconds,
           harnessRef: /** @type {string | undefined} */ (input['harness-ref']),
           reality,
         });
+        const identity = remember(s.store, me, ctx);
         return {
           ok: true,
+          identity,
           took_over: r.tookOver,
           recovered_from: r.recoveredFrom,
           problems: r.problems,
@@ -621,7 +651,7 @@ const table = [
         }
         const s = setup(input, ctx);
         const r = releaseLease(s.store, {
-          ...who(input, ctx),
+          ...who(input, ctx, s.store),
           kept: s.kept,
           reason: 'ended',
           holder: {

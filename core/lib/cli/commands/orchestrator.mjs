@@ -8,7 +8,6 @@
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { hostname } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
@@ -18,6 +17,7 @@ import { openStore, privateStorePath } from '../../store/store.mjs';
 import { appendEvent, readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { LeaseError } from '../../run/lease.mjs';
+import { NO_SESSION, resolveIdentity } from '../../run/identity.mjs';
 import {
   Run,
   handOver,
@@ -93,13 +93,15 @@ import { loadTerms } from '../../store/private-terms.mjs';
 const SESSION = {
   name: 'session',
   type: 'string',
-  description: "This orchestrator session's ID, the same on every call. Default: $HITLD_SESSION",
+  description:
+    "This orchestrator session's ID. Default: $HITLD_SESSION, else the harness's session ID, else the one run start recorded for this worktree",
 };
 /** @type {import('../args.mjs').ArgSpec} */
 const HOST = {
   name: 'host',
   type: 'string',
-  description: "The machine. Default: this machine's host name",
+  description:
+    "The machine. Default: the host run start or run resume recorded for this session, else this machine's host name",
 };
 /** @type {import('../args.mjs').ArgSpec} */
 const DISPATCH = {
@@ -205,7 +207,13 @@ export async function guarded(fn) {
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, error: e.code, message: e.message, ...e.more };
     if (e instanceof LeaseError) {
-      return { ok: false, error: `lease-${e.code}`, message: e.message, holder: e.holder };
+      return {
+        ok: false,
+        error: `lease-${e.code}`,
+        message: e.message,
+        holder: e.holder,
+        ...(e.differs.length ? { differs: e.differs } : {}),
+      };
     }
     throw e;
   }
@@ -259,20 +267,25 @@ export function project(ctx) {
 }
 
 /**
+ * This session's identity (run/identity.mjs): its session ID, null when nothing gives one, and host.
+ * @param {ReturnType<typeof project>} p @param {Record<string, unknown>} input @param {Ctx} ctx
+ */
+export const identityOf = (p, input, ctx) =>
+  resolveIdentity({ input, env: ctx.env, cwd: ctx.cwd, store: p.store });
+
+/**
  * This session's handle on the run; every record through it is refused unless it holds the lease.
  * @param {ReturnType<typeof project>} p @param {Record<string, unknown>} input @param {Ctx} ctx
  */
 export function runOf(p, input, ctx) {
   if (!p.state) throw new Refusal('no-run', 'no run has started: hitld run start');
-  const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
-  if (!session) {
-    throw new Refusal('usage', 'a session ID is needed: pass --session or set HITLD_SESSION');
-  }
+  const { session, host } = identityOf(p, input, ctx);
+  if (!session) throw new Refusal('usage', NO_SESSION);
   return new Run(
     p.store,
     {
       session,
-      host: /** @type {string | undefined} */ (input.host) ?? hostname(),
+      host,
       kept: p.policy.run?.checkpoints_kept,
       expirySeconds: p.policy.run?.lease_expiry_seconds,
       ...(ctx.now ? { now: ctx.now } : {}),
@@ -602,8 +615,7 @@ const table = [
     run: (input, ctx) =>
       guarded(() => {
         const p = project(ctx);
-        const session = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
-        const run = p.state && session ? runOf(p, input, ctx) : null;
+        const run = p.state && identityOf(p, input, ctx).session ? runOf(p, input, ctx) : null;
         const pause = notePause(p, ctx, run);
         return { ok: true, ...planWithPause(plan(p, ctx), pause) };
       }),
@@ -1558,10 +1570,8 @@ const table = [
             next: "put the question to the owner; on the owner's own answer, hitld merge approve --all, or --only <branch>[,<branch>]",
           };
         }
-        const by = /** @type {string | undefined} */ (input.session) ?? ctx.env.HITLD_SESSION;
-        if (!by) {
-          throw new Refusal('usage', 'a session ID is needed: pass --session or set HITLD_SESSION');
-        }
+        const by = identityOf(p, input, ctx).session;
+        if (!by) throw new Refusal('usage', NO_SESSION);
         const events = readLedger(p.store).events;
         const pick = selectPresented({
           repoRoot: p.repoRoot,
