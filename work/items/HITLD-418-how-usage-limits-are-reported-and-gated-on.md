@@ -24,3 +24,5 @@ The owner asked on 2026-11-16 how limits are reported for Team and Enterprise pl
 ## Notes
 
 Related: HITLD-151 (the five-hour limit), HITLD-417 (the spend limit window), HITLD-165 (the quota probe). The owner's own plan is Ultra, so a Team or Enterprise reading needs someone with that plan to check what their status line prints; say so in the item if the pages cannot settle it.
+
+Correction added 2026-11-16 (the owner asked whether the status line had not been dropped): the owner decided to retire the status-line usage capture and use the probe everywhere (HITLD-173, built by HITLD-165). So the question this item answers for Team and Enterprise is what the `claude` command's `rate_limit_event` (and the plan's usage page) reports for those plans, not only what the status line's `rate_limits` reports; read the `claude` command's output on a Team or Enterprise seat before relying on the status line pages.
