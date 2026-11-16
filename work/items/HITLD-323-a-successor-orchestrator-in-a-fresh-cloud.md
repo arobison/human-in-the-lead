@@ -25,19 +25,24 @@ So the design's hand-over (a successor takes over from the store) does not work 
 
 The owner's decision to reconcile the stores after HITLD-74 stands; this item does not change it. Approving the device key is the owner's action, not an agent's.
 
-## Analysis for the walk-through (chief of staff, 2026-11-16, for the owner's morning)
+## Analysis for the walk-through (chief of staff, corrected 2026-11-16)
 
-What the private store's remote holds today, read with the chief of staff's own access: only device requests (a few, from cloud devices, filed the evening before the run started) and nothing else: no approvals, no store files, no push from any approved device. A cloud device's key therefore asked to join and was never approved, so every push from it is refused with `device-not-enrolled`. The owner made no key changes. This is not a wrong environment: the cloud environment has the identity and remote variables set and both repositories attached. (Device and environment names are private and are left out of this public item.)
+**Correction.** An earlier version of this section said the cloud device was never approved. That was wrong: it rested on a partial view of the store's remote. Read from the chief of staff's own container, with `hitld store status` and `hitld store device list`: this environment's device is approved (it is the one approved device), it is enrolled, its key opens the remote, the remote holds pushed versions, and `sync.ready` is true. The store works from the chief of staff's container.
 
-Why it never got approved (as the design reads, not fully verified): design 3, section 6 says only the owner's own answer enrolls a device, put to them as a decision by a device the owner already approved, and that the first device of an empty store asks the owner to approve its own key. Here no device was ever approved. A cloud device's request on its own, from a container that is discarded, has no approved device behind it to put the request to the owner. The first-device decision, if it was raised at all, was raised in a local store that died with its container.
+**What failed, as best it can be read (the first orchestrator's container was not inspected, so [Likely], not verified).** The first orchestrator was told not to pull or push the store, by the owner's decision to reconcile the stores only after HITLD-74 (per-machine ID blocks, so two containers' ledger and dispatch IDs do not collide). So its local copy never took in the approval that lives on the remote. Its hand-over push was therefore refused as `device-not-enrolled`, `hitld handover` had already released the lease, and the successor in a fresh container found no run state.
 
-Why it showed up late: nothing checks enrollment when a run starts. The run worked for about seven hours, 23 dispatches and 22 completions, with its state only in the first orchestrator's container, and failed at the first hand-over, the first time the state had to leave that container.
+**Design flaws this shows.**
+- The hand-over depends on the store carrying the run state, but two cloud containers cannot merge their ledgers until HITLD-74 exists, and a run can start in a container that deliberately never syncs. Nothing says so at run start.
+- Nothing checks at `run start` or `run resume` that the store is ready for a hand-over (a remote with no local pull looks like a clean start).
+- `hitld handover` releases the lease before it knows its push can land, so a failed push strands the run.
+- Checkpoint pushes that fail with `device-not-enrolled` are reported as non-blocking failures, so a run can work for hours without any state leaving its container.
+- `store device init --cloud`, run without the identity variable set, mints a new key and prints its private key into the session, which can leave extra requests on the remote.
+- Even a working store would not carry usage snapshots or person settings: usage is machine-local, and moving person settings is HITLD-148.
 
-Options for the walk-through, one question at a time (none is decided):
+**Recommended small changes, none a design change of substance (from an independent review, to confirm in the walk-through):** a preflight at `run start` and `run resume` (store ready, and whether this container has pulled); `hitld handover` checks that its push can land before it releases the lease; a checkpoint marks a `device-not-enrolled` push as blocking; `init --cloud` never mints a key inside a session; an offline fingerprint command; a setup guide that covers the cloud-only first device.
 
-- **Q1, the first device.** Where does the owner's first device come from? (a) The owner's own machine becomes the first device: `hitld store device init` there, the owner answers its decision, it pushes; then `hitld store device ask` puts the cloud requests to the owner. Needs no change, only the owner's machine and a written setup guide. (b) A cloud session may be the first device: the owner approves its own request in the same session, over chat, and the session pushes at once, before its container ends. Needs a change: the request must reach the owner as a question right away, and the first push must follow the answer.
-- **Q2, a check at the start.** `hitld run start` and `hitld run resume` check this device's enrollment (`store status`) and refuse to go on, or warn the owner loudly, when a cloud run's device cannot push. Cheap, and it would have found this at the start, not at hour seven.
-- **Q3, a fallback hand-over.** When the store cannot carry the hand-over, the orchestrator writes a short hand-over note and a ledger summary somewhere that survives (the tracker repository through the chief of staff, or the chat), so a successor can at least continue, as HITLD-188 asks for the chief of staff's own note.
-- **Q4, the stalled run.** When no successor can resume, the run pauses cleanly with a note to the owner, not silently, and the planner and the hand-over limit do not strand the run.
-
-Unblocking the run now (not design; the owner's action): on the owner's machine, `hitld store status`, then `hitld store device ask`; approve the cloud orchestrator's request; push once from the approved machine; then the orchestrator's pull finds the approval and its push works. Which request belongs to the cloud environment's key is not shown in what the chief of staff can read.
+**Questions for the walk-through, one at a time (none decided):**
+- **Q1, when to reconcile.** Reconcile the first orchestrator's store with the remote now (a pull merges the ledgers, and a conflict stops it with nothing merged), or wait for HITLD-74 as decided and accept that the run's hand-over cannot carry state until then?
+- **Q2, the preflight.** Should `run start` and `run resume` refuse, or warn loudly, when the store is not ready for a hand-over?
+- **Q3, the hand-over order.** Should `handover` check that its push can land before releasing the lease?
+- **Q4, the stalled run.** When no successor can resume, should the run pause cleanly with a note to the owner and the hand-over limit not strand it?
