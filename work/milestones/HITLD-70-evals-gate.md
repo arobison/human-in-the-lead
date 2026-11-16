@@ -10,7 +10,7 @@ done_when:
   - "c1: Every skill has scenarios under `claude plugin eval`, and the end-to-end runner drives three flows."
   - "c2: Live evals run with a recorded baseline, and a deliberately degraded skill fails the gate."
   - "c3: The Copilot cloud agent profile passes against the fake adapter, through the MCP server."
-constraints: [HITLD-57 c1, HITLD-33 c2, HITLD-33 c3]
+constraints: [HITLD-57 c1, HITLD-33 c2, HITLD-33 c3, HITLD-52 c2, HITLD-127 c2, HITLD-54 c3]
 check: demo a deliberately degraded skill fails the gate in CI, run by someone other than the authors
 ---
 

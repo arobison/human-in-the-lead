@@ -11,6 +11,7 @@ done_when:
   - "c2: A permission denial is a typed fault that escalates once."
   - "c3: Commits and sign-offs carry the agreed identity."
   - "c4: Device approvals verify by signature."
+constraints: [HITLD-126 c1, HITLD-254 c1, HITLD-240 c1, HITLD-180 c1, HITLD-291 c1, HITLD-186 c2, HITLD-179 c3, HITLD-333 c4]
 check: demo the owner answers a held question in the chief-of-staff session, the orchestrator's command runs with no prompt in its own session, and an unsigned approval is refused
 ---
 

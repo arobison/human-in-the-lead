@@ -9,7 +9,7 @@ outcome: No agent acts on instructions in untrusted text, and each agent can do 
 done_when:
   - "c1: Every injection scenario passes, and attempts are flagged."
   - "c2: Each role has a least-privilege definition that the guard enforces, and a worktree where the commit guard would not run is reported."
-constraints: [HITLD-34 c1, HITLD-34 c2]
+constraints: [HITLD-34 c1, HITLD-34 c2, HITLD-29 c1, HITLD-265 c2]
 check: integration-test the injection scenarios at 100%, and a seeded write outside a role's paths refused
 ---
 
