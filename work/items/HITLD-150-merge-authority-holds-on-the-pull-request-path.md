@@ -17,9 +17,18 @@ Design 14 gives the owner control over what waits for them: `merge.owner_paths` 
 - On the pull-request path, a pull request that changes nothing under `merge.owner_paths` or in `merge.owner_areas` is merged by the system once its named checks pass. One that changes a file there waits for the owner, as in owner mode today. With both settings empty, every pull request waits.
 - The path decides from the pull request's diff, never from its author or its description.
 - The earn-the-queue proposal works on this path: after `merge.propose_queue_after` approved merges in an area with none reverted, the orchestrator puts to the owner, as a decision, the policy change a yes would make. The system never changes `merge.mode` or the owner settings itself.
-- A merge the system makes without asking carries the owner's delegated sign-off for that class, recorded in the owner's own earlier answer and named as delegated in the commit message, and it is listed in the digest with the command that reverses it.
+- A merge the system makes without asking carries the owner's `Signed-off-by`, marked as delegated by a trailer that names the decision that delegated it (HITLD-159), and it is listed in the digest with the command that reverses it.
 - A revert of such a merge counts against the area's run, and a branch that fails its checks goes back to its executor, never to the owner.
 - Tests run the flow against a fake GitHub API: a pull request outside the owner paths merged, one inside left waiting, a diff that touches both, the proposal after the threshold, and a revert resetting the run. Design 14 says how. `npm run check`, the offline eval gate and `hitld work check` pass.
+
+## Settled by the owner
+
+On 2026-11-16, in the chief of staff session, the owner decided two choices in this item, recorded as decisions:
+
+- **Scope (HITLD-158):** tracker-only now, then earn the rest. In this repository `merge.owner_paths` lists everything except `work/`, so pull requests that touch only tracker files merge once their checks pass. Code, workflows, schemas and skills wait for the owner. After the number of approved merges in an area with none reverted that `merge.propose_queue_after` sets, the system proposes widening that area, and the owner decides each time.
+- **Sign-off (HITLD-159):** the owner's `Signed-off-by`, marked as delegated, limited to that scope.
+
+What the number is for `propose_queue_after`, and which paths `owner_paths` holds exactly, are the build's to propose and the owner's to approve in the pull request that sets them.
 
 ## Notes
 
