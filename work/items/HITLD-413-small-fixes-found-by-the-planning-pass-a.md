@@ -13,7 +13,7 @@ needs: [HITLD-343]
 
 
 
-- The one British spelling (`travelled`) in `work/items/HITLD-323-a-successor-orchestrator-in-a-fresh-cloud.md` becomes American, and `npm run spelling` reports no finding on main.
+- The one British spelling (the double-l form of "traveled") in `work/items/HITLD-323-a-successor-orchestrator-in-a-fresh-cloud.md` becomes American, and `npm run spelling` reports no finding on main.
 - Design 3.4, "Validation" (`docs/design/0001-human-in-the-lead/03-data-model.md`), lists the warning for an open work item under no milestone that HITLD-343 added to `hitld work check`.
 - `npm run check` and `hitld work check` pass.
 
