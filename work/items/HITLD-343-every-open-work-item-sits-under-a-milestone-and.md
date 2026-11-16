@@ -2,9 +2,11 @@
 id: HITLD-343
 title: Every open work item sits under a milestone, and the empty milestones are filled in
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-29
+release_note: `hitld work check` warns, without failing, on each open work item that no milestone holds as a constraint or contribution; release items are left out.
 ---
 
 ## Done when

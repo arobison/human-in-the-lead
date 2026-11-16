@@ -491,12 +491,13 @@ export const commands = [
       const t = open(input, ctx, { readOnly: true });
       const inflight = csv(input['in-flight']);
       const terms = workCheckTerms(input, ctx);
-      const { problems, files } = t.check({
+      const checked = t.check({
         branches: Boolean(input.branches),
         inflight,
         terms: terms.matchers,
       });
-      const warnings = [...t.warnings(), ...terms.warnings];
+      const { problems, files } = checked;
+      const warnings = [...t.warnings(), ...terms.warnings, ...(checked.warnings ?? [])];
       if (files === 0) warnings.push(...emptyCheckWarnings(t, input, ctx));
       return {
         ok: problems.length === 0,

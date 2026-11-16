@@ -20,7 +20,7 @@ import {
   findOrphans,
   unclaimItem,
 } from './claims.mjs';
-import { checkItems, findCollisions } from './check.mjs';
+import { checkItems, findCollisions, unplacedWork } from './check.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { LEVELS, checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
@@ -101,7 +101,7 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean }) => ReturnType<typeof closeItem>} close
- * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }) => { problems: string[], files: number }} check
+ * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }) => { problems: string[], files: number, warnings: string[] }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
  * @property {(options?: { tokens?: Map<string, number> }) => import('./views.mjs').MilestoneGraph} milestoneGraph
@@ -766,6 +766,7 @@ export function openTracker({
      * The batch check. `branches` adds ID collisions across every worktree and branch and
      * double claims; `inflight` (dispatch IDs from the ledger) adds the orphaned-claim check;
      * `terms` (from the private store) adds the private term rule to the classification check.
+     * `warnings` names each open work item under no milestone (a warning, not a problem).
      * @param {{ branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }} [options]
      */
     check({ branches = false, inflight, terms } = {}) {
@@ -816,7 +817,7 @@ export function openTracker({
         }
         if (inflight) problems.push(...findOrphans(found, inflight));
       }
-      return { problems, files: items.length };
+      return { problems, files: items.length, warnings: unplacedWork(items) };
     },
 
     releases,

@@ -791,10 +791,15 @@ test('hitld work check, query, show and views run from the repository', async ()
   settings(root);
   const check = await hitld(['work', 'check'], root);
   assert.equal(check.code, 0);
+  // The fixture's open work items are under no milestone: a warning each, and still ok.
   assert.deepEqual(check.json, {
     ok: true,
     files: 6,
     problems: [],
+    warnings: [
+      'work/items/W-4-second-step.md: W-4 is open and under no milestone; make it a constraint of the milestone clause it serves',
+      'work/items/W-5-third-step.md: W-5 is open and under no milestone; make it a constraint of the milestone clause it serves',
+    ],
     summary: '6 files, no problems',
   });
   const q = await hitld(['work', 'query', '--ready'], root);

@@ -3,7 +3,8 @@
 // milestones), nothing above the classification ceiling, no duplicate IDs. For milestones (design
 // part 3.2): every constraint names a clause that exists, every contribution has a value and a
 // confidence, done only with a recorded passing check by a role other than its items' authors, and
-// a name that is an outcome, never a number. For projects (design part 3.2): the shaping fields
+// a name that is an outcome, never a number; `unplacedWork` adds a warning, not a problem, for an
+// open work item under no milestone. For projects (design part 3.2): the shaping fields
 // parse, the bet names an answered decision, and the milestones' shares fit the appetite. A key, a
 // state value or a kind in the formats before HITLD-82 and HITLD-90 is named with the migration
 // that moves it.
@@ -55,6 +56,36 @@ export function duplicateIds(items) {
   return buildGraph(items).duplicates.map(
     ([a, b]) => `${a.data.id}: in both ${a.path} and ${b.path}`,
   );
+}
+
+/**
+ * Warnings, not problems: each open work item (proposed or planned) that no milestone holds, as a
+ * constraint or a contribution, so it shows on no milestone and in no release stage (HITLD-343).
+ * A release item is left out: it needs milestones rather than sitting under one. A dropped
+ * milestone holds nothing. One line each, "<path>: <ID> is open and under no milestone; ...".
+ * @param {Entry[]} items @returns {string[]}
+ */
+export function unplacedWork(items) {
+  const g = buildGraph(items);
+  /** @type {Set<string>} */
+  const held = new Set();
+  for (const m of g.milestones) {
+    if (m.data.state === 'dropped') continue;
+    for (const id of g.needs(m)) held.add(id);
+    for (const c of readMilestone(m.data).contributions) held.add(c.id);
+  }
+  return g.items
+    .filter(
+      (it) =>
+        it.data.kind === 'work' &&
+        ['proposed', 'planned'].includes(String(it.data.state)) &&
+        it.data.release === undefined &&
+        !held.has(String(it.data.id)),
+    )
+    .map(
+      (it) =>
+        `${it.path}: ${it.data.id} is open and under no milestone; make it a constraint of the milestone clause it serves`,
+    );
 }
 
 /**
