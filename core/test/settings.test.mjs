@@ -7,12 +7,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { policyDefaults, resolvePolicy } from '../lib/policy/policy.mjs';
 import {
@@ -30,6 +31,22 @@ import { proposeMigration } from '../lib/settings/migrate.mjs';
 import { envSettings } from '../lib/env/config.mjs';
 
 const posixOnly = { skip: process.platform === 'win32' };
+
+/** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = mkdtempSync(join(tmpdir(), 'hitld-link-probe-'));
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
+const needsSymlink = {
+  skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
+};
 
 /** A fresh home for settings: XDG_CONFIG_HOME and XDG_DATA_HOME under a private temporary dir. */
 function home() {
@@ -94,20 +111,20 @@ async function hitld(argv, cwd, env) {
 
 test('the person file is configuration and the machine file sits beside the registry', () => {
   const env = { XDG_CONFIG_HOME: '/c', XDG_DATA_HOME: '/d' };
-  assert.equal(settingsLocation('person', { env }).path, '/c/human-in-the-lead/person.json');
+  assert.equal(settingsLocation('person', { env }).path, join('/c/human-in-the-lead/person.json'));
   assert.equal(
     settingsLocation('machine', { env }).path,
-    '/d/human-in-the-lead/_machine/machine.json',
+    join('/d/human-in-the-lead/_machine/machine.json'),
   );
-  assert.equal(machineDir({ env }), '/d/human-in-the-lead/_machine');
+  assert.equal(machineDir({ env }), join('/d/human-in-the-lead/_machine'));
   const relative = { XDG_CONFIG_HOME: 'rel', XDG_DATA_HOME: 'rel' };
   assert.equal(
     settingsLocation('person', { env: relative, home: '/h' }).path,
-    '/h/.config/human-in-the-lead/person.json',
+    join('/h/.config/human-in-the-lead/person.json'),
   );
   assert.equal(
     settingsLocation('machine', { env: relative, home: '/h' }).path,
-    '/h/.local/share/human-in-the-lead/_machine/machine.json',
+    join('/h/.local/share/human-in-the-lead/_machine/machine.json'),
   );
 });
 
@@ -211,7 +228,7 @@ function dotfilesLink(base, env, data) {
   return { dotfiles, target };
 }
 
-test('a symlink into a dotfiles git repository loads', () => {
+test('a symlink into a dotfiles git repository loads', needsSymlink, () => {
   const { base, env } = home();
   dotfilesLink(base, env, { schema_version: 1, max_executors: 2 });
   const f = loadSettingsFile('person', { env });
@@ -251,7 +268,7 @@ test('a symlink whose target is owned by someone else is refused', posixOnly, ()
   }
 });
 
-test('a dangling symlink is reported, not followed', () => {
+test('a dangling symlink is reported, not followed', needsSymlink, () => {
   const { base, env } = home();
   const loc = settingsLocation('person', { env });
   mkdirSync(loc.dir, { recursive: true });
@@ -270,7 +287,7 @@ test('a settings file inside a managed project is refused', () => {
   assert.match(f.errors[0].message, /a project HITLd manages/);
 });
 
-test('a symlink into a managed project is refused', () => {
+test('a symlink into a managed project is refused', needsSymlink, () => {
   const { base, env } = home();
   const { dotfiles } = dotfilesLink(base, env, { schema_version: 1 });
   mkdirSync(join(dotfiles, '.human-in-the-lead'));
@@ -433,7 +450,7 @@ test("worktree root: the machine's, or a project subdirectory under it", () => {
   assert.equal(layers({ machine }).policy.env.worktree_root, '/srv/wt');
   assert.equal(
     layers({ machine, raw: { env: { worktree_root: 'proj' } } }).policy.env.worktree_root,
-    '/srv/wt/proj',
+    resolve('/srv/wt', 'proj'),
   );
   const outside = layers({ machine, raw: { env: { worktree_root: '/tmp/wt' } } });
   assert.equal(outside.policy.env.worktree_root, '/srv/wt');
@@ -644,6 +661,7 @@ test('config write refuses a location inside a managed project, and keeps a syml
     () => writeSettingsFile('person', { schema_version: 1 }, { env: inTree.env, cwd }),
     /a project HITLd manages/,
   );
+  if (!canSymlink) return; // Windows without Developer Mode or admin cannot create the link
   const linked = home();
   const loc = settingsLocation('person', { env: linked.env });
   mkdirSync(loc.dir, { recursive: true });

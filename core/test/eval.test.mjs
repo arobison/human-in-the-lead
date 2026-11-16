@@ -34,6 +34,22 @@ import {
 import { LiveNotBuilt, runLive } from '../lib/eval/live.mjs';
 import { commitAll, repoOnMain } from './eval-git.mjs';
 
+/** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = mkdtempSync(join(tmpdir(), 'hitld-link-probe-'));
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
+const needsSymlink = {
+  skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
+};
+
 const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-test-'));
 
 /**
@@ -666,7 +682,7 @@ test('the eval policy section has documented defaults, and refuses a floor outsi
   assert.match(bad.errors[0].message, /above the maximum 1/);
 });
 
-test('a symbolic link cannot take a path out of the sandbox', () => {
+test('a symbolic link cannot take a path out of the sandbox', needsSymlink, () => {
   const outside = tmp();
   writeFileSync(join(outside, 'secret.txt'), 'secret');
   const sandbox = tmp();
@@ -690,7 +706,7 @@ test('a symbolic link cannot take a path out of the sandbox', () => {
   assert.equal(readFileSync(join(outside, 'secret.txt'), 'utf8'), 'secret');
 });
 
-test('actions cannot write or read through a link out of the sandbox', async () => {
+test('actions cannot write or read through a link out of the sandbox', needsSymlink, async () => {
   const outside = tmp();
   writeFileSync(join(outside, 'p.json'), '{}');
   const w = workspace({
@@ -728,47 +744,51 @@ test('the copy generator refuses hard-linked files', () => {
   );
 });
 
-test('the copy generator refuses symbolic links, in the fixture and as the fixture', () => {
-  const outside = tmp();
-  writeFileSync(join(outside, 'secret.txt'), 'secret');
-  const evals = tmp();
-  const fx = join(evals, 'fixtures');
-  mkdirSync(join(fx, 'withfile'), { recursive: true });
-  mkdirSync(join(fx, 'withdir', 'sub'), { recursive: true });
-  symlinkSync(join(outside, 'secret.txt'), join(fx, 'withfile', 'link.txt'));
-  symlinkSync(outside, join(fx, 'withdir', 'sub', 'dirlink'));
-  symlinkSync(outside, join(fx, 'asdir'));
-  const copy = (/** @type {string} */ from) => () => {
-    const dir = tmp();
-    try {
-      return buildFixture(
-        dir,
-        { generator: 'copy', options: { from } },
-        { seed: 1, evalsDir: evals },
-      );
-    } finally {
-      assert.deepEqual(
-        readdirSync(dir).filter((n) => n.includes('link') || n === 'secret.txt'),
-        [],
-      );
-    }
-  };
-  assert.throws(copy('withfile'), /link\.txt is a symbolic link/);
-  assert.throws(copy('withdir'), /sub\/dirlink is a symbolic link/);
-  assert.throws(copy('asdir'), /is a symbolic link/);
-  // A fixtures directory that is itself a link is refused too.
-  const evals2 = tmp();
-  symlinkSync(fx, join(evals2, 'fixtures'));
-  assert.throws(
-    () =>
-      buildFixture(
-        tmp(),
-        { generator: 'copy', options: { from: 'withfile' } },
-        { seed: 1, evalsDir: evals2 },
-      ),
-    /symbolic link/,
-  );
-});
+test(
+  'the copy generator refuses symbolic links, in the fixture and as the fixture',
+  needsSymlink,
+  () => {
+    const outside = tmp();
+    writeFileSync(join(outside, 'secret.txt'), 'secret');
+    const evals = tmp();
+    const fx = join(evals, 'fixtures');
+    mkdirSync(join(fx, 'withfile'), { recursive: true });
+    mkdirSync(join(fx, 'withdir', 'sub'), { recursive: true });
+    symlinkSync(join(outside, 'secret.txt'), join(fx, 'withfile', 'link.txt'));
+    symlinkSync(outside, join(fx, 'withdir', 'sub', 'dirlink'));
+    symlinkSync(outside, join(fx, 'asdir'));
+    const copy = (/** @type {string} */ from) => () => {
+      const dir = tmp();
+      try {
+        return buildFixture(
+          dir,
+          { generator: 'copy', options: { from } },
+          { seed: 1, evalsDir: evals },
+        );
+      } finally {
+        assert.deepEqual(
+          readdirSync(dir).filter((n) => n.includes('link') || n === 'secret.txt'),
+          [],
+        );
+      }
+    };
+    assert.throws(copy('withfile'), /link\.txt is a symbolic link/);
+    assert.throws(copy('withdir'), /sub\/dirlink is a symbolic link/);
+    assert.throws(copy('asdir'), /is a symbolic link/);
+    // A fixtures directory that is itself a link is refused too.
+    const evals2 = tmp();
+    symlinkSync(fx, join(evals2, 'fixtures'));
+    assert.throws(
+      () =>
+        buildFixture(
+          tmp(),
+          { generator: 'copy', options: { from: 'withfile' } },
+          { seed: 1, evalsDir: evals2 },
+        ),
+      /symbolic link/,
+    );
+  },
+);
 
 test('a catastrophic pattern fails fast as a grader error, and does not hang the run', async () => {
   const evil = '^(a+)+$';
