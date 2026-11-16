@@ -2,7 +2,7 @@
 id: HITLD-134
 title: Choices the owner makes in conversation are recorded as decisions
 kind: work
-state: in-progress
+state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-6
