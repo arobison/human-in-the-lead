@@ -9,7 +9,9 @@ project: HITLD-15
 
 ## Why
 
-A chief of staff session started with the project repository and the store repository both attached. The orchestrator it started with `create_session` got only the project repository. Its store status read `remote-unreachable` (no credentials for the host) and the device as not enrolled, although the same environment's device was enrolled. The orchestrator's `add_repo` for the store repository was then denied by the session's permission classifier. Its ledger, trust record and decisions stayed in a container that is discarded when the session ends, and a stale or missing store also lets two sessions allocate the same item ID.
+A chief of staff session started with the project repository and the store repository both attached. The orchestrator it started with `create_session` got only the project repository. Its store status read `remote-unreachable` (no credentials for the host) and its device as not enrolled, although the same environment's device was enrolled. The orchestrator's `add_repo` for the store repository was denied by the session's permission classifier. Its ledger, trust record and decisions stayed in a container that is discarded when the session ends.
+
+HITLD-123 (done) takes tracker IDs from a source every session shares. That guarantee needs the store reachable, so this item is the precondition for it in a cloud orchestrator.
 
 ## Done when
 
@@ -21,4 +23,4 @@ A chief of staff session started with the project repository and the store repos
 
 ## Notes
 
-Raised by the owner in the chief of staff session, who asked why spawned sessions do not take both repositories. Check what `create_session` can attach before choosing the fix. HITLD-109 needs this. HITLD-74 covers ID collisions between machines after the first release.
+Raised by the owner in the chief of staff session, who asked why spawned sessions do not take both repositories. Check what `create_session` can attach before choosing the fix. HITLD-109 needs this.
