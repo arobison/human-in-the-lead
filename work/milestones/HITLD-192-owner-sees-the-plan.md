@@ -9,7 +9,7 @@ outcome: The owner sees the plan, milestones, what is running, and quota and spe
 done_when:
   - "c1: Every open item shows on the board under a milestone, and no label says long outcome."
   - "c2: Every link in the page opens in a browser, or says where it cannot."
-constraints: [HITLD-343 c1, HITLD-342 c1, HITLD-267 c1, HITLD-268 c1, HITLD-378 c1, HITLD-320 c2, HITLD-339 c2, HITLD-421 c1, HITLD-412 c1]
+constraints: [HITLD-343 c1, HITLD-342 c1, HITLD-267 c1, HITLD-268 c1, HITLD-378 c1, HITLD-320 c2, HITLD-339 c2, HITLD-421 c1, HITLD-412 c1, HITLD-448 c2]
 check: demo opening dashboard.html, finding every open item under a milestone and following each kind of link, run by the owner
 ---
 
