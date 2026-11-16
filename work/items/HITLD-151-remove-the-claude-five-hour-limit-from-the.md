@@ -1,6 +1,7 @@
 ---
 id: HITLD-151
-title: Remove the Claude five-hour limit from the design, defaults, code, docs and evals
+title: The Claude five-hour limit is no longer a default; the gate adds it where the plan has one
+release_note: "A new project's default quota limits hold only `claude-weekly`. The `claude-five-hour` limit is no longer a default: the gate adds it while the account's status line reports a five-hour window that has not reset (Pro and Max plans; verified Ultra accounts have none). The `rolling_5h` window value and the usage snapshot's `five_hour` field stay."
 kind: work
 state: in-progress
 created: 2026-11-16
@@ -10,22 +11,22 @@ claimed_by: D-30
 
 ## Why
 
-The owner reports that Anthropic removed the five-hour usage window from Claude plans, leaving the weekly limit only. HITLd still treats it as a default limit. A new project gets a `claude-five-hour` limit with no reading, so the quota gate stops all dispatch until the owner declares a plan or installs a status line. In the first self-hosted run that stop was the first thing that blocked work, and it was a limit the owner's plan does not have. The owner asked for it to be removed before rc.2.
+The owner reported that Anthropic removed the five-hour usage window from Claude plans. The first step (below) found it is gone only for verified Ultra accounts: Pro and Max still have it. HITLd treated it as a default limit, so a new project got a `claude-five-hour` limit with no reading, and the quota gate stopped all dispatch until the owner declared a plan or installed a status line. On a plan without the window, that stop came from a limit the plan does not have. In the first self-hosted run, it was the first thing that blocked work. The owner chose option B (decision HITLD-416): keep five-hour support, but stop requiring it.
 
 ## Done when
 
-- First step: confirm against the Claude Code status line's current input and Anthropic's plan documentation that no five-hour window is reported, and record what each source says in the item. The owner's report is the reason to look, and the sources settle it.
-- The default list of account limits no longer contains `claude-five-hour`. A new project's defaults hold the weekly limit and the run's token budget, and a subscription with only a weekly window gates dispatch on it.
-- Every description of the five-hour window is removed or corrected: design part 12 (`12-reporting-and-limits.md`, the window table), the README's account-limits paragraph, the dashboard and new-project guides, and `docs/reference/harness-usage-sources.md`. The status-line capture reads `seven_day` and ignores a `five_hour` field if a harness still sends one.
-- The `rolling_5h` window value and the `five_hour` field of the usage snapshot are removed from the schemas and the window code (`core/lib/quota/window.mjs`, `usage.mjs`), unless the owner decides to keep a rolling window for other providers, in which case the value is renamed so it does not name Claude. This is the owner's decision; the first step puts it to them.
-- The two orchestrator eval scenarios that pause dispatch at the five-hour reserve (`quota-pause-resume`, `watchdog-ladder`) are rewritten around the weekly window, with a reset that is days away, so they still show a pause, a wake at the reset and a resume. The committed offline baseline is accepted again from a clean run on the final main.
-- The tests that name the five-hour limit (quota, policy, settings, watchdog and machine-registry tests) are updated to the weekly limit, with none skipped or removed to get green.
-- The plugin copies are rebuilt. A search of the repository for `five-hour`, `five_hour` and `rolling_5h` finds nothing, apart from a release note that says the limit was removed.
+- First step: confirm against the Claude Code status line's current input and Anthropic's plan documentation whether a five-hour window is reported, and record what each source says in the item (below).
+- The default list of account limits no longer contains `claude-five-hour`. A new project's defaults hold the weekly limit (plus any run budget), and a subscription with only a weekly window gates dispatch on it.
+- The gate adds a `claude-five-hour` limit only when the account shows one: when its latest status-line snapshot carries a `five_hour` window that has not reset. A limit on the `rolling_5h` window declared in the person file (or the project's) is used as declared, and nothing is added.
+- The `rolling_5h` window value and the usage snapshot's `five_hour` field stay. The status-line capture reads `seven_day`, and `five_hour` when the plan has it.
+- Design part 12 (the window table and the default limit), the README's account-limits paragraph, the dashboard and new-project guides, and `docs/reference/harness-usage-sources.md` say that the five-hour limit applies to Pro and Max plans only.
+- Tests and the two orchestrator eval scenarios (`quota-pause-resume`, `watchdog-ladder`) are changed only where they depended on the default five-hour limit, with none skipped or removed to get green.
+- The plugin copies are rebuilt. A new project's defaults contain no `claude-five-hour`.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
 
 ## Notes
 
-Raised by the owner in the chief of staff session. A schema value is removed, so it is part of the public interface; HITLD-137's release note and the release record say so. Evidence from 2026-11-16: the `rate_limit_event` the `claude` command printed in a cloud container listed only a `seven_day` window in `unifiedWindows`, with no five-hour window (HITLD-165). It is one sample, and the first step of this item still confirms it. HITLD-149 (declared usage) and HITLD-56 (dropped) (the status-line readout, dropped) work on the same gate and should be built after this, or in one wave with care.
+Raised by the owner in the chief of staff session. The default of a schema value (the policy's default quota limits) changes, so it is part of the public interface; the `release_note` above says so, and HITLD-137's release note and the release record carry it. Evidence from 2026-11-16: the `rate_limit_event` the `claude` command printed in a cloud container listed only a `seven_day` window in `unifiedWindows`, with no five-hour window (HITLD-165). It is one sample; the first step below checked it against the sources. HITLD-149 (declared usage) and HITLD-56 (dropped) (the status-line readout, dropped) work on the same gate and should be built after this, or in one wave with care.
 
 Also reported as GitHub issue #116 (friction, triage 2026-11-16): Default quota limits include a claude-five-hour rolling window the plan may lack; the person file had to replace the whole list to drop it. The issue is untouched on GitHub; this item covers it, and a second report raises its reach.
 
@@ -39,4 +40,4 @@ Read on 2026-11-16 by D-30. The sources contradict the item's premise for Pro an
 - **Pricing page** (claude.com/pricing): Pro and Max get usage "every 5 hours and every week"; Ultra: "No 5-hour limit" for verified accounts and "10x Pro usage every week". Its comparison table has a "Limit every 5 hours" row (Limited, 1x, 5x, No 5-hour limit) and a "Limit every week" row.
 - The two older plan-usage articles (11014257 for Max, 8324991 for Pro) return 404.
 
-Reading: the five-hour window is gone only for verified Ultra accounts; Pro and Max still have it, and the status line still reports it when the account has it. The sample in HITLD-165 (a `rate_limit_event` listing only `seven_day`) fits an account without the window, or a window dropped after its reset, and does not show a change for all plans. Removing the five-hour limit from the code would leave Pro and Max subscribers without a gate on a limit their plan has. The question of scope went to the owner through the orchestrator.
+Reading: the five-hour window is gone only for verified Ultra accounts; Pro and Max still have it, and the status line still reports it when the account has it. The sample in HITLD-165 (a `rate_limit_event` listing only `seven_day`) fits an account without the window, or a window dropped after its reset, and does not show a change for all plans. Removing the five-hour limit from the code would leave Pro and Max subscribers without a gate on a limit their plan has. The question of scope went to the owner through the orchestrator, who chose option B (decision HITLD-416).

@@ -37,23 +37,12 @@
       "default": [0.5, 0.75, 0.9]
     },
     "limits": {
-      "description": "The declared limits. A project's list replaces the default list as a whole. The defaults are the two Claude subscription windows, read from status-line snapshots. Limits other than run budgets (window: run) moved to the person file (design part 13.4); here they still load, with a warning, and a limit with the same id as a person limit only tightens it.",
+      "description": "The declared limits. A project's list replaces the default list as a whole. The default is the Claude subscription's weekly window, read from status-line snapshots. A Pro or Max plan also has a five-hour window: while the account's latest status-line snapshot reports one that has not reset, the gate adds a claude-five-hour limit unless a limit on the rolling_5h window is already declared. Limits other than run budgets (window: run) moved to the person file (design part 13.4); here they still load, with a warning, and a limit with the same id as a person limit only tightens it.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/limit"
       },
       "default": [
-        {
-          "id": "claude-five-hour",
-          "unit": "plan-percent",
-          "window": "rolling_5h",
-          "limit": 100,
-          "scope": {
-            "harness": "claude-code"
-          },
-          "source": "measured",
-          "hard": false
-        },
         {
           "id": "claude-weekly",
           "unit": "plan-percent",

@@ -115,7 +115,7 @@ Each limit is a **quota**:
 | Field | Meaning |
 |---|---|
 | `unit` | `tokens`, `requests`, `usd`, `credits`, or `plan-percent` (a vendor's "usage" percentage with no published unit) |
-| `window` | `rolling_5h`, `weekly`, `monthly_utc` (calendar month, UTC), `run`, or a custom period |
+| `window` | `rolling_5h` (the five-hour window of a Claude Pro or Max plan), `weekly`, `monthly_utc` (calendar month, UTC), `run`, or a custom period |
 | `limit` | The amount per window, where known |
 | `scope` | Which account, harness and models it covers |
 | `source` | `measured` from a vendor readout or API, `estimated` from the ledger, or `declared` in the person's settings |
@@ -125,6 +125,8 @@ Each limit is a **quota**:
 | `resets_at` | Optional: a time the window is known to reset, as the person declares it; later resets follow one window length apart. Used when no reading gives the reset |
 
 The existing run token budget becomes a quota with `window: run`.
+
+**The default limit is the weekly window** of a Claude subscription (`claude-weekly`: `plan-percent` on `weekly`), read from the status line. Pro and Max plans also have a five-hour window; verified Ultra accounts do not. A limit with no reading stops dispatch, so the five-hour window is not a default: while the account's latest status-line snapshot reports a five-hour window that has not reset, the gate adds a `claude-five-hour` limit (`plan-percent` on `rolling_5h`). Claude Code drops a window from its status line once it resets, so the added limit goes with it. A person who declares a limit on `rolling_5h` keeps their own, and nothing is added.
 
 ### What can be measured, by harness
 
