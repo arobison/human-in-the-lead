@@ -21,6 +21,14 @@ import {
   planRef,
   planSpecific,
 } from './item.mjs';
+import { effectiveEvents } from '../ledger/summary.mjs';
+
+/**
+ * How many similar past completions the estimate needs before their median replaces the policy
+ * default (HITLD-436). Below it one run, however wrong its figure, would set the estimate for every
+ * similar item; at three, one outlier among normal runs cannot move the median past them.
+ */
+export const ESTIMATE_MIN_SAMPLES = 3;
 
 /**
  * @typedef {import('./item.mjs').Item} Item
@@ -43,6 +51,8 @@ import {
  * @property {string} effort
  * @property {number} estimate_tokens
  * @property {'hint' | 'item' | 'history' | 'default'} estimate_source
+ * @property {number} [estimate_samples] how many similar past completions with a token count there
+ *   were; the history sets the estimate only from ESTIMATE_MIN_SAMPLES of them
  * @property {string[]} areas
  * @property {string | null} owner_review the area whose output the owner reviews in person, when
  *   there is one: the brief asks for a review pack
@@ -139,6 +149,7 @@ export function sizeItem(item, policy, history = []) {
     effort: 'medium',
   };
   const estimate = estimateTokens(item, t, areas, history, d);
+  if (estimate.note) reasons.push(estimate.note);
   const reviewed = areas.find((a) => (d.owner_review_areas ?? []).includes(a)) ?? null;
   if (reviewed) {
     reasons.push(`area ${reviewed} is reviewed in person: the brief asks for a review pack`);
@@ -152,6 +163,7 @@ export function sizeItem(item, policy, history = []) {
     effort: config.effort,
     estimate_tokens: estimate.tokens,
     estimate_source: estimate.source,
+    estimate_samples: estimate.samples,
     areas,
     owner_review: reviewed,
   };
@@ -160,39 +172,54 @@ export function sizeItem(item, policy, history = []) {
 /**
  * The token estimate (design part 5.1): the median actual tokens of similar past items (same area,
  * kind and tier), scaled by the item's touches breadth; the policy default for the tier when there
- * are none. An estimate already on the item is kept.
+ * are fewer than ESTIMATE_MIN_SAMPLES of them, with a note that says so. An estimate already on the
+ * item is kept.
  * @param {Item} item @param {number} tier @param {string[]} areas @param {HistoryEntry[]} history
  * @param {Record<string, any>} d policy.dispatch
- * @returns {{ tokens: number, source: 'item' | 'history' | 'default' }}
+ * @returns {{ tokens: number, source: 'item' | 'history' | 'default', samples: number, note?: string }}
  */
 export function estimateTokens(item, tier, areas, history, d) {
   if (Number.isInteger(item.estimate_tokens))
-    return { tokens: item.estimate_tokens, source: 'item' };
-  if (tier === 0) return { tokens: 0, source: 'default' };
+    return { tokens: item.estimate_tokens, source: 'item', samples: 0 };
+  if (tier === 0) return { tokens: 0, source: 'default', samples: 0 };
   const breadth = Math.max(1, (item.touches ?? []).length);
   const scale = 1 + 0.25 * (breadth - 1);
-  const similar = history
-    .filter(
-      (h) => h.tier === tier && h.area === (areas[0] ?? null) && h.kind === (item.kind ?? null),
-    )
-    .map((h) => h.tokens)
-    .filter((x) => typeof x === 'number');
-  if (similar.length)
+  const similar = /** @type {number[]} */ (
+    history
+      .filter(
+        (h) => h.tier === tier && h.area === (areas[0] ?? null) && h.kind === (item.kind ?? null),
+      )
+      .map((h) => h.tokens)
+      .filter((x) => typeof x === 'number')
+  );
+  if (similar.length >= ESTIMATE_MIN_SAMPLES)
     return {
-      tokens: Math.round(median(/** @type {number[]} */ (similar)) * scale),
+      tokens: Math.round(median(similar) * scale),
       source: 'history',
+      samples: similar.length,
     };
   const base = d.default_estimates?.[String(tier)] ?? 150000;
-  return { tokens: Math.round(base * scale), source: 'default' };
+  return {
+    tokens: Math.round(base * scale),
+    source: 'default',
+    samples: similar.length,
+    ...(similar.length
+      ? {
+          note: `estimate from the tier ${tier} default: ${similar.length} similar past ${similar.length === 1 ? 'completion is' : 'completions are'} too few to set it (${ESTIMATE_MIN_SAMPLES} needed)`,
+        }
+      : {}),
+  };
 }
 
 /**
- * History for sizing, from ledger events and the items they were about.
- * @param {Record<string, any>[]} events the ledger
+ * History for sizing, from ledger events and the items they were about. Events are read as they
+ * stand after corrections, so a corrected completion counts with its corrected token figure.
+ * @param {Record<string, any>[]} ledger the ledger
  * @param {(id: string) => Item | undefined} itemOf
  * @returns {HistoryEntry[]}
  */
-export function historyFromLedger(events, itemOf) {
+export function historyFromLedger(ledger, itemOf) {
+  const events = effectiveEvents(ledger);
   /** @type {Map<string, Record<string, any>>} */
   const dispatched = new Map();
   /** @type {Map<string, boolean>} first verification per item */

@@ -7,6 +7,11 @@
 //   headless  the JSON result of claude -p --output-format json: result, session_id, usage,
 //             total_cost_usd (documented), and permission_denials, the tool calls the permission
 //             mode refused, when present
+//
+// What a completion's tokens count (HITLD-436): output tokens plus fresh input, which is uncached
+// input and input written to the cache. Never cache reads: a long run rereads its cached context on
+// every turn, so a cache-read total can be hundreds of times what the run cost, and a ledger that
+// recorded it would take one run for the cost of many.
 
 /**
  * @typedef {import('../interface.mjs').Completion} Completion
@@ -81,12 +86,8 @@ export function headlessCompletion(text) {
   }
   if (Array.isArray(data)) data = data.findLast((m) => m && m.type === 'result') ?? {};
   const u = data.usage ?? {};
-  const parts = [
-    u.input_tokens,
-    u.output_tokens,
-    u.cache_creation_input_tokens,
-    u.cache_read_input_tokens,
-  ].map(int);
+  // cache_read_input_tokens is left out on purpose (see the head of this file).
+  const parts = [u.input_tokens, u.output_tokens, u.cache_creation_input_tokens].map(int);
   const tokens = parts.every((p) => p === null)
     ? null
     : parts.reduce((a, b) => (a ?? 0) + (b ?? 0), 0);

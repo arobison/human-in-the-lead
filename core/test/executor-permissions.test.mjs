@@ -185,7 +185,10 @@ test('cli: a refused headless run holds headless for every item; a quoted refusa
       tier_override: '3',
       touches: [`src/${slug}.js`],
     });
+  // Four slots, so W-7 is in the plan's start list: one completion of 15 tokens no longer makes
+  // tier 3 the cheapest work and puts it first (HITLD-436).
   const c = makeConsumer({
+    policy: { execution: { max_executors: { value: 4 } } },
     files: {
       'work/items/W-4-redesign.md': tier3('W-4', 'redesign'),
       'work/items/W-7-rework.md': tier3('W-7', 'rework'),

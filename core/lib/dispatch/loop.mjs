@@ -57,7 +57,7 @@ export async function runDispatchLoop(r) {
   /** @param {string} dispatch @param {Completion} completion */
   const absorb = (dispatch, completion) => {
     const entry = r.run.state.in_flight.find((/** @type {any} */ d) => d.dispatch === dispatch);
-    if (entry) r.run.record(reportedEvent(entry, completion));
+    if (entry) r.run.record(reportedEvent(entry, completion, readLedger(r.run.store).events));
     pending.delete(dispatch);
     const id = /** @type {string} */ (itemOf.get(dispatch));
     const { report } = parseReport(completion.report);

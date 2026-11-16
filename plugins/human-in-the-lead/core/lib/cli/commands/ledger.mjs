@@ -219,6 +219,8 @@ const RAW_APPEND_FIELDS = {
   reverted: ['item', 'dispatch', 'commit', 'notes', 'corrects'],
 };
 const RAW_APPEND_EVENTS = Object.keys(RAW_APPEND_FIELDS);
+/** What a correction of a completion does not copy from it: its own, or set afresh. */
+const OWN_FIELDS = ['id', 'at', 'schema_version', 'run', 'corrects', 'notes', 'tokens'];
 /** Fields the system sets: a caller's are dropped, not refused. */
 const SYSTEM_FIELDS = ['id', 'run', 'at', 'schema_version'];
 
@@ -321,6 +323,109 @@ const table = [
           }
         }
         return { ok: true, appended, event: written };
+      }),
+  },
+  {
+    name: 'ledger correct-tokens',
+    summary:
+      "Correct a completion's recorded token count: a reported event that corrects the named one, as the session holding the lease",
+    built_by: 'b',
+    args: [
+      {
+        name: 'event',
+        type: 'string',
+        positional: true,
+        required: true,
+        description:
+          "The ID of the reported event whose tokens are wrong (reported-D-<n> for a dispatch's completion), or of the correction that now stands for it",
+      },
+      {
+        name: 'tokens',
+        type: 'integer',
+        required: true,
+        description:
+          'What the dispatch cost: output tokens plus fresh input (uncached input and cache writes), never cache reads',
+      },
+      {
+        name: 'why',
+        type: 'string',
+        required: true,
+        description:
+          'Why the recorded figure is wrong, in a sentence: recorded with the correction',
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const tokens = /** @type {number} */ (input.tokens);
+        const why = String(input.why ?? '').trim();
+        if (!Number.isInteger(tokens) || tokens < 0) {
+          return {
+            ok: false,
+            error: 'usage',
+            message: '--tokens must be a whole number, 0 or more',
+          };
+        }
+        if (!why)
+          return { ok: false, error: 'usage', message: '--why must say why, in a sentence' };
+        const s = setup(input, ctx);
+        const loaded = loadState(s.store);
+        if (!loaded.state) {
+          throw new CodedError(
+            'no-run',
+            `no run state (${loaded.problems.join('; ')}); start a run with hitld run start`,
+          );
+        }
+        const by = who(input, ctx, s.store);
+        const run = new Run(
+          s.store,
+          { ...by, kept: s.kept, expirySeconds: s.expirySeconds },
+          loaded.state,
+        );
+        const id = String(input.event);
+        const events = readLedger(s.store).events;
+        const target = events.find((e) => e.id === id);
+        if (!target || target.event !== 'reported') {
+          return {
+            ok: false,
+            error: 'forbidden-correction',
+            message: `${id} is ${target ? `a ${target.event} event` : 'not in the ledger'}; only a completion (a reported event) has a token count to correct`,
+          };
+        }
+        // One correction stands for an event at a time: a second one corrects the first, so the
+        // ledger never holds two figures for the same completion.
+        const standing = events.find((e) => e.corrects === id && correctsValidly(target, e));
+        if (standing) {
+          return {
+            ok: false,
+            error: 'already-corrected',
+            message: `${id} was already corrected by ${standing.id} (tokens ${standing.tokens}); correct ${standing.id} instead`,
+            corrected_by: standing.id,
+          };
+        }
+        if (target.tokens === tokens) {
+          return {
+            ok: true,
+            appended: false,
+            event: target,
+            message: `${id} already records ${tokens} tokens`,
+          };
+        }
+        // The correction is the completion again, with the right figure: every other field stands,
+        // so the correction changes nothing but the tokens wherever the ledger is read.
+        const kept = Object.fromEntries(
+          Object.entries(target).filter(([k]) => !OWN_FIELDS.includes(k)),
+        );
+        const before = target.tokens ?? null;
+        const { event: written, appended } = run.record({
+          ...kept,
+          tokens,
+          corrects: id,
+          notes: `${target.notes ? `${target.notes}; ` : ''}tokens corrected from ${before ?? 'none'} to ${tokens} by ${by.session}: ${why}`,
+        });
+        return { ok: true, appended, event: written, tokens: { before, after: tokens } };
       }),
   },
   {

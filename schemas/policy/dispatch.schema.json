@@ -47,7 +47,7 @@
       "default": 5
     },
     "default_estimates": {
-      "description": "The token estimate per tier when no similar item has been done before. Replaced by the median of similar past items once there are some.",
+      "description": "The token estimate per tier until there are enough similar past items. Replaced by the median of similar past items once there are at least three (one wrong figure cannot set the estimate).",
       "type": "object",
       "properties": {
         "1": { "$ref": "common#/$defs/tokens" },

@@ -313,7 +313,10 @@ export function handoverDue(state, events, limits = {}) {
       e.session === l.session &&
       e.host === l.host,
   );
-  const completions = events.slice(took + 1).filter((e) => e.event === 'reported').length;
+  // A correction of a completion's figure (hitld ledger correct-tokens) is not a completion.
+  const completions = events
+    .slice(took + 1)
+    .filter((e) => e.event === 'reported' && e.corrects === undefined).length;
   /** @type {string[]} */
   const reasons = [];
   if (completions >= after) {
@@ -427,7 +430,7 @@ async function reconcile(run, reality) {
     }
     const completion = completions.find((c) => c.dispatch === entry.dispatch);
     if (completion) {
-      run.record(reportedEvent(entry, completion));
+      run.record(reportedEvent(entry, completion, readLedger(run.store).events));
       out.reported.push(entry.dispatch);
       continue;
     }

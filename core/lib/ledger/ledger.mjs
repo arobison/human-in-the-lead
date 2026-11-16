@@ -241,6 +241,23 @@ export function nextDispatchId(source) {
 export const lifecycleId = (event, dispatch) => `${event}-${dispatch}`;
 
 /**
+ * The token estimate a dispatch started with: its `dispatched` event's estimate_tokens, or, for a
+ * follow-up (which carries none of its own), the item's last estimate before it. Undefined when the
+ * ledger has none.
+ * @param {LedgerEntry[]} events @param {string} dispatch @param {string} [item]
+ * @returns {number | undefined}
+ */
+export function startEstimate(events, dispatch, item) {
+  const own = events.find((e) => e.event === 'dispatched' && e.dispatch === dispatch);
+  if (typeof own?.estimate_tokens === 'number') return own.estimate_tokens;
+  const of = item ?? own?.item;
+  if (of === undefined) return undefined;
+  return events.findLast(
+    (e) => e.event === 'dispatched' && e.item === of && typeof e.estimate_tokens === 'number',
+  )?.estimate_tokens;
+}
+
+/**
  * Whether `correction` may correct `target`: the same kind of event, about the same item or the
  * same dispatch (the rule core/lib/quota/usage.mjs applies to the same ledger).
  * @param {LedgerEntry} target @param {LedgerEntry} correction
