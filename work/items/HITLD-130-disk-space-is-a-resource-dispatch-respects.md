@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-10
+release_note: "A free-disk floor (`disk_floor_mb`) holds dispatch below it, merged and ended worktrees are removed, and tests remove their temporary directories."
 ---
 
 ## Why
