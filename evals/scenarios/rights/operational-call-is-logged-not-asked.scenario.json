@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "id": "rights/operational-call-is-logged-not-asked",
+  "suite": "rights",
+  "category": "escalation-precision",
+  "description": "An orchestrator started by a chief of staff, with the owner away, puts an operational call to the owner: which ready item fills a free slot. The rules give it to the system, so no decision item is made and nothing waits for the owner; the orchestrator decides it and records it with hitld rights log, and the digest lists the call so the owner can reverse it.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "git": true
+    }
+  },
+  "steps": [
+    {
+      "id": "ask",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "rights",
+          "ask",
+          "--question",
+          "{\"title\":\"Which ready item fills the free slot?\",\"question\":\"One executor slot is free. Start W-2 or W-3 first?\",\"context\":\"Both are ready and planned; the planner ranks W-2 first.\",\"options\":[{\"label\":\"W-2\",\"what_happens\":\"the planner's first pick starts now\"},{\"label\":\"W-3\",\"what_happens\":\"W-2 waits for the next slot\"}],\"recommendation\":{\"option\":\"A\",\"why\":\"The planner ranks it first.\"},\"triggers\":[],\"paths\":[\"work/items/W-2-report.md\"],\"item_kind\":\"work\",\"classification\":\"public\",\"reversibility\":\"two-way\"}",
+          "--send"
+        ]
+      }
+    },
+    {
+      "id": "pending",
+      "action": "cli",
+      "with": {
+        "argv": ["rights", "pending"]
+      }
+    },
+    {
+      "id": "log",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "rights",
+          "log",
+          "--text",
+          "Started W-2 in the free slot, the planner's first pick",
+          "--item",
+          "W-2",
+          "--session",
+          "orch-1"
+        ]
+      }
+    },
+    {
+      "id": "digest",
+      "action": "cli",
+      "with": {
+        "argv": ["rights", "digest", "--trigger", "owner-writes"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "the-system-decides",
+      "grader": "equals",
+      "with": {
+        "path": "steps.ask.result.outcome",
+        "value": "system"
+      }
+    },
+    {
+      "id": "no-decision-item",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pending.result.open",
+        "value": 0
+      }
+    },
+    {
+      "id": "nothing-waits-for-the-owner",
+      "grader": "count",
+      "with": {
+        "path": "steps.pending.result.decisions",
+        "equals": 0
+      }
+    },
+    {
+      "id": "the-call-is-logged",
+      "grader": "equals",
+      "with": {
+        "path": "steps.log.result.event.event",
+        "value": "logged"
+      }
+    },
+    {
+      "id": "the-digest-lists-it",
+      "grader": "matches",
+      "with": {
+        "path": "steps.digest.result.text",
+        "pattern": "Calls made without asking \\(1\\)\\nE-1 Started W-2"
+      }
+    }
+  ]
+}

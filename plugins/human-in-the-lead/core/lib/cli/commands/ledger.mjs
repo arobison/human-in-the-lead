@@ -24,6 +24,7 @@ import {
 import { absorb } from '../../run/state.mjs';
 import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
+import { recordMessage } from '../../run/messages.mjs';
 import { refuseHeldElsewhere, restoreState } from '../../run/pulled.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
@@ -690,6 +691,48 @@ const table = [
         };
       }),
   },
+  ...[
+    /** @type {const} */ ({
+      what: 'heard',
+      flag: 'from',
+      summary:
+        "Record that a message from the orchestrator reached the chief of staff, for the watchdog's silent-orchestrator check. The chief of staff's, on each message an orchestrator sends it",
+      about: 'The orchestrator session the message came from',
+    }),
+    /** @type {const} */ ({
+      what: 'woke',
+      flag: 'to',
+      summary:
+        "Record that the chief of staff sent the orchestrator a wake (a start prompt, an event, an answer, a relay), for the watchdog's silent-orchestrator check. The chief of staff's, after each message it sends to wake_to",
+      about: 'The orchestrator session the wake went to',
+    }),
+  ].map(
+    (c) =>
+      /** @type {import('../table.mjs').Command} */ ({
+        name: `run ${c.what}`,
+        summary: c.summary,
+        built_by: 'h',
+        args: [{ name: c.flag, type: 'string', description: c.about }, STORE],
+        run: (input, ctx) =>
+          guarded(() => {
+            const why = executorSignal(ctx.env, ctx.cwd);
+            if (why) {
+              return {
+                ok: false,
+                error: 'not-permitted',
+                message: `hitld run ${c.what} is the chief of staff's (${why}); an executor reports in its final message`,
+              };
+            }
+            const s = setup(input, ctx);
+            const from = input[c.flag];
+            const record = recordMessage(s.store, c.what, {
+              ...(typeof from === 'string' && from ? { session: from } : {}),
+              now: ctx.now ? ctx.now() : new Date(),
+            });
+            return { ok: true, recorded: c.what, messages: record };
+          }),
+      }),
+  ),
   {
     name: 'run rebuild',
     summary: 'Rebuild the run-state file from the ledger, claim branches and the tracker',
