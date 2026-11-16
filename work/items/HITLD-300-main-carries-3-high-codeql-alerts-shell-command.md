@@ -2,7 +2,7 @@
 id: HITLD-300
 title: "Main carries 3 CodeQL alerts (shell command from an environment path) from the Windows pull request: fix them or dismiss them with the owner's reason"
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -18,3 +18,6 @@ They arrived with the Windows pull request (PR #186, merged at `7fc07c3`). CodeQ
 - The owner decides: fix the code so the alerts clear, or dismiss them in the code scanning UI with the owner's reason written in the code comment.
 - Either way, `main` carries no open high alert that nobody has decided, and `npm run check` and `hitld work check` pass.
 
+## Decided
+
+The owner decided on 2026-11-16 (decision HITLD-382): fix the code so the CodeQL results clear: resolve and validate the declared path before it reaches the shell command (core/lib/env/worktree.mjs, its plugin copy, and the test line), with no suppression comment. A code change: the owner merges.
