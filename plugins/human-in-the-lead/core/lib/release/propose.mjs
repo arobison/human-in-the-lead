@@ -142,7 +142,7 @@ export function surfaceAt(root, tag) {
  * @param {string} root @param {string | null} base
  * @returns {Map<string, Set<string>>} item ID to the surface files its commits touched
  */
-function surfaceTouches(root, base) {
+export function surfaceTouches(root, base) {
   const log = git(
     root,
     [

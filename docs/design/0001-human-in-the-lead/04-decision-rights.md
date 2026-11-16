@@ -20,7 +20,7 @@ Each role has a purpose, the decisions it may make, and the privileges it runs w
 | **Shaper** | Tier-2 or tier-3 agent | Turn signal clusters into projects ready to bet on | Options and the recommendation | Commit an appetite (that is a bet: owner's call) |
 | **Researcher** | Background agent | Desk research with sources and dates read; draft research briefs | What to read | Contact people; publish anything |
 | **Liaison** | Background agent | Draft replies to contributors | Wording of drafts | Send anything sensitive ([part 9](09-contributors.md#93-replies)) |
-| **Gardener** | Tier-1 agent | Keep the knowledge base fresh | Wording of knowledge-base pages within the facts | Change conventions or architecture rules (those are decisions) |
+| **Curator** | Tier-1 agent | Keep the knowledge base and the work items true to what was built and decided ([8.5](08-knowledge-base.md#85-the-kb-tool), [13.3](13-operations.md#the-stale-item-sweep-and-the-curators-pass)) | Wording of knowledge-base pages and of work items within their facts, and the American spelling of tracked text, each through a pull request | Change conventions or architecture rules, or an item's scope, plan, placement or release, or any decision (each is a question for the owner); apply a finding without a pull request or a question |
 | **Scribe** | Tier-1 agent | Draft precedents from answered decisions; draft retro proposals | Wording | Activate a precedent without the decider's confirmation |
 
 The orchestrator may run several of the small roles inline when the work is tiny (tier 0), but never the acceptance author, adversary or reviewer for code it wrote itself: independence is the point of those roles.

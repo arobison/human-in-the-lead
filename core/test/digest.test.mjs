@@ -19,6 +19,7 @@ import { PARTS } from '../lib/digest/parts.mjs';
 import { flakesPart } from '../lib/digest/flakes.mjs';
 import { answerDecision, askQuestion, logCall } from '../lib/rights/flow.mjs';
 import { sweepDefaults } from '../lib/rights/pending.mjs';
+import { sweepPart } from '../lib/digest/sweep.mjs';
 import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
 import { FLAKES_KEY, QUARANTINE_PATH, recordQuarantineEvent } from '../lib/merge/quarantine.mjs';
 import { attentionDefaults } from '../lib/settings/attention.mjs';
@@ -515,12 +516,17 @@ test('the digest is assembled from named parts, and the flaky-test part has its 
       'review',
       'stamp',
       'flakes',
+      'sweep',
       'quota',
       'disk',
     ],
   );
   assert.equal(PARTS.includes(flakesPart), true);
   assert.deepEqual(flakesPart.collect(/** @type {any} */ ({ root: null })), { section: null });
+  // The sweep reads only a files tracker; any other has no section.
+  assert.deepEqual(sweepPart.collect(/** @type {any} */ ({ deps: { tracker: {} } })), {
+    section: null,
+  });
 
   // A part another piece adds is assembled and shortened like the rest, and carries its data.
   const { deps } = setup();

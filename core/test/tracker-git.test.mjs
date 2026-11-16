@@ -922,6 +922,7 @@ test('every command this piece owns is built', async () => {
       'work migrate',
       'work claims',
       'work check',
+      'work sweep',
       'work views',
       'work publish',
     ],
