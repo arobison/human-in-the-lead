@@ -2,7 +2,7 @@
 id: HITLD-140
 title: The Release workflow refuses to run when the release environment has no required reviewer
 kind: work
-state: in-progress
+state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-15
