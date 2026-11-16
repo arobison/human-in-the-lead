@@ -2,7 +2,7 @@
 id: HITLD-421
 title: The Roadmap shows proposed milestones as dashed outlines and lays its columns out by release stage
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-343]
