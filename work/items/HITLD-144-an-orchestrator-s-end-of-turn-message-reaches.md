@@ -2,9 +2,10 @@
 id: HITLD-144
 title: An orchestrator's end-of-turn message reaches the chief of staff in a cloud session
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-17
 ---
 
 ## Why
