@@ -25,4 +25,4 @@ On 2026-11-16, in the chief of staff session, the owner decided how the gate tre
 
 ## Notes
 
-Raised in the chief of staff session. HITLD-56 (the status-line readout) and the capture in `hitld install --statusline` cover harnesses that expose usage; this covers the ones that do not.
+Raised in the chief of staff session. HITLD-56 (the status-line readout, dropped) and the capture in `hitld install --statusline` cover harnesses that expose usage; this covers the ones that do not.

@@ -2,7 +2,8 @@
 id: HITLD-56
 title: The status-line readout
 kind: work
-state: planned
+state: dropped
+reason: "Dropped by the owner on 2026-11-16 (HITLD-175): the page they need is the dashboard (HITLD-152), and the digest already carries what the readout would show."
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-37, HITLD-40]
@@ -18,3 +19,7 @@ Design 12.1.1: one always-visible line that shows what the person would otherwis
 - It is computed from the run-state file and the machine registry only, with no network call.
 - By default it shows only what needs the person. A person-file setting says how much more.
 - A test per row builds a fixture state and checks the line, and a state with nothing to show gives a short line.
+
+## Dropped
+
+The owner's words, on 2026-11-16 in the chief of staff session: "yeah we can cancel 56, what i really need is the dashboard.html thing". The status line is documented only for the terminal CLI. Recorded as HITLD-175.
