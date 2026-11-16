@@ -434,10 +434,16 @@ test('completions: the headless JSON result and the subagent notification', () =
       session_id: 'abc',
       total_cost_usd: 0.5,
       duration_ms: 900,
-      usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 70 },
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_creation_input_tokens: 5,
+        cache_read_input_tokens: 1_882_000,
+      },
     }),
   );
-  assert.deepEqual(h.usage, { tokens: 100, toolCalls: null, durationMs: 900 });
+  // Output plus fresh input (uncached and cache writes); the cache reads are not a cost (HITLD-436).
+  assert.deepEqual(h.usage, { tokens: 35, toolCalls: null, durationMs: 900 });
   assert.equal(h.sessionId, 'abc');
   assert.equal(h.usageSource, 'documented');
   const s = subagentCompletion({ text: 'item: W-1' });
@@ -963,4 +969,83 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
   ]);
   assert.equal(follow.result.instruction?.tool, 'Bash', JSON.stringify(follow.result));
   assert.match(follow.result.instruction.input.command, /--resume sess-9/);
+});
+
+test('a completion records its start estimate, refuses a figure far above it, and can be corrected (HITLD-436)', async () => {
+  const c = makeConsumer();
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+  const s = await c.hitld(['dispatch', 'start', 'W-2']);
+  assert.equal(s.exit, 0, JSON.stringify(s.result));
+  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const ledger = () =>
+    readLedger(
+      /** @type {any} */ ({
+        read: (/** @type {string} */ k) =>
+          k === 'ledger.jsonl'
+            ? readFileSync(join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl'), 'utf8')
+            : null,
+      }),
+    ).events;
+  const estimate = ledger().find((e) => e.event === 'dispatched')?.estimate_tokens;
+  assert.ok(typeof estimate === 'number' && estimate > 0, 'the dispatch started with an estimate');
+  const note = join(c.base, 'note-436.txt');
+  writeFileSync(note, report({ item: 'W-2', sha: 'abc1234', branch: s.result.branch }));
+
+  // A cache-read total, many times the estimate: refused, and nothing is recorded or released.
+  const huge = estimate * 5;
+  const complete = (/** @type {string[]} */ more) =>
+    c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note, ...more]);
+  const refused = await complete(['--tokens', String(huge)]);
+  assert.equal(refused.result.error, 'tokens-over-estimate', JSON.stringify(refused.result));
+  assert.match(refused.result.message, /never cache reads/);
+  assert.match(refused.result.message, /--tokens-over-estimate/);
+  assert.ok(!ledger().some((e) => e.event === 'reported'), 'nothing recorded');
+
+  // Recorded on confirmation, saying so, with the start estimate beside the actual.
+  const done = await complete(['--tokens', String(huge), '--tokens-over-estimate']);
+  assert.equal(done.exit, 0, JSON.stringify(done.result));
+  const reported = /** @type {Record<string, any>} */ (
+    ledger().find((e) => e.event === 'reported')
+  );
+  assert.deepEqual([reported.tokens, reported.estimate_tokens], [huge, estimate]);
+  assert.match(reported.notes, /confirmed with --tokens-over-estimate/);
+
+  // The figure was wrong after all: corrected by the supported command, in the ledger.
+  const why = ['--why', 'the figure was the cache-read total'];
+  const fix = await c.hitld(['ledger', 'correct-tokens', reported.id, '--tokens', '8065', ...why]);
+  assert.equal(fix.exit, 0, JSON.stringify(fix.result));
+  assert.deepEqual(fix.result.tokens, { before: huge, after: 8065 });
+  assert.equal(fix.result.event.corrects, reported.id);
+  assert.equal(fix.result.event.estimate_tokens, estimate, 'every other field stands');
+  assert.match(fix.result.event.notes, /tokens corrected from \d+ to 8065 by .+: the figure was/);
+  // A second correction of the same event is refused: it names the one that stands.
+  const twice = await c.hitld([
+    'ledger',
+    'correct-tokens',
+    reported.id,
+    '--tokens',
+    '9000',
+    ...why,
+  ]);
+  assert.equal(twice.result.error, 'already-corrected');
+  assert.equal(twice.result.corrected_by, fix.result.event.id);
+  // Only a completion has a token count to correct.
+  const dispatched = /** @type {any} */ (ledger().find((e) => e.event === 'dispatched'));
+  const wrong = await c.hitld(['ledger', 'correct-tokens', dispatched.id, '--tokens', '1', ...why]);
+  assert.equal(wrong.result.error, 'forbidden-correction');
+
+  // The summary reads the corrected figure, with the estimate beside it.
+  const sum = await c.hitld(['ledger', 'summary']);
+  assert.deepEqual(sum.result.estimate_vs_actual.by_dispatch, [
+    {
+      dispatch: 'D-1',
+      item: 'W-2',
+      estimate_tokens: estimate,
+      tokens: 8065,
+      ratio: Math.round((8065 / estimate) * 100) / 100,
+    },
+  ]);
+  // The correction is not a second completion: the dispatch is still done once.
+  assert.equal((await complete([])).result.already, true);
 });

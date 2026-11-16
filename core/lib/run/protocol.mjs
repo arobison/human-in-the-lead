@@ -14,7 +14,7 @@
 
 import { createHash } from 'node:crypto';
 import { VERSION } from '../version.mjs';
-import { lifecycleId, nextDispatchId, readLedger } from '../ledger/ledger.mjs';
+import { lifecycleId, nextDispatchId, readLedger, startEstimate } from '../ledger/ledger.mjs';
 
 /**
  * @typedef {import('../../harness/interface.mjs').HarnessAdapter} HarnessAdapter
@@ -37,12 +37,35 @@ export function reportResult(report) {
 }
 
 /**
- * The `reported` event for a completion.
+ * A completion's token figure this many times its dispatch's estimate or more is far above it:
+ * `hitld dispatch complete` refuses to record it unless told the run really cost that much
+ * (HITLD-436). The brief asks the executor to report at 1.5 times the estimate by default, so three
+ * times is twice past the point where it should have stopped.
+ */
+export const TOKENS_FAR_ABOVE_ESTIMATE = 3;
+
+/**
+ * Whether a completion's tokens are far above the estimate it started with. False when either is
+ * unknown, or the estimate is 0 (inline work has none).
+ * @param {number | null | undefined} tokens @param {number | null | undefined} estimate
+ */
+export const farAboveEstimate = (tokens, estimate) =>
+  typeof tokens === 'number' &&
+  typeof estimate === 'number' &&
+  estimate > 0 &&
+  tokens >= TOKENS_FAR_ABOVE_ESTIMATE * estimate;
+
+/**
+ * The `reported` event for a completion. It carries the estimate the dispatch started with beside
+ * the tokens it cost, so estimate against actual can be read per item (HITLD-436). The tokens are
+ * output plus fresh input, never cache reads (core/harness/claude-code/completion.mjs).
  * @param {{ dispatch: string, item: string, role?: string, host?: string | null }} entry an in-flight entry
  * @param {Omit<Completion, 'dispatch'> & { dispatch?: string }} completion
+ * @param {import('../ledger/ledger.mjs').LedgerEntry[]} [events] the ledger, to find the estimate
  */
-export function reportedEvent(entry, completion) {
+export function reportedEvent(entry, completion, events = []) {
   const result = reportResult(completion.report);
+  const estimate = startEstimate(events, entry.dispatch, entry.item);
   return {
     id: lifecycleId('reported', entry.dispatch),
     event: 'reported',
@@ -51,6 +74,7 @@ export function reportedEvent(entry, completion) {
     ...(entry.role !== undefined ? { role: entry.role } : {}),
     ...(result ? { result } : {}),
     tokens: completion.usage?.tokens ?? null,
+    ...(estimate !== undefined ? { estimate_tokens: estimate } : {}),
     tool_calls: completion.usage?.toolCalls ?? null,
     duration_ms: completion.usage?.durationMs ?? null,
     ...(completion.commit && /^[0-9a-f]{7,64}$/.test(completion.commit)
@@ -128,6 +152,6 @@ export async function dispatchExecutor(run, adapter, request, extra = {}) {
 export async function recordCompletion(run, adapter, handle) {
   const completion = await adapter.onComplete(handle);
   const entry = run.state.in_flight.find((/** @type {any} */ d) => d.dispatch === handle.dispatch);
-  if (entry) run.record(reportedEvent(entry, completion));
+  if (entry) run.record(reportedEvent(entry, completion, readLedger(run.store).events));
   return completion;
 }

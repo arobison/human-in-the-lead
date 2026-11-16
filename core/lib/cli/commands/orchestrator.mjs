@@ -15,7 +15,13 @@ import { loadSettingsFile } from '../../settings/files.mjs';
 import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
 import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
-import { appendEvent, readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
+import {
+  appendEvent,
+  readLedger,
+  nextDispatchId,
+  lifecycleId,
+  startEstimate,
+} from '../../ledger/ledger.mjs';
 import { effectiveEvents } from '../../ledger/summary.mjs';
 import { recordedAnswers } from '../../merge/answers.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
@@ -30,7 +36,7 @@ import {
   reportingHere,
 } from '../../run/run.mjs';
 import { absorb } from '../../run/state.mjs';
-import { reportedEvent } from '../../run/protocol.mjs';
+import { TOKENS_FAR_ABOVE_ESTIMATE, farAboveEstimate, reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
 import { tearDown } from '../../env/teardown.mjs';
@@ -1335,7 +1341,14 @@ const table = [
       {
         name: 'tokens',
         type: 'integer',
-        description: 'Tokens from the notification, where it shows them (undocumented)',
+        description:
+          "What the dispatch cost, from the notification where it shows it (undocumented): output tokens plus fresh input (uncached input and cache writes), never cache reads. A headless result's is computed the same way. A figure three times the dispatch's estimate or more is refused without --tokens-over-estimate",
+      },
+      {
+        name: 'tokens-over-estimate',
+        type: 'boolean',
+        description:
+          "Record a token count three times the dispatch's estimate or more: the run really cost that much (the figure is not a cache-read total)",
       },
       { name: 'tool-calls', type: 'integer', description: 'Tool calls from the notification' },
       { name: 'duration-ms', type: 'integer', description: 'Duration from the notification' },
@@ -1376,6 +1389,17 @@ const table = [
           n = { kind: 'headless', json: stored };
         }
         const completion = completionOf(d, n);
+        // A figure far above the estimate is most often a cache-read total, which would stand as the
+        // item's cost and set the estimate of the next items (HITLD-436): refused before anything
+        // is recorded or released, so the same command can run again with the right figure.
+        const estimate = startEstimate(readLedger(p.store).events, d, entry.item);
+        const tokens = completion.usage?.tokens;
+        if (farAboveEstimate(tokens, estimate) && input['tokens-over-estimate'] !== true) {
+          throw new Refusal(
+            'tokens-over-estimate',
+            `${d} would record ${tokens} tokens, ${Math.floor(/** @type {number} */ (tokens) / /** @type {number} */ (estimate))} times its estimate of ${estimate} (refused at ${TOKENS_FAR_ABOVE_ESTIMATE} times). A completion's tokens are output plus fresh input (uncached input and cache writes), never cache reads: run this again with that figure, or add --tokens-over-estimate if the run really cost ${tokens}`,
+          );
+        }
         releaseExecutor(p.machineRoot, p.policy.project.id, d);
         const parsed = parseReport(completion.report);
         const commit = parsed.report?.commit?.sha;
@@ -1394,9 +1418,18 @@ const table = [
           ...(completion.usageSource === 'observed'
             ? ['usage from the completion notification (observed; undocumented)']
             : []),
+          ...(farAboveEstimate(tokens, estimate)
+            ? [
+                `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, confirmed with --tokens-over-estimate`,
+              ]
+            : []),
         ];
         run.record({
-          ...reportedEvent(entry, { ...completion, ...(commit ? { commit } : {}) }),
+          ...reportedEvent(
+            entry,
+            { ...completion, ...(commit ? { commit } : {}) },
+            readLedger(p.store).events,
+          ),
           ...(notes.length ? { notes: notes.join('; ') } : {}),
           ...(refused.length ? { result: 'blocked', reason: PERMISSIONS_REASON } : {}),
         });

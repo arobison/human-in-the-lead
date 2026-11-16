@@ -6,6 +6,10 @@
 // - An item is accepted when it has a `merged` event and no later `reverted` event.
 // - Tokens per accepted item: all tokens of all dispatches on the item, executors and verifiers
 //   alike. Dispatches whose completion notice gave no tokens are counted separately, not as zero.
+//   A completion's tokens are output plus fresh input, never cache reads, and a corrected figure
+//   (hitld ledger correct-tokens) stands in for the one it corrects.
+// - Estimate against actual: each completion's tokens beside the estimate its dispatch started
+//   with (the `reported` event's estimate_tokens, else its `dispatched` event's).
 // - First-pass yield, of accepted items: the share that had exactly one executor dispatch, whose
 //   first verification passed and was never followed by a failed one.
 // - Waste: tokens on dispatches that were abandoned, whose work failed verification (a `verified`
@@ -17,7 +21,7 @@
 //   any reason but a usage limit, which is not the executor's failure), by model, tier and area as
 //   dispatched; with the ladder steps taken, executors cut off by a limit, and quota pauses.
 
-import { TERMINAL_EVENTS, correctsValidly, readLedger } from './ledger.mjs';
+import { TERMINAL_EVENTS, correctsValidly, readLedger, startEstimate } from './ledger.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
@@ -225,8 +229,43 @@ export function summarize(allEvents) {
       queue: spread(queues),
       owner: spread(owners),
     },
+    estimate_vs_actual: estimateMeasures(events),
     logged_calls: loggedMeasures(events),
     stalls,
+  };
+}
+
+/**
+ * Each completion's tokens beside the estimate it started with, and the median of actual over
+ * estimate where both are known.
+ * @param {LedgerEntry[]} events as they stand after corrections
+ */
+export function estimateMeasures(events) {
+  /** @type {{ dispatch: string, item: string, estimate_tokens: number | null, tokens: number | null, ratio: number | null }[]} */
+  const by_dispatch = [];
+  for (const e of events) {
+    if (e.event !== 'reported') continue;
+    const estimate =
+      typeof e.estimate_tokens === 'number'
+        ? e.estimate_tokens
+        : (startEstimate(events, e.dispatch, e.item) ?? null);
+    const tokens = typeof e.tokens === 'number' ? e.tokens : null;
+    by_dispatch.push({
+      dispatch: e.dispatch,
+      item: e.item,
+      estimate_tokens: estimate,
+      tokens,
+      ratio: estimate && tokens !== null ? Math.round((tokens / estimate) * 100) / 100 : null,
+    });
+  }
+  const ratios = by_dispatch
+    .map((r) => r.ratio)
+    .filter((r) => r !== null)
+    .sort((a, b) => /** @type {number} */ (a) - /** @type {number} */ (b));
+  return {
+    compared: ratios.length,
+    median_ratio: percentile(/** @type {number[]} */ (ratios), 0.5),
+    by_dispatch,
   };
 }
 

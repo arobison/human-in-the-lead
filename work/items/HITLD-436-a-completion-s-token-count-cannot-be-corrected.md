@@ -6,6 +6,7 @@ state: in-progress
 created: 2026-11-16
 project: HITLD-15
 claimed_by: D-34
+release_note: "`hitld ledger correct-tokens` corrects a completion's recorded token count with a new ledger event. A completion's tokens now count output plus fresh input, never cache reads; `hitld dispatch complete` refuses a figure three times the dispatch's estimate or more without `--tokens-over-estimate`, and records the start estimate beside the actual, which `hitld ledger summary` shows. The token estimate uses the median of at least three similar completions, and the tier default below that."
 ---
 
 ## Done when
