@@ -2,10 +2,12 @@
 id: HITLD-152
 title: The dashboard page shows the plan, the milestones, what is happening now, and quota and spend, in one file
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-62, HITLD-135]
+claimed_by: D-24
+release_note: `hitld dashboard` writes one page with six views as tabs (Your move, Roadmap with a fewest-crossings layout, the Plan as an item graph, Proposals, Flow, and Quota and spend), one inline script for hover, scope and search allowed by its hash, and two settings, `reports.dashboard_plan_states` and `reports.dashboard_plan_max_items`.
 ---
 
 ## Why

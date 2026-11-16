@@ -107,6 +107,8 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {(options?: { tokens?: Map<string, number> }) => import('./views.mjs').MilestoneGraph} milestoneGraph
  *   the milestone graph (design part 12.1.2); with tokens spent per item (from the ledger), each
  *   node's tokens_spent, or null when the ledger has no record for any of its items
+ * @property {() => Map<string, import('../interface.mjs').Change[]>} histories every entity's
+ *   committed state changes, oldest first, from one read of the work directory's history
  * @property {(options?: { only?: string, dryRun?: boolean, commit?: boolean, migrations?: readonly import('./migrate.mjs').Migration[] }) => ReturnType<typeof migrateTracker>} migrate
  *   apply the registered format migrations to every file (idempotent; dryRun shows the diff)
  * @property {() => Entry[]} releases the release records
@@ -845,6 +847,66 @@ export function openTracker({
 
     /** The milestone graph; see milestoneGraph in views.mjs. */
     milestoneGraph: ({ tokens } = {}) => graphOf(contextOf(), tokens),
+
+    /**
+     * Every entity's committed state changes, read in one pass over the history of the work
+     * directory: what `history(id)` gives one entity, for all of them, oldest first. A file's
+     * state is read from the `state:` line its commit adds (or `status:` from before HITLD-82, in
+     * the new form); a rename that keeps the state adds no change.
+     */
+    histories() {
+      const log = git(
+        root,
+        [
+          'log',
+          '--reverse',
+          '--no-renames',
+          '-U0',
+          '--format=%x01%H %cI',
+          '-p',
+          '--',
+          layout.workDir,
+        ],
+        { allowFail: true },
+      );
+      /** @type {Map<string, import('../interface.mjs').Change[]>} */
+      const out = new Map();
+      const fileId = new RegExp(
+        `^\\+\\+\\+ b/.*/(${layout.key.replace(/[^A-Za-z0-9]/g, '\\$&')}-\\d+)[-.][^/]*$`,
+      );
+      /** @type {string[]} */
+      let commit = ['', ''];
+      /** @type {string | null} */
+      let id = null;
+      for (const line of log.split('\n')) {
+        if (line.startsWith('\u0001')) {
+          commit = line.slice(1).split(' ');
+          id = null;
+        } else if (line.startsWith('+++ ')) {
+          id = fileId.exec(line)?.[1] ?? null;
+        } else if (id && /^\+(state|status):/.test(line)) {
+          const raw = line
+            .slice(line.indexOf(':') + 1)
+            .trim()
+            .replace(/^["']|["']$/g, '');
+          const state = line.startsWith('+status:')
+            ? /** @type {Record<string, unknown>} */ (fromLegacy({ status: raw }))?.state
+            : raw;
+          if (typeof state !== 'string' || !state) continue;
+          const changes = out.get(id) ?? [];
+          const prev = changes.at(-1)?.to ?? null;
+          if (state === prev) continue;
+          changes.push({
+            at: commit[1],
+            from: /** @type {any} */ (prev),
+            to: /** @type {any} */ (state),
+            ref: { commit: commit[0] },
+          });
+          out.set(id, changes);
+        }
+      }
+      return out;
+    },
 
     /**
      * Write the views as files. With `outDir` they go there (and nothing else is touched);

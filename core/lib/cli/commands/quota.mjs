@@ -28,6 +28,7 @@ function repositoryFileBase(repoRoot) {
   return forgeFileBase(remote, head.startsWith('origin/') ? head.slice('origin/'.length) : 'HEAD');
 }
 import { readQuotaInputs } from '../../quota/inputs.mjs';
+import { workModel } from '../../dashboard/work.mjs';
 import { ownerDigest } from './rights.mjs';
 
 /**
@@ -152,13 +153,35 @@ export const commands = [
       let milestones = null;
       /** @type {string[]} */
       const warnings = [];
+      /** @type {import('../../dashboard/work.mjs').WorkModel | null} */
+      let work = null;
       if (g.repoRoot) {
+        const repoRoot = g.repoRoot;
         try {
-          milestones = openTracker({
-            repoRoot: g.repoRoot,
-            policy: g.policy,
-            env: ctx.env,
-          }).milestoneGraph({ tokens: tokensPerItem(g.ledger) });
+          const tracker = openTracker({ repoRoot, policy: g.policy, env: ctx.env });
+          milestones = tracker.milestoneGraph({ tokens: tokensPerItem(g.ledger) });
+          // The work views read the tracker's read API: the entities, the claims and the
+          // committed state history (HITLD-152).
+          try {
+            const read = (/** @type {string[]} */ args) =>
+              git(repoRoot, args, { allowFail: true }).trim() || null;
+            work = workModel({
+              entities: tracker.query({}).map((e) => /** @type {Record<string, any>} */ (e)),
+              claims: tracker.claims(),
+              histories: tracker.histories(),
+              ledger: g.ledger,
+              now: g.now,
+              source: {
+                commit: read(['rev-parse', '--short', 'HEAD']),
+                branch: read(['branch', '--show-current']),
+                shallow: read(['rev-parse', '--is-shallow-repository']) === 'true',
+              },
+            });
+          } catch (e) {
+            warnings.push(
+              `the work views are left out: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
         } catch (e) {
           warnings.push(
             `the milestone graph is left out: ${e instanceof Error ? e.message : String(e)}`,
@@ -171,6 +194,7 @@ export const commands = [
         ledger: g.ledger,
         now: g.now,
         milestones,
+        work,
       });
       const html = renderHtml(report, g.policy, { fileBase: repositoryFileBase(g.repoRoot) });
       // The digest is the one `hitld rights digest` builds, with this report's quota lines. It is

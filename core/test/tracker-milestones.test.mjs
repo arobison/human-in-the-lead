@@ -39,6 +39,7 @@ import {
   policyFor,
   put,
 } from './tracker-fixture.mjs';
+import { assertPageSafe } from './helpers/page-safety.mjs';
 
 /** No person file, private store or store address of this machine is read. */
 const HOME = isolatedEnv();
@@ -833,7 +834,7 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
     'an empty ledger: not known, so a dash rather than 0',
   );
   const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
-  assert.doesNotMatch(html, /<script|https?:\/\/|@import|url\(|<link|src=/i);
+  assertPageSafe(html);
   assert.match(html, /<h2 id="milestones">Milestones<\/h2>/);
   assert.match(
     html,
@@ -893,8 +894,10 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   // Proposal tables stack their cells at phone width, with each cell's label, and no script.
   assert.match(html, /@media \(max-width:600px\)\{\.mg-props thead\{display:none\}/);
   assert.match(html, /\.mg-props td\[data-label\]::before\{content:attr\(data-label\) ": "/);
-  assert.match(html, /<text class="mg-step"[^>]*>Step 2<\/text>/);
-  assert.doesNotMatch(html, />Step 3</);
+  // The board's own steps: the plan's item graph has steps of its own.
+  const board = /<svg class="mg" [\s\S]*?<\/svg>/.exec(html)?.[0] ?? '';
+  assert.match(board, /<text class="mg-step"[^>]*>Step 2<\/text>/);
+  assert.doesNotMatch(board, />Step 3</);
   // Not started: hollow, with a stage dot; started or done: solid, with a strip.
   assert.match(html, /<g class="mg-node ready hollow critical">.*?<circle class="mg-dot"/s);
   assert.match(html, /<g class="mg-node waiting hollow critical">/);
@@ -905,7 +908,7 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
     /<g class="mg-badge decision"><title>Held up by W-6<\/title>.*?>1 decision<\/text>/s,
   );
   // The one wait: on the critical path, with two items behind it, so not dashed.
-  assert.equal((html.match(/class="mg-edge critical"/g) ?? []).length, 1);
+  assert.equal((board.match(/class="mg-edge critical"/g) ?? []).length, 1);
   assert.match(html, /W-1 waits on W-7: 2 item\(s\) behind the wait, on the critical path/);
   assert.match(html, /Critical path: W-7 → W-1\./);
   for (const stage of ['proposed', 'waiting', 'ready', 'in-flight', 'done']) {
@@ -1213,7 +1216,7 @@ test('the page links every item, milestone and release ID to its file, plainly, 
   // Clickable: a pointer, and a visible focus outline for the keyboard.
   assert.match(html, /\.mg a\{cursor:pointer\}/);
   assert.match(html, /a:focus-visible\{outline:2px solid var\(--used\)/);
-  assert.doesNotMatch(html, /<script/i);
+  assertPageSafe(html);
   // A GitHub origin: links on the forge, at the default branch, with no credential carried over.
   git(root, 'remote', 'add', 'origin', 'https://someone:secret-token@github.com/acme/widgets.git');
   html = await page('out2');
@@ -1230,7 +1233,7 @@ test('drawers: closed by default, each with a Close link, every box and flag ope
   const r = await hitld(['dashboard', '--out', 'out', '--now', '2026-11-16T12:00:00Z'], root);
   assert.equal(r.code, 0, JSON.stringify(r.json));
   const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
-  assert.doesNotMatch(html, /<script|\son[a-z]+=/i, 'no script and no event handler attributes');
+  assertPageSafe(html);
   // Closed by default; a drawer shows only as the page's target, fixed on the right.
   assert.match(
     html,
