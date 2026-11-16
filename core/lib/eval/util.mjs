@@ -10,10 +10,10 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  realpathSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
+import { realPath } from '../platform/fs.mjs';
 
 /** @param {unknown} v @returns {v is Record<string, any>} */
 export const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -104,7 +104,7 @@ export function sandboxPath(sandbox, rel) {
   const base = resolve(sandbox);
   const p = resolve(base, rel);
   if (!within(base, p)) throw new Error(`path ${JSON.stringify(rel)} leaves the sandbox`);
-  const realBase = realpathSync(base);
+  const realBase = realPath(base);
   let probe = p;
   for (;;) {
     /** @type {import('node:fs').Stats | undefined} */
@@ -117,7 +117,7 @@ export function sandboxPath(sandbox, rel) {
     if (st) {
       let real;
       try {
-        real = realpathSync(probe);
+        real = realPath(probe);
       } catch {
         throw new Error(`path ${JSON.stringify(rel)} goes through a link that does not resolve`);
       }
