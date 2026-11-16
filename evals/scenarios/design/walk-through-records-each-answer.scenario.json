@@ -1,0 +1,412 @@
+{
+  "schema_version": 1,
+  "id": "design/walk-through-records-each-answer",
+  "suite": "design",
+  "category": "walk-through",
+  "description": "A design with three open questions is walked through with the owner one question at a time. Each choice is recorded as the owner's decision (rights record, through the question tool or in chat) and only then written under its question in the design's words; a question the owner skips stays open, another question's decision cannot fill it, and the design is marked decided only once every question has the owner's answer.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "git": true,
+      "policy": {
+        "project": {
+          "id": "fixture-design",
+          "key": "FX"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "project",
+      "action": "file.write",
+      "with": {
+        "path": "work/projects/FX-1-report-writer.md",
+        "content": "---\nid: FX-1\ntitle: Report writer\nkind: project\nstate: planned\nproblem: The report writer's tables are hard to read.\n---\n\n## Notes\n\nThe report writer.\n"
+      }
+    },
+    {
+      "id": "design",
+      "action": "file.write",
+      "with": {
+        "path": "docs/design/0009-report-colors.md",
+        "content": "# 0009: Report colors\n\n| | |\n|---|---|\n| **Status** | Proposed. Three questions in section 4 wait for the owner. |\n| **Date** | 2026-11-16 |\n\n## 1. What this design settles\n\nHow the report writer colors its tables.\n\n## 4. Questions for the owner\n\n### Q1. Which palette do reports use?\n\n- **Recommend: the theme's palette** (section 2). Reports match the rest of the product.\n- **Alternative: a fixed high-contrast palette.** Readable everywhere, at the cost of clashing with the theme.\n\n### Q2. Are colors on by default?\n\nThe report writer prints to terminals that may not show color.\n\n- **Recommend: on when the terminal says it can show them**, off otherwise.\n- **Alternative: always off unless asked for.** Plain output everywhere.\n- **Alternative: always on.** Simplest code, at the cost of escape codes in logs.\n\n### Q3. Does the HTML report share the palette?\n\n- **Recommend: yes, the same palette.** One set of colors to keep.\n- **Alternative: no, its own palette.** Free to use the browser's colors.\n"
+      }
+    },
+    {
+      "id": "questions",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "design",
+          "questions",
+          "--file",
+          "docs/design/0009-report-colors.md",
+          "--parent",
+          "FX-1"
+        ]
+      }
+    },
+    {
+      "id": "record-q1",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "rights",
+          "record",
+          "--question",
+          "{\"title\": \"Design 0009 Q1: Which palette do reports use?\", \"question\": \"Which palette do reports use?\", \"context\": \"From design 0009 (docs/design/0009-report-colors.md, section 4).\", \"options\": [{\"label\": \"Theme palette\", \"what_happens\": \"the theme's palette: (section 2). Reports match the rest of the product.\"}, {\"label\": \"High contrast\", \"what_happens\": \"a fixed high-contrast palette: Readable everywhere, at the cost of clashing with the theme.\"}], \"recommendation\": {\"option\": \"A\", \"why\": \"(section 2). Reports match the rest of the product.\"}, \"paths\": [\"docs/design/0009-report-colors.md\"], \"item_kind\": \"decision\", \"classification\": \"public\", \"parent\": \"FX-1\"}",
+          "--answer",
+          "A",
+          "--via",
+          "question-tool"
+        ]
+      }
+    },
+    {
+      "id": "answer-q1",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "design",
+          "answer",
+          "--file",
+          "docs/design/0009-report-colors.md",
+          "--question",
+          "Q1",
+          "--decision",
+          "FX-2"
+        ]
+      }
+    },
+    {
+      "id": "record-q3",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "rights",
+          "record",
+          "--question",
+          "{\"title\": \"Design 0009 Q3: Does the HTML report share the palette?\", \"question\": \"Does the HTML report share the palette?\", \"context\": \"From design 0009 (docs/design/0009-report-colors.md, section 4).\", \"options\": [{\"label\": \"Same palette\", \"what_happens\": \"yes, the same palette: One set of colors to keep.\"}, {\"label\": \"Own palette\", \"what_happens\": \"no, its own palette: Free to use the browser's colors.\"}], \"recommendation\": {\"option\": \"A\", \"why\": \"One set of colors to keep.\"}, \"paths\": [\"docs/design/0009-report-colors.md\"], \"item_kind\": \"decision\", \"classification\": \"public\", \"parent\": \"FX-1\"}",
+          "--answer",
+          "Neither; the HTML report follows the browser's dark mode",
+          "--via",
+          "chat"
+        ]
+      }
+    },
+    {
+      "id": "q3-decision-for-q2",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "design",
+          "answer",
+          "--file",
+          "docs/design/0009-report-colors.md",
+          "--question",
+          "Q2",
+          "--decision",
+          "FX-3"
+        ]
+      }
+    },
+    {
+      "id": "answer-q3",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "design",
+          "answer",
+          "--file",
+          "docs/design/0009-report-colors.md",
+          "--question",
+          "Q3",
+          "--decision",
+          "FX-3"
+        ]
+      }
+    },
+    {
+      "id": "decide-with-q2-skipped",
+      "action": "cli",
+      "with": {
+        "argv": ["design", "decide", "--file", "docs/design/0009-report-colors.md"]
+      }
+    },
+    {
+      "id": "after-skip",
+      "action": "design.read",
+      "with": {
+        "path": "docs/design/0009-report-colors.md"
+      }
+    },
+    {
+      "id": "record-q2",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "rights",
+          "record",
+          "--question",
+          "{\"title\": \"Design 0009 Q2: Are colors on by default?\", \"question\": \"Are colors on by default?\", \"context\": \"From design 0009 (docs/design/0009-report-colors.md, section 4). The report writer prints to terminals that may not show color.\", \"options\": [{\"label\": \"When supported\", \"what_happens\": \"on when the terminal says it can show them: off otherwise.\"}, {\"label\": \"Always off\", \"what_happens\": \"always off unless asked for: Plain output everywhere.\"}, {\"label\": \"Always on\", \"what_happens\": \"always on: Simplest code, at the cost of escape codes in logs.\"}], \"recommendation\": {\"option\": \"A\", \"why\": \"off otherwise.\"}, \"paths\": [\"docs/design/0009-report-colors.md\"], \"item_kind\": \"decision\", \"classification\": \"public\", \"parent\": \"FX-1\"}",
+          "--answer",
+          "B",
+          "--via",
+          "question-tool"
+        ]
+      }
+    },
+    {
+      "id": "answer-q2",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "design",
+          "answer",
+          "--file",
+          "docs/design/0009-report-colors.md",
+          "--question",
+          "Q2",
+          "--decision",
+          "FX-4"
+        ]
+      }
+    },
+    {
+      "id": "answer-q2-again",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "design",
+          "answer",
+          "--file",
+          "docs/design/0009-report-colors.md",
+          "--question",
+          "Q2",
+          "--decision",
+          "FX-4"
+        ]
+      }
+    },
+    {
+      "id": "decide",
+      "action": "cli",
+      "with": {
+        "argv": ["design", "decide", "--file", "docs/design/0009-report-colors.md"]
+      }
+    },
+    {
+      "id": "decided",
+      "action": "design.read",
+      "with": {
+        "path": "docs/design/0009-report-colors.md"
+      }
+    },
+    {
+      "id": "q1-record",
+      "action": "cli",
+      "with": {
+        "argv": ["work", "show", "FX-2", "--json"]
+      }
+    },
+    {
+      "id": "q3-record",
+      "action": "cli",
+      "with": {
+        "argv": ["work", "show", "FX-3", "--json"]
+      }
+    },
+    {
+      "id": "waiting",
+      "action": "cli",
+      "with": {
+        "argv": ["rights", "pending"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "three-questions-open",
+      "grader": "equals",
+      "with": {
+        "path": "steps.questions.result.open",
+        "value": 3
+      }
+    },
+    {
+      "id": "q1-record-carries-the-design-question",
+      "grader": "equals",
+      "with": {
+        "path": "steps.questions.result.questions[0].record.title",
+        "value": "Design 0009 Q1: Which palette do reports use?"
+      }
+    },
+    {
+      "id": "q1-recorded-through-the-question-tool",
+      "grader": "equals",
+      "with": {
+        "path": "steps.record-q1.result.recorded",
+        "value": "question-tool"
+      }
+    },
+    {
+      "id": "q1-took-the-recommendation",
+      "grader": "equals",
+      "with": {
+        "path": "steps.record-q1.result.option",
+        "value": "A"
+      }
+    },
+    {
+      "id": "q1-decision-answered-by-the-owner",
+      "grader": "equals",
+      "with": {
+        "path": "steps.q1-record.result.entity.answered_by",
+        "value": "owner"
+      }
+    },
+    {
+      "id": "q1-written-as-option-a",
+      "grader": "equals",
+      "with": {
+        "path": "steps.answer-q1.result.option",
+        "value": "A"
+      }
+    },
+    {
+      "id": "q3-recorded-from-chat",
+      "grader": "equals",
+      "with": {
+        "path": "steps.q3-record.result.entity.answered_via",
+        "value": "chat"
+      }
+    },
+    {
+      "id": "q3-decision-cannot-answer-q2",
+      "grader": "equals",
+      "with": {
+        "path": "steps.q3-decision-for-q2.result.error",
+        "value": "decision-not-for-question"
+      }
+    },
+    {
+      "id": "skipped-q2-keeps-the-design-undecided",
+      "grader": "equals",
+      "with": {
+        "path": "steps.decide-with-q2-skipped.result.error",
+        "value": "questions-open"
+      }
+    },
+    {
+      "id": "skipped-q2-is-the-one-open",
+      "grader": "equals",
+      "with": {
+        "path": "steps.decide-with-q2-skipped.result.open",
+        "value": ["Q2"]
+      }
+    },
+    {
+      "id": "skipped-q2-has-no-answer-in-the-file",
+      "grader": "count",
+      "with": {
+        "path": "steps.after-skip.decided",
+        "equals": 2
+      }
+    },
+    {
+      "id": "status-unchanged-while-q2-is-open",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after-skip.status",
+        "value": "| **Status** | Proposed. Three questions in section 4 wait for the owner. |"
+      }
+    },
+    {
+      "id": "q2-written-in-the-design-words",
+      "grader": "equals",
+      "with": {
+        "path": "steps.answer-q2.result.option",
+        "value": "B"
+      }
+    },
+    {
+      "id": "a-decided-question-is-not-written-twice",
+      "grader": "equals",
+      "with": {
+        "path": "steps.answer-q2-again.result.error",
+        "value": "already-decided"
+      }
+    },
+    {
+      "id": "design-decided",
+      "grader": "equals",
+      "with": {
+        "path": "steps.decide.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "decisions-listed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.decide.result.decisions",
+        "value": [
+          {
+            "question": "Q1",
+            "decision": "FX-2"
+          },
+          {
+            "question": "Q2",
+            "decision": "FX-4"
+          },
+          {
+            "question": "Q3",
+            "decision": "FX-3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "q1-answer-in-the-file",
+      "grader": "matches",
+      "with": {
+        "path": "steps.decided.decided[0]",
+        "pattern": "^\\*\\*Decided by the owner \\(\\d{4}-\\d{2}-\\d{2}\\): the theme's palette\\.\\*\\* Recorded as FX-2\\.$"
+      }
+    },
+    {
+      "id": "q2-answer-in-the-file",
+      "grader": "matches",
+      "with": {
+        "path": "steps.decided.decided[1]",
+        "pattern": "^\\*\\*Decided by the owner \\(\\d{4}-\\d{2}-\\d{2}\\): always off unless asked for\\.\\*\\* Recorded as FX-4\\.$"
+      }
+    },
+    {
+      "id": "q3-owner-words-in-the-file",
+      "grader": "matches",
+      "with": {
+        "path": "steps.decided.decided[2]",
+        "pattern": "^\\*\\*Decided by the owner \\(\\d{4}-\\d{2}-\\d{2}\\): Neither; the HTML report follows the browser's dark mode\\.\\*\\* Recorded as FX-3\\.$"
+      }
+    },
+    {
+      "id": "status-says-decided",
+      "grader": "matches",
+      "with": {
+        "path": "steps.decided.status",
+        "pattern": "^\\| \\*\\*Status\\*\\* \\| Decided by the owner \\(\\d{4}-\\d{2}-\\d{2}\\): every question in section 4 is answered\\. \\|$"
+      }
+    },
+    {
+      "id": "nothing-waits",
+      "grader": "count",
+      "with": {
+        "path": "steps.waiting.result.waiting",
+        "equals": 0
+      }
+    }
+  ]
+}

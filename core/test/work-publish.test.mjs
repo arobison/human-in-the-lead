@@ -147,6 +147,31 @@ test('a session with nothing to publish says so and pushes nothing', async () =>
   assert.deepEqual(branches(remote), ['main']);
 });
 
+test('a design a walk-through decided is published with its decisions; a file outside docs/design is not', async () => {
+  const { root, remote, env } = session();
+  put(root, {
+    'work/items/W-7-which-color.md': decision('W-7', 'Which color?', 'done'),
+    'docs/design/0009-colors.md': '# 0009: Colors\n',
+    'docs/other.md': 'not a design\n',
+  });
+  const r = await run(root, publish('--design', 'docs/design/0009-colors.md'), env);
+  assert.equal(r.code, 0, JSON.stringify(r));
+  assert.deepEqual(r.files, [
+    { path: 'docs/design/0009-colors.md', change: 'added' },
+    { path: 'work/items/W-7-which-color.md', change: 'added' },
+  ]);
+  assert.deepEqual(r.left_out, ['docs/other.md']);
+  assert.deepEqual(
+    git(remote, 'diff', '--name-only', 'main', r.branch).split('\n').filter(Boolean),
+    ['docs/design/0009-colors.md', 'work/items/W-7-which-color.md'],
+  );
+
+  for (const given of ['docs/other.md', 'docs/design/../other.md', '../docs/design/x.md']) {
+    const refused = await run(root, publish('--design', given), env);
+    assert.equal(refused.error, 'usage', given);
+  }
+});
+
 test('a private term in a would-be commit message or tracker file is refused before anything is pushed, never named', async () => {
   const { root, remote, env } = session();
   const term = 'orchid-fox-7';
