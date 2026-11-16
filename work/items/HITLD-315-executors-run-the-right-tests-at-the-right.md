@@ -25,5 +25,7 @@ The cost is real. In this run the full CI-like check takes minutes, and executor
 
 ## Notes
 
+The owner's motivating example, in their words: "making these UX tweaks should be fast". In this run, small changes to the dashboard page (the milestone board, PR #196) each went through the full CI-like `npm run check` (over 1,300 tests) before every push, though they touch only the dashboard rendering and its tests. The cadence should run that area's tests and the fast check while working, and the full suite once before the report, with the wall clock spent shown in the report.
+
 Related: HITLD-131 (faster checks, done), HITLD-20 (flaky tests: defaults, quarantine), HITLD-284 (a failed fast check's output is dropped), HITLD-136 (briefs name overlapping work), HITLD-81 (calibrated estimates). Design choices are the owner's: the first step is a walk-through, one question at a time.
 
