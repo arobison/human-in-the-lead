@@ -29,7 +29,7 @@ On 2026-11-16 the chief of staff read the owner's reference: a work board built 
 - **Roadmap:** what comes after what, without dates. The milestone map has project lanes, steps across, curved waits (thicker for more items behind them), the critical path in the accent, started milestones solid with a leading strip and idle ones hollow, owner decisions and outside waits as badges, and release gates as flags in a Releases lane. A second layout trades the lanes for fewer crossings. Also lists by milestone, long outcome, or project waits.
 - **Proposals:** one table of bets to commit or drop: what stands between each and committing (ready, waits on the owner's answer, waits on other items) and how many open items wait on it.
 - **Flow:** stage bands (proposed, blocked, ready, in progress, done) day by day from the committed status history, then measures each with the one that must not get worse.
-- **Names and colours:** the tracker's statuses; Blocked and Ready derived as the tracker derives them; a milestone shows progress, not a state. One colour per stage, light and dark.
+- **Names and colors:** the tracker's statuses; Blocked and Ready derived as the tracker derives them; a milestone shows progress, not a state. One color per stage, light and dark.
 - **Each figure once:** a number belongs to the view whose question it answers.
 
 What this design already has: the item graph (the views), and the milestone graph (HITLD-62). What the reference adds: the Your move view, scope and search, Proposals, Flow, and the milestone map's lanes (HITLD-62 takes its layout first). Not taken: the other project's UI component library and its dev server, because this project takes no runtime dependency, so the page uses its own markup and no script.
