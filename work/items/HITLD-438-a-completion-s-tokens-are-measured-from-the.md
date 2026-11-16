@@ -2,7 +2,7 @@
 id: HITLD-438
 title: A completion's tokens are measured from the harness's own record, and an executor's own figure is kept apart as a guess
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-436]
