@@ -65,7 +65,8 @@ export function stageOf(e, stateOf) {
  * @param {Map<string, Change[]>} [input.histories]
  * @param {Record<string, any>[]} [input.ledger]
  * @param {number} input.now
- * @param {{ commit: string | null, branch: string | null }} [input.source] where the tracker was read
+ * @param {{ commit: string | null, branch: string | null, shallow?: boolean }} [input.source] where
+ *   the tracker was read, and whether the clone's history is cut
  */
 export function workModel({
   entities,
@@ -333,6 +334,7 @@ function flowModel(items, histories, ledger, now, maxDays = 90) {
     }
     return s;
   };
+  /** @type {({ day: string } & Record<(typeof FLOW_STAGES)[number], number>)[]} */
   const days = [];
   for (let d = start; d <= today; d += DAY) {
     const end = Math.min(d + DAY, now);
@@ -349,7 +351,7 @@ function flowModel(items, histories, ledger, now, maxDays = 90) {
           : s;
       if (stage in counts) counts[stage]++;
     }
-    days.push({ day: new Date(d).toISOString().slice(0, 10), ...counts });
+    days.push(/** @type {any} */ ({ day: new Date(d).toISOString().slice(0, 10), ...counts }));
   }
   // Throughput: items done in the last seven days, and in the seven before.
   const doneAt = (/** @type {string} */ id) => {

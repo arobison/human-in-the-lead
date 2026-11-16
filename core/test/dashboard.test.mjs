@@ -343,3 +343,47 @@ test('Proposals: every proposed item, what stands between it and committing, and
   assert.doesNotMatch(p, /<b>bold<\/b>/, 'tracker text is escaped');
   assert.doesNotMatch(p, /data-item="W-4"/, 'planned items are not proposals');
 });
+
+test('Flow: stage bands day by day from the committed history, then the measures beside their pairs', async () => {
+  const { report, html } = await dashboard(fixture());
+  const days = report.work.flow.days;
+  assert.deepEqual(
+    days.map((/** @type {any} */ d) => [
+      d.day,
+      d.done,
+      d['in-progress'],
+      d.ready,
+      d.blocked,
+      d.proposed,
+    ]),
+    [
+      // W-3 done; ready: W-4, W-6, W-10, W-20, W-30; blocked: W-5, W-11, W-12, W-13, W-21, W-22.
+      ['2026-11-12', 1, 0, 5, 6, 2],
+      ['2026-11-13', 1, 0, 5, 6, 2],
+      // W-10 done: W-11 and W-12 ready; still blocked: W-5, W-13, W-21, W-22.
+      ['2026-11-14', 2, 0, 6, 4, 2],
+      // W-11 in progress.
+      ['2026-11-15', 2, 1, 5, 4, 2],
+      ['2026-11-16', 2, 1, 5, 4, 2],
+    ],
+  );
+  const m = report.work.flow.measures;
+  assert.equal(m.done_last_7_days, 2);
+  assert.equal(m.lead_time_items, 1, 'W-10: planned on the 12th, done on the 14th');
+  assert.equal(m.lead_time_median_days, 2);
+  const flow = view(html, 'flow');
+  assert.match(
+    flow,
+    /<svg class="mg flow" viewBox="0 0 720 220" role="img" aria-label="Items by stage at the end of each day, 2026-11-12 to 2026-11-16">/,
+  );
+  assert.equal(
+    (flow.match(/<rect class="fl st-/g) ?? []).length,
+    4 * 3 + 5 * 2,
+    'no in-progress band before the 15th',
+  );
+  assert.match(
+    flow,
+    /<th scope="row" data-label="Measure">Throughput<\/th><td data-label="Now">2 items done in the last 7 days; 0 in the 7 before<\/td><td data-label="Its pair">Change failure rate<\/td><td data-label="Pair now">No merges in the ledger yet<\/td>/,
+  );
+  assert.match(flow, /Median 2.0 days, over 1 item done in the last 30 days/);
+});

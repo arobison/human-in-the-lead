@@ -174,6 +174,7 @@ export const commands = [
               source: {
                 commit: read(['rev-parse', '--short', 'HEAD']),
                 branch: read(['branch', '--show-current']),
+                shallow: read(['rev-parse', '--is-shallow-repository']) === 'true',
               },
             });
           } catch (e) {

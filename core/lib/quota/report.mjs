@@ -12,6 +12,7 @@ import { fileHref, milestoneFacts, oneSentence } from '../tracker/files/views.mj
 import { renderYourMove } from '../dashboard/move.mjs';
 import { renderPlan } from '../dashboard/plan.mjs';
 import { renderProposals } from '../dashboard/proposals.mjs';
+import { renderFlow } from '../dashboard/flow.mjs';
 import { fewestCrossings } from '../dashboard/layout.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
@@ -808,6 +809,11 @@ ${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>$
             html: renderPlan(r.work, policy.reports ?? {}, { fileBase }),
           },
           { id: 'proposals', label: 'Proposals', html: renderProposals(r.work, { fileBase }) },
+          {
+            id: 'flow',
+            label: 'Flow',
+            html: renderFlow(r.work.flow, { shallow: r.work.source.shallow === true }),
+          },
         ]
       : []),
     { id: 'spend', label: 'Quota and spend', html: spend },
@@ -834,6 +840,8 @@ code{font-size:.85em;overflow-wrap:anywhere}
 .pg-box{fill:var(--card);stroke:var(--line)}.pg-strip,.sw.st-blocked,.sw.st-ready,.sw.st-in-progress,.sw.st-done,.sw.st-proposed{fill:var(--st);background:var(--st)}.st-proposed{--st:var(--st-proposed)}.st-blocked{--st:var(--st-waiting)}.st-ready{--st:var(--st-ready)}.st-in-progress{--st:var(--st-flight)}.st-done{--st:var(--st-done)}
 .pg-node.critical .pg-box{stroke:var(--used);stroke-width:2}.pg-node.st-ready .pg-box{stroke:var(--st-ready)}.pg-node.st-done text{fill:var(--muted)}.pg .pg-id{font-weight:600}.pg .pg-stage{font-size:10px;fill:var(--st)}.pg a:hover .pg-box,.pg a:focus-visible .pg-box{stroke:var(--used);stroke-width:2.5}
 .layouts{display:flex;flex-wrap:wrap;gap:.25rem .5rem;align-items:center}.layouts>label{cursor:pointer;font-size:.85rem;padding:.15rem .6rem;border:1px solid var(--line);border-radius:999px;color:var(--muted)}#rm-lanes:checked+label,#rm-fewest:checked+label{border-color:var(--used);color:var(--fg)}#rm-lanes:focus-visible+label,#rm-fewest:focus-visible+label{outline:2px solid var(--used)}.layouts>.wrap{flex-basis:100%}.rm-fewest{display:none}#rm-fewest:checked~.rm-fewest{display:block}#rm-fewest:checked~.rm-lanes{display:none}
+svg.flow{display:block;width:100%;max-width:720px;height:auto;pointer-events:auto}.fl{fill:var(--st)}
+@media (max-width:600px){table.stack th[scope=row]{display:block;border:0;padding:.1rem .2rem}}
 .pg-sep{stroke:var(--line);stroke-dasharray:2 3}.plan-list{margin:.75rem 0}.plan-list summary{cursor:pointer;color:var(--muted)}.plan-list h4{font-size:.9rem;margin:.75rem 0 .25rem}.plan-list li{margin:.15rem 0}table.stack{min-width:0}
 @media (max-width:600px){table.stack thead{display:none}table.stack tr{display:block;border-bottom:1px solid var(--line);padding:.4rem 0}table.stack td{display:block;border:0;padding:.1rem .2rem}table.stack td[data-label]::before{content:attr(data-label) ": ";color:var(--muted);font-size:.8rem}}
 h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem}
