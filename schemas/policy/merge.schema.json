@@ -15,7 +15,7 @@
       "default": "push"
     },
     "pull_request": {
-      "description": "With merge.via pull-request: which checks gate a pull request, how long one may run, and the remote that is GitHub.",
+      "description": "With merge.via pull-request: which checks gate a pull request, how long one may run, the owner's decision that delegated merging without asking, and the remote that is GitHub.",
       "type": "object",
       "properties": {
         "checks": {
@@ -30,6 +30,10 @@
           "maximum": 1440,
           "default": 60
         },
+        "delegated_by": {
+          "description": "In owner mode, the owner's decision that delegated merging, without asking, the pull requests that change nothing under merge.owner_paths or in merge.owner_areas. With it, such a pull request's squash commit carries the owner's Signed-off-by (the one their latest approval gave) and a Delegated-by trailer naming this decision; with no sign-off of theirs known yet, it waits for the owner. Without it, such a pull request merges with no sign-off, as in queue mode.",
+          "$ref": "common#/$defs/id"
+        },
         "remote": {
           "description": "The git remote that is the GitHub repository; its URL names the repository.",
           "$ref": "common#/$defs/name",
@@ -39,7 +43,7 @@
       "additionalProperties": false
     },
     "owner_paths": {
-      "description": "In owner mode, limits what waits for the owner: a branch that changes a file under one of these globs waits; a branch that changes nothing here or in owner_areas goes through the queue as in queue mode. With this and owner_areas both empty, every branch waits.",
+      "description": "In owner mode, limits what waits for the owner: a branch that changes a file under these globs waits; a branch that changes nothing here or in owner_areas goes through the queue as in queue mode (with merge.via pull-request, it is merged once its named checks pass). The globs are read in order and the last one a file matches decides; one that starts with \"!\" takes the files it matches back out, so [\"**\", \"!work/**\"] holds everything but the tracker. A file no glob matches does not wait. With this and owner_areas both empty, every branch waits.",
       "$ref": "common#/$defs/globs",
       "default": []
     },

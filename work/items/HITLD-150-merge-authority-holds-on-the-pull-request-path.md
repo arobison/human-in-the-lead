@@ -7,6 +7,7 @@ created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-133]
 claimed_by: D-22
+release_note: "On the pull-request merge path (`merge.via: pull-request`), owner mode honors `merge.owner_paths` and `merge.owner_areas`: a pull request that changes nothing there merges once its named checks pass, decided from its diff alone. `merge.owner_paths` is read in order and a glob that starts with `!` takes files back out. With the new `merge.pull_request.delegated_by`, such a merge carries the owner's sign-off and a `Delegated-by` trailer, a `merge-delegated` trust event, and a digest line with its reversal; approvals on this path are trust events and earn queue proposals."
 ---
 
 ## Why

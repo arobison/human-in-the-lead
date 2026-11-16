@@ -15,8 +15,14 @@
 //                merge.pull_request.check_timeout_minutes: then the branch is stalled and the queue
 //                goes on without it, so a check that never completes never stalls the queue
 //   5. owner     whether a green pull request waits for the owner is one function of the paths it
-//                changes (pullRequestWaits); one that waits merges only with a recorded approval of
-//                its head, which carries the owner's Signed-off-by
+//                changes (pullRequestWaits): in owner mode, one that changes a file under
+//                merge.owner_paths or in merge.owner_areas waits, and with both empty every one
+//                does. One that waits merges only with a recorded approval of its head, which
+//                carries the owner's Signed-off-by. One that does not is merged without asking;
+//                when merge.pull_request.delegated_by names the owner's decision that delegated
+//                it, the squash carries the owner's sign-off (the one their latest approval gave)
+//                and a Delegated-by trailer naming that decision, and with no sign-off known yet
+//                it waits for the owner instead
 //   6. update    a green branch behind main is brought up to date: main merged in (never a rebase,
 //                never a force-push), generated files rebuilt and committed, pushed, and checked
 //                again; a conflict goes back to the executor. An approval holds across the queue's
@@ -33,6 +39,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
 import { findTerms, matchMessage } from '../guard/private-terms.mjs';
+import { UNASSIGNED } from '../rights/trust.mjs';
+import { areasOf, waitsForOwner } from './owner.mjs';
 import { QUARANTINE_PATH } from './quarantine.mjs';
 import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
 
@@ -54,9 +62,13 @@ import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
  * @property {import('../guard/classification.mjs').Rules} [classification]
  * @property {(dir: string) => string[]} [trackerCheck]
  * @property {(dir: string, item: string) => ItemAt | null} itemAt the item as the checked-out tree holds it
+ * @property {string | null} [delegatedBy] merge.pull_request.delegated_by: the owner's decision that
+ *   delegated merging, without asking, the pull requests that do not wait for them
  *
- * @typedef {{ number: number, head: string, signed_off_by: string, at: string, by: string }} Approval
- *   the owner's approval of one pull request's head
+ * @typedef {{ number: number, head: string, signed_off_by: string, at: string, by: string,
+ *   presented_at?: string, as_presented?: boolean }} Approval the owner's approval of one pull
+ *   request's head: presented_at is when it was put to them, and as_presented whether they took
+ *   everything presented then or named a list that left some out
  *
  * @typedef {object} PullState what the queue remembers about one branch's pull request
  * @property {string} item
@@ -71,9 +83,16 @@ import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
  * @property {1} schema_version
  * @property {Record<string, PullState>} branches
  * @property {{ at: string, branches: Presented[] } | null} presented the green pull requests that wait for the owner
+ * @property {string | null} [owner_signoff] the sign-off the owner's latest approval gave: the one a
+ *   merge made under their delegation carries
  *
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, changed: string[],
- *   checks: string[], dispatch?: string }} Presented
+ *   checks: string[], dispatch?: string, no_signoff?: true }} Presented no_signoff: it would merge
+ *   under the owner's delegation, but no sign-off of theirs is known yet
+ * @typedef {{ item: string, branch: string, number: number, url: string, commit: string, signed_off: boolean,
+ *   changed: string[], approval: { at: string, presented_at: string | null, as_presented: boolean } | null,
+ *   delegated_by: string | null, dispatch?: string }} PullMerged approval: the owner's, when they
+ *   approved it; delegated_by: the decision it was merged under without asking, with the owner's sign-off
  * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'duplicate_id' | 'quarantine'
  *   | 'not_closed' | 'publish' | 'checks' | 'missing' | 'needs_rejected', files?: string[], checks?: Check[],
  *   output?: string, message?: string, number?: number, url?: string, dispatch?: string }} PullRejected
@@ -94,7 +113,12 @@ export const SQUASH_TRAILERS = [
 ];
 
 /** @returns {PullQueueState} */
-export const emptyPullState = () => ({ schema_version: 1, branches: {}, presented: null });
+export const emptyPullState = () => ({
+  schema_version: 1,
+  branches: {},
+  presented: null,
+  owner_signoff: null,
+});
 
 /**
  * The stored state; empty when there is none or it does not read.
@@ -114,13 +138,35 @@ export function readPullState(store) {
 /**
  * Whether a green pull request waits for the owner before it merges, from the paths it changes and
  * nothing else: never its author or its description. The one place the pull-request path decides
- * it. Today every pull request waits in owner mode and none in queue mode; the owner-paths and
- * owner-areas rule (HITLD-150) goes here.
- * @param {string[]} _paths the files the pull request changes against main
+ * it. None waits in queue mode. In owner mode one waits when it changes a file under
+ * merge.owner_paths or in an area named in merge.owner_areas, and every one waits when both are
+ * empty (waitsForOwner, the local queue's rule); one that changes nothing that git can name waits
+ * too.
+ * @param {string[]} paths the files the pull request changes against main, a rename as both paths
  * @param {Record<string, any>} policy
  */
-export function pullRequestWaits(_paths, policy) {
-  return policy.merge?.mode === 'owner';
+export function pullRequestWaits(paths, policy) {
+  if (policy.merge?.mode !== 'owner') return false;
+  if (!paths.length) return true;
+  return waitsForOwner(paths, policy);
+}
+
+/**
+ * The files a branch changes against main (a three-dot diff): a rename or a copy as both of its
+ * paths, so a file moved out of an owner path still counts where it came from, and each name as
+ * git stores it, never quoted.
+ * @param {string} dir @param {string} main @param {string} head @returns {string[]}
+ */
+export function changedFiles(dir, main, head) {
+  // Not through git(), which trims: a name may start with a space.
+  const r = spawnSync('git', ['diff', '--name-only', '--no-renames', '-z', `${main}...${head}`], {
+    cwd: dir,
+    encoding: 'utf8',
+  });
+  if (r.status !== 0) {
+    throw new Error(`git diff ${main}...${head}: ${(r.stderr ?? '').trim() || 'failed'}`);
+  }
+  return r.stdout.split('\0').filter(Boolean);
 }
 
 /** @param {string} cwd @param {string[]} args */
@@ -181,8 +227,10 @@ export function pullRequestText(o) {
 
 /**
  * The squash commit's message: the trailers the branch's own commits carry (the queue's updates
- * aside), the item's at least, and the owner's sign-off when they approved it.
- * @param {{ dir: string, base: string, head: string, item: string, signedOffBy?: string | null }} o
+ * aside), the item's at least, and the owner's sign-off when they approved it or when the merge
+ * was delegated; a delegated one adds a Delegated-by trailer naming the owner's decision.
+ * @param {{ dir: string, base: string, head: string, item: string, signedOffBy?: string | null,
+ *   delegatedBy?: string | null }} o
  */
 export function squashMessage(o) {
   const raw = git(o.dir, [
@@ -204,6 +252,7 @@ export function squashMessage(o) {
   if (!found.get('Work-Item')?.length) found.set('Work-Item', [o.item]);
   const lines = [...found].flatMap(([k, vs]) => vs.map((v) => `${k}: ${v}`));
   if (o.signedOffBy) lines.push(`Signed-off-by: ${o.signedOffBy}`);
+  if (o.signedOffBy && o.delegatedBy) lines.push(`Delegated-by: ${o.delegatedBy}`);
   return lines.join('\n');
 }
 
@@ -239,7 +288,7 @@ export async function runPullRequestQueue(r) {
   /** @type {PullQueueState} */
   const state = { ...r.state, branches: { ...r.state.branches } };
   const result = {
-    /** @type {{ item: string, branch: string, number: number, url: string, commit: string, signed_off: boolean, dispatch?: string }[]} */
+    /** @type {PullMerged[]} */
     merged: [],
     /** @type {PullRejected[]} */
     rejected: [],
@@ -374,9 +423,7 @@ export async function runPullRequestQueue(r) {
         });
         continue;
       }
-      const changed = git(dir, ['diff', '--name-only', `${main}...${head}`])
-        .out.split('\n')
-        .filter(Boolean);
+      const changed = changedFiles(dir, main, head);
       if (changed.includes(QUARANTINE_PATH)) {
         reject(e, {
           reason: 'quarantine',
@@ -478,12 +525,24 @@ export async function runPullRequestQueue(r) {
         continue;
       }
 
-      // Green. Whether it waits for the owner is decided from its paths alone.
+      // Green. Whether it waits for the owner is decided from its paths alone. One that does not
+      // wait merges under the owner's delegation when the policy names it, with their sign-off;
+      // with none of theirs known yet, it waits for them after all.
       const waits = pullRequestWaits(changed, r.policy);
-      const approved = waits && approvalHolds(dir, ps, pr.number, head);
-      if (waits && !approved) {
-        presented.push({ ...info, head, changed, checks: [...s.checks] });
-        result.awaiting_owner.push({ ...info, head, changed, checks: [...s.checks] });
+      const owner = r.policy.merge?.mode === 'owner';
+      const delegatedBy = !waits && owner ? (s.delegatedBy ?? null) : null;
+      const noSignoff = Boolean(delegatedBy) && !state.owner_signoff;
+      const approved = (waits || noSignoff) && approvalHolds(dir, ps, pr.number, head);
+      if ((waits || noSignoff) && !approved) {
+        const shown = {
+          ...info,
+          head,
+          changed,
+          checks: [...s.checks],
+          ...(noSignoff ? { no_signoff: /** @type {const} */ (true) } : {}),
+        };
+        presented.push(shown);
+        result.awaiting_owner.push(shown);
         continue;
       }
       if (held) continue;
@@ -573,11 +632,23 @@ export async function runPullRequestQueue(r) {
       }
 
       // Up to date and green: squash-merge it, only while the head is still the one checked.
-      const signedOffBy = approved ? (ps.approval?.signed_off_by ?? null) : null;
+      const delegated = !approved && delegatedBy && state.owner_signoff ? delegatedBy : null;
+      const signedOffBy = approved
+        ? (ps.approval?.signed_off_by ?? null)
+        : delegated
+          ? (state.owner_signoff ?? null)
+          : null;
       const done = r.github.mergePull(pr.number, {
         sha: head,
         title: `${text.title} (#${pr.number})`,
-        message: squashMessage({ dir, base: main, head, item: e.item, signedOffBy }),
+        message: squashMessage({
+          dir,
+          base: main,
+          head,
+          item: e.item,
+          signedOffBy,
+          delegatedBy: delegated,
+        }),
       });
       if (!done.merged) {
         result.pending.push({ ...info, head, checks: [], waited_ms: 0 });
@@ -599,7 +670,21 @@ export async function runPullRequestQueue(r) {
       }
       main = gitOk(r.repoRoot, ['rev-parse', mainRef]);
       result.main.after = main;
-      result.merged.push({ ...info, commit: done.sha, signed_off: Boolean(signedOffBy) });
+      const a = approved ? ps.approval : undefined;
+      result.merged.push({
+        ...info,
+        commit: done.sha,
+        signed_off: Boolean(signedOffBy),
+        changed,
+        approval: a
+          ? {
+              at: a.at,
+              presented_at: a.presented_at ?? null,
+              as_presented: a.as_presented ?? true,
+            }
+          : null,
+        delegated_by: delegated,
+      });
       delete state.branches[e.branch];
     }
   } finally {
@@ -614,7 +699,8 @@ export async function runPullRequestQueue(r) {
 /**
  * Record the owner's approval of presented pull requests in the state: `all`, or the names given
  * (branch or item). Each must be presented, with its head unmoved since. Returns the approvals made,
- * or what refused them; the state is changed only when nothing is refused.
+ * or what refused them; the state is changed only when nothing is refused. The sign-off given is
+ * kept as the owner's latest (owner_signoff), for merges under their delegation.
  * @param {{ state: PullQueueState, all?: boolean, names?: string[], signedOffBy: string, by: string, at: string,
  *   heads: (branch: string) => string | null }} o
  * @returns {{ approved: Presented[], refused: { unknown: string[], moved: string[] } | null }}
@@ -638,6 +724,7 @@ export function approvePulls(o) {
   if (!chosen.length && !unknown.length) unknown.push('(nothing presented)');
   const moved = chosen.filter((b) => o.heads(b.branch) !== b.head).map((b) => b.branch);
   if (unknown.length || moved.length) return { approved: [], refused: { unknown, moved } };
+  const asPresented = chosen.length === shown.length;
   for (const b of chosen) {
     const ps = o.state.branches[b.branch];
     if (!ps) continue;
@@ -647,10 +734,63 @@ export function approvePulls(o) {
       signed_off_by: o.signedOffBy,
       at: o.at,
       by: o.by,
+      ...(o.state.presented?.at ? { presented_at: o.state.presented.at } : {}),
+      as_presented: asPresented,
     };
   }
+  // The sign-off the owner gave here is the one a merge under their delegation carries.
+  if (chosen.length) o.state.owner_signoff = o.signedOffBy;
   return { approved: chosen, refused: null };
 }
+
+/**
+ * The trust events for merged pull requests (design 14.2): for each the owner approved, a
+ * merge-approval per area it changes, with the latency from its presentation to the approval and
+ * whether the owner took what was presented; for each merged under their delegation, a
+ * merge-delegated per area, which a later revert counts against.
+ * @param {PullMerged[]} merged @param {Record<string, any>} policy
+ * @returns {Record<string, any>[]} events for recordTrustEvent, without schema_version and at
+ */
+export function pullTrustEvents(merged, policy) {
+  return merged.flatMap((m) => trustEventsOf(m, policy));
+}
+
+/** @param {PullMerged} m @param {Record<string, any>} policy @returns {Record<string, any>[]} */
+function trustEventsOf(m, policy) {
+  const found = areasOf(m.changed, policy);
+  const areas = found.length ? found : [UNASSIGNED];
+  if (m.approval) {
+    const a = m.approval;
+    const latency = a.presented_at ? Date.parse(a.at) - Date.parse(a.presented_at) : NaN;
+    return areas.map((area) => ({
+      kind: 'merge-approval',
+      area,
+      subject: m.item,
+      decider: 'owner',
+      commit: m.commit,
+      ...(Number.isFinite(latency) ? { latency_ms: Math.max(0, latency) } : {}),
+      as_presented: a.as_presented,
+    }));
+  }
+  if (m.delegated_by) {
+    return areas.map((area) => ({
+      kind: 'merge-delegated',
+      area,
+      subject: m.item,
+      commit: m.commit,
+      note: `merged without asking under ${m.delegated_by}`,
+    }));
+  }
+  return [];
+}
+
+/**
+ * The command that reverses a squash merge on this path: main moves only through a pull request,
+ * so the revert is a branch of its own, and the ledger is told, which counts it against the area.
+ * @param {{ item: string, commit: string }} m
+ */
+export const revertCommand = (m) =>
+  `git revert --no-edit ${m.commit} on a branch of its own, merged through a pull request; then hitld ledger append '${JSON.stringify({ event: 'reverted', item: m.item })}'`;
 
 /** A sign-off line's value: `Name <email>`. @param {string} s */
 export const validSignoff = (s) => /^[^<>\n]+\S <[^<>\s@]+@[^<>\s@]+>$/.test(s.trim());

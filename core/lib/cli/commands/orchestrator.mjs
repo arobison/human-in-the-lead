@@ -70,7 +70,9 @@ import { ghGitHub, remoteUrl, repoFromRemote } from '../../merge/github.mjs';
 import {
   PULL_STATE_KEY,
   approvePulls,
+  pullTrustEvents,
   readPullState,
+  revertCommand,
   runPullRequestQueue,
   validSignoff,
 } from '../../merge/pull-request.mjs';
@@ -793,6 +795,7 @@ async function pullRequestMerge(o) {
       remote: pr.remote,
       checks: pr.checks,
       checkTimeoutMinutes: pr.check_timeout_minutes,
+      delegatedBy: o.owner ? (pr.delegated_by ?? null) : null,
       generated: p.policy.merge.generated,
       setup: o.settings.setup,
       classification: o.settings.classification,
@@ -831,7 +834,11 @@ async function pullRequestMerge(o) {
       item: m.item,
       commit: m.commit,
       branch: m.branch,
-      notes: `squash-merged as pull request #${m.number}${m.signed_off ? ", with the owner's sign-off" : ''}`,
+      notes: m.delegated_by
+        ? `squash-merged as pull request #${m.number} without asking, under ${m.delegated_by}, with the owner's delegated sign-off`
+        : `squash-merged as pull request #${m.number}${m.signed_off ? ", with the owner's sign-off" : ''}`,
+      // The decision a merge without asking was made under: the digest lists it with its reversal.
+      ...(m.delegated_by ? { decision: m.delegated_by } : {}),
       ...(m.dispatch ? { dispatch: m.dispatch } : {}),
     });
     // The worktrees hitld env made for this branch (tier 3) go; adopted ones are the harness's.
@@ -842,6 +849,11 @@ async function pullRequestMerge(o) {
       }
     }
   }
+  // Approvals and delegated merges are trust evidence (design 14.2); after a clean run in an area
+  // the queue is proposed there, and the owner decides.
+  const trustAt = new Date().toISOString();
+  for (const ev of pullTrustEvents(result.merged, p.policy)) recordTrustEvent(p.store, ev, trustAt);
+  const proposals = o.owner && result.merged.some((m) => m.approval) ? proposalsNow(p) : [];
   // Then every other finished worktree (env/teardown.mjs): adopted ones of merged branches too.
   const torn = result.merged.length
     ? await tearDown(o.env, { events: readLedger(p.store).events, primary: p.repoRoot })
@@ -865,6 +877,17 @@ async function pullRequestMerge(o) {
     ...(o.approve ? { approved: approved.map((b) => b.branch) } : {}),
     merged: result.merged.map((m) => m.item),
     pull_requests: result.merged,
+    // Merged without asking under the owner's delegation, each with the command that reverses it.
+    delegated: result.merged
+      .filter((m) => m.delegated_by)
+      .map((m) => ({
+        item: m.item,
+        pull_request: m.url,
+        commit: m.commit,
+        decision: m.delegated_by,
+        reverse: revertCommand(m),
+      })),
+    ...(o.owner ? { proposals } : {}),
     ...(torn?.removed.length ? { worktrees_removed: torn.removed.map((x) => x.path) } : {}),
     rejected: result.rejected.map((x) => ({
       ...rejectedJson(/** @type {any} */ (x), main),
@@ -889,6 +912,12 @@ async function pullRequestMerge(o) {
             : '',
           waiting.length
             ? 'put the question to the owner in one message, one line per pull request (item, link, the checks passed, the files changed); merge only on the owner\'s own message: hitld merge --all or --only <branch> with --signoff "<the owner\'s sign-off>" (or the chief of staff records it with hitld merge approve)'
+            : '',
+          waiting.some((w) => w.no_signoff)
+            ? `the ones marked no_signoff would merge without asking under ${pr.delegated_by}, but no sign-off of the owner's is recorded yet: their approval records it, and later ones merge with it`
+            : '',
+          proposals.length
+            ? 'put each proposal to the owner with hitld rights ask --question <its question>; only the owner changes policy.json'
             : '',
           result.pending.length || result.updated.length
             ? 'run hitld merge again when the named checks finish (watch the pull requests rather than poll)'

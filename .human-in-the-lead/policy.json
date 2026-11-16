@@ -5,6 +5,31 @@
     "key": "HITLD"
   },
   "merge": {
+    "mode": "owner",
+    "via": "pull-request",
+    "pull_request": {
+      "checks": [
+        "check",
+        "typecheck",
+        "format",
+        "tests",
+        "evals",
+        "tracker",
+        "dco",
+        "public",
+        "Analyze (actions)",
+        "Analyze (javascript-typescript)"
+      ],
+      "delegated_by": "HITLD-159"
+    },
+    "owner_paths": ["**", "!work/**"],
+    "propose_queue_after": 20,
+    "generated": [
+      {
+        "globs": ["plugins/**"],
+        "regenerate": "npm run build"
+      }
+    ],
     "public_globs": [
       "schemas/**",
       "templates/AGENTS.contract.md",

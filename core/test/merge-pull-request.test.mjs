@@ -1,6 +1,9 @@
 // The merge queue through pull requests (merge.via pull-request), against a fake GitHub API whose
 // repository is a bare git remote: green, a red check, a check that never completes, a conflict on
-// update, and the owner's sign-off.
+// update, and the owner's sign-off; and who decides (HITLD-150): a pull request outside
+// merge.owner_paths merged without asking under the owner's delegation, one inside left waiting,
+// one touching both, decided from the diff alone, the queue proposed after a clean run, and a
+// revert starting the run again.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,10 +16,13 @@ import {
   approvePulls,
   emptyPullState,
   pullRequestWaits,
+  pullTrustEvents,
+  revertCommand,
   runPullRequestQueue,
   squashMessage,
   validSignoff,
 } from '../lib/merge/pull-request.mjs';
+import { approvalSummary, queueProposals, revertEvents } from '../lib/merge/owner.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
 const ID = {
@@ -95,12 +101,18 @@ function setup(o = {}) {
     checks: ({ branch }) => checks[branch] ?? [{ name: 'test', state: 'success' }],
   });
   /**
-   * An executor's branch, pushed: its files and the item closed.
-   * @param {string} id @param {Record<string, string>} files @param {{ close?: boolean }} [b]
+   * An executor's branch, pushed: its files and the item closed. `move` renames files with git mv
+   * first; `message` and `author` replace the commit's message and author.
+   * @param {string} id @param {Record<string, string>} files
+   * @param {{ close?: boolean, move?: Record<string, string>, message?: string, author?: string }} [b]
    */
   const branch = (id, files, b = {}) => {
     const name = `hitld/${id}`;
     git(root, 'checkout', '-q', '-b', name, 'main');
+    for (const [from, to] of Object.entries(b.move ?? {})) {
+      mkdirSync(dirname(join(root, to)), { recursive: true });
+      git(root, 'mv', from, to);
+    }
     put(root, {
       ...files,
       [`work/items/${id}.md`]: itemText(id, b.close === false ? 'in-progress' : 'done'),
@@ -110,8 +122,9 @@ function setup(o = {}) {
       root,
       'commit',
       '-q',
+      ...(b.author ? [`--author=${b.author}`] : []),
       '-m',
-      `${id}: the change`,
+      b.message ?? `${id}: the change`,
       '-m',
       `Work-Item: ${id}\nDispatch: D-${id.slice(2)}\nAgent-Role: executor\nAgent-Model: opus\nAgent-Effort: high`,
     );
@@ -133,8 +146,9 @@ function setup(o = {}) {
         checkTimeoutMinutes: 60,
         generated: x.generated ?? [],
         itemAt,
+        ...(x.delegatedBy ? { delegatedBy: x.delegatedBy } : {}),
       },
-      policy: { merge: { mode: x.mode ?? 'queue' } },
+      policy: { merge: { mode: x.mode ?? 'queue', ...(x.merge ?? {}) } },
       github,
       state: x.state ?? emptyPullState(),
       evidence: () => ['npm test: 3 passed'],
@@ -449,6 +463,292 @@ test('stageAll: a file that differs only in line endings is no change to commit'
 test('whether a pull request waits is one function of its changed paths and the policy', () => {
   assert.equal(pullRequestWaits(['src/a.js'], { merge: { mode: 'owner' } }), true);
   assert.equal(pullRequestWaits(['work/items/W-1.md'], { merge: { mode: 'queue' } }), false);
+  // Owner mode with both settings empty: every pull request waits, a tracker-only one too.
+  assert.equal(pullRequestWaits(['work/items/W-1.md'], { merge: { mode: 'owner' } }), true);
+  // This repository's scope (HITLD-158): everything but work/ waits. Paths are read in order, the
+  // last glob a file matches deciding; "!" takes files back out.
+  const policy = { merge: { mode: 'owner', owner_paths: ['**', '!work/**'] } };
+  /** @type {[string[], boolean][]} */
+  const table = [
+    [['work/items/W-1.md'], false],
+    [['work/items/W-1.md', 'work/views/ready.md', 'work/releases/v1.md'], false],
+    [['work/items/W-1.md', 'core/lib/merge/pull-request.mjs'], true],
+    [['core/lib/merge/pull-request.mjs'], true],
+    [['.github/workflows/ci.yml'], true],
+    [['.human-in-the-lead/policy.json'], true],
+    [['schemas/policy/merge.schema.json'], true],
+    [['skills/execute/SKILL.md'], true],
+    [['plugins/human-in-the-lead/core/lib/merge/owner.mjs'], true],
+    [['package.json'], true],
+    [['README.md'], true],
+    [['a-new-directory/x.mjs'], true],
+    [['work'], true],
+    [['workers/x.mjs'], true],
+    [[' work/x.md'], true],
+    [['docs/work/x.md'], true],
+    [[], true],
+  ];
+  for (const [paths, waits] of table) {
+    assert.equal(pullRequestWaits(paths, policy), waits, JSON.stringify(paths));
+  }
+  // Order matters: a later glob takes a path back in.
+  const releases = {
+    merge: { mode: 'owner', owner_paths: ['**', '!work/**', 'work/releases/**'] },
+  };
+  assert.equal(pullRequestWaits(['work/items/W-1.md'], releases), false);
+  assert.equal(pullRequestWaits(['work/releases/v1.md'], releases), true);
+  // By area: the files in an area named in owner_areas wait.
+  const areas = {
+    merge: { mode: 'owner', owner_areas: ['core'] },
+    rights: { areas: [{ name: 'core', paths: ['core/**'] }] },
+  };
+  assert.equal(pullRequestWaits(['core/x.mjs'], areas), true);
+  assert.equal(pullRequestWaits(['work/items/W-1.md'], areas), false);
+  // Nothing but the paths and the policy is an input: no author, no title, no description.
+  assert.equal(pullRequestWaits.length, 2);
+});
+
+/** The owner's delegation and scope as this repository sets them, with W-159 as the decision. */
+const DELEGATED = {
+  mode: 'owner',
+  merge: { owner_paths: ['**', '!work/**'] },
+  delegatedBy: 'W-159',
+};
+const OWNER = 'Owner Person <owner@example.com>';
+
+test('owner paths: a tracker-only pull request merges without asking, with the delegated sign-off; one outside work/, or touching both, waits', async () => {
+  const t = setup();
+  try {
+    const tracker = t.branch('W-1', { 'work/notes.md': 'a note\n' });
+    const code = t.branch('W-2', { 'a.txt': 'a\n' });
+    const both = t.branch('W-3', { 'work/more.md': 'more\n', 'b.txt': 'b\n' });
+    // No sign-off of the owner's is known yet: the tracker-only one waits for them too, marked so.
+    const first = await t.pass([tracker, code, both], DELEGATED);
+    assert.deepEqual(first.merged, []);
+    assert.deepEqual(
+      first.awaiting_owner.map((x) => [x.item, x.no_signoff ?? false]),
+      [
+        ['W-1', true],
+        ['W-2', false],
+        ['W-3', false],
+      ],
+    );
+    // The owner approves the code pull request only; that records their sign-off.
+    const ok = approvePulls({
+      state: first.state,
+      names: ['W-2'],
+      signedOffBy: OWNER,
+      by: 'cos',
+      at: '2026-11-16T10:00:00Z',
+      heads: t.remoteTip,
+    });
+    assert.equal(ok.refused, null);
+    assert.equal(first.state.owner_signoff, OWNER);
+    assert.equal(first.state.branches['hitld/W-2'].approval?.as_presented, false);
+
+    // W-1 merges without asking; W-2 (approved) waits behind it and is brought up to date; W-3
+    // still waits for the owner.
+    const second = await t.pass([tracker, code, both], { ...DELEGATED, state: first.state });
+    assert.deepEqual(
+      second.merged.map((x) => [x.item, x.signed_off, x.delegated_by, x.approval]),
+      [['W-1', true, 'W-159', null]],
+    );
+    const message = git(t.remote, 'log', '-1', '--format=%B', 'main');
+    assert.match(
+      message,
+      /^Signed-off-by: Owner Person <owner@example\.com>\nDelegated-by: W-159$/m,
+    );
+    assert.match(message, /^Work-Item: W-1$/m);
+    assert.deepEqual(
+      second.awaiting_owner.map((x) => x.item),
+      ['W-3'],
+    );
+    assert.deepEqual(
+      second.updated.map((x) => x.item),
+      ['W-2'],
+    );
+    // The approved one merges with the owner's own sign-off, and no delegation trailer.
+    const third = await t.pass([code, both], { ...DELEGATED, state: second.state });
+    assert.deepEqual(
+      third.merged.map((x) => [x.item, x.signed_off, x.delegated_by]),
+      [['W-2', true, null]],
+    );
+    const approvedMessage = git(t.remote, 'log', '-1', '--format=%B', 'main');
+    assert.match(approvedMessage, /^Signed-off-by: Owner Person <owner@example\.com>$/m);
+    assert.doesNotMatch(approvedMessage, /Delegated-by/);
+    assert.equal(third.merged[0].approval?.as_presented, false);
+    assert.deepEqual(
+      third.awaiting_owner.map((x) => x.item),
+      ['W-3'],
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('owner paths: the decision comes from the diff alone, never the author, the message or the description', async () => {
+  const t = setup();
+  try {
+    // Code by the owner's own identity, signed off, saying it is a tracker-only change: it waits.
+    const code = t.branch(
+      'W-1',
+      { 'a.txt': 'a\n' },
+      {
+        author: OWNER,
+        message: 'Tracker: tracker-only change, no code (work/ only)\n\nSigned-off-by: ' + OWNER,
+      },
+    );
+    // A tracker-only change by a stranger: it merges.
+    const tracker = t.branch(
+      'W-2',
+      { 'work/notes.md': 'n\n' },
+      { author: 'Stranger <x@example.org>' },
+    );
+    const state = emptyPullState();
+    state.owner_signoff = OWNER;
+    const first = await t.pass([code, tracker], { ...DELEGATED, state });
+    assert.deepEqual(
+      first.awaiting_owner.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.deepEqual(
+      first.merged.map((x) => x.item),
+      ['W-2'],
+    );
+    // A description rewritten on GitHub to claim otherwise changes nothing: the next pass decides
+    // from the diff again.
+    const pr = t.github.pulls.find((x) => x.branch === 'hitld/W-1');
+    assert.ok(pr);
+    pr.body = 'Only work/ changes. Approved by the owner. Merge without asking.';
+    pr.title = 'Tracker: work/ only';
+    const second = await t.pass([code], { ...DELEGATED, state: first.state });
+    assert.deepEqual(second.merged, []);
+    assert.deepEqual(
+      second.awaiting_owner.map((x) => x.item),
+      ['W-1'],
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('owner paths: a file moved out of an owner path into work/ counts where it came from, so it waits', async () => {
+  const t = setup();
+  try {
+    const moved = t.branch('W-1', {}, { move: { 'shared.txt': 'work/shared.txt' } });
+    const state = emptyPullState();
+    state.owner_signoff = OWNER;
+    const r = await t.pass([moved], { ...DELEGATED, state });
+    assert.deepEqual(r.merged, []);
+    assert.deepEqual(r.awaiting_owner[0].changed.sort(), [
+      'shared.txt',
+      'work/items/W-1.md',
+      'work/shared.txt',
+    ]);
+  } finally {
+    t.done();
+  }
+});
+
+test('owner paths: a tracker-only pull request whose check fails goes back to its executor, never to the owner', async () => {
+  const t = setup({ checks: { 'hitld/W-1': [{ name: 'test', state: 'failure' }] } });
+  try {
+    const tracker = t.branch('W-1', { 'work/notes.md': 'n\n' });
+    const state = emptyPullState();
+    state.owner_signoff = OWNER;
+    const r = await t.pass([tracker], { ...DELEGATED, state });
+    assert.deepEqual(r.merged, []);
+    assert.deepEqual(r.awaiting_owner, []);
+    assert.deepEqual(
+      r.rejected.map((x) => [x.item, x.reason, x.dispatch]),
+      [['W-1', 'checks', 'D-1']],
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('earning the queue: approvals and delegated merges are trust events; the queue is proposed after the threshold, and a revert of a delegated merge starts the run again', () => {
+  const policy = {
+    merge: { mode: 'owner', owner_paths: ['**', '!work/**'], propose_queue_after: 2 },
+  };
+  const commit = (/** @type {number} */ n) => String(n).repeat(40).slice(0, 40);
+  /** @param {string} item @param {number} n @returns {import('../lib/merge/pull-request.mjs').PullMerged} */
+  const approved = (item, n) => ({
+    item,
+    branch: `hitld/${item}`,
+    number: n,
+    url: `https://github.com/acme/app/pull/${n}`,
+    commit: commit(n),
+    signed_off: true,
+    changed: ['core/x.mjs', `work/items/${item}.md`],
+    approval: {
+      at: '2026-11-16T10:05:00Z',
+      presented_at: '2026-11-16T10:00:00Z',
+      as_presented: true,
+    },
+    delegated_by: null,
+  });
+  /** @type {import('../lib/merge/pull-request.mjs').PullMerged} */
+  const delegated = {
+    ...approved('W-3', 3),
+    changed: ['work/items/W-3.md'],
+    approval: null,
+    delegated_by: 'W-159',
+  };
+  /** @type {Record<string, any>[]} */
+  const trust = pullTrustEvents([approved('W-1', 1), delegated], policy);
+  assert.deepEqual(
+    trust.map((e) => [e.kind, e.area, e.subject, e.latency_ms ?? null]),
+    [
+      ['merge-approval', 'unassigned', 'W-1', 300000],
+      ['merge-delegated', 'unassigned', 'W-3', null],
+    ],
+  );
+  assert.equal(queueProposals(approvalSummary(trust), policy).length, 0, 'one approval is short');
+  trust.push(...pullTrustEvents([approved('W-2', 2)], policy));
+  const proposals = queueProposals(approvalSummary(trust), policy);
+  assert.deepEqual(
+    proposals.map((x) => [x.area, x.clean_run, x.change]),
+    [['unassigned', 2, { 'merge.mode': 'queue' }]],
+  );
+  // The delegated merge is reverted: the run starts again, and nothing is proposed.
+  trust.push(...revertEvents(trust, 'W-3'));
+  assert.deepEqual(trust.at(-1), { kind: 'merge-reverted', area: 'unassigned', subject: 'W-3' });
+  const after = approvalSummary(trust).unassigned;
+  assert.equal(after.clean_run, 0);
+  assert.equal(after.delegated, 1);
+  assert.equal(after.delegated_reverted, 1);
+  assert.equal(after.approvals, 2);
+  assert.deepEqual(queueProposals(after ? { unassigned: after } : {}, policy), []);
+  assert.match(revertCommand({ item: 'W-3', commit: commit(3) }), /^git revert --no-edit 3{40} /);
+});
+
+test('earning the queue by area: a glob broader than the area stays, and the area is taken out after it', () => {
+  const policy = {
+    merge: { mode: 'owner', owner_paths: ['**', '!work/**'], propose_queue_after: 1 },
+    rights: {
+      areas: [
+        { name: 'skills', paths: ['skills/**'] },
+        { name: 'core', paths: ['core/**'] },
+      ],
+    },
+  };
+  const trust = [{ kind: 'merge-approval', area: 'skills', subject: 'W-1', as_presented: true }];
+  const [p] = queueProposals(approvalSummary(trust), policy);
+  assert.deepEqual(p.change, {
+    'merge.owner_areas': [],
+    'merge.owner_paths': ['**', '!work/**', '!skills/**'],
+  });
+  // A glob inside the area goes.
+  const inside = {
+    ...policy,
+    merge: { ...policy.merge, owner_paths: ['skills/**', 'core/**'] },
+  };
+  assert.deepEqual(queueProposals(approvalSummary(trust), inside)[0].change, {
+    'merge.owner_areas': [],
+    'merge.owner_paths': ['core/**'],
+  });
 });
 
 test('the pieces: no checks named refuses, sign-offs, remote URLs', async () => {
@@ -601,6 +901,174 @@ test('hitld merge with merge.via pull-request: presented to the owner, approved 
     );
     // Nothing waits any more.
     assert.equal((await hitld(['merge'])).result.message, 'nothing is waiting to merge');
+  } finally {
+    rmSync(c.base, { recursive: true, force: true });
+  }
+});
+
+test('hitld merge with owner paths and a delegation: the owner approves code, the queue is proposed, a tracker-only pull request merges without asking and is listed in the digest with its reversal, and its revert starts the run again', async () => {
+  const { main } = await import('../lib/cli/main.mjs');
+  const { makeConsumer, item, report, STATUS_INPUT } = await import('./orchestrator-fixture.mjs');
+  const { recordStatusLine } = await import('../harness/claude-code/statusline.mjs');
+  const { openStore } = await import('../lib/store/store.mjs');
+  const { readLedger } = await import('../lib/ledger/ledger.mjs');
+  const { readTrustEvents } = await import('../lib/rights/trust.mjs');
+  const c = makeConsumer({
+    policy: {
+      merge: {
+        mode: 'owner',
+        via: 'pull-request',
+        pull_request: { checks: ['test'], delegated_by: 'W-159' },
+        owner_paths: ['**', '!work/**'],
+        propose_queue_after: 1,
+        full_suite: ['node --test "test/*.test.js"'],
+      },
+    },
+  });
+  try {
+    const remote = join(c.base, 'remote.git');
+    git(c.base, 'init', '-q', '--bare', '-b', 'main', remote);
+    git(c.root, 'remote', 'add', 'origin', remote);
+    git(c.root, 'push', '-q', 'origin', 'main');
+    const github = fakeGitHub({ remote, checks: () => [{ name: 'test', state: 'success' }] });
+    /** @param {string[]} argv */
+    const hitld = async (argv) => {
+      let out = '';
+      const exit = await main(argv, {
+        out: (t) => (out += t),
+        err: () => {},
+        cwd: c.root,
+        env: c.env,
+        github: () => github,
+      });
+      return { exit, result: JSON.parse(out) };
+    };
+    /**
+     * Dispatch an item, commit its change on its branch with the item closed, report it.
+     * @param {string} id @param {string} dispatch @param {string} file the item's file
+     * @param {string} title @param {Record<string, string>} files
+     */
+    const deliver = async (id, dispatch, file, title, files) => {
+      const start = await hitld(['dispatch', 'start', id]);
+      assert.equal(start.exit, 0, JSON.stringify(start.result));
+      await hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', `agent-${id}`]);
+      const branch = start.result.branch;
+      git(c.root, 'switch', '-q', '-c', branch);
+      put(c.root, { [file]: item({ id, title, kind: 'work', state: 'done' }), ...files });
+      git(c.root, 'add', '-A');
+      git(
+        c.root,
+        'commit',
+        '-q',
+        '-m',
+        id,
+        '-m',
+        `Work-Item: ${id}\nDispatch: ${dispatch}\nAgent-Role: executor`,
+      );
+      const sha = git(c.root, 'rev-parse', 'HEAD');
+      git(c.root, 'push', '-q', 'origin', branch);
+      git(c.root, 'switch', '-q', 'main');
+      const note = join(c.base, `${id}.txt`);
+      writeFileSync(note, report({ item: id, sha, branch }));
+      const done = await hitld([
+        'dispatch',
+        'complete',
+        '--dispatch',
+        dispatch,
+        '--report-file',
+        note,
+      ]);
+      assert.equal(done.result.queued_to_merge, branch, JSON.stringify(done.result));
+      return branch;
+    };
+    recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+    assert.equal((await hitld(['run', 'start'])).exit, 0);
+
+    // A code change waits for the owner, who approves it: their sign-off is recorded, the
+    // approval is trust evidence, and after one clean approval (propose_queue_after 1) the queue
+    // is proposed.
+    const code = await deliver('W-1', 'D-1', 'work/items/W-1-add-numbers.md', 'Add numbers', {
+      'src/calc.js': 'export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n',
+    });
+    const shown = await hitld(['merge']);
+    assert.equal(shown.exit, 0, JSON.stringify(shown.result));
+    assert.deepEqual(
+      shown.result.presented.map((/** @type {any} */ b) => [b.item, b.no_signoff ?? false]),
+      [['W-1', false]],
+    );
+    const approved = await hitld(['merge', '--all', '--signoff', OWNER]);
+    assert.equal(approved.exit, 0, JSON.stringify(approved.result));
+    assert.deepEqual(approved.result.merged, ['W-1']);
+    assert.deepEqual(approved.result.delegated, []);
+    assert.deepEqual(
+      approved.result.proposals.map((/** @type {any} */ x) => [x.area, x.change]),
+      [['unassigned', { 'merge.mode': 'queue' }]],
+    );
+    assert.match(approved.result.next, /hitld rights ask --question/);
+    assert.ok(approved.result.pull_requests[0].approval);
+    void code;
+
+    // A tracker-only change merges without asking, with the owner's sign-off marked as delegated.
+    const tracker = await deliver(
+      'W-2',
+      'D-2',
+      'work/items/W-2-another-thing.md',
+      'Another thing',
+      {
+        'work/notes.md': 'a note\n',
+      },
+    );
+    // Its branch left main before W-1 merged: the first pass brings it up to date, the next merges.
+    const update = await hitld(['merge']);
+    assert.equal(update.exit, 0, JSON.stringify(update.result));
+    assert.deepEqual(
+      update.result.updated.map((/** @type {any} */ u) => u.item),
+      ['W-2'],
+      JSON.stringify(update.result),
+    );
+    const merged = await hitld(['merge']);
+    assert.equal(merged.exit, 0, JSON.stringify(merged.result));
+    assert.deepEqual(merged.result.merged, ['W-2'], JSON.stringify(merged.result));
+    assert.deepEqual(merged.result.presented, []);
+    const commit = git(remote, 'rev-parse', 'main');
+    assert.deepEqual(
+      merged.result.delegated.map((/** @type {any} */ d) => [d.item, d.commit, d.decision]),
+      [['W-2', commit, 'W-159']],
+    );
+    assert.match(
+      merged.result.delegated[0].reverse,
+      new RegExp(`^git revert --no-edit ${commit} `),
+    );
+    const message = git(remote, 'log', '-1', '--format=%B', 'main');
+    assert.match(
+      message,
+      /^Signed-off-by: Owner Person <owner@example\.com>\nDelegated-by: W-159$/m,
+    );
+    const store = openStore(join(c.data, 'human-in-the-lead', 'orch-fixture'));
+    const event = readLedger(store).events.find((e) => e.event === 'merged' && e.item === 'W-2');
+    assert.equal(event?.decision, 'W-159');
+    assert.equal(event?.branch, tracker);
+
+    // The digest lists it as merged without asking, with the command that reverses it.
+    const digest = await hitld(['rights', 'digest', '--full']);
+    assert.equal(digest.exit, 0, JSON.stringify(digest.result));
+    const listed = digest.result.merged.find((/** @type {any} */ m) => m.item === 'W-2');
+    assert.equal(listed.delegated_by, 'W-159');
+    assert.match(listed.reverse, new RegExp(`git revert --no-edit ${commit}`));
+    assert.match(digest.result.text, /merged without asking under W-159/);
+
+    // A revert of it counts against the area: the run starts again.
+    const trustBefore = readTrustEvents(store);
+    assert.ok(trustBefore.some((e) => e.kind === 'merge-delegated' && e.subject === 'W-2'));
+    const reverted = await hitld([
+      'ledger',
+      'append',
+      JSON.stringify({ event: 'reverted', item: 'W-2' }),
+    ]);
+    assert.equal(reverted.exit, 0, JSON.stringify(reverted.result));
+    const trust = readTrustEvents(store);
+    assert.ok(trust.some((e) => e.kind === 'merge-reverted' && e.subject === 'W-2'));
+    assert.equal(approvalSummary(trust).unassigned.clean_run, 0);
   } finally {
     rmSync(c.base, { recursive: true, force: true });
   }
