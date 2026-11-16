@@ -22,7 +22,7 @@ import {
   squashMessage,
   validSignoff,
 } from '../lib/merge/pull-request.mjs';
-import { approvalSummary, queueProposals, revertEvents } from '../lib/merge/owner.mjs';
+import { approvalSummary, areasOf, queueProposals, revertEvents } from '../lib/merge/owner.mjs';
 import { checksFor } from '../lib/merge/pull-request.mjs';
 import { classify } from '../../scripts/ci-changes.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -1125,19 +1125,71 @@ test("this repository's areas: each proposal frees one area; the tracker, alread
   for (const area of ['tracker', 'unassigned']) {
     assert.deepEqual(queueProposals(approvalSummary(run(area)), REPO_POLICY), [], area);
   }
+  // A yes to core frees its generated copy in the plugin too (HITLD-317): one approval, both.
   const core = queueProposals(approvalSummary(run('core')), REPO_POLICY);
   assert.deepEqual(core[0].change, {
     'merge.owner_areas': [],
-    'merge.owner_paths': ['**', '!work/**', 'work/releases/**', '!core/**'],
+    'merge.owner_paths': [
+      '**',
+      '!work/**',
+      'work/releases/**',
+      '!core/**',
+      '!plugins/human-in-the-lead/core/**',
+    ],
   });
   const policyWithCore = {
     ...REPO_POLICY,
     merge: { ...REPO_POLICY.merge, owner_paths: core[0].change['merge.owner_paths'] },
   };
-  // After a yes, core alone stops waiting.
+  // After a yes, core and its plugin copy stop waiting, and nothing else does.
   assert.equal(pullRequestWaits(['core/lib/x.mjs'], policyWithCore), false);
+  assert.equal(
+    pullRequestWaits(
+      ['core/lib/x.mjs', 'plugins/human-in-the-lead/core/lib/x.mjs'],
+      policyWithCore,
+    ),
+    false,
+  );
+  assert.equal(
+    pullRequestWaits(['plugins/human-in-the-lead/schemas/x.json'], policyWithCore),
+    true,
+  );
+  assert.equal(
+    pullRequestWaits(['plugins/human-in-the-lead/skills/x/SKILL.md'], policyWithCore),
+    true,
+  );
   assert.equal(pullRequestWaits(['skills/x/SKILL.md'], policyWithCore), true);
   assert.equal(pullRequestWaits(['work/releases/v1.md'], policyWithCore), true);
+  const skills = queueProposals(approvalSummary(run('skills')), REPO_POLICY);
+  const withSkills = {
+    ...REPO_POLICY,
+    merge: { ...REPO_POLICY.merge, owner_paths: skills[0].change['merge.owner_paths'] },
+  };
+  for (const f of [
+    'skills/execute/SKILL.md',
+    'agents/generalizer.md',
+    'plugins/human-in-the-lead/skills/execute/SKILL.md',
+    'plugins/human-in-the-lead/agents/generalizer.md',
+  ]) {
+    assert.equal(pullRequestWaits([f], withSkills), false, f);
+  }
+  assert.equal(pullRequestWaits(['plugins/human-in-the-lead/core/lib/x.mjs'], withSkills), true);
+  // Every tracked file is in one area at most, so an approval counts where its files are.
+  const tracked = execFileSync('git', ['ls-files', '-z'], {
+    cwd: new URL('../..', import.meta.url),
+    encoding: 'utf8',
+  })
+    .split('\0')
+    .filter(Boolean);
+  const twice = tracked.filter((f) => areasOf([f], REPO_POLICY).length > 1);
+  assert.deepEqual(twice, []);
+  const plugin = tracked.filter((f) => f.startsWith('plugins/'));
+  assert.ok(plugin.length > 0);
+  assert.deepEqual(
+    plugin.filter((f) => areasOf([f], REPO_POLICY)[0] === 'unassigned'),
+    [],
+    'every file of the plugin build is in an area',
+  );
   const releases = queueProposals(approvalSummary(run('releases')), REPO_POLICY);
   assert.deepEqual(releases[0].change['merge.owner_paths'], [
     '**',

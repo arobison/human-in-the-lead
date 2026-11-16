@@ -79,15 +79,29 @@
       },
       {
         "name": "core",
-        "paths": ["core/**"]
+        "paths": ["core/**", "plugins/human-in-the-lead/core/**"]
       },
       {
         "name": "plugins",
-        "paths": ["plugins/**"]
+        "paths": [
+          "plugins/*",
+          "plugins/human-in-the-lead/*",
+          "plugins/human-in-the-lead/.claude-plugin/**",
+          "plugins/human-in-the-lead/bin/**",
+          "plugins/human-in-the-lead/hooks/**",
+          "plugins/human-in-the-lead/schemas/**",
+          "plugins/human-in-the-lead/templates/**",
+          "plugins/human-in-the-lead/evals/**"
+        ]
       },
       {
         "name": "skills",
-        "paths": ["skills/**", "agents/**"]
+        "paths": [
+          "skills/**",
+          "agents/**",
+          "plugins/human-in-the-lead/skills/**",
+          "plugins/human-in-the-lead/agents/**"
+        ]
       },
       {
         "name": "schemas",
