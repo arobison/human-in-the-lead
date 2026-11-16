@@ -49,8 +49,10 @@ const whoFields = (who) => ({
  * @param {'asked' | 'sent' | 'answered'} event
  * @param {string} decision
  * @param {string} at ISO 8601
- * @param {{ delivery?: 'interrupt' | 'digest', via?: 'default', who?: Who }} [extra] on sent: how it
- *   was sent; on answered: that a default took it; who: the session and host that write it
+ * @param {{ delivery?: 'interrupt' | 'digest', via?: 'default', who?: Who, text?: string }} [extra] on
+ *   sent: how it was sent; on answered: that a default took it, and the answer as written in the
+ *   item (text), which a merge under the owner's delegation checks a changed answer against; who:
+ *   the session and host that write it
  * @returns {{ event: LedgerEntry, appended: boolean }} the event now in the ledger
  */
 export function recordDecisionEvent(store, event, decision, at, extra = {}) {
@@ -66,6 +68,7 @@ export function recordDecisionEvent(store, event, decision, at, extra = {}) {
     ...(run ? { run } : {}),
     ...(extra.delivery ? { delivery: extra.delivery } : {}),
     ...(extra.via ? { via: extra.via } : {}),
+    ...(event === 'answered' && extra.text ? { text: extra.text } : {}),
     ...whoFields(extra.who),
     at,
   });

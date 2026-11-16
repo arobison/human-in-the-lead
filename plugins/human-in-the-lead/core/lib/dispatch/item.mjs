@@ -67,7 +67,7 @@ export function planSpecific(item) {
 }
 
 /** A concrete path a glob stands for, for testing it against other globs. @param {string} glob */
-const sample = (glob) =>
+export const sample = (glob) =>
   glob
     .replace(/\*\*\/?/g, 'x/')
     .replace(/\*/g, 'x')

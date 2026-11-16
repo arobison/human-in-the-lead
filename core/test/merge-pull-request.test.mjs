@@ -23,6 +23,8 @@ import {
   validSignoff,
 } from '../lib/merge/pull-request.mjs';
 import { approvalSummary, queueProposals, revertEvents } from '../lib/merge/owner.mjs';
+import { checksFor } from '../lib/merge/pull-request.mjs';
+import { classify } from '../../scripts/ci-changes.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
 const ID = {
@@ -147,6 +149,8 @@ function setup(o = {}) {
         generated: x.generated ?? [],
         itemAt,
         ...(x.delegatedBy ? { delegatedBy: x.delegatedBy } : {}),
+        ...(x.answers ? { answers: x.answers } : {}),
+        ...(x.conditionalChecks ? { conditionalChecks: x.conditionalChecks } : {}),
       },
       policy: { merge: { mode: x.mode ?? 'queue', ...(x.merge ?? {}) } },
       github,
@@ -1071,5 +1075,247 @@ test('hitld merge with owner paths and a delegation: the owner approves code, th
     assert.equal(approvalSummary(trust).unassigned.clean_run, 0);
   } finally {
     rmSync(c.base, { recursive: true, force: true });
+  }
+});
+
+/** This repository's own policy, as committed. */
+const REPO_POLICY = JSON.parse(
+  readFileSync(new URL('../../.human-in-the-lead/policy.json', import.meta.url), 'utf8'),
+);
+
+test("this repository's policy: what merges without asking, by changed paths (HITLD-158, HITLD-309)", () => {
+  /** @type {[string[], boolean][]} */
+  const table = [
+    [['work/items/HITLD-1.md'], false],
+    [['work/items/HITLD-1.md', 'work/views/ready.md', 'work/milestones/M-1.md'], false],
+    [['work/projects/HITLD-15.md'], false],
+    [['work/releases/v0.1.0.md'], true],
+    [['work/items/HITLD-1.md', 'work/releases/v0.1.0.md'], true],
+    [['work/items/HITLD-1.md', 'core/lib/merge/pull-request.mjs'], true],
+    [['core/lib/merge/pull-request.mjs'], true],
+    [['plugins/human-in-the-lead/core/lib/merge/owner.mjs'], true],
+    [['schemas/policy/merge.schema.json'], true],
+    [['skills/execute/SKILL.md'], true],
+    [['.github/workflows/ci.yml'], true],
+    [['.human-in-the-lead/policy.json'], true],
+    [['docs/design/x.md'], true],
+    [['scripts/ci-changes.mjs'], true],
+    [['README.md'], true],
+    [['package-lock.json'], true],
+    [['new-directory/x.mjs'], true],
+    [[], true],
+  ];
+  for (const [paths, waits] of table) {
+    assert.equal(pullRequestWaits(paths, REPO_POLICY), waits, JSON.stringify(paths));
+  }
+  // A symbolic link anywhere waits, under work/ too.
+  assert.equal(pullRequestWaits(['work/link'], REPO_POLICY, ['work/link']), true);
+});
+
+test("this repository's areas: each proposal frees one area; the tracker, already free, and the unassigned files are never proposed", () => {
+  /** @param {string} area */
+  const run = (area) =>
+    Array.from({ length: REPO_POLICY.merge.propose_queue_after }, (_, i) => ({
+      kind: 'merge-approval',
+      area,
+      subject: `HITLD-${i + 1}`,
+      as_presented: true,
+    }));
+  const names = REPO_POLICY.rights.areas.map((/** @type {any} */ a) => a.name);
+  for (const area of ['tracker', 'unassigned']) {
+    assert.deepEqual(queueProposals(approvalSummary(run(area)), REPO_POLICY), [], area);
+  }
+  const core = queueProposals(approvalSummary(run('core')), REPO_POLICY);
+  assert.deepEqual(core[0].change, {
+    'merge.owner_areas': [],
+    'merge.owner_paths': ['**', '!work/**', 'work/releases/**', '!core/**'],
+  });
+  const policyWithCore = {
+    ...REPO_POLICY,
+    merge: { ...REPO_POLICY.merge, owner_paths: core[0].change['merge.owner_paths'] },
+  };
+  // After a yes, core alone stops waiting.
+  assert.equal(pullRequestWaits(['core/lib/x.mjs'], policyWithCore), false);
+  assert.equal(pullRequestWaits(['skills/x/SKILL.md'], policyWithCore), true);
+  assert.equal(pullRequestWaits(['work/releases/v1.md'], policyWithCore), true);
+  const releases = queueProposals(approvalSummary(run('releases')), REPO_POLICY);
+  assert.deepEqual(releases[0].change['merge.owner_paths'], [
+    '**',
+    '!work/**',
+    '!work/releases/**',
+  ]);
+  for (const area of names.filter((/** @type {string} */ n) => n !== 'tracker')) {
+    const [p] = queueProposals(approvalSummary(run(area)), REPO_POLICY);
+    assert.ok(p, area);
+    assert.notDeepEqual(p.change, { 'merge.mode': 'queue' }, area);
+  }
+});
+
+test("this repository's CodeQL wait matches CI: waited for where CodeQL analyzes the diff, never for text only", () => {
+  const settings = {
+    mainBranch: 'main',
+    remote: 'origin',
+    checks: REPO_POLICY.merge.pull_request.checks,
+    conditionalChecks: REPO_POLICY.merge.pull_request.conditional_checks,
+    checkTimeoutMinutes: 60,
+    generated: [],
+    itemAt: () => null,
+  };
+  /** @type {string[][]} */
+  const cases = [
+    ['work/items/HITLD-1.md'],
+    ['docs/design/x.md'],
+    ['README.md', 'CONTRIBUTING.md'],
+    ['skills/execute/SKILL.md'],
+    ['notes.txt'],
+    ['LICENSE'],
+    ['core/lib/merge/pull-request.mjs'],
+    ['work/items/HITLD-1.md', 'core/x.mjs'],
+    ['.github/workflows/ci.yml'],
+    ['schemas/policy/merge.schema.json'],
+    ['.human-in-the-lead/policy.json'],
+    [],
+  ];
+  for (const paths of cases) {
+    const waited = checksFor(paths, settings).includes('CodeQL');
+    assert.equal(waited, classify(paths).codeql, JSON.stringify(paths));
+  }
+});
+
+test('a conditional check: a code change waits for it, a tracker-only one does not', async () => {
+  const t = setup({
+    checks: {
+      'hitld/W-1': [{ name: 'test', state: 'success' }],
+      'hitld/W-2': [{ name: 'test', state: 'success' }],
+    },
+  });
+  try {
+    const code = t.branch('W-1', { 'a.js': 'a\n' });
+    const tracker = t.branch('W-2', { 'work/notes.md': 'n\n' });
+    const conditionalChecks = [{ name: 'CodeQL', unless_only: ['work/**', '**/*.md'] }];
+    const r = await t.pass([code, tracker], { conditionalChecks });
+    assert.deepEqual(
+      r.pending.map((x) => [x.item, x.checks]),
+      [['W-1', ['CodeQL']]],
+    );
+    // W-1 holds the merges after it, as any running check does; once CodeQL reports, it merges.
+    t.checks['hitld/W-1'].push({ name: 'CodeQL', state: 'success' });
+    const again = await t.pass([code, tracker], { conditionalChecks });
+    assert.deepEqual(
+      again.merged.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.match(t.github.pulls[0].body, /these checks pass: test, CodeQL\./);
+  } finally {
+    t.done();
+  }
+});
+
+test('a symbolic link added under work/, or a file turned into one, waits for the owner', async () => {
+  const t = setup();
+  try {
+    /** @param {string} id @param {string} path @param {string} target */
+    const linked = (id, path, target) => {
+      const e = t.branch(id, { 'work/notes.md': `${id}\n` });
+      git(t.root, 'checkout', '-q', e.branch);
+      const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+        cwd: t.root,
+        input: target,
+        encoding: 'utf8',
+      }).trim();
+      git(t.root, 'update-index', '--add', '--cacheinfo', `120000,${blob},${path}`);
+      git(t.root, 'commit', '-q', '-m', 'a link', '-m', `Work-Item: ${id}\nAgent-Role: executor`);
+      git(t.root, 'push', '-q', 'origin', e.branch);
+      git(t.root, 'checkout', '-q', '-f', 'main');
+      return e;
+    };
+    const added = linked('W-1', 'work/link', '../core');
+    const state = emptyPullState();
+    state.owner_signoff = OWNER;
+    const r = await t.pass([added], { ...DELEGATED, state });
+    assert.deepEqual(r.merged, []);
+    assert.deepEqual(
+      r.awaiting_owner.map((x) => [x.item, x.links]),
+      [['W-1', ['work/link']]],
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('a changed decision answer merges without asking only as the rights flow recorded it; a forged one waits', async () => {
+  const t = setup();
+  try {
+    /** @param {string} id @param {string} fields */
+    const decision = (id, fields) =>
+      `---\nid: ${id}\ntitle: Decision ${id}\nkind: decision\nstate: ${fields ? 'done' : 'planned'}\ndecider: owner\n${fields}---\n\n## Question\n\nWhich?\n`;
+    // Main holds two open decisions and one already answered.
+    git(t.root, 'checkout', '-q', 'main');
+    const at = '2026-11-16T06:18:03.522Z';
+    put(t.root, {
+      'work/items/D-1.md': decision('D-1', ''),
+      'work/items/D-2.md': decision('D-2', ''),
+      'work/items/D-3.md': decision(
+        'D-3',
+        `answer: "A. Yes"\nanswered_at: ${at}\nanswered_via: main-session\nanswered_by: owner\n`,
+      ),
+    });
+    git(t.root, 'add', '-A');
+    git(t.root, 'commit', '-q', '-m', 'decisions');
+    git(t.root, 'push', '-q', 'origin', 'main');
+    const answer = (/** @type {string} */ text, /** @type {string} */ when) =>
+      `answer: "${text}"\nanswered_at: ${when}\nanswered_via: main-session\nanswered_by: owner\n`;
+    const recordedAt = '2026-11-16T07:00:00.000Z';
+    // The record: D-1 answered "A. Yes" at recordedAt, and D-3 at its time with no text (an
+    // answer recorded before the text was).
+    const answers = [
+      { event: 'answered', decision: 'D-1', at: recordedAt, text: 'A. Yes' },
+      { event: 'answered', decision: 'D-3', at },
+    ];
+    const cases = [
+      // W-1: D-1 as recorded: merges.
+      t.branch('W-1', { 'work/items/D-1.md': decision('D-1', answer('A. Yes', recordedAt)) }),
+      // W-2: D-1 with another answer at the recorded time: waits.
+      t.branch('W-2', { 'work/items/D-1.md': decision('D-1', answer('B. No', recordedAt)) }),
+      // W-3: D-2, which nobody answered: a forged answer waits.
+      t.branch('W-3', {
+        'work/items/D-2.md': decision('D-2', answer('A. Yes', '2026-11-16T07:30:00.000Z')),
+      }),
+      // W-4: D-3's answer rewritten, its time kept: waits.
+      t.branch('W-4', { 'work/items/D-3.md': decision('D-3', answer('B. No', at)) }),
+      // W-5: D-3 turned into a work item, its answer dropped: waits.
+      t.branch('W-5', {
+        'work/items/D-3.md': decision('D-3', '').replace('kind: decision', 'kind: work'),
+      }),
+    ];
+    const results = [];
+    for (const e of cases) {
+      const s0 = emptyPullState();
+      s0.owner_signoff = OWNER;
+      const r = await t.pass([e], { ...DELEGATED, state: s0, answers });
+      results.push([
+        e.item,
+        r.merged.length > 0,
+        (r.awaiting_owner[0]?.answer_unverified ?? []).map((x) => x.decision),
+      ]);
+      if (r.merged.length) git(t.root, 'fetch', '-q', 'origin');
+    }
+    assert.deepEqual(results[0], ['W-1', true, []]);
+    assert.deepEqual(results.slice(1), [
+      ['W-2', false, ['D-1']],
+      ['W-3', false, ['D-2']],
+      ['W-4', false, ['D-3']],
+      ['W-5', false, ['D-3']],
+    ]);
+    // With no record at all, no changed answer merges without asking.
+    const bare = emptyPullState();
+    bare.owner_signoff = OWNER;
+    const none = await t.pass([cases[2]], { ...DELEGATED, state: bare });
+    assert.deepEqual(
+      none.awaiting_owner.map((x) => x.item),
+      ['W-3'],
+    );
+  } finally {
+    t.done();
   }
 });

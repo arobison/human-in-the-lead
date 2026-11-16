@@ -20,9 +20,23 @@
         "Analyze (actions)",
         "Analyze (javascript-typescript)"
       ],
+      "conditional_checks": [
+        {
+          "name": "CodeQL",
+          "unless_only": [
+            "work/**",
+            "docs/**",
+            "**/*.md",
+            "**/*.MD",
+            "**/*.txt",
+            "**/*.TXT",
+            "LICENSE"
+          ]
+        }
+      ],
       "delegated_by": "HITLD-159"
     },
-    "owner_paths": ["**", "!work/**"],
+    "owner_paths": ["**", "!work/**", "work/releases/**"],
     "propose_queue_after": 20,
     "generated": [
       {
@@ -44,6 +58,72 @@
         "name": "codeql",
         "command": "node \"${HITLD_PRIMARY_ROOT:?set by the hitld merge queue to the primary checkout}/scripts/codeql-scan.mjs\"",
         "format": "sarif"
+      }
+    ]
+  },
+  "rights": {
+    "areas": [
+      {
+        "name": "tracker",
+        "paths": [
+          "work/*",
+          "work/items/**",
+          "work/milestones/**",
+          "work/projects/**",
+          "work/views/**"
+        ]
+      },
+      {
+        "name": "releases",
+        "paths": ["work/releases/**"]
+      },
+      {
+        "name": "core",
+        "paths": ["core/**"]
+      },
+      {
+        "name": "plugins",
+        "paths": ["plugins/**"]
+      },
+      {
+        "name": "skills",
+        "paths": ["skills/**", "agents/**"]
+      },
+      {
+        "name": "schemas",
+        "paths": ["schemas/**"]
+      },
+      {
+        "name": "docs",
+        "paths": ["docs/**"]
+      },
+      {
+        "name": "workflows",
+        "paths": [".github/**"]
+      },
+      {
+        "name": "scripts",
+        "paths": ["scripts/**"]
+      },
+      {
+        "name": "evals",
+        "paths": ["evals/**"]
+      },
+      {
+        "name": "templates",
+        "paths": ["templates/**"]
+      },
+      {
+        "name": "packaging",
+        "paths": ["packaging/**", ".claude-plugin/**"]
+      },
+      {
+        "name": "signals",
+        "paths": ["signals/**"]
+      },
+      {
+        "name": "policy",
+        "paths": [".human-in-the-lead/**"]
       }
     ]
   },

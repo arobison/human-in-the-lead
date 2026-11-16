@@ -23,7 +23,7 @@
 //                proposed there, and the owner decides
 
 import { spawnSync } from 'node:child_process';
-import { allWithin, globsOverlap } from '../dispatch/item.mjs';
+import { allWithin, globsOverlap, sample } from '../dispatch/item.mjs';
 import { matchesAny } from '../precedent/glob.mjs';
 import { diffSurface, emptySurface } from '../release/delta.mjs';
 import { schemaFields } from '../release/surface.mjs';
@@ -701,7 +701,7 @@ function ownerPathsIn(area, policy) {
  */
 export function queueProposals(summary, policy, proposed = {}) {
   const after = policy.merge?.propose_queue_after ?? 20;
-  const areas = /** @type {{ name: string }[]} */ (policy.rights?.areas ?? []);
+  const areas = /** @type {{ name: string, paths?: string[] }[]} */ (policy.rights?.areas ?? []);
   /** @type {Proposal[]} */
   const out = [];
   for (const [area, s] of Object.entries(summary)) {
@@ -712,6 +712,19 @@ export function queueProposals(summary, policy, proposed = {}) {
       : ownerAreas(policy);
     const { reaching, next: nextPaths } = ownerPathsIn(area, policy);
     if (!covered.includes(area) && !reaching.length) continue;
+    // An area none of whose files waits needs no proposal (the tracker, under ["**", "!work/**"]).
+    const own = areas.find((a) => a.name === area);
+    if (
+      own &&
+      !covered.includes(area) &&
+      !(
+        /** @type {string[]} */ (own.paths ?? []).some((g) =>
+          underOwnerPaths(sample(g), ownerPaths(policy)),
+        )
+      )
+    ) {
+      continue;
+    }
     const nextAreas = covered.filter((a) => a !== area);
     /** @type {Record<string, unknown>} */
     const change =

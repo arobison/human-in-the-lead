@@ -7,7 +7,7 @@ created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-133]
 claimed_by: D-22
-release_note: "On the pull-request merge path (`merge.via: pull-request`), owner mode honors `merge.owner_paths` and `merge.owner_areas`: a pull request that changes nothing there merges once its named checks pass, decided from its diff alone. `merge.owner_paths` is read in order and a glob that starts with `!` takes files back out. With the new `merge.pull_request.delegated_by`, such a merge carries the owner's sign-off and a `Delegated-by` trailer, a `merge-delegated` trust event, and a digest line with its reversal; approvals on this path are trust events and earn queue proposals."
+release_note: "On the pull-request merge path (`merge.via: pull-request`), owner mode honors `merge.owner_paths` and `merge.owner_areas`: a pull request that changes nothing there merges once its named checks pass, decided from its diff alone. `merge.owner_paths` is read in order and a glob that starts with `!` takes files back out. With the new `merge.pull_request.delegated_by`, such a merge carries the owner's sign-off and a `Delegated-by` trailer, a `merge-delegated` trust event, and a digest line with its reversal; approvals on this path are trust events and earn queue proposals. A pull request that changes a symbolic link, or a decision answer the rights flow did not record, waits for the owner; `merge.pull_request.conditional_checks` waits for a check such as `CodeQL` only where the diff calls for it; `rights answer` records the answer text in the ledger."
 ---
 
 ## Why

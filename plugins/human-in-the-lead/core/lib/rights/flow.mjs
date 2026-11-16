@@ -929,7 +929,10 @@ export function answerDecision(deps, input) {
     },
     at,
   );
-  recordDecisionEvent(deps.store, 'answered', input.decision, at, { who: deps.who });
+  recordDecisionEvent(deps.store, 'answered', input.decision, at, {
+    who: deps.who,
+    text: answerText,
+  });
   if (typeof input.worth_asking === 'boolean') {
     recordTrustEvent(
       deps.store,

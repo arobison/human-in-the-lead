@@ -40,6 +40,8 @@ import { join } from 'node:path';
 import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
 import { findTerms, matchMessage } from '../guard/private-terms.mjs';
 import { UNASSIGNED } from '../rights/trust.mjs';
+import { matchesAny } from '../precedent/glob.mjs';
+import { unverifiedAnswers } from './answers.mjs';
 import { areasOf, waitsForOwner } from './owner.mjs';
 import { QUARANTINE_PATH } from './quarantine.mjs';
 import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
@@ -62,6 +64,10 @@ import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
  * @property {import('../guard/classification.mjs').Rules} [classification]
  * @property {(dir: string) => string[]} [trackerCheck]
  * @property {(dir: string, item: string) => ItemAt | null} itemAt the item as the checked-out tree holds it
+ * @property {{ name: string, unless_only: string[] }[]} [conditionalChecks]
+ *   merge.pull_request.conditional_checks: waited for unless every changed file matches unless_only
+ * @property {Record<string, any>[]} [answers] the ledger's effective events: a changed decision
+ *   answer merges without asking only when one of them records it (answers.mjs); none, none does
  * @property {string | null} [delegatedBy] merge.pull_request.delegated_by: the owner's decision that
  *   delegated merging, without asking, the pull requests that do not wait for them
  *
@@ -87,8 +93,11 @@ import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
  *   merge made under their delegation carries
  *
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, changed: string[],
- *   checks: string[], dispatch?: string, no_signoff?: true }} Presented no_signoff: it would merge
- *   under the owner's delegation, but no sign-off of theirs is known yet
+ *   checks: string[], dispatch?: string, no_signoff?: true, links?: string[],
+ *   answer_unverified?: { decision: string, path: string, why: string }[] }} Presented no_signoff: it
+ *   would merge under the owner's delegation, but no sign-off of theirs is known yet; links: the
+ *   symbolic links it adds, changes or removes, which make it wait; answer_unverified: the decision
+ *   answers it changes that no recorded answer matches, which make it wait
  * @typedef {{ item: string, branch: string, number: number, url: string, commit: string, signed_off: boolean,
  *   changed: string[], approval: { at: string, presented_at: string | null, as_presented: boolean } | null,
  *   delegated_by: string | null, dispatch?: string }} PullMerged approval: the owner's, when they
@@ -144,29 +153,71 @@ export function readPullState(store) {
  * too.
  * @param {string[]} paths the files the pull request changes against main, a rename as both paths
  * @param {Record<string, any>} policy
+ * @param {string[]} [links] the changed paths that are a symbolic link on either side; in owner
+ *   mode any one waits
  */
-export function pullRequestWaits(paths, policy) {
+export function pullRequestWaits(paths, policy, links = []) {
   if (policy.merge?.mode !== 'owner') return false;
   if (!paths.length) return true;
+  // A symbolic link added, changed or removed anywhere waits (decision HITLD-313): a link would
+  // let a change under a delegated path reach past it.
+  if (links.length) return true;
   return waitsForOwner(paths, policy);
 }
+
+/** The git file mode of a symbolic link. */
+const LINK_MODE = '120000';
 
 /**
  * The files a branch changes against main (a three-dot diff): a rename or a copy as both of its
  * paths, so a file moved out of an owner path still counts where it came from, and each name as
- * git stores it, never quoted.
- * @param {string} dir @param {string} main @param {string} head @returns {string[]}
+ * git stores it, never quoted. `links` are the changed paths that are a symbolic link on either
+ * side (git mode 120000).
+ * @param {string} dir @param {string} main @param {string} head
+ * @returns {{ paths: string[], links: string[] }}
  */
 export function changedFiles(dir, main, head) {
   // Not through git(), which trims: a name may start with a space.
-  const r = spawnSync('git', ['diff', '--name-only', '--no-renames', '-z', `${main}...${head}`], {
+  const r = spawnSync('git', ['diff', '--raw', '--no-renames', '-z', `${main}...${head}`], {
     cwd: dir,
     encoding: 'utf8',
   });
   if (r.status !== 0) {
     throw new Error(`git diff ${main}...${head}: ${(r.stderr ?? '').trim() || 'failed'}`);
   }
-  return r.stdout.split('\0').filter(Boolean);
+  // Each entry is ":<old mode> <new mode> <old sha> <new sha> <status>" then its path, NUL-ended.
+  const fields = r.stdout.split('\0');
+  /** @type {string[]} */
+  const paths = [];
+  /** @type {string[]} */
+  const links = [];
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const meta = fields[i].replace(/^\n/, '');
+    const path = fields[i + 1];
+    if (!meta.startsWith(':') || !path) {
+      throw new Error(
+        `git diff ${main}...${head}: an entry that does not read: ${JSON.stringify(meta)}`,
+      );
+    }
+    const [oldMode, newMode] = meta.slice(1).split(' ');
+    paths.push(path);
+    if (oldMode === LINK_MODE || newMode === LINK_MODE) links.push(path);
+  }
+  return { paths, links };
+}
+
+/**
+ * The checks a pull request with these changed files waits for: merge.pull_request.checks, and each
+ * conditional check unless every changed file matches its unless_only globs (a check CI reports
+ * only for some changes, such as the code scanning result for code CodeQL analyzes). An empty
+ * change waits for them all.
+ * @param {string[]} paths @param {PullSettings} s @returns {string[]}
+ */
+export function checksFor(paths, s) {
+  const extra = (s.conditionalChecks ?? [])
+    .filter((c) => !(paths.length && paths.every((p) => matchesAny(c.unless_only, p))))
+    .map((c) => c.name);
+  return [...new Set([...s.checks, ...extra])];
 }
 
 /** @param {string} cwd @param {string[]} args */
@@ -423,7 +474,10 @@ export async function runPullRequestQueue(r) {
         });
         continue;
       }
-      const changed = changedFiles(dir, main, head);
+      const diff = changedFiles(dir, main, head);
+      const changed = diff.paths;
+      // The checks this change waits for: the named ones, and a conditional one it calls for.
+      const checks = checksFor(changed, s);
       if (changed.includes(QUARANTINE_PATH)) {
         reject(e, {
           reason: 'quarantine',
@@ -446,7 +500,7 @@ export async function runPullRequestQueue(r) {
         item: e.item,
         at,
         evidence: r.evidence?.(e.item) ?? [],
-        checks: s.checks,
+        checks,
       });
       const terms = s.classification?.terms ?? [];
       const found = [
@@ -491,7 +545,7 @@ export async function runPullRequestQueue(r) {
       // The named checks, and only those.
       const reported = r.github.checks(head);
       /** @type {Check[]} */
-      const named = s.checks.map((name) => {
+      const named = checks.map((name) => {
         const hits = reported.filter((c) => c.name === name);
         const url = hits.find((c) => c.url)?.url;
         /** @type {Check['state']} */
@@ -528,18 +582,27 @@ export async function runPullRequestQueue(r) {
       // Green. Whether it waits for the owner is decided from its paths alone. One that does not
       // wait merges under the owner's delegation when the policy names it, with their sign-off;
       // with none of theirs known yet, it waits for them after all.
-      const waits = pullRequestWaits(changed, r.policy);
+      const waits = pullRequestWaits(changed, r.policy, diff.links);
       const owner = r.policy.merge?.mode === 'owner';
+      // A change to a decision's answer merges without asking only as rights answer recorded it
+      // (decision HITLD-310); one that does not match waits for the owner.
+      const unverified =
+        !waits && owner
+          ? unverifiedAnswers({ dir, base, head, paths: changed, events: s.answers ?? [] })
+          : [];
       const delegatedBy = !waits && owner ? (s.delegatedBy ?? null) : null;
       const noSignoff = Boolean(delegatedBy) && !state.owner_signoff;
-      const approved = (waits || noSignoff) && approvalHolds(dir, ps, pr.number, head);
-      if ((waits || noSignoff) && !approved) {
+      const holds = waits || noSignoff || unverified.length > 0;
+      const approved = holds && approvalHolds(dir, ps, pr.number, head);
+      if (holds && !approved) {
         const shown = {
           ...info,
           head,
           changed,
-          checks: [...s.checks],
+          checks: [...checks],
+          ...(diff.links.length ? { links: diff.links } : {}),
           ...(noSignoff ? { no_signoff: /** @type {const} */ (true) } : {}),
+          ...(unverified.length ? { answer_unverified: unverified } : {}),
         };
         presented.push(shown);
         result.awaiting_owner.push(shown);
@@ -608,7 +671,7 @@ export async function runPullRequestQueue(r) {
         const pushed = git(dir, ['push', '--quiet', remote, `HEAD:refs/heads/${e.branch}`]);
         if (!pushed.ok) {
           // The branch moved on the remote meanwhile: the next pass starts from it.
-          result.pending.push({ ...info, head, checks: [...s.checks], waited_ms: 0 });
+          result.pending.push({ ...info, head, checks: [...checks], waited_ms: 0 });
           held = true;
           continue;
         }

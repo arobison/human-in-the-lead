@@ -16,6 +16,8 @@ import { localSources, machineResources, probeMachine } from '../../machine/dete
 import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { appendEvent, readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
+import { effectiveEvents } from '../../ledger/summary.mjs';
+import { recordedAnswers } from '../../merge/answers.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { LeaseError } from '../../run/lease.mjs';
 import { NO_SESSION, resolveIdentity } from '../../run/identity.mjs';
@@ -795,6 +797,12 @@ async function pullRequestMerge(o) {
       remote: pr.remote,
       checks: pr.checks,
       checkTimeoutMinutes: pr.check_timeout_minutes,
+      conditionalChecks: pr.conditional_checks ?? [],
+      // What rights answer recorded: a changed decision answer is checked against it.
+      answers: recordedAnswers(
+        effectiveEvents(readLedger(p.store).events),
+        readTrustEvents(p.store),
+      ),
       delegatedBy: o.owner ? (pr.delegated_by ?? null) : null,
       generated: p.policy.merge.generated,
       setup: o.settings.setup,
