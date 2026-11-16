@@ -1,7 +1,6 @@
 // Running a declared scanner (design parts 10.5 and 14.2). No scanner is built in: policy.json
 // merge.scanners names each one's command and output format.
 
-import { spawnSync } from 'node:child_process';
 import {
   closeSync,
   constants as fsConstants,
@@ -13,6 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runShell } from '../merge/shell.mjs';
 import { MAX_SARIF_BYTES, fingerprintRuns, readSarif } from './sarif.mjs';
 
 /**
@@ -80,20 +80,19 @@ export function runScanner(scanner, cwd, options = {}) {
     // working directory is the branch, so a script the command names by a relative path is the
     // branch's copy, which the branch controls; $HITLD_PRIMARY_ROOT (the trusted primary checkout,
     // as given by the caller) is how a command names the owner's copy instead.
-    const r = spawnSync(scanner.command, {
-      shell: true,
+    // A POSIX shell command line, on Windows too: Git's sh there, never cmd.exe while it is found.
+    const r = runShell(scanner.command, {
       cwd,
       env: {
         ...inherited,
         HITLD_SARIF: sarifPath,
         ...(options.primaryRoot ? { HITLD_PRIMARY_ROOT: options.primaryRoot } : {}),
       },
-      encoding: 'utf8',
       maxBuffer: MAX_SARIF_BYTES,
       timeout: options.timeoutMs ?? 30 * 60 * 1000,
     });
-    const text = readOutput(sarifPath) || (r.stdout ?? '');
-    const diagnostics = `${r.stderr ?? ''}${r.error ? String(r.error) : ''}`;
+    const text = readOutput(sarifPath) || r.stdout;
+    const diagnostics = `${r.stderr}${r.error ? String(r.error) : ''}`;
     try {
       const runs = readSarif(text);
       return {

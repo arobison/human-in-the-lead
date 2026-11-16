@@ -35,6 +35,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { matchesAny } from '../precedent/glob.mjs';
+import { runShell } from './shell.mjs';
 import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
 import {
   QUARANTINE_PATH,
@@ -106,16 +107,15 @@ const tail = (s) => (s.length > TAIL ? `...${s.slice(-TAIL)}` : s);
 export function shellExec(command, cwd, env) {
   // Not this process's test-runner context: a project's own `node --test` would report to it.
   const { NODE_TEST_CONTEXT: _context, ...inherited } = process.env;
-  const r = spawnSync(command, {
-    shell: true,
+  // A POSIX shell command line, on Windows too (shell.mjs).
+  const r = runShell(command, {
     cwd,
     env: { ...inherited, ...env },
-    encoding: 'utf8',
     timeout: 30 * 60 * 1000,
   });
   return {
     ok: r.status === 0,
-    output: tail(`${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? String(r.error) : ''}`),
+    output: tail(`${r.stdout}${r.stderr}${r.error ? String(r.error) : ''}`),
   };
 }
 
