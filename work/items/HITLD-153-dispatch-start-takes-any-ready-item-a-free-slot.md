@@ -2,10 +2,11 @@
 id: HITLD-153
 title: dispatch start takes any ready item a free slot allows, and an item whose work awaits merge is not planned again
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-130]
+claimed_by: D-25
 ---
 
 ## Why
