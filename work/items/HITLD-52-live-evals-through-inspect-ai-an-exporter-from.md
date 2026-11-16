@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-14
 project: HITLD-28
-needs: [HITLD-152]
+needs: [HITLD-152, HITLD-351]
 ---
 
 ## Why
