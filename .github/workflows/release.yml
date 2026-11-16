@@ -5,7 +5,8 @@ name: Release
 #
 # - A release pull request (`hitld release make --branch <name>`). The owner's squash merge, with
 #   their Signed-off-by, adds work/releases/<tag>.md on main: that merge is the release decision.
-#   `record` checks the record (core/bin/release-check.mjs). `release` waits for the owner's
+#   `record` checks the record (core/bin/release-check.mjs) and that the `release` environment
+#   has a required reviewer (scripts/release-environment.mjs). `release` waits for the owner's
 #   approval in the `release` environment, checks the record again, builds, tags that exact
 #   commit, pushes the tag with this run's token, attests and drafts the release, all in one run:
 #   nothing waits on the tag push starting another workflow (a push made with the Actions token
@@ -32,6 +33,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
+      actions: read # read the release environment's protection rules
       contents: read
       pull-requests: read
     outputs:
@@ -60,6 +62,14 @@ jobs:
         run: >-
           node core/bin/release-check.mjs --commit "$GITHUB_SHA" --main origin/main
           --pr "$PRS" --output "$GITHUB_OUTPUT"
+      # The approval gate is a repository setting: GitHub creates a missing environment with no
+      # rules when a job first uses it, and runs the job at once. Refuse unless `release` has a
+      # required reviewer; a missing environment or an API error refuses too (HITLD-140).
+      - name: Check that the release environment requires a reviewer
+        if: steps.check.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-environment.mjs --environment release
 
   release:
     needs: record
