@@ -8,7 +8,25 @@ import { openStore, privateStorePath } from '../../store/store.mjs';
 import { findRepoRoot } from '../../policy/policy.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
-import { buildReport, renderDigest, renderHtml } from '../../quota/report.mjs';
+import { buildReport, renderDigest, renderHtml, tokensPerItem } from '../../quota/report.mjs';
+import { openTracker } from '../../tracker/files/tracker.mjs';
+import { git } from '../../tracker/files/tree.mjs';
+import { forgeFileBase } from '../../tracker/files/views.mjs';
+
+/**
+ * Where the repository's files are on its forge, for the page's links to tracker files: from the
+ * `origin` remote and its default branch (HEAD, which the forge resolves, when origin/HEAD is not
+ * set). Null when there is no repository or its remote is not a known forge.
+ * @param {string | null | undefined} repoRoot
+ */
+function repositoryFileBase(repoRoot) {
+  if (!repoRoot) return null;
+  const remote = git(repoRoot, ['remote', 'get-url', 'origin'], { allowFail: true }).trim();
+  const head = git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
+    allowFail: true,
+  }).trim();
+  return forgeFileBase(remote, head.startsWith('origin/') ? head.slice('origin/'.length) : 'HEAD');
+}
 import { readQuotaInputs } from '../../quota/inputs.mjs';
 import { ownerDigest } from './rights.mjs';
 
@@ -46,6 +64,7 @@ function gather(ctx, input) {
   return {
     error: null,
     policy: loaded.policy,
+    repoRoot,
     store,
     snapshots,
     skipped,
@@ -127,13 +146,33 @@ export const commands = [
     run: async (input, ctx) => {
       const g = gather(ctx, input);
       if (g.error) return g.error;
+      // The milestone graph (design part 12.1.2), from the repository's tracker, with tokens
+      // spent from the ledger. A repository with no tracker gets a page without it.
+      /** @type {import('../../tracker/files/views.mjs').MilestoneGraph | null} */
+      let milestones = null;
+      /** @type {string[]} */
+      const warnings = [];
+      if (g.repoRoot) {
+        try {
+          milestones = openTracker({
+            repoRoot: g.repoRoot,
+            policy: g.policy,
+            env: ctx.env,
+          }).milestoneGraph({ tokens: tokensPerItem(g.ledger) });
+        } catch (e) {
+          warnings.push(
+            `the milestone graph is left out: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+      }
       const report = buildReport({
         policy: g.policy,
         snapshots: g.snapshots,
         ledger: g.ledger,
         now: g.now,
+        milestones,
       });
-      const html = renderHtml(report, g.policy);
+      const html = renderHtml(report, g.policy, { fileBase: repositoryFileBase(g.repoRoot) });
       // The digest is the one `hitld rights digest` builds, with this report's quota lines. It is
       // only read here: the cursor does not move. A project whose decisions cannot be read gets
       // the quota lines alone.
@@ -148,8 +187,9 @@ export const commands = [
       } catch {
         // Keep the quota lines.
       }
+      const warned = warnings.length ? { warnings } : {};
       if (input['no-write']) {
-        return { ok: true, mode: report.gate.mode, text: digest, report };
+        return { ok: true, mode: report.gate.mode, text: digest, report, ...warned };
       }
       const dir =
         typeof input.out === 'string'
@@ -173,6 +213,7 @@ export const commands = [
         mode: report.gate.mode,
         text: digest,
         ...(input.json ? { report } : {}),
+        ...warned,
       };
     },
   },

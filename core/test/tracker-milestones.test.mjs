@@ -16,6 +16,19 @@ import {
   tokensByItem,
 } from '../lib/tracker/files/milestones.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
+import {
+  compareVersions,
+  fileHref,
+  forgeFileBase,
+  milestoneFacts,
+} from '../lib/tracker/files/views.mjs';
+import {
+  buildReport,
+  renderHtml,
+  renderMilestoneSection,
+  tokensPerItem,
+} from '../lib/quota/report.mjs';
+import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import {
   commitAll,
@@ -585,4 +598,698 @@ test('scope ranks contributions by value times confidence per estimate token, fo
   // per token: W-6 0.08, W-4 0.04, W-5 0.005; the appetite holds two.
   assert.deepEqual(x.scope.fits, ['W-6', 'W-4']);
   assert.deepEqual(x.scope.cut, ['W-5']);
+});
+
+// --- The milestone graph (design part 12.1.2) -----------------------------------------------
+
+/**
+ * Three milestones and one `needs` between them: W-1, a long outcome, needs W-7; W-7 has two open
+ * constraints (W-4 with an estimate, W-5 without) and a contribution; W-8 is Done with a passed
+ * check.
+ */
+const graphRepo = () =>
+  makeRepo({
+    files: {
+      '.human-in-the-lead/tracker.json': JSON.stringify({
+        schema_version: 1,
+        optional_keys: ['estimate_tokens'],
+      }),
+      'work/projects/W-2-the-project.md': itemText({
+        id: 'W-2',
+        title: 'The project',
+        kind: 'project',
+        state: 'planned',
+        owner: 'owner',
+        appetite_tokens: '5000',
+      }),
+      'work/milestones/W-1-goal.md': itemText({
+        id: 'W-1',
+        title: 'The goal',
+        kind: 'milestone',
+        state: 'planned',
+        owner: 'owner',
+        outcome: 'Users trust their config. Second sentence.',
+        constraints: ['W-7 c?'],
+      }),
+      'work/items/W-4-second-step.md': itemText({
+        id: 'W-4',
+        title: 'Second step',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        needs: ['W-3'],
+        estimate_tokens: '300',
+      }),
+      'work/items/W-10-ship-it.md': itemText({
+        id: 'W-10',
+        title: 'Ship it',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        release: '1.0.0',
+        needs: ['W-5'],
+      }),
+      'work/items/W-9-nice-to-have.md': itemText({
+        id: 'W-9',
+        title: 'Nice to have',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+      }),
+      'work/milestones/W-7-config-errors-explained.md': milestone({
+        appetite_tokens: '1000',
+        contributions: ['W-9 value=3 confidence=0.5'],
+      }),
+      'work/milestones/W-8-first-step-shown.md': itemText({
+        id: 'W-8',
+        title: 'First step shown',
+        kind: 'milestone',
+        state: 'done',
+        project: 'W-2',
+        outcome: 'The first step is shown.',
+        done_when: ['"c1: It is shown."'],
+        constraints: ['W-3 c1'],
+        check: 'demo the first step',
+        check_results: ['"pass 2026-11-10 reviewer: shown"'],
+      }),
+    },
+  });
+
+test('the milestone graph: nodes, the one edge, progress, the check and the critical path', () => {
+  const t = open(graphRepo());
+  assert.deepEqual(t.check().problems, []);
+  const mg = t.milestoneGraph();
+  assert.deepEqual(
+    mg.nodes.map((n) => [n.id, n.state, n.constraints, n.check, n.remaining_tokens, n.critical]),
+    [
+      ['W-1', 'planned', { done: 0, total: 1 }, 'not yet due', 0, true],
+      ['W-7', 'planned', { done: 0, total: 2 }, 'not yet due', 301, true],
+      ['W-8', 'done', { done: 1, total: 1 }, 'passed', 0, false],
+    ],
+  );
+  // A constraint that names an item is not an edge; the one between milestones is.
+  assert.deepEqual(mg.edges, [{ from: 'W-7', to: 'W-1', critical: true, items: 2 }]);
+  // The board's fields: the stage, what holds a milestone up, its lane and the release gates.
+  assert.deepEqual(
+    mg.nodes.map((n) => [n.id, n.stage, n.in_progress, n.holds, n.in_cycle]),
+    [
+      ['W-1', 'waiting', 0, { decisions: [], owner_decisions: [], external: [] }, false],
+      ['W-7', 'ready', 0, { decisions: ['W-6'], owner_decisions: ['W-6'], external: [] }, false],
+      ['W-8', 'done', 0, { decisions: [], owner_decisions: [], external: [] }, false],
+    ],
+  );
+  assert.deepEqual(mg.lanes, [
+    { id: null, title: 'Long outcomes', state: null },
+    { id: 'W-2', title: 'project', state: 'planned' },
+  ]);
+  assert.deepEqual(mg.releases, [
+    // W-10 needs W-5, a constraint of W-7: W-7 lands before it, and it stands at W-7's step.
+    {
+      id: 'W-10',
+      title: 'Ship it',
+      release: '1.0.0',
+      state: 'planned',
+      layer: 0,
+      milestones: ['W-7'],
+      path: 'work/items/W-10-ship-it.md',
+      needs: [
+        { id: 'W-5', title: 'Third step', state: 'planned', path: 'work/items/W-5-third-step.md' },
+      ],
+    },
+  ]);
+  assert.deepEqual(
+    mg.nodes.map((n) => [n.id, n.waits, n.waiting_on_it]),
+    [
+      ['W-1', ['W-7'], 0],
+      ['W-7', [], 1],
+      ['W-8', [], 0],
+    ],
+  );
+  assert.deepEqual(mg.critical_path, ['W-7', 'W-1']);
+  const w7 = /** @type {any} */ (mg.nodes[1]);
+  assert.equal(w7.outcome, 'A user with a bad config sees which key is wrong.');
+  assert.equal(w7.appetite_tokens, 1000);
+  assert.equal(w7.tokens_spent, null, 'the views do not read the ledger');
+  assert.deepEqual(
+    w7.items.map((/** @type {any} */ i) => [i.id, i.role, i.state, i.critical]),
+    [
+      ['W-4', 'constraint', 'planned', true],
+      ['W-5', 'constraint', 'planned', true],
+      ['W-9', 'contribution', 'planned', false],
+    ],
+  );
+  assert.deepEqual([mg.nodes[0].layer, mg.nodes[1].layer, mg.nodes[2].layer], [1, 0, 0]);
+  // With tokens from the ledger, over constraints and contributions; a milestone none of whose
+  // items the ledger has a record of shows a dash (null), not 0.
+  const spent = t.milestoneGraph({
+    tokens: new Map([
+      ['W-4', 120],
+      ['W-9', 30],
+      ['W-3', 50],
+    ]),
+  });
+  assert.deepEqual(
+    spent.nodes.map((n) => n.tokens_spent),
+    [null, 150, 50],
+  );
+  assert.equal(milestoneFacts(spent.nodes[0]).tokens, '— tokens, no appetite set');
+  assert.equal(milestoneFacts(spent.nodes[1]).tokens, '150 of 1000 tokens');
+});
+
+test('no critical path when no open milestone has estimate tokens remaining', () => {
+  const t = open(makeRepo());
+  const mg = t.milestoneGraph();
+  assert.deepEqual(mg.critical_path, []);
+  assert.deepEqual(mg.edges, []);
+  assert.equal(mg.nodes[0].check, 'due', 'W-1 has no constraints left and no passed check');
+});
+
+test('views: milestones.md is the graph and the table; items-graph.md is unchanged', () => {
+  const root = graphRepo();
+  const t = open(root);
+  const before = t.renderViewTexts();
+  t.writeViews();
+  const text = readFileSync(join(root, 'work', 'views', 'milestones.md'), 'utf8');
+  assert.equal(
+    text.split('\n```text\n')[0],
+    [
+      '<!-- Generated by `hitld work views`. Never edit by hand. -->',
+      '',
+      '# Milestones',
+      '',
+      '```mermaid',
+      'graph LR',
+      '  W_1["W-1 The goal<br/>Users trust their config.<br/>constraints 0 of 1 done<br/>— tokens, no appetite set<br/>check not yet due"]:::open',
+      '  W_7["W-7 Config errors explained<br/>A user with a bad config sees which key is wrong.<br/>constraints 0 of 2 done<br/>— of 1000 tokens<br/>check not yet due"]:::open',
+      '  W_8["W-8 First step shown<br/>The first step is shown.<br/>constraints 1 of 1 done<br/>— tokens, no appetite set<br/>check passed"]:::done',
+      '  W_7 ==> W_1',
+      '  classDef open fill:#fff,stroke:#333',
+      '  classDef done fill:#ddd,color:#666,stroke:#999',
+      '  classDef dropped fill:#eee,color:#999,stroke:#ccc,stroke-dasharray:3',
+      '  classDef proposed fill:#fff,stroke:#333,stroke-dasharray:4',
+      '  classDef critical stroke:#b3261e,stroke-width:3px',
+      '  class W_7,W_1 critical',
+      '```',
+      '',
+      'Critical path (thick edges, red outline): W-7 → W-1.',
+      '',
+      '| Milestone | State | Outcome | Constraints | Tokens spent | Check | Constraints and their state | Contributions and their state |',
+      '|---|---|---|---|---|---|---|---|',
+      // Each ID links to its file, relative to the views directory.
+      '| [W-1](../milestones/W-1-goal.md) The goal (critical path) | Planned | Users trust their config. Second sentence. | 0 of 1 done | — tokens, no appetite set | not yet due | [W-7](../milestones/W-7-config-errors-explained.md) Planned | — |',
+      '| [W-7](../milestones/W-7-config-errors-explained.md) Config errors explained (critical path) | Planned | A user with a bad config sees which key is wrong. | 0 of 2 done | — of 1000 tokens | not yet due | [W-4](../items/W-4-second-step.md) Planned (critical path), [W-5](../items/W-5-third-step.md) Planned (critical path) | [W-9](../items/W-9-nice-to-have.md) Planned |',
+      '| [W-8](../milestones/W-8-first-step-shown.md) First step shown | Done | The first step is shown. | 1 of 1 done | — tokens, no appetite set | passed | [W-3](../items/W-3-first-step.md) Done | — |',
+      '',
+      'Tokens spent come from the ledger in the private store, so this view shows — for them; `hitld dashboard` shows the figures. The item graph is in [items-graph.md](items-graph.md).',
+      '',
+      '## Unmet clauses, scope and shaping',
+      '',
+    ].join('\n'),
+  );
+  assert.ok(text.includes(before.milestones), 'the text view follows the table');
+  assert.equal(before['milestones-graph'], text.split('```mermaid\n')[1].split('```')[0]);
+  // items-graph.md is the item graph alone, as before: no milestone in it.
+  const items = readFileSync(join(root, 'work', 'views', 'items-graph.md'), 'utf8');
+  assert.equal(
+    items,
+    `<!-- Generated by \`hitld work views\`. Never edit by hand. -->\n\n# Item dependencies\n\n\`\`\`mermaid\n${before['items-graph']}\`\`\`\n`,
+  );
+  assert.doesNotMatch(items, /W_[178]\b/);
+});
+
+test('hitld dashboard adds the graph to its page as inline SVG; each node opens to its items with no script', async () => {
+  const root = graphRepo();
+  settings(root);
+  const r = await hitld(
+    ['dashboard', '--out', 'out', '--json', '--now', '2026-11-16T12:00:00Z'],
+    root,
+  );
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  assert.equal(r.json.warnings, undefined);
+  assert.deepEqual(r.json.report.milestones.critical_path, ['W-7', 'W-1']);
+  assert.deepEqual(
+    r.json.report.milestones.nodes.map((/** @type {any} */ n) => n.tokens_spent),
+    [null, null, null],
+    'an empty ledger: not known, so a dash rather than 0',
+  );
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  assert.doesNotMatch(html, /<script|https?:\/\/|@import|url\(|<link|src=/i);
+  assert.match(html, /<h2 id="milestones">Milestones<\/h2>/);
+  assert.match(
+    html,
+    /<svg class="mg" [^>]*aria-label="Milestone board: 3 milestones in 3 lanes over 2 steps, 1 waits between them"/,
+  );
+  // Each node links to its panel; a panel shows only as the page's target.
+  for (const id of ['W-1', 'W-7', 'W-8']) {
+    assert.match(html, new RegExp(`<a href="#milestone-${id}"`));
+    assert.match(
+      html,
+      new RegExp(
+        `<section class="drill" id="milestone-${id}" aria-labelledby="milestone-${id}-title">`,
+      ),
+    );
+  }
+  assert.match(html, /\.drill\{display:none;[^}]*\}\.drill:target\{display:block\}/);
+  const panel = /<section class="drill" id="milestone-W-7" .*?<\/section>/s.exec(html)?.[0] ?? '';
+  assert.match(
+    panel,
+    /<tr><td><a class="file" href="work\/items\/W-4-second-step\.md">W-4<\/a> Second step<\/td><td>constraint<\/td><td>Planned<\/td><td>yes<\/td><\/tr>/,
+  );
+  assert.match(
+    panel,
+    /<tr><td><a class="file" href="work\/items\/W-9-nice-to-have\.md">W-9<\/a> Nice to have<\/td><td>contribution<\/td><td>Planned<\/td><td><\/td><\/tr>/,
+  );
+  // Lanes with their names, top to bottom: the release gates first, then long outcomes, then
+  // each project; steps across.
+  assert.deepEqual(
+    [...html.matchAll(/<text class="mg-lane-name" x="8" y="(\d+)">([^<]*)<\/text>/g)]
+      .sort((a, b) => Number(a[1]) - Number(b[1]))
+      .map((m) => m[2]),
+    ['Releases', 'Long outcomes', 'project'],
+  );
+  assert.match(
+    html,
+    /<rect class="mg-lane" x="0" y="26" [^>]*\/><text class="mg-lane-name" x="8" y="\d+">Releases</,
+  );
+  assert.ok(!html.includes('>0 tokens'), 'no card claims 0 tokens without a ledger record');
+  // The release's rule runs from its flag down through every lane, behind the boxes; W-7, which
+  // lands before it, carries its version.
+  const height = /<svg class="mg" width="\d+" height="(\d+)"/.exec(html)?.[1];
+  assert.match(
+    html,
+    new RegExp(
+      `<g class="mg-rule open"><line class="mg-rule-top" [^>]*/><line class="mg-rule-down" [^>]*y2="${height}"/></g>`,
+    ),
+  );
+  assert.ok(
+    html.indexOf('class="mg-rule') < html.indexOf('class="mg-node'),
+    'rules are drawn first',
+  );
+  assert.match(
+    html,
+    /<g class="mg-badge release"><title>Lands before release 1\.0\.0 \(W-10\)<\/title>/,
+  );
+  assert.match(html, /Release gate 1\.0\.0: W-10 Ship it \(Planned\); after W-7/);
+  // Proposal tables stack their cells at phone width, with each cell's label, and no script.
+  assert.match(html, /@media \(max-width:600px\)\{\.mg-props thead\{display:none\}/);
+  assert.match(html, /\.mg-props td\[data-label\]::before\{content:attr\(data-label\) ": "/);
+  assert.match(html, /<text class="mg-step"[^>]*>Step 2<\/text>/);
+  assert.doesNotMatch(html, />Step 3</);
+  // Not started: hollow, with a stage dot; started or done: solid, with a strip.
+  assert.match(html, /<g class="mg-node ready hollow critical">.*?<circle class="mg-dot"/s);
+  assert.match(html, /<g class="mg-node waiting hollow critical">/);
+  assert.match(html, /<g class="mg-node done started">.*?<rect class="mg-strip".*?check passed/s);
+  // What holds W-7 up shows as a badge by its name.
+  assert.match(
+    html,
+    /<g class="mg-badge decision"><title>Held up by W-6<\/title>.*?>1 decision<\/text>/s,
+  );
+  // The one wait: on the critical path, with two items behind it, so not dashed.
+  assert.equal((html.match(/class="mg-edge critical"/g) ?? []).length, 1);
+  assert.match(html, /W-1 waits on W-7: 2 item\(s\) behind the wait, on the critical path/);
+  assert.match(html, /Critical path: W-7 → W-1\./);
+  for (const stage of ['proposed', 'waiting', 'ready', 'in-flight', 'done']) {
+    assert.match(html, new RegExp(`<i class="sw ${stage}"></i>`));
+  }
+  assert.match(html, /--st-flight:#b08cf6;/);
+  assert.match(html, /--st-flight:#9b7fe6;/);
+});
+
+test('the dashboard counts tokens spent from the ledger, with corrections, against the appetite', () => {
+  const t = open(graphRepo());
+  const ledger = [
+    { id: 'E-1', item: 'W-4', event: 'reported', tokens: 100 },
+    { id: 'E-2', item: 'W-4', event: 'reported', tokens: 120, corrects: 'E-1' },
+    { id: 'E-3', item: 'W-9', event: 'reported', tokens: 30 },
+  ];
+  const { policy } = resolvePolicy({ schema_version: 1, project: { id: 'fixture', key: 'W' } });
+  const report = buildReport({
+    policy: /** @type {any} */ (policy),
+    ledger,
+    milestones: t.milestoneGraph({ tokens: tokensPerItem(ledger) }),
+  });
+  assert.equal(report.milestones?.nodes[1].tokens_spent, 150);
+  assert.match(renderHtml(report, /** @type {any} */ (policy)), />150 of 1000 tokens</);
+  // No tracker: no section.
+  assert.doesNotMatch(
+    renderHtml(buildReport({ policy: /** @type {any} */ (policy) }), /** @type {any} */ (policy)),
+    /id="milestones"/,
+  );
+});
+
+test('escaping: a title with a backslash, a pipe, a quote and &lt; shows as written in the graph, the table and the page', async () => {
+  const title = String.raw`Paths like C:\dir | "quoted" &lt; less`;
+  const root = makeRepo({
+    files: {
+      'work/milestones/W-7-config-errors-explained.md': milestone({ title }),
+    },
+  });
+  const t = open(root);
+  assert.deepEqual(t.check().problems, []);
+  assert.equal(t.milestoneGraph().nodes[1].title, title);
+  // Mermaid: each character as an entity code, the backslash and & included; nothing raw.
+  const mermaid = t.renderViewTexts()['milestones-graph'];
+  assert.match(
+    mermaid,
+    /\n {2}W_7\["W-7 Paths like C:#92;dir \| #quot;quoted#quot; #38;lt; less<br\/>/,
+  );
+  const label = /\n {2}W_7\["(.*?)"\]/.exec(mermaid)?.[1] ?? '';
+  assert.doesNotMatch(label, /[\\"&]/);
+  // The table: the backslash escaped before the pipe, so the pipe stays escaped; & as an entity.
+  t.writeViews();
+  const view = readFileSync(join(root, 'work', 'views', 'milestones.md'), 'utf8');
+  assert.match(
+    view,
+    /\n\| \[W-7\]\(\.\.\/milestones\/W-7-config-errors-explained\.md\) Paths like C:\\\\dir \\\| "quoted" &amp;lt; less \(critical path\) \| Planned \|/,
+  );
+  // The page: HTML-escaped.
+  settings(root);
+  const r = await hitld(['dashboard', '--out', 'out', '--now', '2026-11-16T12:00:00Z'], root);
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  assert.match(html, /W-7 Paths like C:\\dir \| &quot;quoted&quot; &amp;lt; less/);
+  assert.doesNotMatch(html, /"quoted"|[^&]&lt; less/);
+});
+
+test('escaping: a backslash before a pipe and a trailing backslash cannot unescape the table or the graph', async () => {
+  const title = 'A pipe after a backslash \\| and one at the end \\';
+  const root = makeRepo({
+    files: { 'work/milestones/W-7-config-errors-explained.md': milestone({ title }) },
+  });
+  const t = open(root);
+  assert.equal(t.milestoneGraph().nodes[1].title, title);
+  t.writeViews();
+  const view = readFileSync(join(root, 'work', 'views', 'milestones.md'), 'utf8');
+  const row = view.split('\n').find((l) => l.startsWith('| [W-7]')) ?? '';
+  // Each backslash doubled, then the pipe escaped: no `|` in the title is left unescaped.
+  assert.ok(
+    row.startsWith(
+      '| [W-7](../milestones/W-7-config-errors-explained.md) A pipe after a backslash \\\\\\| and one at the end \\\\ (critical path) | Planned |',
+    ),
+    row,
+  );
+  // The row splits into the table's eight cells, as a markdown reader splits it.
+  assert.equal(row.replace(/\\\\/g, '').replace(/\\\|/g, '').split('|').length - 2, 8);
+  const mermaid = t.renderViewTexts()['milestones-graph'];
+  assert.match(mermaid, /W_7\["W-7 A pipe after a backslash #92;\| and one at the end #92;<br\/>/);
+  settings(root);
+  assert.equal(
+    (await hitld(['dashboard', '--out', 'out', '--now', '2026-11-16T12:00:00Z'], root)).code,
+    0,
+  );
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  assert.ok(
+    html.includes(
+      '<h3 id="milestone-W-7-title"><a class="file" href="work/milestones/W-7-config-errors-explained.md">W-7</a> A pipe after a backslash \\| and one at the end \\</h3>',
+    ),
+  );
+});
+
+test('the board shows committed milestones only, lists proposed and dropped ones under it, and dashes a loop', () => {
+  const mg = open(graphRepo()).milestoneGraph();
+  const w7 = /** @type {any} */ (mg.nodes[1]);
+  w7.state = 'proposed';
+  w7.stage = 'proposed';
+  /** @type {any} */ (mg.nodes[0]).in_cycle = true;
+  const html = renderMilestoneSection(mg);
+  assert.doesNotMatch(html, /<a href="#milestone-W-7" aria-label/);
+  // Proposals as a table: the idea, what stands between it and committing, what waits on it.
+  assert.match(
+    html,
+    /<h3 class="mg-h">Proposed milestones, not on the board<\/h3>.*?<table class="mg-props">/s,
+  );
+  assert.match(
+    html,
+    /<tr><td data-label="Idea"><a href="#milestone-W-7">W-7 Config errors explained<\/a><\/td><td data-label="Before committing">Waits on your answer: W-6<\/td><td data-label="Waiting on it">1<\/td><\/tr>/,
+  );
+  assert.doesNotMatch(html, /Dropped milestones/);
+  assert.match(html, /<section class="drill" id="milestone-W-7" /, 'its drawer is still there');
+  assert.match(html, /<g class="mg-node waiting hollow critical loop">/);
+  assert.match(html, /2 milestones in 3 lanes/);
+});
+
+test('proposals: whole proposed projects first, then lone milestones; other waits named; dropped in their own table', () => {
+  const mg = open(graphRepo()).milestoneGraph();
+  const [w1, w7, w8] = /** @type {any[]} */ (mg.nodes);
+  w1.state = 'proposed';
+  w7.state = 'proposed';
+  w8.state = 'dropped';
+  /** @type {any} */ (mg.lanes[1]).state = 'proposed';
+  const html = renderMilestoneSection(mg);
+  const rows = [...html.matchAll(/<tr( class="mg-group")?>(.*?)<\/tr>/g)].map((m) =>
+    m[2].replace(/<[^>]+>/g, '|').replace(/\|+/g, '|'),
+  );
+  assert.deepEqual(rows.slice(1, 5), [
+    '|W-2 project, a proposed project|',
+    '|W-7 Config errors explained|Waits on your answer: W-6|1|',
+    '|Lone milestones|',
+    '|W-1 The goal|Waits on other items: W-7|0|',
+  ]);
+  assert.match(
+    html,
+    /<h3 class="mg-h">Dropped milestones<\/h3>.*?<td data-label="Idea"><a href="#milestone-W-8">W-8 First step shown<\/a><\/td><td data-label="Constraints">1 of 1 done<\/td>/s,
+  );
+  // Nothing committed is left, so the board has only the release lane.
+  assert.match(html, /0 milestones in 1 lanes/);
+});
+
+test('versions order as semantic versions: numbers by value, a pre-release before its release', () => {
+  assert.deepEqual(
+    ['1.0.0', '0.1.0', '0.1.0-rc.10', '0.1.0-rc.2', '0.0.9', '0.1.0-rc.1'].sort(compareVersions),
+    ['0.0.9', '0.1.0-rc.1', '0.1.0-rc.2', '0.1.0-rc.10', '0.1.0', '1.0.0'],
+  );
+});
+
+test('release flags: a done release before the first step, open ones after what they need, in version order', () => {
+  // As on this repository's tracker: a done pre-release that needs only items (rc.1), an open
+  // pre-release that needs a milestone (rc.2 needs W-1, at the second step), and the release
+  // (0.1.0), which needs both pre-releases and an item of W-7 (the first step).
+  const root = graphRepo();
+  const gate = (/** @type {Record<string, string | string[]>} */ f) =>
+    itemText({ kind: 'work', project: 'W-2', ...f });
+  put(root, {
+    'work/items/W-10-ship-it.md': gate({
+      id: 'W-10',
+      title: 'Release 0.1.0',
+      state: 'planned',
+      release: '0.1.0',
+      needs: ['W-5', 'W-11', 'W-12'],
+    }),
+    'work/items/W-11-rc-1.md': gate({
+      id: 'W-11',
+      title: 'Release 0.1.0-rc.1',
+      state: 'done',
+      release: '0.1.0-rc.1',
+      needs: ['W-3'],
+    }),
+    'work/items/W-12-rc-2.md': gate({
+      id: 'W-12',
+      title: 'Release 0.1.0-rc.2',
+      state: 'planned',
+      release: '0.1.0-rc.2',
+      needs: ['W-1'],
+    }),
+  });
+  commitAll(root, 'release gates');
+  const t = open(root);
+  assert.deepEqual(t.check().problems, []);
+  const mg = t.milestoneGraph();
+  assert.deepEqual(
+    mg.releases.map((r) => [r.release, r.state, r.layer, r.milestones]),
+    [
+      // rc.1 needs W-3, a constraint of W-8; done, it stands before the first step all the same.
+      ['0.1.0-rc.1', 'done', -1, ['W-8']],
+      // rc.2 needs W-1, at the second step (layer 1).
+      ['0.1.0-rc.2', 'planned', 1, ['W-1']],
+      // 0.1.0 needs W-7 (layer 0), but never stands left of rc.2, which it needs.
+      ['0.1.0', 'planned', 1, ['W-7']],
+    ],
+  );
+  const html = renderMilestoneSection(mg);
+  /** @type {Record<string, { x: number, y: number, text: string }>} */
+  const flags = {};
+  for (const m of html.matchAll(
+    /<g class="mg-flag \w+"><title>Release gate (\S+): (W-\d+)[^<]*<\/title><line x1="([\d.]+)" x2="[\d.]+" y1="([\d.]+)"[^]*?<text [^>]*>([^<]*)<\/text><\/g>/g,
+  )) {
+    flags[m[1]] = { x: Number(m[3]), y: Number(m[4]), text: m[5] };
+  }
+  // Where the first step's column starts: its label is centered over its 230-wide nodes.
+  const stepOne =
+    Number(/<text class="mg-step" x="([\d.]+)"[^>]*>Step 1</.exec(html)?.[1]) - 230 / 2;
+  assert.ok(flags['0.1.0-rc.1'].x < stepOne, 'the done release is left of the first step');
+  assert.ok(flags['0.1.0-rc.1'].x < flags['0.1.0-rc.2'].x, 'rc.1 left of rc.2');
+  assert.ok(flags['0.1.0-rc.2'].x < flags['0.1.0'].x, 'rc.2 left of 0.1.0');
+  // Each on its own row, labeled by its version alone; the item stays in the tooltip.
+  assert.equal(new Set(Object.values(flags).map((f) => f.y)).size, 3);
+  assert.deepEqual(
+    Object.values(flags).map((f) => f.text),
+    ['0.1.0-rc.1', '0.1.0-rc.2', '0.1.0'],
+  );
+  assert.match(
+    html,
+    /<title>Release gate 0\.1\.0: W-10 Release 0\.1\.0 \(Planned\); after W-7<\/title>/,
+  );
+  // The board is wide enough for every label.
+  const width = Number(/<svg class="mg" width="(\d+)"/.exec(html)?.[1]);
+  for (const f of Object.values(flags)) assert.ok(f.x + 16 + f.text.length * 7 <= width);
+  // A done release's rule stays in the Releases lane; an open one's runs down the board.
+  assert.match(html, /<g class="mg-rule done"><line class="mg-rule-top" [^>]*\/><\/g>/);
+  assert.equal((html.match(/<line class="mg-rule-down"/g) ?? []).length, 2);
+});
+
+test('file links: the forge address from the origin remote, never its credentials; else a relative path', () => {
+  const base = 'https://github.com/acme/widgets/blob/HEAD';
+  for (const remote of [
+    'https://github.com/acme/widgets',
+    'https://github.com/acme/widgets.git',
+    'https://someone:secret-token@github.com/acme/widgets.git',
+    'git@github.com:acme/widgets.git',
+    'ssh://git@github.com/acme/widgets.git',
+  ]) {
+    assert.equal(forgeFileBase(remote), base, remote);
+  }
+  assert.equal(
+    forgeFileBase('git@github.com:acme/widgets.git', 'main'),
+    'https://github.com/acme/widgets/blob/main',
+  );
+  // A remote that is not a known forge, or none, gives no address; nor does an odd branch name.
+  for (const remote of [
+    'https://gitlab.example/acme/widgets.git',
+    'http://127.0.0.1:9/git/acme/widgets',
+    '',
+    null,
+  ]) {
+    assert.equal(forgeFileBase(remote), null, String(remote));
+  }
+  assert.equal(forgeFileBase('https://github.com/acme/widgets', 'x y"z'), null);
+  assert.equal(fileHref('work/items/W-4-a.md', { base }), `${base}/work/items/W-4-a.md`);
+  assert.equal(fileHref('work/items/W-4-a.md', { from: 'work/views' }), '../items/W-4-a.md');
+  assert.equal(fileHref('work/items/W-4-a.md'), 'work/items/W-4-a.md');
+});
+
+test('the page links every item, milestone and release ID to its file, plainly, and shows what is clickable', async () => {
+  const root = graphRepo();
+  settings(root);
+  /** @param {string} out */
+  const page = async (out) => {
+    const r = await hitld(['dashboard', '--out', out, '--now', '2026-11-16T12:00:00Z'], root);
+    assert.equal(r.code, 0, JSON.stringify(r.json));
+    return readFileSync(join(root, out, 'dashboard.html'), 'utf8');
+  };
+  // No remote: repository-relative paths.
+  let html = await page('out');
+  const panels = [
+    ...html.matchAll(/<section class="drill" id="milestone-(W-\d+)" [^>]*>(.*?)<\/section>/gs),
+  ];
+  assert.equal(panels.length, 3);
+  for (const [, id, panel] of panels) {
+    const rows = [...panel.matchAll(/<tbody>(.*?)<\/tbody>/gs)].flatMap(
+      (b) => b[1].match(/<tr>.*?<\/tr>/g) ?? [],
+    );
+    assert.ok(rows.length, `${id} lists its items`);
+    for (const row of rows) {
+      assert.match(
+        row,
+        /^<tr><td><a class="file" href="work\/(items|milestones)\/W-\d+-[a-z0-9-]+\.md">W-\d+<\/a> /,
+        row,
+      );
+    }
+    assert.match(
+      panel,
+      new RegExp(
+        `<h3 id="milestone-${id}-title"><a class="file" href="work/milestones/${id}-[a-z0-9-]+\\.md">${id}</a> `,
+      ),
+    );
+  }
+  // A flag opens the release's drawer, whose head links the release item's file.
+  assert.match(
+    html,
+    /<a href="#release-W-10" aria-label="Release 1\.0\.0: W-10 Ship it"><g class="mg-flag open">/,
+  );
+  assert.match(
+    html,
+    /<h3 id="release-W-10-title">Release 1\.0\.0: <a class="file" href="work\/items\/W-10-ship-it\.md">W-10<\/a> Ship it<\/h3>/,
+  );
+  // Clickable: a pointer, and a visible focus outline for the keyboard.
+  assert.match(html, /\.mg a\{cursor:pointer\}/);
+  assert.match(html, /a:focus-visible\{outline:2px solid var\(--used\)/);
+  assert.doesNotMatch(html, /<script/i);
+  // A GitHub origin: links on the forge, at the default branch, with no credential carried over.
+  git(root, 'remote', 'add', 'origin', 'https://someone:secret-token@github.com/acme/widgets.git');
+  html = await page('out2');
+  assert.match(
+    html,
+    /<a class="file" href="https:\/\/github\.com\/acme\/widgets\/blob\/HEAD\/work\/items\/W-4-second-step\.md">W-4<\/a>/,
+  );
+  assert.doesNotMatch(html, /secret-token|someone@/);
+});
+
+test('drawers: closed by default, each with a Close link, every box and flag opening its own, a backdrop that closes them, no script', async () => {
+  const root = graphRepo();
+  settings(root);
+  const r = await hitld(['dashboard', '--out', 'out', '--now', '2026-11-16T12:00:00Z'], root);
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  assert.doesNotMatch(html, /<script|\son[a-z]+=/i, 'no script and no event handler attributes');
+  // Closed by default; a drawer shows only as the page's target, fixed on the right.
+  assert.match(
+    html,
+    /\.drill\{display:none;box-sizing:border-box;position:fixed;top:0;right:0;bottom:0;width:min\(560px,100%\);[^}]*\}\.drill:target\{display:block\}/,
+  );
+  const drawers = [
+    ...html.matchAll(
+      /<section class="drill" id="((?:milestone|release)-W-\d+)" [^>]*>(.*?)<\/section>/gs,
+    ),
+  ];
+  assert.deepEqual(
+    drawers.map((d) => d[1]),
+    ['milestone-W-1', 'milestone-W-7', 'milestone-W-8', 'release-W-10'],
+  );
+  for (const [, id, body] of drawers) {
+    assert.match(
+      body,
+      /^<div class="drawer-head"><h3 id="[^"]+-title">.*?<\/h3><a class="drawer-close" href="#milestones">Close<\/a>/,
+      id,
+    );
+    // Every box or flag on the board opens it.
+    assert.match(html, new RegExp(`<a href="#${id}" aria-label="`), id);
+  }
+  // The release's drawer: what lands before it and what it needs, with their states.
+  const release = drawers[3][2];
+  assert.match(
+    release,
+    /Milestones that land before it \(0 of 1 done\).*?<a href="#milestone-W-7">W-7<\/a> Config errors explained<\/td><td>Planned/s,
+  );
+  assert.match(
+    release,
+    /What it needs \(0 of 1 done\).*?<a class="file" href="work\/items\/W-5-third-step\.md">W-5<\/a> Third step<\/td><td>Planned/s,
+  );
+  // One backdrop, out of the tab order, closing to the board; shown only while a drawer is open.
+  assert.equal(
+    (
+      html.match(
+        /<a class="drawer-backdrop" href="#milestones" aria-label="Close" tabindex="-1"><\/a>/g,
+      ) ?? []
+    ).length,
+    1,
+  );
+  assert.match(
+    html,
+    /\.drawer-backdrop\{display:none\}body:has\(\.drill:target\) \.drawer-backdrop\{display:block;position:fixed;inset:0;z-index:20/,
+  );
+  // Lane backgrounds let a click through to the backdrop; boxes and flags stay above it.
+  assert.match(
+    html,
+    /\.mg\{position:relative;z-index:25;pointer-events:none\}\.mg a\{pointer-events:auto\}/,
+  );
+  // Wide: beside the board. The open box and flag are marked.
+  assert.match(
+    html,
+    /@media \(min-width:1100px\)\{body:has\(\.drill:target\)\{padding-right:min\(560px,100%\)\}\}/,
+  );
+  assert.match(
+    html,
+    /body:has\(#milestone-W-7:target\) a\[href="#milestone-W-7"\] \.mg-box\{stroke:var\(--used\)/,
+  );
+  assert.match(html, /body:has\(#release-W-10:target\) a\[href="#release-W-10"\] \.mg-flag text\{/);
 });

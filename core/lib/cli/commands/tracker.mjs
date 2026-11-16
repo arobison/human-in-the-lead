@@ -574,7 +574,7 @@ export const commands = [
         name: 'view',
         type: 'string',
         description:
-          'Print one view as text instead of writing files: ready, blocked, decisions, projects, critical-path, milestones, unreleased, lists, items-graph or projects-graph',
+          'Print one view as text instead of writing files: ready, blocked, decisions, projects, critical-path, milestones, unreleased, lists, items-graph, projects-graph or milestones-graph',
       },
       {
         name: 'who',
