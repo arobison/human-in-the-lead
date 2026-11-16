@@ -6,7 +6,7 @@ state: done
 created: 2026-11-16
 project: HITLD-15
 claimed_by: D-16
-release_note: "A report that shows `hitld`, `node`, `npm` or `git` refused is recorded as blocked by permissions (`blocked_by: executor-permissions` in `hitld dispatch complete`), not as a bad report shape. In the same run, `hitld dispatch plan` runs that tier-3 item in the other mode (`mode`, `modes` on its entry), holds it with reason `executor-permissions` when neither can, and `dispatch start --mode` refuses the refused mode."
+release_note: "A completion whose `permission_denials` show `hitld`, `node`, `npm` or `git` refused is recorded as blocked by permissions (`blocked_by: executor-permissions` in `hitld dispatch complete`), not as a bad report shape; a report that only mentions a refusal gets a `permission_warning` and holds nothing. For the rest of the run, `hitld dispatch plan` runs every tier-3 item in the other mode (`mode`, `modes` on its entry) and holds items with reason `executor-permissions` when no mode can; `dispatch start --mode` refuses a refused mode."
 ---
 
 ## Why

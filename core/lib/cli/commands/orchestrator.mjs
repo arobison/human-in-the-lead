@@ -51,6 +51,7 @@ import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mj
 import { planDispatch } from '../../dispatch/plan.mjs';
 import {
   PERMISSIONS_REASON,
+  mentionedRefusals,
   refusalsInRun,
   refusedCommands,
   refusedNote,
@@ -386,9 +387,14 @@ export function plan(p, ctx, byHand) {
   for (const e of events) {
     if (e.event === 'dispatched' && Array.isArray(e.touches)) recorded.set(e.dispatch, e.touches);
   }
-  // The ways of running an item's executor that a report in this run showed refused the
-  // contract's commands: the item is not dispatched into the same refusal again (HITLD-141).
-  const refusals = refusalsInRun(events, p.state?.run?.id);
+  // The ways of running an executor that a report in this run showed refused the contract's
+  // commands on this harness: no item is dispatched into the same refusal again (HITLD-141).
+  const refusals = Object.fromEntries(
+    Object.entries(refusalsInRun(events, p.state?.run?.id)).map(([mode, why]) => [
+      mode,
+      { able: false, why },
+    ]),
+  );
   /** @type {string[] | null} */
   let files = null;
   const inline = /** @type {string[]} */ (p.policy.dispatch?.inline_globs ?? []);
@@ -449,13 +455,7 @@ export function plan(p, ctx, byHand) {
     critical: q.critical,
     setup: { ...p.setup, byHand },
     touches: (item) => touchesFor(item),
-    executorModes: (item) =>
-      Object.fromEntries(
-        Object.entries(refusals.get(String(item.id)) ?? {}).map(([mode, why]) => [
-          mode,
-          { able: false, why },
-        ]),
-      ),
+    executorModes: () => refusals,
   });
   return { q, result: { ...result, disk: diskWarning(disk) }, setup: p.setup, running };
 }
@@ -1295,13 +1295,16 @@ const table = [
         releaseExecutor(p.machineRoot, p.policy.project.id, d);
         const parsed = parseReport(completion.report);
         const commit = parsed.report?.commit?.sha;
-        // A report that shows the contract's commands refused is blocked by permissions, never a
-        // missing report shape: a follow-up would meet the same refusal (HITLD-141).
-        const refused = refusedCommands({
-          report: completion.report,
-          denials: completion.permissionDenials,
-          done: parsed.report?.result === 'done',
-        });
+        // A completion whose permission_denials show the contract's commands refused is blocked
+        // by permissions, never a missing report shape: a follow-up would meet the same refusal
+        // (HITLD-141). A report that only mentions a refusal is a warning, never a hold.
+        const refused = refusedCommands(completion.permissionDenials);
+        const mentioned = refused.length
+          ? []
+          : mentionedRefusals({
+              report: completion.report,
+              done: parsed.report?.result === 'done',
+            });
         const notes = [
           ...(refused.length ? [refusedNote(refused)] : []),
           ...(completion.usageSource === 'observed'
@@ -1320,11 +1323,17 @@ const table = [
         // report is accepted within the same minor (design part 16.5, Upgrades).
         const executor = reportVersion(dispatchedOn(readLedger(p.store).events, d));
         if (executor) out.executor_version = executor;
+        if (mentioned.length) {
+          out.permission_warning = {
+            commands: mentioned,
+            note: `the report mentions ${mentioned.join(', ')} next to a refusal. Only a harness's recorded permission denials hold dispatch, so nothing is held: read the report, and if the executor was refused the contract's commands, tell the owner rather than following up into the same refusal`,
+          };
+        }
         if (refused.length) {
           out.result = 'blocked';
           out.blocked_by = PERMISSIONS_REASON;
           out.refused_commands = refused;
-          out.next = `the executor's permission mode ${refusedNote(refused)}, which the contract requires: recorded as blocked by permissions. Send no follow-up, which would meet the same refusal. The refill does not dispatch ${entry.item} the same way again in this run: it runs it in the other tier-3 mode, or holds it (reason ${PERMISSIONS_REASON}); tell the owner`;
+          out.next = `the executor's permission mode ${refusedNote(refused)}, which the contract requires: recorded as blocked by permissions. Send no follow-up, which would meet the same refusal. For the rest of this run, the plan dispatches no item this way on this harness: it uses the other tier-3 mode, or holds the item (reason ${PERMISSIONS_REASON}); tell the owner`;
         } else if (!parsed.report) {
           out.report_errors = parsed.errors;
           out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;

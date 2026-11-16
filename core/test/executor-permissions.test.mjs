@@ -1,6 +1,7 @@
 // HITLD-141: dispatch does not launch tier-3 executors into a permission mode that refuses the
-// contract's commands. The plan's mode choice and hold, the refused-commands report, and the CLI
-// from a refused headless run to an interactive dispatch to a hold.
+// contract's commands. The plan's mode choice and hold, structured permission denials against a
+// report that only mentions a refusal, refusals that count for the harness for the rest of the run,
+// and the CLI from a refused headless run to interactive dispatches.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,12 +10,12 @@ import { join } from 'node:path';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { sizeItem } from '../lib/dispatch/sizing.mjs';
 import { planDispatch } from '../lib/dispatch/plan.mjs';
-import { refusalsInRun, refusedCommands } from '../lib/dispatch/permissions.mjs';
+import { mentionedRefusals, refusalsInRun, refusedCommands } from '../lib/dispatch/permissions.mjs';
 import { readLedger } from '../lib/ledger/ledger.mjs';
 import { headlessCompletion } from '../harness/claude-code/completion.mjs';
 import { FAKE_PROFILES } from '../harness/fake/fake.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
-import { STATUS_INPUT, git, item, makeConsumer } from './orchestrator-fixture.mjs';
+import { STATUS_INPUT, item, makeConsumer } from './orchestrator-fixture.mjs';
 
 const { policy } = resolvePolicy({ schema_version: 1, project: { id: 'test', key: 'W' } });
 if (!policy) throw new Error('policy');
@@ -99,7 +100,7 @@ test('plan: when neither mode can, the item is held with executor-permissions an
   );
 });
 
-test('a refused-commands report: from permission_denials, from the text, never from a done report', () => {
+test('a permissions block: only structured permission_denials; report text is a warning', () => {
   const denials = [
     {
       tool_name: 'Bash',
@@ -110,19 +111,20 @@ test('a refused-commands report: from permission_denials, from the text, never f
     { tool_name: 'Bash', tool_use_id: 't3', tool_input: { command: 'ls -la' } },
     { tool_name: 'Edit', tool_use_id: 't4', tool_input: { file_path: 'node' } },
   ];
-  assert.deepEqual(refusedCommands({ report: 'I could not start.', denials }), ['hitld', 'git']);
+  assert.deepEqual(refusedCommands(denials), ['hitld', 'git']);
+  assert.deepEqual(refusedCommands(undefined), []);
   const text = [
     'I could not do the work.',
     'Running `npm ci` was denied by the permission mode.',
     'node: permission to run this command was refused',
     'The tracker file lives in work/items.',
   ].join('\n');
-  assert.deepEqual(refusedCommands({ report: text }), ['node', 'npm']);
+  assert.deepEqual(mentionedRefusals({ report: text }), ['node', 'npm']);
   assert.deepEqual(
-    refusedCommands({ report: 'All done; git push was refused, as expected.', done: true }),
+    mentionedRefusals({ report: 'All done; git push was refused, as expected.', done: true }),
     [],
   );
-  assert.deepEqual(refusedCommands({ report: 'git log shows the change; tests pass.' }), []);
+  assert.deepEqual(mentionedRefusals({ report: 'git log shows the change; tests pass.' }), []);
 
   const parsed = headlessCompletion(
     JSON.stringify({
@@ -135,47 +137,58 @@ test('a refused-commands report: from permission_denials, from the text, never f
   assert.equal(parsed.permissionDenials?.length, 4);
 });
 
-test('refusals count per item and mode, in this run only', () => {
+test('a refusal counts for the harness for the rest of the run; a new run starts clean', () => {
+  const blocked = (/** @type {string} */ dispatch, /** @type {string} */ run) => ({
+    event: 'reported',
+    dispatch,
+    item: 'W-1',
+    result: 'blocked',
+    reason: 'executor-permissions',
+    notes: 'refused git',
+    run,
+  });
   const events = [
     { event: 'dispatched', dispatch: 'D-1', item: 'W-1', tier: 3, mode: 'headless', run: 'R1' },
-    {
-      event: 'reported',
-      dispatch: 'D-1',
-      item: 'W-1',
-      result: 'blocked',
-      reason: 'executor-permissions',
-      notes: 'refused git',
-      run: 'R1',
-    },
-    { event: 'dispatched', dispatch: 'D-2', item: 'W-2', tier: 2, run: 'R0' },
-    {
-      event: 'reported',
-      dispatch: 'D-2',
-      item: 'W-2',
-      result: 'blocked',
-      reason: 'executor-permissions',
-      notes: 'refused node',
-      run: 'R0',
-    },
+    blocked('D-1', 'R1'),
+    { event: 'dispatched', dispatch: 'D-2', item: 'W-1', tier: 3, mode: 'interactive', run: 'R1' },
+    blocked('D-2', 'R1'),
+    { event: 'dispatched', dispatch: 'D-3', item: 'W-1', tier: 2, run: 'R0' },
+    blocked('D-3', 'R0'),
   ];
-  const r = refusalsInRun(events, 'R1');
-  assert.deepEqual([...r.keys()], ['W-1']);
-  assert.equal(r.get('W-1')?.headless, 'D-1 ran headless and its permission mode refused git');
-  assert.equal(refusalsInRun(events, 'R0').get('W-2')?.headless, undefined);
-  assert.match(String(refusalsInRun(events, 'R0').get('W-2')?.subagent), /as a subagent/);
+  const r1 = refusalsInRun(events, 'R1');
+  assert.deepEqual(Object.keys(r1).sort(), ['headless', 'interactive']);
+  assert.equal(r1.headless, 'D-1 (W-1) ran headless and its permission mode refused git');
+  assert.match(String(refusalsInRun(events, 'R0').subagent), /as a subagent/);
+
+  /** @param {Record<string, string>} refusals */
+  const asModes = (refusals) =>
+    Object.fromEntries(Object.entries(refusals).map(([m, why]) => [m, unable(why)]));
+  // W-2 was never dispatched: W-1's refusals on this harness hold it, without a second refusal.
+  const held = planWith([ready('W-2', 3)], () => asModes(r1));
+  assert.deepEqual(
+    held.held.map((h) => [h.item, h.reason]),
+    [['W-2', 'executor-permissions']],
+  );
+  assert.equal(held.start.length, 0);
+  // A new run has no refusals: W-2 starts, its modes unknown.
+  const fresh = planWith([ready('W-2', 3)], () => asModes(refusalsInRun(events, 'R2')));
+  assert.deepEqual(fresh.start[0].modes, { headless: 'unknown', interactive: 'unknown' });
 });
 
-test('cli: a refused headless run is blocked by permissions; the item runs interactive, then is held', async () => {
+test('cli: a refused headless run holds headless for every item; a quoted refusal only warns', async () => {
+  const tier3 = (/** @type {string} */ id, /** @type {string} */ slug) =>
+    item({
+      id,
+      title: slug,
+      kind: 'work',
+      state: 'planned',
+      tier_override: '3',
+      touches: [`src/${slug}.js`],
+    });
   const c = makeConsumer({
     files: {
-      'work/items/W-4-redesign.md': item({
-        id: 'W-4',
-        title: 'Redesign',
-        kind: 'work',
-        state: 'planned',
-        tier_override: '3',
-        touches: ['src/redesign.js'],
-      }),
+      'work/items/W-4-redesign.md': tier3('W-4', 'redesign'),
+      'work/items/W-7-rework.md': tier3('W-7', 'rework'),
     },
   });
   recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
@@ -218,31 +231,31 @@ test('cli: a refused headless run is blocked by permissions; the item runs inter
   assert.equal(done.result.report_errors, undefined, 'never a missing report shape');
   assert.doesNotMatch(done.result.next, /fixed shape/);
   const ledger = join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl');
-  const store = /** @type {any} */ ({
-    read: (/** @type {string} */ k) => (k === 'ledger.jsonl' ? readFileSync(ledger, 'utf8') : null),
-  });
-  const reported = readLedger(store).events.find(
-    (e) => e.event === 'reported' && e.dispatch === 'D-1',
-  );
+  const events = () =>
+    readLedger(
+      /** @type {any} */ ({
+        read: (/** @type {string} */ k) =>
+          k === 'ledger.jsonl' ? readFileSync(ledger, 'utf8') : null,
+      }),
+    ).events;
+  const reported = events().find((e) => e.event === 'reported' && e.dispatch === 'D-1');
   assert.equal(reported?.result, 'blocked');
   assert.equal(reported?.reason, 'executor-permissions');
   assert.equal(reported?.notes, 'refused hitld, node, npm, git');
 
-  // The refill does not dispatch it headless again: it runs interactive, and says so.
-  const refill = done.result.refill.start.find((/** @type {any} */ s) => s.item === 'W-4');
-  assert.equal(refill?.mode, 'interactive', JSON.stringify(done.result.refill));
-  assert.equal(refill.modes.headless, 'unable');
-  assert.match(refill.notes.join(' '), /headless runs here cannot run the contract's commands/);
-
-  const forced = await c.hitld(['dispatch', 'start', 'W-4', '--mode', 'headless']);
+  // W-7 was never dispatched: it is not launched headless either, and the plan says so.
+  const plan = await c.hitld(['dispatch', 'plan']);
+  for (const id of ['W-4', 'W-7']) {
+    const entry = plan.result.start.find((/** @type {any} */ s) => s.item === id);
+    assert.equal(entry?.mode, 'interactive', `${id}: ${JSON.stringify(plan.result)}`);
+    assert.equal(entry.modes.headless, 'unable');
+    assert.match(entry.notes.join(' '), /headless runs here cannot run the contract's commands/);
+  }
+  const forced = await c.hitld(['dispatch', 'start', 'W-7', '--mode', 'headless']);
   assert.notEqual(forced.exit, 0);
   assert.equal(forced.result.error, 'executor-permissions', JSON.stringify(forced.result));
 
-  // The refused run committed nothing. A tier-3 dispatch cannot yet reuse an earlier dispatch's
-  // branch (outside HITLD-141), so this test removes it first.
-  await c.hitld(['env', 'cleanup', '--dispatch', 'D-1', '--result', 'abandoned']);
-  git(c.root, 'branch', '-D', start.result.branch);
-  const again = await c.hitld(['dispatch', 'start', 'W-4']);
+  const again = await c.hitld(['dispatch', 'start', 'W-7']);
   assert.equal(again.exit, 0, JSON.stringify(again.result));
   assert.equal(again.result.instruction.tool, 'session');
   await c.hitld([
@@ -253,10 +266,22 @@ test('cli: a refused headless run is blocked by permissions; the item runs inter
     '--harness-ref',
     'session-2',
   ]);
+  // A report that merely quotes a refusal: a warning for the orchestrator, never a hold.
   const reportFile = join(c.base, 'report.txt');
   writeFileSync(
     reportFile,
-    'Blocked: git and hitld were denied by the permission mode of this session.\n',
+    [
+      'item: W-7',
+      'result: partial',
+      'commit: none',
+      'evidence:',
+      '  - the earlier run logged "git: permission denied"; this session ran git and node fine',
+      'bench_runs: none',
+      'deviations: none',
+      'calls: none',
+      'questions: none',
+      '',
+    ].join('\n'),
   );
   const second = await c.hitld([
     'dispatch',
@@ -266,13 +291,15 @@ test('cli: a refused headless run is blocked by permissions; the item runs inter
     '--report-file',
     reportFile,
   ]);
-  assert.equal(second.result.blocked_by, 'executor-permissions');
-  assert.deepEqual(second.result.refused_commands, ['hitld', 'git']);
-  // Neither mode can: held, with the reason, and nothing is launched.
-  assert.ok(!second.result.refill.start.some((/** @type {any} */ s) => s.item === 'W-4'));
-  const held = second.result.refill.held.find((/** @type {any} */ h) => h.item === 'W-4');
-  assert.equal(held?.reason, 'executor-permissions', JSON.stringify(second.result.refill));
-  const blocked = await c.hitld(['dispatch', 'start', 'W-4']);
-  assert.notEqual(blocked.exit, 0);
-  assert.match(JSON.stringify(blocked.result), /neither tier-3 mode can run/);
+  assert.equal(second.exit, 0, JSON.stringify(second.result));
+  assert.equal(second.result.blocked_by, undefined);
+  assert.equal(second.result.result, 'partial');
+  assert.deepEqual(second.result.permission_warning?.commands, ['node', 'git']);
+  const quoted = events().find(
+    (e) => e.event === 'reported' && e.dispatch === again.result.dispatch,
+  );
+  assert.equal(quoted?.reason, undefined);
+  assert.equal(quoted?.result, 'partial');
+  // Interactive is still able as far as the plan knows: W-7 is not held.
+  assert.ok(!second.result.refill.held.some((/** @type {any} */ h) => h.item === 'W-7'));
 });
