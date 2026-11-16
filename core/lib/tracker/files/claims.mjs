@@ -51,7 +51,7 @@ function sourceOf(layout, ref) {
 }
 
 /** The main branch's ref, or null when it does not exist yet. @param {string} root @param {Layout} layout */
-function mainRef(root, layout) {
+export function mainRef(root, layout) {
   const ref = `refs/heads/${layout.mainBranch}`;
   return git(root, ['rev-parse', '--verify', '-q', ref], { allowFail: true }).trim() ? ref : null;
 }

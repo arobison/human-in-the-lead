@@ -4,14 +4,11 @@ import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { VERSION } from '../lib/version.mjs';
@@ -19,24 +16,25 @@ import { HEADINGS, FORM_OF, renderIssueBody } from '../lib/feedback/render.mjs';
 import { feedbackRecordsIn } from '../lib/feedback/guard.mjs';
 import { checkRecord } from '../lib/feedback/record.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
 
 /** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
 const canSymlink = (() => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-link-probe-'));
+  const dir = tempDir('hitld-link-probe-');
   try {
     symlinkSync(join(dir, 'target'), join(dir, 'link'));
     return true;
   } catch {
     return false;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 })();
 const needsSymlink = {
   skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
 };
 
-const root = mkdtempSync(join(tmpdir(), 'hitld-feedback-'));
+const root = tempDir('hitld-feedback-');
 const repo = join(root, 'repo');
 const store = join(root, 'store');
 mkdirSync(repo);

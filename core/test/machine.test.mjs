@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
@@ -16,6 +16,7 @@ import { planDispatch } from '../lib/dispatch/plan.mjs';
 import { settingsLocation, loadSettingsFile } from '../lib/settings/files.mjs';
 import { validateSettings } from '../lib/settings/files.mjs';
 import { FAKE_PROFILES } from '../harness/fake/fake.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /**
  * Fake probe sources. `files` maps a path to its text; `programs` maps "file arg arg" to output.
@@ -71,7 +72,7 @@ async function hitld(argv, env, machine) {
 }
 
 function home() {
-  const base = mkdtempSync(join(tmpdir(), 'hitld-machine-'));
+  const base = tempDir('hitld-machine-');
   return { XDG_CONFIG_HOME: join(base, 'config'), XDG_DATA_HOME: join(base, 'data') };
 }
 

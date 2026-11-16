@@ -62,6 +62,8 @@ export const ERROR_CODES = Object.freeze({
   // Dispatch, handover and the merge queue
   'not-planned':
     'The item is not one the plan starts now (held, tier 0, no free slot, or not ready).',
+  'disk-floor':
+    "Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.",
   'not-in-flight': 'The dispatch is not in flight.',
   'unknown-dispatch': 'The dispatch has no recorded harness reference, so it cannot be continued.',
   'still-running': 'The dispatch is still running; its completion notice comes first.',
@@ -104,6 +106,17 @@ export const ERROR_CODES = Object.freeze({
   'invalid-call': 'The logged call is empty or not valid.',
   'nothing-to-rate': 'No decision has been answered yet.',
   'not-found': 'The ID is not in the tracker or the store.',
+
+  // Design walk-throughs
+  'not-a-design':
+    'The design has no questions section with Q<n> questions, or an open question lacks two options or a recommendation, or lists its recommendation after another option.',
+  'already-decided': 'The design question is decided already; nothing was written.',
+  'decision-not-for-question':
+    "The decision is not the one filed for that design question: its title is not the question's; nothing was written.",
+  'not-answered': 'The decision has no answer from the owner, so the question stays open.',
+  'options-differ':
+    "The decision offered a different number of options than the design question has, so the option picked cannot be named in the design's words.",
+  'questions-open': 'Questions in the design wait for the owner, so it is not marked decided.',
 
   // Publishing tracker changes
   'main-changed':

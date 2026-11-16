@@ -28,12 +28,37 @@ export const envPrefix = (env) =>
     .map(([k, v]) => `${k}=${v}`)
     .join(' ');
 
+/** At most this many paths per line of the overlap lines; the rest are counted. */
+const PATHS_SHOWN = 6;
+
+/** @param {string[]} paths */
+const pathList = (paths) =>
+  paths.length > PATHS_SHOWN
+    ? `${paths.slice(0, PATHS_SHOWN).join(', ')} and ${paths.length - PATHS_SHOWN} more`
+    : paths.join(', ');
+
 /**
+ * `touches`: what the overlap rule used (touches.mjs), when the caller derived them; `overlaps`:
+ * the dispatches in flight whose touches overlap; `merged`: the merges since the item was planned
+ * that changed the same paths.
  * @param {{ item: Item, sizing: Sizing, dispatch: string, branch: string, policy: Record<string, any>,
- *   isolation: 'worktree' | 'none', worktree?: string | null }} r
+ *   isolation: 'worktree' | 'none', worktree?: string | null,
+ *   touches?: import('./touches.mjs').Touches,
+ *   overlaps?: import('./touches.mjs').Overlap[], merged?: import('./touches.mjs').Merge[] }} r
  * @returns {string}
  */
-export function renderBrief({ item, sizing, dispatch, branch, policy, isolation, worktree }) {
+export function renderBrief({
+  item,
+  sizing,
+  dispatch,
+  branch,
+  policy,
+  isolation,
+  worktree,
+  touches: used,
+  overlaps = [],
+  merged = [],
+}) {
   const prefix = envPrefix(executorEnv(dispatch, String(policy.project?.id ?? '')));
   const id = String(item.id);
   const file = typeof item.path === 'string' ? item.path : `the item file for ${id}`;
@@ -45,7 +70,8 @@ export function renderBrief({ item, sizing, dispatch, branch, policy, isolation,
         ? `Read ${file}, including its Plan section.`
         : `Read ${file}. It has no plan yet: settle the approach first and list it under calls.`;
   const kb = sizing.areas.flatMap((a) => policy.dispatch?.brief_kb?.[a] ?? []);
-  const touches = /** @type {string[]} */ (item.touches ?? []);
+  const touches = used?.touches ?? /** @type {string[]} */ (item.touches ?? []);
+  const derived = used?.source === 'derived';
   const serial = /** @type {string[]} */ (item.serial ?? []);
   const reportAt = Math.round(
     sizing.estimate_tokens * (policy.dispatch?.report_at_budget_multiple ?? 1.5),
@@ -61,7 +87,16 @@ export function renderBrief({ item, sizing, dispatch, branch, policy, isolation,
     `Done when: the item's "Done when" section. That is the exit; stop when it holds.`,
     '',
     ...(kb.length ? [`Knowledge base: ${kb.join(', ')}.`] : []),
-    `Touches: ${touches.join(', ') || 'not listed; keep the change small'}. Record why if you go outside.`,
+    `Touches${derived ? ' (derived from the item text)' : ''}: ${touches.join(', ') || 'not listed; keep the change small'}. Record why if you go outside.`,
+    ...overlaps.map(
+      (o) => `In flight on the same paths: ${o.dispatch} (${o.item}) touches ${pathList(o.paths)}.`,
+    ),
+    // The owner's wording, verbatim (HITLD-136).
+    ...(overlaps.length ? ['merge main before you report when a dispatch in flight overlaps'] : []),
+    ...merged.map(
+      (m) =>
+        `Merged since this item was planned, on the same paths: ${m.commit.slice(0, 7)}${m.items.length ? ` (${m.items.join(', ')})` : ''} changed ${pathList(m.paths)}.`,
+    ),
     `Serial: ${serial.join(', ') || 'none'}. Budget: ~${k(sizing.estimate_tokens)} tokens; report at ${k(reportAt)} even if unfinished.`,
     ...(sizing.owner_review
       ? [

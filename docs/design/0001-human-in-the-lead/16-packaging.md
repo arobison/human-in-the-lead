@@ -26,7 +26,7 @@ human-in-the-lead/
   skills/                         # layer 2: SKILL.md sources with portable front matter only
     adopt/ chief-of-staff/        # built; the rest of the design's skills are planned
     orchestrate/
-    execute/
+    execute/ curate/
   agents/                         # agent definitions beyond the executors (the generalizer),
                                   # portable front matter only; the build adds the harness's
   templates/                      # AGENTS.contract.md, policy.json and the item, decision and
@@ -52,6 +52,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld work new / show / query / claim / unclaim / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
 | `hitld work migrate [--dry-run]` | Apply the tracker format migrations to every file; idempotent; the dry run prints the diff. Registered: `milestone-entities`, `retire-priority` |
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
+| `hitld work sweep` | The stale-item sweep: orphaned claims, old `proposed` items, blocked items whose blockers are resolved, items merged but still open, release items whose needs overlap, items that changed public surface without a `release_note`; reads only ([13.3](13-operations.md#the-stale-item-sweep-and-the-curators-pass)) |
 | `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, critical path, milestones, unreleased, lists, dependency diagrams) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
@@ -141,6 +142,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 **Dispatch, handover and the merge queue**
 
 - `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready).
+- `disk-floor`: Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.
 - `not-in-flight`: The dispatch is not in flight.
 - `unknown-dispatch`: The dispatch has no recorded harness reference, so it cannot be continued.
 - `still-running`: The dispatch is still running; its completion notice comes first.
@@ -177,6 +179,15 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `invalid-call`: The logged call is empty or not valid.
 - `nothing-to-rate`: No decision has been answered yet.
 - `not-found`: The ID is not in the tracker or the store.
+
+**Design walk-throughs**
+
+- `not-a-design`: The design has no questions section with Q<n> questions, or an open question lacks two options or a recommendation, or lists its recommendation after another option.
+- `already-decided`: The design question is decided already; nothing was written.
+- `decision-not-for-question`: The decision is not the one filed for that design question: its title is not the question's; nothing was written.
+- `not-answered`: The decision has no answer from the owner, so the question stays open.
+- `options-differ`: The decision offered a different number of options than the design question has, so the option picked cannot be named in the design's words.
+- `questions-open`: Questions in the design wait for the owner, so it is not marked decided.
 
 **Publishing tracker changes**
 
@@ -478,14 +489,14 @@ Not documented either way, and not yet checked (open checks, not results):
 1. **`hitld release make --branch <name>`** runs in the owner's own turn, with the same guard and checks as on main ([3.2](03-data-model.md#release)), including the gates of the release item for the version: the work item whose `release` key is that version, which needs the items and milestones the release waits for. It writes the record on a new branch made from main, refuses a branch that exists here or at a remote, checks out main again, and never tags or pushes. It returns the pull request's title and body: the version, the bump, the notes and the interface delta.
 2. **The orchestrator pushes the branch and opens the pull request.** CI and the DCO check run on it like any other.
 3. **The owner's squash merge is the release decision.** The squash commit on main adds `work/releases/<tag>.md` and carries the owner's `Signed-off-by` (HITLD-59).
-4. **One workflow run** (`.github/workflows/release.yml`) starts on that push. Its first job runs the record-to-tag check (`core/bin/release-check.mjs`) with read access only. The second job runs in the `release` environment, which waits for the owner's approval in GitHub. It checks the record again, runs the checks and the offline evals, packages, creates the annotated tag on that exact commit, pushes the tag with the run's own token, attests build provenance and drafts the GitHub release (a pre-release for a tag with a `-`). Tagging and releasing happen in the same run: a push made with the Actions token starts no other workflow, so nothing waits on one, and no long-lived token is stored.
+4. **One workflow run** (`.github/workflows/release.yml`) starts on that push. Its first job runs the record-to-tag check (`core/bin/release-check.mjs`) with read access only, then reads the `release` environment's protection rules through the GitHub API (`scripts/release-environment.mjs`, HITLD-140) and refuses the run when the environment is missing, has no required reviewer, or cannot be read: GitHub creates a missing environment with no rules when a job first uses it and runs that job at once, so the approval would otherwise rest on a setting nothing checked. The second job runs in the `release` environment, which waits for the owner's approval in GitHub. It checks the record again, runs the checks and the offline evals, packages, creates the annotated tag on that exact commit, pushes the tag with the run's own token, attests build provenance and drafts the GitHub release (a pre-release for a tag with a `-`). Tagging and releasing happen in the same run: a push made with the Actions token starts no other workflow, so nothing waits on one, and no long-lived token is stored.
 5. **The owner publishes the draft.** With immutable releases on, the published release, its assets and its tag can no longer change.
 
 **The record-to-tag check** refuses unless the commit adds exactly one record; the record passes the tracker's checks and the release schema; its tag does not exist; its version is the one `release propose` gives at the commit's parent, for the same pre-release label or a full release, and its `previous` is that proposal's base; and the commit is on main, has one parent, and its subject ends with the `(#N)` a squash merge adds, where N is a merged pull request GitHub links the commit to. When a work item's `release` is the record's version, everything it needs, read at the commit's parent, is done or dropped; an open item or milestone refuses the record, so a record made by hand cannot skip a gate. A commit that adds no record releases nothing. A version above the proposal (`release make --version`) does not pass; it is tagged by hand. Edge: when another pull request merges between `release make --branch` and the release merge and changes the proposal, the check refuses, and the record is made again from the new main.
 
 **By hand.** `hitld release make` on main still writes the record and the annotated tag for a person at a terminal, who pushes both; the same workflow's `tagged` job builds, attests and drafts on that tag push. A tag ruleset on `v*` refuses that push unless the person is on its bypass list.
 
-**Repository settings** that make this hold (the owner's, written as click-paths in `CONTRIBUTING.md`, Releases): a tag ruleset on `v*` so tags are not moved or deleted, and are created only by the release workflow where GitHub's bypass list allows it; immutable releases; and the `release` environment, with the owner as required reviewer, self-review allowed (one maintainer), and deployments from `main` only.
+**Repository settings** that make this hold (the owner's, written as click-paths in `CONTRIBUTING.md`, Releases): a tag ruleset on `v*` so tags are not moved or deleted, and are created only by the release workflow where GitHub's bypass list allows it; immutable releases; and the `release` environment, with the owner as required reviewer, self-review allowed (one maintainer), and deployments from `main` only. The run refuses without a required reviewer; the other settings are not checked by the workflow.
 
 ## 16.6 What lives in a consuming project
 

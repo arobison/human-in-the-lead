@@ -9,14 +9,12 @@ import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { generateIdentity, recipientOf } from '../lib/store/age.mjs';
@@ -50,6 +48,7 @@ import {
   serializeDevices,
 } from '../lib/store/devices.mjs';
 import { assertEnrolled, completeRotation, resolveDevices } from '../lib/store/devices-port.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const LAPTOP = generateIdentity();
 const CLOUD = generateIdentity();
@@ -63,7 +62,7 @@ const device = (name, key) => ({ name, recipient: key.recipient, added: DAY });
 const devicesText = (...devices) => serializeDevices({ schema_version: 1, devices });
 
 /** A store of its own. */
-const freshStore = () => openStore(mkdtempSync(join(tmpdir(), 'hitld-devices-store-')));
+const freshStore = () => openStore(tempDir('hitld-devices-store-'));
 
 /** A keychain stand-in. @param {string | null} value */
 const fakeKeychain = (value) => ({ read: () => value });
@@ -506,7 +505,7 @@ for (const platform of /** @type {const} */ (['linux', 'darwin'])) {
     `the keychain on ${platform}: stores a value from standard input, never replaces one, reads it back`,
     { skip: process.platform === 'win32' && 'the stand-in tools are shell scripts' },
     () => {
-      const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-keychain-')));
+      const base = realpathSync(tempDir('hitld-keychain-'));
       const tools = fakeKeychainTools(base);
       const kc = keychain({ service: 'hitld-store-x', platform, env: { PATH: tools.PATH } });
       assert.equal(kc.read('device-identity'), null);
@@ -550,7 +549,7 @@ const keychainTests = process.platform === 'linux' || process.platform === 'darw
  * its own data and config directories, and the store's address in HITLD_STORE_REMOTE.
  */
 function project() {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-devices-')));
+  const base = realpathSync(tempDir('hitld-devices-'));
   const root = join(base, 'repo');
   mkdirSync(root);
   fixtureGit(root, 'init', '-q', '-b', 'main');

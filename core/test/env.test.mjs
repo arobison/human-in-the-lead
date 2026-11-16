@@ -6,7 +6,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -15,7 +14,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createServer, connect } from 'node:net';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
@@ -35,6 +33,7 @@ import { PRIMARY_KEY, readPrimaryCheckout, recordPrimaryCheckout } from '../lib/
 import { privateStorePath } from '../lib/store/store.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { main } from '../lib/cli/main.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const LOCKS_MJS = fileURLToPath(new URL('../lib/env/locks.mjs', import.meta.url));
 
@@ -47,7 +46,7 @@ const WIN = process.platform === 'win32';
 const real = WIN ? realpathSync.native : realpathSync;
 
 /** Everything the tests create is under one temporary directory, removed at the end. */
-const tmp = real(mkdtempSync(join(tmpdir(), 'hitld-env-')));
+const tmp = real(tempDir('hitld-env-'));
 
 /**
  * Whether this machine lets the tests make a symbolic link to a file or to nothing. Windows
@@ -697,9 +696,11 @@ test('a lock whose holder process is gone is taken over; a live holder is not', 
   env.releaseLock({ resource: 'gpu', holder: 'D-NEW' });
 });
 
-test('a lock past its expiry without renewal is stale; renewing keeps it', async () => {
+test('a lock past its expiry without renewal is stale; renewing keeps it', async (t) => {
   const repoRoot = makeRepo();
   const { env } = await makeEnv({ repoRoot });
+  // Only Date is mocked: the lock reads the clock, and its expiry passes without a real wait.
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const a = await env.acquireLock({
     resource: 'benchmark',
     holder: 'D-1',
@@ -707,7 +708,7 @@ test('a lock past its expiry without renewal is stale; renewing keeps it', async
     autoRenew: false,
   });
   assert.ok(a.acquired);
-  await sleep(1200);
+  t.mock.timers.tick(1200);
   assert.match(String(env.lockStatus().find((l) => l.resource === 'benchmark')?.stale), /expired/);
   // the same holder asking again renews, so it is no longer stale
   const again = await env.acquireLock({ resource: 'benchmark', holder: 'D-1', ttlSeconds: 60 });
@@ -1626,7 +1627,7 @@ test('a directory on another device is a mount point: not descended, and the wor
 
 test('a holders file under its name before HITLD-82 (registry.json, with status) is still read', async () => {
   const { readRegistry } = await import('../lib/env/registry.mjs');
-  const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-env-legacy-')));
+  const store = openStore(tempDir('hitld-env-legacy-'));
   store.write(
     'env/registry.json',
     JSON.stringify({

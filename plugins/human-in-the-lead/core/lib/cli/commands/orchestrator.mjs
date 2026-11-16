@@ -13,6 +13,7 @@ import { loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { loadSettingsFile } from '../../settings/files.mjs';
 import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
+import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { appendEvent, readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
@@ -30,6 +31,7 @@ import { absorb } from '../../run/state.mjs';
 import { reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
+import { tearDown } from '../../env/teardown.mjs';
 import {
   activeProjects,
   readAccountSnapshots,
@@ -47,8 +49,22 @@ import { readWorkItems } from '../../dispatch/items.mjs';
 import { historyFromLedger, sizeItem } from '../../dispatch/sizing.mjs';
 import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mjs';
 import { planDispatch } from '../../dispatch/plan.mjs';
+import {
+  PERMISSIONS_REASON,
+  mentionedRefusals,
+  refusalsInRun,
+  refusedCommands,
+  refusedNote,
+} from '../../dispatch/permissions.mjs';
 import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
+import {
+  mergedSincePlanned,
+  overlapsInFlight,
+  touchesOf,
+  trackedFiles,
+} from '../../dispatch/touches.mjs';
+import { mainRefOf, missingReleaseNote } from '../../dispatch/release-note.mjs';
 import { runMergeQueue } from '../../merge/queue.mjs';
 import { ghGitHub, remoteUrl, repoFromRemote } from '../../merge/github.mjs';
 import {
@@ -330,6 +346,22 @@ export function readyQueue(p, ctx) {
 }
 
 /**
+ * An item's file, repository-relative, from the files tracker on this checkout; undefined when
+ * the tracker has no such item.
+ * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} id
+ * @returns {string | undefined}
+ */
+function itemPathOf(p, ctx, id) {
+  try {
+    const { tracker } = readWorkItems({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
+    const path = /** @type {Item | null} */ (tracker.get(id))?.path;
+    return typeof path === 'string' ? path : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The dispatch plan for the free slots.
  * `byHand`: the item the person started by hand; it is the only one that runs before setup is done.
  * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand]
@@ -347,18 +379,59 @@ export function plan(p, ctx, byHand) {
   const locks = new Map(
     env.lockStatus().map((l) => [l.resource, l.held_by && !l.stale ? l.held_by : null]),
   );
+  // Touches for the overlap rule and the brief: an item's own, else derived from its text and the
+  // repository (dispatch/touches.mjs); a dispatch in flight keeps those its dispatched event
+  // recorded. The repository is listed only when some item has no touches of its own.
+  /** @type {Map<string, string[]>} */
+  const recorded = new Map();
+  const events = readLedger(p.store).events;
+  for (const e of events) {
+    if (e.event === 'dispatched' && Array.isArray(e.touches)) recorded.set(e.dispatch, e.touches);
+  }
+  // The ways of running an executor that a report in this run showed refused the contract's
+  // commands on this harness: no item is dispatched into the same refusal again (HITLD-141).
+  const refusals = Object.fromEntries(
+    Object.entries(refusalsInRun(events, p.state?.run?.id)).map(([mode, why]) => [
+      mode,
+      { able: false, why },
+    ]),
+  );
+  /** @type {string[] | null} */
+  let files = null;
+  const inline = /** @type {string[]} */ (p.policy.dispatch?.inline_globs ?? []);
+  /** @param {Item | undefined} item @param {string} [dispatch] */
+  const touchesFor = (item, dispatch) => {
+    if (!item) return { touches: [], source: /** @type {const} */ ('none') };
+    if (!(item.touches ?? []).length && !(dispatch && recorded.has(dispatch)) && files === null) {
+      files = trackedFiles(p.repoRoot);
+    }
+    return touchesOf(item, {
+      files,
+      inline,
+      recorded: dispatch ? (recorded.get(dispatch) ?? null) : null,
+    });
+  };
   const running = q.inFlight.map((d) => ({
     dispatch: d.dispatch,
     item: d.item,
     serial_resources: d.serial_resources ?? [],
-    touches: /** @type {string[]} */ (q.byId.get(d.item)?.touches ?? []),
+    touches: touchesFor(q.byId.get(d.item), d.dispatch).touches,
   }));
   const ours = new Set(running.map((d) => d.dispatch));
   // What this machine has, from a fresh local probe and the machine file's record: the smaller wins.
   const machineFile = loadSettingsFile('machine', { env: ctx.env });
-  const machine = machineResources(machineFile.data, probeMachine(ctx.machine ?? localSources()));
+  const sources = ctx.machine ?? localSources();
+  const machine = machineResources(machineFile.data, probeMachine(sources));
+  const disk = diskCheck({
+    env: ctx.env,
+    sources,
+    repoRoot: p.repoRoot,
+    storeRoot: p.store.root,
+    policy: p.policy,
+  });
   const result = planDispatch({
     machine,
+    disk,
     queue: q.queue,
     sizes: q.sizes,
     running,
@@ -382,8 +455,10 @@ export function plan(p, ctx, byHand) {
     overlapSerialize: p.policy.dispatch.serialize_overlap_share,
     critical: q.critical,
     setup: { ...p.setup, byHand },
+    touches: (item) => touchesFor(item),
+    executorModes: () => refusals,
   });
-  return { q, result, setup: p.setup };
+  return { q, result: { ...result, disk: diskWarning(disk) }, setup: p.setup, running };
 }
 
 /**
@@ -404,19 +479,25 @@ export const planJson = (r, setup) => ({
     estimate_tokens: s.sizing.estimate_tokens,
     ...(s.sizing.owner_review ? { owner_review: s.sizing.owner_review } : {}),
     serial: s.serial,
+    touches: s.touches.touches,
+    touches_source: s.touches.source,
+    ...(s.modes ? { mode: s.mode ?? null, modes: s.modes } : {}),
     notes: s.notes,
   })),
   inline: r.inline.map((s) => s.item),
   held: r.held,
   waiting: r.waiting,
   notes: r.notes,
+  ...(r.disk ? { disk: r.disk } : {}),
   next: !setup.done
     ? 'setup is not done: run the first-run setup with the owner (orchestrate skill, first run); a hand-started item runs with hitld dispatch start <ID> --by-hand when the owner asks for it'
-    : r.start.length
-      ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch handle'
-      : r.gate.notify_owner
-        ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
-        : 'nothing to start: wait for the next completion notice; do not poll',
+    : r.disk?.state === 'below'
+      ? `tell the owner: ${r.disk.reason}; worktrees of merged branches go with hitld dispatch watch`
+      : r.start.length
+        ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch handle'
+        : r.gate.notify_owner
+          ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
+          : 'nothing to start: wait for the next completion notice; do not poll',
 });
 
 /** Where a dispatch's files live in the private store. @param {string} d */
@@ -761,6 +842,10 @@ async function pullRequestMerge(o) {
       }
     }
   }
+  // Then every other finished worktree (env/teardown.mjs): adopted ones of merged branches too.
+  const torn = result.merged.length
+    ? await tearDown(o.env, { events: readLedger(p.store).events, primary: p.repoRoot })
+    : null;
   for (const x of result.rejected) {
     run.record({
       id: `verified-fail-${x.item}-${(result.main.before || 'none').slice(0, 12)}`,
@@ -780,6 +865,7 @@ async function pullRequestMerge(o) {
     ...(o.approve ? { approved: approved.map((b) => b.branch) } : {}),
     merged: result.merged.map((m) => m.item),
     pull_requests: result.merged,
+    ...(torn?.removed.length ? { worktrees_removed: torn.removed.map((x) => x.path) } : {}),
     rejected: result.rejected.map((x) => ({
       ...rejectedJson(/** @type {any} */ (x), main),
       ...(x.checks ? { checks: x.checks } : {}),
@@ -904,8 +990,17 @@ const table = [
             { handover: due },
           );
         }
-        const { q, result, setup } = plan(p, ctx, input['by-hand'] === true ? id : undefined);
+        const { q, result, setup, running } = plan(
+          p,
+          ctx,
+          input['by-hand'] === true ? id : undefined,
+        );
         const planned = result.start.find((s) => s.item === id);
+        if (!planned && result.disk?.state === 'below') {
+          throw new Refusal('disk-floor', `${id} waits: ${result.disk.reason}`, {
+            disk: result.disk,
+          });
+        }
         if (!planned) {
           const held = result.held.find((h) => h.item === id);
           const why = held
@@ -922,19 +1017,47 @@ const table = [
         const branch = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
         const tier = planned.tier;
         const mode = /** @type {'headless' | 'interactive'} */ (
-          String(input.mode ?? p.policy.dispatch.tier3_mode)
+          String(input.mode ?? planned.mode ?? p.policy.dispatch.tier3_mode)
         );
         if (tier === 3 && !['headless', 'interactive'].includes(mode)) {
           throw new Refusal('usage', '--mode is headless or interactive');
+        }
+        if (tier === 3 && planned.modes?.[mode] === 'unable') {
+          throw new Refusal(
+            PERMISSIONS_REASON,
+            `${id} does not run ${mode}: ${mode === 'headless' ? 'headless runs' : 'interactive sessions'} here cannot run the contract's commands (${planned.notes.join('; ')}); start it without --mode`,
+            { plan: planJson(result, setup) },
+          );
         }
         const xenv = executorEnv(dispatch, p.policy.project.id);
         const briefPath = join(p.store.root, briefKey(dispatch));
         const resultPath = join(p.store.root, resultKey(dispatch));
         const isolation = tier <= 2 ? 'worktree' : 'none';
         const sizing = planned.sizing;
+        const touches = planned.touches;
+        // What the brief says about overlapping work: the dispatches in flight on the same paths,
+        // and what merged on them since the item was planned.
+        const overlaps = overlapsInFlight(touches.touches, running);
+        const merged = mergedSincePlanned({
+          repoRoot: p.repoRoot,
+          main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
+          path: typeof item.path === 'string' ? item.path : undefined,
+          touches: touches.touches,
+        });
         /** @param {string | null} worktree */
         const briefFor = (worktree) =>
-          renderBrief({ item, sizing, dispatch, branch, policy: p.policy, isolation, worktree });
+          renderBrief({
+            item,
+            sizing,
+            dispatch,
+            branch,
+            policy: p.policy,
+            isolation,
+            worktree,
+            touches,
+            overlaps,
+            merged,
+          });
 
         // Write ahead: the dispatch is in the ledger before anything starts.
         run.record({
@@ -950,6 +1073,9 @@ const table = [
           brief_hash: createHash('sha256').update(briefFor(null)).digest('hex'),
           skill_versions: { hitld_version: VERSION },
           estimate_tokens: sizing.estimate_tokens,
+          ...(touches.source !== 'none'
+            ? { touches: touches.touches, touches_source: touches.source }
+            : {}),
           ...(sizing.areas[0] ? { area: sizing.areas[0] } : {}),
           host: run.host,
           ...(tier === 3 ? { mode } : {}),
@@ -1167,11 +1293,26 @@ const table = [
         releaseExecutor(p.machineRoot, p.policy.project.id, d);
         const parsed = parseReport(completion.report);
         const commit = parsed.report?.commit?.sha;
+        // A completion whose permission_denials show the contract's commands refused is blocked
+        // by permissions, never a missing report shape: a follow-up would meet the same refusal
+        // (HITLD-141). A report that only mentions a refusal is a warning, never a hold.
+        const refused = refusedCommands(completion.permissionDenials);
+        const mentioned = refused.length
+          ? []
+          : mentionedRefusals({
+              report: completion.report,
+              done: parsed.report?.result === 'done',
+            });
+        const notes = [
+          ...(refused.length ? [refusedNote(refused)] : []),
+          ...(completion.usageSource === 'observed'
+            ? ['usage from the completion notification (observed; undocumented)']
+            : []),
+        ];
         run.record({
           ...reportedEvent(entry, { ...completion, ...(commit ? { commit } : {}) }),
-          ...(completion.usageSource === 'observed'
-            ? { notes: 'usage from the completion notification (observed; undocumented)' }
-            : {}),
+          ...(notes.length ? { notes: notes.join('; ') } : {}),
+          ...(refused.length ? { result: 'blocked', reason: PERMISSIONS_REASON } : {}),
         });
 
         /** @type {Result} */
@@ -1180,7 +1321,18 @@ const table = [
         // report is accepted within the same minor (design part 16.5, Upgrades).
         const executor = reportVersion(dispatchedOn(readLedger(p.store).events, d));
         if (executor) out.executor_version = executor;
-        if (!parsed.report) {
+        if (mentioned.length) {
+          out.permission_warning = {
+            commands: mentioned,
+            note: `the report mentions ${mentioned.join(', ')} next to a refusal. Only a harness's recorded permission denials hold dispatch, so nothing is held: read the report, and if the executor was refused the contract's commands, tell the owner rather than following up into the same refusal`,
+          };
+        }
+        if (refused.length) {
+          out.result = 'blocked';
+          out.blocked_by = PERMISSIONS_REASON;
+          out.refused_commands = refused;
+          out.next = `the executor's permission mode ${refusedNote(refused)}, which the contract requires: recorded as blocked by permissions. Send no follow-up, which would meet the same refusal. For the rest of this run, the plan dispatches no item this way on this harness: it uses the other tier-3 mode, or holds the item (reason ${PERMISSIONS_REASON}); tell the owner`;
+        } else if (!parsed.report) {
           out.report_errors = parsed.errors;
           out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;
         } else {
@@ -1204,6 +1356,21 @@ const table = [
               notes: 'report shape and branch checked; acceptance checks run as merge fast checks',
             });
             out.queued_to_merge = branch;
+            // The release-note rule: a change to the public interface needs the item's
+            // release_note. Flagged for a follow-up; the branch is still queued.
+            const missing = missingReleaseNote({
+              repoRoot: p.repoRoot,
+              main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
+              commit: r.commit.sha,
+              itemPath: itemPathOf(p, ctx, entry.item),
+              publicGlobs: p.policy.merge?.public_globs ?? [],
+            });
+            if (missing) {
+              out.release_note_missing = {
+                files: missing.files,
+                next: `the change touches the public interface but ${entry.item} has no release_note: hitld dispatch follow-up --dispatch ${d} --message "<ask for a one-line release_note on the item>"`,
+              };
+            }
             // The evidence goes in the body of the branch's pull request (merge.via pull-request).
             p.store.write(
               reportEvidenceKey(entry.item),
@@ -1292,6 +1459,9 @@ const table = [
           skill_versions: { hitld_version: VERSION },
           host: run.host,
           ...(first.serial_resources ? { serial_resources: first.serial_resources } : {}),
+          ...(first.touches
+            ? { touches: first.touches, touches_source: first.touches_source }
+            : {}),
           notes: `follow-up of ${from}`,
         });
         run.record({
@@ -1590,6 +1760,8 @@ const table = [
           scanners: p.policy.merge.scanners,
           primaryRoot: p.repoRoot,
         });
+        /** @type {string[]} */
+        const worktreesRemoved = [];
         /** @param {QueueResult} result */
         const record = async (result) => {
           for (const m of result.merged) {
@@ -1606,6 +1778,14 @@ const table = [
                 await env.releaseHolder({ holder: w.holder, result: 'merged' }).catch(() => null);
               }
             }
+          }
+          // Then every other finished worktree (env/teardown.mjs): adopted ones of merged branches too.
+          if (result.merged.length) {
+            const torn = await tearDown(env, {
+              events: readLedger(p.store).events,
+              primary: p.repoRoot,
+            });
+            worktreesRemoved.push(...torn.removed.map((x) => x.path));
           }
           for (const x of result.rejected) {
             run.record({
@@ -1629,6 +1809,7 @@ const table = [
               ? { before: rs[0].main.before, after: rs[rs.length - 1].main.after }
               : null,
             merged: rs.flatMap((r) => r.merged.map((m) => m.item)),
+            ...(worktreesRemoved.length ? { worktrees_removed: worktreesRemoved } : {}),
             rejected: rs.flatMap((r) => r.rejected.map((x) => rejectedJson(x, main))),
             flakes: rs.flatMap((r) =>
               r.flakes.map((f) => ({

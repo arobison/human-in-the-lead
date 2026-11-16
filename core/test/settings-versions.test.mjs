@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
@@ -23,10 +23,11 @@ import {
   stampLowest,
 } from '../lib/settings/versions.mjs';
 import { pinnedProjects } from '../lib/settings/pins.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** A fresh home for settings. */
 function home() {
-  const base = mkdtempSync(join(tmpdir(), 'hitld-versions-'));
+  const base = tempDir('hitld-versions-');
   const env = {
     XDG_CONFIG_HOME: join(base, 'config'),
     XDG_DATA_HOME: join(base, 'data'),
@@ -54,7 +55,7 @@ const onDisk = (env, kind) =>
  * @param {Record<string, unknown>} source @param {string} [id]
  */
 function pinnedProject(source, id = 'fixture') {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-versions-repo-'));
+  const root = tempDir('hitld-versions-repo-');
   mkdirSync(join(root, '.git'));
   mkdirSync(join(root, '.human-in-the-lead'));
   mkdirSync(join(root, '.claude'));
@@ -74,7 +75,7 @@ function pinnedProject(source, id = 'fixture') {
  * @param {string} version @param {{ person: number, machine: number }} reads
  */
 function oldCheckout(version, reads) {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-old-checkout-'));
+  const dir = tempDir('hitld-old-checkout-');
   mkdirSync(join(dir, 'schemas'));
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'human-in-the-lead', version }));
   for (const kind of /** @type {const} */ (['person', 'machine'])) {

@@ -12,9 +12,18 @@ npm test               # node:test, no test framework
 npm run typecheck      # tsc --noEmit over core/
 npm run format         # Prettier; npm run format:check to check only
 npm run spelling       # lists British spellings in tracked text files
-npm run check          # typecheck, format check and tests
+npm run check          # typecheck, format check and tests: the gate before a report
+npm run check:fast     # while you work: typecheck, format check of changed files, tests of touched areas
 node core/bin/hitld.mjs --help
 ```
+
+`npm test` gives each test file a fresh home and an isolated environment (`core/test/helpers/isolated-home.mjs`): a person file, a machine file, a git config or an `HITLD_*` variable on your machine cannot change a result, and a test that reaches your real home fails. It ends with the slowest test files. `npm run check:fast -- --list` prints which tests it would run and why.
+
+## CI
+
+`.github/workflows/ci.yml` runs the typecheck, format check, tests and offline evals as parallel jobs, the tracker check, and `check`, which passes only when all of them did; `dco` and `public` beside them. A pull request that changes only `work/` skips the code checks inside their jobs, which still report success, so required checks never wait on a job that did not run. `.github/workflows/codeql.yml` analyzes every pull request that changes code or a workflow and every push to main, and skips the analysis the same way for a pull request that changes only `work/`, `docs/` or other text (`scripts/ci-changes.mjs` decides both from the diff).
+
+The CodeQL workflow is the advanced setup, which GitHub accepts only while the default setup is off: Repository → Settings → Code security → Code scanning → CodeQL analysis → the "…" menu → Switch to advanced, then close the generated workflow without committing it (this one is already there). Required checks are set in Settings → Rules (or Branches): name the jobs (`check`, `dco`, `public`, `Analyze (actions)`, `Analyze (javascript-typescript)`), not the code scanning result `CodeQL`, which a text-only pull request never gets.
 
 ## The merge scanner
 
@@ -75,7 +84,7 @@ A release goes through a release pull request ([design 16.5, Release mechanics](
 1. In the owner's own turn, in the main session: `hitld release propose` to see the version, then `hitld release make --branch release/<tag>` (add `--pre rc` for a release candidate). It writes `work/releases/<tag>.md` on that new branch and tags nothing.
 2. The orchestrator pushes the branch and opens a pull request to main, with the title and body `release make` returned.
 3. The owner reviews it and squash-merges it with their `Signed-off-by:` line in the commit message. That merge is the release decision.
-4. The release workflow starts on that push to main, checks the record (`core/bin/release-check.mjs`), and waits: approve it from the run's page (Actions → Release → the run → Review deployments → check `release` → Approve and deploy). It then tags the squash commit, builds, attests provenance and drafts the GitHub release.
+4. The release workflow starts on that push to main, checks the record (`core/bin/release-check.mjs`), checks that the `release` environment has a required reviewer (`scripts/release-environment.mjs`), and waits: approve it from the run's page (Actions → Release → the run → Review deployments → check `release` → Approve and deploy). It then tags the squash commit, builds, attests provenance and drafts the GitHub release.
 5. The owner publishes the draft (Releases → the draft → Edit → Publish release).
 
 The release item for a version is the work item whose `release` key is that version (`release: 0.1.0-rc.1`); it needs every item and milestone the release waits for. `release make` and the check refuse while any of them is not done or dropped. The check also refuses a record whose tag exists, whose version is not the one `release propose` gives at the merged commit's parent, or that did not arrive through a pull request. A release at a version above the proposal (`--version`) is tagged by hand: `hitld release make` on main at a terminal, then `git push origin main <tag>`; the same workflow drafts it on the tag push.
@@ -100,5 +109,7 @@ With Restrict creations on, a tag pushed by hand is refused too, so the by-hand 
 
 - Deployment protection rules: check **Required reviewers**, add the owner, leave **Prevent self-review** unchecked (one maintainer approves their own release), then Save protection rules.
 - Deployment branches and tags: choose **Selected branches and tags** → Add deployment branch or tag rule → Ref type Branch, name pattern `main` → Add rule.
+
+The run refuses without this rule: before the `release` job starts, the `record` job reads the environment through the GitHub API and fails the run when `release` is missing, has no required reviewer, or cannot be read, with how to add one. GitHub creates a missing environment with no rules the first time a job uses it, and such a job runs at once, so this check is what makes the approval a gate. To fix a refused run, add the rule as above, then re-run the failed jobs from the run's page.
 
 Only the workflow's `release` job uses the environment. The by-hand `tagged` job runs on a tag push and does not, so the `main`-only rule does not stop it.

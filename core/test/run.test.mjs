@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Killed, Killer, memoryStore } from './helpers/memory-store.mjs';
 import { openStore } from '../lib/store/store.mjs';
@@ -17,6 +16,7 @@ import { LeaseError } from '../lib/run/lease.mjs';
 import { Run, rebuildRun, resumeRun, startRun, takeLease } from '../lib/run/run.mjs';
 import { dispatchExecutor, recordCompletion, reportResult } from '../lib/run/protocol.mjs';
 import { gitReality, gitSnapshot, worktreeSignal } from '../lib/run/reality.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const BASE = Date.parse('2026-11-14T03:00:00Z');
 /** A clock that moves one second per reading, from an offset in seconds. @param {number} [offset] */
@@ -724,7 +724,7 @@ test('the harness refusing a dispatch ends it in the ledger', async () => {
 });
 
 test('the same run works on a real directory', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-run-'));
+  const dir = tempDir('hitld-run-');
   const store = openStore(dir);
   const run = startRun(store, { ...A, scope: { items: ['W-1'] } });
   const adapter = createFakeAdapter({
@@ -743,7 +743,7 @@ test('the same run works on a real directory', async () => {
 });
 
 test('git reality counts commits past the main branch it is given, not a fixed main', () => {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-reality-'));
+  const root = tempDir('hitld-reality-');
   const git = (/** @type {string[]} */ ...args) =>
     execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   git('init', '-q', '-b', 'trunk');
@@ -764,7 +764,7 @@ test('git reality counts commits past the main branch it is given, not a fixed m
 });
 
 test('one git snapshot serves the worktree signal of every dispatch, as git in each would', () => {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-reality-'));
+  const root = tempDir('hitld-reality-');
   const git = (/** @type {string} */ cwd, /** @type {string[]} */ ...args) =>
     execFileSync('git', args, {
       cwd,
@@ -778,7 +778,7 @@ test('one git snapshot serves the worktree signal of every dispatch, as git in e
   git(root, 'add', '.');
   git(root, 'commit', '-q', '-m', 'init');
   // D-1: a worktree on its branch, two commits ahead, one file changed
-  const wt = join(mkdtempSync(join(tmpdir(), 'hitld-reality-wt-')), 'D-1');
+  const wt = join(tempDir('hitld-reality-wt-'), 'D-1');
   git(root, 'worktree', 'add', '-q', '-b', 'hitld/W-1-one', wt, 'main');
   for (const n of ['b', 'c']) {
     writeFileSync(join(wt, `${n}.txt`), `${n}\n`);

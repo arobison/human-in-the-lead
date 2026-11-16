@@ -5,8 +5,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { policyDefaults } from '../lib/policy/policy.mjs';
@@ -28,8 +27,9 @@ import {
   shareFraction,
 } from '../lib/registry/machine.mjs';
 import { STATUS_INPUT, git, item, makeConsumer, put, report } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-registry-')));
+const tmp = realpathSync(tempDir('hitld-registry-'));
 after(() => rmSync(tmp, { recursive: true, force: true }));
 let n = 0;
 const dir = (/** @type {string} */ name) => {

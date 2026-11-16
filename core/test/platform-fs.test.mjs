@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { realPath, renameReplacing } from '../lib/platform/fs.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** A rename that fails with `code` the first `times` calls, then succeeds. @param {string} code @param {number} times */
 function flaky(code, times) {
@@ -48,7 +48,7 @@ test('the retries are bounded: a target held for good still fails', () => {
 });
 
 test('a real rename replaces the target', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-platform-'));
+  const dir = tempDir('hitld-platform-');
   writeFileSync(join(dir, 'from'), 'new');
   writeFileSync(join(dir, 'to'), 'old');
   renameReplacing(join(dir, 'from'), join(dir, 'to'));
@@ -56,7 +56,7 @@ test('a real rename replaces the target', () => {
 });
 
 test('realPath agrees with the native call, so two real paths compare equal', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-platform-'));
+  const dir = tempDir('hitld-platform-');
   assert.equal(realPath(dir), realpathSync.native(dir));
   assert.equal(realPath(join(dir, '.')), realPath(dir));
 });

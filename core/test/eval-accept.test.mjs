@@ -1,15 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoOnMain } from './eval-git.mjs';
 import { main } from '../lib/cli/main.mjs';
@@ -19,8 +10,9 @@ import { openStore } from '../lib/store/store.mjs';
 import { DETAIL_LIMIT, GRADERS, boundVerdict } from '../lib/eval/graders.mjs';
 import { acceptRefusal, fromLegacyResult, readBaseline } from '../lib/eval/results.mjs';
 import { renderEvalReport } from '../lib/eval/report.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-accept-test-'));
+const tmp = () => tempDir('hitld-eval-accept-test-');
 
 /**
  * A scenario that validates an item; `grader` is its one grader.

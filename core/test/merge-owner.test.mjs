@@ -1,8 +1,7 @@
 import { approvalSummary, chooseNamed, evidenceFor, queueProposals } from '../lib/merge/owner.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openStore } from '../lib/store/store.mjs';
 import { readTrustEvents } from '../lib/rights/trust.mjs';
@@ -14,6 +13,7 @@ import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { buildReport, renderDigest } from '../lib/quota/report.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { STATUS_INPUT, git, item, makeConsumer, put, report } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const minimal = { schema_version: 1, project: { id: 'test', key: 'W' } };
 
@@ -419,7 +419,7 @@ test('chooseNamed: a name matching two entries is ambiguous; a branch other than
 });
 
 test('evidenceFor: a directed read is attached only where a design 6.6 trigger fires', () => {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-evidence-'));
+  const root = tempDir('hitld-evidence-');
   fixtureGit(root, 'init', '-q', '-b', 'main');
   fixtureGit(root, 'config', 'user.email', 'f@example.invalid');
   fixtureGit(root, 'config', 'user.name', 'F');

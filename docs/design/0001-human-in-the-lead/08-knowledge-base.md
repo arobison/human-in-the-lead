@@ -100,7 +100,7 @@ Part of the `hitld` command line ([part 15](15-architecture.md)). `search`, `ind
 
 **Freshness is computed, not guessed.** A note is stale when any file matching its `sources` has changed since `checked_at` (`git diff --quiet <checked_at> HEAD -- <sources>`). The `checked` date is for people. A note with no `sources` falls back to an age limit (`kb.max_age_unsourced`).
 
-**Gardening.** After each merge batch, a tier-1 gardener agent re-verifies the most-cited stale notes against their sources, updates them, and resets `checked` and `checked_at`. Its edits go through items and the merge like any other change; it makes no automatic edits outside that path. A note whose meaning changed is flagged to its owner. Notes uncited for `kb.prune_after_dispatches` dispatches are proposed for removal.
+**Curation.** After each merge batch, a tier-1 curator agent re-verifies the most-cited stale notes against their sources, updates them, and resets `checked` and `checked_at`. Its edits go through items and the merge like any other change; it makes no automatic edits outside that path. A note whose meaning changed is flagged to its owner. Notes uncited for `kb.prune_after_dispatches` dispatches are proposed for removal. The same curator reads the work items after merge batches ([13.3](13-operations.md#the-stale-item-sweep-and-the-curators-pass)).
 
 **Contradiction pass.** Periodically (`kb.contradiction_every` merge batches), an agent reads notes that share an area or tag and flags pairs that contradict each other, or contradict their sources. Each flag becomes an item for the note owner: merge, supersede, or correct.
 
@@ -142,4 +142,4 @@ Goodhart pair: onboarding tokens must not fall at the expense of first-pass yiel
 
 ## 8.7 Where existing project material fits
 
-A project often already has documentation and design documents. Adoption does not move them: existing pages become knowledge-base notes by adding front matter as they are next touched, and the generated index lists them where they are. The gardening loop starts with the pages briefs cite most.
+A project often already has documentation and design documents. Adoption does not move them: existing pages become knowledge-base notes by adding front matter as they are next touched, and the generated index lists them where they are. The curator's loop starts with the pages briefs cite most.

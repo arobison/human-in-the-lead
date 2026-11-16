@@ -1,0 +1,21 @@
+{
+  "$id": "policy/sweep",
+  "title": "policy.json: sweep",
+  "description": "The stale-item sweep (design part 13.3): `hitld work sweep` lists orphaned claims, old proposed items, blocked items whose blockers are resolved, items merged but still open, release items whose needs overlap, and items that changed public surface without a release note. `hitld cadence due` lists it after merges.",
+  "type": "object",
+  "properties": {
+    "every_merges": {
+      "description": "The sweep is due once this many items have merged since the last one. 0 is off.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 1
+    },
+    "proposed_max_age": {
+      "description": "Days an item may stay `proposed` before the sweep lists it. 0 is off.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    }
+  },
+  "additionalProperties": false
+}

@@ -4,7 +4,6 @@ import { VERSION } from '../lib/version.mjs';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -12,7 +11,6 @@ import {
   linkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
@@ -33,24 +31,25 @@ import {
 } from '../lib/eval/util.mjs';
 import { LiveNotBuilt, runLive } from '../lib/eval/live.mjs';
 import { commitAll, repoOnMain } from './eval-git.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
 
 /** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
 const canSymlink = (() => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-link-probe-'));
+  const dir = tempDir('hitld-link-probe-');
   try {
     symlinkSync(join(dir, 'target'), join(dir, 'link'));
     return true;
   } catch {
     return false;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 })();
 const needsSymlink = {
   skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
 };
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-test-'));
+const tmp = () => tempDir('hitld-eval-test-');
 
 /**
  * A directory to run from, with its own private store (so a test never writes to the real one),

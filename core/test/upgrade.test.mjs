@@ -5,15 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
@@ -34,6 +26,7 @@ import {
   sessionNotice,
 } from '../lib/install/drift.mjs';
 import { buildPlan, loadRecords, span } from '../lib/install/upgrade.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const v = /** @type {NonNullable<ReturnType<typeof parseVersion>>} */ (parseVersion(VERSION));
@@ -49,7 +42,7 @@ const STATE_V = /** @type {number} */ (schemas().currentVersion('run-state'));
  * @param {Record<string, unknown>} [extra] more fields on the marketplace entry
  */
 function project(source, extra = {}) {
-  const base = mkdtempSync(join(tmpdir(), 'hitld-upgrade-'));
+  const base = tempDir('hitld-upgrade-');
   const root = join(base, 'repo');
   mkdirSync(join(root, '.git'), { recursive: true });
   if (source) {
@@ -272,7 +265,7 @@ test('reports from executors on an earlier release are accepted within the same 
 
 /** A directory of release records. @param {Record<string, string>} records tag to front matter and body */
 function recordsDir(records) {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-records-'));
+  const dir = tempDir('hitld-records-');
   for (const [tag, text] of Object.entries(records)) writeFileSync(join(dir, `${tag}.md`), text);
   return dir;
 }
@@ -407,7 +400,7 @@ test('hitld upgrade plan: from the pin and the ledger, read only', async () => {
 });
 
 test('the session-start hook says what drifted, and nothing when all agree', () => {
-  const env = { XDG_DATA_HOME: mkdtempSync(join(tmpdir(), 'hitld-upgrade-data-')) };
+  const env = { XDG_DATA_HOME: tempDir('hitld-upgrade-data-') };
   assert.equal(sessionNotice({ cwd: project(github(`v${VERSION}`)).root, env }), '');
   const off = project(github(`v${NEXT_MINOR}`));
   const text = sessionNotice({ cwd: off.root, env });

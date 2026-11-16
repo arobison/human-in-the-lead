@@ -5,8 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -36,6 +35,7 @@ import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { checkPublicRange, formatPublicReport } from '../lib/guard/public-check.mjs';
 import { runMergeQueue } from '../lib/merge/queue.mjs';
 import { git, makeConsumer, put } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const CHECKOUT = fileURLToPath(new URL('../../', import.meta.url));
 // Placeholders only: a host on a domain reserved for examples, and made-up names.
@@ -148,7 +148,7 @@ test('a commit message is checked as git records it: no comment lines, nothing a
 // --- The list in the private store ---------------------------------------------------------
 
 test('the list: add once in any spelling, remove by ID or term, and a damaged line fails closed', () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-terms-')));
+  const store = openStore(tempDir('hitld-terms-'));
   const a = addTerm(store, { term: DEVICE, kind: 'device' });
   assert.equal(a.added, true);
   assert.match(a.id, /^PT-[0-9a-f]{12}$/);
@@ -199,7 +199,7 @@ test('the list: add once in any spelling, remove by ID or term, and a damaged li
 });
 
 test("implied terms: the store address in use and the device names in the owner's answers", () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-terms-')));
+  const store = openStore(tempDir('hitld-terms-'));
   store.append(
     APPROVALS_KEY,
     `${JSON.stringify({ event: 'approved', decision: 'D-1', action: 'enroll', name: DEVICE, recipient: 'age1x', at: '2026-01-01T00:00:00Z' })}\n`,

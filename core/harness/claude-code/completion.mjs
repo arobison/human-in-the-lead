@@ -5,11 +5,12 @@
 //             tool-use and duration counts the desktop app was observed to include (undocumented,
 //             so recorded when present and labeled)
 //   headless  the JSON result of claude -p --output-format json: result, session_id, usage,
-//             total_cost_usd (documented)
+//             total_cost_usd (documented), and permission_denials, the tool calls the permission
+//             mode refused, when present
 
 /**
  * @typedef {import('../interface.mjs').Completion} Completion
- * @typedef {Omit<Completion, 'dispatch'> & { sessionId?: string | null, costUsd?: number | null, usageSource: 'documented' | 'observed' | 'none', isError?: boolean }} ParsedCompletion
+ * @typedef {Omit<Completion, 'dispatch'> & { sessionId?: string | null, costUsd?: number | null, usageSource: 'documented' | 'observed' | 'none', isError?: boolean, permissionDenials?: unknown[] }} ParsedCompletion
  */
 
 /** @param {unknown} v */
@@ -97,5 +98,8 @@ export function headlessCompletion(text) {
     costUsd: typeof data.total_cost_usd === 'number' ? data.total_cost_usd : null,
     isError:
       data.is_error === true || (typeof data.subtype === 'string' && data.subtype !== 'success'),
+    ...(Array.isArray(data.permission_denials)
+      ? { permissionDenials: data.permission_denials }
+      : {}),
   };
 }

@@ -3,13 +3,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { addTerm } from '../lib/store/private-terms.mjs';
 import { commitAll, git, isolatedEnv, itemText, makeRepo, put } from './tracker-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const POLICY = JSON.stringify({ schema_version: 1, project: { id: 'fixture', key: 'W' } });
 
@@ -19,7 +19,7 @@ const POLICY = JSON.stringify({ schema_version: 1, project: { id: 'fixture', key
  */
 function session() {
   const root = makeRepo({ files: { '.human-in-the-lead/policy.json': `${POLICY}\n` } });
-  const remote = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-publish-remote-')));
+  const remote = realpathSync(tempDir('hitld-publish-remote-'));
   git(remote, 'init', '-q', '--bare', '-b', 'main');
   git(root, 'remote', 'add', 'origin', remote);
   git(root, 'push', '-q', 'origin', 'main');
@@ -147,6 +147,31 @@ test('a session with nothing to publish says so and pushes nothing', async () =>
   assert.deepEqual(branches(remote), ['main']);
 });
 
+test('a design a walk-through decided is published with its decisions; a file outside docs/design is not', async () => {
+  const { root, remote, env } = session();
+  put(root, {
+    'work/items/W-7-which-color.md': decision('W-7', 'Which color?', 'done'),
+    'docs/design/0009-colors.md': '# 0009: Colors\n',
+    'docs/other.md': 'not a design\n',
+  });
+  const r = await run(root, publish('--design', 'docs/design/0009-colors.md'), env);
+  assert.equal(r.code, 0, JSON.stringify(r));
+  assert.deepEqual(r.files, [
+    { path: 'docs/design/0009-colors.md', change: 'added' },
+    { path: 'work/items/W-7-which-color.md', change: 'added' },
+  ]);
+  assert.deepEqual(r.left_out, ['docs/other.md']);
+  assert.deepEqual(
+    git(remote, 'diff', '--name-only', 'main', r.branch).split('\n').filter(Boolean),
+    ['docs/design/0009-colors.md', 'work/items/W-7-which-color.md'],
+  );
+
+  for (const given of ['docs/other.md', 'docs/design/../other.md', '../docs/design/x.md']) {
+    const refused = await run(root, publish('--design', given), env);
+    assert.equal(refused.error, 'usage', given);
+  }
+});
+
 test('a private term in a would-be commit message or tracker file is refused before anything is pushed, never named', async () => {
   const { root, remote, env } = session();
   const term = 'orchid-fox-7';
@@ -205,7 +230,7 @@ test('executors are refused, main is never the branch, and a change main made un
   assert.deepEqual(branches(remote), ['main']);
 
   // Someone else changes W-6 on main; this session changes it too, without having seen that.
-  const other = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-publish-other-')));
+  const other = realpathSync(tempDir('hitld-publish-other-'));
   git(other, 'clone', '-q', remote, '.');
   git(other, 'config', 'user.name', 'Other');
   git(other, 'config', 'user.email', 'other@example.invalid');

@@ -3,14 +3,11 @@ import assert from 'node:assert/strict';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repoOnMain } from './eval-git.mjs';
 import { main } from '../lib/cli/main.mjs';
@@ -18,21 +15,22 @@ import { COMMANDS } from '../lib/cli/table.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { acceptCommand, changesAgainst, renderEvalReport } from '../lib/eval/report.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
 
 /** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
 const canSymlink = (() => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-link-probe-'));
+  const dir = tempDir('hitld-link-probe-');
   try {
     symlinkSync(join(dir, 'target'), join(dir, 'link'));
     return true;
   } catch {
     return false;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 })();
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-report-test-'));
+const tmp = () => tempDir('hitld-eval-report-test-');
 
 /** @param {Record<string, any>} o */
 const scenario = (o) => ({

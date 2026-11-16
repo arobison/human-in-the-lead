@@ -5,6 +5,7 @@
 //   digest, report   enough merges, decisions or merged value since the last one; or the owner
 //                    writes, or the machine is idle, with something to say; or the silence ceiling
 //   baseline, eval   the integration branch moved, and the machine is idle
+//   sweep            enough merges since the last stale-item sweep
 //   review           enough new outcomes of a person's calls since their last review
 //
 // Everything here is a pure function of the ledger, the trust record, the marks left by `hitld
@@ -23,7 +24,7 @@
  * @property {number} merged_estimate_tokens the estimate tokens of the items merged
  *
  * @typedef {object} Entry one job, due now, held or waiting
- * @property {string} job digest, report, baseline, eval or review
+ * @property {string} job digest, report, baseline, eval, sweep or review
  * @property {string} [person] for a review
  * @property {'threshold' | 'owner' | 'idle' | 'silence' | 'evidence' | null} trigger what made it due
  * @property {string[]} why every reason, in words
@@ -325,6 +326,34 @@ export function dueJobs(ctx) {
     if (r.due) due.push(entry);
     else {
       entry.waiting_for = r.waiting_for;
+      waiting.push(entry);
+    }
+  }
+
+  // The stale-item sweep: due after merges. It reads only and sends the owner nothing directly, so
+  // quiet hours do not hold it.
+  {
+    const mark = state.jobs.sweep;
+    const c = countChanges(events, eventsSince(events, mark));
+    const every = policy.sweep.every_merges;
+    const isDue = every > 0 && c.merges >= every;
+    /** @type {Entry} */
+    const entry = {
+      job: 'sweep',
+      trigger: isDue ? 'threshold' : null,
+      why: isDue ? [`${count(c.merges, 'merge')} since the last sweep (threshold ${every})`] : [],
+      counts: { merges: c.merges, since: mark?.at ?? null },
+      run: ['hitld work sweep'],
+      then: thenOf('sweep', markArg, trustThrough, [
+        "send the findings to the orchestrator, which plans from them and dispatches the curator's pass over the work items (orchestrate skill, the sweep and the curator)",
+      ]),
+    };
+    if (isDue) due.push(entry);
+    else {
+      entry.waiting_for =
+        every > 0
+          ? `${count(every - c.merges, 'more merge')} (nothing new to sweep)`
+          : 'nothing: sweep.every_merges is 0 (off)';
       waiting.push(entry);
     }
   }

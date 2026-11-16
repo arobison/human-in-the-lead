@@ -25,12 +25,14 @@ import {
 import { absorb } from '../../run/state.mjs';
 import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
+import { recordMessage } from '../../run/messages.mjs';
 import { refuseHeldElsewhere, restoreState } from '../../run/pulled.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
 import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
 import { activePause } from '../../quota/pause.mjs';
+import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 import { VersionDriftError, runVersionCheck } from '../../install/drift.mjs';
 import { CodedError } from '../errors.mjs';
@@ -110,6 +112,7 @@ function setup(input, ctx) {
     orchestrator: /** @type {Record<string, number | undefined>} */ (policy.orchestrator ?? {}),
     mainBranch: /** @type {string | undefined} */ (policy.merge?.main_branch),
     cwd: ctx.cwd,
+    policy,
   };
 }
 
@@ -600,6 +603,16 @@ const table = [
           .filter((/** @type {any} */ d) => d.mode === 'interactive')
           .map((/** @type {any} */ d) => d.dispatch);
         const live = sessions.length ? sessions.join(',') : 'none';
+        // Free disk, shown only when it nears the floor (machine/disk.mjs).
+        const disk = diskWarning(
+          diskCheck({
+            env: ctx.env,
+            ...(ctx.machine ? { sources: ctx.machine } : {}),
+            repoRoot: findRepoRoot(s.cwd) ?? s.cwd,
+            storeRoot: s.store.root,
+            policy: s.policy,
+          }),
+        );
         return {
           ok: true,
           run: state.run,
@@ -613,9 +626,12 @@ const table = [
           wake_at: paused?.resets_at ?? null,
           handover,
           handover_file: file ? join(s.store.root, file) : null,
-          next: lease.free
-            ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${join(s.store.root, file)}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
-            : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}${paused ? `; dispatch is paused at ${paused.limit}${paused.resets_at ? `: schedule one wake for ${paused.resets_at}, the reset` : ', reset time unknown: the check-in looks again'}` : ''}`,
+          ...(disk ? { disk } : {}),
+          next: `${
+            lease.free
+              ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${join(s.store.root, file)}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
+              : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}${paused ? `; dispatch is paused at ${paused.limit}${paused.resets_at ? `: schedule one wake for ${paused.resets_at}, the reset` : ', reset time unknown: the check-in looks again'}` : ''}`
+          }${disk ? `; tell the owner: ${disk.reason}` : ''}`,
         };
       }),
   },
@@ -676,6 +692,48 @@ const table = [
         };
       }),
   },
+  ...[
+    /** @type {const} */ ({
+      what: 'heard',
+      flag: 'from',
+      summary:
+        "Record that a message from the orchestrator reached the chief of staff, for the watchdog's silent-orchestrator check. The chief of staff's, on each message an orchestrator sends it",
+      about: 'The orchestrator session the message came from',
+    }),
+    /** @type {const} */ ({
+      what: 'woke',
+      flag: 'to',
+      summary:
+        "Record that the chief of staff sent the orchestrator a wake (a start prompt, an event, an answer, a relay), for the watchdog's silent-orchestrator check. The chief of staff's, after each message it sends to wake_to",
+      about: 'The orchestrator session the wake went to',
+    }),
+  ].map(
+    (c) =>
+      /** @type {import('../table.mjs').Command} */ ({
+        name: `run ${c.what}`,
+        summary: c.summary,
+        built_by: 'h',
+        args: [{ name: c.flag, type: 'string', description: c.about }, STORE],
+        run: (input, ctx) =>
+          guarded(() => {
+            const why = executorSignal(ctx.env, ctx.cwd);
+            if (why) {
+              return {
+                ok: false,
+                error: 'not-permitted',
+                message: `hitld run ${c.what} is the chief of staff's (${why}); an executor reports in its final message`,
+              };
+            }
+            const s = setup(input, ctx);
+            const from = input[c.flag];
+            const record = recordMessage(s.store, c.what, {
+              ...(typeof from === 'string' && from ? { session: from } : {}),
+              now: ctx.now ? ctx.now() : new Date(),
+            });
+            return { ok: true, recorded: c.what, messages: record };
+          }),
+      }),
+  ),
   {
     name: 'run rebuild',
     summary: 'Rebuild the run-state file from the ledger, claim branches and the tracker',

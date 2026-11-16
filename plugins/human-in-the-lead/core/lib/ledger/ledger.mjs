@@ -127,6 +127,8 @@ const REASONS = {
   'lease-released': ['handover', 'ended'],
   stalled: ['no_progress', 'deadline', 'limit', 'exited'],
   resumed: ['reset', 'budget'],
+  // A report that showed the contract's commands refused (dispatch/permissions.mjs).
+  reported: ['executor-permissions'],
 };
 
 /**

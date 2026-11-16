@@ -3,3 +3,5 @@ docs/
 signals/
 *.md
 evals/baselines/
+# The generated plugin copy: the build test proves it is an exact copy of formatted sources.
+plugins/human-in-the-lead/

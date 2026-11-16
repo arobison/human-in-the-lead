@@ -1,10 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { hostEnv, retryBusy } from '../lib/store/host.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** A path written with "/", in this system's separators (Windows: "\"). @param {string} p */
 const native = (p) => p.split('/').join(sep);
@@ -49,7 +48,7 @@ test('a store inside the repository is refused', () => {
 });
 
 test('the store reads, writes atomically, appends and lists', () => {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'hitld-store-')), 'p'));
+  const store = openStore(join(tempDir('hitld-store-'), 'p'));
   assert.equal(store.read('ledger.jsonl'), null);
   assert.deepEqual(store.list(), []);
   store.append('ledger.jsonl', '{"a":1}\n');
@@ -63,7 +62,7 @@ test('the store reads, writes atomically, appends and lists', () => {
 });
 
 test('store keys cannot leave the store', () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-store-')));
+  const store = openStore(tempDir('hitld-store-'));
   for (const key of ['../x', '/etc/passwd', 'a/../../x', '', 'a\0b']) {
     assert.throws(() => store.read(key), /store key/, key);
   }

@@ -4,8 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deliveryGate, quietState } from '../lib/rights/budget.mjs';
 import { decisionUrgency, readyWork } from '../lib/rights/urgency.mjs';
@@ -19,6 +18,7 @@ import { settingsLocation } from '../lib/settings/files.mjs';
 import { makeCommands } from '../lib/cli/commands/rights.mjs';
 import { makeProject } from './helpers/project.mjs';
 import { item, makeConsumer } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const T0 = Date.parse('2026-11-14T12:00:00Z');
 const iso = (/** @type {number} */ ms) => new Date(ms).toISOString();
@@ -785,7 +785,7 @@ function person(env, data) {
 
 test('hitld rights pending and sweep read the person file and the project’s ceilings', async () => {
   const { deps, project, work } = setup();
-  const base = mkdtempSync(join(tmpdir(), 'hitld-budget-'));
+  const base = tempDir('hitld-budget-');
   const env = { ...project.env, XDG_CONFIG_HOME: join(base, 'config') };
   const commands = makeCommands({ openTracker: () => project.tracker });
   const ctx = { cwd: project.root, env };

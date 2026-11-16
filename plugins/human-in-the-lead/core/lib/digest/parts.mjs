@@ -16,6 +16,7 @@ import { describeOption, optionIndex, optionLetter } from '../rights/format.mjs'
 import { askedRecord, listDefaults } from '../rights/pending.mjs';
 import { readTrustEvents, rubberStamps } from '../rights/trust.mjs';
 import { flakesPart } from './flakes.mjs';
+import { sweepPart } from './sweep.mjs';
 import { clip, wrap } from './render.mjs';
 
 /**
@@ -30,9 +31,10 @@ import { clip, wrap } from './render.mjs';
  * @property {{ decisions: Record<string, any>[], waiting: Record<string, any>[] }} pending what
  *   `hitld rights pending` says, with quiet hours left out: what the digest would say outside them
  * @property {Record<string, any> | null} report the quota report, when the caller has one
+ * @property {import('../machine/disk.mjs').DiskState | null} [disk] free disk against the floor
  * @property {string | null} root the owner's checkout, where the quarantine file is
- * @property {{ through: string | null, quota: { mode: string, thresholds: string[] } | null }} last
- *   what the last marked digest recorded
+ * @property {{ through: string | null, quota: { mode: string, thresholds: string[] } | null,
+ *   disk?: string | null }} last what the last marked digest recorded
  *
  * @typedef {object} Part
  * @property {string} id
@@ -455,6 +457,29 @@ const quota = {
   },
 };
 
+// Free disk, when it nears or passes the machine's floor (machine/disk.mjs): below it no new work
+// starts. News when its state differs from what the last digest showed.
+
+/** @type {Part} */
+const disk = {
+  id: 'disk',
+  rank: 3,
+  collect: ({ disk: d, last }) => {
+    if (!d || (d.state !== 'near' && d.state !== 'below')) return { section: null };
+    return {
+      section: {
+        id: 'disk',
+        rank: 3,
+        title: d.state === 'below' ? 'Disk below the floor' : 'Disk near the floor',
+        entries: [wrap(`${d.reason}.`, '', '  ', 3)],
+        noun: 'lines',
+        news: (last.disk ?? 'ok') !== d.state,
+      },
+      json: { disk: d },
+    };
+  },
+};
+
 /**
  * The parts, in the order their sections are shown. Questions come first; each part's `rank` says
  * who keeps its lines when the digest is too long.
@@ -471,5 +496,7 @@ export const PARTS = Object.freeze([
   review,
   stamp,
   flakesPart,
+  sweepPart,
   quota,
+  disk,
 ]);

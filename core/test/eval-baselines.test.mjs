@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -15,7 +14,7 @@ import {
   writeFileSync,
   copyFileSync,
 } from 'node:fs';
-import { hostname, tmpdir, userInfo } from 'node:os';
+import { hostname, userInfo } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commitAll, git, repoOnMain } from './eval-git.mjs';
@@ -33,9 +32,10 @@ import {
   readBaseline,
   settingsHash,
 } from '../lib/eval/results.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
-const tmp = () => realpathSync.native(mkdtempSync(join(tmpdir(), 'hitld-eval-baselines-test-')));
+const tmp = () => realpathSync.native(tempDir('hitld-eval-baselines-test-'));
 
 /** @param {string} name @param {boolean} valid the item the scenario validates is valid */
 const scenario = (name, valid = true) => ({
@@ -92,17 +92,16 @@ function workspace(where = {}) {
       err: () => {},
       cwd,
       env: { XDG_DATA_HOME: data, ...where.env, ...more },
+      now: () => new Date(clock),
     });
     return { code, json: JSON.parse(out.join('') || 'null') };
   };
   const store = () => openStore(join(data, 'human-in-the-lead', 'hitld-evals'));
-  // A run's ID starts with the second it was made in, so two runs of one workspace wait for
-  // different seconds.
-  let last = 0;
+  // A run's ID starts with the second it was made in, so each run of one workspace moves the
+  // workspace's clock on to a later second than the last, without waiting for one to pass.
+  let clock = Date.now();
   const offline = async (/** @type {string[]} */ extra = []) => {
-    const wait = (Math.floor(Date.now() / 1000) + 1) * 1000 - Date.now();
-    if (Math.floor(Date.now() / 1000) === last) await new Promise((r) => setTimeout(r, wait));
-    last = Math.floor(Date.now() / 1000);
+    clock = Math.max(clock + 1000, Date.now());
     return hitld(['eval', '--offline', '--evals-dir', 'evals', ...extra]);
   };
   return { cwd, data, hitld, store, offline };

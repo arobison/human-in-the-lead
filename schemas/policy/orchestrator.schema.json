@@ -16,6 +16,18 @@
       "type": "integer",
       "minimum": 1,
       "default": 20
+    },
+    "silent_after_seconds": {
+      "description": "How long an orchestrator started by a chief of staff may stay quiet, after a wake or recorded work, with no message reaching the chief of staff, before hitld dispatch watch reports it as silent: its turn ended without the end-of-turn message.",
+      "type": "integer",
+      "minimum": 60,
+      "default": 900
+    },
+    "escalate_after_wakes": {
+      "description": "How many wakes the chief of staff may send a silent orchestrator, counted since the last message that reached it, before hitld dispatch watch sets escalate_to_owner and the chief of staff tells the owner.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 3
     }
   },
   "additionalProperties": false

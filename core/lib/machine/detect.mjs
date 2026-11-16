@@ -10,9 +10,9 @@
 // seam, so tests fake each role and each probe result.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statfsSync } from 'node:fs';
 import { arch, cpus, release, totalmem } from 'node:os';
-import { posix, win32 } from 'node:path';
+import { dirname, posix, win32 } from 'node:path';
 
 /**
  * @typedef {'dedicated' | 'workstation' | 'cloud-vm' | 'ci'} Role
@@ -28,6 +28,10 @@ import { posix, win32 } from 'node:path';
  * @property {(path: string) => boolean} exists
  * @property {(file: string, args: string[]) => string | null} run a program with an argument list,
  *   its output, or null when it is missing, fails or times out
+ * @property {(path: string) => number | null} [freeBytes] the available bytes on the file system
+ *   that holds a path (disk.mjs); missing or null when it cannot be read
+ * @property {() => number | null} [allowanceBytes] the bytes left in the session's disk allowance,
+ *   where the harness exposes one as a number; missing or null otherwise
  *
  * @typedef {{ name: string, memory_mb?: number }} Gpu
  *
@@ -77,6 +81,20 @@ export function localSources() {
         return null;
       }
     },
+    freeBytes: (path) => {
+      // The nearest existing ancestor: a worktree root may not exist yet.
+      for (let at = path; ; at = dirname(at)) {
+        try {
+          const st = statfsSync(at);
+          return Number(st.bavail) * Number(st.bsize);
+        } catch {
+          if (dirname(at) === at) return null;
+        }
+      }
+    },
+    // Claude Code exposes no allowance as a number. Its cloud sessions enforce their allowance in
+    // the file system's available space, which freeBytes reads.
+    allowanceBytes: () => null,
   };
 }
 
@@ -416,6 +434,7 @@ export function proposeProfile(probe, existing = null) {
     cores: rec.cores ?? defaults.cores,
     memory_ceiling_mb: rec.memory_ceiling_mb ?? defaults.memory_ceiling_mb,
     load: existing?.load ?? defaults.load,
+    ...(existing?.disk_floor_mb ? { disk_floor_mb: existing.disk_floor_mb } : {}),
     ...(existing?.capacity ? { capacity: existing.capacity } : {}),
     ...(existing?.env ? { env: existing.env } : {}),
     detected: {

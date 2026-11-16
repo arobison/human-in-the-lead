@@ -6,7 +6,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { appendEvent } from '../ledger/ledger.mjs';
 import { writeSettingsFile } from '../settings/files.mjs';
+import { openStore, privateStorePath } from '../store/store.mjs';
 
 /** @param {string} cwd @param {...string} args */
 export const fixtureGit = (cwd, ...args) =>
@@ -236,3 +238,121 @@ export const MERGE_SETTINGS = Object.freeze({
   flakeReruns: 1,
   flake: { compareRuns: 3, compareRunsMax: 3, burnInRuns: 2, testGlobs: ['test/**'] },
 });
+
+/**
+ * A consumer for the stale-item sweep (design part 13.3), committed on main, with one case of each
+ * finding kind and one beside it that is not a finding:
+ *   orphaned-claim         W-1 claimed by D-1 on hitld/W-1-claim, D-1 reported; W-2 claimed by
+ *                          D-2, still in flight
+ *   proposed-too-old       W-3 proposed on 2026-09-01; W-4 on 2026-11-10 (sweep.proposed_max_age 30)
+ *   blockers-resolved      W-6 needs W-5, dropped; W-7 needs W-6, open
+ *   merged-but-open        W-8 has a merged commit with its Work-Item and Dispatch trailers, and
+ *                          W-10 a ledger merged event, both still planned; W-9 likewise, but done
+ *   release-needs-overlap  W-11 (0.1.0) and W-13 (0.2.0) both need W-12
+ *   missing-release-note   W-14 changed a schema with no release_note; W-15 did, with one
+ * The ledger goes in the private store under dataHome (XDG_DATA_HOME). Judge it at 2026-11-16.
+ * @param {string} root an absent or empty directory @param {string} dataHome
+ * @returns {{ root: string, project: string, now: string }}
+ */
+export function buildSweepConsumer(root, dataHome) {
+  const project = 'sweep-fixture';
+  initRepo(root);
+  /** @param {string} id @param {string} title @param {Record<string, string | string[]>} [extra] */
+  const item = (id, title, extra = {}) => ({
+    [`work/items/${id}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`]: itemFile({
+      id,
+      title,
+      kind: 'work',
+      state: 'planned',
+      ...extra,
+    }),
+  });
+  putFiles(root, {
+    '.human-in-the-lead/policy.json': JSON.stringify(
+      {
+        schema_version: 1,
+        project: { id: project, key: 'W' },
+        sweep: { proposed_max_age: 30 },
+      },
+      null,
+      2,
+    ),
+    '.human-in-the-lead/tracker.json': JSON.stringify({
+      schema_version: 1,
+      optional_keys: ['release_note'],
+    }),
+    'package.json': '{ "type": "module" }\n',
+    ...item('W-1', 'Claimed then abandoned'),
+    ...item('W-2', 'Claimed and running'),
+    ...item('W-3', 'An old proposal', { state: 'proposed', created: '2026-09-01' }),
+    ...item('W-4', 'A new proposal', { state: 'proposed', created: '2026-11-10' }),
+    ...item('W-5', 'Given up', { state: 'dropped' }),
+    ...item('W-6', 'Waits on what was given up', { needs: ['W-5'] }),
+    ...item('W-7', 'Waits on open work', { needs: ['W-6'] }),
+    ...item('W-8', 'Merged but left open'),
+    ...item('W-9', 'Merged and closed', { state: 'done' }),
+    ...item('W-10', 'Merged by the queue but left open'),
+    ...item('W-11', 'Release 0.1.0', { release: '0.1.0', needs: ['W-9', 'W-12'] }),
+    ...item('W-12', 'Shared by two releases'),
+    ...item('W-13', 'Release 0.2.0', { release: '0.2.0', needs: ['W-12'] }),
+    ...item('W-14', 'Changed a schema without a note', { state: 'done' }),
+    ...item('W-15', 'Changed a schema with a note', {
+      state: 'done',
+      release_note: 'Adds a field to the thing schema',
+    }),
+  });
+  commitAll(root, 'fixture');
+  /** @param {string} subject @param {string} trailers @param {Record<string, string>} files */
+  const commit = (subject, trailers, files) => {
+    putFiles(root, files);
+    fixtureGit(root, 'add', '-A');
+    fixtureGit(root, 'commit', '-q', '-m', subject, '-m', trailers);
+  };
+  commit('Merged work (W-8)', 'Work-Item: W-8\nDispatch: D-3', { 'src/eight.js': 'export {};\n' });
+  commit('Merged work (W-9)', 'Work-Item: W-9\nDispatch: D-4', { 'src/nine.js': 'export {};\n' });
+  commit('A schema field (W-14)', 'Work-Item: W-14', {
+    'schemas/thing.schema.json': '{ "$id": "thing", "type": "object" }\n',
+  });
+  commit('Another schema field (W-15)', 'Work-Item: W-15', {
+    'schemas/other.schema.json': '{ "$id": "other", "type": "object" }\n',
+  });
+  // Claims live on branches: W-1 by D-1, which has reported; W-2 by D-2, still in flight.
+  for (const [id, dispatch] of [
+    ['W-1', 'D-1'],
+    ['W-2', 'D-2'],
+  ]) {
+    const file = `work/items/${id}-claimed-${id === 'W-1' ? 'then-abandoned' : 'and-running'}.md`;
+    fixtureGit(root, 'switch', '-q', '-c', `hitld/${id}-claim`);
+    putFiles(root, {
+      [file]: itemFile({
+        id,
+        title: id === 'W-1' ? 'Claimed then abandoned' : 'Claimed and running',
+        kind: 'work',
+        state: 'in-progress',
+        claimed_by: dispatch,
+      }),
+    });
+    fixtureGit(root, 'add', '-A');
+    fixtureGit(
+      root,
+      'commit',
+      '-q',
+      '-m',
+      `claim: ${id}`,
+      '-m',
+      `Work-Item: ${id}\nDispatch: ${dispatch}`,
+    );
+    fixtureGit(root, 'switch', '-q', 'main');
+  }
+  const store = openStore(privateStorePath(project, { env: { XDG_DATA_HOME: dataHome } }));
+  const at = '2026-11-15T12:00:00.000Z';
+  for (const e of [
+    { event: 'dispatched', dispatch: 'D-1', item: 'W-1', branch: 'hitld/W-1-claim' },
+    { event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'partial' },
+    { event: 'dispatched', dispatch: 'D-2', item: 'W-2', branch: 'hitld/W-2-claim' },
+    { event: 'merged', item: 'W-10' },
+  ]) {
+    appendEvent(store, { ...e, at });
+  }
+  return { root, project, now: '2026-11-16T12:00:00Z' };
+}

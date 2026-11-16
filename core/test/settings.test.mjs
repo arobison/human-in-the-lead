@@ -5,14 +5,11 @@ import {
   chownSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { policyDefaults, resolvePolicy } from '../lib/policy/policy.mjs';
@@ -29,19 +26,20 @@ import {
 } from '../lib/settings/layers.mjs';
 import { proposeMigration } from '../lib/settings/migrate.mjs';
 import { envSettings } from '../lib/env/config.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
 
 const posixOnly = { skip: process.platform === 'win32' };
 
 /** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
 const canSymlink = (() => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-link-probe-'));
+  const dir = tempDir('hitld-link-probe-');
   try {
     symlinkSync(join(dir, 'target'), join(dir, 'link'));
     return true;
   } catch {
     return false;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 })();
 const needsSymlink = {
@@ -50,7 +48,7 @@ const needsSymlink = {
 
 /** A fresh home for settings: XDG_CONFIG_HOME and XDG_DATA_HOME under a private temporary dir. */
 function home() {
-  const base = mkdtempSync(join(tmpdir(), 'hitld-settings-'));
+  const base = tempDir('hitld-settings-');
   const env = { XDG_CONFIG_HOME: join(base, 'config'), XDG_DATA_HOME: join(base, 'data') };
   return { base, env };
 }
@@ -68,7 +66,7 @@ function plant(env, kind, data) {
 
 /** A consuming project with a policy.json. @param {Record<string, unknown>} [extra] */
 function projectRepo(extra = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-settings-repo-'));
+  const root = tempDir('hitld-settings-repo-');
   mkdirSync(join(root, '.git'));
   mkdirSync(join(root, '.human-in-the-lead'));
   const raw = { schema_version: 1, project: { id: 'fixture', key: 'W' }, ...extra };
@@ -562,7 +560,7 @@ test('hitld config explain --json: each value, its layer, and what it overrode',
 });
 
 test('hitld config explain works outside a project, from the defaults', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'hitld-settings-nowhere-'));
+  const cwd = tempDir('hitld-settings-nowhere-');
   const { env } = home();
   plant(env, 'machine', { schema_version: 1, max_executors: 1 });
   const { code, result } = await hitld(['config', 'explain', '--json'], cwd, env);
@@ -574,7 +572,7 @@ test('hitld config explain works outside a project, from the defaults', async ()
 // config write
 
 test('hitld config write refuses executors', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'hitld-settings-cwd-'));
+  const cwd = tempDir('hitld-settings-cwd-');
   const { env } = home();
   const data = JSON.stringify({ schema_version: 1, max_executors: 9 });
   for (const extra of [
@@ -601,7 +599,7 @@ test('hitld config write refuses executors', async () => {
 });
 
 test('hitld config write validates, then writes a private file', posixOnly, async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'hitld-settings-cwd-'));
+  const cwd = tempDir('hitld-settings-cwd-');
   const { env } = home();
   const bad = await hitld(
     ['config', 'write', 'machine', '--data', '{"schema_version":1,"gpu_count":4}'],
@@ -654,7 +652,7 @@ test('hitld config write validates, then writes a private file', posixOnly, asyn
 });
 
 test('config write refuses a location inside a managed project, and keeps a symlink', () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'hitld-settings-cwd-'));
+  const cwd = tempDir('hitld-settings-cwd-');
   const inTree = home();
   mkdirSync(join(inTree.base, '.human-in-the-lead'));
   assert.throws(

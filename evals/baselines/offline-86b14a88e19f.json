@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "id": "EV-20261115T231335Z-86b14a",
-  "at": "2026-11-15T23:13:35.532Z",
+  "id": "EV-20261116T035646Z-86b14a",
+  "at": "2026-11-16T03:56:46.371Z",
   "mode": "offline",
   "plugin": {
     "name": "human-in-the-lead",
@@ -45,7 +45,7 @@
       "minimal"
     ]
   },
-  "policy_hash": "28342037077a56b71cdd97b63dba20b38442d71c2d1f231e121737798fb1ca7e",
+  "policy_hash": "842fac083158850f9c7215bf7de9b286a80af54aed0da58312b97114fe23a030",
   "policy_source": "file",
   "settings": {
     "seed": 1,
@@ -58,8 +58,8 @@
     "settings_hash": "86b14a88e19f"
   },
   "scenario_set": {
-    "version": "54acbc36e529",
-    "count": 56
+    "version": "1dbf237cead4",
+    "count": 57
   },
   "scenarios": [
     {
@@ -551,6 +551,145 @@
         {
           "id": "bad-names-call",
           "grader": "matches",
+          "passed": true,
+          "message": ""
+        }
+      ],
+      "wall_ms": 0,
+      "tokens": null,
+      "transcript": null
+    },
+    {
+      "id": "design/walk-through-records-each-answer",
+      "suite": "design",
+      "category": "walk-through",
+      "profile": "none",
+      "result": "pass",
+      "score": 1,
+      "graders": [
+        {
+          "id": "three-questions-open",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q1-record-carries-the-design-question",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q1-recorded-through-the-question-tool",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q1-took-the-recommendation",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q1-decision-answered-by-the-owner",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q1-written-as-option-a",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q3-recorded-from-chat",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q3-decision-cannot-answer-q2",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "skipped-q2-keeps-the-design-undecided",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "skipped-q2-is-the-one-open",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "skipped-q2-has-no-answer-in-the-file",
+          "grader": "count",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "status-unchanged-while-q2-is-open",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q2-written-in-the-design-words",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "a-decided-question-is-not-written-twice",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "design-decided",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "decisions-listed",
+          "grader": "equals",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q1-answer-in-the-file",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q2-answer-in-the-file",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "q3-owner-words-in-the-file",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "status-says-decided",
+          "grader": "matches",
+          "passed": true,
+          "message": ""
+        },
+        {
+          "id": "nothing-waits",
+          "grader": "count",
           "passed": true,
           "message": ""
         }
@@ -4029,8 +4168,8 @@
     }
   ],
   "summary": {
-    "total": 61,
-    "passed": 59,
+    "total": 62,
+    "passed": 60,
     "failed": 0,
     "errors": 0,
     "not_applicable": 2,
@@ -4108,12 +4247,16 @@
       "store": {
         "score": 1,
         "scenarios": 10
+      },
+      "walk-through": {
+        "score": 1,
+        "scenarios": 1
       }
     }
   },
   "accepted": {
     "by": "owner",
-    "at": "2026-11-15T23:13:42.732Z",
-    "run": "EV-20261115T231335Z-86b14a"
+    "at": "2026-11-16T03:56:51.779Z",
+    "run": "EV-20261116T035646Z-86b14a"
   }
 }

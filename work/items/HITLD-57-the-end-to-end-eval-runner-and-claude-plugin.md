@@ -5,6 +5,7 @@ kind: work
 state: planned
 created: 2026-11-14
 project: HITLD-28
+needs: [HITLD-137]
 ---
 
 ## Why
@@ -18,3 +19,5 @@ Design 17.5 and 17.8: skills are checked by `claude plugin eval`, and whole flow
 - Each skill has scenarios that run under `claude plugin eval`, and a skill without one fails `hitld eval --offline`.
 - A deliberately degraded skill fails its scenario.
 - Results record version and model, and `hitld eval --offline` runs both runners.
+
+Held until after the v0.1.0-rc.2 release (HITLD-137) on the owner's choice, 2026-11-16 (HITLD-242): the planner offered it ahead of the rc.2 work, it touches every skill and the eval gate, and it needs about 1.4M tokens. The `needs` on HITLD-137 is that hold.

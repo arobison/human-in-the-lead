@@ -3,14 +3,11 @@ import assert from 'node:assert/strict';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { globMatch } from '../lib/precedent/glob.mjs';
 import { matchPrecedents, meets, resolveByPrecedent } from '../lib/precedent/match.mjs';
@@ -23,17 +20,18 @@ import {
 import { parsePrecedent, renderPrecedent } from '../lib/precedent/store.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { makeProject } from './helpers/project.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
 
 /** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
 const canSymlink = (() => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-link-probe-'));
+  const dir = tempDir('hitld-link-probe-');
   try {
     symlinkSync(join(dir, 'target'), join(dir, 'link'));
     return true;
   } catch {
     return false;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 })();
 const needsSymlink = {
@@ -317,7 +315,7 @@ test('an invalid precedent is not stored, and updating one keeps its file', () =
 
 test('a symbolic link at a precedent file is refused, never written through', needsSymlink, () => {
   const project = makeProject();
-  const outside = mkdtempSync(join(tmpdir(), 'hitld-outside-'));
+  const outside = tempDir('hitld-outside-');
   const target = join(outside, 'authorized_keys');
   writeFileSync(target, 'keep me\n');
   mkdirSync(join(project.root, 'precedents'));
@@ -332,7 +330,7 @@ test(
   needsSymlink,
   () => {
     const project = makeProject();
-    const outside = mkdtempSync(join(tmpdir(), 'hitld-outside-'));
+    const outside = tempDir('hitld-outside-');
     symlinkSync(outside, join(project.root, 'precedents'));
     assert.throws(() => project.precedents.put(precedent()), /symbolic link/);
     assert.deepEqual(readdirSync(outside), []);

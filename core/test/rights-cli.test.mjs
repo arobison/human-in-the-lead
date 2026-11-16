@@ -1,8 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXIT, main } from '../lib/cli/main.mjs';
 import { COMMANDS, findCommand, toolName } from '../lib/cli/table.mjs';
@@ -10,6 +9,7 @@ import { inputSchema, parseArgs } from '../lib/cli/args.mjs';
 import { makeCommands } from '../lib/cli/commands/rights.mjs';
 import { makeProject } from './helpers/project.mjs';
 import { git, item, makeConsumer } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const question = {
   title: 'Add left-pad?',
@@ -109,7 +109,7 @@ test('without a policy.json the commands say so', async () => {
   const rights = makeCommands({ openTracker: () => /** @type {any} */ (null) }).find(
     (c) => c.name === 'rights who',
   );
-  const nowhere = mkdtempSync(join(tmpdir(), 'hitld-none-'));
+  const nowhere = tempDir('hitld-none-');
   const r = /** @type {any} */ (await rights?.run?.({ question: '{}' }, { cwd: nowhere, env: {} }));
   assert.equal(r.ok, false);
   assert.equal(r.error, 'policy');
@@ -303,7 +303,7 @@ test("the parser accepts the commands' options", () => {
 
 test('an executor cannot ask, show, log, answer, overrule, reverse, rate or trust a decision (Q21)', async () => {
   const cmds = makeCommands({ openTracker: () => /** @type {any} */ (null) });
-  const nowhere = mkdtempSync(join(tmpdir(), 'hitld-exec-'));
+  const nowhere = tempDir('hitld-exec-');
   for (const name of [
     'rights ask',
     'rights show',
@@ -331,7 +331,7 @@ test('an executor cannot ask, show, log, answer, overrule, reverse, rate or trus
 });
 
 test('the decision commands refuse in a linked worktree, where executors work (Q21)', async () => {
-  const repo = mkdtempSync(join(tmpdir(), 'hitld-repo-'));
+  const repo = tempDir('hitld-repo-');
   const git = (/** @type {string[]} */ ...args) =>
     execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], {
       cwd: repo,
@@ -339,7 +339,7 @@ test('the decision commands refuse in a linked worktree, where executors work (Q
     });
   git('init', '-q');
   git('commit', '-q', '--allow-empty', '-m', 'start');
-  const wt = join(mkdtempSync(join(tmpdir(), 'hitld-wt-')), 'w');
+  const wt = join(tempDir('hitld-wt-'), 'w');
   git('worktree', 'add', '-q', '-b', 'exec-branch', wt);
   const c = makeCommands({ openTracker: () => /** @type {any} */ (null) }).find(
     (x) => x.name === 'rights answer',

@@ -17,7 +17,7 @@
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { loadPolicy } from '../../policy/policy.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
 import {
@@ -56,6 +56,22 @@ const commandNamed = (list, name) => {
   if (!c?.run) throw new Error(`hitld ${name} is not built`);
   return /** @type {NonNullable<typeof c.run>} */ (c.run);
 };
+
+/**
+ * A design file given to publish: Markdown under docs/design/ in this repository, as a
+ * repository path.
+ * @param {string} root @param {string} cwd @param {string} given
+ */
+function designPath(root, cwd, given) {
+  const rel = relative(root, resolve(cwd, given)).split(sep).join('/');
+  if (!rel.startsWith('docs/design/') || !rel.endsWith('.md') || rel.split('/').includes('..')) {
+    throw new CodedError(
+      'usage',
+      `--design takes a Markdown file under docs/design/; ${given} is not one`,
+    );
+  }
+  return rel;
+}
 
 /** What the session does with the printed pull request. */
 const OPEN_IT =
@@ -122,6 +138,13 @@ export const commands = [
         description: 'The remote to fetch main from and push to (default origin)',
       },
       {
+        name: 'design',
+        type: 'string',
+        repeatable: true,
+        description:
+          'A design file (Markdown under docs/design/) this session changed, published with the tracker files, such as the design a walk-through decided; once per file',
+      },
+      {
         name: 'dry-run',
         type: 'boolean',
         description: 'Gather, compose and check everything, and push nothing',
@@ -163,8 +186,12 @@ export const commands = [
       // The message is checked for shape before anything is fetched.
       composeMessage({ title: String(input.title), role, ids: [], trailers, files: [] });
 
+      const designs = /** @type {string[]} */ (input.design ?? []).map((d) =>
+        designPath(root, ctx.cwd, d),
+      );
+
       const base = fetchBase(root, remote, layout.mainBranch);
-      const gathered = gatherChanges(root, layout, base.commit);
+      const gathered = gatherChanges(root, layout, base.commit, designs);
       const common = {
         dry_run: dryRun,
         base,

@@ -4,8 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main } from '../lib/cli/main.mjs';
@@ -23,6 +22,7 @@ import { proposeRelease } from '../lib/release/propose.mjs';
 import { checkReleaseCommit } from '../lib/release/check.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
 import { commitAll, git, itemText, makeRepo, policyFor, put } from './tracker-fixture.mjs';
+import { removeAtExit, tempDir } from './helpers/tmp.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SURFACE_SOURCE = readFileSync(join(ROOT, 'core/lib/release/surface.mjs'), 'utf8');
@@ -265,7 +265,8 @@ test('release make refuses outside the owner’s own turn', async () => {
   const viaTool = await make?.run?.({}, { cwd: root, env: {} });
   assert.equal(viaTool?.error, 'not-permitted');
   assert.match(String(viaTool?.message), /not the human command line/);
-  git(root, 'worktree', 'add', '-q', '-b', 'side', join(root, '..', `wt-${Date.now()}`));
+  const side = removeAtExit(join(root, '..', `wt-${Date.now()}`));
+  git(root, 'worktree', 'add', '-q', '-b', 'side', side);
   const wt = git(root, 'worktree', 'list', '--porcelain').match(/^worktree (.*wt-\d+)$/m)?.[1];
   const linked = await hitld(['release', 'make'], String(wt));
   assert.match(linked.json.message, /linked worktree/);
@@ -274,7 +275,7 @@ test('release make refuses outside the owner’s own turn', async () => {
 
 test('release make writes the record and the tag, never pushes, and the record is read back', async () => {
   const root = releaseRepo();
-  const remote = mkdtempSync(join(tmpdir(), 'hitld-remote-'));
+  const remote = tempDir('hitld-remote-');
   git(remote, 'init', '-q', '--bare');
   git(root, 'remote', 'add', 'origin', remote);
 
@@ -740,7 +741,7 @@ test('the release-check script prints the result and writes the workflow files',
   const root = releaseRepo();
   assert.equal((await hitld(['release', 'make', '--branch', 'release'], root)).code, 0);
   squash(root);
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-release-out-'));
+  const dir = tempDir('hitld-release-out-');
   const script = join(ROOT, 'core/bin/release-check.mjs');
   const run = (/** @type {string[]} */ args) =>
     spawnSync(process.execPath, [script, '--repo', root, ...args], { encoding: 'utf8' });

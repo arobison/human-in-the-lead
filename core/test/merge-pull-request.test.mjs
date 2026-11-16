@@ -5,8 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fakeGitHub, repoFromRemote } from '../lib/merge/github.mjs';
 import { stageAll } from '../lib/merge/queue.mjs';
@@ -18,6 +17,7 @@ import {
   squashMessage,
   validSignoff,
 } from '../lib/merge/pull-request.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const ID = {
   GIT_AUTHOR_NAME: 'Agent',
@@ -69,7 +69,7 @@ function itemAt(dir, id) {
  * @param {{ checks?: Record<string, import('../lib/merge/github.mjs').Check[]>, identity?: boolean }} [o]
  */
 function setup(o = {}) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-pr-')));
+  const base = realpathSync(tempDir('hitld-pr-'));
   const remote = join(base, 'remote.git');
   const root = join(base, 'repo');
   git(base, 'init', '-q', '--bare', '-b', 'main', remote);
@@ -431,7 +431,7 @@ test('an approval does not hold once the branch gets a commit the queue did not 
 });
 
 test('stageAll: a file that differs only in line endings is no change to commit', () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-stage-')));
+  const root = realpathSync(tempDir('hitld-stage-'));
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'core.autocrlf', 'true');
   put(root, { 'views/ready.md': 'a\nb\n' });

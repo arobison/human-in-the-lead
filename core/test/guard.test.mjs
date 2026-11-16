@@ -7,14 +7,12 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -35,6 +33,7 @@ import { HOOK_MARK } from '../lib/install/install.mjs';
 import { runMergeQueue } from '../lib/merge/queue.mjs';
 import { chooseNamed } from '../lib/merge/owner.mjs';
 import { git, item, makeConsumer, put } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const CHECKOUT = fileURLToPath(new URL('../../', import.meta.url));
 const CONFIDENTIAL = '---\ntitle: Plan\nclassification: confidential\n---\n\nPrivate.\n';
@@ -404,7 +403,7 @@ test('work check applies the same rule to every file in the tree, with private p
 function history() {
   // Built here, so this file holds no address the public check would flag.
   const PERSON = ['person', 'acme-corp.com'].join('@');
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-guard-')));
+  const root = realpathSync(tempDir('hitld-guard-'));
   /** @param {...string} args */
   const g = (...args) =>
     execFileSync('git', args, {

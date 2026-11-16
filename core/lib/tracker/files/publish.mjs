@@ -179,11 +179,13 @@ export function fetchBase(root, remote, mainBranch) {
 /**
  * The tracker files this session changed and main does not already have.
  * @param {string} root @param {Layout} layout @param {string} base the commit of main to publish onto
+ * @param {string[]} [also] repository paths outside the tracker published with it, such as the
+ *   design a walk-through decided (HITLD-135); the caller checks them
  * @returns {{ files: PublishedFile[], conflicts: string[], skipped: string[], left_out: string[], from: string }}
  *   from: where the session's branch left main; skipped: files main already has;
  *   left_out: changed files outside the tracker, or not regular files
  */
-export function gatherChanges(root, layout, base) {
+export function gatherChanges(root, layout, base, also = []) {
   const from = git(root, ['merge-base', 'HEAD', base], { allowFail: true }).trim() || base;
   const work = `${layout.workDir}/`;
   const views = `${layout.workDir}/${layout.viewsDir}/`;
@@ -206,7 +208,7 @@ export function gatherChanges(root, layout, base) {
   /** @type {{ path: string, present: boolean }[]} */
   const candidates = [];
   for (const path of [...changed].sort()) {
-    if (!path.startsWith(work) || path.startsWith(views)) {
+    if (!also.includes(path) && (!path.startsWith(work) || path.startsWith(views))) {
       leftOut.push(path);
       continue;
     }

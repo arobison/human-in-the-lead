@@ -5,8 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
@@ -31,6 +30,7 @@ import {
 import { commitAll, fixtureGit, putFiles } from '../lib/eval/orchestrator-fixtures.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { makeConsumer } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const NOW = new Date('2026-11-15T12:00:00Z');
 const minimal = { schema_version: 1, project: { id: 'test', key: 'W' } };
@@ -195,7 +195,7 @@ const testsJson = (tests) => JSON.stringify({ tests }, null, 2) + '\n';
  * @param {Record<string, string>} [files]
  */
 function makeRepo(tests, files = {}) {
-  const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'hitld-flake-')));
+  const base = realpathSync.native(tempDir('hitld-flake-'));
   const root = join(base, 'repo');
   mkdirSync(root);
   fixtureGit(root, 'init', '-q', '-b', 'main');
@@ -538,7 +538,7 @@ const failure = (over = {}) => ({
 });
 
 test('the evidence stays in the private store, keyed by test ID, and lets a test be quarantined', () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-flake-store-')));
+  const store = openStore(tempDir('hitld-flake-store-'));
   recordFlakes(store, {
     failures: [failure(), failure({ outcome: 'real', tests: ['t2'], quarantinable: [], runs: 1 })],
     excused: [{ commit: 'abc', tests: ['t1'] }],
