@@ -2,7 +2,8 @@
 id: HITLD-417
 title: Claude Code's status line documents a spend limit window that HITLD ignores
 kind: work
-state: proposed
+state: dropped
+reason: "Dropped by the owner on 2026-11-16 (HITLD-432): the status line reports a spend_limit window only behind a gateway, nobody known needs it, and the owner is on Ultra; it reopens if a plan needs it (see HITLD-418)."
 created: 2026-11-16
 project: HITLD-15
 ---

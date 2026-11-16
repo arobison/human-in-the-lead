@@ -24,3 +24,8 @@ This is a one-way door: making approvals verifiable changes the store format, ne
 ## Notes
 
 Design choices are the owner's: the first step is a walk-through, one question at a time. Interim handling is discussed privately with the owner.
+
+## Decided so far
+
+- **The first device (the owner, 2026-11-16, decision HITLD-433):** the owner confirms the first device by hand: it shows a fingerprint, the owner confirms in their own turn, and its public key is pinned in the store's header. Every later device needs a signature from an already-approved device.
+- Still to decide, one at a time: key rotation, how existing stores migrate, and what a device that cannot read the new format does.
