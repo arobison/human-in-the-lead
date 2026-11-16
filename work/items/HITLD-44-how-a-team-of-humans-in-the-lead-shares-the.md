@@ -28,3 +28,7 @@ Open.
 - The owner's answer is recorded in part 22 and the design is updated (parts 4.5, 23 and the "Several humans in the lead" milestone).
 - The answer says how a call finds its person, how disagreement between leads is settled, and how attention budgets work per person.
 - HITLD-36 is built to the answer.
+
+## Deferred
+
+The owner deferred this decision on 2026-11-16 (decision HITLD-430): it is design for several humans, and nothing before v0.1.0 needs it. It stays open under HITLD-53 and is walked through when the several-humans milestone is shaped.
