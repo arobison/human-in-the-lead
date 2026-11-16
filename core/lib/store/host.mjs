@@ -11,8 +11,6 @@
 // few times. File modes (0o600, 0o700) are not enforced on Windows: the store's files are as
 // private as the person's profile directory, no more.
 
-import { renameSync, unlinkSync } from 'node:fs';
-
 /** The variables passed on to git on Windows, besides PATH and HOME. */
 const WINDOWS_ENV = Object.freeze([
   'USERPROFILE',
@@ -75,44 +73,4 @@ export function hostEnv(home, o = {}) {
   return out;
 }
 
-/** The errors Windows gives while another process has a file open. */
-const BUSY = new Set(['EPERM', 'EBUSY', 'EACCES']);
-/** Waits between tries, in milliseconds: about a second in all. */
-const BACKOFF = Object.freeze([10, 20, 40, 80, 160, 320, 400]);
-
-/** @param {number} ms */
-const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-
-/**
- * Run a file operation; on Windows, try it again for a while when the file is busy.
- * @template T
- * @param {() => T} op
- * @param {{ platform?: NodeJS.Platform, wait?: (ms: number) => void }} [o] for tests
- * @returns {T}
- */
-export function retryBusy(op, o = {}) {
-  const platform = o.platform ?? process.platform;
-  const wait = o.wait ?? pause;
-  for (let i = 0; ; i++) {
-    try {
-      return op();
-    } catch (e) {
-      const code = /** @type {NodeJS.ErrnoException} */ (e).code ?? '';
-      if (platform !== 'win32' || i >= BACKOFF.length || !BUSY.has(code)) throw e;
-      wait(BACKOFF[i]);
-    }
-  }
-}
-
-/**
- * Replace `to` with `from` in one step (rename), as renameSync, retried on Windows while `to` is
- * busy.
- * @param {string} from @param {string} to
- */
-export const replaceFile = (from, to) => retryBusy(() => renameSync(from, to));
-
-/**
- * Remove a file, as unlinkSync, retried on Windows while it is busy.
- * @param {string} file
- */
-export const removeFile = (file) => retryBusy(() => unlinkSync(file));
+export { retryBusy, removeFile, renameReplacing as replaceFile } from '../platform/fs.mjs';
