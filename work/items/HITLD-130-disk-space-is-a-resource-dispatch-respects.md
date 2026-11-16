@@ -2,7 +2,7 @@
 id: HITLD-130
 title: Disk space is a resource dispatch respects, and merged worktrees are removed
 kind: work
-state: in-progress
+state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-10
