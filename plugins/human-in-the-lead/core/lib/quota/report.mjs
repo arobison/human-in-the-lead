@@ -9,6 +9,7 @@ import { effectiveEntries, tokensOf } from './usage.mjs';
 import { waitingForOwner, waited } from '../merge/owner.mjs';
 import { dispatchGate, forecastLine, show } from './gate.mjs';
 import { fileHref, milestoneFacts, oneSentence } from '../tracker/files/views.mjs';
+import { renderYourMove } from '../dashboard/move.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
 
@@ -98,6 +99,8 @@ export const tokensPerItem = (ledger) =>
  * @param {number} [input.now]
  * @param {number | null} [input.runStartedAt]
  * @param {MilestoneGraph | null} [input.milestones] the milestone graph, or null without a tracker
+ * @param {import('../dashboard/work.mjs').WorkModel | null} [input.work] the work model, or null
+ *   without a tracker
  */
 export function buildReport({
   policy,
@@ -106,6 +109,7 @@ export function buildReport({
   now = Date.now(),
   runStartedAt = null,
   milestones = null,
+  work = null,
 }) {
   // The gate for a non-critical item, and for a critical one, so the report shows both outcomes.
   const gate = dispatchGate(
@@ -139,6 +143,7 @@ export function buildReport({
     ledger: ledgerSummary(ledger),
     waiting_for_owner: ownerWaiting(policy, ledger, now),
     milestones,
+    work,
   };
 }
 
@@ -305,14 +310,29 @@ const STAGES = /** @type {const} */ ([
  * @param {MilestoneGraph} mg
  * @param {{ fileBase?: string | null }} [where] the forge's address for the repository's files
  */
-export function renderMilestoneSection(mg, { fileBase = null } = {}) {
+export function renderMilestoneSection(mg, where = {}) {
+  const { board, drawers } = milestoneParts(mg, where);
+  return drawers ? `${board}\n${drawers}` : board;
+}
+
+/**
+ * The milestone board and its drawers apart, so the page can keep the drawers outside its views.
+ * @param {MilestoneGraph} mg
+ * @param {{ fileBase?: string | null }} [where]
+ * @returns {{ board: string, drawers: string }}
+ */
+export function milestoneParts(mg, { fileBase = null } = {}) {
   /** An ID linked to its file, or the ID alone without one. @param {string} id @param {string | null} path */
   const fileLink = (id, path) =>
     path
       ? `<a class="file" href="${esc(fileHref(path, { base: fileBase }))}">${esc(id)}</a>`
       : esc(id);
   if (!mg.nodes.length) {
-    return '<h2 id="milestones">Milestones</h2>\n<p class="muted">No milestones in the tracker.</p>';
+    return {
+      board:
+        '<h2 id="milestones">Milestones</h2>\n<p class="muted">No milestones in the tracker.</p>',
+      drawers: '',
+    };
   }
   const LABEL = 150; // the lane names
   const W = 230;
@@ -609,14 +629,59 @@ export function renderMilestoneSection(mg, { fileBase = null } = {}) {
       );
     })
     .join('\n');
-  return `<h2 id="milestones">Milestones</h2>
+  return {
+    board: `<h2 id="milestones">Milestones</h2>
 <p class="muted">${path} Open a milestone to see its items.</p>
 ${legend}
 <div class="wrap">${svg}</div>
-${proposals}${droppedTable}
-<a class="drawer-backdrop" href="#milestones" aria-label="Close" tabindex="-1"></a>
+${proposals}${droppedTable}`,
+    drawers: `<a class="drawer-backdrop" href="#milestones" aria-label="Close" tabindex="-1"></a>
 ${panels}
-${releaseDrawers}`;
+${releaseDrawers}`,
+  };
+}
+
+/**
+ * When and where the page's data was read: the tracker (at a commit, on a branch) and the private
+ * store on this machine. A page generated in one container shows that container's store.
+ * @param {Report} r
+ */
+function readNote(r) {
+  const at = r.work?.source;
+  const tracker = r.work
+    ? ` from the tracker in this repository${at?.commit ? ` at commit ${at.commit}` : ''}${at?.branch ? ` on ${at.branch}` : ''},`
+    : '';
+  return `Read ${r.generated_at}${tracker} and from the ledger and quotas in the private store on the machine that generated it. Metrics schema ${r.metrics_schema_version}. Local data only.`;
+}
+
+/**
+ * The views as tabs that need no script: one radio input per view, before the header, and a label
+ * for each in the header's nav; CSS shows the checked view's section. The first view is checked.
+ * Without CSS every view shows, one after another.
+ * @param {{ id: string, label: string, html: string }[]} views
+ */
+export function viewTabs(views) {
+  return {
+    inputs: views
+      .map(
+        (v, k) =>
+          `<input class="tab-input" type="radio" name="view" id="tab-${v.id}" aria-controls="${v.id}"${k ? '' : ' checked'}>`,
+      )
+      .join('\n'),
+    nav: `<nav class="tabs" aria-label="Views">${views.map((v) => `<label for="tab-${v.id}">${esc(v.label)}</label>`).join('')}</nav>`,
+    sections: views
+      .map(
+        (v) =>
+          `<section class="view" id="${v.id}" aria-label="${esc(v.label)}">\n${v.html}\n</section>`,
+      )
+      .join('\n'),
+    css: views
+      .map(
+        (v) =>
+          `#tab-${v.id}:checked~main #${v.id}{display:block}#tab-${v.id}:checked~header label[for="tab-${v.id}"]{color:var(--fg);border-bottom-color:var(--used)}#tab-${v.id}:focus-visible~header label[for="tab-${v.id}"]{outline:2px solid var(--used);outline-offset:2px}`,
+      )
+      .join('\n'),
+  };
 }
 
 /**
@@ -647,6 +712,36 @@ export function renderHtml(r, policy, { fileBase = null } = {}) {
     Object.entries(o)
       .map(([k, v]) => `<li>${esc(k)}: ${v}</li>`)
       .join('') || '<li>none</li>';
+  const merges = r.waiting_for_owner.length
+    ? `<h2>Waiting for your merge</h2><ul>${r.waiting_for_owner.map((w) => `<li>${esc(w.item)} on ${esc(w.branch ?? 'no branch')}, waiting ${esc(waited(w.waited_ms))}</li>`).join('')}</ul>`
+    : '';
+  const spend = `<h2>Quotas</h2>
+<div class="wrap"><table>
+<thead><tr><th>Limit</th><th>Used (bar: reserve shaded, marks at economize and critical path)</th><th>Confidence</th><th>Burn</th><th>Reserve reached</th></tr></thead>
+<tbody>
+${rows}
+</tbody></table></div>
+${r.work ? '' : merges}
+${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+<h2>Ledger</h2>
+<p>${l.entries} events, ${l.tokens} tokens, ${l.items_merged} items merged${l.tokens_per_merged_item == null ? '' : `, ${l.tokens_per_merged_item} tokens per merged item`}.</p>
+<div class="wrap"><table style="min-width:0"><thead><tr><th>Events</th><th>Tokens by model</th><th>Tokens by tier</th></tr></thead><tbody><tr><td><ul>${kv(l.events)}</ul></td><td><ul>${kv(l.tokens_by_model)}</ul></td><td><ul>${kv(l.tokens_by_tier)}</ul></td></tr></tbody></table></div>`;
+  const roadmap = r.milestones
+    ? milestoneParts(r.milestones, { fileBase })
+    : { board: '', drawers: '' };
+  const tabs = viewTabs([
+    ...(r.work
+      ? [
+          {
+            id: 'move',
+            label: 'Your move',
+            html: renderYourMove(r.work.move, r.waiting_for_owner, { fileBase }),
+          },
+        ]
+      : []),
+    ...(r.milestones ? [{ id: 'roadmap', label: 'Roadmap', html: roadmap.board }] : []),
+    { id: 'spend', label: 'Quota and spend', html: spend },
+  ]);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -658,7 +753,15 @@ export function renderHtml(r, policy, { fileBase = null } = {}) {
 :root{--sel:#eaf1fb;--st-proposed:#c4c8ce;--st-waiting:#d14348;--st-ready:#2457c2;--st-flight:#b08cf6;--st-done:#45c486;--zebra:#f1f2f4;--bg:#fbfbfa;--fg:#1c1d20;--muted:#60646c;--line:#d9dbe0;--card:#fff;--used:#2f6fb3;--reserve:#e5b64a55;--track:#e9eaee;--mark:#8a8f98;--stop:#b3261e;--stop-bg:#fbe9e7;--warn-bg:#fff4dc}
 @media (prefers-color-scheme:dark){:root{--sel:#1d2a3a;--st-proposed:#62676f;--st-waiting:#b8363d;--st-ready:#2f68d2;--st-flight:#9b7fe6;--st-done:#2fac6a;--zebra:#1a1b1e;--bg:#141517;--fg:#e8e9ec;--muted:#9a9fa8;--line:#34373d;--card:#1b1c1f;--used:#6aa5e6;--reserve:#d9a53a44;--track:#2a2c31;--mark:#8a8f98;--stop:#ff8a80;--stop-bg:#3a1f1c;--warn-bg:#3a3018}}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
-main{max-width:64rem;margin:0 auto;padding:1.5rem 1rem 3rem}
+main,header.top{max-width:64rem;margin:0 auto;padding:0 1rem}main{padding-bottom:3rem}header.top{padding-top:1.5rem}
+.tab-input{position:absolute;opacity:0;pointer-events:none}.view{display:none}
+.tabs{display:flex;flex-wrap:wrap;gap:.25rem 1rem;border-bottom:1px solid var(--line);margin-top:.75rem}.tabs label{cursor:pointer;padding:.4rem .1rem;color:var(--muted);border-bottom:3px solid transparent;font-weight:600}.tabs label:hover{color:var(--fg)}
+.tiles{display:flex;flex-wrap:wrap;gap:.5rem;margin:.5rem 0 1rem}.tile{flex:1 1 7rem;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.5rem .75rem;color:var(--muted);text-decoration:none;font-size:.85rem}.tile b{display:block;font-size:1.5rem;color:var(--fg)}
+.move h3{font-size:1rem;margin:1.25rem 0 .25rem}.num{display:inline-block;min-width:1.6rem;padding:0 .35rem;border-radius:4px;background:var(--track);text-align:center}
+ol.rows{list-style:none;margin:0;padding:0}ol.rows li{padding:.35rem 0;border-bottom:1px solid var(--line)}.meta{color:var(--muted);font-size:.85rem}
+.pill{display:inline-block;font-size:.75rem;padding:0 .45rem;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-left:.25rem}.pill.crit{border-color:var(--used);color:var(--used)}.pill.warn{border-color:#d9a53a;background:var(--warn-bg)}
+code{font-size:.85em;overflow-wrap:anywhere}table.stack{min-width:0}
+@media (max-width:600px){table.stack thead{display:none}table.stack tr{display:block;border-bottom:1px solid var(--line);padding:.4rem 0}table.stack td{display:block;border:0;padding:.1rem .2rem}table.stack td[data-label]::before{content:attr(data-label) ": ";color:var(--muted);font-size:.8rem}}
 h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem}
 .muted,small{color:var(--muted)}small{display:block;font-size:.8rem}
 .status{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--mark);border-radius:6px;padding:.75rem 1rem;margin:1rem 0}
@@ -691,26 +794,21 @@ thead th{font-size:.8rem;color:var(--muted);font-weight:600}tr.binding{backgroun
 .track{fill:var(--track)}.reserve{fill:var(--reserve)}.used{fill:var(--used)}.mark{stroke:var(--mark);stroke-width:1}.stop{stroke:var(--stop);stroke-width:2}
 ul{margin:.25rem 0;padding-left:1.2rem}
 ${r.milestones ? milestoneSectionCss(r.milestones) : ''}
+${tabs.css}
 </style>
 </head>
 <body>
-<main>
-<h1>${esc(r.project)}: quotas and spend</h1>
-<div class="muted">Generated ${esc(r.generated_at)}. Metrics schema ${r.metrics_schema_version}. Local data only.</div>
+${tabs.inputs}
+<header class="top">
+<h1>${esc(r.project)}: work, quotas and spend</h1>
+<div class="muted">${esc(readNote(r))}</div>
 <div class="status ${esc(r.gate.mode)}"><strong>${esc(MODE_LABEL[r.gate.mode])}</strong>${esc(r.gate.reason)}${r.gate.forecast ? `<small>Forecast that triggered it: ${esc(r.gate.forecast)}</small>` : ''}<small>Ordinary items: ${r.gate.allow_ordinary ? 'dispatch' : 'wait'}. Critical-path items: ${r.gate.allow_critical_path ? 'dispatch' : 'wait'}.${r.gate.ask_owner ? ' The owner is asked before this hard limit is passed.' : ''}</small></div>
-<h2>Quotas</h2>
-<div class="wrap"><table>
-<thead><tr><th>Limit</th><th>Used (bar: reserve shaded, marks at economize and critical path)</th><th>Confidence</th><th>Burn</th><th>Reserve reached</th></tr></thead>
-<tbody>
-${rows}
-</tbody></table></div>
-${r.waiting_for_owner.length ? `<h2>Waiting for your merge</h2><ul>${r.waiting_for_owner.map((w) => `<li>${esc(w.item)} on ${esc(w.branch ?? 'no branch')}, waiting ${esc(waited(w.waited_ms))}</li>`).join('')}</ul>` : ''}
-${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
-${r.milestones ? renderMilestoneSection(r.milestones, { fileBase }) : ''}
-<h2>Ledger</h2>
-<p>${l.entries} events, ${l.tokens} tokens, ${l.items_merged} items merged${l.tokens_per_merged_item == null ? '' : `, ${l.tokens_per_merged_item} tokens per merged item`}.</p>
-<div class="wrap"><table style="min-width:0"><thead><tr><th>Events</th><th>Tokens by model</th><th>Tokens by tier</th></tr></thead><tbody><tr><td><ul>${kv(l.events)}</ul></td><td><ul>${kv(l.tokens_by_model)}</ul></td><td><ul>${kv(l.tokens_by_tier)}</ul></td></tr></tbody></table></div>
+${tabs.nav}
+</header>
+<main>
+${tabs.sections}
 </main>
+${roadmap.drawers}
 </body>
 </html>
 `;
