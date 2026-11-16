@@ -60,6 +60,7 @@ import {
 } from '../../merge/pull-request.mjs';
 import { duplicateIds } from '../../tracker/files/check.mjs';
 import { loadWorkTree } from '../../tracker/files/tree.mjs';
+import { openTracker } from '../../tracker/files/tracker.mjs';
 import {
   PRESENTED_KEY,
   PROPOSED_KEY,
@@ -681,7 +682,8 @@ function approvePullRequests(o) {
  * @param {{ p: any, run: any, ctx: Ctx, input: Record<string, unknown>, owner: boolean,
  *   approve: { all: boolean, names: string[] | null } | null,
  *   entries: import('../../merge/queue.mjs').Entry[],
- *   settings: import('../../merge/queue.mjs').Settings, env: any }} o
+ *   settings: import('../../merge/queue.mjs').Settings,
+ *   layout: ReturnType<ReturnType<typeof openTracker>['layout']>, env: any }} o
  */
 async function pullRequestMerge(o) {
   const { p, run, ctx } = o;
@@ -701,11 +703,7 @@ async function pullRequestMerge(o) {
       github,
     });
   }
-  const layout = readWorkItems({
-    repoRoot: p.repoRoot,
-    policy: p.policy,
-    env: ctx.env,
-  }).tracker.layout();
+  const layout = o.layout;
   const result = await runPullRequestQueue({
     repoRoot: p.repoRoot,
     entries: o.entries,
@@ -1483,8 +1481,11 @@ const table = [
             message: 'nothing is waiting to merge',
           };
         }
-        const work = readWorkItems({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
-        const byId = new Map(work.items.map((i) => [String(i.id), i]));
+        // The tracker, not readWorkItems: the merge needs no ready set, so it reads no branch's
+        // claims (a scan of every ref).
+        const tracker = openTracker({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
+        const items = /** @type {import('../../dispatch/item.mjs').Item[]} */ (tracker.query({}));
+        const byId = new Map(items.map((i) => [String(i.id), i]));
         const events = readLedger(p.store).events;
         /** @param {string} item */
         const lastDispatch = (item) =>
@@ -1497,7 +1498,7 @@ const table = [
           touches: /** @type {string[]} */ (byId.get(w.item)?.touches ?? []),
           dispatch: lastDispatch(w.item),
         });
-        const layout = work.tracker.layout();
+        const layout = tracker.layout();
         const main = p.policy.merge.main_branch;
         /** @type {import('../../merge/queue.mjs').Settings} */
         const settings = {
@@ -1539,12 +1540,9 @@ const table = [
         };
         /** @param {string} dir */
         const regenerateViews = (dir) => {
+          // The views need no claims: the tracker alone, not readWorkItems, once per batch.
           if (existsSync(join(dir, layout.workDir))) {
-            readWorkItems({
-              repoRoot: dir,
-              policy: p.policy,
-              env: ctx.env,
-            }).tracker.writeViews();
+            openTracker({ repoRoot: dir, policy: p.policy, env: ctx.env }).writeViews();
           }
         };
         const env = openEnv({
@@ -1553,12 +1551,21 @@ const table = [
           policy: p.policy,
           env: ctx.env,
         });
+        // Each waiting branch's files, read once: the listing below and presentToOwner both route
+        // by them.
+        /** @type {Map<string, string[]>} */
+        const changed = new Map();
         // An owner-mode listing that changes nothing needs no lock: the stored presentation is
         // still what checking again would give.
         if (!approving && owner && !viaPR) {
           const entries = waiting.map(entryOf);
+          for (const e of entries) {
+            if (!changed.has(e.branch)) {
+              changed.set(e.branch, changedOnBranch(p.repoRoot, main, e.branch));
+            }
+          }
           const toOwner = entries.filter((e) =>
-            waitsForOwner(changedOnBranch(p.repoRoot, main, e.branch), p.policy),
+            waitsForOwner(/** @type {string[]} */ (changed.get(e.branch)), p.policy),
           );
           if (
             toOwner.length === entries.length &&
@@ -1650,6 +1657,7 @@ const table = [
               approve: approving ? { all, names } : null,
               entries: waiting.map(entryOf),
               settings,
+              layout,
               env,
             });
           }
@@ -1727,6 +1735,7 @@ const table = [
               scanners: scanners.map((s) => s.name),
               regenerateViews,
               events,
+              changed,
             });
             if (shown.queued) await record(shown.queued);
             if (shown.checked) await record(shown.checked);

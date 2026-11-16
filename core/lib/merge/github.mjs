@@ -27,11 +27,12 @@ import { execFileSync, spawnSync } from 'node:child_process';
 
 /**
  * The owner/name of a GitHub repository from a remote URL: https, ssh, or a proxy that keeps the
- * owner and name as the last two path segments. Null when it has no such segments.
+ * owner and name as the last two path segments. Null when it has no such segments. A local path
+ * counts the same way on Windows as elsewhere: "\" separates segments there too.
  * @param {string} url @returns {string | null}
  */
 export function repoFromRemote(url) {
-  const m = /[/:]([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(url.trim());
+  const m = /[/:\\]([A-Za-z0-9_.-]+)[/\\]([A-Za-z0-9_.-]+?)(?:\.git)?[/\\]?$/.exec(url.trim());
   return m ? `${m[1]}/${m[2]}` : null;
 }
 

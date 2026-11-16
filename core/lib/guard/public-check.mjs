@@ -49,15 +49,17 @@ export function commitsIn(cwd, from, to) {
  * @returns {{ path: string, line: number, text: string }[]}
  */
 export function addedLines(cwd, commit) {
-  const patch = git(cwd, [
-    'show',
-    '--format=',
-    '--no-color',
-    '--no-ext-diff',
-    '--no-renames',
-    '--unified=0',
-    commit,
-  ]);
+  return addedLinesIn(git(cwd, ['show', '--format=', ...PATCH, commit]));
+}
+
+/** How a commit's patch is written, for addedLines and checkPublicRange alike. */
+const PATCH = ['--no-color', '--no-ext-diff', '--no-renames', '--unified=0'];
+
+/**
+ * The lines a patch adds, by file.
+ * @param {string} patch @returns {{ path: string, line: number, text: string }[]}
+ */
+function addedLinesIn(patch) {
   /** @type {{ path: string, line: number, text: string }[]} */
   const out = [];
   let path = '';
@@ -83,31 +85,146 @@ export function addedLines(cwd, commit) {
 const EMAIL_MESSAGE =
   "an email address that is not a noreply one; use a noreply address (a forge gives one) or a placeholder on example.com, and keep a person's own address out of the repository";
 
+/** @param {string} path whether the placement rule covers a path */
+const placed = (path) => /(^|\/)\.human-in-the-lead\/(policy|store-devices)\.json$/.test(path);
+
+/**
+ * The files at `<commit>:<path>`, read by one `git cat-file --batch`, as `git show
+ * <commit>:<path>` prints them; a path the commit does not hold (deleted in it) is left out.
+ * @param {string} cwd @param {string[]} specs `<commit>:<path>`, each without a newline
+ * @returns {Map<string, string>}
+ */
+function readSpecs(cwd, specs) {
+  /** @type {Map<string, string>} */
+  const out = new Map();
+  const wanted = [...new Set(specs)];
+  if (!wanted.length) return out;
+  const r = spawnSync('git', ['cat-file', '--batch'], {
+    cwd,
+    input: `${wanted.join('\n')}\n`,
+    maxBuffer: 512 * 1024 * 1024,
+  });
+  if (r.status !== 0) {
+    throw new Error(`git cat-file: ${(r.stderr ?? '').toString().trim() || `exit ${r.status}`}`);
+  }
+  const buf = r.stdout;
+  let p = 0;
+  for (const spec of wanted) {
+    const eol = buf.indexOf(10, p);
+    if (eol < 0) break;
+    const header = buf.subarray(p, eol).toString('utf8');
+    const m = /^[0-9a-f]{40,64} (\w+) (\d+)$/.exec(header);
+    if (!m) {
+      p = eol + 1; // "<spec> missing": deleted in that commit, and git show fails on it too
+      continue;
+    }
+    const start = eol + 1;
+    const end = start + Number(m[2]);
+    if (m[1] === 'blob') out.set(spec, buf.subarray(start, end).toString('utf8'));
+    p = end + 1;
+  }
+  return out;
+}
+
 /**
  * The placement rule on the files a tree or a commit holds at the two paths it covers.
- * @param {string} cwd @param {string} commit @param {string[]} paths
+ * @param {string} commit @param {string[]} paths
+ * @param {Map<string, string>} files `<commit>:<path>` to its text, from readSpecs
  * @returns {Finding[]}
  */
-function placementIn(cwd, commit, paths) {
+function placementIn(commit, paths, files) {
   /** @type {Finding[]} */
   const out = [];
   for (const path of paths) {
-    if (!/(^|\/)\.human-in-the-lead\/(policy|store-devices)\.json$/.test(path)) continue;
-    const shown = spawnSync('git', ['show', `${commit}:${path}`], { cwd, encoding: 'utf8' });
-    if (shown.status !== 0) continue; // deleted in this commit
-    const r = judgePlacement(path, shown.stdout);
+    if (!placed(path)) continue;
+    const text = files.get(`${commit}:${path}`);
+    if (text === undefined) continue; // deleted in this commit
+    const r = judgePlacement(path, text);
     if (r) out.push({ commit, where: path, line: null, rule: r.rule, message: r.message });
   }
   return out;
 }
 
 /**
- * Check the commits from..to.
+ * Each commit's changed paths (as `git diff-tree -r --root --name-only` names them), patch (as
+ * `git show --format=` prints it) and message (as `git log -1 --format=%B`), from one `git log`.
+ * Each commit's section starts with NUL, its name, NUL; its message ends at the next NUL, which a
+ * message cannot hold; then come its raw diff lines and its patch, up to the next commit's start,
+ * found by that commit's name.
+ * @param {string} cwd @param {string[]} commits oldest first, no merges, as commitsIn lists them
+ * @param {string[]} range what commitsIn listed them from
+ * @returns {Map<string, { changed: string[], patch: string, message: string }> | null} null when
+ *   the answer does not line up with the commits
+ */
+function readCommits(cwd, commits, range) {
+  /** @type {Map<string, { changed: string[], patch: string, message: string }>} */
+  const out = new Map();
+  if (!commits.length) return out;
+  const raw = git(cwd, [
+    'log',
+    '--reverse',
+    '--no-merges',
+    '--root',
+    '-r',
+    '--raw',
+    '-p',
+    ...PATCH,
+    '--format=%x00%H%x00%B%x00',
+    ...range,
+  ]);
+  let at = 0;
+  for (let i = 0; i < commits.length; i++) {
+    const c = commits[i];
+    const head = `\0${c}\0`;
+    if (!raw.startsWith(head, at)) return null;
+    const bodyStart = at + head.length;
+    const bodyEnd = raw.indexOf('\0', bodyStart);
+    if (bodyEnd < 0) return null;
+    const last = i + 1 === commits.length;
+    const next = last ? raw.length : raw.indexOf(`\0${commits[i + 1]}\0`, bodyEnd + 1);
+    if (next < 0) return null;
+    const lines = raw.slice(bodyEnd + 1, next).split('\n');
+    const diffAt = lines.findIndex((l) => l.startsWith('diff --git '));
+    const changed = (diffAt < 0 ? lines : lines.slice(0, diffAt))
+      .filter((l) => l.startsWith(':') && l.includes('\t'))
+      .map((l) => l.slice(l.indexOf('\t') + 1));
+    out.set(c, {
+      changed,
+      patch: diffAt < 0 ? '' : lines.slice(diffAt).join('\n'),
+      message: `${raw.slice(bodyStart, bodyEnd)}\n`,
+    });
+    at = next;
+  }
+  return out;
+}
+
+/**
+ * Check the commits from..to: a fixed number of git processes however many commits there are
+ * (the listing, one log with every commit's raw diff, patch and message, the last tree, and one
+ * read of the placement files).
  * @param {{ cwd: string, from?: string, to: string }} o
  * @returns {{ commits: number, findings: Finding[] }}
  */
 export function checkPublicRange(o) {
   const commits = commitsIn(o.cwd, o.from, o.to);
+  const range = isNull(o.from) ? ['-1', o.to] : [`${o.from}..${o.to}`];
+  const read = readCommits(o.cwd, commits, range);
+  /** @param {string} c */
+  const commitOf = (c) =>
+    read?.get(c) ?? {
+      changed: git(o.cwd, ['diff-tree', '-r', '--root', '--no-commit-id', '--name-only', c])
+        .split('\n')
+        .filter(Boolean),
+      patch: git(o.cwd, ['show', '--format=', ...PATCH, c]),
+      message: git(o.cwd, ['log', '-1', '--format=%B', c]),
+    };
+  const each = commits.map((c) => ({ c, ...commitOf(c) }));
+  const tree = git(o.cwd, ['ls-tree', '-r', '--name-only', o.to]).split('\n').filter(Boolean);
+  const head = git(o.cwd, ['rev-parse', o.to]).trim();
+  const files = readSpecs(o.cwd, [
+    ...each.flatMap((x) => x.changed.filter(placed).map((p) => `${x.c}:${p}`)),
+    ...tree.filter(placed).map((p) => `${head}:${p}`),
+  ]);
   /** @type {Finding[]} */
   const findings = [];
   /** @type {Set<string>} */
@@ -120,17 +237,13 @@ export function checkPublicRange(o) {
       findings.push(f);
     }
   };
-  for (const c of commits) {
-    const changed = git(o.cwd, ['diff-tree', '-r', '--root', '--no-commit-id', '--name-only', c])
-      .split('\n')
-      .filter(Boolean);
-    for (const f of placementIn(o.cwd, c, changed)) add(f);
-    for (const a of addedLines(o.cwd, c)) {
+  for (const { c, changed, patch, message } of each) {
+    for (const f of placementIn(c, changed, files)) add(f);
+    for (const a of addedLinesIn(patch)) {
       if (findEmails(a.text).length) {
         add({ commit: c, where: a.path, line: a.line, rule: 'email', message: EMAIL_MESSAGE });
       }
     }
-    const message = git(o.cwd, ['log', '-1', '--format=%B', c]);
     for (const e of findEmails(message)) {
       add({
         commit: c,
@@ -141,10 +254,8 @@ export function checkPublicRange(o) {
       });
     }
   }
-  const tree = git(o.cwd, ['ls-tree', '-r', '--name-only', o.to]).split('\n').filter(Boolean);
-  const head = git(o.cwd, ['rev-parse', o.to]).trim();
   // The tree's own copy is reported once, unless a commit in the range already named it.
-  for (const f of placementIn(o.cwd, head, tree)) {
+  for (const f of placementIn(head, tree, files)) {
     if (!findings.some((x) => x.where === f.where && x.rule === f.rule)) add(f);
   }
   return { commits: commits.length, findings };

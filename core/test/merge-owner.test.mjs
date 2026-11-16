@@ -37,7 +37,7 @@ async function ownerConsumer(mode = 'owner', o = {}) {
       merge: {
         mode,
         fast_checks: ['test ! -f bad.txt'],
-        full_suite: ["node --test 'test/*.test.js'"],
+        full_suite: ['node --test "test/*.test.js"'],
         ...(o.merge ?? {}),
       },
     },
@@ -114,7 +114,7 @@ test('owner mode: hitld merge checks first; the red branch goes back and only th
   assert.equal(w1.branch, branches['W-1']);
   assert.equal(w1.branch_sha, git(c.root, 'rev-parse', branches['W-1']));
   assert.deepEqual(w1.checks.fast_checks, ['test ! -f bad.txt']);
-  assert.deepEqual(w1.checks.suite, ["node --test 'test/*.test.js'"]);
+  assert.deepEqual(w1.checks.suite, ['node --test "test/*.test.js"']);
   assert.deepEqual(w1.changed, ['src/calc.js', 'work/items/W-1-add-numbers.md']);
   // The tracker edit is expected; the source change is inside touches.
   assert.deepEqual(w1.outside_touches, []);
