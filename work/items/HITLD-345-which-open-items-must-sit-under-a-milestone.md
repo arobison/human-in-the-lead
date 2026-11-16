@@ -23,7 +23,7 @@ Which open work items must sit under a milestone?
 - A. All items: Every open item is placed in a milestone or a new milestone is created for it, in the owner's words: All items either are placed in a milestone or a new milestone is created for them.
 - B. Another way: The owner's own words decide.
 
-Recommended: All items. The chief of staff's recommendation, which the owner chose.
+Recommended: Planned items only (the chief of staff's recommendation: it leaves the proposed ideas free until they are committed). The owner chose all items, in their own words.
 
 ## Answer
 
