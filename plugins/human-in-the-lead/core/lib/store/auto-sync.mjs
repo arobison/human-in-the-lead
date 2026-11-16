@@ -30,6 +30,7 @@ import { ownerCheckoutOf } from '../env/primary.mjs';
 import { loadPolicy } from '../policy/policy.mjs';
 import { privateStorePath } from './store.mjs';
 import { NO_ADDRESS, chooseRemote } from './address.mjs';
+import { UNREACHABLE_CODES, cause, causesLine, failureCauses } from './reach.mjs';
 
 /**
  * @typedef {object} SyncContext
@@ -51,12 +52,14 @@ import { NO_ADDRESS, chooseRemote } from './address.mjs';
  *   and policy.json store.remote.required is true)
  * @property {{ code: string, message: string, conflicts?: unknown }} [error] unreachable or
  *   failed: what went wrong
+ * @property {import('./reach.mjs').Cause[]} [causes] unreachable, failed, or skipped for want of
+ *   a key or an address: which named causes apply and what fixes each (reach.mjs)
  * @property {{ url: string, source: string }} [remote]
  * @property {string} line one line saying what happened, for a hook to print
  */
 
 /** Remote codes that mean the remote could not be reached, as opposed to it answering badly. */
-const UNREACHABLE = new Set(['remote-unreachable', 'remote-git-failed']);
+const UNREACHABLE = UNREACHABLE_CODES;
 
 /**
  * The sync context of the project a command or hook runs in, from its policy.json.
@@ -84,18 +87,21 @@ export function contextFromCwd(cwd, env, now, store) {
 /**
  * @param {SyncReport['action']} action @param {NonNullable<SyncReport['reason']>} reason
  * @param {string} why
+ * @param {import('./reach.mjs').Cause[]} [causes]
  * @returns {SyncReport}
  */
-const skipped = (action, reason, why) => ({
+const skipped = (action, reason, why, causes) => ({
   action,
   status: 'skipped',
   reason,
+  ...(causes ? { causes } : {}),
   line: `store ${action} skipped: ${why}`,
 });
 
 /**
  * @param {SyncReport['action']} action @param {unknown} e
- * @param {{ conflicts?: unknown }} [more]
+ * @param {{ conflicts?: unknown, env?: NodeJS.ProcessEnv, url?: string | null, devices?: { identity: string | null, enrolled: boolean } | null }} [more]
+ *   env and devices: to name the cause of an unreachable remote or a key that does not open it
  * @returns {SyncReport}
  */
 function problem(action, e, more = {}) {
@@ -103,27 +109,34 @@ function problem(action, e, more = {}) {
     typeof (/** @type {any} */ (e)?.code) === 'string' ? /** @type {any} */ (e).code : 'failed';
   const message = e instanceof Error ? e.message : String(e);
   const unreachable = UNREACHABLE.has(code);
+  const causes = more.env
+    ? failureCauses(
+        { code, message },
+        { env: more.env, url: more.url ?? null, devices: more.devices ?? null },
+      )
+    : [];
+  const named = causes.length ? `${causesLine(causes)}. ` : '';
   return {
     action,
     status: unreachable ? 'unreachable' : 'failed',
     error: { code, message, ...(more.conflicts ? { conflicts: more.conflicts } : {}) },
+    ...(causes.length ? { causes } : {}),
     line: unreachable
-      ? `store ${action}: the remote could not be reached (${message}); working on the local store`
-      : `store ${action} failed (${code}): ${message}`,
+      ? `store ${action}: the remote could not be reached (${causes[0]?.cause ?? message}). ${named}Working on the local store`
+      : `store ${action} failed (${code}): ${message}${named ? `. ${named.trimEnd()}` : ''}`,
   };
 }
 
 /**
  * A pull or push that came back not ok (a merge conflict): a failure with the conflict's paths.
  * @param {SyncReport['action']} action @param {Record<string, any>} result
+ * @param {SyncContext} c
  */
-const refused = (action, result) =>
+const refused = (action, result, c) =>
   problem(
     action,
     Object.assign(new Error(String(result.message)), { code: String(result.error) }),
-    {
-      conflicts: result.conflicts,
-    },
+    { conflicts: result.conflicts, env: c.env },
   );
 
 /**
@@ -145,6 +158,7 @@ async function prepare(action, c) {
             action,
             'remote-required',
             `policy.json store.remote.required is true, and ${NO_ADDRESS}`,
+            [cause('no-remote')],
           )
         : skipped(action, 'no-remote', 'no store remote is configured'),
     };
@@ -160,6 +174,7 @@ async function prepare(action, c) {
         action,
         'no-identity',
         'this device has no key (hitld store device init, or HITLD_STORE_IDENTITY)',
+        [cause('device-no-key')],
       ),
     };
   }
@@ -173,15 +188,21 @@ async function prepare(action, c) {
  * @returns {Promise<SyncReport>}
  */
 export async function autoPull(c) {
+  /** @type {{ identity: string | null, enrolled: boolean } | null} */
+  let devices = null;
+  /** @type {string | null} */
+  let remoteUrl = null;
   try {
     const p = await prepare('pull', c);
     if (p.skip) return p.skip;
+    devices = p.here;
+    remoteUrl = p.url;
     const { pp, here, remote, url, source, projectId } = p;
     const result = /** @type {Record<string, any>} */ (
       await pp.pullStore({ root: c.store, projectId, remote, url, devices: here })
     );
     if (!result.ok) {
-      return refused('pull', result);
+      return refused('pull', result, c);
     }
     const what = String(result.result);
     return {
@@ -198,7 +219,7 @@ export async function autoPull(c) {
       }`,
     };
   } catch (e) {
-    return problem('pull', e);
+    return problem('pull', e, { env: c.env, url: remoteUrl, devices });
   }
 }
 
@@ -209,9 +230,15 @@ export async function autoPull(c) {
  * @returns {Promise<SyncReport>}
  */
 export async function autoPush(c) {
+  /** @type {{ identity: string | null, enrolled: boolean } | null} */
+  let devices = null;
+  /** @type {string | null} */
+  let remoteUrl = null;
   try {
     const p = await prepare('push', c);
     if (p.skip) return p.skip;
+    devices = p.here;
+    remoteUrl = p.url;
     const { pp, lookup, remote, url, source, projectId } = p;
     const result = /** @type {Record<string, any>} */ (
       await pp.pushStore({
@@ -225,7 +252,7 @@ export async function autoPush(c) {
       })
     );
     if (!result.ok) {
-      return refused('push', result);
+      return refused('push', result, c);
     }
     const what = String(result.result);
     return {
@@ -239,7 +266,7 @@ export async function autoPush(c) {
     if (/** @type {any} */ (e)?.code === 'nothing-to-push') {
       return skipped('push', 'nothing-to-push', 'the store holds no text yet');
     }
-    return problem('push', e);
+    return problem('push', e, { env: c.env, url: remoteUrl, devices });
   }
 }
 
@@ -268,8 +295,9 @@ export class SyncRefused extends Error {
   /** @param {string} command @param {SyncReport} report */
   constructor(command, report) {
     const e = report.error ?? { code: 'failed', message: 'the pull failed' };
+    const named = report.causes?.length ? ` (${causesLine(report.causes)})` : '';
     super(
-      `hitld ${command} stopped: the store remote answered, but its head could not be used (${e.code}): ${e.message}. Fix that and run it again, or pass --no-sync to go on with the local store`,
+      `hitld ${command} stopped: the store remote answered, but its head could not be used (${e.code}): ${e.message}${named}. Fix that and run it again, or pass --no-sync to go on with the local store`,
     );
     this.name = 'SyncRefused';
     this.code = 'store-pull-refused';

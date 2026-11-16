@@ -32,7 +32,7 @@ Where nothing can start a session, you cannot be a separate chief of staff: foll
 
 ## 0. Before the first orchestrator
 
-Run the first-run setup with the owner here (the orchestrate skill, step 0), because it needs the owner's answers. Never ask an orchestrator to do it.
+Run the first-run setup with the owner here (the orchestrate skill, step 0), the store check included, because it needs the owner's answers. Never ask an orchestrator to do it. The store check here covers this session only: each orchestrator makes its own in its own container.
 
 ## 1. Start an orchestrator
 
@@ -49,6 +49,8 @@ Run the first-run setup with the owner here (the orchestrate skill, step 0), bec
    ```
 
    `--live` lists the tier-3 sessions you started that are still running (`own_sessions` in `hitld run status`, less those that have ended). Nothing else: background work of an earlier orchestrator reported to it alone.
+
+   **Repositories.** The orchestrator needs the project repository and the store repository. `create_session` attaches one repository at start (`source_url`): give it the project repository, and pass the attach tool in `extra_allowed_tools` (`mcp__claude-code-remote__add_repo`; a grant this session does not hold is dropped), so the orchestrator attaches the store repository in its store check without a prompt. No session can attach a repository to another one. When the orchestrator says the attach was refused, tell the owner in one line, naming it "the store repository": only the owner can attach it, by approving the attach in that session, or by starting the orchestrator session themselves with both repositories selected and giving you its session ID. Start no work until its store check passes, or the owner says in their own message to go on without the store: then record that choice (`hitld rights record`) and wake the orchestrator with `store: go on without it`.
 3. Tell the owner in one line which orchestrator now runs the work.
 
 ## 2. Each wake

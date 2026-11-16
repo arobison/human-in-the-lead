@@ -116,6 +116,7 @@ hitld store device list
 - `device.enrolled`: `true`, `device.opens_remote`: `true` (this device's key opens the remote's head), and `device.recipients`: the number of devices you approved;
 - `devices.requests`: requests not yet put to you, and `devices.decisions`: questions waiting for your answer, each with the command that answers it;
 - `push_due` and `pull_due`: `false` once the device has synced. `pull_due: true` means the remote has something this device has not merged; run `hitld store pull`. `remote_error` is set, and `pull_due` is `null`, when the remote cannot be reached.
+- `sync.ready`: `true` when the store syncs here: the remote is read and this device's key opens it. `local_only` is `true` on a machine with no address where none is required. When `ready` is `false`, `sync.causes` names each cause that applies, with what fixes it (below).
 
 `store device list` shows the same devices, each marked `approved`, `requested` or `waiting-for-owner`, which one is this device, and `rotation.pending`.
 
@@ -144,13 +145,29 @@ If a pull is refused with `age-no-match`, the file on the remote was pushed befo
 | `lease-held` | The ledger shows another machine took the run's lease and never released it | See below |
 | `nothing-to-push` | The store holds no text yet | Record something first: start a run, then checkpoint |
 | `conflict` | The two stores changed the same file in ways that cannot merge | The result names the paths. Nothing was merged or pushed |
-| `remote-unreachable` | The store repository cannot be reached | A run starts or resumes on the local store and says so. The next push carries the work |
+| `remote-unreachable` | The store repository cannot be reached | A run starts or resumes on the local store and says so, with the cause (below). The next push carries the work |
 | `remote-url-invalid` | The address is not `https`, `ssh`, a scp-style path or an absolute path, or it holds a password | Fix the address |
 | `no-remote` | No address is set here | Step 3, or `HITLD_STORE_REMOTE` in a cloud environment |
 | `device-no-keychain` | This machine has no keychain `hitld` can store a key in | Use step 7's way of making a key |
 | `not-permitted` | An executor, or a linked worktree, ran a store command | Run it as yourself, in the primary checkout |
 
 **`lease-held`.** The run lease is the lock across machines. When a pull shows that another machine took the lease and never released it, `hitld` refuses to start or resume, however old the lease is, because a dead session cannot be told from a working one. The message names the holder. The way on is the holder's `hitld handover`, which pushes after it releases the lease; or `hitld run retire --holder <session>` when you know that session is gone; or your own `--force` on `run resume` (`--replace` on `run start`).
+
+## When the store does not sync
+
+`hitld run start`, `hitld run resume`, the session hooks and `hitld store status` name the cause in `causes` (`sync.causes` in the status), each with `cause`, `message` and `fix`. Git's own words, which can hold the address, stay in `error.message`.
+
+| `cause` | What it means | What to do |
+|---|---|---|
+| `repository-not-attached` | A cloud session has no access to the store repository: it was not attached when the session started | Attach it: `add_repo` in that session, or start the session with both repositories selected. Another session cannot attach it for this one, and when the harness refuses the attach, only you can |
+| `no-credentials` | Git has no sign-in for the store repository's host | Sign in through git: a credential helper or an ssh key |
+| `repository-not-found` | The host says there is no such repository, or the account git signs in with cannot read it | Check the address with `hitld store remote show` and the account's access |
+| `host-unreachable` | No network, a proxy refused the host, or its name does not resolve | Check the network. In a cloud environment, add the host to the allowed hosts |
+| `remote-failed` | Git failed for another reason | Read `error.message` |
+| `no-remote` | No address is set in a cloud session, or where `store.remote.required` is true | Step 3, or `HITLD_STORE_REMOTE` in the cloud environment |
+| `device-no-key` | This device has no key | Step 4 or 7 |
+| `device-not-enrolled` | The remote's head does not open with this device's key | Approve it (step 9) and push from an approved device (step 10) |
+| `device-not-pulled` | The remote could not be read, and this copy of the store holds no approval of this device. A new container shows this even for an approved device | Fix the remote's cause; the next pull brings the approval in |
 
 ## Removing a device
 
