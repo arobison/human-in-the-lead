@@ -16,7 +16,7 @@ import {
   tokensByItem,
 } from '../lib/tracker/files/milestones.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
-import { milestoneFacts } from '../lib/tracker/files/views.mjs';
+import { compareVersions, milestoneFacts } from '../lib/tracker/files/views.mjs';
 import {
   buildReport,
   renderHtml,
@@ -1032,4 +1032,88 @@ test('proposals: whole proposed projects first, then lone milestones; other wait
   );
   // Nothing committed is left, so the board has only the release lane.
   assert.match(html, /0 milestones in 1 lanes/);
+});
+
+test('versions order as semantic versions: numbers by value, a pre-release before its release', () => {
+  assert.deepEqual(
+    ['1.0.0', '0.1.0', '0.1.0-rc.10', '0.1.0-rc.2', '0.0.9', '0.1.0-rc.1'].sort(compareVersions),
+    ['0.0.9', '0.1.0-rc.1', '0.1.0-rc.2', '0.1.0-rc.10', '0.1.0', '1.0.0'],
+  );
+});
+
+test('release flags: a done release before the first step, open ones after what they need, in version order', () => {
+  // As on this repository's tracker: a done pre-release that needs only items (rc.1), an open
+  // pre-release that needs a milestone (rc.2 needs W-1, at the second step), and the release
+  // (0.1.0), which needs both pre-releases and an item of W-7 (the first step).
+  const root = graphRepo();
+  const gate = (/** @type {Record<string, string | string[]>} */ f) =>
+    itemText({ kind: 'work', project: 'W-2', ...f });
+  put(root, {
+    'work/items/W-10-ship-it.md': gate({
+      id: 'W-10',
+      title: 'Release 0.1.0',
+      state: 'planned',
+      release: '0.1.0',
+      needs: ['W-5', 'W-11', 'W-12'],
+    }),
+    'work/items/W-11-rc-1.md': gate({
+      id: 'W-11',
+      title: 'Release 0.1.0-rc.1',
+      state: 'done',
+      release: '0.1.0-rc.1',
+      needs: ['W-3'],
+    }),
+    'work/items/W-12-rc-2.md': gate({
+      id: 'W-12',
+      title: 'Release 0.1.0-rc.2',
+      state: 'planned',
+      release: '0.1.0-rc.2',
+      needs: ['W-1'],
+    }),
+  });
+  commitAll(root, 'release gates');
+  const t = open(root);
+  assert.deepEqual(t.check().problems, []);
+  const mg = t.milestoneGraph();
+  assert.deepEqual(
+    mg.releases.map((r) => [r.release, r.state, r.layer, r.milestones]),
+    [
+      // rc.1 needs W-3, a constraint of W-8; done, it stands before the first step all the same.
+      ['0.1.0-rc.1', 'done', -1, ['W-8']],
+      // rc.2 needs W-1, at the second step (layer 1).
+      ['0.1.0-rc.2', 'planned', 1, ['W-1']],
+      // 0.1.0 needs W-7 (layer 0), but never stands left of rc.2, which it needs.
+      ['0.1.0', 'planned', 1, ['W-7']],
+    ],
+  );
+  const html = renderMilestoneSection(mg);
+  /** @type {Record<string, { x: number, y: number, text: string }>} */
+  const flags = {};
+  for (const m of html.matchAll(
+    /<g class="mg-flag \w+"><title>Release gate (\S+): (W-\d+)[^<]*<\/title><line x1="([\d.]+)" x2="[\d.]+" y1="([\d.]+)"[^]*?<text [^>]*>([^<]*)<\/text><\/g>/g,
+  )) {
+    flags[m[1]] = { x: Number(m[3]), y: Number(m[4]), text: m[5] };
+  }
+  // Where the first step's column starts: its label is centered over its 230-wide nodes.
+  const stepOne =
+    Number(/<text class="mg-step" x="([\d.]+)"[^>]*>Step 1</.exec(html)?.[1]) - 230 / 2;
+  assert.ok(flags['0.1.0-rc.1'].x < stepOne, 'the done release is left of the first step');
+  assert.ok(flags['0.1.0-rc.1'].x < flags['0.1.0-rc.2'].x, 'rc.1 left of rc.2');
+  assert.ok(flags['0.1.0-rc.2'].x < flags['0.1.0'].x, 'rc.2 left of 0.1.0');
+  // Each on its own row, labeled by its version alone; the item stays in the tooltip.
+  assert.equal(new Set(Object.values(flags).map((f) => f.y)).size, 3);
+  assert.deepEqual(
+    Object.values(flags).map((f) => f.text),
+    ['0.1.0-rc.1', '0.1.0-rc.2', '0.1.0'],
+  );
+  assert.match(
+    html,
+    /<title>Release gate 0\.1\.0: W-10 Release 0\.1\.0 \(Planned\); after W-7<\/title>/,
+  );
+  // The board is wide enough for every label.
+  const width = Number(/<svg class="mg" width="(\d+)"/.exec(html)?.[1]);
+  for (const f of Object.values(flags)) assert.ok(f.x + 16 + f.text.length * 7 <= width);
+  // A done release's rule stays in the Releases lane; an open one's runs down the board.
+  assert.match(html, /<g class="mg-rule done"><line class="mg-rule-top" [^>]*\/><\/g>/);
+  assert.equal((html.match(/<line class="mg-rule-down"/g) ?? []).length, 2);
 });

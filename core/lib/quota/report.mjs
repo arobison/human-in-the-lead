@@ -292,10 +292,24 @@ export function renderMilestoneSection(mg) {
     ...mg.releases.map((r) => r.layer + 1),
   );
   const colX = (/** @type {number} */ step) => LABEL + GX / 2 + step * (W + GX);
-  // Room for the last release's flag text, which runs right of its line.
+  // Release flags, in the model's order (by step, then version). A done release stands at the
+  // left edge, before the first step; an open one just after its step's milestones. Releases at
+  // the same place stand a little apart, earlier versions to the left; each has its own row, so
+  // no label covers another.
+  /** @type {Map<number, number>} */
+  const atStep = new Map();
+  /** @type {Map<string, number>} */
+  const flagX = new Map();
+  for (const r of mg.releases) {
+    const k = atStep.get(r.layer) ?? 0;
+    atStep.set(r.layer, k + 1);
+    flagX.set(r.id, (r.layer < 0 ? LABEL + 8 : colX(r.layer) + W + 10) + k * 14);
+  }
+  const label = (/** @type {string} */ v) => Math.ceil(v.length * 7) + 24;
+  // Room for every release's label, which runs right of its flag.
   const width = Math.max(
     colX(steps) - GX / 2,
-    ...mg.releases.map((r) => colX(r.layer) + W + 10 + 230),
+    ...mg.releases.map((r) => /** @type {number} */ (flagX.get(r.id)) + label(r.release)),
   );
 
   // Each lane's height: its fullest step.
@@ -306,15 +320,10 @@ export function renderMilestoneSection(mg) {
   /** @type {Map<string, { x: number, y: number }>} */
   const flagAt = new Map();
   if (mg.releases.length) {
-    /** @type {number[]} */
-    const filled = [];
-    for (const r of mg.releases) {
-      const k = filled[r.layer] ?? 0;
-      filled[r.layer] = k + 1;
-      // The flag and its line stand just after the step's milestones, one line apart per release.
-      flagAt.set(r.id, { x: colX(r.layer) + W + 10 + k * 6, y: top + PAD + k * FLAG });
+    for (const [row, r] of mg.releases.entries()) {
+      flagAt.set(r.id, { x: /** @type {number} */ (flagX.get(r.id)), y: top + PAD + row * FLAG });
     }
-    const height = PAD * 2 + Math.max(...filled.filter((x) => x !== undefined)) * FLAG;
+    const height = PAD * 2 + mg.releases.length * FLAG;
     lanes.push({ title: 'Releases', top, height, release: true });
     top += height;
   }
@@ -439,20 +448,21 @@ export function renderMilestoneSection(mg) {
 
   const releaseLane = lanes.find((l) => l.release);
   const releaseBottom = releaseLane ? releaseLane.top + releaseLane.height : 0;
-  // Each release's rule runs down through the milestone lanes, behind the boxes: in the flag's
-  // color within the Releases lane, then dashed and muted, so what lands before it is to its left.
+  // Each open release's rule runs down through the milestone lanes, behind the boxes: in the
+  // flag's color within the Releases lane, then dashed and muted, so what lands before it is to its
+  // left. A done release's rule stays in the Releases lane: nothing on the board lands before it.
   const rules = mg.releases
     .map((r) => {
       const { x, y } = /** @type {{ x: number, y: number }} */ (flagAt.get(r.id));
-      return `<g class="mg-rule ${r.state === 'done' ? 'done' : 'open'}"><line class="mg-rule-top" x1="${x}" x2="${x}" y1="${y + 12}" y2="${releaseBottom}"/><line class="mg-rule-down" x1="${x}" x2="${x}" y1="${releaseBottom}" y2="${height}"/></g>`;
+      const done = r.state === 'done';
+      return `<g class="mg-rule ${done ? 'done' : 'open'}"><line class="mg-rule-top" x1="${x}" x2="${x}" y1="${y + 12}" y2="${releaseBottom}"/>${done ? '' : `<line class="mg-rule-down" x1="${x}" x2="${x}" y1="${releaseBottom}" y2="${height}"/>`}</g>`;
     })
     .join('');
   const flags = mg.releases
     .map((r) => {
       const { x, y } = /** @type {{ x: number, y: number }} */ (flagAt.get(r.id));
-      const text = cut(`${r.release}: ${r.id} ${r.title}`, 34);
       const before = r.milestones.length ? `; after ${r.milestones.join(', ')}` : '';
-      return `<g class="mg-flag ${r.state === 'done' ? 'done' : 'open'}"><title>${esc(`Release gate ${r.release}: ${r.id} ${r.title} (${STATE_LABELS[r.state] ?? r.state})${before}`)}</title><line x1="${x}" x2="${x}" y1="${y + 2}" y2="${y + 14}"/><path d="M${x + 1} ${y + 2}L${x + 11} ${y + 6}L${x + 1} ${y + 10}z"/><text x="${x + 16}" y="${y + 11}">${esc(text)}</text></g>`;
+      return `<g class="mg-flag ${r.state === 'done' ? 'done' : 'open'}"><title>${esc(`Release gate ${r.release}: ${r.id} ${r.title} (${STATE_LABELS[r.state] ?? r.state})${before}`)}</title><line x1="${x}" x2="${x}" y1="${y + 2}" y2="${y + 14}"/><path d="M${x + 1} ${y + 2}L${x + 11} ${y + 6}L${x + 1} ${y + 10}z"/><text x="${x + 16}" y="${y + 11}">${esc(r.release)}</text></g>`;
     })
     .join('');
 

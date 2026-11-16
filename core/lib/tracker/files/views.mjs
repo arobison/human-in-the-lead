@@ -502,11 +502,49 @@ export function viewCriticalPath(g, top = 5) {
  * @property {{ id: string | null, title: string, state: string | null }[]} lanes long outcomes (id
  *   and state null), then each project with a milestone, in ID order
  * @property {{ id: string, title: string, release: string, state: string, layer: number, milestones: string[] }[]} releases
- *   work items with a `release` version (release gates), at the step of the first milestone that
- *   names them; else at the step of the last milestone they need; else after the last step.
- *   `milestones` are those that land before it: the milestones it needs, and those with an item
- *   constraint it needs
+ *   work items with a `release` version (release gates), in board order: by layer, then version.
+ *   A done release has layer -1 (before the first step); an open one the step of the last
+ *   milestone it needs, else the last step, and never less than an open release it needs; it
+ *   stands after that step. `milestones` are those that land before it: the milestones it needs,
+ *   and those with an item constraint it needs
  */
+
+/**
+ * Order two version strings as semantic versions do: by their numbers, a pre-release (1.0.0-rc.2)
+ * before its release (1.0.0), pre-release parts number by number. Anything else compares as text.
+ * @param {string} a @param {string} b
+ */
+export function compareVersions(a, b) {
+  const split = (/** @type {string} */ v) => {
+    const [core, ...pre] = v.replace(/^v/, '').split('-');
+    return { core: core.split('.'), pre: pre.length ? pre.join('-').split('.') : null };
+  };
+  /** @param {string[]} x @param {string[]} y */
+  const parts = (x, y) => {
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+      if (x[i] === undefined) return -1;
+      if (y[i] === undefined) return 1;
+      const nx = /^\d+$/.test(x[i]) ? Number(x[i]) : null;
+      const ny = /^\d+$/.test(y[i]) ? Number(y[i]) : null;
+      const c =
+        nx !== null && ny !== null
+          ? nx - ny
+          : nx !== null
+            ? -1
+            : ny !== null
+              ? 1
+              : x[i].localeCompare(y[i]);
+      if (c) return Math.sign(c);
+    }
+    return 0;
+  };
+  const va = split(a);
+  const vb = split(b);
+  const c = parts(va.core, vb.core);
+  if (c) return c;
+  if (!va.pre || !vb.pre) return va.pre ? -1 : vb.pre ? 1 : 0;
+  return parts(va.pre, vb.pre);
+}
 
 /** An item's weight on a critical path: its estimate, or 1 without one. @param {Node | undefined} it */
 const pathWeight = (it) => {
@@ -680,30 +718,56 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
         state: String(p.data.state),
       })),
   ];
-  const last = Math.max(0, ...nodes.map((n) => n.layer + 1));
-  const releases = g.items
-    .filter((it) => it.data.kind === 'work' && it.data.release !== undefined)
-    .map((it) => {
-      const id = String(it.data.id);
-      const at = nodes.filter((n) => n.items.some((i) => i.id === id)).map((n) => n.layer);
-      const needs = g.needs(it);
-      // What lands before it: a milestone it needs, or one with an item constraint it needs
-      // (a milestone that only contains a needed milestone is not itself needed).
-      const before = g.milestones.filter(
-        (m) =>
-          needs.includes(String(m.data.id)) ||
-          g.needs(m).some((x) => x !== id && !isM(x) && needs.includes(x)),
-      );
-      const after = before.map((m) => layers.get(String(m.data.id)) ?? 0);
-      return {
-        id,
-        title: String(it.data.title),
-        release: String(it.data.release),
-        state: String(it.data.state),
-        layer: at.length ? Math.min(...at) : after.length ? Math.max(...after) : last,
-        milestones: before.map((m) => String(m.data.id)),
-      };
-    });
+  // Release gates. A done release has happened: it stands before the first step (layer -1). An
+  // open one stands after the last milestone it needs (one it names, or one holding an item
+  // constraint it needs), else after the last step, and never left of an open release it needs.
+  const lastStep = Math.max(0, ...nodes.map((n) => n.layer));
+  const gates = g.items.filter((it) => it.data.kind === 'work' && it.data.release !== undefined);
+  const gateIds = new Set(gates.map((it) => String(it.data.id)));
+  /** @type {Map<string, number>} */
+  const gateLayer = new Map();
+  const drafts = gates.map((it) => {
+    const id = String(it.data.id);
+    const needs = g.needs(it);
+    // A milestone that only contains a needed milestone is not itself needed.
+    const before = g.milestones.filter(
+      (m) =>
+        needs.includes(String(m.data.id)) ||
+        g.needs(m).some((x) => x !== id && !isM(x) && needs.includes(x)),
+    );
+    const after = before.map((m) => layers.get(String(m.data.id)) ?? 0);
+    const done = it.data.state === 'done';
+    gateLayer.set(id, done ? -1 : after.length ? Math.max(...after) : lastStep);
+    return { it, id, needs, before, done };
+  });
+  // Push each open release right of the open releases it needs, until nothing moves.
+  for (let pass = 0; pass < gates.length; pass++) {
+    let moved = false;
+    for (const d of drafts) {
+      if (d.done) continue;
+      for (const n of d.needs.filter((x) => gateIds.has(x))) {
+        const need = gateLayer.get(n) ?? -1;
+        if (need > (gateLayer.get(d.id) ?? 0)) {
+          gateLayer.set(d.id, need);
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  const releases = drafts
+    .map((d) => ({
+      id: d.id,
+      title: String(d.it.data.title),
+      release: String(d.it.data.release),
+      state: String(d.it.data.state),
+      layer: /** @type {number} */ (gateLayer.get(d.id)),
+      milestones: d.before.map((m) => String(m.data.id)),
+    }))
+    .sort(
+      (a, b) =>
+        a.layer - b.layer || compareVersions(a.release, b.release) || a.id.localeCompare(b.id),
+    );
   return { nodes, edges, critical_path: path, lanes, releases };
 }
 
