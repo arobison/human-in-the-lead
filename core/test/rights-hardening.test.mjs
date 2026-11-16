@@ -4,8 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { answerDecision, askQuestion, overrule } from '../lib/rights/flow.mjs';
 import { enforceOffer } from '../lib/rights/offer.mjs';
@@ -17,6 +16,7 @@ import { main } from '../lib/cli/main.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
 import { mayAppearIn, moreRestrictedThan, rank } from '../lib/precedent/classification.mjs';
 import { makeProject } from './helpers/project.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** An area-owner question: novelty inside cache goes to C-3. */
 const areaQuestion = (/** @type {Record<string, any>} */ more = {}) =>
@@ -483,7 +483,7 @@ test('--file reads only inside the repository, never through MCP, and never echo
   writeFileSync(inside, q);
   assert.equal((await rights.run({ file: 'q.json' }, ctx)).decider, 'owner');
 
-  const outsideDir = mkdtempSync(join(tmpdir(), 'hitld-outside-'));
+  const outsideDir = tempDir('hitld-outside-');
   const outside = join(outsideDir, 'secret.json');
   writeFileSync(outside, '{"password": "hunter2" oops');
   await assert.rejects(rights.run({ file: outside }, ctx), /inside the repository/);

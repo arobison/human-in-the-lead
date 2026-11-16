@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { policyDefaults } from '../lib/policy/policy.mjs';
@@ -9,8 +8,9 @@ import { openStore } from '../lib/store/store.mjs';
 import { loadState } from '../lib/run/checkpoint.mjs';
 import { Run } from '../lib/run/run.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const dir = mkdtempSync(join(tmpdir(), 'hitld-ledger-cli-'));
+const dir = tempDir('hitld-ledger-cli-');
 const store = join(dir, 'store');
 
 /** @param {string[]} argv @param {NodeJS.ProcessEnv} [env] */
@@ -341,8 +341,8 @@ test('hitld: the host run start took holds for the session, and a host mismatch 
 });
 
 test("hitld: with a project policy, the store is the project's private store", async () => {
-  const repo = mkdtempSync(join(tmpdir(), 'hitld-ledger-repo-'));
-  const xdg = mkdtempSync(join(tmpdir(), 'hitld-ledger-xdg-'));
+  const repo = tempDir('hitld-ledger-repo-');
+  const xdg = tempDir('hitld-ledger-xdg-');
   const { mkdirSync, chmodSync, existsSync } = await import('node:fs');
   mkdirSync(join(repo, '.git'));
   mkdirSync(join(repo, '.human-in-the-lead'));

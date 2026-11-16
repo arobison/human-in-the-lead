@@ -4,14 +4,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ERROR_CODES, KEBAB_CASE, isErrorCode } from '../lib/cli/errors.mjs';
 import { COMMANDS } from '../lib/cli/table.mjs';
 import { main } from '../lib/cli/main.mjs';
 import { REMOTE_ERROR_CODES } from '../lib/store/remote.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const LIB = join(ROOT, 'core/lib');
@@ -113,7 +113,7 @@ test('one meaning, one code: the old synonyms are gone', () => {
  * @param {string} cwd
  */
 async function failuresIn(cwd) {
-  const home = mkdtempSync(join(tmpdir(), 'hitld-err-home-'));
+  const home = tempDir('hitld-err-home-');
   /** @type {Array<{ command: string, error: unknown }>} */
   const failures = [];
   for (const c of COMMANDS) {
@@ -139,8 +139,8 @@ async function failuresIn(cwd) {
 }
 
 test('the codes the command table returns with no input are in the map', async () => {
-  const plain = mkdtempSync(join(tmpdir(), 'hitld-err-plain-'));
-  const repo = mkdtempSync(join(tmpdir(), 'hitld-err-repo-'));
+  const plain = tempDir('hitld-err-plain-');
+  const repo = tempDir('hitld-err-repo-');
   execFileSync('git', ['init', '-q', repo]);
   const seen = new Set();
   for (const cwd of [plain, repo]) {

@@ -4,8 +4,6 @@
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { askedKey, checkCode, recordChoice } from '../lib/rights/flow.mjs';
@@ -18,6 +16,7 @@ import { makeCommands } from '../lib/cli/commands/rights.mjs';
 import { EXIT } from '../lib/cli/main.mjs';
 import { makeProject } from './helpers/project.mjs';
 import { git, item, makeConsumer } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const HOOKS = fileURLToPath(new URL('../harness/claude-code/hooks/', import.meta.url));
 
@@ -301,7 +300,7 @@ test("rights record is refused outside the owner's turn, and writes nothing", as
   );
 
   // The owner's own session runs it.
-  const nowhere = mkdtempSync(join(tmpdir(), 'hitld-owner-'));
+  const nowhere = tempDir('hitld-owner-');
   const owner = /** @type {any} */ (await record?.run?.(input, { cwd: nowhere, env: {} }));
   assert.notEqual(owner.error, 'not-permitted');
 });

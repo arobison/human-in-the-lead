@@ -3,13 +3,11 @@ import assert from 'node:assert/strict';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repoOnMain } from './eval-git.mjs';
 import { main } from '../lib/cli/main.mjs';
@@ -17,8 +15,9 @@ import { COMMANDS } from '../lib/cli/table.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { acceptCommand, changesAgainst, renderEvalReport } from '../lib/eval/report.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-report-test-'));
+const tmp = () => tempDir('hitld-eval-report-test-');
 
 /** @param {Record<string, any>} o */
 const scenario = (o) => ({

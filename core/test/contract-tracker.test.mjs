@@ -95,10 +95,10 @@ test("the contract's claim and close steps, written by hand, are what the files 
 
 test('hitld install rewrites a contract block from before HITLD-82 (state: In progress, status, runs)', async () => {
   const { installBlock, renderBlock } = await import('../lib/contract/block.mjs');
-  const { mkdtempSync: mk, readFileSync: rd, writeFileSync: wr } = await import('node:fs');
-  const { tmpdir: td } = await import('node:os');
+  const { readFileSync: rd, writeFileSync: wr } = await import('node:fs');
   const { join: jn } = await import('node:path');
-  const dir = mk(jn(td(), 'hitld-contract-old-'));
+  const { tempDir } = await import('./helpers/tmp.mjs');
+  const dir = tempDir('hitld-contract-old-');
   const old = renderBlock()
     .replace('`state: in-progress`', '`state: In progress`')
     .replace('result: done | partial | blocked', 'status: done | partial | blocked')

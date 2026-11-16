@@ -6,7 +6,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -15,7 +14,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createServer, connect } from 'node:net';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
@@ -33,11 +31,12 @@ import { PRIMARY_KEY, readPrimaryCheckout, recordPrimaryCheckout } from '../lib/
 import { privateStorePath } from '../lib/store/store.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { main } from '../lib/cli/main.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const LOCKS_MJS = fileURLToPath(new URL('../lib/env/locks.mjs', import.meta.url));
 
 /** Everything the tests create is under one temporary directory, removed at the end. */
-const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-env-')));
+const tmp = realpathSync(tempDir('hitld-env-'));
 /** @type {Set<import('node:child_process').ChildProcess>} */
 const children = new Set();
 /** @type {Set<import('node:net').Server>} */
@@ -1479,7 +1478,7 @@ test('a directory on another device is a mount point: not descended, and the wor
 
 test('a holders file under its name before HITLD-82 (registry.json, with status) is still read', async () => {
   const { readRegistry } = await import('../lib/env/registry.mjs');
-  const store = openStore(mkdtempSync(join(tmpdir(), 'hitld-env-legacy-')));
+  const store = openStore(tempDir('hitld-env-legacy-'));
   store.write(
     'env/registry.json',
     JSON.stringify({

@@ -3,11 +3,11 @@
 // the repository.
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { buildConsumer, writeSetupDone } from '../lib/eval/orchestrator-fixtures.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** @param {string} cwd @param {...string} args */
 export const git = (cwd, ...args) =>
@@ -30,7 +30,7 @@ export { itemFile as item } from '../lib/eval/orchestrator-fixtures.mjs';
  *   setup: false leaves the person and machine files unwritten (first run not done)
  */
 export function makeConsumer(options = {}) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-orch-')));
+  const base = realpathSync(tempDir('hitld-orch-'));
   const root = buildConsumer(join(base, 'repo'), options);
   const data = join(base, 'data');
   /** @type {NodeJS.ProcessEnv} */
