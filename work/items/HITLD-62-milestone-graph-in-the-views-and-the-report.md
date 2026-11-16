@@ -7,6 +7,7 @@ created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-45]
 claimed_by: D-20
+release_note: "`hitld work views` writes milestones.md as a milestone graph (mermaid) with a table, and `hitld dashboard` shows the same graph as inline SVG, each milestone opening to its items."
 ---
 
 ## Why

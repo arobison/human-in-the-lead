@@ -68,8 +68,11 @@ import { listPlaces, loadPlaces, loadWorkTree, git, repoRootOf } from './tree.mj
 import {
   LIST_BEGIN,
   mermaidItems,
+  mermaidMilestones,
   mermaidProjects,
+  milestoneGraph,
   renderLists,
+  renderMilestonesView,
   replaceBetweenMarkers,
   viewBlocked,
   viewCriticalPath,
@@ -101,6 +104,9 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }) => { problems: string[], files: number }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
+ * @property {(options?: { tokens?: Map<string, number> }) => import('./views.mjs').MilestoneGraph} milestoneGraph
+ *   the milestone graph (design part 12.1.2); with tokens spent per item (from the ledger), each
+ *   node's tokens_spent, otherwise null
  * @property {(options?: { only?: string, dryRun?: boolean, commit?: boolean, migrations?: readonly import('./migrate.mjs').Migration[] }) => ReturnType<typeof migrateTracker>} migrate
  *   apply the registered format migrations to every file (idempotent; dryRun shows the diff)
  * @property {() => Entry[]} releases the release records
@@ -278,18 +284,42 @@ export function openTracker({
   /**
    * A milestone's derived fields.
    * @param {ReturnType<typeof contextOf>} ctx @param {Entry} it
+   * @param {Map<string, number>} [tokens] tokens spent per item, from the ledger
    */
-  const derivedOf = (ctx, it) => {
+  const derivedOf = (ctx, it, tokens) => {
     const d = /** @type {Record<string, unknown>} */ (it.data ?? {});
-    const m = readMilestone(d);
     return milestoneDerived(d, {
       get: (id) => ctx.g.get(id)?.data,
-      authorRoles: authorRoles([
-        ...ctx.g.needs(/** @type {any} */ (it)),
-        ...m.contributions.map((c) => c.id),
-      ]),
+      authorRoles: milestoneRoles(ctx, it),
+      tokens,
     });
   };
+
+  /**
+   * The roles that wrote a milestone's constraints and contributions.
+   * @param {ReturnType<typeof contextOf>} ctx @param {Entry} it
+   */
+  const milestoneRoles = (ctx, it) =>
+    authorRoles([
+      ...ctx.g.needs(/** @type {any} */ (it)),
+      ...readMilestone(/** @type {Record<string, unknown>} */ (it.data ?? {})).contributions.map(
+        (c) => c.id,
+      ),
+    ]);
+
+  /**
+   * The milestone graph over the tracker as it is now.
+   * @param {ReturnType<typeof contextOf>} ctx @param {Map<string, number>} [tokens]
+   */
+  const graphOf = (ctx, tokens) =>
+    milestoneGraph(ctx.g, {
+      checkOf: (m) => {
+        const d = /** @type {Record<string, unknown>} */ (m.data);
+        if (passingCheck(readMilestone(d), milestoneRoles(ctx, m))) return 'passed';
+        return derivedOf(ctx, m).check_due ? 'due' : 'not yet due';
+      },
+      tokensSpent: (m) => (tokens ? derivedOf(ctx, m, tokens).tokens_spent : null),
+    });
 
   /**
    * An entry's entity: the model's field names plus the stored keys that have none, the derived
@@ -780,8 +810,12 @@ export function openTracker({
         lists: renderLists(g),
         'items-graph': mermaidItems(g),
         'projects-graph': mermaidProjects(g),
+        'milestones-graph': mermaidMilestones(graphOf(ctx)),
       };
     },
+
+    /** The milestone graph; see milestoneGraph in views.mjs. */
+    milestoneGraph: ({ tokens } = {}) => graphOf(contextOf(), tokens),
 
     /**
      * Write the views as files. With `outDir` they go there (and nothing else is touched);
@@ -803,7 +837,6 @@ export function openTracker({
         decisions: { title: 'Decision backlog', fence: 'text' },
         projects: { title: 'Projects', fence: 'text' },
         'critical-path': { title: 'Critical path', fence: 'text' },
-        milestones: { title: 'Milestones', fence: 'text' },
         unreleased: { title: 'Merged, not released', fence: 'text' },
         'items-graph': { title: 'Item dependencies', fence: 'mermaid' },
         'projects-graph': { title: 'Project dependencies', fence: 'mermaid' },
@@ -829,6 +862,10 @@ export function openTracker({
         );
       }
       put('lists.md', `${header}\n# Item lists\n\n${texts.lists}`);
+      put(
+        'milestones.md',
+        `${header}\n# Milestones\n\n${renderMilestonesView(tracker.milestoneGraph(), texts.milestones)}`,
+      );
       for (const file of RETIRED_VIEWS) {
         const path = join(dir, file);
         if (!outDir && isRegularFile(path)) {

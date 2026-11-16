@@ -16,6 +16,8 @@ import {
   tokensByItem,
 } from '../lib/tracker/files/milestones.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
+import { buildReport, renderHtml, tokensPerItem } from '../lib/quota/report.mjs';
+import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import {
   commitAll,
@@ -585,4 +587,237 @@ test('scope ranks contributions by value times confidence per estimate token, fo
   // per token: W-6 0.08, W-4 0.04, W-5 0.005; the appetite holds two.
   assert.deepEqual(x.scope.fits, ['W-6', 'W-4']);
   assert.deepEqual(x.scope.cut, ['W-5']);
+});
+
+// --- The milestone graph (design part 12.1.2) -----------------------------------------------
+
+/**
+ * Three milestones and one `needs` between them: W-1, a long outcome, needs W-7; W-7 has two open
+ * constraints (W-4 with an estimate, W-5 without) and a contribution; W-8 is Done with a passed
+ * check.
+ */
+const graphRepo = () =>
+  makeRepo({
+    files: {
+      '.human-in-the-lead/tracker.json': JSON.stringify({
+        schema_version: 1,
+        optional_keys: ['estimate_tokens'],
+      }),
+      'work/projects/W-2-the-project.md': itemText({
+        id: 'W-2',
+        title: 'The project',
+        kind: 'project',
+        state: 'planned',
+        owner: 'owner',
+        appetite_tokens: '5000',
+      }),
+      'work/milestones/W-1-goal.md': itemText({
+        id: 'W-1',
+        title: 'The goal',
+        kind: 'milestone',
+        state: 'planned',
+        owner: 'owner',
+        outcome: 'Users trust their config. Second sentence.',
+        constraints: ['W-7 c?'],
+      }),
+      'work/items/W-4-second-step.md': itemText({
+        id: 'W-4',
+        title: 'Second step',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        needs: ['W-3'],
+        estimate_tokens: '300',
+      }),
+      'work/items/W-9-nice-to-have.md': itemText({
+        id: 'W-9',
+        title: 'Nice to have',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+      }),
+      'work/milestones/W-7-config-errors-explained.md': milestone({
+        appetite_tokens: '1000',
+        contributions: ['W-9 value=3 confidence=0.5'],
+      }),
+      'work/milestones/W-8-first-step-shown.md': itemText({
+        id: 'W-8',
+        title: 'First step shown',
+        kind: 'milestone',
+        state: 'done',
+        project: 'W-2',
+        outcome: 'The first step is shown.',
+        done_when: ['"c1: It is shown."'],
+        constraints: ['W-3 c1'],
+        check: 'demo the first step',
+        check_results: ['"pass 2026-11-10 reviewer: shown"'],
+      }),
+    },
+  });
+
+test('the milestone graph: nodes, the one edge, progress, the check and the critical path', () => {
+  const t = open(graphRepo());
+  assert.deepEqual(t.check().problems, []);
+  const mg = t.milestoneGraph();
+  assert.deepEqual(
+    mg.nodes.map((n) => [n.id, n.state, n.constraints, n.check, n.remaining_tokens, n.critical]),
+    [
+      ['W-1', 'planned', { done: 0, total: 1 }, 'not yet due', 0, true],
+      ['W-7', 'planned', { done: 0, total: 2 }, 'not yet due', 301, true],
+      ['W-8', 'done', { done: 1, total: 1 }, 'passed', 0, false],
+    ],
+  );
+  // A constraint that names an item is not an edge; the one between milestones is.
+  assert.deepEqual(mg.edges, [{ from: 'W-7', to: 'W-1', critical: true }]);
+  assert.deepEqual(mg.critical_path, ['W-7', 'W-1']);
+  const w7 = /** @type {any} */ (mg.nodes[1]);
+  assert.equal(w7.outcome, 'A user with a bad config sees which key is wrong.');
+  assert.equal(w7.appetite_tokens, 1000);
+  assert.equal(w7.tokens_spent, null, 'the views do not read the ledger');
+  assert.deepEqual(
+    w7.items.map((/** @type {any} */ i) => [i.id, i.role, i.state, i.critical]),
+    [
+      ['W-4', 'constraint', 'planned', true],
+      ['W-5', 'constraint', 'planned', true],
+      ['W-9', 'contribution', 'planned', false],
+    ],
+  );
+  assert.deepEqual([mg.nodes[0].layer, mg.nodes[1].layer, mg.nodes[2].layer], [1, 0, 0]);
+  // With tokens from the ledger, over constraints and contributions.
+  const spent = t.milestoneGraph({
+    tokens: new Map([
+      ['W-4', 120],
+      ['W-9', 30],
+      ['W-3', 50],
+    ]),
+  });
+  assert.deepEqual(
+    spent.nodes.map((n) => n.tokens_spent),
+    [0, 150, 50],
+  );
+});
+
+test('no critical path when no open milestone has estimate tokens remaining', () => {
+  const t = open(makeRepo());
+  const mg = t.milestoneGraph();
+  assert.deepEqual(mg.critical_path, []);
+  assert.deepEqual(mg.edges, []);
+  assert.equal(mg.nodes[0].check, 'due', 'W-1 has no constraints left and no passed check');
+});
+
+test('views: milestones.md is the graph and the table; items-graph.md is unchanged', () => {
+  const root = graphRepo();
+  const t = open(root);
+  const before = t.renderViewTexts();
+  t.writeViews();
+  const text = readFileSync(join(root, 'work', 'views', 'milestones.md'), 'utf8');
+  assert.equal(
+    text.split('\n```text\n')[0],
+    [
+      '<!-- Generated by `hitld work views`. Never edit by hand. -->',
+      '',
+      '# Milestones',
+      '',
+      '```mermaid',
+      'graph LR',
+      '  W_1["W-1 The goal<br/>Users trust their config.<br/>constraints 0 of 1 done<br/>— tokens, no appetite set<br/>check not yet due"]:::open',
+      '  W_7["W-7 Config errors explained<br/>A user with a bad config sees which key is wrong.<br/>constraints 0 of 2 done<br/>— of 1000 tokens<br/>check not yet due"]:::open',
+      '  W_8["W-8 First step shown<br/>The first step is shown.<br/>constraints 1 of 1 done<br/>— tokens, no appetite set<br/>check passed"]:::done',
+      '  W_7 ==> W_1',
+      '  classDef open fill:#fff,stroke:#333',
+      '  classDef done fill:#ddd,color:#666,stroke:#999',
+      '  classDef dropped fill:#eee,color:#999,stroke:#ccc,stroke-dasharray:3',
+      '  classDef proposed fill:#fff,stroke:#333,stroke-dasharray:4',
+      '  classDef critical stroke:#b3261e,stroke-width:3px',
+      '  class W_7,W_1 critical',
+      '```',
+      '',
+      'Critical path (thick edges, red outline): W-7 → W-1.',
+      '',
+      '| Milestone | State | Outcome | Constraints | Tokens spent | Check | Constraints and their state | Contributions and their state |',
+      '|---|---|---|---|---|---|---|---|',
+      '| W-1 The goal (critical path) | Planned | Users trust their config. Second sentence. | 0 of 1 done | — tokens, no appetite set | not yet due | W-7 Planned | — |',
+      '| W-7 Config errors explained (critical path) | Planned | A user with a bad config sees which key is wrong. | 0 of 2 done | — of 1000 tokens | not yet due | W-4 Planned (critical path), W-5 Planned (critical path) | W-9 Planned |',
+      '| W-8 First step shown | Done | The first step is shown. | 1 of 1 done | — tokens, no appetite set | passed | W-3 Done | — |',
+      '',
+      'Tokens spent come from the ledger in the private store, so this view shows — for them; `hitld dashboard` shows the figures. The item graph is in [items-graph.md](items-graph.md).',
+      '',
+      '## Unmet clauses, scope and shaping',
+      '',
+    ].join('\n'),
+  );
+  assert.ok(text.includes(before.milestones), 'the text view follows the table');
+  assert.equal(before['milestones-graph'], text.split('```mermaid\n')[1].split('```')[0]);
+  // items-graph.md is the item graph alone, as before: no milestone in it.
+  const items = readFileSync(join(root, 'work', 'views', 'items-graph.md'), 'utf8');
+  assert.equal(
+    items,
+    `<!-- Generated by \`hitld work views\`. Never edit by hand. -->\n\n# Item dependencies\n\n\`\`\`mermaid\n${before['items-graph']}\`\`\`\n`,
+  );
+  assert.doesNotMatch(items, /W_[178]\b/);
+});
+
+test('hitld dashboard adds the graph to its page as inline SVG; each node opens to its items with no script', async () => {
+  const root = graphRepo();
+  settings(root);
+  const r = await hitld(
+    ['dashboard', '--out', 'out', '--json', '--now', '2026-11-16T12:00:00Z'],
+    root,
+  );
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  assert.equal(r.json.warnings, undefined);
+  assert.deepEqual(r.json.report.milestones.critical_path, ['W-7', 'W-1']);
+  assert.deepEqual(
+    r.json.report.milestones.nodes.map((/** @type {any} */ n) => n.tokens_spent),
+    [0, 0, 0],
+    'an empty ledger: nothing spent',
+  );
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  assert.doesNotMatch(html, /<script|https?:\/\/|@import|url\(|<link|src=/i);
+  assert.match(html, /<h2 id="milestones">Milestones<\/h2>/);
+  assert.match(
+    html,
+    /<svg class="mg" [^>]*aria-label="Milestone graph: 3 milestones, 1 needs between them"/,
+  );
+  // Each node links to its panel; a panel shows only as the page's target.
+  for (const id of ['W-1', 'W-7', 'W-8']) {
+    assert.match(html, new RegExp(`<a href="#milestone-${id}"`));
+    assert.match(html, new RegExp(`<section class="drill" id="milestone-${id}">`));
+  }
+  assert.match(html, /\.drill\{display:none;[^}]*\}\.drill:target\{display:block\}/);
+  const panel = /<section class="drill" id="milestone-W-7">.*?<\/section>/s.exec(html)?.[0] ?? '';
+  assert.match(
+    panel,
+    /<tr><td>W-4 Second step<\/td><td>constraint<\/td><td>Planned<\/td><td>yes<\/td><\/tr>/,
+  );
+  assert.match(
+    panel,
+    /<tr><td>W-9 Nice to have<\/td><td>contribution<\/td><td>Planned<\/td><td><\/td><\/tr>/,
+  );
+  assert.match(html, /<g class="mg-node planned critical">/);
+  assert.match(html, /<g class="mg-node done">.*?check passed/s);
+  assert.equal((html.match(/class="mg-edge critical"/g) ?? []).length, 1);
+  assert.match(html, /Critical path \(red\): W-7 → W-1\./);
+});
+
+test('the dashboard counts tokens spent from the ledger, with corrections, against the appetite', () => {
+  const t = open(graphRepo());
+  const ledger = [
+    { id: 'E-1', item: 'W-4', event: 'reported', tokens: 100 },
+    { id: 'E-2', item: 'W-4', event: 'reported', tokens: 120, corrects: 'E-1' },
+    { id: 'E-3', item: 'W-9', event: 'reported', tokens: 30 },
+  ];
+  const { policy } = resolvePolicy({ schema_version: 1, project: { id: 'fixture', key: 'W' } });
+  const report = buildReport({
+    policy: /** @type {any} */ (policy),
+    ledger,
+    milestones: t.milestoneGraph({ tokens: tokensPerItem(ledger) }),
+  });
+  assert.equal(report.milestones?.nodes[1].tokens_spent, 150);
+  assert.match(renderHtml(report, /** @type {any} */ (policy)), />150 of 1000 tokens</);
+  // No tracker: no section.
+  assert.doesNotMatch(
+    renderHtml(buildReport({ policy: /** @type {any} */ (policy) }), /** @type {any} */ (policy)),
+    /id="milestones"/,
+  );
 });

@@ -1,7 +1,7 @@
 // The views over the item graph (design part 3.4, "Generated views"): ready, blocked, the
 // decision backlog, projects, the item lists, the dependency diagrams, the critical path, the
-// milestones (each with its unmet clauses and scope; long outcomes first) and the
-// merged-but-unreleased stock. Each returns text. The first four are the reference views byte for
+// milestones (each with its unmet clauses and scope; long outcomes first), the milestone graph
+// (design part 12.1.2) and the merged-but-unreleased stock. Each returns text. The first four are the reference views byte for
 // byte (design part 16.7).
 
 import { ITEM_KINDS, describeProgress, progress } from './graph.mjs';
@@ -449,4 +449,267 @@ export function viewCriticalPath(g, top = 5) {
       out.push(`   ${it.data.id}  ${it.data.title} [${stateLabel(it.data.state)}]`);
   }
   return `${out.join('\n')}\n`;
+}
+
+// --- The milestone graph ---------------------------------------------------
+
+/**
+ * @typedef {'passed' | 'due' | 'not yet due'} CheckStatus
+ * @typedef {object} MilestoneGraphItem a milestone's constraint or contribution
+ * @property {string} id
+ * @property {string} title
+ * @property {string} state
+ * @property {'constraint' | 'contribution'} role
+ * @property {boolean} critical on the item critical path
+ * @typedef {object} MilestoneGraphNode
+ * @property {string} id
+ * @property {string} title
+ * @property {string} state
+ * @property {string | null} outcome
+ * @property {string | null} project
+ * @property {{ done: number, total: number }} constraints its constraints `done` out of all
+ * @property {number | null} tokens_spent null where the ledger is not read (the views)
+ * @property {number | null} appetite_tokens
+ * @property {CheckStatus} check
+ * @property {number} remaining_tokens estimate tokens of its open item constraints, each item
+ *   weighted as the item critical path weighs it
+ * @property {boolean} critical on the milestone critical path
+ * @property {number} layer the length of its longest chain of milestone needs
+ * @property {MilestoneGraphItem[]} items its constraints, then its contributions
+ * @typedef {object} MilestoneGraph
+ * @property {MilestoneGraphNode[]} nodes in ID order
+ * @property {{ from: string, to: string, critical: boolean }[]} edges `from` is needed by `to`
+ * @property {string[]} critical_path the milestone critical path, first-needed first; empty when
+ *   no open milestone has estimate tokens remaining
+ */
+
+/** An item's weight on a critical path: its estimate, or 1 without one. @param {Node | undefined} it */
+const pathWeight = (it) => {
+  const w = Number(it?.data.estimate_tokens);
+  return Number.isFinite(w) && w > 0 ? w : 1;
+};
+
+/**
+ * The milestone graph (design part 12.1.2): milestones as nodes, `needs` between milestones (a
+ * milestone's constraints that name milestones) as edges. A constraint that names an item is not
+ * an edge; it counts toward the node's progress. The critical path is the chain of milestones not
+ * yet done with the most estimate tokens remaining, by the rule items use: each open item
+ * constraint weighs its `estimate_tokens`, or 1 without one.
+ * @param {Graph} g
+ * @param {{ checkOf: (m: Node) => CheckStatus, tokensSpent?: (m: Node) => number | null }} how
+ * @returns {MilestoneGraph}
+ */
+export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
+  const isM = (/** @type {string} */ id) => {
+    const n = g.get(id);
+    return n !== undefined && g.isMilestone(n);
+  };
+  const milestoneNeeds = (/** @type {Node} */ m) => g.needs(m).filter(isM);
+  const remaining = (/** @type {Node} */ m) =>
+    g
+      .needs(m)
+      .map((id) => g.get(id))
+      .filter((n) => n !== undefined && g.isItem(n) && g.isOpen(n))
+      .reduce((sum, n) => sum + pathWeight(n), 0);
+
+  /** @type {Map<string, number>} */
+  const layers = new Map();
+  /** @param {Node} m @param {Set<string>} seen @returns {number} */
+  const layerOf = (m, seen) => {
+    const id = String(m.data.id);
+    const hit = layers.get(id);
+    if (hit !== undefined) return hit;
+    seen.add(id);
+    let l = 0;
+    for (const n of milestoneNeeds(m)) {
+      if (seen.has(n)) continue; // a cycle; the check reports it
+      l = Math.max(l, layerOf(/** @type {Node} */ (g.get(n)), seen) + 1);
+    }
+    seen.delete(id);
+    layers.set(id, l);
+    return l;
+  };
+
+  // The critical path: the heaviest chain of open milestones, as criticalPaths does for items.
+  /** @type {Map<string, { weight: number, chain: string[] }>} */
+  const memo = new Map();
+  /** @param {Node} m @param {Set<string>} seen @returns {{ weight: number, chain: string[] }} */
+  const best = (m, seen) => {
+    const id = String(m.data.id);
+    const hit = memo.get(id);
+    if (hit) return hit;
+    seen.add(id);
+    let tail = { weight: 0, chain: /** @type {string[]} */ ([]) };
+    for (const n of milestoneNeeds(m)) {
+      const t = /** @type {Node} */ (g.get(n));
+      if (!g.isOpen(t) || seen.has(n)) continue;
+      const b = best(t, seen);
+      if (b.weight > tail.weight) tail = b;
+    }
+    seen.delete(id);
+    const out = { weight: tail.weight + remaining(m), chain: [...tail.chain, id] };
+    memo.set(id, out);
+    return out;
+  };
+  const open = g.milestones.filter(g.isOpen);
+  const needed = new Set(open.flatMap(milestoneNeeds));
+  const top = open
+    .filter((m) => !needed.has(String(m.data.id)))
+    .map((m) => best(m, new Set()))
+    .sort(
+      (a, b) => b.weight - a.weight || String(a.chain.at(-1)).localeCompare(String(b.chain.at(-1))),
+    )[0];
+  const path = top && top.weight > 0 ? top.chain : [];
+  const onPath = new Set(path);
+  const criticalItems = new Set((criticalPaths(g)[0]?.chain ?? []).map((it) => String(it.data.id)));
+
+  const nodes = g.milestones.map((m) => {
+    const id = String(m.data.id);
+    const data = readMilestone(m.data);
+    const ids = g.needs(m);
+    /** @param {string} x @param {'constraint' | 'contribution'} role @returns {MilestoneGraphItem} */
+    const item = (x, role) => ({
+      id: x,
+      title: titleOf(g, x),
+      state: String(g.get(x)?.data.state ?? 'unknown'),
+      role,
+      critical: criticalItems.has(x),
+    });
+    return {
+      id,
+      title: String(m.data.title),
+      state: String(m.data.state),
+      outcome: data.outcome ?? null,
+      project: m.data.project ? String(m.data.project) : null,
+      constraints: {
+        done: ids.filter((x) => g.get(x)?.data.state === 'done').length,
+        total: ids.length,
+      },
+      tokens_spent: tokensSpent(m),
+      appetite_tokens: data.appetite ?? null,
+      check: checkOf(m),
+      remaining_tokens: g.isOpen(m) ? remaining(m) : 0,
+      critical: onPath.has(id),
+      layer: layerOf(m, new Set()),
+      items: [
+        ...ids.map((x) => item(x, 'constraint')),
+        ...data.contributions.map((c) => item(c.id, 'contribution')),
+      ],
+    };
+  });
+  const edges = g.milestones.flatMap((m) => {
+    const to = String(m.data.id);
+    return milestoneNeeds(m).map((from) => ({
+      from,
+      to,
+      critical: onPath.has(from) && onPath.has(to) && path.indexOf(from) === path.indexOf(to) - 1,
+    }));
+  });
+  return { nodes, edges, critical_path: path };
+}
+
+/** The first sentence of a text, at most `max` characters. @param {string | null} t @param {number} [max] */
+export function oneSentence(t, max = 80) {
+  if (!t) return '';
+  const first = /^.*?[.!?](?=\s|$)/.exec(t.trim())?.[0] ?? t.trim();
+  return first.length <= max ? first : `${first.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** A node's progress lines, as the graph and the table show them. @param {MilestoneGraphNode} n */
+export function milestoneFacts(n) {
+  const spent = n.tokens_spent === null ? '—' : String(n.tokens_spent);
+  return {
+    constraints: `${n.constraints.done} of ${n.constraints.total} done`,
+    tokens:
+      n.appetite_tokens === null
+        ? `${spent} tokens, no appetite set`
+        : `${spent} of ${n.appetite_tokens} tokens`,
+    check: n.check === 'not yet due' ? 'check not yet due' : `check ${n.check}`,
+  };
+}
+
+/** Text safe inside a quoted Mermaid label. @param {string} s */
+const mermaidText = (s) =>
+  s
+    .replace(/#/g, '#35;')
+    .replace(/"/g, '#quot;')
+    .replace(/</g, '#lt;')
+    .replace(/>/g, '#gt;')
+    .replace(/`/g, "'");
+
+/** The milestone graph as Mermaid. @param {MilestoneGraph} mg */
+export function mermaidMilestones(mg) {
+  const lines = ['graph LR'];
+  for (const n of mg.nodes) {
+    const f = milestoneFacts(n);
+    const label = [
+      `${n.id} ${n.title}`,
+      oneSentence(n.outcome, 60),
+      `constraints ${f.constraints}`,
+      f.tokens,
+      f.check,
+    ]
+      .filter(Boolean)
+      .map(mermaidText)
+      .join('<br/>');
+    const cls =
+      n.state === 'done'
+        ? 'done'
+        : n.state === 'dropped'
+          ? 'dropped'
+          : n.state === 'proposed'
+            ? 'proposed'
+            : 'open';
+    lines.push(`  ${node(n.id)}["${label}"]:::${cls}`);
+  }
+  for (const e of mg.edges)
+    lines.push(`  ${node(e.from)} ${e.critical ? '==>' : '-->'} ${node(e.to)}`);
+  lines.push(...CLASS_DEFS.slice(0, 4), '  classDef critical stroke:#b3261e,stroke-width:3px');
+  if (mg.critical_path.length)
+    lines.push(`  class ${mg.critical_path.map(node).join(',')} critical`);
+  return `${lines.join('\n')}\n`;
+}
+
+/** Text safe in a markdown table cell. @param {string} s */
+const cell = (s) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+
+/**
+ * The view `milestones.md` (design parts 3.4 and 12.1.2): the graph, then a table of the same
+ * fields with each milestone's constraints and contributions and their state, then the text view
+ * of unmet clauses, scope and shaping.
+ * @param {MilestoneGraph} mg @param {string} detail the text view of the milestones
+ */
+export function renderMilestonesView(mg, detail) {
+  const path = mg.critical_path.length
+    ? `Critical path (thick edges, red outline): ${mg.critical_path.join(' → ')}.`
+    : 'No critical path: no open milestone has estimate tokens remaining.';
+  /** @param {MilestoneGraphItem[]} its */
+  const items = (its) =>
+    its
+      .map((i) => `${i.id} ${stateLabel(i.state)}${i.critical ? ' (critical path)' : ''}`)
+      .join(', ') || '—';
+  const rows = mg.nodes.map((n) => {
+    const f = milestoneFacts(n);
+    return `| ${cell(`${n.id} ${n.title}${n.critical ? ' (critical path)' : ''}`)} | ${stateLabel(n.state)} | ${cell(n.outcome ?? '—')} | ${f.constraints} | ${f.tokens} | ${n.check} | ${cell(items(n.items.filter((i) => i.role === 'constraint')))} | ${cell(items(n.items.filter((i) => i.role === 'contribution')))} |`;
+  });
+  return [
+    '```mermaid',
+    mermaidMilestones(mg).trimEnd(),
+    '```',
+    '',
+    path,
+    '',
+    '| Milestone | State | Outcome | Constraints | Tokens spent | Check | Constraints and their state | Contributions and their state |',
+    '|---|---|---|---|---|---|---|---|',
+    ...rows,
+    '',
+    'Tokens spent come from the ledger in the private store, so this view shows — for them; `hitld dashboard` shows the figures. The item graph is in [items-graph.md](items-graph.md).',
+    '',
+    '## Unmet clauses, scope and shaping',
+    '',
+    '```text',
+    detail.trimEnd(),
+    '```',
+    '',
+  ].join('\n');
 }

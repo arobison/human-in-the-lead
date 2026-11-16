@@ -14,7 +14,7 @@ The owner directs the system mostly from a distance, so what they can see matter
 | **Progress reports** | What was built per project, decisions made, studies concluded with their verdicts, what is blocked, what is next, with charts (12.2) | All of the above |
 | **Token use over time** | By model, tier, project, harness and kind of work, against what it bought: accepted items, waste, cost per accepted item | Ledger, usage snapshots |
 | **Quotas** | Each account limit: used, remaining, reserve, burn rate, projected exhaustion (12.5) | Usage snapshots, declared limits |
-| **Milestone graph** (planned) | Milestones as nodes and `needs` between them as edges; each node's outcome, progress against its constraints, appetite spent and check; the critical path highlighted; a milestone's items one step down (12.1.2) | Tracker, ledger, recorded check results |
+| **Milestone graph** | Milestones as nodes and `needs` between them as edges; each node's outcome, progress against its constraints, appetite spent and check; the critical path highlighted; a milestone's items one step down (12.1.2) | Tracker, ledger, recorded check results |
 | **Status line** (planned) | One line, always visible: what the person would otherwise ask about (12.1.1) | Run-state file, machine registry |
 
 ### 12.1.1 The status line (planned)
@@ -37,15 +37,15 @@ Rules:
 - By default it shows only what needs the person. Fleet and machine detail appear on request, or when something is wrong.
 - How much it shows is a per-person setting in the person file ([13.4](13-operations.md#134-settings-in-four-layers), [part 23](23-people-in-the-lead.md#235-the-interface-as-a-design-surface)).
 
-### 12.1.2 The milestone graph (planned)
+### 12.1.2 The milestone graph
 
 The milestone graph shows progress at the level people plan at. It complements the item dependency graph (`work/views/items-graph.md`); it does not replace it. Items stay in the item graph.
 
 - **Nodes** are milestones, labeled by name ([3.2](03-data-model.md#milestones-and-releases)). Each shows its outcome in one sentence; its constraints `done` out of all its constraints; `tokens_spent` against `appetite_tokens`; and its independent check: passed, due (`check_due`) or not yet due.
-- **Edges** are `needs` between milestones. A `needs` from a milestone to an item is not an edge; it counts toward the node's progress.
-- **The critical path** is highlighted: the chain of milestones not yet `done` with the most estimate tokens remaining, the same rule items use ([3.2](03-data-model.md#project-and-item)).
-- **Drilling in.** Opening a milestone lists its constraints and contributions with their state and critical-path flag, and links to the item graph for them.
-- **Two forms.** A generated view, `work/views/milestones.md`, with a mermaid graph and a table of the same fields, readable on GitHub and on a phone ([3.4](03-data-model.md#generated-views)). And a section of the HTML page `hitld dashboard` writes (12.4), where each node opens to its items without scripts from elsewhere.
+- **Edges** are `needs` between milestones: a milestone's constraints that name other milestones, as a long outcome's do. A `needs` from a milestone to an item is not an edge; it counts toward the node's progress.
+- **The critical path** is highlighted: the chain of milestones not yet `done` with the most estimate tokens remaining, the same rule items use ([3.2](03-data-model.md#project-and-item)). A milestone's remaining tokens are those of its constraints that are items not yet `done`, each weighing its `estimate_tokens`, or 1 without one. With no tokens remaining on any chain, nothing is highlighted.
+- **Drilling in.** Opening a milestone lists its constraints and contributions with their state and critical-path flag (the item critical path), and points to the item graph for them.
+- **Two forms.** A generated view, `work/views/milestones.md`, with a mermaid graph and a table of the same fields, readable on GitHub and on a phone ([3.4](03-data-model.md#generated-views)). Tokens spent come from the ledger in the private store, so the view, which is committed and must be the same wherever it is generated, shows them as —. And a section of the HTML page `hitld dashboard` writes (12.4), with tokens spent from the ledger, where the graph is inline SVG and each node is a link that opens a panel of its items through the CSS `:target` rule, with no script.
 
 ## 12.2 Progress reports
 
