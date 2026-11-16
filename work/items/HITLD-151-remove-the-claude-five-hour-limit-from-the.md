@@ -1,12 +1,12 @@
 ---
 id: HITLD-151
 title: The Claude five-hour limit is no longer a default; the gate adds it where the plan has one
-release_note: "A new project's default quota limits hold only `claude-weekly`. The `claude-five-hour` limit is no longer a default: the gate adds it while the account's status line reports a five-hour window that has not reset (Pro and Max plans; verified Ultra accounts have none). The `rolling_5h` window value and the usage snapshot's `five_hour` field stay."
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 claimed_by: D-30
+release_note: "A new project's default quota limits hold only `claude-weekly`. The `claude-five-hour` limit is no longer a default: the gate adds it while the account's status line reports a five-hour window that has not reset (Pro and Max plans; verified Ultra accounts have none). The `rolling_5h` window value and the usage snapshot's `five_hour` field stay."
 ---
 
 ## Why
