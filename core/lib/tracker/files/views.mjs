@@ -4,7 +4,7 @@
 // (design part 12.1.2) and the merged-but-unreleased stock. Each returns text. The first four are the reference views byte for
 // byte (design part 16.7).
 
-import { ITEM_KINDS, describeProgress, progress } from './graph.mjs';
+import { ITEM_KINDS, describeProgress, findCycles, progress } from './graph.mjs';
 import { isLearning, readMilestone } from './milestones.mjs';
 import { readProject } from './projects.mjs';
 import { DEFAULT_OWNER, STATE_LABELS } from './format.mjs';
@@ -474,13 +474,33 @@ export function viewCriticalPath(g, top = 5) {
  * @property {number} remaining_tokens estimate tokens of its open item constraints, each item
  *   weighted as the item critical path weighs it
  * @property {boolean} critical on the milestone critical path
- * @property {number} layer the length of its longest chain of milestone needs
+ * @property {number} layer its step: the length of its longest chain of milestone needs (it starts
+ *   once everything it waits on is done)
+ * @property {MilestoneStage} stage
+ * @property {number} in_progress its constraints in progress
+ * @property {{ decisions: string[], external: string[] }} holds open owner decisions and outside
+ *   waits that hold it up: among its open constraints, and what those need directly
+ * @property {boolean} in_cycle it is in a loop of needs (the check reports the loop)
  * @property {MilestoneGraphItem[]} items its constraints, then its contributions
+ * @typedef {'proposed' | 'waiting' | 'ready' | 'in-flight' | 'done' | 'dropped'} MilestoneStage
+ *   proposed and dropped by state; done by state; in-flight once a constraint is in progress or
+ *   done; waiting while a milestone it needs is not done, or none of its open constraints is
+ *   ready; otherwise ready
+ * @typedef {object} MilestoneGraphEdge `from` is needed by `to`
+ * @property {string} from
+ * @property {string} to
+ * @property {boolean} critical
+ * @property {number} items the items behind the wait: `from`'s open item constraints
  * @typedef {object} MilestoneGraph
  * @property {MilestoneGraphNode[]} nodes in ID order
- * @property {{ from: string, to: string, critical: boolean }[]} edges `from` is needed by `to`
+ * @property {MilestoneGraphEdge[]} edges
  * @property {string[]} critical_path the milestone critical path, first-needed first; empty when
  *   no open milestone has estimate tokens remaining
+ * @property {{ id: string | null, title: string }[]} lanes long outcomes (id null), then each
+ *   project with a milestone, in ID order
+ * @property {{ id: string, title: string, release: string, state: string, layer: number }[]} releases
+ *   work items with a `release` version (release gates), at the step of the first milestone that
+ *   names them, or after the last step when none does
  */
 
 /** An item's weight on a critical path: its estimate, or 1 without one. @param {Node | undefined} it */
@@ -505,12 +525,35 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
     return n !== undefined && g.isMilestone(n);
   };
   const milestoneNeeds = (/** @type {Node} */ m) => g.needs(m).filter(isM);
-  const remaining = (/** @type {Node} */ m) =>
-    g
-      .needs(m)
-      .map((id) => g.get(id))
-      .filter((n) => n !== undefined && g.isItem(n) && g.isOpen(n))
-      .reduce((sum, n) => sum + pathWeight(n), 0);
+  /** The entries the IDs name, leaving out what does not exist. @param {string[]} ids */
+  const nodesOf = (ids) =>
+    ids.map((id) => g.get(id)).filter(/** @returns {n is Node} */ (n) => n !== undefined);
+  /** A milestone's open item constraints. @param {Node} m */
+  const openItems = (m) => nodesOf(g.needs(m)).filter((n) => g.isItem(n) && g.isOpen(n));
+  /** Estimate tokens remaining on a milestone. @param {Node} m */
+  const remaining = (m) => openItems(m).reduce((sum, n) => sum + pathWeight(n), 0);
+  /** @param {Node} m @returns {MilestoneStage} */
+  const stageOf = (m) => {
+    const s = String(m.data.state);
+    if (s === 'proposed' || s === 'dropped' || s === 'done') return s;
+    const its = nodesOf(g.needs(m));
+    if (its.some((n) => g.isItem(n) && ['in-progress', 'done'].includes(String(n.data.state)))) {
+      return 'in-flight';
+    }
+    if (milestoneNeeds(m).some((id) => g.get(id)?.data.state !== 'done')) return 'waiting';
+    const open = openItems(m);
+    return open.length && !open.some((n) => g.isReady(n)) ? 'waiting' : 'ready';
+  };
+  /** @param {Node} m */
+  const holdsOf = (m) => {
+    const open = openItems(m);
+    const around = [...open, ...open.flatMap((n) => nodesOf(g.openNeeds(n)))].filter(g.isOpen);
+    /** @param {string} kind */
+    const of = (kind) => [
+      ...new Set(around.filter((n) => n.data.kind === kind).map((n) => String(n.data.id))),
+    ];
+    return { decisions: of('decision'), external: of('external') };
+  };
 
   /** @type {Map<string, number>} */
   const layers = new Map();
@@ -560,6 +603,7 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
       (a, b) => b.weight - a.weight || String(a.chain.at(-1)).localeCompare(String(b.chain.at(-1))),
     )[0];
   const path = top && top.weight > 0 ? top.chain : [];
+  const looped = new Set(findCycles(g).flat());
   const onPath = new Set(path);
   const criticalItems = new Set((criticalPaths(g)[0]?.chain ?? []).map((it) => String(it.data.id)));
 
@@ -591,6 +635,10 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
       remaining_tokens: g.isOpen(m) ? remaining(m) : 0,
       critical: onPath.has(id),
       layer: layerOf(m, new Set()),
+      stage: stageOf(m),
+      in_progress: ids.filter((x) => g.get(x)?.data.state === 'in-progress').length,
+      holds: holdsOf(m),
+      in_cycle: looped.has(id),
       items: [
         ...ids.map((x) => item(x, 'constraint')),
         ...data.contributions.map((c) => item(c.id, 'contribution')),
@@ -603,9 +651,30 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
       from,
       to,
       critical: onPath.has(from) && onPath.has(to) && path.indexOf(from) === path.indexOf(to) - 1,
+      items: openItems(/** @type {Node} */ (g.get(from))).length,
     }));
   });
-  return { nodes, edges, critical_path: path };
+  const lanes = [
+    ...(g.milestones.some((m) => !m.data.project) ? [{ id: null, title: 'Long outcomes' }] : []),
+    ...g.projects
+      .filter((p) => g.milestones.some((m) => m.data.project === p.data.id))
+      .map((p) => ({ id: String(p.data.id), title: shortTitle(String(p.data.title)) })),
+  ];
+  const last = Math.max(0, ...nodes.map((n) => n.layer + 1));
+  const releases = g.items
+    .filter((it) => it.data.kind === 'work' && it.data.release !== undefined)
+    .map((it) => {
+      const id = String(it.data.id);
+      const at = nodes.filter((n) => n.items.some((i) => i.id === id)).map((n) => n.layer);
+      return {
+        id,
+        title: String(it.data.title),
+        release: String(it.data.release),
+        state: String(it.data.state),
+        layer: at.length ? Math.min(...at) : last,
+      };
+    });
+  return { nodes, edges, critical_path: path, lanes, releases };
 }
 
 /** The first sentence of a text, at most `max` characters. @param {string | null} t @param {number} [max] */

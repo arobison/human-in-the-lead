@@ -16,7 +16,12 @@ import {
   tokensByItem,
 } from '../lib/tracker/files/milestones.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
-import { buildReport, renderHtml, tokensPerItem } from '../lib/quota/report.mjs';
+import {
+  buildReport,
+  renderHtml,
+  renderMilestoneSection,
+  tokensPerItem,
+} from '../lib/quota/report.mjs';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import {
@@ -629,6 +634,14 @@ const graphRepo = () =>
         needs: ['W-3'],
         estimate_tokens: '300',
       }),
+      'work/items/W-10-ship-it.md': itemText({
+        id: 'W-10',
+        title: 'Ship it',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        release: '1.0.0',
+      }),
       'work/items/W-9-nice-to-have.md': itemText({
         id: 'W-9',
         title: 'Nice to have',
@@ -668,7 +681,23 @@ test('the milestone graph: nodes, the one edge, progress, the check and the crit
     ],
   );
   // A constraint that names an item is not an edge; the one between milestones is.
-  assert.deepEqual(mg.edges, [{ from: 'W-7', to: 'W-1', critical: true }]);
+  assert.deepEqual(mg.edges, [{ from: 'W-7', to: 'W-1', critical: true, items: 2 }]);
+  // The board's fields: the stage, what holds a milestone up, its lane and the release gates.
+  assert.deepEqual(
+    mg.nodes.map((n) => [n.id, n.stage, n.in_progress, n.holds, n.in_cycle]),
+    [
+      ['W-1', 'waiting', 0, { decisions: [], external: [] }, false],
+      ['W-7', 'ready', 0, { decisions: ['W-6'], external: [] }, false],
+      ['W-8', 'done', 0, { decisions: [], external: [] }, false],
+    ],
+  );
+  assert.deepEqual(mg.lanes, [
+    { id: null, title: 'Long outcomes' },
+    { id: 'W-2', title: 'project' },
+  ]);
+  assert.deepEqual(mg.releases, [
+    { id: 'W-10', title: 'Ship it', release: '1.0.0', state: 'planned', layer: 2 },
+  ]);
   assert.deepEqual(mg.critical_path, ['W-7', 'W-1']);
   const w7 = /** @type {any} */ (mg.nodes[1]);
   assert.equal(w7.outcome, 'A user with a bad config sees which key is wrong.');
@@ -777,7 +806,7 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   assert.match(html, /<h2 id="milestones">Milestones<\/h2>/);
   assert.match(
     html,
-    /<svg class="mg" [^>]*aria-label="Milestone graph: 3 milestones, 1 needs between them"/,
+    /<svg class="mg" [^>]*aria-label="Milestone board: 3 milestones in 3 lanes over 3 steps, 1 waits between them"/,
   );
   // Each node links to its panel; a panel shows only as the page's target.
   for (const id of ['W-1', 'W-7', 'W-8']) {
@@ -794,10 +823,33 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
     panel,
     /<tr><td>W-9 Nice to have<\/td><td>contribution<\/td><td>Planned<\/td><td><\/td><\/tr>/,
   );
-  assert.match(html, /<g class="mg-node planned critical">/);
-  assert.match(html, /<g class="mg-node done">.*?check passed/s);
+  // Lanes with their names, steps across, and the release gate in its own lane.
+  for (const lane of ['Long outcomes', 'project', 'Releases']) {
+    assert.match(html, new RegExp(`<text class="mg-lane-name" x="8" y="\\d+">${lane}</text>`));
+  }
+  assert.match(html, /<text class="mg-step"[^>]*>Step 3<\/text>/);
+  assert.match(
+    html,
+    /<g class="mg-flag open"><title>Release gate 1\.0\.0: W-10 Ship it \(Planned\)<\/title>/,
+  );
+  // Not started: hollow, with a stage dot; started or done: solid, with a strip.
+  assert.match(html, /<g class="mg-node ready hollow critical">.*?<circle class="mg-dot"/s);
+  assert.match(html, /<g class="mg-node waiting hollow critical">/);
+  assert.match(html, /<g class="mg-node done started">.*?<rect class="mg-strip".*?check passed/s);
+  // What holds W-7 up shows as a badge by its name.
+  assert.match(
+    html,
+    /<g class="mg-badge decision"><title>Held up by W-6<\/title>.*?>1 decision<\/text>/s,
+  );
+  // The one wait: on the critical path, with two items behind it, so not dashed.
   assert.equal((html.match(/class="mg-edge critical"/g) ?? []).length, 1);
-  assert.match(html, /Critical path \(red\): W-7 → W-1\./);
+  assert.match(html, /W-1 waits on W-7: 2 item\(s\) behind the wait, on the critical path/);
+  assert.match(html, /Critical path: W-7 → W-1\./);
+  for (const stage of ['proposed', 'waiting', 'ready', 'in-flight', 'done']) {
+    assert.match(html, new RegExp(`<i class="sw ${stage}"></i>`));
+  }
+  assert.match(html, /--st-flight:#b08cf6;/);
+  assert.match(html, /--st-flight:#9b7fe6;/);
 });
 
 test('the dashboard counts tokens spent from the ledger, with corrections, against the appetite', () => {
@@ -884,4 +936,21 @@ test('escaping: a backslash before a pipe and a trailing backslash cannot unesca
   );
   const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
   assert.ok(html.includes('<h3>W-7 A pipe after a backslash \\| and one at the end \\ <small>'));
+});
+
+test('the board shows committed milestones only, lists proposed and dropped ones under it, and dashes a loop', () => {
+  const mg = open(graphRepo()).milestoneGraph();
+  const w7 = /** @type {any} */ (mg.nodes[1]);
+  w7.state = 'proposed';
+  w7.stage = 'proposed';
+  /** @type {any} */ (mg.nodes[0]).in_cycle = true;
+  const html = renderMilestoneSection(mg);
+  assert.doesNotMatch(html, /<a href="#milestone-W-7" aria-label/);
+  assert.match(
+    html,
+    /Proposed, not on the board: <a href="#milestone-W-7">W-7 Config errors explained<\/a>\./,
+  );
+  assert.match(html, /<section class="drill" id="milestone-W-7">/, 'its panel is still there');
+  assert.match(html, /<g class="mg-node waiting hollow critical loop">/);
+  assert.match(html, /2 milestones in 3 lanes/);
 });
