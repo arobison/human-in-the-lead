@@ -1,10 +1,11 @@
 ---
 id: HITLD-136
-title: "Briefs name overlapping work in flight, and executors write their own release notes"
+title: Briefs name overlapping work in flight, and executors write their own release notes
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-14
 ---
 
 ## Why
