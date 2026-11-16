@@ -9,7 +9,96 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  # The code checks run as parallel jobs, each failing on its own (HITLD-131). Each one decides in
+  # its own steps whether it has anything to check (scripts/ci-changes.mjs): a pull request that
+  # changes only work/ skips them, and the jobs still report success, so a required check never
+  # waits on a job that did not run. A skip is decided from the paths in the diff alone, and when
+  # the diff cannot be read the job fails.
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out GitHub's merge commit; its first parent is the base, which
+          # scripts/ci-changes.mjs diffs against.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - id: changes
+        run: node scripts/ci-changes.mjs
+      - run: npm ci
+        if: steps.changes.outputs.code == 'true'
+      - run: npm run typecheck
+        if: steps.changes.outputs.code == 'true'
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out GitHub's merge commit; its first parent is the base, which
+          # scripts/ci-changes.mjs diffs against.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - id: changes
+        run: node scripts/ci-changes.mjs
+      - run: npm ci
+        if: steps.changes.outputs.code == 'true'
+      - run: npm run format:check
+        if: steps.changes.outputs.code == 'true'
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out GitHub's merge commit; its first parent is the base, which
+          # scripts/ci-changes.mjs diffs against.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - id: changes
+        run: node scripts/ci-changes.mjs
+      - run: npm ci
+        if: steps.changes.outputs.code == 'true'
+      - run: npm test
+        if: steps.changes.outputs.code == 'true'
+
+  evals:
+    # Fails when no baseline is committed in evals/baselines/ for these settings, or a scenario
+    # that passed in it regresses. A scenario the baseline has not seen is only a note. The evals
+    # need no packages, so there is no npm ci.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out GitHub's merge commit; its first parent is the base, which
+          # scripts/ci-changes.mjs diffs against.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: changes
+        run: node scripts/ci-changes.mjs
+      - name: Offline evals
+        run: node core/bin/hitld.mjs eval --offline --require-baseline
+        if: steps.changes.outputs.code == 'true'
+
+  # Two tracker items with one ID (two sessions each filed from their own copy of main) fail
+  # here, naming both files (design part 3.4). On every pull request, a work/-only one too. Not on
+  # main, where the check also wants the views current, which only a merge regenerates.
+  tracker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -18,19 +107,24 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run check
-      # Two tracker items with one ID (two sessions each filed from their own copy of main) fail
-      # here, naming both files (design part 3.4). On a pull request only: on main, the check also
-      # wants the views current, which only a merge regenerates.
       - name: Tracker check
         if: github.event_name == 'pull_request'
         run: node core/bin/hitld.mjs work check
-      # Fails when no baseline is committed in evals/baselines/ for these settings, or a scenario
-      # that passed in it regresses. A scenario the baseline has not seen is only a note.
-      - name: Offline evals
-        run: node core/bin/hitld.mjs eval --offline --require-baseline
+
+  # The name all of the code checks reported under before the split, which branch protection and
+  # merge.pull_request.checks may name: it passes only when every job above succeeded (a job whose
+  # steps were skipped for a work/-only pull request succeeded too), and fails otherwise.
+  check:
+    if: always()
+    needs: [typecheck, format, tests, evals, tracker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every check job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          jq -e 'to_entries | all(.value.result == "success")' <<< "$RESULTS" > /dev/null
 
   dco:
     runs-on: ubuntu-latest

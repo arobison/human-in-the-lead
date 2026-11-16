@@ -6,7 +6,22 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+/**
+ * Every test file gets an isolated home and environment, and a test that reaches the real home
+ * fails (helpers/isolated-home.mjs); the run ends with its slowest files (HITLD-131).
+ */
+const TEST_FLAGS = [
+  '--import',
+  join(HERE, 'helpers', 'isolated-home.mjs'),
+  '--test-reporter=spec',
+  '--test-reporter-destination=stdout',
+  `--test-reporter=${join(HERE, 'helpers', 'slowest-reporter.mjs')}`,
+  '--test-reporter-destination=stdout',
+];
 
 /** What a tool keeps in the temporary directory as a cache, not a test's: Prettier's compile cache. */
 const CACHES = new Set(['node-compile-cache']);
@@ -17,7 +32,7 @@ const args = process.argv.slice(2);
 const { NODE_TEST_CONTEXT: _parent, ...env } = process.env;
 const run = spawnSync(
   process.execPath,
-  ['--test', ...(args.length ? args : ['core/test/**/*.test.mjs'])],
+  ['--test', ...TEST_FLAGS, ...(args.length ? args : ['core/test/**/*.test.mjs'])],
   { stdio: 'inherit', env: { ...env, TMPDIR: root, TMP: root, TEMP: root } },
 );
 
