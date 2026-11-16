@@ -22,7 +22,7 @@ The orchestrator manages execution: the session that holds the run lease, starte
 
 **Sizing inputs**, all from the item file and the ledger: item kind; whether "done when" is executable; whether the plan is specific to files and functions; area and its reliability; `touches` breadth; novelty (no similar item done before); the token estimate.
 
-**Token estimates.** Every item gets `estimate_tokens` at sizing, from a simple model: the median actual tokens of similar past items (same area, kind and tier), scaled by the item's `touches` breadth. Actuals come from completion notices. Each item type's estimator is tracked for accuracy (the mean of log(actual / estimate), its bias) and precision (the standard deviation of that log ratio, its spread). A bias is corrected by a scale factor; a large spread means the estimator needs better inputs.
+**Token estimates.** Every item gets `estimate_tokens` at sizing, from a simple model: the median actual tokens of similar past items (same area, kind and tier), scaled by the item's `touches` breadth. It needs at least 3 such completions, otherwise the tier's default. Actuals come from completion notices. Each item type's estimator is tracked for accuracy (the mean of log(actual / estimate), its bias) and precision (the standard deviation of that log ratio, its spread). A bias is corrected by a scale factor; a large spread means the estimator needs better inputs.
 
 ## 5.2 Dispatch
 

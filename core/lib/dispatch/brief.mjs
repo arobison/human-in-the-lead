@@ -97,7 +97,7 @@ export function renderBrief({
       (m) =>
         `Merged since this item was planned, on the same paths: ${m.commit.slice(0, 7)}${m.items.length ? ` (${m.items.join(', ')})` : ''} changed ${pathList(m.paths)}.`,
     ),
-    `Serial: ${serial.join(', ') || 'none'}. Budget: ~${k(sizing.estimate_tokens)} tokens; report at ${k(reportAt)} even if unfinished.`,
+    `Serial: ${serial.join(', ') || 'none'}. Budget: ~${k(sizing.estimate_tokens)} tokens${sizing.estimate_basis ? ` (estimate from ${sizing.estimate_basis})` : ''}; report at ${k(reportAt)} even if unfinished.`,
     ...(sizing.owner_review
       ? [
           `Owner review: the owner reviews ${sizing.owner_review} in person. Prepare a review pack: what changed in two or three lines, screens or samples where you can make them (under the item's classification), and each judgment call as a question with your recommendation. Say under evidence where the pack is.`,

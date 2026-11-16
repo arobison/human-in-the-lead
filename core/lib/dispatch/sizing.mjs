@@ -24,13 +24,6 @@ import {
 import { effectiveEvents, sourceKind } from '../ledger/summary.mjs';
 
 /**
- * How many similar past completions the estimate needs before their median replaces the policy
- * default (HITLD-436). Below it one run, however wrong its figure, would set the estimate for every
- * similar item; at three, one outlier among normal runs cannot move the median past them.
- */
-export const ESTIMATE_MIN_SAMPLES = 3;
-
-/**
  * @typedef {import('./item.mjs').Item} Item
  *
  * @typedef {object} HistoryEntry one finished dispatch, for estimates and familiar ground
@@ -51,9 +44,14 @@ export const ESTIMATE_MIN_SAMPLES = 3;
  * @property {string} model the model class from policy.tiers: own, small or large
  * @property {string} effort
  * @property {number} estimate_tokens
- * @property {'hint' | 'item' | 'history' | 'default'} estimate_source
+ * @property {'item' | 'history' | 'default'} estimate_source
  * @property {number} [estimate_samples] how many similar past completions with a token count there
- *   were; the history sets the estimate only from ESTIMATE_MIN_SAMPLES of them
+ *   were; their median sets the estimate only from dispatch.estimate_min_samples of them, and only
+ *   when it is within dispatch.estimate_max_multiple of the tier's default
+ * @property {string} [estimate_basis] where the estimate came from and how many completions it rests
+ *   on, in words: what the plan, `ready`, the brief and the quota gate say beside the figure
+ * @property {string} [estimate_note] set when the estimate fell back to the default although there
+ *   were similar completions, or kept a figure far above the default: the plan says it
  * @property {string[]} areas
  * @property {string | null} owner_review the area whose output the owner reviews in person, when
  *   there is one: the brief asks for a review pack
@@ -165,26 +163,84 @@ export function sizeItem(item, policy, history = []) {
     estimate_tokens: estimate.tokens,
     estimate_source: estimate.source,
     estimate_samples: estimate.samples,
+    estimate_basis: estimate.basis,
+    ...(estimate.note ? { estimate_note: estimate.note } : {}),
     areas,
     owner_review: reviewed,
   };
 }
 
+/** The estimator's settings, with their defaults (schemas/policy/dispatch.schema.json). */
+export const ESTIMATE_SETTINGS = /** @type {const} */ ({
+  min_samples: { key: 'dispatch.estimate_min_samples', default: 3 },
+  max_multiple: { key: 'dispatch.estimate_max_multiple', default: 3 },
+});
+
+/**
+ * The estimator's settings as the policy sets them.
+ * @param {Record<string, any>} d policy.dispatch
+ * @returns {{ min_samples: number, max_multiple: number }}
+ */
+export function estimateSettings(d) {
+  return {
+    min_samples: Number.isInteger(d?.estimate_min_samples)
+      ? d.estimate_min_samples
+      : ESTIMATE_SETTINGS.min_samples.default,
+    max_multiple:
+      typeof d?.estimate_max_multiple === 'number' && d.estimate_max_multiple >= 1
+        ? d.estimate_max_multiple
+        : ESTIMATE_SETTINGS.max_multiple.default,
+  };
+}
+
+/** @param {number} n */
+const completions = (n) => `${n} similar past ${n === 1 ? 'completion' : 'completions'}`;
+/** @param {number} n */
+const thousands = (n) => n.toLocaleString('en-US');
+
 /**
  * The token estimate (design part 5.1): the median actual tokens of similar past items (same area,
- * kind and tier), scaled by the item's touches breadth; the policy default for the tier when there
- * are fewer than ESTIMATE_MIN_SAMPLES of them, with a note that says so. An estimate already on the
- * item is kept.
+ * kind and tier), scaled by the item's touches breadth. The policy default for the tier stands
+ * instead when there are fewer than dispatch.estimate_min_samples of them, or when their median is
+ * more than dispatch.estimate_max_multiple times that default, so one odd record cannot set every
+ * estimate (HITLD-436, HITLD-439); a note says which. An estimate already on the item is kept, with
+ * a note when it is far above the default. `basis` says where the figure came from and how many
+ * completions it rests on, in words.
  * @param {Item} item @param {number} tier @param {string[]} areas @param {HistoryEntry[]} history
  * @param {Record<string, any>} d policy.dispatch
- * @returns {{ tokens: number, source: 'item' | 'history' | 'default', samples: number, note?: string }}
+ * @returns {{ tokens: number, source: 'item' | 'history' | 'default', samples: number,
+ *   basis: string, note?: string }}
  */
 export function estimateTokens(item, tier, areas, history, d) {
-  if (Number.isInteger(item.estimate_tokens))
-    return { tokens: item.estimate_tokens, source: 'item', samples: 0 };
-  if (tier === 0) return { tokens: 0, source: 'default', samples: 0 };
+  const { min_samples: min, max_multiple: multiple } = estimateSettings(d);
+  const minKey = ESTIMATE_SETTINGS.min_samples.key;
+  const multipleKey = ESTIMATE_SETTINGS.max_multiple.key;
+  const base = Number(d.default_estimates?.[String(tier)] ?? 150000);
+  if (Number.isInteger(item.estimate_tokens)) {
+    const tokens = /** @type {number} */ (item.estimate_tokens);
+    const far = tier > 0 && base > 0 && tokens > base * multiple;
+    return {
+      tokens,
+      source: 'item',
+      samples: 0,
+      basis: "the item's own estimate_tokens (no completions behind it)",
+      ...(far
+        ? {
+            note: `estimate from the item's own estimate_tokens (${thousands(tokens)}), more than ${multiple} times the tier ${tier} default of ${thousands(base)} (${multipleKey}): kept, as the item sets it`,
+          }
+        : {}),
+    };
+  }
+  if (tier === 0)
+    return {
+      tokens: 0,
+      source: 'default',
+      samples: 0,
+      basis: 'tier 0: the orchestrator does it inline, no executor to budget',
+    };
   const breadth = Math.max(1, (item.touches ?? []).length);
   const scale = 1 + 0.25 * (breadth - 1);
+  const scaled = breadth > 1 ? `, scaled by ${scale} for ${breadth} touches globs` : '';
   const similar = /** @type {number[]} */ (
     measuredFirst(
       history.filter(
@@ -195,22 +251,35 @@ export function estimateTokens(item, tier, areas, history, d) {
       .map((h) => h.tokens)
       .filter((x) => typeof x === 'number')
   );
-  if (similar.length >= ESTIMATE_MIN_SAMPLES)
+  const n = similar.length;
+  const mid = n ? median(similar) : 0;
+  if (n >= min && mid <= base * multiple)
     return {
-      tokens: Math.round(median(similar) * scale),
+      tokens: Math.round(mid * scale),
       source: 'history',
-      samples: similar.length,
+      samples: n,
+      basis: `the median of ${completions(n)} at tier ${tier}${scaled}`,
     };
-  const base = d.default_estimates?.[String(tier)] ?? 150000;
+  const fallback = `the tier ${tier} default (dispatch.default_estimates)${scaled}`;
+  /** @type {string | undefined} */
+  let note;
+  /** @type {string} */
+  let basis;
+  if (n === 0) {
+    basis = `${fallback}: no similar past completion yet`;
+  } else if (n < min) {
+    basis = `${fallback}: ${completions(n)} ${n === 1 ? 'is' : 'are'} fewer than the ${min} needed (${minKey})`;
+    note = `estimate from the tier ${tier} default: ${completions(n)} ${n === 1 ? 'is' : 'are'} too few to set it (${min} needed, ${minKey})`;
+  } else {
+    basis = `${fallback}: the median of ${completions(n)}, ${thousands(mid)}, is more than ${multiple} times the default (${multipleKey})`;
+    note = `estimate from the tier ${tier} default: the median of ${completions(n)}, ${thousands(mid)}, is more than ${multiple} times the default of ${thousands(base)}, so it is not used (${multipleKey})`;
+  }
   return {
     tokens: Math.round(base * scale),
     source: 'default',
-    samples: similar.length,
-    ...(similar.length
-      ? {
-          note: `estimate from the tier ${tier} default: ${similar.length} similar past ${similar.length === 1 ? 'completion is' : 'completions are'} too few to set it (${ESTIMATE_MIN_SAMPLES} needed)`,
-        }
-      : {}),
+    samples: n,
+    basis,
+    ...(note ? { note } : {}),
   };
 }
 

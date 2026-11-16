@@ -54,7 +54,12 @@ import { activePause, pauseGate, pauseTransition } from '../../quota/pause.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
 import { parseReport } from '../../contract/report.mjs';
 import { readWorkItems } from '../../dispatch/items.mjs';
-import { historyFromLedger, sizeItem } from '../../dispatch/sizing.mjs';
+import {
+  ESTIMATE_SETTINGS,
+  estimateSettings,
+  historyFromLedger,
+  sizeItem,
+} from '../../dispatch/sizing.mjs';
 import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mjs';
 import { awaitingMerge, planDispatch } from '../../dispatch/plan.mjs';
 import {
@@ -493,6 +498,7 @@ export function plan(p, ctx, byHand, only) {
           id: String(item.id),
           critical_path: q.critical.has(String(item.id)),
           estimate_tokens: q.sizes.get(String(item.id))?.estimate_tokens,
+          estimate_basis: q.sizes.get(String(item.id))?.estimate_basis,
         },
         { ledger, runStartedAt: runStarted, share, ...(ctx.now ? { now: nowOf(ctx) } : {}) },
       ),
@@ -508,10 +514,29 @@ export function plan(p, ctx, byHand, only) {
   });
   return {
     q,
-    result: { ...result, disk: diskWarning(disk), awaiting_merge: q.awaiting },
+    result: {
+      ...result,
+      disk: diskWarning(disk),
+      awaiting_merge: q.awaiting,
+      estimates: estimatesText(p.policy),
+    },
     setup: p.setup,
     running,
   };
+}
+
+/**
+ * The settings the estimates rest on, in one line the plan prints (HITLD-439): the tier defaults,
+ * the minimum sample and the multiple of the default past which a median is not used.
+ * @param {Record<string, any>} policy
+ */
+export function estimatesText(policy) {
+  const d = policy.dispatch ?? {};
+  const { min_samples, max_multiple } = estimateSettings(d);
+  const defaults = Object.entries(d.default_estimates ?? {})
+    .map(([t, n]) => `tier ${t} ${Math.round(Number(n) / 1000)}k`)
+    .join(', ');
+  return `an estimate is the item's own estimate_tokens, else the median of similar past completions once there are ${ESTIMATE_SETTINGS.min_samples.key} (${min_samples}) of them and it is at most ${ESTIMATE_SETTINGS.max_multiple.key} (${max_multiple}) times the tier's default, else that default (dispatch.default_estimates: ${defaults || 'not set'})`;
 }
 
 /**
@@ -531,6 +556,9 @@ export const planJson = (r, setup) => ({
     model: s.sizing.model,
     effort: s.sizing.effort,
     estimate_tokens: s.sizing.estimate_tokens,
+    estimate_source: s.sizing.estimate_source,
+    estimate_samples: s.sizing.estimate_samples,
+    estimate_basis: s.sizing.estimate_basis,
     ...(s.sizing.owner_review ? { owner_review: s.sizing.owner_review } : {}),
     serial: s.serial,
     touches: s.touches.touches,
@@ -543,6 +571,7 @@ export const planJson = (r, setup) => ({
   waiting: r.waiting,
   awaiting_merge: r.awaiting_merge,
   notes: r.notes,
+  ...(r.estimates ? { estimates: r.estimates } : {}),
   ...(r.disk ? { disk: r.disk } : {}),
   next: !setup.done
     ? 'setup is not done: run the first-run setup with the owner (orchestrate skill, first run); a hand-started item runs with hitld dispatch start <ID> --by-hand when the owner asks for it'
@@ -1047,6 +1076,8 @@ const table = [
               effort: s.effort,
               estimate_tokens: s.estimate_tokens,
               estimate_source: s.estimate_source,
+              estimate_samples: s.estimate_samples,
+              estimate_basis: s.estimate_basis,
               unblocks: q.unblocks.get(String(i.id)) ?? 0,
               critical_path: q.critical.has(String(i.id)),
               reasons: s.reasons,

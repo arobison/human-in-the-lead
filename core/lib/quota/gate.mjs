@@ -27,7 +27,7 @@ const pct = (share) => `${Math.round(share * 1000) / 10}%`;
  * One quota's mode, and why.
  * @param {import('./quota.mjs').QuotaState} s
  * @param {Record<string, any>} q policy.quota
- * @param {{ estimate_tokens?: number }} item
+ * @param {{ estimate_tokens?: number, estimate_basis?: string }} item
  * @param {number} [share] this project's fraction of the headroom near the reserve, in (0, 1]
  * @returns {{ mode: typeof MODES[number], why: string } | null} null when there is no reading
  */
@@ -61,7 +61,7 @@ function modeOf(s, q, item, share = 1) {
   ) {
     return {
       mode: 'stop',
-      why: `${left}; this item's estimate of ${cost} tokens would cross the reserve`,
+      why: `${left}; this item's estimate of ${cost} tokens${item.estimate_basis ? ` (from ${item.estimate_basis})` : ''} would cross the reserve`,
     };
   }
   if (headroom <= 0)
@@ -106,7 +106,7 @@ function forecastLine(s) {
  * Whether autonomous dispatch of an item may go ahead.
  * @param {Record<string, any>} policy
  * @param {Record<string, any>[]} snapshots parsed usage snapshots
- * @param {{ id?: string, critical_path?: boolean, estimate_tokens?: number }} [item]
+ * @param {{ id?: string, critical_path?: boolean, estimate_tokens?: number, estimate_basis?: string }} [item]
  * @param {{ now?: number, ledger?: Record<string, any>[], runStartedAt?: number | null, share?: number }} [options]
  * @returns {{
  *   mode: typeof MODES[number],
