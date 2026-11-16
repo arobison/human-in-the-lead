@@ -25,6 +25,13 @@ import { releaseExecutor } from '../../registry/machine.mjs';
 import { openEnv } from '../../env/manager.mjs';
 import { tearDown } from '../../env/teardown.mjs';
 import { diskCheck, diskWarning } from '../../machine/disk.mjs';
+import { leaseStatus } from '../../run/run.mjs';
+import {
+  ESCALATE_AFTER_WAKES,
+  readMessages,
+  silentOrchestrator,
+  SILENT_AFTER_SECONDS,
+} from '../../run/messages.mjs';
 import {
   Refusal,
   commands as orchestratorCommands,
@@ -214,11 +221,25 @@ export const commands = [
           : null;
 
         if (input.act !== true) {
+          // An orchestrator whose turn ended with no message to the chief of staff (HITLD-144),
+          // from the chief of staff's own record of the wakes it sent and the messages it heard.
+          const silent = silentOrchestrator({
+            record: readMessages(p.store),
+            lease: leaseStatus(state, new Date(now), p.policy.run?.lease_expiry_seconds),
+            now,
+            afterSeconds: p.policy.orchestrator?.silent_after_seconds ?? SILENT_AFTER_SECONDS,
+            escalateAfterWakes: p.policy.orchestrator?.escalate_after_wakes ?? ESCALATE_AFTER_WAKES,
+          });
           const parts = [
             ...due.map(
               (v) => `${v.dispatch} ${v.state === 'cut_off' ? 'cut off' : 'stalled'} (${v.step})`,
             ),
             ...(resume.due ? ['dispatch may resume'] : []),
+            ...(silent
+              ? [
+                  `no message from you since ${silent.since}: send your end-of-turn message to the chief of staff`,
+                ]
+              : []),
           ];
           return {
             ok: true,
@@ -232,6 +253,7 @@ export const commands = [
             })),
             paused,
             resume,
+            ...(silent ? { orchestrator_silent: silent } : {}),
             ...housekeeping,
             wake: parts.length > 0,
             wake_message: parts.length ? `watch: ${parts.join('; ')}` : null,

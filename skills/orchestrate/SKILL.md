@@ -21,7 +21,8 @@ Keep your context small: read run-state summaries, reports in their fixed shape 
 Usually the chief of staff (the chief-of-staff skill) started this session, and the owner talks to it, not to you. Then:
 
 - Never message the owner. Wherever this skill says to tell the owner, put it in your message to the chief of staff. Questions too: list their decision IDs and do not run `hitld rights show` or `--send`; the chief of staff shows them.
-- End every turn with that message, in this shape and nothing else:
+- The owner is not present. Never end a turn waiting for the owner's input. Decide operational calls yourself (what to dispatch next, a retry, a follow-up, the order of merges) and record each with `hitld rights log`; only a decision `hitld rights who` gives the owner goes in `questions`.
+- End every turn by sending that message with the harness's message tool, to the chief of staff's session ID your prompt gives (on the web, `send_message`), even when nothing changed. On the web your turn's last words reach no one: only a message you send arrives. (Started with `claude -p` on the chief of staff's machine, your final message is what it reads, so end with the message itself.) A turn that sends none leaves the run waiting, and the chief of staff's watchdog reports it. The message, in this shape and nothing else:
 
   ```
   run: <run ID>  session: <identity.session from run start or run resume>
