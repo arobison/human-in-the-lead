@@ -252,7 +252,7 @@ export function planDispatch(r) {
       continue;
     }
     /** @type {string[]} */
-    const itemNotes = [];
+    const itemNotes = sizing.estimate_note ? [sizing.estimate_note] : [];
     let tier = sizing.tier;
     if (tier === 3 && !caps.persistent_sessions) {
       tier = 2;

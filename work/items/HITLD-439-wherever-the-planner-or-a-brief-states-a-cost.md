@@ -2,10 +2,12 @@
 id: HITLD-439
 title: Wherever the planner or a brief states a cost, it says where the estimate came from and how many completions it rests on
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-436]
+claimed_by: D-36
+release_note: "Every cost the planner states says where it came from and how many completions it rests on: `hitld ready` and the plan's start list carry `estimate_basis` and `estimate_samples`, the brief's Budget line and the quota gate's reason name the source, and the plan lists the estimate settings. New `dispatch` settings `estimate_min_samples` (default 3, was a constant) and `estimate_max_multiple` (default 3): a median of past completions more than that many times the tier's default is not used, and the plan says so."
 ---
 
 ## Done when
