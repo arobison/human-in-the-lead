@@ -5,13 +5,15 @@
 //   1. the typecheck, whole (it takes about a second)
 //   2. the format check on the files the branch changes
 //   3. the tests of the areas the branch touches:
-//      - a changed module (core/, scripts/): every test that imports, directly or through other
-//        modules, a module in the same directory
+//      - a changed module (core/, scripts/): the tests that import a module in its directory
+//        themselves (or through a test helper), and the tests named after that directory
+//        (core/lib/merge/ → merge-*.test.mjs)
 //      - a changed test file: that file; a changed test helper: every test that imports it
-//      - another changed file under a directory (schemas/, skills/, evals/, work/, .github/ ...):
-//        every test whose own source, or a module it imports, names that directory
+//      - another changed file under a directory (schemas/, skills/, evals/, .github/ ...): the
+//        tests whose own source, or a module they import themselves, names that directory
 //      - a changed file at the top of the repository (package.json, tsconfig.json ...): every test
 //      - any change outside work/ and docs/: the plugin build test too, since the plugin copies it
+//   4. `hitld work check`, when the branch changes work/
 //
 // The branch's changes are those since it left main (the merge base with origin/main, or main),
 // with uncommitted and untracked files. --base <ref> names another base; --list prints the plan as
@@ -40,24 +42,21 @@ const IMPORT =
   /(?:import|export)\s[^'"`;]*?from\s*['"](\.{1,2}\/[^'"]+)['"]|import\s*\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)|import\s+['"](\.{1,2}\/[^'"]+)['"]/g;
 
 /**
- * Every repository-relative module a file imports, directly or not, itself included.
+ * The modules a test file imports itself, through the test helpers it imports (core/test/), with
+ * the test file. Modules outside core/test/ are not followed: through the CLI's command table
+ * nearly every test reaches every module, and an area's tests are the ones that use it directly.
  * @param {string} file repository-relative
  * @param {(file: string) => string | null} read
- * @param {Map<string, Set<string>>} [memo]
  * @returns {Set<string>}
  */
-export function importGraph(file, read, memo = new Map()) {
+export function nearImports(file, read) {
   const seen = new Set();
   const stack = [file];
   while (stack.length) {
     const f = /** @type {string} */ (stack.pop());
     if (seen.has(f)) continue;
     seen.add(f);
-    const known = memo.get(f);
-    if (known) {
-      for (const k of known) seen.add(k);
-      continue;
-    }
+    if (f !== file && !f.startsWith('core/test/')) continue;
     const text = read(f);
     if (text === null) continue;
     for (const m of text.matchAll(IMPORT)) {
@@ -65,7 +64,6 @@ export function importGraph(file, read, memo = new Map()) {
       stack.push(posix.normalize(posix.join(posix.dirname(f), spec)));
     }
   }
-  memo.set(file, seen);
   return seen;
 }
 
@@ -80,8 +78,7 @@ const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * @returns {{ tests: string[], all: boolean, reasons: string[] }}
  */
 export function selectTests(changed, tests, read) {
-  const memo = new Map();
-  const graphs = new Map(tests.map((t) => [t, importGraph(t, read, memo)]));
+  const graphs = new Map(tests.map((t) => [t, nearImports(t, read)]));
   /** @type {Set<string>} */
   const chosen = new Set();
   /** @type {string[]} */
@@ -111,11 +108,17 @@ export function selectTests(changed, tests, read) {
     }
     if (/^(core|scripts)\//.test(path) && path.endsWith('.mjs')) {
       const area = posix.dirname(path);
-      add(`${path} (area ${area})`, (t) =>
-        [.../** @type {Set<string>} */ (graphs.get(t))].some((f) => posix.dirname(f) === area),
+      const name = posix.basename(area);
+      add(
+        `${path} (area ${area})`,
+        (t) =>
+          posix.basename(t).startsWith(`${name}`) ||
+          [.../** @type {Set<string>} */ (graphs.get(t))].some((f) => posix.dirname(f) === area),
       );
       continue;
     }
+    // The tracker's files: `hitld work check` checks them, not a test.
+    if (path.startsWith('work/')) continue;
     const top = path.split('/')[0];
     const named = new RegExp(`['"\`/]${escape(top)}['"\`/]`);
     add(`${path} (directory ${top}/)`, (t) =>
@@ -212,6 +215,9 @@ function main(argv) {
         ...plan.tests,
       ]) && ok;
   } else process.stdout.write('no test file covers the changes\n');
+  if (changed.some((p) => p.startsWith('work/'))) {
+    ok = step('tracker check', process.execPath, ['core/bin/hitld.mjs', 'work', 'check']) && ok;
+  }
   process.stdout.write(
     `\ncheck:fast ${ok ? 'passed' : 'failed'} (base ${base.slice(0, 12)}); run the full \`npm run check\` before you report\n`,
   );

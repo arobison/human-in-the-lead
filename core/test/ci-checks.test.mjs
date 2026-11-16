@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classify } from '../../scripts/ci-changes.mjs';
-import { TEST_ARGS, importGraph, selectTests } from '../../scripts/check-fast.mjs';
+import { TEST_ARGS, nearImports, selectTests } from '../../scripts/check-fast.mjs';
 import { isolatedEnv, isolateProcessEnv } from '../lib/isolated-env.mjs';
 import { ISOLATED_HOME, REAL_HOME_DIRS, reached } from './helpers/isolated-home.mjs';
 import { slowestTable } from './helpers/slowest-reporter.mjs';
@@ -55,44 +55,54 @@ test('CI keeps every job name that may be required, and decides skips inside the
   for (const text of [ci, codeql]) assert.match(text, /node scripts\/ci-changes\.mjs/);
 });
 
-test('check:fast picks the tests that import the touched area, a changed test, and the build test', () => {
+test('check:fast picks the tests that use the touched area, a changed test, and the build test', () => {
   /** @type {Record<string, string>} */
   const files = {
-    'core/lib/a/one.mjs': "import { b } from '../b/two.mjs';\n",
+    'core/lib/a/one.mjs': "import { b } from '../beta/two.mjs';\n",
     'core/lib/a/other.mjs': '',
-    'core/lib/b/two.mjs': '',
+    'core/lib/beta/two.mjs': '',
     'core/lib/c/three.mjs': "const dir = join(root, 'schemas');\n",
     'core/lib/packaging/build.mjs': '',
-    'core/test/helpers/h.mjs': '',
+    'core/test/helpers/h.mjs': "import '../../lib/c/three.mjs';\n",
     'core/test/a.test.mjs': "import '../lib/a/other.mjs';\n",
     'core/test/b.test.mjs': "import { x } from '../lib/a/one.mjs';\n",
     'core/test/c.test.mjs': "const { c } = await import('../lib/c/three.mjs');\n",
     'core/test/h.test.mjs': "import { h } from './helpers/h.mjs';\n",
+    'core/test/beta-more.test.mjs': '',
     'core/test/build.test.mjs': "import { build } from '../lib/packaging/build.mjs';\n",
   };
   const read = (/** @type {string} */ f) => files[f] ?? null;
   const tests = Object.keys(files).filter((f) => f.endsWith('.test.mjs'));
+  // A test's own imports, through its helpers, and no further.
   assert.deepEqual(
-    [...importGraph('core/test/b.test.mjs', read)].sort(),
-    ['core/lib/a/one.mjs', 'core/lib/b/two.mjs', 'core/test/b.test.mjs'].sort(),
+    [...nearImports('core/test/h.test.mjs', read)].sort(),
+    ['core/lib/c/three.mjs', 'core/test/h.test.mjs', 'core/test/helpers/h.mjs'].sort(),
   );
+  assert.ok(!nearImports('core/test/b.test.mjs', read).has('core/lib/beta/two.mjs'));
   const pick = (/** @type {string[]} */ changed) => selectTests(changed, tests, read);
-  // A module's area is its directory: both tests that reach core/lib/a run, and the build test.
+  // A module's area is its directory: both tests that use core/lib/a run, and the build test.
   assert.deepEqual(pick(['core/lib/a/one.mjs']).tests, [
     'core/test/a.test.mjs',
     'core/test/b.test.mjs',
     'core/test/build.test.mjs',
   ]);
-  // Reached through another module.
-  assert.ok(pick(['core/lib/b/two.mjs']).tests.includes('core/test/b.test.mjs'));
+  // A test named after the area runs too; one that reaches it only through another area does not.
+  assert.deepEqual(pick(['core/lib/beta/two.mjs']).tests, [
+    'core/test/beta-more.test.mjs',
+    'core/test/build.test.mjs',
+  ]);
   assert.deepEqual(pick(['core/test/h.test.mjs']).tests, [
     'core/test/h.test.mjs',
     'core/test/build.test.mjs',
   ]);
   assert.ok(pick(['core/test/helpers/h.mjs']).tests.includes('core/test/h.test.mjs'));
-  // A data directory: the tests whose modules name it.
-  assert.ok(pick(['schemas/item.schema.json']).tests.includes('core/test/c.test.mjs'));
-  // Tracker files alone touch no plugin source.
+  // A data directory: the tests whose own modules name it.
+  assert.deepEqual(pick(['schemas/item.schema.json']).tests, [
+    'core/test/c.test.mjs',
+    'core/test/h.test.mjs',
+    'core/test/build.test.mjs',
+  ]);
+  // Tracker files are for `hitld work check`, and touch no plugin source.
   assert.deepEqual(pick(['work/items/a.md']).tests, []);
   // A top-level file: everything.
   assert.equal(pick(['package.json']).all, true);
