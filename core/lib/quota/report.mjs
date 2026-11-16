@@ -10,6 +10,7 @@ import { waitingForOwner, waited } from '../merge/owner.mjs';
 import { dispatchGate, forecastLine, show } from './gate.mjs';
 import { fileHref, milestoneFacts, oneSentence } from '../tracker/files/views.mjs';
 import { renderYourMove } from '../dashboard/move.mjs';
+import { renderPlan } from '../dashboard/plan.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
 
@@ -740,6 +741,15 @@ ${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>$
         ]
       : []),
     ...(r.milestones ? [{ id: 'roadmap', label: 'Roadmap', html: roadmap.board }] : []),
+    ...(r.work
+      ? [
+          {
+            id: 'plan',
+            label: 'Plan',
+            html: renderPlan(r.work, policy.reports ?? {}, { fileBase }),
+          },
+        ]
+      : []),
     { id: 'spend', label: 'Quota and spend', html: spend },
   ]);
   return `<!doctype html>
@@ -760,7 +770,10 @@ main,header.top{max-width:64rem;margin:0 auto;padding:0 1rem}main{padding-bottom
 .move h3{font-size:1rem;margin:1.25rem 0 .25rem}.num{display:inline-block;min-width:1.6rem;padding:0 .35rem;border-radius:4px;background:var(--track);text-align:center}
 ol.rows{list-style:none;margin:0;padding:0}ol.rows li{padding:.35rem 0;border-bottom:1px solid var(--line)}.meta{color:var(--muted);font-size:.85rem}
 .pill{display:inline-block;font-size:.75rem;padding:0 .45rem;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-left:.25rem}.pill.crit{border-color:var(--used);color:var(--used)}.pill.warn{border-color:#d9a53a;background:var(--warn-bg)}
-code{font-size:.85em;overflow-wrap:anywhere}table.stack{min-width:0}
+code{font-size:.85em;overflow-wrap:anywhere}
+.pg-box{fill:var(--card);stroke:var(--line)}.pg-strip,.sw.st-blocked,.sw.st-ready,.sw.st-in-progress,.sw.st-done,.sw.st-proposed{fill:var(--st);background:var(--st)}.st-proposed{--st:var(--st-proposed)}.st-blocked{--st:var(--st-waiting)}.st-ready{--st:var(--st-ready)}.st-in-progress{--st:var(--st-flight)}.st-done{--st:var(--st-done)}
+.pg-node.critical .pg-box{stroke:var(--used);stroke-width:2}.pg-node.st-ready .pg-box{stroke:var(--st-ready)}.pg-node.st-done text{fill:var(--muted)}.pg .pg-id{font-weight:600}.pg .pg-stage{font-size:10px;fill:var(--st)}.pg a:hover .pg-box,.pg a:focus-visible .pg-box{stroke:var(--used);stroke-width:2.5}
+.pg-sep{stroke:var(--line);stroke-dasharray:2 3}.plan-list{margin:.75rem 0}.plan-list summary{cursor:pointer;color:var(--muted)}.plan-list h4{font-size:.9rem;margin:.75rem 0 .25rem}.plan-list li{margin:.15rem 0}table.stack{min-width:0}
 @media (max-width:600px){table.stack thead{display:none}table.stack tr{display:block;border-bottom:1px solid var(--line);padding:.4rem 0}table.stack td{display:block;border:0;padding:.1rem .2rem}table.stack td[data-label]::before{content:attr(data-label) ": ";color:var(--muted);font-size:.8rem}}
 h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem}
 .muted,small{color:var(--muted)}small{display:block;font-size:.8rem}

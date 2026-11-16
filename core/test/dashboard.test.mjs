@@ -156,3 +156,69 @@ test('Your move: each section leads with its number, most waited-on first, with 
     /<li data-item="W-6"><a class="file" href="work\/items\/W-6-which-way.md">W-6<\/a> Which way\? <span class="meta">waiting 4 days<\/span> <span class="pill">2 items wait on it<\/span>/,
   );
 });
+
+test('the plan: the diamond and the chain as inline SVG in project lanes, with the critical path, the ready items and a list', async () => {
+  const { html } = await dashboard(fixture());
+  const plan = view(html, 'plan');
+  // Planned and in-progress items by default: W-4, W-5, W-6, W-11, W-12, W-13, W-20, W-21, W-22, W-30.
+  assert.match(
+    plan,
+    /<svg class="mg pg" [^>]*aria-label="Item graph: 10 items in 2 lanes over 3 steps, 6 needs between them, 0 crossings"/,
+  );
+  // The diamond's done top is not drawn; its left and right both feed its bottom.
+  for (const [from, to] of [
+    ['W-11', 'W-13'],
+    ['W-12', 'W-13'],
+    ['W-20', 'W-21'],
+    ['W-21', 'W-22'],
+    ['W-4', 'W-5'],
+    ['W-6', 'W-5'],
+  ]) {
+    assert.match(plan, new RegExp(`data-from="${from}" data-to="${to}"`), `${from} → ${to}`);
+  }
+  assert.doesNotMatch(plan, /data-item="W-10"/, 'done items are left out by default');
+  assert.doesNotMatch(plan, /data-item="W-40"/, 'proposed items have their own view');
+  // The chain is the critical path, in the accent; the ready items say so.
+  assert.match(plan, /Critical path: W-20 → W-21 → W-22\./);
+  assert.match(plan, /<g class="pg-wire critical" data-from="W-20" data-to="W-21">/);
+  assert.match(plan, /<g class="pg-node st-ready critical">/);
+  assert.match(
+    plan,
+    /<a href="work\/items\/W-12-diamond-right.md" data-item="W-12" aria-label="W-12 Diamond right: Ready"><g class="pg-node st-ready">/,
+  );
+  assert.match(plan, /aria-label="W-13 Diamond bottom: Blocked; needs W-11, W-12"/);
+  assert.match(plan, /aria-label="W-11 Diamond left: In progress"/);
+  // Lanes are projects.
+  assert.match(plan, /<text class="mg-lane-name pg-lane" [^>]*>W-2 The project<\/text>/);
+  assert.match(plan, /<text class="mg-lane-name pg-lane" [^>]*>W-19 The second pro…<\/text>/);
+  // The same nodes as a list, for a screen reader.
+  assert.match(plan, /<details class="plan-list"><summary>The same 10 items as a list<\/summary>/);
+  assert.match(
+    plan,
+    /<li data-item="W-13"><a class="file" href="work\/items\/W-13-diamond-bottom.md">W-13<\/a> Diamond bottom: Blocked; needs W-11, W-12<\/li>/,
+  );
+  assert.match(
+    plan,
+    /<li data-item="W-11">[^<]*<a[^>]*>W-11<\/a> Diamond left: In progress; needs W-10 \(done\)<\/li>/,
+  );
+});
+
+test('the plan is cut by project past its size setting, and shows the states the setting names', async () => {
+  const root = fixture();
+  const policy = JSON.parse(readFileSync(join(root, '.human-in-the-lead/policy.json'), 'utf8'));
+  policy.reports = {
+    dashboard_plan_max_items: 7,
+    dashboard_plan_states: ['planned', 'in-progress', 'done'],
+  };
+  put(root, { '.human-in-the-lead/policy.json': JSON.stringify(policy) });
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'settings');
+  const { html } = await dashboard(root);
+  const plan = view(html, 'plan');
+  assert.match(plan, /data-item="W-10"/, 'done items are drawn when the setting names done');
+  assert.doesNotMatch(plan, /data-item="W-20"/);
+  assert.match(
+    plan,
+    /Cut at 7 items by project \(the setting reports.dashboard_plan_max_items\)\. Not drawn: W-19 The second project \(3 items\)\./,
+  );
+});

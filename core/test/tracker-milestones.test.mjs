@@ -893,8 +893,10 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   // Proposal tables stack their cells at phone width, with each cell's label, and no script.
   assert.match(html, /@media \(max-width:600px\)\{\.mg-props thead\{display:none\}/);
   assert.match(html, /\.mg-props td\[data-label\]::before\{content:attr\(data-label\) ": "/);
-  assert.match(html, /<text class="mg-step"[^>]*>Step 2<\/text>/);
-  assert.doesNotMatch(html, />Step 3</);
+  // The board's own steps: the plan's item graph has steps of its own.
+  const board = /<svg class="mg" [\s\S]*?<\/svg>/.exec(html)?.[0] ?? '';
+  assert.match(board, /<text class="mg-step"[^>]*>Step 2<\/text>/);
+  assert.doesNotMatch(board, />Step 3</);
   // Not started: hollow, with a stage dot; started or done: solid, with a strip.
   assert.match(html, /<g class="mg-node ready hollow critical">.*?<circle class="mg-dot"/s);
   assert.match(html, /<g class="mg-node waiting hollow critical">/);
@@ -905,7 +907,7 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
     /<g class="mg-badge decision"><title>Held up by W-6<\/title>.*?>1 decision<\/text>/s,
   );
   // The one wait: on the critical path, with two items behind it, so not dashed.
-  assert.equal((html.match(/class="mg-edge critical"/g) ?? []).length, 1);
+  assert.equal((board.match(/class="mg-edge critical"/g) ?? []).length, 1);
   assert.match(html, /W-1 waits on W-7: 2 item\(s\) behind the wait, on the critical path/);
   assert.match(html, /Critical path: W-7 → W-1\./);
   for (const stage of ['proposed', 'waiting', 'ready', 'in-flight', 'done']) {
