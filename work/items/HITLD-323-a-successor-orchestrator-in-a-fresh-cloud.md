@@ -15,15 +15,15 @@ So the design's hand-over (a successor takes over from the store) does not work 
 
 ## Done when
 
-- A hand-over in a cloud run either reaches the next session or says plainly, before the limit is reached, that it cannot, and what the owner must do (for example approve the device) so the owner can fix it before it stalls the run.
-- A fresh container can resume: the state it needs (checkpoint, ledger summary, usage, person settings, open decisions) is carried by a channel that works without hand-copying, or `hitld run resume` says exactly what is missing and how to restore it.
-- The hand-over limit does not strand a run: when no successor can resume, the run keeps going or pauses cleanly with a note to the owner, not silently.
+The owner decided each of these in the question box on 2026-11-16 (HITLD-329 to 332):
+
+- `hitld run start` and `hitld run resume` refuse to go on when the store cannot carry a hand-over (this container never pulled the store, or its device cannot push), unless the owner opts out with `--no-sync` (HITLD-329).
+- `hitld handover` checks that its store push can land before it releases the lease, and keeps the lease, saying why, when it cannot (HITLD-330).
+- A checkpoint push refused with `device-not-enrolled` warns the owner once, early, and again at each hand-over; it does not block dispatch (HITLD-331).
+- When no successor can resume, the run records a pause and tells the owner exactly what is missing and what to do; nothing starts until the owner answers, and no fresh run starts by itself (HITLD-332).
+- A fresh container can resume: the state it needs (checkpoint, ledger summary, usage, person settings, open decisions) is carried by a channel that works without hand-copying (HITLD-74 numbering and HITLD-148 settings), or `hitld run resume` says exactly what is missing and how to restore it.
 - A test or eval covers a hand-over in a fresh checkout and the refused-sync case.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
-
-## Notes
-
-The owner's decision to reconcile the stores after HITLD-74 stands; this item does not change it. Approving the device key is the owner's action, not an agent's.
 
 ## Analysis for the walk-through (chief of staff, corrected 2026-11-16)
 
@@ -41,7 +41,7 @@ The owner's decision to reconcile the stores after HITLD-74 stands; this item do
 
 **Recommended small changes, none a design change of substance (from an independent review, to confirm in the walk-through):** a preflight at `run start` and `run resume` (store ready, and whether this container has pulled); `hitld handover` checks that its push can land before it releases the lease; a checkpoint marks a `device-not-enrolled` push as blocking; `init --cloud` never mints a key inside a session; an offline fingerprint command; a setup guide that covers the cloud-only first device.
 
-**Questions for the walk-through, one at a time (none decided):**
+**Questions for the walk-through (Q1 decided as a fresh run, HITLD-324; Q2 to Q4 decided as listed in Done when):**
 - **Q1, when to reconcile.** Reconcile the first orchestrator's store with the remote now (a pull merges the ledgers, and a conflict stops it with nothing merged), or wait for HITLD-74 as decided and accept that the run's hand-over cannot carry state until then?
 - **Q2, the preflight.** Should `run start` and `run resume` refuse, or warn loudly, when the store is not ready for a hand-over?
 - **Q3, the hand-over order.** Should `handover` check that its push can land before releasing the lease?
