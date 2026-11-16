@@ -217,6 +217,15 @@ async function saveUncommitted(lease) {
   return { saved: true, branch };
 }
 
+/** @param {string} p */
+const realOr = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
 /**
  * Remove a worktree from disk, saving uncommitted work to its branch first. Returns what happened.
  * @param {WorktreeLease} lease
@@ -224,6 +233,10 @@ async function saveUncommitted(lease) {
  * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam] tests fake a mount point
  */
 export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
+  // Never the primary checkout, whatever a lease says.
+  if (realOr(lease.path) === realOr(lease.repo_root)) {
+    throw new Error(`not removing ${lease.path}: it is the primary checkout`);
+  }
   const gone = !existsSync(lease.path);
   /** @type {{ saved: boolean, branch_deleted: boolean, branch: string, links_unlinked: string[] }} */
   const out = { saved: false, branch_deleted: false, branch: lease.branch, links_unlinked: [] };
@@ -269,9 +282,10 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
  * - abandoned: remove it; the branch stays, since it holds unmerged work.
  * - failed: keep it for inspection, and remove the oldest failed ones beyond
  *   `failed_worktrees_kept`.
- * A worktree adopted from the harness is released but never removed.
+ * A worktree adopted from the harness is released but not removed, unless `removeAdopted` asks
+ * for it once its branch has merged (teardown.mjs).
  * @param {WorktreeContext} ctx
- * @param {{ holder: string, result: 'merged' | 'abandoned' | 'failed' }} request
+ * @param {{ holder: string, result: 'merged' | 'abandoned' | 'failed', removeAdopted?: boolean }} request
  */
 export async function releaseWorktree(ctx, request) {
   const holder = checkHolder(request.holder);
@@ -305,12 +319,14 @@ export async function releaseWorktree(ctx, request) {
     }
     /** @type {Awaited<ReturnType<typeof removeFromDisk>> | null} */
     let removed = null;
-    if (!lease.adopted) removed = await removeFromDisk(lease, request.result === 'merged');
+    const removing =
+      !lease.adopted || (request.removeAdopted === true && request.result === 'merged');
+    if (removing) removed = await removeFromDisk(lease, request.result === 'merged');
     delete registry.worktrees[holder];
     logEvent(ctx.store, 'worktree_released', { holder, result: request.result, ...removed });
     return {
       released: true,
-      kept: lease.adopted,
+      kept: !removing,
       path: lease.path,
       removed: removed ? [lease.path] : [],
       saved_uncommitted: removed?.saved ?? false,

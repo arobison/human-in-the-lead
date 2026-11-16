@@ -3,13 +3,11 @@ import assert from 'node:assert/strict';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { globMatch } from '../lib/precedent/glob.mjs';
 import { matchPrecedents, meets, resolveByPrecedent } from '../lib/precedent/match.mjs';
@@ -22,6 +20,7 @@ import {
 import { parsePrecedent, renderPrecedent } from '../lib/precedent/store.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { makeProject } from './helpers/project.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** @param {Record<string, any>} [more] */
 /** The owner's question. */
@@ -300,7 +299,7 @@ test('an invalid precedent is not stored, and updating one keeps its file', () =
 
 test('a symbolic link at a precedent file is refused, never written through', () => {
   const project = makeProject();
-  const outside = mkdtempSync(join(tmpdir(), 'hitld-outside-'));
+  const outside = tempDir('hitld-outside-');
   const target = join(outside, 'authorized_keys');
   writeFileSync(target, 'keep me\n');
   mkdirSync(join(project.root, 'precedents'));
@@ -312,7 +311,7 @@ test('a symbolic link at a precedent file is refused, never written through', ()
 
 test('a symbolic link at the precedents directory is refused, never written through', () => {
   const project = makeProject();
-  const outside = mkdtempSync(join(tmpdir(), 'hitld-outside-'));
+  const outside = tempDir('hitld-outside-');
   symlinkSync(outside, join(project.root, 'precedents'));
   assert.throws(() => project.precedents.put(precedent()), /symbolic link/);
   assert.deepEqual(readdirSync(outside), []);

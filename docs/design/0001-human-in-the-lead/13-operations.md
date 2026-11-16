@@ -149,7 +149,7 @@ The core records state, the lease and the hand-over, and never calls a harness (
 
 - **Creation.** A worktree per executor, cut from the tip of `main`, on a branch named `<branch_prefix>/<ID>-<slug>`. Where the harness creates its own worktree (Claude Code's `isolation: worktree`), `hitld env` adopts it through a hook instead of creating one.
 - **Setup.** A fresh worktree lacks everything git does not track: installed dependencies, generated files, local configuration copied from templates, build caches. The project declares its setup in `policy.json` (`env.worktree_setup`: an ordered list of commands, such as installing from the lockfile, copying `.env.example` files, generating code, linking a shared cache). `hitld env setup` runs it in the new worktree, sandboxed with the role's network allowlist (a package registry mirror at most), and records the result. A setup failure is reported before the executor starts, not discovered by it.
-- **Cleanup.** After a merge or an abandonment, the worktree is removed and its merged branch deleted. Worktrees of failed dispatches are kept for inspection, up to `env.failed_worktrees_kept`. A worktree with uncommitted changes is never deleted without the change being saved to a branch first.
+- **Cleanup.** After a merge or an abandonment, the worktree is removed and its merged branch deleted. After each merge and each `hitld dispatch watch`, every leased worktree whose branch has merged or whose dispatch was abandoned goes the same way, the harness's adopted ones once their branch has merged; the primary checkout and any worktree a live dispatch holds (by holder, branch or path) stay. Worktrees of failed dispatches are kept for inspection, up to `env.failed_worktrees_kept`. A worktree with uncommitted changes is never deleted without the change being saved to a branch first.
 - **Links in cleanup** (planned). Setup often links things in (a shared cache, a dependency directory from another checkout), so removal must never reach through a link:
   - Cleanup never follows a link.
   - Before deleting any path, it checks that the path's real location is inside the worktree being removed.
@@ -256,6 +256,7 @@ The machine profile says how much of the machine `hitld` may use, not just what 
 | `max_executors` | 3 | The most executors on this machine, from every project |
 | `capacity` | `gpu`: 4 | How many weight units each resource takes (see below) |
 | `load` | `max_per_core`: 0.7 | Above this, heavy work waits |
+| `disk_floor_mb` | 5120 (the default) | Below this much free disk, `hitld dispatch plan` holds every item and `dispatch start` refuses (`disk-floor`); run status, the watchdog and the digest warn below one and a half times it. Free disk is the session's allowance where the harness exposes one, else the file system's available space at the checkout, the private store and the worktrees |
 
 **Kinds of machine.** The machine profile has a `kind` (`role` before HITLD-82), and the kind sets the defaults (decided, [Q26](22-open-questions.md#q26-what-share-of-a-machine-may-hitld-use-by-default-affects-the-machine-profile-hitld-machine-detect-proposes)):
 

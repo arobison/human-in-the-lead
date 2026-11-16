@@ -1,0 +1,54 @@
+name: CodeQL
+
+# CodeQL's advanced setup, in place of the default setup, so a pull request that changes only text
+# CodeQL does not analyze (work/, docs/, Markdown) does not wait on an analysis (HITLD-131). Every
+# push to main, the weekly run and every pull request that changes code or a workflow is analyzed.
+# The skip is decided in the job's own steps from the paths in the diff (scripts/ci-changes.mjs),
+# never by a path filter on the workflow, so the Analyze jobs report a result on every pull request.
+# The repository's code scanning must be set to advanced (CONTRIBUTING.md, CodeQL) for this
+# workflow's results to be accepted.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '41 5 * * 3'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out GitHub's merge commit; its first parent is the base, which
+          # scripts/ci-changes.mjs diffs against.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: changes
+        run: node scripts/ci-changes.mjs
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        if: steps.changes.outputs.codeql == 'true'
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        if: steps.changes.outputs.codeql == 'true'
+        with:
+          category: /language:${{ matrix.language }}

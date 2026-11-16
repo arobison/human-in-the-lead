@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from '../lib/cli/args.mjs';
 import { commands as realCommands, makeCommands } from '../lib/cli/commands/feedback.mjs';
@@ -21,8 +20,9 @@ import { policyDefaults } from '../lib/policy/policy.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { addTerm, removeTerm } from '../lib/store/private-terms.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const root = mkdtempSync(join(tmpdir(), 'hitld-feedback-publish-'));
+const root = tempDir('hitld-feedback-publish-');
 const repo = join(root, 'sample-shop');
 const store = join(root, 'store');
 mkdirSync(join(repo, '.human-in-the-lead'), { recursive: true });

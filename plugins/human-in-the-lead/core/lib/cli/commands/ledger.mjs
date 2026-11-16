@@ -30,6 +30,7 @@ import { executorSignal } from '../executor.mjs';
 import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
 import { activePause } from '../../quota/pause.mjs';
+import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 import { VersionDriftError, runVersionCheck } from '../../install/drift.mjs';
 import { CodedError } from '../errors.mjs';
@@ -109,6 +110,7 @@ function setup(input, ctx) {
     orchestrator: /** @type {Record<string, number | undefined>} */ (policy.orchestrator ?? {}),
     mainBranch: /** @type {string | undefined} */ (policy.merge?.main_branch),
     cwd: ctx.cwd,
+    policy,
   };
 }
 
@@ -599,6 +601,16 @@ const table = [
           .filter((/** @type {any} */ d) => d.mode === 'interactive')
           .map((/** @type {any} */ d) => d.dispatch);
         const live = sessions.length ? sessions.join(',') : 'none';
+        // Free disk, shown only when it nears the floor (machine/disk.mjs).
+        const disk = diskWarning(
+          diskCheck({
+            env: ctx.env,
+            ...(ctx.machine ? { sources: ctx.machine } : {}),
+            repoRoot: findRepoRoot(s.cwd) ?? s.cwd,
+            storeRoot: s.store.root,
+            policy: s.policy,
+          }),
+        );
         return {
           ok: true,
           run: state.run,
@@ -612,9 +624,12 @@ const table = [
           wake_at: paused?.resets_at ?? null,
           handover,
           handover_file: file ? `${s.store.root}/${file}` : null,
-          next: lease.free
-            ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${s.store.root}/${file}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
-            : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}${paused ? `; dispatch is paused at ${paused.limit}${paused.resets_at ? `: schedule one wake for ${paused.resets_at}, the reset` : ', reset time unknown: the check-in looks again'}` : ''}`,
+          ...(disk ? { disk } : {}),
+          next: `${
+            lease.free
+              ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${s.store.root}/${file}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
+              : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}${paused ? `; dispatch is paused at ${paused.limit}${paused.resets_at ? `: schedule one wake for ${paused.resets_at}, the reset` : ', reset time unknown: the check-in looks again'}` : ''}`
+          }${disk ? `; tell the owner: ${disk.reason}` : ''}`,
         };
       }),
   },

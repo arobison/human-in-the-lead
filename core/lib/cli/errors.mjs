@@ -62,6 +62,8 @@ export const ERROR_CODES = Object.freeze({
   // Dispatch, handover and the merge queue
   'not-planned':
     'The item is not one the plan starts now (held, tier 0, no free slot, or not ready).',
+  'disk-floor':
+    "Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.",
   'not-in-flight': 'The dispatch is not in flight.',
   'unknown-dispatch': 'The dispatch has no recorded harness reference, so it cannot be continued.',
   'still-running': 'The dispatch is still running; its completion notice comes first.',

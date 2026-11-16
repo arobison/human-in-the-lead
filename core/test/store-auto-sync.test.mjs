@@ -6,16 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
@@ -37,6 +28,7 @@ import {
   pushingAfter,
 } from '../lib/store/auto-sync.mjs';
 import { commitAll, fixtureGit, putFiles } from '../lib/eval/orchestrator-fixtures.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const DEVICE_A = generateIdentity();
 const DEVICE_B = generateIdentity();
@@ -52,7 +44,7 @@ const at = (/** @type {number} */ n) => `2026-11-14T10:${String(n).padStart(2, '
  * @param {{ remote?: boolean, onlyA?: boolean }} [o] onlyA: the owner approved device A and no other
  */
 function fixture(o = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-auto-sync-'));
+  const dir = tempDir('hitld-auto-sync-');
   const project = join(dir, 'project');
   mkdirSync(project);
   fixtureGit(project, 'init', '-q', '-b', 'main');

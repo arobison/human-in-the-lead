@@ -158,6 +158,7 @@ export const commands = [
         acceptBaseline: input['accept-baseline'] === true,
         requireBaseline: input['require-baseline'] === true,
         evalsDir: /** @type {string | undefined} */ (input['evals-dir']),
+        ...(ctx.now ? { now: ctx.now() } : {}),
       });
     },
   },

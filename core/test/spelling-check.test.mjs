@@ -4,8 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -16,13 +15,14 @@ import {
   formatSpellingReport,
 } from '../lib/spelling/check.mjs';
 import { americanOf, americanize } from '../lib/spelling/words.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const CHECKOUT = fileURLToPath(new URL('../../', import.meta.url));
 const BIN = join(CHECKOUT, 'core/bin/spelling-check.mjs');
 
 /** @param {(dir: string) => void} body */
 function inTemp(body) {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-spelling-test-'));
+  const dir = tempDir('hitld-spelling-test-');
   try {
     body(dir);
   } finally {

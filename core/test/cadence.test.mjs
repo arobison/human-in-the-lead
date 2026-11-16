@@ -4,8 +4,6 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
@@ -18,6 +16,7 @@ import { countChanges, dueJobs, eventsSince, outcomesByPerson } from '../lib/cad
 import { idleThreshold, readIdle } from '../lib/cadence/idle.mjs';
 import { markJobDone, readCadenceState } from '../lib/cadence/state.mjs';
 import { makeProject } from './helpers/project.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const T0 = Date.parse('2026-11-14T12:00:00Z');
 const HOUR = 3_600_000;
@@ -368,7 +367,7 @@ test('the cadence state round-trips through the private store and refuses a dama
 /** A project whose ledger and trust record the command reads, and a runner for the command line. */
 function cli() {
   const project = makeProject();
-  const config = mkdtempSync(join(tmpdir(), 'hitld-cadence-config-'));
+  const config = tempDir('hitld-cadence-config-');
   const env = { ...project.env, XDG_CONFIG_HOME: config };
   /** @param {string[]} argv @param {NodeJS.ProcessEnv} [over] */
   const hitld = async (argv, over = env) => {

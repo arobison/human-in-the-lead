@@ -4,7 +4,6 @@ import { VERSION } from '../lib/version.mjs';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -12,7 +11,6 @@ import {
   linkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
@@ -33,8 +31,9 @@ import {
 } from '../lib/eval/util.mjs';
 import { LiveNotBuilt, runLive } from '../lib/eval/live.mjs';
 import { commitAll, repoOnMain } from './eval-git.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'hitld-eval-test-'));
+const tmp = () => tempDir('hitld-eval-test-');
 
 /**
  * A directory to run from, with its own private store (so a test never writes to the real one),
