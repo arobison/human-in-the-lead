@@ -821,3 +821,37 @@ test('the dashboard counts tokens spent from the ledger, with corrections, again
     /id="milestones"/,
   );
 });
+
+test('escaping: a title with a backslash, a pipe, a quote and &lt; shows as written in the graph, the table and the page', async () => {
+  const title = String.raw`Paths like C:\dir | "quoted" &lt; less`;
+  const root = makeRepo({
+    files: {
+      'work/milestones/W-7-config-errors-explained.md': milestone({ title }),
+    },
+  });
+  const t = open(root);
+  assert.deepEqual(t.check().problems, []);
+  assert.equal(t.milestoneGraph().nodes[1].title, title);
+  // Mermaid: each character as an entity code, the backslash and & included; nothing raw.
+  const mermaid = t.renderViewTexts()['milestones-graph'];
+  assert.match(
+    mermaid,
+    /\n {2}W_7\["W-7 Paths like C:#92;dir \| #quot;quoted#quot; #38;lt; less<br\/>/,
+  );
+  const label = /\n {2}W_7\["(.*?)"\]/.exec(mermaid)?.[1] ?? '';
+  assert.doesNotMatch(label, /[\\"&]/);
+  // The table: the backslash escaped before the pipe, so the pipe stays escaped; & as an entity.
+  t.writeViews();
+  const view = readFileSync(join(root, 'work', 'views', 'milestones.md'), 'utf8');
+  assert.match(
+    view,
+    /\n\| W-7 Paths like C:\\\\dir \\\| "quoted" &amp;lt; less \(critical path\) \| Planned \|/,
+  );
+  // The page: HTML-escaped.
+  settings(root);
+  const r = await hitld(['dashboard', '--out', 'out', '--now', '2026-11-16T12:00:00Z'], root);
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  assert.match(html, /W-7 Paths like C:\\dir \| &quot;quoted&quot; &amp;lt; less/);
+  assert.doesNotMatch(html, /"quoted"|[^&]&lt; less/);
+});

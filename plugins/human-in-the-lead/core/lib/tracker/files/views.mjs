@@ -631,7 +631,11 @@ export function milestoneFacts(n) {
 /** Text safe inside a quoted Mermaid label. @param {string} s */
 const mermaidText = (s) =>
   s
+    // `#` first, as every other escape writes one; then a backslash, so none is left raw; then
+    // `&`, so an entity in the text shows as written.
     .replace(/#/g, '#35;')
+    .replace(/\\/g, '#92;')
+    .replace(/&/g, '#38;')
     .replace(/"/g, '#quot;')
     .replace(/</g, '#lt;')
     .replace(/>/g, '#gt;')
@@ -671,7 +675,17 @@ export function mermaidMilestones(mg) {
 }
 
 /** Text safe in a markdown table cell. @param {string} s */
-const cell = (s) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+const cell = (s) =>
+  // The backslash first, so a `\|` in the text cannot end up as an unescaped pipe; `&`, `<` and
+  // `>` as entities, so the text shows as written and makes no HTML.
+  s
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 /**
  * The view `milestones.md` (design parts 3.4 and 12.1.2): the graph, then a table of the same
