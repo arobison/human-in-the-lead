@@ -15,6 +15,7 @@ Design 14 gives the owner control over what waits for them: `merge.owner_paths` 
 ## Done when
 
 - On the pull-request path, a pull request that changes nothing under `merge.owner_paths` or in `merge.owner_areas` is merged by the system once its named checks pass. One that changes a file there waits for the owner, as in owner mode today. With both settings empty, every pull request waits.
+- This repository's `policy.json` turns the path on: `merge.via` is `pull-request`, `merge.pull_request.checks` names the CI jobs a merge waits for, and `merge.generated` names the committed plugin build so a rebuild does not count as a change a person must read. Until it does, the pull-request merge path that HITLD-133 builds is off here.
 - The path decides from the pull request's diff, never from its author or its description.
 - The earn-the-queue proposal works on this path: after `merge.propose_queue_after` approved merges in an area with none reverted, the orchestrator puts to the owner, as a decision, the policy change a yes would make. The system never changes `merge.mode` or the owner settings itself.
 - A merge the system makes without asking carries the owner's `Signed-off-by`, marked as delegated by a trailer that names the decision that delegated it (HITLD-159), and it is listed in the digest with the command that reverses it.

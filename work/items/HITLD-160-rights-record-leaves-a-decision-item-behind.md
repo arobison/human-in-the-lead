@@ -9,9 +9,11 @@ project: HITLD-15
 
 ## Why
 
-`hitld rights record` (HITLD-134) is meant to check everything before it writes anything, so a refusal leaves no trace. When the owner's choice was recorded for a question with no areas, paths, tags or triggers, the command failed with "trust event is invalid: facts must have at least 1 key" after it had already written the decision item, and it did so twice, leaving two decision items with no answer and no ask record. The same questions recorded cleanly once a tag was added. The chief of staff found this recording the owner's first two design decisions.
+`hitld rights record` (HITLD-134) has two defects. The second: a link given to it is not written to the decision item. The first: it is meant to check everything before it writes anything, so a refusal leaves no trace. When the owner's choice was recorded for a question with no areas, paths, tags or triggers, the command failed with "trust event is invalid: facts must have at least 1 key" after it had already written the decision item, and it did so twice, leaving two decision items with no answer and no ask record. The same questions recorded cleanly once a tag was added. The chief of staff found this recording the owner's first two design decisions.
 
 ## Done when
+
+- A link given to `rights record` is written: `opened_from` (and `blocks`, which gives the blocked item a `needs` link) appears on the decision item, so a recorded decision can be traced to the items it concerns. Today the decision items HITLD-158 to HITLD-174 carry the answer and no link.
 
 - A question with no structured attributes is recorded as a choice, with facts the trust event accepts, or is refused before anything is written, with a message that says which attribute to add. A refusal leaves no decision item, ask record, ledger event or trust event.
 - A test records a question with no areas, paths, tags or triggers, once through the question tool and once in chat, and checks the result and, for a refusal, that nothing was written.
