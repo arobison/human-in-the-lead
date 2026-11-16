@@ -182,8 +182,18 @@
       "enum": ["headless", "interactive"]
     },
     "reason": {
-      "description": "On lease-released: handover (the holder wrote the hand-over and gave the lease up) or ended (the chief of staff saw the session end without one, and retired it). On stalled: no_progress (nothing observed for the dispatch's stall time), deadline (past its start-to-finish deadline), limit (cut off by a usage limit: quiet across a quota pause, found after the reset) or exited (a headless run's process ended without a result). On resumed: reset (the limiting window reset) or budget (the gate allows dispatch again before the reset: a raised budget or reserve, or new readings).",
-      "enum": ["handover", "ended", "no_progress", "deadline", "limit", "exited", "reset", "budget"]
+      "description": "On lease-released: handover (the holder wrote the hand-over and gave the lease up) or ended (the chief of staff saw the session end without one, and retired it). On stalled: no_progress (nothing observed for the dispatch's stall time), deadline (past its start-to-finish deadline), limit (cut off by a usage limit: quiet across a quota pause, found after the reset) or exited (a headless run's process ended without a result). On resumed: reset (the limiting window reset) or budget (the gate allows dispatch again before the reset: a raised budget or reserve, or new readings). On reported: executor-permissions (the report showed commands the contract requires, hitld, node, npm or git, refused by the executor's permission mode; the result is blocked, and its notes name the commands).",
+      "enum": [
+        "handover",
+        "ended",
+        "no_progress",
+        "deadline",
+        "limit",
+        "exited",
+        "reset",
+        "budget",
+        "executor-permissions"
+      ]
     },
     "step": {
       "description": "On stalled: the step of the watchdog's ladder taken: poke (ask the same agent for its status), follow-up (interrupt it and continue it as a follow-up, keeping its commits), abandon (end it and dispatch the item afresh) or ask (a question for the owner, after repeated failures).",

@@ -44,7 +44,7 @@ export class ContractCall extends Error {
 /**
  * Turn a notification into a Completion.
  * @param {string} dispatch @param {Notification} n
- * @returns {Completion & { usageSource: string, sessionId?: string | null, costUsd?: number | null, isError?: boolean }}
+ * @returns {Completion & { usageSource: string, sessionId?: string | null, costUsd?: number | null, isError?: boolean, permissionDenials?: unknown[] }}
  */
 export function completionOf(dispatch, n) {
   const parsed = n.kind === 'headless' ? headlessCompletion(n.json) : subagentCompletion(n);

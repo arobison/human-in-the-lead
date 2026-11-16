@@ -7,6 +7,7 @@
 // dispatch in the ledger before the harness is asked.
 
 import { overlapShare } from './item.mjs';
+import { CONTRACT_COMMANDS, PERMISSIONS_REASON } from './permissions.mjs';
 
 /**
  * @typedef {import('./item.mjs').Item} Item
@@ -29,8 +30,16 @@ import { overlapShare } from './item.mjs';
  * @property {string[]} serial
  * @property {import('./touches.mjs').Touches} touches what the overlap rule used
  * @property {string[]} notes degradations and the like
+ * @property {'headless' | 'interactive'} [mode] for tier 3, when the plan chose it: the other mode
+ *   cannot run the contract's commands
+ * @property {Record<'headless' | 'interactive', 'able' | 'unable' | 'unknown'>} [modes] for tier 3:
+ *   whether each mode can run the contract's commands, as far as the plan knows
  *
  * @typedef {{ item: string, reason: string, why: string }} Held
+ *
+ * @typedef {import('./permissions.mjs').ExecutorMode} ExecutorMode
+ * @typedef {Partial<Record<ExecutorMode, { able: boolean, why: string }>>} ModeAbility whether each
+ *   way of running an executor can run the contract's commands; a mode left out is not known
  */
 
 const LEVELS = ['public', 'internal', 'confidential', 'secret'];
@@ -52,11 +61,16 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   setup?: { done: boolean, reason?: string | null, byHand?: string },
  *   disk?: { state: string, reason: string },
  *   touches?: (item: Item) => import('./touches.mjs').Touches,
+ *   executorModes?: (item: Item) => ModeAbility,
  * }} r
  *   setup: until the first-run setup is done (design part 13.4), every item waits (reason
  *   `setup`) and the cap is one, except `byHand`, the one item the person started by hand
  *   touches: an item's touches for the overlap rule (touches.mjs: its own, else derived); by
  *   default its own
+ *   executorModes: which ways of running the item's executor can run the contract's commands
+ *   (permissions.mjs). A tier-3 item whose headless runs cannot runs interactive, and the other
+ *   way round; when neither can, or a subagent cannot below tier 3, it is held (reason
+ *   executor-permissions) and nothing is launched
  */
 export function planDispatch(r) {
   const caps = r.capabilities;
@@ -146,6 +160,37 @@ export function planDispatch(r) {
       held.push({ item: id, reason: 'resource', why: `waits: ${r.machine?.why(lacking)}` });
       continue;
     }
+    const modes = r.executorModes?.(item) ?? {};
+    const tier3 = sizing.tier === 3 && caps.persistent_sessions;
+    /** @type {'headless' | 'interactive' | undefined} */
+    let mode;
+    /** @type {string | null} */
+    let modeNote = null;
+    if (tier3) {
+      const { headless, interactive } = modes;
+      if (headless?.able === false && interactive?.able === false) {
+        held.push({
+          item: id,
+          reason: PERMISSIONS_REASON,
+          why: `neither tier-3 mode can run ${CONTRACT_COMMANDS.join(', ')}: ${headless.why}; ${interactive.why}`,
+        });
+        continue;
+      }
+      if (headless?.able === false) {
+        mode = 'interactive';
+        modeNote = `headless runs here cannot run the contract's commands (${headless.why}): it runs interactive`;
+      } else if (interactive?.able === false) {
+        mode = 'headless';
+        modeNote = `interactive sessions here cannot run the contract's commands (${interactive.why}): it runs headless`;
+      }
+    } else if (sizing.tier > 0 && modes.subagent?.able === false) {
+      held.push({
+        item: id,
+        reason: PERMISSIONS_REASON,
+        why: `a subagent here cannot run ${CONTRACT_COMMANDS.join(', ')}: ${modes.subagent.why}`,
+      });
+      continue;
+    }
     const gate = r.gate(item);
     lastGate = gate;
     gateMode = gate.mode;
@@ -200,7 +245,16 @@ export function planDispatch(r) {
         'no separate sessions here: tier 3 runs as tier 2 at the highest model and effort, with a smaller slice of the item',
       );
     }
-    start.push({ item: id, tier, sizing, serial, touches, notes: itemNotes });
+    /** @type {Planned} */
+    const planned = { item: id, tier, sizing, serial, touches, notes: itemNotes };
+    if (tier === 3) {
+      /** @param {{ able: boolean } | undefined} m */
+      const state = (m) => (m === undefined ? 'unknown' : m.able ? 'able' : 'unable');
+      planned.modes = { headless: state(modes.headless), interactive: state(modes.interactive) };
+      if (mode) planned.mode = mode;
+      if (modeNote) itemNotes.push(modeNote);
+    }
+    start.push(planned);
     for (const s of serial) busy.add(s);
     runningTouches.push(...touches.touches);
   }
