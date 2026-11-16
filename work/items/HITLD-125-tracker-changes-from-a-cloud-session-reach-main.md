@@ -2,7 +2,7 @@
 id: HITLD-125
 title: Tracker changes from a cloud session reach main through one command
 kind: work
-state: in-progress
+state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-9
