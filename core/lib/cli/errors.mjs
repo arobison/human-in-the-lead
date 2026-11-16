@@ -105,6 +105,17 @@ export const ERROR_CODES = Object.freeze({
   'nothing-to-rate': 'No decision has been answered yet.',
   'not-found': 'The ID is not in the tracker or the store.',
 
+  // Design walk-throughs
+  'not-a-design':
+    'The design has no questions section with Q<n> questions, or an open question lacks two options or a recommendation, or lists its recommendation after another option.',
+  'already-decided': 'The design question is decided already; nothing was written.',
+  'decision-not-for-question':
+    "The decision is not the one filed for that design question: its title is not the question's; nothing was written.",
+  'not-answered': 'The decision has no answer from the owner, so the question stays open.',
+  'options-differ':
+    "The decision offered a different number of options than the design question has, so the option picked cannot be named in the design's words.",
+  'questions-open': 'Questions in the design wait for the owner, so it is not marked decided.',
+
   // Publishing tracker changes
   'main-changed':
     'The main branch changed a tracker file this session changed too, in a way this session has not seen; nothing was published.',

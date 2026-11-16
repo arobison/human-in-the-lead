@@ -13,6 +13,7 @@ import { commands as ledger } from './commands/ledger.mjs';
 import { commands as env } from './commands/env.mjs';
 import { commands as contract } from './commands/contract.mjs';
 import { commands as rights } from './commands/rights.mjs';
+import { commands as design } from './commands/design.mjs';
 import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
@@ -94,6 +95,7 @@ export const COMMANDS = Object.freeze([
   ...contract,
   ...guard,
   ...rights,
+  ...design,
   ...quota,
   ...evals,
   ...orchestrator,
