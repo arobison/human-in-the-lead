@@ -26,7 +26,7 @@ human-in-the-lead/
   skills/                         # layer 2: SKILL.md sources with portable front matter only
     adopt/ chief-of-staff/        # built; the rest of the design's skills are planned
     orchestrate/
-    execute/
+    execute/ curate/
   agents/                         # agent definitions beyond the executors (the generalizer),
                                   # portable front matter only; the build adds the harness's
   templates/                      # AGENTS.contract.md, policy.json and the item, decision and
@@ -52,6 +52,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld work new / show / query / claim / unclaim / close / claims` | Tracker operations through the configured backend; `claims` lists claimed items from branches; `show` and `query` take `--json` for the versioned read API |
 | `hitld work migrate [--dry-run]` | Apply the tracker format migrations to every file; idempotent; the dry run prints the diff. Registered: `milestone-entities`, `retire-priority` |
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
+| `hitld work sweep` | The stale-item sweep: orphaned claims, old `proposed` items, blocked items whose blockers are resolved, items merged but still open, release items whose needs overlap, items that changed public surface without a `release_note`; reads only ([13.3](13-operations.md#the-stale-item-sweep-and-the-curators-pass)) |
 | `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, critical path, milestones, unreleased, lists, dependency diagrams) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |

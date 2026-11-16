@@ -21,6 +21,9 @@ import { formatErrors } from '../../schema/validate.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import { apiResponse, fieldFilter } from '../../tracker/files/api.mjs';
 import { MIGRATIONS } from '../../tracker/files/migrations/index.mjs';
+import { SWEEP_KINDS, sweepTracker } from '../../tracker/files/sweep.mjs';
+import { readLedger } from '../../ledger/ledger.mjs';
+import { openStore, privateStorePath } from '../../store/store.mjs';
 import { CodedError } from '../errors.mjs';
 
 /**
@@ -504,6 +507,54 @@ export const commands = [
           : files === 0
             ? '0 files checked (see warnings)'
             : `${files} files, no problems`,
+      };
+    },
+  },
+  {
+    name: 'work sweep',
+    summary: `The stale-item sweep: ${SWEEP_KINDS.join(', ')}. Deterministic and read-only; the orchestrator plans from its findings and the digest lists them`,
+    built_by: 'a',
+    output: ['ok', 'count', 'counts', 'findings', 'checked', 'skipped', 'summary'],
+    args: [
+      {
+        name: 'now',
+        type: 'string',
+        description: 'Judge ages at this time (a timestamp), for tests',
+      },
+      ...where,
+    ],
+    run(input, ctx) {
+      const t = open(input, ctx, { readOnly: true });
+      let now = ctx.now ? ctx.now().getTime() : Date.now();
+      if (input.now !== undefined) {
+        now = Date.parse(String(input.now));
+        if (Number.isNaN(now)) throw new CodedError('usage', '--now is not a timestamp');
+      }
+      const configDir = input.config ? resolve(ctx.cwd, String(input.config)) : undefined;
+      const loaded = loadPolicy({
+        cwd: configDir ?? t.root(),
+        ...(configDir ? { path: resolve(configDir, 'policy.json') } : {}),
+      });
+      const policy = /** @type {Record<string, any>} */ (loaded.policy);
+      const store = openStore(
+        privateStorePath(policy.project.id, { env: ctx.env, repoRoot: t.root() }),
+      );
+      const ledger = readLedger(store);
+      const swept = sweepTracker(t, { events: ledger.events, policy, now });
+      const n = swept.findings.length;
+      return {
+        ok: true,
+        count: n,
+        ...swept,
+        ...(ledger.problems.length
+          ? { warnings: [`the ledger has ${ledger.problems.length} unreadable line(s)`] }
+          : {}),
+        summary: n
+          ? `${n} finding(s): ${Object.entries(swept.counts)
+              .filter(([, c]) => c > 0)
+              .map(([k, c]) => `${c} ${k}`)
+              .join(', ')}`
+          : 'no findings',
       };
     },
   },

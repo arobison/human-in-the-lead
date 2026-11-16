@@ -314,7 +314,7 @@ User docs, API reference, examples and project handbooks are updated **as part o
 
 - The docs gate is a policy setting (`docs.gate`, design only so far; a project can turn it off). With it on, an item that changes behavior users see carries documentation changes in its "done when", checked in the merge queue: a public symbol without reference docs, an example that no longer runs, or a changed flag missing from the user guide fails the check.
 - **Examples run.** With the docs gate on, code examples in docs are executed as tests, so they cannot rot silently.
-- **Freshness** works as for the knowledge base ([part 8](08-knowledge-base.md#85-the-kb-tool)): each page records `checked` and `checked_at` and its `sources`; `hitld kb stale` covers docs too, and the gardening loop refreshes the most-read stale pages.
+- **Freshness** works as for the knowledge base ([part 8](08-knowledge-base.md#85-the-kb-tool)): each page records `checked` and `checked_at` and its `sources`; `hitld kb stale` covers docs too, and the curator's loop refreshes the most-read stale pages.
 - API reference is generated from the code where the language supports it; prose around it is maintained like any page.
 
 ## 2.13 UX design and review

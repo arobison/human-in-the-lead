@@ -88,7 +88,7 @@ When a measure becomes a target, it stops being a good measure (Goodhart's law, 
 | Token estimate accuracy | Appetite use: estimates must not be padded so that every item "comes in under" |
 | Time to first response ↓ | Share of threads where the contributor had to repeat themselves |
 | Onboarding tokens ↓ | First-pass yield (a too-short brief that skips context fails later) |
-| Knowledge-base freshness ↑ | Gardener tokens per useful update |
+| Knowledge-base freshness ↑ | Curator tokens per useful update |
 | Quarantine size ↓ | Escaped defects in quarantined areas ([part 14.7](14-integration.md#147-flaky-tests)) |
 | Flake cost ↓ | Burn-in and comparison runs spent |
 | Orchestrator overhead ↓ | Questions it failed to batch; decisions sent that precedent would have resolved |
