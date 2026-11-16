@@ -2,11 +2,12 @@
 id: HITLD-153
 title: dispatch start takes any ready item a free slot allows, and an item whose work awaits merge is not planned again
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-130]
 claimed_by: D-25
+release_note: "`hitld dispatch start <ID>` starts any ready item that is not held while a slot is free, whatever its place in the plan; the plan's `free` counts only running dispatches and its new `slots` names the cap, the holders and what frees one. Work reported done on a branch that has not merged is listed under `awaiting_merge` (in `dispatch plan` and `ready`) with its branch and pull request, and is not planned again until it merges or is dropped."
 ---
 
 ## Why
