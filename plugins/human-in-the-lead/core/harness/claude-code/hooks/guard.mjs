@@ -54,7 +54,7 @@ if (isExecutor(input, process.env)) {
   ) {
     why =
       "quarantining a test is the orchestrator's, on the queue's evidence; say in your report which test failed and the rerun that shows it flaky";
-  } else if (/\brights\b[\s\S]*\b(answer|overrule|reverse|rate|trust)\b/.test(unquoted)) {
+  } else if (/\brights\b[\s\S]*\b(answer|record|overrule|reverse|rate|trust)\b/.test(unquoted)) {
     why =
       "decisions are the owner's, answered through the main session; put the question in your report";
   } else if (/\bhitld(\.mjs)?\s+release\s+make\b/.test(unquoted)) {
