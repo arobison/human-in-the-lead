@@ -1,13 +1,13 @@
 // A throwaway project for tests: a repository with a policy.json, a private store outside it, a
 // stand-in tracker, and a precedent store, wired as piece (e)'s library takes them.
 
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvePolicy, policyHash, POLICY_PATH } from '../../lib/policy/policy.mjs';
 import { openStore, privateStorePath } from '../../lib/store/store.mjs';
 import { openPrecedentStore } from '../../lib/precedent/store.mjs';
 import { createMemoryTracker } from './memory-tracker.mjs';
+import { tempDir } from './tmp.mjs';
 
 /** The areas the tests use: two with owners, one without. */
 export const AREAS = [
@@ -26,9 +26,9 @@ export const AREAS = [
  * @returns {Omit<import('../../lib/rights/flow.mjs').Deps, 'tracker'> & { tracker: import('./memory-tracker.mjs').MemoryTracker, root: string, env: NodeJS.ProcessEnv, policyRaw: object, tick: () => string }}
  */
 export function makeProject(options = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-rights-'));
+  const root = tempDir('hitld-rights-');
   mkdirSync(join(root, '.git'));
-  const data = mkdtempSync(join(tmpdir(), 'hitld-rights-data-'));
+  const data = tempDir('hitld-rights-data-');
   const env = { XDG_DATA_HOME: data };
   const policyRaw = {
     schema_version: 1,

@@ -24,7 +24,7 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "test": "node --test --import ./core/test/helpers/isolated-home.mjs --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./core/test/helpers/slowest-reporter.mjs --test-reporter-destination=stdout \"core/test/**/*.test.mjs\"",
+    "test": "node core/test/run.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "format": "prettier --write --cache .",
     "format:check": "prettier --check --cache .",

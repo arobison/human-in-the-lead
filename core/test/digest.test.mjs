@@ -5,8 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DIGEST_KEY,
@@ -27,6 +26,7 @@ import { settingsLocation } from '../lib/settings/files.mjs';
 import { makeCommands } from '../lib/cli/commands/rights.mjs';
 import { makeProject } from './helpers/project.mjs';
 import { item, makeConsumer } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const T0 = Date.parse('2026-11-14T12:00:00Z');
 const MIN = 60_000;
@@ -516,6 +516,7 @@ test('the digest is assembled from named parts, and the flaky-test part has its 
       'stamp',
       'flakes',
       'quota',
+      'disk',
     ],
   );
   assert.equal(PARTS.includes(flakesPart), true);
@@ -638,7 +639,7 @@ function person(env, data) {
 
 test('hitld rights digest: both triggers, the person’s quiet hours, marking, and the executor refusal', async () => {
   const { project, work } = setup();
-  const base = mkdtempSync(join(tmpdir(), 'hitld-digest-'));
+  const base = tempDir('hitld-digest-');
   const env = { ...project.env, XDG_CONFIG_HOME: join(base, 'config') };
   person(env, {
     schema_version: 2,

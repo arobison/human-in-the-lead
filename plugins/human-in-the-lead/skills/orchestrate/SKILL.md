@@ -83,7 +83,7 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
 `hitld dispatch plan`. It sizes the ready queue into tiers 0 to 3 from policy, applies the concurrency cap, serial-resource locks, overlap, the harness's capabilities and the quota gate.
 
 - `inline`: tier 0. Do it yourself on a `hitld/<ID>-<slug>` branch (claim, change, close), then `hitld merge`. Never commit to `main` directly.
-- `held`: leave them; the reason says why (serial, overlap, quota, classification, resource, setup). Reason `setup` means the first-run setup is not done: go to step 0.
+- `held`: leave them; the reason says why (serial, overlap, quota, classification, resource, disk, setup). Reason `setup` means the first-run setup is not done: go to step 0. Reason `disk` means free disk is below the machine's floor: tell the owner with `disk.reason`, and start nothing.
 - `gate.mode` other than `normal`: say so in your next message to the owner. `stop` means autonomous dispatch has stopped at the reserve: tell the owner at once with `gate.reason`, and do not start anything.
 - `paused`: the pause is recorded, with `wake_at`, when the limit's window resets. Put `wake_at: <wake_at> quota reset` in your message, so the chief of staff wakes the run then (when you are both, schedule that wake yourself). Without `wake_at`, the check-in looks again.
 - `hitld ready` shows the whole queue with each item's tier, estimate and reasons, if you need to explain an ordering.
@@ -96,6 +96,8 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
    - `Bash` (tier 3, headless): the command as given, with `run_in_background: true`.
    - `session` (tier 3, interactive): with a chief of staff, put `start_session` in your message (in the cloud, add the brief's text: the chief of staff cannot read your files). When you are both, start the session yourself, or ask the owner.
 3. `hitld dispatch handle --dispatch D-<n> --harness-ref <the agent ID or background task ID>`.
+
+Make worktrees only through `hitld env` (`hitld dispatch start` does it for tier 3, `hitld env setup` otherwise), never with `git worktree add` or by hand: then each one is tracked, and goes when its branch merges or its dispatch ends.
 
 Then do useful work between notices: merge, answer questions, triage. Do not wait.
 

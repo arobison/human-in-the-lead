@@ -4,14 +4,12 @@ import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
@@ -30,8 +28,9 @@ import {
 import { evaluateQuotas } from '../lib/quota/quota.mjs';
 import { dispatchGate } from '../lib/quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml } from '../lib/quota/report.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-quota-')));
+const tmp = realpathSync(tempDir('hitld-quota-'));
 after(() => rmSync(tmp, { recursive: true, force: true }));
 
 const T0 = Date.parse('2026-11-14T12:00:00Z');

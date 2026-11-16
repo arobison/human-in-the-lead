@@ -26,16 +26,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** The node --test arguments `npm test` uses (a test keeps package.json in step with this). */
-export const TEST_ARGS = [
-  '--test',
-  '--import',
-  './core/test/helpers/isolated-home.mjs',
-  '--test-reporter=spec',
-  '--test-reporter-destination=stdout',
-  '--test-reporter=./core/test/helpers/slowest-reporter.mjs',
-  '--test-reporter-destination=stdout',
-];
+/** How `npm test` runs a set of test files: in its own temporary directory, isolated, checked. */
+export const TEST_RUNNER = 'core/test/run.mjs';
 
 const BUILD_MODULE = 'core/lib/packaging/build.mjs';
 const IMPORT =
@@ -211,7 +203,7 @@ function main(argv) {
   if (plan.tests.length) {
     ok =
       step(`tests (${plan.tests.length} file(s))`, process.execPath, [
-        ...TEST_ARGS,
+        TEST_RUNNER,
         ...plan.tests,
       ]) && ok;
   } else process.stdout.write('no test file covers the changes\n');

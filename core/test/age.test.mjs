@@ -2,8 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   decrypt,
@@ -19,6 +18,7 @@ import {
   unwrapFileKey,
 } from '../lib/store/age.mjs';
 import * as bech32 from '../lib/store/bech32.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const CHUNK = 64 * 1024;
 const alice = generateIdentity();
@@ -229,7 +229,7 @@ function age(args, input) {
 }
 
 test('interop: a file this code writes opens with the age program', { skip }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-age-'));
+  const dir = tempDir('hitld-age-');
   const keyFile = join(dir, 'key.txt');
   const kg = spawnSync('age-keygen', ['-o', keyFile], { encoding: 'utf8' });
   assert.equal(kg.status, 0, kg.stderr);
@@ -259,7 +259,7 @@ test('interop: a file this code writes opens with the age program', { skip }, ()
 });
 
 test('interop: a file the age program writes opens with this code', { skip }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-age-'));
+  const dir = tempDir('hitld-age-');
   const keyFile = join(dir, 'key.txt');
   assert.equal(spawnSync('age-keygen', ['-o', keyFile]).status, 0);
   const ids = parseIdentities(readFileSync(keyFile).toString('utf8'));

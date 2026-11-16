@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { COMMANDS, BUILT_BY, findCommand, toolName } from '../lib/cli/table.mjs';
 import { inputSchema, parseArgs, UsageError } from '../lib/cli/args.mjs';
 import { VERSION } from '../lib/version.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -63,7 +63,7 @@ test('an unknown option is a usage error that shows the usage', async () => {
 
 /** @param {unknown} policy */
 function fixture(policy) {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-cli-'));
+  const root = tempDir('hitld-cli-');
   mkdirSync(join(root, '.human-in-the-lead'));
   writeFileSync(join(root, '.human-in-the-lead', 'policy.json'), JSON.stringify(policy));
   chmodSync(join(root, '.human-in-the-lead', 'policy.json'), 0o644);

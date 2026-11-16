@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classify } from '../../scripts/ci-changes.mjs';
-import { TEST_ARGS, nearImports, selectTests } from '../../scripts/check-fast.mjs';
+import { TEST_RUNNER, nearImports, selectTests } from '../../scripts/check-fast.mjs';
 import { isolatedEnv, isolateProcessEnv } from '../lib/isolated-env.mjs';
 import { ISOLATED_HOME, REAL_HOME_DIRS, reached } from './helpers/isolated-home.mjs';
 import { slowestTable } from './helpers/slowest-reporter.mjs';
@@ -109,9 +109,13 @@ test('check:fast picks the tests that use the touched area, a changed test, and 
   assert.equal(pick(['package.json']).tests.length, tests.length);
 });
 
-test('npm test runs node --test with the arguments check:fast uses', () => {
+test('npm test and check:fast run the tests one way: isolated, reporting the slowest files', () => {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
-  assert.equal(pkg.scripts.test, `node ${TEST_ARGS.join(' ')} "core/test/**/*.test.mjs"`);
+  assert.equal(pkg.scripts.test, `node ${TEST_RUNNER}`);
+  const runner = readFileSync(join(ROOT, TEST_RUNNER), 'utf8');
+  assert.match(runner, /'--import',\s*join\(HERE, 'helpers', 'isolated-home\.mjs'\)/);
+  assert.match(runner, /helpers', 'slowest-reporter\.mjs'/);
+  assert.match(runner, /\['--test', \.\.\.TEST_FLAGS,/);
   assert.equal(pkg.scripts['check:fast'], 'node scripts/check-fast.mjs');
   assert.match(pkg.scripts['format:check'], /--cache/);
   const ignore = readFileSync(join(ROOT, '.prettierignore'), 'utf8');

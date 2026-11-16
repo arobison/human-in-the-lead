@@ -4,13 +4,11 @@ import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { VERSION } from '../lib/version.mjs';
@@ -18,8 +16,9 @@ import { HEADINGS, FORM_OF, renderIssueBody } from '../lib/feedback/render.mjs';
 import { feedbackRecordsIn } from '../lib/feedback/guard.mjs';
 import { checkRecord } from '../lib/feedback/record.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const root = mkdtempSync(join(tmpdir(), 'hitld-feedback-'));
+const root = tempDir('hitld-feedback-');
 const repo = join(root, 'repo');
 const store = join(root, 'store');
 mkdirSync(repo);

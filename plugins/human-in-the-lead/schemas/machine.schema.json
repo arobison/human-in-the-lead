@@ -27,6 +27,11 @@
       "type": "integer",
       "minimum": 1
     },
+    "disk_floor_mb": {
+      "description": "Megabytes of free disk below which no new work starts: hitld dispatch plan holds every item and dispatch start refuses. Free disk is the session's allowance where the harness exposes one, else the file system's available space at the checkout, the private store and the worktrees. Without it, 5120. Status, the watchdog and the digest warn below one and a half times this.",
+      "type": "integer",
+      "minimum": 1
+    },
     "capacity": {
       "description": "How many weight units each resource takes, such as gpu: 4. A holder takes a weight; a resource with no entry has capacity 1.",
       "type": "object",

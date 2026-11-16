@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -15,7 +14,7 @@ import {
   writeFileSync,
   copyFileSync,
 } from 'node:fs';
-import { hostname, tmpdir, userInfo } from 'node:os';
+import { hostname, userInfo } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commitAll, git, repoOnMain } from './eval-git.mjs';
@@ -33,9 +32,10 @@ import {
   readBaseline,
   settingsHash,
 } from '../lib/eval/results.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
-const tmp = () => realpathSync(mkdtempSync(join(tmpdir(), 'hitld-eval-baselines-test-')));
+const tmp = () => realpathSync(tempDir('hitld-eval-baselines-test-'));
 
 /** @param {string} name @param {boolean} valid the item the scenario validates is valid */
 const scenario = (name, valid = true) => ({
