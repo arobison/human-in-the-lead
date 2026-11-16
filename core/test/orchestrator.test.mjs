@@ -631,6 +631,32 @@ test('kill and resume: a dispatch recorded but never started is abandoned; a liv
   assert.equal(stale.result.error, 'lease-lost', 'the old session lost the lease');
 });
 
+test('identity: with no flags and no HITLD_SESSION, the harness names the session and run start the host', async () => {
+  const c = makeConsumer();
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  const harness = { env: { HITLD_SESSION: undefined, CLAUDE_CODE_REMOTE_SESSION_ID: 'cse_orch' } };
+  const started = await c.hitld(['run', 'start', '--host', 'far-box'], harness);
+  assert.equal(started.exit, 0, JSON.stringify(started.result));
+  assert.deepEqual(started.result.identity, {
+    session: 'cse_orch',
+    host: 'far-box',
+    source: 'harness',
+  });
+  // Later calls of the session pass neither flag: the session from the harness, the host recorded.
+  const first = await c.hitld(['dispatch', 'start', 'W-1'], harness);
+  assert.equal(first.exit, 0, JSON.stringify(first.result));
+  // The same session on another host: not a lost lease, and it says which hosts.
+  const moved = await c.hitld(['dispatch', 'start', 'W-2', '--host', 'near-box'], harness);
+  assert.equal(moved.result.error, 'lease-host-mismatch');
+  assert.deepEqual(moved.result.differs, ['host']);
+  assert.match(moved.result.message, /on host far-box, but this call gives host near-box/);
+  // Another session of the harness does not hold it, and has no host recorded: both differ.
+  const other = await c.hitld(['dispatch', 'start', 'W-2'], {
+    env: { HITLD_SESSION: undefined, CLAUDE_CODE_REMOTE_SESSION_ID: 'cse_other' },
+  });
+  assert.deepEqual([other.result.error, other.result.differs], ['lease-lost', ['session', 'host']]);
+});
+
 test('tier 3 runs headless in a worktree from hitld env; its JSON result completes it', async () => {
   const c = makeConsumer({
     files: {

@@ -15,7 +15,7 @@ You are the orchestrator: the control plane. You run in the main checkout, you a
 
 Keep your context small: read run-state summaries, reports in their fixed shape and command output. Never read diffs, logs or transcripts. Never poll executors, check their files or sleep: completion notices arrive as new turns. An executor that hangs is found by the watchdog, which the chief of staff runs on its schedule; it wakes you when one needs a step.
 
-Set `HITLD_SESSION` to one ID for this whole session (for example the date and a word), or pass `--session` on every call. When the chief of staff started you, use the ID it gave.
+`hitld` knows this session without flags: it takes the harness's session ID, or, without one, makes an ID at `run start` and remembers it for this checkout, with the host run start used. `run start` and `run resume` print it as `identity`. Pass no `--session` or `--host`.
 
 ## Who talks to the owner
 
@@ -25,7 +25,7 @@ Usually the chief of staff (the chief-of-staff skill) started this session, and 
 - End every turn with that message, in this shape and nothing else:
 
   ```
-  run: <run ID>  session: <your HITLD_SESSION>
+  run: <run ID>  session: <identity.session from run start or run resume>
   questions: <decision IDs for the owner, each "now" or "digest", or none>
   digest: ready | none
   merge_ready: <the batch hitld merge presented: its question and one line per branch with its evidence and reads, or none>
