@@ -14,4 +14,4 @@ check: demo a tracker-only pull request merged through hitld with no prompt, run
 
 ## Notes
 
-Step 3 of 5. HITLD-150 needs HITLD-133 (done).
+Step 3 of 4. HITLD-150 needs HITLD-133 (done).

@@ -14,4 +14,4 @@ check: demo two containers pushing and pulling the store and one ledger holding 
 
 ## Notes
 
-Step 2 of 5. Needs the planner of step 1 to offer HITLD-74. HITLD-142 is done.
+Step 2 of 4. Needs the planner of step 1 to offer HITLD-74. HITLD-142 is done.

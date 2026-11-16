@@ -14,4 +14,4 @@ check: demo opening dashboard.html with its four views, run by the owner
 
 ## Notes
 
-Step 4 of 5. This is c4 of Consumer live (HITLD-67) in its own right; amend or drop the duplicate there.
+Step 4 of 4. This is c4 of Consumer live (HITLD-67) in its own right; amend or drop the duplicate there.
