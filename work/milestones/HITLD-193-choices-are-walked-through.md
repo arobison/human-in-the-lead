@@ -2,7 +2,8 @@
 id: HITLD-193
 title: Design choices are walked through one at a time
 kind: milestone
-state: proposed
+state: dropped
+reason: Folded into HITLD-189 on the owner's choice; the walk-through skill is step 1 work
 created: 2026-11-16
 project: HITLD-15
 outcome: A held design item is settled with the owner one question at a time, each answer recorded.
