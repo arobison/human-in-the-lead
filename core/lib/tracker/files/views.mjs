@@ -504,7 +504,7 @@ export function viewCriticalPath(g, top = 5) {
  *   no open milestone has estimate tokens remaining
  * @property {{ id: string | null, title: string, state: string | null }[]} lanes long outcomes (id
  *   and state null), then each project with a milestone, in ID order
- * @property {{ id: string, title: string, release: string, state: string, layer: number, milestones: string[], path: string }[]} releases
+ * @property {{ id: string, title: string, release: string, state: string, layer: number, milestones: string[], path: string, needs: { id: string, title: string, state: string, path: string | null }[] }[]} releases
  *   work items with a `release` version (release gates), in board order: by layer, then version.
  *   A done release has layer -1 (before the first step); an open one the step of the last
  *   milestone it needs, else the last step, and never less than an open release it needs; it
@@ -798,6 +798,12 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
       layer: /** @type {number} */ (gateLayer.get(d.id)),
       milestones: d.before.map((m) => String(m.data.id)),
       path: d.it.path,
+      needs: d.needs.map((x) => ({
+        id: x,
+        title: titleOf(g, x),
+        state: String(g.get(x)?.data.state ?? 'unknown'),
+        path: g.get(x)?.path ?? null,
+      })),
     }))
     .sort(
       (a, b) =>

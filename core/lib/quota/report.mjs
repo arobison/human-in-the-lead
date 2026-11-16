@@ -227,6 +227,35 @@ function bar(s, q) {
 
 /** A milestone's anchor on the page. @param {string} id */
 const milestoneAnchor = (id) => `milestone-${id.replace(/[^A-Za-z0-9-]/g, '')}`;
+/** A release's anchor on the page. @param {string} id */
+const releaseAnchor = (id) => `release-${id.replace(/[^A-Za-z0-9-]/g, '')}`;
+
+/**
+ * The CSS that marks the open milestone's box, or the open release's flag, on the board: one rule
+ * per milestone and release, since CSS alone cannot match a link to the drawer it opens. A browser
+ * without `:has()` shows no mark; the drawer still opens.
+ * @param {MilestoneGraph} mg
+ */
+export function milestoneSectionCss(mg) {
+  return [
+    ...mg.nodes.map((n) => {
+      const a = milestoneAnchor(n.id);
+      return `body:has(#${a}:target) a[href="#${a}"] .mg-box{stroke:var(--used);stroke-width:3;fill:var(--sel)}`;
+    }),
+    ...mg.releases.map((r) => {
+      const a = releaseAnchor(r.id);
+      return `body:has(#${a}:target) a[href="#${a}"] .mg-flag text{fill:var(--used);font-weight:700}`;
+    }),
+  ].join('\n');
+}
+
+/**
+ * A drawer: a panel on the right that opens when it is the page's target (CSS `:target`), with a
+ * head (title, a note and a Close link back to the board) and a scrolling body.
+ * @param {string} anchor @param {string} title HTML @param {string} note HTML @param {string} body HTML
+ */
+const drawer = (anchor, title, note, body) =>
+  `<section class="drill" id="${anchor}" aria-labelledby="${anchor}-title"><div class="drawer-head"><h3 id="${anchor}-title">${title}</h3><a class="drawer-close" href="#milestones">Close</a><small>${note}</small></div><div class="drawer-body">${body}</div></section>`;
 
 /** Text cut to `max` characters, ending with an ellipsis when cut. @param {string} t @param {number} max */
 const cut = (t, max) => (t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`);
@@ -470,7 +499,7 @@ export function renderMilestoneSection(mg, { fileBase = null } = {}) {
     .map((r) => {
       const { x, y } = /** @type {{ x: number, y: number }} */ (flagAt.get(r.id));
       const before = r.milestones.length ? `; after ${r.milestones.join(', ')}` : '';
-      return `<a href="${esc(fileHref(r.path, { base: fileBase }))}" aria-label="${esc(`Release ${r.release}: ${r.id} ${r.title}`)}"><g class="mg-flag ${r.state === 'done' ? 'done' : 'open'}"><title>${esc(`Release gate ${r.release}: ${r.id} ${r.title} (${STATE_LABELS[r.state] ?? r.state})${before}`)}</title><line x1="${x}" x2="${x}" y1="${y + 2}" y2="${y + 14}"/><path d="M${x + 1} ${y + 2}L${x + 11} ${y + 6}L${x + 1} ${y + 10}z"/><text x="${x + 16}" y="${y + 11}">${esc(r.release)}</text></g></a>`;
+      return `<a href="#${releaseAnchor(r.id)}" aria-label="${esc(`Release ${r.release}: ${r.id} ${r.title}`)}"><g class="mg-flag ${r.state === 'done' ? 'done' : 'open'}"><title>${esc(`Release gate ${r.release}: ${r.id} ${r.title} (${STATE_LABELS[r.state] ?? r.state})${before}`)}</title><line x1="${x}" x2="${x}" y1="${y + 2}" y2="${y + 14}"/><path d="M${x + 1} ${y + 2}L${x + 11} ${y + 6}L${x + 1} ${y + 10}z"/><text x="${x + 16}" y="${y + 11}">${esc(r.release)}</text></g></a>`;
     })
     .join('');
 
@@ -541,7 +570,43 @@ export function renderMilestoneSection(mg, { fileBase = null } = {}) {
             .join('')}</tbody></table></div>`
         : '<p class="muted">No constraints or contributions yet.</p>';
       const holds = [...n.holds.decisions, ...n.holds.external];
-      return `<section class="drill" id="${milestoneAnchor(n.id)}"><h3>${fileLink(n.id, n.path)} ${esc(n.title)} <small>${esc(STATE_LABELS[n.state] ?? n.state)}${n.critical ? ', on the critical path' : ''}</small></h3><p>${esc(n.outcome ?? 'No outcome yet.')}</p><p class="muted">${n.in_progress} in progress; constraints ${esc(f.constraints)}; ${esc(f.tokens)}; ${esc(f.check)}.${holds.length ? ` Held up by ${holds.map(esc).join(', ')}.` : ''}</p>${items}<p class="muted">The items' own needs are in the item graph, work/views/items-graph.md in the repository. <a href="#milestones">Close</a></p></section>`;
+      return drawer(
+        milestoneAnchor(n.id),
+        `${fileLink(n.id, n.path)} ${esc(n.title)}`,
+        `${esc(STATE_LABELS[n.state] ?? n.state)}${n.critical ? ', on the critical path' : ''}`,
+        `<p>${esc(n.outcome ?? 'No outcome yet.')}</p><p class="muted">${n.in_progress} in progress; constraints ${esc(f.constraints)}; ${esc(f.tokens)}; ${esc(f.check)}.${holds.length ? ` Held up by ${holds.map(esc).join(', ')}.` : ''}</p>${items}<p class="muted">The items' own needs are in the item graph, work/views/items-graph.md in the repository.</p>`,
+      );
+    })
+    .join('\n');
+  const stateOf = (/** @type {string} */ st) => esc(STATE_LABELS[st] ?? st);
+  const releaseDrawers = mg.releases
+    .map((r) => {
+      const before = r.milestones
+        .map((id) => mg.nodes.find((n) => n.id === id))
+        .filter((n) => n !== undefined);
+      const landed = before.filter((n) => n.state === 'done').length;
+      const milestones = before.length
+        ? `<h4>Milestones that land before it (${landed} of ${before.length} done)</h4><div class="wrap"><table style="min-width:0"><thead><tr><th>Milestone</th><th>State</th></tr></thead><tbody>${before
+            .map(
+              (n) =>
+                `<tr><td><a href="#${milestoneAnchor(n.id)}">${esc(n.id)}</a> ${esc(n.title)}</td><td>${stateOf(n.state)}</td></tr>`,
+            )
+            .join('')}</tbody></table></div>`
+        : '<p class="muted">No milestone lands before it.</p>';
+      const needs = r.needs.length
+        ? `<h4>What it needs (${r.needs.filter((x) => x.state === 'done').length} of ${r.needs.length} done)</h4><div class="wrap"><table style="min-width:0"><thead><tr><th>Item</th><th>State</th></tr></thead><tbody>${r.needs
+            .map(
+              (x) =>
+                `<tr><td>${fileLink(x.id, x.path)} ${esc(x.title)}</td><td>${stateOf(x.state)}</td></tr>`,
+            )
+            .join('')}</tbody></table></div>`
+        : '<p class="muted">It needs nothing.</p>';
+      return drawer(
+        releaseAnchor(r.id),
+        `Release ${esc(r.release)}: ${fileLink(r.id, r.path)} ${esc(r.title)}`,
+        `${stateOf(r.state)}${r.state === 'done' ? ', released' : ''}`,
+        `${milestones}${needs}`,
+      );
     })
     .join('\n');
   return `<h2 id="milestones">Milestones</h2>
@@ -549,7 +614,9 @@ export function renderMilestoneSection(mg, { fileBase = null } = {}) {
 ${legend}
 <div class="wrap">${svg}</div>
 ${proposals}${droppedTable}
-${panels}`;
+<a class="drawer-backdrop" href="#milestones" aria-label="Close" tabindex="-1"></a>
+${panels}
+${releaseDrawers}`;
 }
 
 /**
@@ -588,8 +655,8 @@ export function renderHtml(r, policy, { fileBase = null } = {}) {
 <meta name="color-scheme" content="light dark">
 <title>${esc(r.project)}: quotas and spend</title>
 <style>
-:root{--st-proposed:#c4c8ce;--st-waiting:#d14348;--st-ready:#2457c2;--st-flight:#b08cf6;--st-done:#45c486;--zebra:#f1f2f4;--bg:#fbfbfa;--fg:#1c1d20;--muted:#60646c;--line:#d9dbe0;--card:#fff;--used:#2f6fb3;--reserve:#e5b64a55;--track:#e9eaee;--mark:#8a8f98;--stop:#b3261e;--stop-bg:#fbe9e7;--warn-bg:#fff4dc}
-@media (prefers-color-scheme:dark){:root{--st-proposed:#62676f;--st-waiting:#b8363d;--st-ready:#2f68d2;--st-flight:#9b7fe6;--st-done:#2fac6a;--zebra:#1a1b1e;--bg:#141517;--fg:#e8e9ec;--muted:#9a9fa8;--line:#34373d;--card:#1b1c1f;--used:#6aa5e6;--reserve:#d9a53a44;--track:#2a2c31;--mark:#8a8f98;--stop:#ff8a80;--stop-bg:#3a1f1c;--warn-bg:#3a3018}}
+:root{--sel:#eaf1fb;--st-proposed:#c4c8ce;--st-waiting:#d14348;--st-ready:#2457c2;--st-flight:#b08cf6;--st-done:#45c486;--zebra:#f1f2f4;--bg:#fbfbfa;--fg:#1c1d20;--muted:#60646c;--line:#d9dbe0;--card:#fff;--used:#2f6fb3;--reserve:#e5b64a55;--track:#e9eaee;--mark:#8a8f98;--stop:#b3261e;--stop-bg:#fbe9e7;--warn-bg:#fff4dc}
+@media (prefers-color-scheme:dark){:root{--sel:#1d2a3a;--st-proposed:#62676f;--st-waiting:#b8363d;--st-ready:#2f68d2;--st-flight:#9b7fe6;--st-done:#2fac6a;--zebra:#1a1b1e;--bg:#141517;--fg:#e8e9ec;--muted:#9a9fa8;--line:#34373d;--card:#1b1c1f;--used:#6aa5e6;--reserve:#d9a53a44;--track:#2a2c31;--mark:#8a8f98;--stop:#ff8a80;--stop-bg:#3a1f1c;--warn-bg:#3a3018}}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
 main{max-width:64rem;margin:0 auto;padding:1.5rem 1rem 3rem}
 h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem}
@@ -614,9 +681,16 @@ thead th{font-size:.8rem;color:var(--muted);font-weight:600}tr.binding{backgroun
 @media (max-width:600px){.mg-props thead{display:none}.mg-props tr{display:block;border-bottom:1px solid var(--line);padding:.4rem 0}.mg-props td,.mg-props th{display:block;border:0;padding:.1rem .2rem}.mg-props td[data-label]::before{content:attr(data-label) ": ";color:var(--muted);font-size:.8rem}}
 .mg-legend{display:flex;flex-wrap:wrap;gap:.25rem 1rem;font-size:.8rem;color:var(--muted);margin:.25rem 0 .5rem}.mg-legend .sw{display:inline-block;width:.8rem;height:.8rem;border-radius:3px;margin-right:.3rem;vertical-align:-.1rem}
 .sw.proposed{background:var(--st-proposed)}.sw.waiting{background:var(--st-waiting)}.sw.ready{background:var(--st-ready)}.sw.in-flight{background:var(--st-flight)}.sw.done{background:var(--st-done)}.sw.critical{background:none;border:2px solid var(--used)}
-.drill{display:none;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.25rem 1rem .75rem;margin:1rem 0}.drill:target{display:block}.drill h3{font-size:1rem}
+.drill{display:none;box-sizing:border-box;position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);overflow-y:auto;background:var(--card);border-left:1px solid var(--line);border-radius:10px 0 0 10px;box-shadow:-8px 0 28px #0000002e;z-index:30}.drill:target{display:block}
+.drawer-head{position:sticky;top:0;z-index:1;background:var(--card);border-bottom:1px solid var(--line);padding:.75rem 1rem;display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .75rem}.drawer-head h3{margin:0;font-size:1rem;flex:1 1 0}.drawer-head small{flex-basis:100%}
+.drawer-close{margin-left:auto;padding:.15rem .7rem;border:1px solid var(--line);border-radius:6px;color:var(--fg);text-decoration:none;font-size:.9rem}.drawer-close:hover{border-color:var(--used)}.drawer-body{padding:.5rem 1rem 1.5rem}.drawer-body h4{font-size:.9rem;margin:1rem 0 .25rem}
+.drawer-backdrop{display:none}body:has(.drill:target) .drawer-backdrop{display:block;position:fixed;inset:0;z-index:20;background:transparent}
+.mg{position:relative;z-index:25;pointer-events:none}.mg a{pointer-events:auto}.mg-props a{position:relative;z-index:25}
+@media (min-width:1100px){body:has(.drill:target){padding-right:min(560px,100%)}}
+@media (max-width:1099px){body:has(.drill:target) .drawer-backdrop{background:#00000066}.mg,.mg-props a{z-index:auto}}
 .track{fill:var(--track)}.reserve{fill:var(--reserve)}.used{fill:var(--used)}.mark{stroke:var(--mark);stroke-width:1}.stop{stroke:var(--stop);stroke-width:2}
 ul{margin:.25rem 0;padding-left:1.2rem}
+${r.milestones ? milestoneSectionCss(r.milestones) : ''}
 </style>
 </head>
 <body>

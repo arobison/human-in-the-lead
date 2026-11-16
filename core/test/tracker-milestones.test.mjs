@@ -712,6 +712,9 @@ test('the milestone graph: nodes, the one edge, progress, the check and the crit
       layer: 0,
       milestones: ['W-7'],
       path: 'work/items/W-10-ship-it.md',
+      needs: [
+        { id: 'W-5', title: 'Third step', state: 'planned', path: 'work/items/W-5-third-step.md' },
+      ],
     },
   ]);
   assert.deepEqual(
@@ -839,10 +842,15 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   // Each node links to its panel; a panel shows only as the page's target.
   for (const id of ['W-1', 'W-7', 'W-8']) {
     assert.match(html, new RegExp(`<a href="#milestone-${id}"`));
-    assert.match(html, new RegExp(`<section class="drill" id="milestone-${id}">`));
+    assert.match(
+      html,
+      new RegExp(
+        `<section class="drill" id="milestone-${id}" aria-labelledby="milestone-${id}-title">`,
+      ),
+    );
   }
   assert.match(html, /\.drill\{display:none;[^}]*\}\.drill:target\{display:block\}/);
-  const panel = /<section class="drill" id="milestone-W-7">.*?<\/section>/s.exec(html)?.[0] ?? '';
+  const panel = /<section class="drill" id="milestone-W-7" .*?<\/section>/s.exec(html)?.[0] ?? '';
   assert.match(
     panel,
     /<tr><td><a class="file" href="work\/items\/W-4-second-step\.md">W-4<\/a> Second step<\/td><td>constraint<\/td><td>Planned<\/td><td>yes<\/td><\/tr>/,
@@ -992,7 +1000,7 @@ test('escaping: a backslash before a pipe and a trailing backslash cannot unesca
   const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
   assert.ok(
     html.includes(
-      '<h3><a class="file" href="work/milestones/W-7-config-errors-explained.md">W-7</a> A pipe after a backslash \\| and one at the end \\ <small>',
+      '<h3 id="milestone-W-7-title"><a class="file" href="work/milestones/W-7-config-errors-explained.md">W-7</a> A pipe after a backslash \\| and one at the end \\</h3>',
     ),
   );
 });
@@ -1015,7 +1023,7 @@ test('the board shows committed milestones only, lists proposed and dropped ones
     /<tr><td data-label="Idea"><a href="#milestone-W-7">W-7 Config errors explained<\/a><\/td><td data-label="Before committing">Waits on your answer: W-6<\/td><td data-label="Waiting on it">1<\/td><\/tr>/,
   );
   assert.doesNotMatch(html, /Dropped milestones/);
-  assert.match(html, /<section class="drill" id="milestone-W-7">/, 'its panel is still there');
+  assert.match(html, /<section class="drill" id="milestone-W-7" /, 'its drawer is still there');
   assert.match(html, /<g class="mg-node waiting hollow critical loop">/);
   assert.match(html, /2 milestones in 3 lanes/);
 });
@@ -1171,7 +1179,7 @@ test('the page links every item, milestone and release ID to its file, plainly, 
   // No remote: repository-relative paths.
   let html = await page('out');
   const panels = [
-    ...html.matchAll(/<section class="drill" id="milestone-(W-\d+)">(.*?)<\/section>/gs),
+    ...html.matchAll(/<section class="drill" id="milestone-(W-\d+)" [^>]*>(.*?)<\/section>/gs),
   ];
   assert.equal(panels.length, 3);
   for (const [, id, panel] of panels) {
@@ -1188,12 +1196,19 @@ test('the page links every item, milestone and release ID to its file, plainly, 
     }
     assert.match(
       panel,
-      new RegExp(`<h3><a class="file" href="work/milestones/${id}-[a-z0-9-]+\\.md">${id}</a> `),
+      new RegExp(
+        `<h3 id="milestone-${id}-title"><a class="file" href="work/milestones/${id}-[a-z0-9-]+\\.md">${id}</a> `,
+      ),
     );
   }
+  // A flag opens the release's drawer, whose head links the release item's file.
   assert.match(
     html,
-    /<a href="work\/items\/W-10-ship-it\.md" aria-label="Release 1\.0\.0: W-10 Ship it"><g class="mg-flag open">/,
+    /<a href="#release-W-10" aria-label="Release 1\.0\.0: W-10 Ship it"><g class="mg-flag open">/,
+  );
+  assert.match(
+    html,
+    /<h3 id="release-W-10-title">Release 1\.0\.0: <a class="file" href="work\/items\/W-10-ship-it\.md">W-10<\/a> Ship it<\/h3>/,
   );
   // Clickable: a pointer, and a visible focus outline for the keyboard.
   assert.match(html, /\.mg a\{cursor:pointer\}/);
@@ -1207,4 +1222,74 @@ test('the page links every item, milestone and release ID to its file, plainly, 
     /<a class="file" href="https:\/\/github\.com\/acme\/widgets\/blob\/HEAD\/work\/items\/W-4-second-step\.md">W-4<\/a>/,
   );
   assert.doesNotMatch(html, /secret-token|someone@/);
+});
+
+test('drawers: closed by default, each with a Close link, every box and flag opening its own, a backdrop that closes them, no script', async () => {
+  const root = graphRepo();
+  settings(root);
+  const r = await hitld(['dashboard', '--out', 'out', '--now', '2026-11-16T12:00:00Z'], root);
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  assert.doesNotMatch(html, /<script|\son[a-z]+=/i, 'no script and no event handler attributes');
+  // Closed by default; a drawer shows only as the page's target, fixed on the right.
+  assert.match(
+    html,
+    /\.drill\{display:none;box-sizing:border-box;position:fixed;top:0;right:0;bottom:0;width:min\(560px,100%\);[^}]*\}\.drill:target\{display:block\}/,
+  );
+  const drawers = [
+    ...html.matchAll(
+      /<section class="drill" id="((?:milestone|release)-W-\d+)" [^>]*>(.*?)<\/section>/gs,
+    ),
+  ];
+  assert.deepEqual(
+    drawers.map((d) => d[1]),
+    ['milestone-W-1', 'milestone-W-7', 'milestone-W-8', 'release-W-10'],
+  );
+  for (const [, id, body] of drawers) {
+    assert.match(
+      body,
+      /^<div class="drawer-head"><h3 id="[^"]+-title">.*?<\/h3><a class="drawer-close" href="#milestones">Close<\/a>/,
+      id,
+    );
+    // Every box or flag on the board opens it.
+    assert.match(html, new RegExp(`<a href="#${id}" aria-label="`), id);
+  }
+  // The release's drawer: what lands before it and what it needs, with their states.
+  const release = drawers[3][2];
+  assert.match(
+    release,
+    /Milestones that land before it \(0 of 1 done\).*?<a href="#milestone-W-7">W-7<\/a> Config errors explained<\/td><td>Planned/s,
+  );
+  assert.match(
+    release,
+    /What it needs \(0 of 1 done\).*?<a class="file" href="work\/items\/W-5-third-step\.md">W-5<\/a> Third step<\/td><td>Planned/s,
+  );
+  // One backdrop, out of the tab order, closing to the board; shown only while a drawer is open.
+  assert.equal(
+    (
+      html.match(
+        /<a class="drawer-backdrop" href="#milestones" aria-label="Close" tabindex="-1"><\/a>/g,
+      ) ?? []
+    ).length,
+    1,
+  );
+  assert.match(
+    html,
+    /\.drawer-backdrop\{display:none\}body:has\(\.drill:target\) \.drawer-backdrop\{display:block;position:fixed;inset:0;z-index:20/,
+  );
+  // Lane backgrounds let a click through to the backdrop; boxes and flags stay above it.
+  assert.match(
+    html,
+    /\.mg\{position:relative;z-index:25;pointer-events:none\}\.mg a\{pointer-events:auto\}/,
+  );
+  // Wide: beside the board. The open box and flag are marked.
+  assert.match(
+    html,
+    /@media \(min-width:1100px\)\{body:has\(\.drill:target\)\{padding-right:min\(560px,100%\)\}\}/,
+  );
+  assert.match(
+    html,
+    /body:has\(#milestone-W-7:target\) a\[href="#milestone-W-7"\] \.mg-box\{stroke:var\(--used\)/,
+  );
+  assert.match(html, /body:has\(#release-W-10:target\) a\[href="#release-W-10"\] \.mg-flag text\{/);
 });
