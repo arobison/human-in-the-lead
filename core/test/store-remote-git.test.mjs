@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import {
@@ -14,6 +13,7 @@ import {
 } from '../lib/store/remote-git.mjs';
 import { StoreRemoteError } from '../lib/store/remote.mjs';
 import { storeRemoteConformance } from './helpers/store-remote-conformance.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** Run git on a bare repository, for setting up and inspecting the fake remote. */
 const gitIn = (/** @type {string} */ dir, /** @type {string[]} */ args, input = '') => {
@@ -39,7 +39,7 @@ const gitIn = (/** @type {string} */ dir, /** @type {string[]} */ args, input = 
 
 /** A bare repository standing in for the private repository on the host, and a place for clones. */
 function fakeHost() {
-  const base = mkdtempSync(join(tmpdir(), 'hitld-remote-git-'));
+  const base = tempDir('hitld-remote-git-');
   const bare = join(base, 'store.git');
   mkdirSync(bare);
   gitIn(bare, ['init', '-q', '--bare']);
@@ -112,7 +112,7 @@ test('a URL that is not a git URL is refused', () => {
 });
 
 test('the local directory must be a store directory, never a checkout', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-remote-dir-'));
+  const dir = tempDir('hitld-remote-dir-');
   try {
     const url = 'file:///nowhere.git';
     assert.throws(() => createGitRemote({ url, dir: 'relative/dir' }), {
@@ -283,7 +283,7 @@ test('a refusal that is not a race is reported, not taken for a stale head', asy
 
 test('git runs with hooks off, and only connection config crosses from the owner', async () => {
   const host = fakeHost();
-  const home = mkdtempSync(join(tmpdir(), 'hitld-remote-home-'));
+  const home = tempDir('hitld-remote-home-');
   const marker = join(home, 'hook-ran');
   const saved = { ...process.env };
   try {
@@ -329,7 +329,7 @@ test('git runs with hooks off, and only connection config crosses from the owner
 test('the remote never touches the checkout it is run from', async () => {
   const host = fakeHost();
   const cwd = process.cwd();
-  const work = mkdtempSync(join(tmpdir(), 'hitld-remote-cwd-'));
+  const work = tempDir('hitld-remote-cwd-');
   try {
     spawnSync('git', ['init', '-q', work]);
     process.chdir(work);

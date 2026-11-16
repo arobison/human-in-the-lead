@@ -3,13 +3,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { addTerm } from '../lib/store/private-terms.mjs';
 import { commitAll, git, isolatedEnv, itemText, makeRepo, put } from './tracker-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const POLICY = JSON.stringify({ schema_version: 1, project: { id: 'fixture', key: 'W' } });
 
@@ -19,7 +19,7 @@ const POLICY = JSON.stringify({ schema_version: 1, project: { id: 'fixture', key
  */
 function session() {
   const root = makeRepo({ files: { '.human-in-the-lead/policy.json': `${POLICY}\n` } });
-  const remote = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-publish-remote-')));
+  const remote = realpathSync(tempDir('hitld-publish-remote-'));
   git(remote, 'init', '-q', '--bare', '-b', 'main');
   git(root, 'remote', 'add', 'origin', remote);
   git(root, 'push', '-q', 'origin', 'main');
@@ -205,7 +205,7 @@ test('executors are refused, main is never the branch, and a change main made un
   assert.deepEqual(branches(remote), ['main']);
 
   // Someone else changes W-6 on main; this session changes it too, without having seen that.
-  const other = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-publish-other-')));
+  const other = realpathSync(tempDir('hitld-publish-other-'));
   git(other, 'clone', '-q', remote, '.');
   git(other, 'config', 'user.name', 'Other');
   git(other, 'config', 'user.email', 'other@example.invalid');
