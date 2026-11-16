@@ -2,9 +2,10 @@
 id: HITLD-141
 title: Dispatch does not launch headless tier-3 executors that cannot run the contract's commands
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-16
 ---
 
 ## Why
