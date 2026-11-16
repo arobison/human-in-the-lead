@@ -71,6 +71,32 @@ async function hitld(argv, cwd) {
   return { code, json: JSON.parse(out) };
 }
 
+/** The column heads of a board's SVG. @param {string} svg */
+const heads = (svg) =>
+  [...svg.matchAll(/<text class="mg-step"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+
+/** Each release flag of a board's SVG by version, in drawing order. @param {string} svg */
+function flagsOf(svg) {
+  /** @type {Record<string, { x: number, y: number, text: string }>} */
+  const flags = {};
+  for (const m of svg.matchAll(
+    /<g class="mg-flag \w+"><title>Release gate (\S+): (W-\d+)[^<]*<\/title><line x1="([\d.]+)" x2="[\d.]+" y1="([\d.]+)"[^]*?<text [^>]*>([^<]*)<\/text><\/g>/g,
+  )) {
+    flags[m[1]] = { x: Number(m[3]), y: Number(m[4]), text: m[5] };
+  }
+  return flags;
+}
+
+/** Each milestone box's left edge in a board's SVG. @param {string} svg */
+const boxesOf = (svg) =>
+  Object.fromEntries(
+    [
+      ...svg.matchAll(
+        /<a href="#milestone-(W-\d+)" [^>]*><g class="[^"]*"><title>[^<]*<\/title><rect class="mg-box" x="([\d.]+)"/g,
+      ),
+    ].map((m) => [m[1], Number(m[2])]),
+  );
+
 /** Settings files, so the command line can open the tracker. @param {string} root */
 function settings(root) {
   put(root, {
@@ -838,7 +864,7 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   assert.match(html, /<h2 id="milestones">Milestones<\/h2>/);
   assert.match(
     html,
-    /<svg class="mg" [^>]*aria-label="Milestone board: 3 milestones in 3 lanes over 2 steps, 1 waits between them"/,
+    /<svg class="mg" [^>]*aria-label="Milestone board: 3 milestones in 3 lanes over 2 columns, 1 waits between them"/,
   );
   // Each node links to its panel; a panel shows only as the page's target.
   for (const id of ['W-1', 'W-7', 'W-8']) {
@@ -861,7 +887,7 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
     /<tr><td><a class="file" href="work\/items\/W-9-nice-to-have\.md">W-9<\/a> Nice to have<\/td><td>contribution<\/td><td>Planned<\/td><td><\/td><\/tr>/,
   );
   // Lanes with their names, top to bottom: the release gates first, then long outcomes, then
-  // each project; steps across.
+  // each project; release stages across.
   assert.deepEqual(
     [...html.matchAll(/<text class="mg-lane-name" x="8" y="(\d+)">([^<]*)<\/text>/g)]
       .sort((a, b) => Number(a[1]) - Number(b[1]))
@@ -894,10 +920,13 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   // Proposal tables stack their cells at phone width, with each cell's label, and no script.
   assert.match(html, /@media \(max-width:600px\)\{\.mg-props thead\{display:none\}/);
   assert.match(html, /\.mg-props td\[data-label\]::before\{content:attr\(data-label\) ": "/);
-  // The board's own steps: the plan's item graph has steps of its own.
+  // The board's columns are release stages: W-7 lands before 1.0.0; W-1 and W-8, which no
+  // release needs, stand after it.
   const board = /<svg class="mg" [\s\S]*?<\/svg>/.exec(html)?.[0] ?? '';
-  assert.match(board, /<text class="mg-step"[^>]*>Step 2<\/text>/);
-  assert.doesNotMatch(board, />Step 3</);
+  assert.deepEqual(
+    [...board.matchAll(/<text class="mg-step"[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]),
+    ['Before 1.0.0', 'No release'],
+  );
   // Not started: hollow, with a stage dot; started or done: solid, with a strip.
   assert.match(html, /<g class="mg-node ready hollow critical">.*?<circle class="mg-dot"/s);
   assert.match(html, /<g class="mg-node waiting hollow critical">/);
@@ -1008,18 +1037,26 @@ test('escaping: a backslash before a pipe and a trailing backslash cannot unesca
   );
 });
 
-test('the board shows committed milestones only, lists proposed and dropped ones under it, and dashes a loop', () => {
+test('the board draws proposed milestones dashed and marked, still lists them under it, and marks a loop', () => {
   const mg = open(graphRepo()).milestoneGraph();
   const w7 = /** @type {any} */ (mg.nodes[1]);
   w7.state = 'proposed';
   w7.stage = 'proposed';
   /** @type {any} */ (mg.nodes[0]).in_cycle = true;
   const html = renderMilestoneSection(mg);
-  assert.doesNotMatch(html, /<a href="#milestone-W-7" aria-label/);
+  // On the board (decision HITLD-419): hollow, with the proposed class the dashed border hangs
+  // on, a "proposed" mark by its name, in the column its release gives it, in both layouts.
+  const node = (/** @type {string} */ svg) =>
+    new RegExp(
+      `<a href="#milestone-W-7" aria-label="W-7 Config errors explained, Proposed, not committed[^"]*"[^>]*><g class="mg-node proposed hollow[^"]*">.*?<g class="mg-badge proposed"><title>Proposed: not committed yet</title>.*?>proposed</text>`,
+      's',
+    ).test(svg);
+  const [lanes, fewest] = [...html.matchAll(/<svg class="mg" [\s\S]*?<\/svg>/g)].map((m) => m[0]);
+  assert.ok(node(lanes) && node(fewest), 'drawn and marked in both layouts');
   // Proposals as a table: the idea, what stands between it and committing, what waits on it.
   assert.match(
     html,
-    /<h3 class="mg-h">Proposed milestones, not on the board<\/h3>.*?<table class="mg-props">/s,
+    /<h3 class="mg-h">Proposed milestones: what stands between each and committing<\/h3>.*?<table class="mg-props">/s,
   );
   assert.match(
     html,
@@ -1027,8 +1064,11 @@ test('the board shows committed milestones only, lists proposed and dropped ones
   );
   assert.doesNotMatch(html, /Dropped milestones/);
   assert.match(html, /<section class="drill" id="milestone-W-7" /, 'its drawer is still there');
-  assert.match(html, /<g class="mg-node waiting hollow critical loop">/);
-  assert.match(html, /2 milestones in 3 lanes/);
+  // A loop: an amber border and a mark; the dashed border is the proposed one alone.
+  assert.match(html, /<g class="mg-node waiting hollow critical loop[^"]*">.*?>in a loop<\/text>/s);
+  assert.match(html, /<span>Dashed border: proposed, not committed<\/span>/);
+  assert.match(html, /<span>Amber border: in a loop of needs<\/span>/);
+  assert.match(html, /3 milestones in 3 lanes/);
 });
 
 test('proposals: whole proposed projects first, then lone milestones; other waits named; dropped in their own table', () => {
@@ -1052,8 +1092,9 @@ test('proposals: whole proposed projects first, then lone milestones; other wait
     html,
     /<h3 class="mg-h">Dropped milestones<\/h3>.*?<td data-label="Idea"><a href="#milestone-W-8">W-8 First step shown<\/a><\/td><td data-label="Constraints">1 of 1 done<\/td>/s,
   );
-  // Nothing committed is left, so the board has only the release lane.
-  assert.match(html, /0 milestones in 1 lanes/);
+  // The proposed ones stand on the board too; the dropped one does not.
+  assert.match(html, /2 milestones in 3 lanes/);
+  assert.doesNotMatch(html, /<a href="#milestone-W-8" aria-label/);
 });
 
 test('versions order as semantic versions: numbers by value, a pre-release before its release', () => {
@@ -1063,7 +1104,7 @@ test('versions order as semantic versions: numbers by value, a pre-release befor
   );
 });
 
-test('release flags: a done release before the first step, open ones after what they need, in version order', () => {
+test('release flags: each at the right edge of its stage, in stage order; where the needs and a release disagree, the needs win', () => {
   // As on this repository's tracker: a done pre-release that needs only items (rc.1), an open
   // pre-release that needs a milestone (rc.2 needs W-1, at the second step), and the release
   // (0.1.0), which needs both pre-releases and an item of W-7 (the first step).
@@ -1108,36 +1149,187 @@ test('release flags: a done release before the first step, open ones after what 
       ['0.1.0', 'planned', 1, ['W-7']],
     ],
   );
+  // The board's columns (decision HITLD-420): rc.1 needs W-8, rc.2 needs W-1, and 0.1.0 needs
+  // W-7; but W-1 needs W-7, so W-7 stands before rc.2 with W-1, a column to its left, and the
+  // board says so. 0.1.0 has nothing left in its stage: its flag stands just right of rc.2's.
   const html = renderMilestoneSection(mg);
-  /** @type {Record<string, { x: number, y: number, text: string }>} */
-  const flags = {};
-  for (const m of html.matchAll(
-    /<g class="mg-flag \w+"><title>Release gate (\S+): (W-\d+)[^<]*<\/title><line x1="([\d.]+)" x2="[\d.]+" y1="([\d.]+)"[^]*?<text [^>]*>([^<]*)<\/text><\/g>/g,
-  )) {
-    flags[m[1]] = { x: Number(m[3]), y: Number(m[4]), text: m[5] };
+  const [lanes, fewest] = [...html.matchAll(/<svg class="mg" [\s\S]*?<\/svg>/g)].map((m) => m[0]);
+  assert.deepEqual(heads(lanes), [
+    'Before 0.1.0-rc.1',
+    'Before 0.1.0-rc.2, step 1',
+    'Before 0.1.0-rc.2, step 2',
+  ]);
+  for (const svg of [lanes, fewest]) {
+    const flags = flagsOf(svg);
+    const box = boxesOf(svg);
+    assert.deepEqual(
+      Object.keys(flags),
+      ['0.1.0-rc.1', '0.1.0-rc.2', '0.1.0'],
+      'one row each, in stage order',
+    );
+    assert.equal(new Set(Object.values(flags).map((f) => f.y)).size, 3);
+    assert.ok(box['W-8'] + 230 < flags['0.1.0-rc.1'].x, 'rc.1 right of its milestone');
+    assert.ok(flags['0.1.0-rc.1'].x < box['W-7'], 'and left of the next stage');
+    assert.ok(box['W-7'] < box['W-1'], 'W-1 a column right of W-7, which it needs');
+    assert.ok(box['W-1'] + 230 < flags['0.1.0-rc.2'].x, 'rc.2 right of both');
+    assert.ok(flags['0.1.0-rc.2'].x < flags['0.1.0'].x, 'rc.2 left of 0.1.0');
+    // The board is wide enough for every label.
+    const width = Number(/<svg class="mg" width="(\d+)"/.exec(svg)?.[1]);
+    for (const f of Object.values(flags)) assert.ok(f.x + 16 + f.text.length * 7 <= width);
   }
-  // Where the first step's column starts: its label is centered over its 230-wide nodes.
-  const stepOne =
-    Number(/<text class="mg-step" x="([\d.]+)"[^>]*>Step 1</.exec(html)?.[1]) - 230 / 2;
-  assert.ok(flags['0.1.0-rc.1'].x < stepOne, 'the done release is left of the first step');
-  assert.ok(flags['0.1.0-rc.1'].x < flags['0.1.0-rc.2'].x, 'rc.1 left of rc.2');
-  assert.ok(flags['0.1.0-rc.2'].x < flags['0.1.0'].x, 'rc.2 left of 0.1.0');
-  // Each on its own row, labeled by its version alone; the item stays in the tooltip.
-  assert.equal(new Set(Object.values(flags).map((f) => f.y)).size, 3);
-  assert.deepEqual(
-    Object.values(flags).map((f) => f.text),
-    ['0.1.0-rc.1', '0.1.0-rc.2', '0.1.0'],
-  );
   assert.match(
     html,
     /<title>Release gate 0\.1\.0: W-10 Release 0\.1\.0 \(Planned\); after W-7<\/title>/,
   );
-  // The board is wide enough for every label.
-  const width = Number(/<svg class="mg" width="(\d+)"/.exec(html)?.[1]);
-  for (const f of Object.values(flags)) assert.ok(f.x + 16 + f.text.length * 7 <= width);
-  // A done release's rule stays in the Releases lane; an open one's runs down the board.
-  assert.match(html, /<g class="mg-rule done"><line class="mg-rule-top" [^>]*\/><\/g>/);
-  assert.equal((html.match(/<line class="mg-rule-down"/g) ?? []).length, 2);
+  assert.match(
+    html,
+    /Where a milestone's needs and its release disagree, the needs win: W-7 stands before 0\.1\.0-rc\.2 because W-1 needs it, though the first release that needs it is 0\.1\.0\./,
+  );
+  assert.match(
+    lanes,
+    /<g class="mg-badge pulled"><title>Drawn before 0\.1\.0-rc\.2: W-1 needs it, though the first release that needs it is 0\.1\.0<\/title>.*?>needed earlier<\/text>/,
+  );
+  // Every release's rule runs down the board: rc.1 is done but W-8 stands in its stage.
+  assert.equal((lanes.match(/<line class="mg-rule-down"/g) ?? []).length, 3);
+});
+
+/**
+ * Two release stages and proposed milestones (HITLD-421): 0.1.0-rc.1 needs W-11; 1.0.0 needs rc.1
+ * and the proposed W-12 and W-13; W-13 needs W-14, which no release needs; the long outcome W-15
+ * needs W-11, W-12 and W-13. The fixture's own long outcome W-1 needs nothing and no release
+ * needs it.
+ */
+const stagesRepo = () => {
+  const work = (/** @type {string} */ id, /** @type {Record<string, string | string[]>} */ f) =>
+    itemText({ id, kind: 'work', state: 'planned', project: 'W-2', ...f });
+  const ms = (/** @type {string} */ id, /** @type {Record<string, string | string[]>} */ f) =>
+    itemText({ id, kind: 'milestone', state: 'planned', project: 'W-2', ...f });
+  return makeRepo({
+    files: {
+      '.human-in-the-lead/tracker.json': JSON.stringify({ schema_version: 1 }),
+      'work/projects/W-2-the-project.md': itemText({
+        id: 'W-2',
+        title: 'The project',
+        kind: 'project',
+        state: 'planned',
+        owner: 'owner',
+      }),
+      'work/items/W-20-share.md': work('W-20', { title: 'Share the store' }),
+      'work/items/W-21-guide.md': work('W-21', { title: 'Write the guide' }),
+      'work/items/W-22-windows.md': work('W-22', { title: 'Run on Windows' }),
+      'work/items/W-23-hosted.md': work('W-23', { title: 'Read a hosted tracker' }),
+      'work/items/W-30-rc-1.md': work('W-30', {
+        title: 'Release 0.1.0-rc.1',
+        release: '0.1.0-rc.1',
+        needs: ['W-11'],
+      }),
+      'work/items/W-31-ship.md': work('W-31', {
+        title: 'Release 1.0.0',
+        release: '1.0.0',
+        needs: ['W-30', 'W-12', 'W-13'],
+      }),
+      'work/milestones/W-11-store-shared.md': ms('W-11', {
+        title: 'Store shared',
+        outcome: 'Two sessions share one store.',
+        constraints: ['W-20 c?'],
+      }),
+      'work/milestones/W-12-guide-followed.md': ms('W-12', {
+        title: 'Guide followed',
+        state: 'proposed',
+        outcome: 'A new project adopts it from the guide.',
+        constraints: ['W-21 c?'],
+      }),
+      'work/milestones/W-13-runs-on-windows.md': ms('W-13', {
+        title: 'Runs on Windows',
+        state: 'proposed',
+        outcome: 'The suite passes on Windows.',
+        constraints: ['W-22 c?', 'W-14 c?'],
+      }),
+      'work/milestones/W-14-hosted-tracker.md': ms('W-14', {
+        title: 'Hosted tracker',
+        outcome: 'A project runs on a hosted tracker.',
+        constraints: ['W-23 c?'],
+      }),
+      'work/milestones/W-15-goal.md': itemText({
+        id: 'W-15',
+        title: 'The goal',
+        kind: 'milestone',
+        state: 'planned',
+        owner: 'owner',
+        outcome: 'One signal end to end.',
+        constraints: ['W-11 c?', 'W-12 c?', 'W-13 c?'],
+      }),
+    },
+  });
+};
+
+test('release stages: proposed milestones dashed on the board, columns in stage order, each flag at the right edge of its stage', async () => {
+  const root = stagesRepo();
+  assert.deepEqual(open(root).check().problems, []);
+  settings(root);
+  const r = await hitld(
+    ['dashboard', '--out', 'out', '--json', '--now', '2026-11-16T12:00:00Z'],
+    root,
+  );
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  // One file: one inline script, nothing fetched.
+  assertPageSafe(html);
+  const [lanes, fewest] = [...html.matchAll(/<svg class="mg" [\s\S]*?<\/svg>/g)].map((m) => m[0]);
+  assert.match(lanes, /aria-label="Milestone board: 6 milestones in 3 lanes over 4 columns, /);
+  // The columns: rc.1's stage, 1.0.0's in two steps (W-13 needs W-14), then no release.
+  assert.deepEqual(heads(lanes), [
+    'Before 0.1.0-rc.1',
+    'Before 1.0.0, step 1',
+    'Before 1.0.0, step 2',
+    'No release',
+  ]);
+  for (const svg of [lanes, fewest]) {
+    const flags = flagsOf(svg);
+    const box = boxesOf(svg);
+    assert.deepEqual(Object.keys(flags), ['0.1.0-rc.1', '1.0.0'], 'in stage order, one row each');
+    assert.ok(flags['0.1.0-rc.1'].y < flags['1.0.0'].y);
+    // rc.1 right of what it needs and left of the next stage; 1.0.0 the same.
+    assert.ok(box['W-11'] + 230 < flags['0.1.0-rc.1'].x);
+    for (const id of ['W-12', 'W-13', 'W-14']) {
+      assert.ok(flags['0.1.0-rc.1'].x < box[id], `${id} right of rc.1`);
+      assert.ok(box[id] + 230 < flags['1.0.0'].x, `${id} left of 1.0.0`);
+    }
+    assert.equal(box['W-12'], box['W-14'], 'one column');
+    assert.ok(box['W-14'] < box['W-13'], 'W-13 right of W-14, which it needs');
+    assert.ok(flags['1.0.0'].x < box['W-15'], 'what no release needs stands after every release');
+    // The proposed ones: drawn, hollow, in the class the dashed border hangs on, and marked.
+    for (const id of ['W-12', 'W-13']) {
+      assert.match(
+        svg,
+        new RegExp(
+          `<a href="#milestone-${id}" [^>]*><g class="mg-node proposed hollow[^"]*">(?:(?!</a>).)*>proposed</text>`,
+          's',
+        ),
+      );
+    }
+    for (const id of ['W-11', 'W-14', 'W-15']) {
+      assert.match(
+        svg,
+        new RegExp(`<a href="#milestone-${id}" [^>]*><g class="mg-node (?!proposed)`),
+      );
+    }
+    // The waits run left to right.
+    for (const m of svg.matchAll(/<g data-from="(W-\d+)" data-to="(W-\d+)">/g)) {
+      assert.ok(box[m[1]] < box[m[2]], `${m[2]} right of ${m[1]}, which it needs`);
+    }
+  }
+  assert.match(html, /\.mg-node\.proposed \.mg-box\{[^}]*stroke-dasharray:6 4/);
+  // W-14 is in no release, but W-13 needs it: the needs win, and the board says so.
+  assert.match(
+    html,
+    /W-14 stands before 1\.0\.0 because W-13 needs it, though no release needs it\./,
+  );
+  // The table under the board stays.
+  assert.match(
+    html,
+    /<h3 class="mg-h">Proposed milestones: what stands between each and committing<\/h3>.*?W-12 Guide followed.*?W-13 Runs on Windows/s,
+  );
 });
 
 test('file links: the forge address from the origin remote, never its credentials; else a relative path', () => {

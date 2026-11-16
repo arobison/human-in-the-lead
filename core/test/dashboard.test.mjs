@@ -314,6 +314,102 @@ test('the layout: columns by longest path, barycenter sweeps remove crossings, l
   assert.equal(f.groups[1].crossings, 0);
 });
 
+test('release stages: the earliest release that needs a milestone gives its column; the needs win over it, and say so', async () => {
+  const { releaseStages, stageOrder } = await import('../lib/dashboard/stages.mjs');
+  const { fewestCrossings } = await import('../lib/dashboard/layout.mjs');
+  /** A release gate. @param {string} id @param {string} release @param {string[]} milestones @param {string[]} [needs] */
+  const gate = (id, release, milestones, needs = []) => ({
+    id,
+    title: `Release ${release}`,
+    release,
+    state: 'planned',
+    layer: 0,
+    milestones,
+    path: `work/items/${id}.md`,
+    needs: needs.map((n) => ({ id: n, title: n, state: 'planned', path: null })),
+  });
+  // Version order, but never before a release it needs; a loop falls back to version order.
+  assert.deepEqual(
+    stageOrder([
+      gate('W-9', '0.2.0', [], ['W-8']),
+      gate('W-8', '0.3.0', []),
+      gate('W-7', '0.1.0', []),
+    ]).map((r) => r.release),
+    ['0.1.0', '0.3.0', '0.2.0'],
+  );
+  assert.deepEqual(
+    stageOrder([gate('W-8', '0.2.0', [], ['W-9']), gate('W-9', '0.1.0', [], ['W-8'])]).map(
+      (r) => r.release,
+    ),
+    ['0.1.0', '0.2.0'],
+  );
+  // rc.2 needs W-1; rc.3 needs W-2 and W-3; W-1 needs W-3 (so W-3 is pulled into rc.2), W-2
+  // needs W-4 (no release: pulled into rc.3), and W-5 needs W-1 and W-2 (no release: last).
+  const mg = /** @type {any} */ ({
+    releases: [
+      gate('W-11', '0.1.0-rc.3', ['W-2', 'W-3'], ['W-10']),
+      gate('W-10', '0.1.0-rc.2', ['W-1']),
+    ],
+    edges: [
+      { from: 'W-3', to: 'W-1' },
+      { from: 'W-4', to: 'W-2' },
+      { from: 'W-1', to: 'W-5' },
+      { from: 'W-2', to: 'W-5' },
+    ],
+  });
+  const ids = ['W-1', 'W-2', 'W-3', 'W-4', 'W-5', 'W-6'];
+  const st = releaseStages(mg, ids);
+  assert.deepEqual(
+    st.releases.map((r) => r.release),
+    ['0.1.0-rc.2', '0.1.0-rc.3'],
+  );
+  assert.deepEqual(
+    st.stages.map((s) => [s.release?.release ?? null, s.start, s.width]),
+    [
+      ['0.1.0-rc.2', 0, 2],
+      ['0.1.0-rc.3', 2, 2],
+      [null, 4, 1],
+    ],
+  );
+  assert.deepEqual(Object.fromEntries(st.columnOf), {
+    'W-1': 1,
+    'W-2': 3,
+    'W-3': 0,
+    'W-4': 2,
+    'W-5': 4,
+    'W-6': 4,
+  });
+  assert.equal(st.columns, 5);
+  assert.deepEqual(
+    st.pulled.map((p) => [p.id, p.own?.release ?? null, p.drawn.release, p.by]),
+    [
+      ['W-3', '0.1.0-rc.3', '0.1.0-rc.2', 'W-1'],
+      ['W-4', null, '0.1.0-rc.3', 'W-2'],
+    ],
+  );
+  // Every wait runs left to right, so the fewest-crossings layout keeps these columns.
+  for (const e of mg.edges) {
+    assert.ok(Number(st.columnOf.get(e.from)) < Number(st.columnOf.get(e.to)));
+  }
+  const f = fewestCrossings(
+    ids,
+    mg.edges.map((/** @type {any} */ e) => [e.from, e.to]),
+    { layerOf: st.columnOf },
+  );
+  for (const g of f.groups) {
+    for (const [c, col] of g.layers.entries()) {
+      for (const id of col) assert.equal(st.columnOf.get(id), c, `${id} keeps its column`);
+    }
+  }
+  assert.deepEqual(f.grid, ['W-6']);
+  // No release at all: one stage, the last.
+  const none = releaseStages(/** @type {any} */ ({ releases: [], edges: [] }), ['W-1']);
+  assert.deepEqual(
+    none.stages.map((s) => [s.release, s.start, s.width]),
+    [[null, 0, 1]],
+  );
+});
+
 test('the roadmap offers a second layout, fewest crossings, with no script', async () => {
   const { html } = await dashboard(fixture());
   const roadmap = view(html, 'roadmap');

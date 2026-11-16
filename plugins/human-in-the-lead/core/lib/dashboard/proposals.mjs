@@ -1,7 +1,8 @@
 // Proposals (HITLD-152): one table of every proposed item, the bets to commit or drop. For each:
 // the idea, what stands between it and committing (ready to commit; waits on the owner's answer,
 // an open owner decision it needs; or waits on other items, named), and how many open items wait on
-// it, directly or through other items. Proposed milestones are on the Roadmap, under the board.
+// it, directly or through other items. Proposed milestones are on the Roadmap: dashed on the board,
+// and in a table under it.
 
 import { count, esc, fileLink } from './html.mjs';
 
@@ -28,7 +29,7 @@ export function renderProposals(w, { fileBase = null } = {}) {
   const proposed = w.items.filter((it) => it.state === 'proposed');
   const ready = proposed.filter((it) => between(it, byId).kind === 'ready').length;
   const head = `<h2>Proposals</h2>
-<p class="muted"><span class="num">${proposed.length}</span> proposed ${proposed.length === 1 ? 'item' : 'items'}, ${ready} ready to commit. Most waited-on first, counting what waits through other items. Proposed milestones are on the Roadmap, under the board.</p>`;
+<p class="muted"><span class="num">${proposed.length}</span> proposed ${proposed.length === 1 ? 'item' : 'items'}, ${ready} ready to commit. Most waited-on first, counting what waits through other items. Proposed milestones are on the Roadmap: dashed on the board, and in a table under it.</p>`;
   if (!proposed.length) return `${head}\n<p class="muted">Nothing is proposed.</p>`;
   const groups = [
     ...w.projects.map((p) => ({
