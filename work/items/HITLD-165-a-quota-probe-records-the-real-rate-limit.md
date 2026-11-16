@@ -35,4 +35,4 @@ On 2026-11-16, in the chief of staff session, the owner decided these in a desig
 
 ## Notes
 
-State stays `proposed` until the owner moves it to `planned`. Open: whether the status-line readout of HITLD-56, which uses the harness status line as its display, should stay, move to another surface or be dropped, since the status line is documented for the terminal CLI only. The granularity of `utilization` is not known: the one sample was a round 0.5. Related: HITLD-149 (a declared figure, settled by HITLD-164), HITLD-151.
+State stays `proposed` until the owner moves it to `planned`. The status-line readout of HITLD-56 was dropped by the owner (HITLD-175), so only the capture's retirement concerns the status line here. The granularity of `utilization` is not known: the one sample was a round 0.5. Related: HITLD-149 (a declared figure, settled by HITLD-164), HITLD-151.
