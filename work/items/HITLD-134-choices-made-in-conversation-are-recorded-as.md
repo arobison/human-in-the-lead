@@ -1,10 +1,11 @@
 ---
 id: HITLD-134
-title: "Choices the owner makes in conversation are recorded as decisions"
+title: Choices the owner makes in conversation are recorded as decisions
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-6
 ---
 
 ## Why
