@@ -102,7 +102,10 @@ export function remoteCause(message, o) {
   if (NETWORK.test(message)) return cause('host-unreachable');
   const auth = AUTH.test(message);
   const missing = !auth && NOT_FOUND.test(message);
-  const local = typeof o.url === 'string' && (o.url.startsWith('file:') || o.url.startsWith('/'));
+  // A Windows drive or UNC path is local too (remote-git.mjs, checkRemoteUrl).
+  const local =
+    typeof o.url === 'string' &&
+    (o.url.startsWith('file:') || o.url.startsWith('/') || /^([A-Za-z]:[\\/]|\\\\)/.test(o.url));
   // In a cloud session, the session's git access covers the repositories attached to it, and a
   // private repository it does not cover answers as a refused sign-in or as not found.
   if ((auth || missing) && !local && cloudSession(o.env)) return cause('repository-not-attached');

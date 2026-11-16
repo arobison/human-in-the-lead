@@ -18,11 +18,11 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { replaceFile } from './host.mjs';
 
 const PROJECT_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
@@ -90,7 +90,7 @@ export function openStore(root) {
       mkdirSync(dirname(p), { recursive: true });
       const tmp = `${p}.${process.pid}.tmp`;
       writeFileSync(tmp, text);
-      renameSync(tmp, p);
+      replaceFile(tmp, p);
     },
     append(key, text) {
       const p = pathOf(key);
