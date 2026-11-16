@@ -195,7 +195,7 @@ const testsJson = (tests) => JSON.stringify({ tests }, null, 2) + '\n';
  * @param {Record<string, string>} [files]
  */
 function makeRepo(tests, files = {}) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-flake-')));
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'hitld-flake-')));
   const root = join(base, 'repo');
   mkdirSync(root);
   fixtureGit(root, 'init', '-q', '-b', 'main');
@@ -337,7 +337,8 @@ test('without a test report the comparison works on the whole suite, and nothing
     repoRoot: r.root,
     entries: W1,
     settings: r.settings(),
-    exec: (cmd, cwd, env) => shellExec(`NO_REPORT=1 ${cmd}`, cwd, env),
+    // The variable goes in the environment, not the command line: the shell differs by platform.
+    exec: (cmd, cwd, env) => shellExec(cmd, cwd, { ...env, NO_REPORT: '1' }),
   });
   assert.equal(q.flakes[0].outcome, 'preexisting');
   assert.deepEqual(q.flakes[0].tests, []);

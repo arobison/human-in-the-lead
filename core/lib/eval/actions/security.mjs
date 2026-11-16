@@ -114,7 +114,7 @@ export const actions = {
         mainBranch: 'main',
         batchMax: 4,
         fastChecks: [],
-        fullSuite: ["node --test 'test/*.test.js'"],
+        fullSuite: ['node --test "test/*.test.js"'],
         generated: [],
         flakeReruns: 0,
         classification: rulesFrom(loaded.policy, tracker.config.default_classification),
