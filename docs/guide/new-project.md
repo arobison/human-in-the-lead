@@ -107,7 +107,7 @@ claude plugin list             # human-in-the-lead@human-in-the-lead is installe
 
 `hitld work check` reports `0 files` when it finds no items. In a project that has items, that means it is looking in the wrong folder, not that all is well.
 
-Until the first-run setup is done, `hitld dispatch plan` holds all autonomous work, and only work you start by hand (`hitld dispatch start <ID> --by-hand`) runs. Until the status-line capture is on, the default quotas (your plan's five-hour and weekly windows) have no readings, and dispatch stops at the quota gate. Either install the capture (`hitld install --statusline`, your choice) or declare limits as described in [design 12.5](../design/0001-human-in-the-lead/12-reporting-and-limits.md#125-quotas-and-budgets).
+Until the first-run setup is done, `hitld dispatch plan` holds all autonomous work, and only work you start by hand (`hitld dispatch start <ID> --by-hand`) runs. Until the status-line capture is on, the default quota (your plan's weekly window) has no reading, and dispatch stops at the quota gate. Some plans also have a five-hour window (Pro, Max, and seat-based Team and Enterprise plans, per their documentation); Ultra and usage-based plans do not. The gate watches it once the capture reports it, or when you declare it. On a Team or Enterprise seat the status line may not report it, so you may need to declare it by hand. Either install the capture (`hitld install --statusline`, your choice) or declare limits as described in [design 12.5](../design/0001-human-in-the-lead/12-reporting-and-limits.md#125-quotas-and-budgets).
 
 ## Undo it
 

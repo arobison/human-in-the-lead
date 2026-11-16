@@ -416,7 +416,7 @@ test('limits: a project run budget is added to the person limits', () => {
   };
   const eff = layers({ raw: { quota: { limits: [run] } } });
   const ids = eff.policy.quota.limits.map((/** @type {any} */ l) => l.id);
-  assert.deepEqual(ids, ['claude-five-hour', 'claude-weekly', 'run-tokens']);
+  assert.deepEqual(ids, ['claude-weekly', 'run-tokens']);
   assert.deepEqual(
     movedKeyWarnings({
       raw: { quota: { limits: [run] } },

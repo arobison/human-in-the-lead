@@ -60,10 +60,7 @@ test("defaults: quotas keep the owner's reserve; plan windows are soft", () => {
   assert.ok(quota.critical_below < quota.economize_below);
   assert.deepEqual(
     quota.limits.map((/** @type {any} */ l) => [l.id, l.window, l.hard]),
-    [
-      ['claude-five-hour', 'rolling_5h', false],
-      ['claude-weekly', 'weekly', false],
-    ],
+    [['claude-weekly', 'weekly', false]],
   );
 });
 
