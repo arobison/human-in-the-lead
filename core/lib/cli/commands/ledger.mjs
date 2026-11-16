@@ -2,6 +2,7 @@
 // chief of staff reads and records about the run: who holds the lease, and retiring a session that
 // ended without a hand-over.
 
+import { join } from 'node:path';
 import { findRepoRoot, loadPolicy, policyDefaults } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { LedgerError, appendEvent, correctsValidly, readLedger } from '../../ledger/ledger.mjs';
@@ -611,9 +612,9 @@ const table = [
           paused,
           wake_at: paused?.resets_at ?? null,
           handover,
-          handover_file: file ? `${s.store.root}/${file}` : null,
+          handover_file: file ? join(s.store.root, file) : null,
           next: lease.free
-            ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${s.store.root}/${file}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
+            ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${join(s.store.root, file)}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
             : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}${paused ? `; dispatch is paused at ${paused.limit}${paused.resets_at ? `: schedule one wake for ${paused.resets_at}, the reset` : ', reset time unknown: the check-in looks again'}` : ''}`,
         };
       }),
