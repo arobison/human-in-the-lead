@@ -855,3 +855,33 @@ test('escaping: a title with a backslash, a pipe, a quote and &lt; shows as writ
   assert.match(html, /W-7 Paths like C:\\dir \| &quot;quoted&quot; &amp;lt; less/);
   assert.doesNotMatch(html, /"quoted"|[^&]&lt; less/);
 });
+
+test('escaping: a backslash before a pipe and a trailing backslash cannot unescape the table or the graph', async () => {
+  const title = 'A pipe after a backslash \\| and one at the end \\';
+  const root = makeRepo({
+    files: { 'work/milestones/W-7-config-errors-explained.md': milestone({ title }) },
+  });
+  const t = open(root);
+  assert.equal(t.milestoneGraph().nodes[1].title, title);
+  t.writeViews();
+  const view = readFileSync(join(root, 'work', 'views', 'milestones.md'), 'utf8');
+  const row = view.split('\n').find((l) => l.startsWith('| W-7 ')) ?? '';
+  // Each backslash doubled, then the pipe escaped: no `|` in the title is left unescaped.
+  assert.ok(
+    row.startsWith(
+      '| W-7 A pipe after a backslash \\\\\\| and one at the end \\\\ (critical path) | Planned |',
+    ),
+    row,
+  );
+  // The row splits into the table's eight cells, as a markdown reader splits it.
+  assert.equal(row.replace(/\\\\/g, '').replace(/\\\|/g, '').split('|').length - 2, 8);
+  const mermaid = t.renderViewTexts()['milestones-graph'];
+  assert.match(mermaid, /W_7\["W-7 A pipe after a backslash #92;\| and one at the end #92;<br\/>/);
+  settings(root);
+  assert.equal(
+    (await hitld(['dashboard', '--out', 'out', '--now', '2026-11-16T12:00:00Z'], root)).code,
+    0,
+  );
+  const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
+  assert.ok(html.includes('<h3>W-7 A pipe after a backslash \\| and one at the end \\ <small>'));
+});
