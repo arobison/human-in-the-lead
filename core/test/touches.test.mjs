@@ -111,6 +111,7 @@ test('overlap: an overlapping pair is named with its paths, a non-overlapping on
   });
   assert.match(brief, /Touches \(derived from the item text\): lib\/util.js, src\/a.js\./);
   assert.match(brief, /In flight on the same paths: D-2 \(W-2\) touches lib\/util.js\./);
+  assert.match(brief, /^merge main before you report when a dispatch in flight overlaps$/m);
   assert.match(
     brief,
     /Merged since this item was planned, on the same paths: abcdef1 \(W-1\) changed src\/a.js\./,
@@ -124,7 +125,10 @@ test('overlap: an overlapping pair is named with its paths, a non-overlapping on
     isolation: 'worktree',
   });
   assert.match(plain, /Touches: test\/\*\*\./);
-  assert.doesNotMatch(plain, /In flight on the same paths|Merged since/);
+  assert.doesNotMatch(
+    plain,
+    /In flight on the same paths|Merged since|merge main before you report/,
+  );
 });
 
 /**
@@ -184,6 +188,7 @@ test('dispatch: the brief names overlapping work in flight and merges since plan
   assert.equal(four.exit, 0, JSON.stringify(four.result));
   const brief = readFileSync(four.result.brief_file, 'utf8');
   assert.match(brief, /In flight on the same paths: D-1 \(W-1\) touches src\/calc.js\./);
+  assert.match(brief, /^merge main before you report when a dispatch in flight overlaps$/m);
   assert.match(
     brief,
     new RegExp(
@@ -195,7 +200,10 @@ test('dispatch: the brief names overlapping work in flight and merges since plan
   assert.equal(five.exit, 0, JSON.stringify(five.result));
   const brief5 = readFileSync(five.result.brief_file, 'utf8');
   assert.match(brief5, /Touches \(derived from the item text\): src\/named.js\./);
-  assert.doesNotMatch(brief5, /In flight on the same paths|Merged since/);
+  assert.doesNotMatch(
+    brief5,
+    /In flight on the same paths|Merged since|merge main before you report/,
+  );
   const ledger = readFileSync(
     join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl'),
     'utf8',

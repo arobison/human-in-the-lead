@@ -6,7 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-14
-release_note: "Briefs list the dispatches in flight whose touches overlap the item's, and the merges since it was planned that changed the same paths. An item with no `touches` gets touches derived from its text and the repository; `dispatch plan` shows them with `touches_source: derived`, the ledger's dispatched event records them (`touches`, `touches_source`), and writing `touches` on the item corrects them. The executor contract asks for a `release_note` when a change touches `merge.public_globs`, and `hitld dispatch complete` flags one that is missing (`release_note_missing`)."
+release_note: "Briefs list the dispatches in flight whose touches overlap the item's, and the merges since it was planned that changed the same paths; when a dispatch in flight overlaps, the brief says to merge main before reporting. An item with no `touches` gets touches derived from its text and the repository; `dispatch plan` shows them with `touches_source: derived`, the ledger's dispatched event records them (`touches`, `touches_source`), and writing `touches` on the item corrects them. The executor contract asks for a `release_note` when a change touches `merge.public_globs`, and `hitld dispatch complete` flags one that is missing (`release_note_missing`)."
 ---
 
 ## Why

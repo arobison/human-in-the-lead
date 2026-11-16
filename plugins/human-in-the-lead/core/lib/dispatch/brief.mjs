@@ -91,6 +91,8 @@ export function renderBrief({
     ...overlaps.map(
       (o) => `In flight on the same paths: ${o.dispatch} (${o.item}) touches ${pathList(o.paths)}.`,
     ),
+    // The owner's wording, verbatim (HITLD-136).
+    ...(overlaps.length ? ['merge main before you report when a dispatch in flight overlaps'] : []),
     ...merged.map(
       (m) =>
         `Merged since this item was planned, on the same paths: ${m.commit.slice(0, 7)}${m.items.length ? ` (${m.items.join(', ')})` : ''} changed ${pathList(m.paths)}.`,
