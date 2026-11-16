@@ -26,7 +26,12 @@ import { openEnv } from '../../env/manager.mjs';
 import { tearDown } from '../../env/teardown.mjs';
 import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { leaseStatus } from '../../run/run.mjs';
-import { readMessages, silentOrchestrator, SILENT_AFTER_SECONDS } from '../../run/messages.mjs';
+import {
+  ESCALATE_AFTER_WAKES,
+  readMessages,
+  silentOrchestrator,
+  SILENT_AFTER_SECONDS,
+} from '../../run/messages.mjs';
 import {
   Refusal,
   commands as orchestratorCommands,
@@ -223,6 +228,7 @@ export const commands = [
             lease: leaseStatus(state, new Date(now), p.policy.run?.lease_expiry_seconds),
             now,
             afterSeconds: p.policy.orchestrator?.silent_after_seconds ?? SILENT_AFTER_SECONDS,
+            escalateAfterWakes: p.policy.orchestrator?.escalate_after_wakes ?? ESCALATE_AFTER_WAKES,
           });
           const parts = [
             ...due.map(

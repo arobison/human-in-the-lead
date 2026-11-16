@@ -781,3 +781,36 @@ test('the watch reports an orchestrator whose turn ended with no message to the 
   });
   assert.equal(refused.result.error, 'not-permitted');
 });
+
+test('repeated silence goes to the owner: the third unanswered wake sets escalate_to_owner, a message heard resets it', async () => {
+  const c = clocked();
+  c.status(10, 72000);
+  await c.hitld(['run', 'start', '--harness-ref', 'session_orch']);
+  const cos = { HITLD_SESSION: 'cos' };
+  /** Wake at `t`, and read the watch past the quiet limit. @param {number} t */
+  const wakeThenWatch = async (t) => {
+    c.at(t);
+    assert.equal((await c.hitld(['run', 'woke', '--to', 'session_orch'], cos)).exit, 0);
+    c.at(t + 1000);
+    return (await c.hitld(['dispatch', 'watch'], cos)).result.orchestrator_silent;
+  };
+
+  const first = await wakeThenWatch(1000);
+  assert.equal(first.wakes_since_heard, 1);
+  assert.equal(first.escalate_to_owner, false);
+  const second = await wakeThenWatch(3000);
+  assert.equal(second.wakes_since_heard, 2);
+  assert.equal(second.escalate_to_owner, false, 'two wakes: not yet');
+  const third = await wakeThenWatch(5000);
+  assert.equal(third.wakes_since_heard, 3);
+  assert.equal(third.escalate_after_wakes, 3);
+  assert.equal(third.escalate_to_owner, true, 'three wakes: the owner is told');
+
+  // A message heard resets the count; the next silence starts again from one wake.
+  c.at(6100);
+  const heard = await c.hitld(['run', 'heard', '--from', 'session_orch'], cos);
+  assert.equal(heard.result.messages.wakes_since_heard, 0);
+  const again = await wakeThenWatch(7000);
+  assert.equal(again.wakes_since_heard, 1);
+  assert.equal(again.escalate_to_owner, false);
+});
