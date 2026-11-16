@@ -1,10 +1,11 @@
 ---
 id: HITLD-124
-title: "Session identity without flags, and a lease mismatch that says what differs"
+title: Session identity without flags, and a lease mismatch that says what differs
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-4
 ---
 
 ## Why
