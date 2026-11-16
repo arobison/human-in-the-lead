@@ -16,7 +16,7 @@ HITLd ships today from git only: the plugin from this repository as its own Clau
 
 - `package.json` is no longer `private`, under a package name the owner chose, and its `files` list ships only the command, the core library, the schemas and the templates.
 - The release workflow publishes the package to the npm registry after the owner approves the `release` environment, with npm trusted publishing (no stored token) and provenance, for the same version and tag as the release.
-- A pre-release is published under a `next` dist-tag, and only a full release moves `latest`.
+- The first publish is a full release, never a candidate, because a published version cannot be withdrawn after a short window. Later pre-releases are published under a `next` dist-tag, and only a full release moves `latest`.
 - Design part 16 and the install guide describe installing from the registry beside the git install, and the release notes say how.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
 

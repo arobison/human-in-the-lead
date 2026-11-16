@@ -24,4 +24,4 @@ In the first self-hosted run, with nothing running and a cap of 2, `hitld dispat
 
 ## Notes
 
-Found by the orchestrator in the chief of staff's run and verified in the code. HITLD-130 changes dispatch plan and start for the disk floor, and HITLD-136 changes the brief and the overlap rule, so build this after them or in one wave with care. It does not block HITLD-109 as written; the owner decides whether it joins the milestone Consumer live.
+Found by the orchestrator in the chief of staff's run and verified in the code. HITLD-130 changes dispatch plan and start for the disk floor, and HITLD-136 changes the brief and the overlap rule, so build this after them or in one wave with care. It does not block HITLD-109 as written; it joined the milestone Consumer live (HITLD-67) and the first step toward rc.2 (HITLD-189).

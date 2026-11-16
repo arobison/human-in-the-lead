@@ -7,7 +7,7 @@ created: 2026-11-14
 project: HITLD-15
 outcome: A real consuming project runs its work through HITLd. The first one is this repository, running its own development on an installed release.
 done_when:
-  - "c1: The owner directs one item end to end (filed, dispatched, executed, merged and closed) through the chief of staff in the self-hosting cloud environment, on v0.1.0-rc.1 installed in this repository, with no prompt carried between sessions by hand."
+  - "c1: The owner directs one item end to end (filed, dispatched, executed, merged and closed) through the chief of staff in the self-hosting cloud environment, on v0.1.0-rc.1 installed in this repository, or a pinned commit on main that carries the first-run fixes (the milestone's own constraints land after rc.1), with no prompt carried between sessions by hand."
   - "c2: The routine jobs of that run (merging through pull requests, tracker changes from the session, tracker upkeep, removing finished worktrees) are done by hitld commands, not by hand."
   - "c3: Every choice the owner makes in that run is recorded as a decision, and the trust and attention records show it."
   - "c4: The owner can see the plan, the milestones, what is happening now, and quota and spend in one generated page, dashboard.html."
