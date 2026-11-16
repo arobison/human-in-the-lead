@@ -20,6 +20,10 @@ In the first self-hosted run, two interactive tier-3 executors finished and ende
 - When HITLD-144's test shows a Stop hook can block the end of a turn, the same hook is installed for executors. Until then, the brief block and the watch are the enforcement.
 - Tests cover a brief with the block, a start refused for a brief without it, and a dispatch whose session ended with no report. `npm run check`, the offline eval gate and `hitld work check` pass.
 
+## Settled by the owner
+
+On 2026-11-16, in the chief of staff session, the owner decided how an orchestrator makes sure every executor reports (HITLD-161): the generated block, enforced at start, and watched. `hitld dispatch` writes the communication block into every brief itself, `dispatch start` refuses a brief without it, and `dispatch watch` flags an executor whose session ended with no report. A Stop hook is added later only if HITLD-144's test shows it works.
+
 ## Notes
 
 Raised by the owner in the chief of staff session. HITLD-136 also changes what the brief says, so build the two in order or in one wave with care. HITLD-144 covers the orchestrator's message to the chief of staff and the Stop-hook test. The watchdog from HITLD-92 catches a stalled executor, and this adds the one that finished without reporting.
