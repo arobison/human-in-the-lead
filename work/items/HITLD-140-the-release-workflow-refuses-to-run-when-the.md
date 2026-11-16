@@ -22,3 +22,5 @@ The owner's approval in the `release` environment is meant to gate every release
 ## Notes
 
 A need of v0.1.0-rc.2 (HITLD-137), the owner's decision from the main session. If the workflow token cannot read the environment's protection rules, the item records that and the check uses the narrowest token that can, never a stored long-lived one without the owner's decision.
+
+The check uses the run's own token with `actions: read` added to the `record` job, the permission GitHub documents for reading an environment; no stored token. It was tested against a stand-in API, not GitHub: the first release run is the first real read. If GitHub refuses that token, the run fails closed with the status it answered, and choosing another token is the owner's decision.
