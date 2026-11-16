@@ -1,10 +1,12 @@
 ---
 id: HITLD-133
-title: "Merging through GitHub pull requests, for sessions that cannot push main"
+title: Merging through GitHub pull requests, for sessions that cannot push main
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-7
+release_note: "policy merge.via: pull-request merges through GitHub pull requests for a session that cannot push main: hitld merge opens or updates each pull request, waits for the checks merge.pull_request.checks names, and squash-merges it through gh api with the item's trailers and the owner's sign-off (hitld merge approve --signoff)."
 ---
 
 ## Why

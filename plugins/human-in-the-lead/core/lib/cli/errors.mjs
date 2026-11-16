@@ -74,6 +74,8 @@ export const ERROR_CODES = Object.freeze({
   stale: 'A presented branch changed after the owner saw it.',
   ambiguous:
     'The name matches more than one presented branch, or a branch other than the item was dispatched on.',
+  'no-github-remote':
+    'merge.via is pull-request, and the git remote merge.pull_request.remote names no GitHub repository.',
 
   // Decisions and precedents
   'invalid-question': 'The question does not match its schema or normalize.',
