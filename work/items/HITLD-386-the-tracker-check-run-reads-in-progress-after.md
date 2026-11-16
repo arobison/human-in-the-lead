@@ -23,3 +23,5 @@ Seen by the chief of staff on 2026-11-16 on two tracker-only pull requests (the 
 ## Notes
 
 Evidence to start from: the check run on PR #240 (HITLD-353 and 354), run ID 133484913298 (started 2026-11-16T17:36:29Z, completed 17:36:35Z, status `in_progress`, conclusion `success`), and the same on PR #246 (HITLD-385). Related: HITLD-131 (faster checks in CI).
+
+Evidence added 2026-11-16 (third sighting, by the chief of staff): on PR #250 (HITLD-410 to 413), head a0e69b9, the `dco` and `public` check runs read `in_progress` with a `success` conclusion some seconds after the other checks completed, not the `tracker` job. So it is not specific to the `tracker` job. A re-read about a minute later still showed two such runs. PRs #244, #245, #247 and #248 had all ten checks `completed` on first read.
