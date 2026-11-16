@@ -222,9 +222,13 @@ export const judgeContent = (path, head, truncated, rules) => {
 /** How much to read of a file under these rules. @param {Rules} rules */
 const limitFor = (rules) => (rules.terms?.length ? TERM_READ_LIMIT : READ_LIMIT);
 
-/** @param {string} cwd @param {string[]} args */
-function git(cwd, args) {
-  const r = spawnSync('git', args, { cwd, maxBuffer: 256 * 1024 * 1024 });
+/** @param {string} cwd @param {string[]} args @param {string} [input] */
+function git(cwd, args, input) {
+  const r = spawnSync('git', args, {
+    cwd,
+    maxBuffer: 256 * 1024 * 1024,
+    ...(input === undefined ? {} : { input }),
+  });
   if (r.status !== 0) {
     const why = (r.stderr ?? '').toString().trim() || String(r.error ?? `exit ${r.status}`);
     throw new Error(`git ${args[0]}: ${why}`);
@@ -267,16 +271,102 @@ export function parseRaw(raw) {
   return out;
 }
 
+/** How many bytes of blobs one `git cat-file --batch` reads at most, beyond a single larger one. */
+const BATCH_BYTES = 64 * 1024 * 1024;
+
+/**
+ * The starts of many blobs, read without a process per blob: starting one costs far more on some
+ * machines (Windows with endpoint protection: about 200 ms) than others. One `git cat-file
+ * --batch-check` gives each blob's size; the blobs within the limit are read whole by `git cat-file
+ * --batch`, in runs of at most BATCH_BYTES; one larger than the limit is read on its own, only up to
+ * the limit, as readBlob reads it.
+ * @param {string} cwd @param {string[]} shas @param {number} limit
+ * @returns {Map<string, { head: Buffer, truncated: boolean }>}
+ */
+export function readBlobHeads(cwd, shas, limit = READ_LIMIT) {
+  /** @type {Map<string, { head: Buffer, truncated: boolean }>} */
+  const out = new Map();
+  const wanted = [...new Set(shas)];
+  if (!wanted.length) return out;
+  for (const sha of wanted) {
+    // The shas come from git's own raw diff output, and are checked to be ones.
+    if (!/^[0-9a-f]{40,64}$/.test(sha)) throw new Error(`not an object name: ${sha}`);
+  }
+  const check = spawnSync('git', ['cat-file', '--batch-check'], {
+    cwd,
+    input: `${wanted.join('\n')}\n`,
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (check.status !== 0) {
+    throw new Error(`git cat-file --batch-check: ${(check.stderr ?? '').toString().trim()}`);
+  }
+  const lines = check.stdout.toString('utf8').split('\n');
+  /** @type {{ sha: string, size: number }[]} */
+  const small = [];
+  wanted.forEach((sha, i) => {
+    const m = /^([0-9a-f]{40,64}) (\w+) (\d+)$/.exec(lines[i] ?? '');
+    if (!m || m[1] !== sha) {
+      throw new Error(`git cat-file ${sha}: ${(lines[i] ?? '').trim() || 'not found'}`);
+    }
+    const size = Number(m[3]);
+    if (size > limit) out.set(sha, readBlob(cwd, sha, limit));
+    else small.push({ sha, size });
+  });
+  for (let at = 0; at < small.length;) {
+    const run = [];
+    let bytes = 0;
+    while (at < small.length && (!run.length || bytes + small[at].size <= BATCH_BYTES)) {
+      bytes += small[at].size;
+      run.push(small[at++]);
+    }
+    const r = spawnSync('git', ['cat-file', '--batch'], {
+      cwd,
+      input: `${run.map((b) => b.sha).join('\n')}\n`,
+      maxBuffer: bytes + run.length * 200 + 1024,
+    });
+    if (r.status !== 0) {
+      throw new Error(`git cat-file --batch: ${(r.stderr ?? '').toString().trim()}`);
+    }
+    // Each answer: "<sha> <type> <size>\n", the content, "\n".
+    const buf = r.stdout;
+    let p = 0;
+    for (const b of run) {
+      const eol = buf.indexOf(10, p);
+      const header = eol < 0 ? '' : buf.subarray(p, eol).toString('utf8');
+      const m = /^([0-9a-f]{40,64}) \w+ (\d+)$/.exec(header);
+      if (!m || m[1] !== b.sha || Number(m[2]) !== b.size) {
+        throw new Error(`git cat-file ${b.sha}: ${header.trim() || 'no answer'}`);
+      }
+      const start = eol + 1;
+      out.set(b.sha, { head: buf.subarray(start, start + b.size), truncated: false });
+      p = start + b.size + 1;
+    }
+  }
+  return out;
+}
+
 /** @param {string} cwd @param {{ path: string, sha: string }[]} blobs @param {Rules} rules */
 function judgeBlobs(cwd, blobs, rules) {
   const seen = new Set();
-  /** @type {Refused[]} */
-  const refused = [];
+  /** @type {{ path: string, sha: string }[]} */
+  const unique = [];
   for (const b of blobs) {
     const key = `${b.sha} ${b.path}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const { head, truncated } = readBlob(cwd, b.sha, limitFor(rules));
+    unique.push(b);
+  }
+  const heads = readBlobHeads(
+    cwd,
+    unique.map((b) => b.sha),
+    limitFor(rules),
+  );
+  /** @type {Refused[]} */
+  const refused = [];
+  for (const b of unique) {
+    const { head, truncated } = /** @type {{ head: Buffer, truncated: boolean }} */ (
+      heads.get(b.sha)
+    );
     const r = judgeContent(b.path, head, truncated, rules);
     if (r) refused.push(r);
   }
@@ -305,6 +395,35 @@ export function judgeMessage(commit, message, rules) {
 }
 
 /**
+ * Each commit's message, as `git log -1 --format=%B <commit>` prints it, from one `git log
+ * --no-walk`. A message holds no NUL, so NULs around each commit's name and message delimit them;
+ * if the answer does not line up with the commits asked, each is read on its own.
+ * @param {string} cwd @param {string[]} commits full names
+ * @returns {Map<string, string>}
+ */
+export function commitMessages(cwd, commits) {
+  /** @type {Map<string, string>} */
+  const out = new Map();
+  if (!commits.length) return out;
+  const raw = git(
+    cwd,
+    ['log', '--no-walk=unsorted', '--stdin', '--format=%x00%H%x00%B'],
+    `${commits.join('\n')}\n`,
+  );
+  // "\0<sha>\0<message>\n" per commit: the parts after the first are sha, message, sha, ...
+  const parts = raw.split('\0').slice(1);
+  if (parts.length === commits.length * 2) {
+    commits.forEach((c, i) => {
+      if (parts[2 * i] === c) out.set(c, parts[2 * i + 1]);
+    });
+  }
+  for (const c of commits) {
+    if (!out.has(c)) out.set(c, git(cwd, ['log', '-1', '--format=%B', c]));
+  }
+  return out;
+}
+
+/**
  * Every file each commit in from..to adds or changes, as that commit has it, and, when private
  * terms are given, each commit's message. A file that one commit adds and a later one removes is
  * still refused: the history would hold it.
@@ -315,16 +434,23 @@ export function checkCommits(cwd, from, to, rules) {
   const commits = git(cwd, ['rev-list', '--reverse', `${from}..${to}`])
     .split('\n')
     .filter(Boolean);
-  /** @type {{ path: string, sha: string }[]} */
-  const blobs = [];
+  // Every commit's raw diff from one `git diff-tree --stdin`, in the order given, as one diff-tree
+  // per commit gives them (each parent of a merge, all of a root commit's files).
+  const blobs = commits.length
+    ? parseRaw(
+        git(
+          cwd,
+          ['diff-tree', '--stdin', '-r', '-m', '--root', '--no-commit-id', ...RAW],
+          `${commits.join('\n')}\n`,
+        ),
+      )
+    : [];
   /** @type {Refused[]} */
   const messages = [];
-  for (const c of commits) {
-    blobs.push(
-      ...parseRaw(git(cwd, ['diff-tree', '-r', '-m', '--root', '--no-commit-id', ...RAW, c])),
-    );
-    if (rules.terms?.length) {
-      const r = judgeMessage(c, git(cwd, ['log', '-1', '--format=%B', c]), rules);
+  if (rules.terms?.length) {
+    const texts = commitMessages(cwd, commits);
+    for (const c of commits) {
+      const r = judgeMessage(c, /** @type {string} */ (texts.get(c)), rules);
       if (r) messages.push(r);
     }
   }

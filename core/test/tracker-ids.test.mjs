@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runMergeQueue } from '../lib/merge/queue.mjs';
 import { createIdCounter } from '../lib/store/remote-git.mjs';
 import { duplicateIds } from '../lib/tracker/files/check.mjs';
@@ -33,7 +33,7 @@ const HITLD = fileURLToPath(new URL('../bin/hitld.mjs', import.meta.url));
  * @param {{ store?: boolean }} [o] store: the sessions share a store remote (default true)
  */
 function sessions({ store = true } = {}) {
-  const base = realpathSync(tempDir('hitld-ids-'));
+  const base = realpathSync.native(tempDir('hitld-ids-'));
   const seed = makeRepo({ commit: false });
   put(seed, {
     '.human-in-the-lead/policy.json': JSON.stringify({
@@ -58,7 +58,7 @@ function sessions({ store = true } = {}) {
     const env = {
       ...isolatedEnv(),
       PATH: process.env.PATH ?? '',
-      ...(store ? { HITLD_STORE_REMOTE: `file://${host}` } : {}),
+      ...(store ? { HITLD_STORE_REMOTE: pathToFileURL(host).href } : {}),
     };
     return { root, env };
   };
@@ -170,7 +170,10 @@ test('a fetch that fails is a warning, and a counter that cannot be reached refu
   assert.match(String(warned.warnings), /could not fetch origin/);
 
   const q = sessions();
-  const env = { ...q.a.env, HITLD_STORE_REMOTE: `file://${join(q.base, 'no-such-store.git')}` };
+  const env = {
+    ...q.a.env,
+    HITLD_STORE_REMOTE: pathToFileURL(join(q.base, 'no-such-store.git')).href,
+  };
   const before = itemFiles(q.a.root);
   const refused = await workNew({ root: q.a.root, env }, 'Filed with the store away');
   assert.equal(refused.ok, false);
@@ -179,11 +182,11 @@ test('a fetch that fails is a warning, and a counter that cannot be reached refu
 });
 
 test('the counter takes numbers by compare and swap, and reads a damaged file as empty', () => {
-  const base = realpathSync(tempDir('hitld-ids-counter-'));
+  const base = realpathSync.native(tempDir('hitld-ids-counter-'));
   const host = join(base, 'store.git');
   mkdirSync(host);
   git(host, 'init', '-q', '--bare');
-  const url = `file://${host}`;
+  const url = pathToFileURL(host).href;
   const one = createIdCounter({ url, dir: join(base, 'one') });
   const two = createIdCounter({ url, dir: join(base, 'two') });
   assert.equal(one.take({ key: 'W', block: 'base', from: 7 }), 7);
@@ -198,7 +201,7 @@ test('the counter takes numbers by compare and swap, and reads a damaged file as
   assert.throws(
     () =>
       createIdCounter({
-        url: `file://${join(base, 'missing.git')}`,
+        url: pathToFileURL(join(base, 'missing.git')).href,
         dir: join(base, 'three'),
       }).take({ key: 'W', block: 'base', from: 1 }),
     (/** @type {any} */ e) => e.code === 'remote-unreachable',

@@ -94,6 +94,22 @@ export function branchTip(repoRoot, branch) {
 }
 
 /**
+ * Every branch's tip from one `git for-each-ref`, to check several branches without a process
+ * each. A branch that is not there has no tip (null), as with branchTip.
+ * @param {string} repoRoot @returns {(branch: string) => string | null}
+ */
+export function branchTips(repoRoot) {
+  const r = git(repoRoot, ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads/']);
+  /** @type {Map<string, string>} */
+  const tips = new Map();
+  for (const line of r.out.split('\n')) {
+    const at = line.indexOf(' refs/heads/');
+    if (at > 0) tips.set(line.slice(at + ' refs/heads/'.length), line.slice(0, at));
+  }
+  return (branch) => (r.ok ? (tips.get(branch) ?? null) : branchTip(repoRoot, branch));
+}
+
+/**
  * The files a branch changes since it left main (a three-dot diff).
  * @param {string} repoRoot @param {string} main @param {string} branch @returns {string[]}
  */
@@ -307,14 +323,19 @@ export const batchQuestion = (n) =>
  * queue, and check the rest without moving main. Only the branches that pass are presented.
  * @param {{ repoRoot: string, entries: Entry[], settings: Settings, policy: Policy,
  *   exec?: Exec, security?: SecurityGate, scanners?: string[],
- *   regenerateViews?: (dir: string) => void, events?: Record<string, any>[], now?: () => Date }} o
+ *   regenerateViews?: (dir: string) => void, events?: Record<string, any>[], now?: () => Date,
+ *   changed?: Map<string, string[]> }} o `changed`: each branch's files as changedOnBranch gives
+ *   them, when the caller has them already
  * @returns {Promise<{ queued: QueueResult | null, checked: QueueResult | null, presentation: Presentation | null }>}
  */
 export async function presentToOwner(o) {
   const main = o.settings.mainBranch;
   const now = o.now ?? (() => new Date());
   const toOwner = o.entries.filter((e) =>
-    waitsForOwner(changedOnBranch(o.repoRoot, main, e.branch), o.policy),
+    waitsForOwner(
+      o.changed?.get(e.branch) ?? changedOnBranch(o.repoRoot, main, e.branch),
+      o.policy,
+    ),
   );
   const toQueue = o.entries.filter((e) => !toOwner.includes(e));
   const common = {
@@ -335,11 +356,12 @@ export async function presentToOwner(o) {
   if (!ready) return { queued, checked, presentation: null };
   const byItem = new Map(o.entries.map((e) => [e.item, e]));
   const events = o.events ?? [];
+  const tip = branchTips(o.repoRoot);
   const branches = ready.branches.map((t) =>
     evidenceFor({
       repoRoot: o.repoRoot,
       tested: t,
-      branchSha: branchTip(o.repoRoot, t.branch) ?? '',
+      branchSha: tip(t.branch) ?? '',
       touches: byItem.get(t.item)?.touches,
       reportedCommit:
         events.filter((e) => e.event === 'reported' && e.item === t.item).at(-1)?.commit ?? null,
@@ -369,14 +391,13 @@ export async function presentToOwner(o) {
  * @returns {p is Presentation}
  */
 export function presentationCurrent(p, entries, repoRoot, main) {
-  if (!p || branchTip(repoRoot, main) !== p.base) return false;
+  if (!p) return false;
+  const tip = branchTips(repoRoot);
+  if (tip(main) !== p.base) return false;
   if (entries.length !== p.branches.length) return false;
   return entries.every((e) =>
     p.branches.some(
-      (b) =>
-        b.item === e.item &&
-        b.branch === e.branch &&
-        branchTip(repoRoot, e.branch) === b.branch_sha,
+      (b) => b.item === e.item && b.branch === e.branch && tip(e.branch) === b.branch_sha,
     ),
   );
 }
@@ -410,9 +431,8 @@ export function selectPresented(o) {
     ? { chosen: p.branches, unknown: [], ambiguous: [], mismatched: [] }
     : chooseNamed(p.branches, names, o.events ?? []);
   const unknown = !o.all && !names.length ? ['(none named)'] : pick.unknown;
-  const moved = pick.chosen
-    .filter((b) => branchTip(o.repoRoot, b.branch) !== b.branch_sha)
-    .map((b) => b.branch);
+  const tip = branchTips(o.repoRoot);
+  const moved = pick.chosen.filter((b) => tip(b.branch) !== b.branch_sha).map((b) => b.branch);
   const refused =
     unknown.length || pick.ambiguous.length || pick.mismatched.length || moved.length
       ? { unknown, ambiguous: pick.ambiguous, mismatched: pick.mismatched, moved }

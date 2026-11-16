@@ -64,7 +64,7 @@ import { sharedIds } from './shared-ids.mjs';
 import { parseItem, renderItem, slugify } from './frontmatter.mjs';
 import { fromLegacy } from './legacy.mjs';
 import { entityType } from './api.mjs';
-import { listPlaces, loadPlaces, loadWorkTree, git, repoRootOf } from './tree.mjs';
+import { listPlaces, loadPlaces, loadWorkTree, git, readNamed, repoRootOf } from './tree.mjs';
 import {
   LIST_BEGIN,
   mermaidItems,
@@ -393,7 +393,8 @@ export function openTracker({
    * Claim state from branches, optionally limited to an item.
    * @returns {import('./claims.mjs').ClaimedItem[]}
    */
-  const claims = () => findClaims(root, layout);
+  /** @param {Map<string, import('./tree.mjs').Entry[]>} [cache] refs this command already read */
+  const claims = (cache) => findClaims(root, layout, { cache });
 
   /** @type {FilesTracker} */
   const tracker = {
@@ -582,9 +583,17 @@ export function openTracker({
       const changes = [];
       /** @type {string | null} */
       let prev = null;
-      for (const line of log.split('\n').filter(Boolean)) {
-        const [commit, at] = line.split(' ');
-        const text = git(root, ['show', `${commit}:${it.path}`], { allowFail: true });
+      const commits = log
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.split(' '));
+      // Every version of the file in one process, not one per commit.
+      const texts = readNamed(
+        root,
+        commits.map(([commit]) => `${commit}:${it.path}`),
+      );
+      for (const [i, [commit, at]] of commits.entries()) {
+        const text = texts[i] ?? '';
         // A commit from before HITLD-82 holds `status` with the old values: read in the new form.
         const state = fromLegacy(parseItem(text).data)?.state;
         if (typeof state !== 'string' || state === prev) continue;
@@ -766,8 +775,17 @@ export function openTracker({
       for (const line of problemLines(tree.refused)) {
         if (!problems.includes(line)) problems.push(line);
       }
+      // Every place, then the claims, read the same refs: they share one cache, which also takes
+      // the main branch and the worktrees' branches the claims read.
+      /** @type {Map<string, Entry[]>} */
+      const cache = new Map();
       if (branches) {
-        const placed = loadPlaces(root, layout, listPlaces(root, layout, { remotes: true }));
+        const places = listPlaces(root, layout, { remotes: true });
+        const preload = [
+          `refs/heads/${layout.mainBranch}`,
+          ...places.flatMap((p) => (p.branch ? [p.branch] : [])),
+        ];
+        const placed = loadPlaces(root, layout, places, { cache, preload });
         for (const c of findCollisions(placed, layout)) {
           problems.push(
             `${c.id} is two different items: ${c.files.map((f) => `${f.file} on ${f.where.join(', ')}`).join('; ')}`,
@@ -775,7 +793,7 @@ export function openTracker({
         }
       }
       if (branches || inflight) {
-        const found = claims();
+        const found = claims(cache);
         for (const c of found) {
           if (c.double) {
             problems.push(

@@ -19,8 +19,8 @@ import {
   lstatSync,
   openSync,
   readFileSync,
-  realpathSync,
 } from 'node:fs';
+import { realPath } from './fsx.mjs';
 import { basename, dirname, join } from 'node:path';
 import { findRepoRoot } from '../policy/policy.mjs';
 
@@ -66,7 +66,7 @@ export function primaryCheckoutOf(cwd) {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   }).trim();
-  const git = realpathSync(common);
+  const git = realPath(common);
   if (basename(git) !== '.git' || !lstatSync(git).isDirectory()) {
     throw new Error(`${cwd} is not in a repository with a primary checkout (git dir ${git})`);
   }
@@ -143,19 +143,19 @@ export function belongsToPrimary(primaryRoot, worktree) {
   try {
     // `worktree` is the path the orchestrator recorded in the ledger (private store); the files
     // inside it are the executor's, so they are read as text only, without following a link.
-    const wt = realpathSync(worktree);
+    const wt = realPath(worktree);
     const dotgit = join(wt, '.git');
     const text = readPlainFile(dotgit)?.trim();
     if (text === undefined) return { ok: false, reason: `${wt} has no .git file` };
     const m = /^gitdir:\s*(.+)$/.exec(text);
     if (!m) return { ok: false, reason: `${dotgit} is not a gitdir pointer` };
-    const admin = realpathSync(m[1]);
-    const registry = realpathSync(join(primaryRoot, '.git', 'worktrees'));
+    const admin = realPath(m[1]);
+    const registry = realPath(join(primaryRoot, '.git', 'worktrees'));
     if (dirname(admin) !== registry) {
       return { ok: false, reason: `${wt} points at ${admin}, not at ${primaryRoot}'s worktrees` };
     }
     const back = readFileSync(join(admin, 'gitdir'), 'utf8').trim();
-    if (realpathSync(back) !== realpathSync(dotgit)) {
+    if (realPath(back) !== realPath(dotgit)) {
       return { ok: false, reason: `${admin} does not belong to ${wt}` };
     }
     return { ok: true, worktree: wt };

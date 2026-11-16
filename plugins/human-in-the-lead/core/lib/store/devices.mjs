@@ -37,6 +37,7 @@ import { join } from 'node:path';
 import { keychain } from '../env/keychain.mjs';
 import { schemas } from '../schema/registry.mjs';
 import { parseRecipient } from './age.mjs';
+import { hostEnv } from './host.mjs';
 import { DEVICES_BRANCH, PROPOSALS_DIR, devicesRef, remoteDir } from './remote-git.mjs';
 import { LEGACY_DEVICES_PATH } from './placement.mjs';
 
@@ -177,7 +178,7 @@ function bare(storeRoot, args) {
     maxBuffer: 16 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
-      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      ...hostEnv(null),
       GIT_DIR: dir,
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_CONFIG_GLOBAL: '/dev/null',

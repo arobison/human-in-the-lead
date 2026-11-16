@@ -35,6 +35,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { matchesAny } from '../precedent/glob.mjs';
+import { runShell } from './shell.mjs';
 import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
 import {
   QUARANTINE_PATH,
@@ -106,16 +107,15 @@ const tail = (s) => (s.length > TAIL ? `...${s.slice(-TAIL)}` : s);
 export function shellExec(command, cwd, env) {
   // Not this process's test-runner context: a project's own `node --test` would report to it.
   const { NODE_TEST_CONTEXT: _context, ...inherited } = process.env;
-  const r = spawnSync(command, {
-    shell: true,
+  // A POSIX shell command line, on Windows too (shell.mjs).
+  const r = runShell(command, {
     cwd,
     env: { ...inherited, ...env },
-    encoding: 'utf8',
     timeout: 30 * 60 * 1000,
   });
   return {
     ok: r.status === 0,
-    output: tail(`${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? String(r.error) : ''}`),
+    output: tail(`${r.stdout}${r.stderr}${r.error ? String(r.error) : ''}`),
   };
 }
 
@@ -134,6 +134,38 @@ function gitOk(cwd, args) {
   const r = git(cwd, args);
   if (!r.ok) throw new Error(`git ${args.join(' ')}: ${r.err || r.out}`);
   return r.out;
+}
+
+/**
+ * Stage every change in a working tree; whether anything is staged. `git status` can list a file
+ * whose only difference is its line endings (core.autocrlf wrote it with CRLF on checkout, and a
+ * generator wrote it again with LF), which `git add` then stages as no change at all.
+ * @param {string} cwd @returns {boolean}
+ */
+export function stageAll(cwd) {
+  if (!git(cwd, ['status', '--porcelain']).out) return false;
+  gitOk(cwd, ['add', '--all']);
+  return !git(cwd, ['diff', '--cached', '--quiet']).ok;
+}
+
+/**
+ * The files `git diff --name-only from to` lists (a rename by its new path), each with its status
+ * letter, from one `git diff --name-status -z`.
+ * @param {string} cwd @param {string} from @param {string} to
+ * @returns {{ status: string, path: string }[]}
+ */
+export function changedBetween(cwd, from, to) {
+  const parts = git(cwd, ['diff', '--name-status', '-z', from, to]).out.split('\0');
+  /** @type {{ status: string, path: string }[]} */
+  const out = [];
+  for (let i = 0; i + 1 < parts.length;) {
+    const status = parts[i].charAt(0);
+    // A rename or copy names the old path, then the new one.
+    const path = status === 'R' || status === 'C' ? parts[i + 2] : parts[i + 1];
+    i += status === 'R' || status === 'C' ? 3 : 2;
+    if (path) out.push({ status, path });
+  }
+  return out;
 }
 
 /**
@@ -480,9 +512,10 @@ export async function runMergeQueue(r) {
           rejectedNow.add(e.item);
           continue;
         }
-        const changedFiles = git(dir, ['diff', '--name-only', tip, rb.sha])
-          .out.split('\n')
-          .filter(Boolean);
+        // The files the branch changes, and which of them it adds, modifies or renames to (the
+        // burn-in's), from one diff.
+        const diff = changedBetween(dir, tip, rb.sha);
+        const changedFiles = diff.map((d) => d.path);
         const changed = changedFiles.join(' ');
         // Only the orchestrator quarantines a test, and only on evidence (design 14.7).
         if (changedFiles.includes(QUARANTINE_PATH)) {
@@ -526,9 +559,9 @@ export async function runMergeQueue(r) {
         }
         // Burn-in: the tests the branch adds or changes run several times, with the order and the
         // seed varied, before they can gate anyone else (design 14.7).
-        const testFiles = git(dir, ['diff', '--name-only', '--diff-filter=AMR', tip, rb.sha])
-          .out.split('\n')
-          .filter((f) => f && matchesAny(flake.testGlobs ?? [], f));
+        const testFiles = diff
+          .filter((d) => 'AMR'.includes(d.status) && matchesAny(flake.testGlobs ?? [], d.path))
+          .map((d) => d.path);
         if (flake.burnInCommand && testFiles.length) {
           const wanted = flake.burnInRuns ?? 5;
           let done = 0;
@@ -593,8 +626,7 @@ export async function runMergeQueue(r) {
         if (!out.ok) throw new Error(`regenerating ${g.globs.join(', ')} failed: ${out.output}`);
       }
       r.regenerateViews?.(dir);
-      if (git(dir, ['status', '--porcelain']).out) {
-        gitOk(dir, ['add', '--all']);
+      if (stageAll(dir)) {
         gitOk(dir, [
           'commit',
           '--quiet',

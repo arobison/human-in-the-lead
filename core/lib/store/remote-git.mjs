@@ -48,6 +48,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { hostEnv } from './host.mjs';
 import { StoreRemoteError, remoteMoved } from './remote.mjs';
 import { DEVICES_BRANCH, PROPOSALS_DIR } from './placement.mjs';
 
@@ -97,18 +98,40 @@ const PASS_THROUGH = [
 const CONNECTION_KEY = /^(credential\..+|http\..+|url\..+\.(insteadof|pushinsteadof))$/i;
 
 /**
+ * Whether a URL is a local repository path as Windows writes one: a drive path
+ * (`C:\stores\store.git` or `C:/stores/store.git`), also after `file://` or `file:///` as Git for
+ * Windows reads it, or a UNC path (`\\server\share\store.git`). Backslashes are its separators and
+ * a space is part of it (a profile directory's name can hold one): it reaches git as one argument,
+ * never through a shell. A control character, a character Windows refuses in a file name
+ * (`"*:<>?|`, the colon after the drive aside) or a path that names no directory is refused.
+ * @param {string} url
+ */
+function windowsLocalPath(url) {
+  const path = url.replace(/^file:\/\/\/?(?=[A-Za-z]:)/i, '');
+  const drive = /^[A-Za-z]:[\\/]/.test(path);
+  const unc = path === url && /^\\\\[A-Za-z0-9][\w.-]*\\[^\\/]/.test(path);
+  if (!drive && !unc) return false;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f"*<>?|]/.test(path) || path.slice(2).includes(':')) return false;
+  return path.split(/[\\/]/).filter(Boolean).length >= 2;
+}
+
+/**
  * Accept a git URL the transport may use, or refuse it. Allowed: `https://host/path`,
  * `ssh://[user@]host[:port]/path`, `user@host:path`, `file:///path` and an absolute path. Refused:
  * a password in the URL (no token is kept here), plain http, the `ext::` and other helper forms,
  * anything that starts with a dash or holds a control character or space, and a URL with no path.
+ * On Windows, a local path may also be a drive or UNC path (see windowsLocalPath).
  * @param {unknown} url
+ * @param {NodeJS.Platform} [platform] the system git runs on; for tests
  * @returns {string} the URL, unchanged
  */
-export function checkRemoteUrl(url) {
+export function checkRemoteUrl(url, platform = process.platform) {
   const bad = (/** @type {string} */ why) =>
     new StoreRemoteError('remote-url-invalid', `not a usable git URL: ${why}`);
   if (typeof url !== 'string' || url === '') throw bad('it is empty');
   if (url.length > 2048) throw bad('it is too long');
+  if (platform === 'win32' && windowsLocalPath(url)) return url;
   // eslint-disable-next-line no-control-regex
   if (/[\u0000- \u007f\\]/.test(url)) throw bad('it holds a space, control or backslash');
   if (url.startsWith('-')) throw bad('it starts with a dash');
@@ -680,8 +703,9 @@ function checkDir(dirPath) {
 function baseEnv(dir) {
   /** @type {Record<string, string>} */
   const env = {
-    PATH: process.env.PATH ?? '/usr/bin:/bin',
-    HOME: process.env.HOME ?? dir,
+    // On Windows also where the profile is, so ssh finds ~/.ssh, the owner's global config is
+    // found for the connection keys, and the credential manager finds its data (host.mjs).
+    ...hostEnv(dir),
     LANG: 'C',
     LC_ALL: 'C',
     GIT_DIR: dir,

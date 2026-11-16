@@ -14,11 +14,12 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { hostname, homedir, userInfo } from 'node:os';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { schemas } from '../schema/registry.mjs';
 import { formatErrors } from '../schema/validate.mjs';
 import { canonicalJson } from '../policy/policy.mjs';
+import { renameReplacing } from '../platform/fs.mjs';
 
 /**
  * @typedef {import('./runner.mjs').CaseResult} CaseResult
@@ -548,6 +549,6 @@ export function acceptBaseline({ store, root, result, now = new Date() }) {
   mkdirSync(join(root, COMMITTED_BASELINES), { recursive: true });
   const part = `${file}.${process.pid}.part`;
   writeFileSync(part, `${JSON.stringify(form, null, 2)}\n`);
-  renameSync(part, file);
+  renameReplacing(part, file);
   return { key, file, accepted: doc.accepted };
 }

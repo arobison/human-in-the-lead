@@ -4,6 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
@@ -13,7 +14,7 @@ import { EXIT, main } from '../lib/cli/main.mjs';
 import { COMMANDS, findCommand } from '../lib/cli/table.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
 import { countChanges, dueJobs, eventsSince, outcomesByPerson } from '../lib/cadence/due.mjs';
-import { idleThreshold, readIdle } from '../lib/cadence/idle.mjs';
+import { idleThreshold, machineLoadPerCore, readIdle } from '../lib/cadence/idle.mjs';
 import { markJobDone, readCadenceState } from '../lib/cadence/state.mjs';
 import { makeProject } from './helpers/project.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -335,6 +336,12 @@ test('a review is held in quiet hours: it is a read against the attention budget
   assert.equal(r.held[0]?.job, 'review');
 });
 
+test('Windows has no load average: the load per core is the busy share of a CPU sample', () => {
+  // os.loadavg() is always zero on Windows; the sample reads on the same scale, 0 to 1 per core.
+  const load = machineLoadPerCore('win32');
+  assert.ok(load >= 0 && load <= 1, String(load));
+});
+
 test('the machine is idle only with no executor running and low load', () => {
   assert.equal(readIdle({ machineRoot: '/none', loadPerCore: 0.1, liveCount: 0 }).idle, true);
   const loaded = readIdle({ machineRoot: '/none', loadPerCore: 0.6, liveCount: 0 });
@@ -376,6 +383,14 @@ test('the cadence state round-trips through the private store and refuses a dama
 function cli() {
   const project = makeProject();
   const config = tempDir('hitld-cadence-config-');
+  // Quiet hours are read in the person's time zone, which defaults to the machine's: fix it, so
+  // what is due at 10:00 UTC does not depend on where the tests run.
+  mkdirSync(join(config, 'human-in-the-lead'));
+  writeFileSync(
+    join(config, 'human-in-the-lead', 'person.json'),
+    JSON.stringify({ schema_version: 2, attention: { timezone: 'UTC' } }),
+    { mode: 0o600 },
+  );
   const env = { ...project.env, XDG_CONFIG_HOME: config };
   /** @param {string[]} argv @param {NodeJS.ProcessEnv} [over] */
   const hitld = async (argv, over = env) => {

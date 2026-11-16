@@ -58,6 +58,105 @@ function blobAt(root, rev, path) {
   );
 }
 
+// Batched reads. Starting a process costs far more on some machines (Windows with endpoint
+// protection: about 200 ms) than others, and publishing reads several objects for each changed
+// file, so they are read in one process for all files. Git takes these inputs one per line: a path
+// holding a line break is read on its own, as before.
+
+/** Whether a path can go on a line of a batched git input. @param {string} path */
+const batchable = (path) => !/[\r\n]/.test(path);
+
+/**
+ * The object at each `<rev>:<path>`, in order, from one `git cat-file --batch-check`: null where
+ * the path is not there (as blobAt).
+ * @param {string} root @param {{ rev: string, path: string }[]} asked
+ * @returns {(string | null)[]}
+ */
+function objectsAt(root, asked) {
+  const batched = asked.filter((a) => batchable(a.path));
+  const answer = batched.length
+    ? git(root, ['cat-file', '--batch-check=%(objectname)'], {
+        input: `${batched.map((a) => `${a.rev}:${a.path}`).join('\n')}\n`,
+      }).split('\n')
+    : [];
+  let i = 0;
+  return asked.map((a) => {
+    if (!batchable(a.path)) return blobAt(root, a.rev, a.path);
+    const line = answer[i++] ?? '';
+    // "<object>", or "<what was asked> missing" (or "ambiguous").
+    return /^[0-9a-f]{40,64}$/.test(line) ? line : null;
+  });
+}
+
+/**
+ * Write each file's content as a blob, as `git hash-object -w -- <path>` does (with the
+ * repository's filters), in one process: the blobs, in order.
+ * @param {string} root @param {string[]} paths repository-relative
+ * @returns {string[]}
+ */
+function hashFiles(root, paths) {
+  const batched = paths.filter(batchable);
+  const answer = batched.length
+    ? git(root, ['hash-object', '-w', '--stdin-paths'], {
+        input: `${batched.join('\n')}\n`,
+      }).split('\n')
+    : [];
+  let i = 0;
+  return paths.map((p) =>
+    batchable(p) ? (answer[i++] ?? '').trim() : git(root, ['hash-object', '-w', '--', p]).trim(),
+  );
+}
+
+/**
+ * The commits from..HEAD that change each path, as `git rev-list from..HEAD -- <path>` gives them
+ * path by path. One `git log` reads every commit in the range with the files it changes. When the
+ * range is linear (no merge), a path's commits are exactly those that change it. A merge makes
+ * git's history simplification depend on the path, so then each path is asked on its own, as
+ * before.
+ * @param {string} root @param {string} from @param {string[]} paths
+ * @returns {Map<string, string[]>} path → commits, newest first
+ */
+function commitsChanging(root, from, paths) {
+  /** @type {Map<string, string[]>} */
+  const out = new Map(paths.map((p) => [p, []]));
+  if (!paths.length) return out;
+  const log = git(root, [
+    'log',
+    '-z',
+    '--root',
+    '--no-show-signature',
+    '--no-renames',
+    '--name-only',
+    '--format=%x01%H %P',
+    `${from}..HEAD`,
+  ]);
+  let merges = false;
+  for (const record of log.split('\x01').slice(1)) {
+    const nul = record.indexOf('\0');
+    const [commit, ...parents] = (nul < 0 ? record : record.slice(0, nul)).trim().split(' ');
+    if (parents.length > 1) merges = true;
+    const names =
+      nul < 0
+        ? []
+        : record
+            .slice(nul + 1)
+            .replace(/^\n/, '')
+            .split('\0');
+    for (const name of names) out.get(name)?.push(commit);
+  }
+  if (merges) {
+    for (const p of paths) {
+      out.set(
+        p,
+        git(root, ['rev-list', `${from}..HEAD`, '--', p])
+          .split('\n')
+          .filter(Boolean),
+      );
+    }
+  }
+  return out;
+}
+
 /**
  * Fetch the remote's main branch and name the commit.
  * @param {string} root @param {string} remote @param {string} mainBranch
@@ -101,44 +200,67 @@ export function gatherChanges(root, layout, base, also = []) {
 
   /** @type {PublishedFile[]} */
   const files = [];
+  /** @type {string[]} */
   const conflicts = [];
+  /** @type {string[]} */
   const skipped = [];
   const leftOut = [];
+  /** @type {{ path: string, present: boolean }[]} */
+  const candidates = [];
   for (const path of [...changed].sort()) {
     if (!also.includes(path) && (!path.startsWith(work) || path.startsWith(views))) {
       leftOut.push(path);
       continue;
     }
-    /** @type {string | null} */
-    let blob = null;
     const st = statOf(join(root, path));
     if (st && !st.isFile()) {
       // Only a regular file is published: a link or a directory (a submodule) is left out.
       leftOut.push(path);
       continue;
     }
-    if (st) blob = git(root, ['hash-object', '-w', '--', path]).trim();
-    const onMain = blobAt(root, base, path);
-    if (blob === onMain) {
-      skipped.push(path);
-      continue;
-    }
-    // The versions of this file the session has seen.
-    const seen = new Set([blobAt(root, from, path)]);
-    for (const c of git(root, ['rev-list', `${from}..HEAD`, '--', path])
-      .split('\n')
-      .filter(Boolean)) {
-      seen.add(blobAt(root, c, path));
-    }
-    for (const c of published) seen.add(blobAt(root, c, path));
-    if (!seen.has(onMain)) {
-      conflicts.push(path);
+    candidates.push({ path, present: Boolean(st) });
+  }
+  // The session's version of each file (null: removed), and main's.
+  const hashed = hashFiles(
+    root,
+    candidates.filter((c) => c.present).map((c) => c.path),
+  );
+  const onMain = objectsAt(
+    root,
+    candidates.map((c) => ({ rev: base, path: c.path })),
+  );
+  /** @type {{ path: string, blob: string | null, onMain: string | null }[]} */
+  const differ = [];
+  let h = 0;
+  candidates.forEach((c, i) => {
+    const blob = c.present ? hashed[h++] : null;
+    if (blob === onMain[i]) skipped.push(c.path);
+    else differ.push({ path: c.path, blob, onMain: onMain[i] });
+  });
+  // The versions of each file the session has seen: where its branch left main, each commit on
+  // its branch that changes the file, and each commit it published before.
+  const commits = commitsChanging(
+    root,
+    from,
+    differ.map((d) => d.path),
+  );
+  const asked = differ.flatMap((d) =>
+    [from, ...(commits.get(d.path) ?? []), ...published].map((rev) => ({ rev, path: d.path })),
+  );
+  const versions = objectsAt(root, asked);
+  let v = 0;
+  for (const d of differ) {
+    const n = 1 + (commits.get(d.path) ?? []).length + published.length;
+    const seen = new Set(versions.slice(v, v + n));
+    v += n;
+    if (!seen.has(d.onMain)) {
+      conflicts.push(d.path);
       continue;
     }
     files.push({
-      path,
-      change: blob === null ? 'removed' : onMain === null ? 'added' : 'changed',
-      blob,
+      path: d.path,
+      change: d.blob === null ? 'removed' : d.onMain === null ? 'added' : 'changed',
+      blob: d.blob,
     });
   }
   return { files, conflicts, skipped, left_out: leftOut, from };
@@ -223,10 +345,12 @@ export function buildCommit(root, base, files, message) {
   };
   try {
     run(['read-tree', base]);
-    for (const f of files) {
-      if (f.blob === null) run(['update-index', '--force-remove', '--', f.path]);
-      else run(['update-index', '--add', '--cacheinfo', `100644,${f.blob},${f.path}`]);
-    }
+    // Every file in one update-index: mode 0 removes a path.
+    const none = '0'.repeat(base.length);
+    const entries = files.map((f) =>
+      f.blob === null ? `0 ${none}\t${f.path}\0` : `100644 ${f.blob}\t${f.path}\0`,
+    );
+    if (entries.length) run(['update-index', '-z', '--index-info'], entries.join(''));
     const tree = run(['write-tree']).trim();
     return run(['commit-tree', tree, '-p', base, '-F', '-'], message).trim();
   } finally {
@@ -295,16 +419,17 @@ export function forgeRepo(root, remote) {
  */
 export function publishedAs(root, commit) {
   const tree = git(root, ['rev-parse', `${commit}^{tree}`]).trim();
+  // Each published commit's tree comes with the listing; only a ref that is not a commit (which
+  // pushBranch never writes) is peeled on its own.
   for (const line of git(root, [
     'for-each-ref',
-    '--format=%(objectname)%09%(refname)',
+    '--format=%(objectname)%09%(tree)%09%(refname)',
     PUBLISHED_REFS,
   ]).split('\n')) {
-    const [sha, ref] = line.split('\t');
+    const [sha, listed, ref] = line.split('\t');
     if (!sha || !ref) continue;
-    if (git(root, ['rev-parse', `${sha}^{tree}`]).trim() === tree) {
-      return ref.slice(PUBLISHED_REFS.length + 1);
-    }
+    const its = listed || git(root, ['rev-parse', `${sha}^{tree}`]).trim();
+    if (its === tree) return ref.slice(PUBLISHED_REFS.length + 1);
   }
   return null;
 }

@@ -30,7 +30,23 @@ import { dispatchGate } from '../lib/quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml } from '../lib/quota/report.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = realpathSync(tempDir('hitld-quota-'));
+const tmp = realpathSync.native(tempDir('hitld-quota-'));
+
+/**
+ * Whether this machine lets the tests make a symbolic link to a file. Windows refuses one without
+ * Developer Mode or elevation (a directory link is made as a junction there, which needs neither).
+ */
+const canLinkFiles = (() => {
+  const target = join(tmp, 'link-probe-target');
+  writeFileSync(target, '');
+  try {
+    symlinkSync(target, join(tmp, 'link-probe'));
+    rmSync(join(tmp, 'link-probe'));
+    return true;
+  } catch {
+    return false;
+  }
+})();
 after(() => rmSync(tmp, { recursive: true, force: true }));
 
 const T0 = Date.parse('2026-11-14T12:00:00Z');
@@ -545,7 +561,7 @@ test('hitld dashboard --out stays inside the repository or the private store, an
   assert.equal((await hitld(args('../escape'), p)).json.error, 'output-path');
   // A symlink out of the repository does not smuggle the write out.
   mkdirSync(outside, { recursive: true });
-  symlinkSync(outside, join(p.repo, 'link'));
+  symlinkSync(outside, join(p.repo, 'link'), 'junction'); // a plain directory link off Windows
   assert.equal((await hitld(args('link/sub'), p)).json.error, 'output-path');
   assert.equal(existsSync(join(outside, 'sub')), false);
   // Inside the repository is fine, repeatedly (the report made its own files).
@@ -557,12 +573,14 @@ test('hitld dashboard --out stays inside the repository or the private store, an
   const clash = await hitld(args('docs'), p);
   assert.equal(clash.json.error, 'output-path');
   assert.equal(readFileSync(join(p.repo, 'docs', 'dashboard.html'), 'utf8'), 'mine');
-  // Nor one reached through a symlink.
-  mkdirSync(join(p.repo, 'tricky'));
-  writeFileSync(join(outside, 'target'), 'keep');
-  symlinkSync(join(outside, 'target'), join(p.repo, 'tricky', 'dashboard.html'));
-  assert.equal((await hitld(args('tricky'), p)).json.error, 'output-path');
-  assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
+  // Nor one reached through a symlink (where this machine lets the test make a file link).
+  if (canLinkFiles) {
+    mkdirSync(join(p.repo, 'tricky'));
+    writeFileSync(join(outside, 'target'), 'keep');
+    symlinkSync(join(outside, 'target'), join(p.repo, 'tricky', 'dashboard.html'));
+    assert.equal((await hitld(args('tricky'), p)).json.error, 'output-path');
+    assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
+  }
   // The private store is allowed.
   assert.equal((await hitld(args(join(p.store.root, 'mine')), p)).code, 0);
 });
@@ -579,7 +597,7 @@ test('a directory written under report.html is accepted, and the old page is rep
   );
   const r = await hitld(['dashboard', '--out', 'old', '--now', iso(T0)], p);
   assert.equal(r.code, 0);
-  assert.equal(r.json.html, join(realpathSync(dir), 'dashboard.html'));
+  assert.equal(r.json.html, join(realpathSync.native(dir), 'dashboard.html'));
   assert.ok(existsSync(join(dir, 'dashboard.html')));
   assert.match(readFileSync(join(dir, 'digest.txt'), 'utf8'), /Dispatch: Stopped at the reserve\./);
   // The old page is removed, and the marker lists the new names only.

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   MAX_BUNDLE_BYTES,
@@ -111,6 +111,47 @@ test('a URL that is not a git URL is refused', () => {
   });
 });
 
+test('on Windows, a drive or UNC path is a local repository; elsewhere it is refused', () => {
+  const ok = [
+    'C:\\Users\\o\\stores\\store.git',
+    'C:\\Users\\JANE~1.DOE\\AppData\\Local\\Temp\\store.git',
+    'C:\\Users\\Jane Doe\\stores\\store.git',
+    'd:/stores/store.git',
+    'file://C:\\stores\\store.git',
+    'file:///C:/stores/store.git',
+    '\\\\server\\share\\store.git',
+  ];
+  for (const url of ok) {
+    assert.equal(checkRemoteUrl(url, 'win32'), url);
+    if (/[\\ ]/.test(url)) {
+      assert.throws(() => checkRemoteUrl(url, 'linux'), { code: 'remote-url-invalid' }, url);
+    }
+  }
+  const bad = [
+    'C:',
+    'C:\\',
+    'C:store.git',
+    'C:\\stores\\store.git\nx',
+    'C:\\stores\\a|b.git',
+    'C:\\stores\\a"b.git',
+    'C:\\stores\\a:b.git',
+    'C:\\stores\\a?b.git',
+    '\\\\server',
+    '\\\\server\\',
+    '\\\\?\\C:\\stores\\store.git',
+    'file://\\\\server\\share\\store.git',
+    'https://github.com\\owner\\store.git',
+    'https://github.com/owner/store.git extra',
+  ];
+  for (const url of bad) {
+    assert.throws(
+      () => checkRemoteUrl(url, 'win32'),
+      { code: 'remote-url-invalid' },
+      `${JSON.stringify(url)} should be refused`,
+    );
+  }
+});
+
 test('the local directory must be a store directory, never a checkout', () => {
   const dir = tempDir('hitld-remote-dir-');
   try {
@@ -127,7 +168,11 @@ test('the local directory must be a store directory, never a checkout', () => {
     assert.throws(() => createGitRemote({ url, dir: join(dir, 'ok'), branch: '--x' }), {
       code: 'remote-argument-invalid',
     });
-    assert.equal(remoteDir('/s/store'), '/s/store/.git/hitld-remote');
+    // On Windows the path resolves onto the current drive, with its own separators.
+    assert.equal(remoteDir('/s/store'), resolve('/s/store/.git/hitld-remote'));
+    if (process.platform !== 'win32') {
+      assert.equal(remoteDir('/s/store'), '/s/store/.git/hitld-remote');
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -285,24 +330,28 @@ test('git runs with hooks off, and only connection config crosses from the owner
   const host = fakeHost();
   const home = tempDir('hitld-remote-home-');
   const marker = join(home, 'hook-ran');
+  // A Windows path in a shell script: forward slashes, so sh does not read escapes in it.
+  const touch = `#!/bin/sh\ntouch '${marker.replaceAll('\\', '/')}'\n`;
+  // A git config file escapes a backslash (a Windows path's) in a name or a value.
+  const cfg = (/** @type {string} */ s) => s.replaceAll('\\', '\\\\');
   const saved = { ...process.env };
   try {
     // A hooks directory named in the owner's config: nothing in it runs.
     const hooks = join(home, 'hooks');
     mkdirSync(hooks);
     for (const name of ['pre-push', 'reference-transaction']) {
-      writeFileSync(join(hooks, name), `#!/bin/sh\ntouch ${marker}\n`);
+      writeFileSync(join(hooks, name), touch);
       chmodSync(join(hooks, name), 0o755);
     }
     // A connection key (url rewriting) crosses; a hooks path and an ssh command do not.
     writeFileSync(
       join(home, '.gitconfig'),
       [
-        `[url "${host.url}"]`,
+        `[url "${cfg(host.url)}"]`,
         '\tinsteadOf = https://git.example.test/owner/store.git',
         '[core]',
-        `\thooksPath = ${hooks}`,
-        `\tsshCommand = touch ${marker}`,
+        `\thooksPath = ${cfg(hooks)}`,
+        `\tsshCommand = ${cfg(`touch '${marker.replaceAll('\\', '/')}'`)}`,
       ].join('\n') + '\n',
     );
     process.env.HOME = home;
@@ -314,7 +363,7 @@ test('git runs with hooks off, and only connection config crosses from the owner
     assert.equal(existsSync(marker), false, 'no hook or ssh command from the config ran');
     // A hook placed in the local copy itself does not run either.
     mkdirSync(join(dir, 'hooks'), { recursive: true });
-    writeFileSync(join(dir, 'hooks', 'pre-push'), `#!/bin/sh\ntouch ${marker}\n`);
+    writeFileSync(join(dir, 'hooks', 'pre-push'), touch);
     chmodSync(join(dir, 'hooks', 'pre-push'), 0o755);
     await r.push(Buffer.from('again'), { expected: a });
     assert.equal(existsSync(marker), false);

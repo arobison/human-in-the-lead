@@ -3,9 +3,17 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   READ_LIMIT,
@@ -15,12 +23,17 @@ import {
   frontMatterClassification,
   judge,
   judgeContent,
+  judgeMessage,
   parseRaw,
 } from '../lib/guard/classification.mjs';
+import { addedLines, checkPublicRange, commitsIn } from '../lib/guard/public-check.mjs';
+import { compileTerms, findEmails } from '../lib/guard/private-terms.mjs';
+import { judgePlacement } from '../lib/guard/store-placement.mjs';
 import { HOOK_MARK } from '../lib/install/install.mjs';
 import { runMergeQueue } from '../lib/merge/queue.mjs';
 import { chooseNamed } from '../lib/merge/owner.mjs';
 import { git, item, makeConsumer, put } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const CHECKOUT = fileURLToPath(new URL('../../', import.meta.url));
 const CONFIDENTIAL = '---\ntitle: Plan\nclassification: confidential\n---\n\nPrivate.\n';
@@ -198,7 +211,8 @@ test('install writes the pre-commit hook; it refuses a confidential commit, nami
   assert.ok(text.includes(HOOK_MARK));
   assert.ok(text.includes(join(CHECKOUT, 'core/bin/hitld.mjs')));
   assert.match(text, /exec node "\$HITLD" check classification --staged\n$/);
-  assert.equal(statSync(hook).mode & 0o111, 0o111);
+  // Windows has no executable bit to set or read (git there runs a hook by its #! line).
+  if (process.platform !== 'win32') assert.equal(statSync(hook).mode & 0o111, 0o111);
   assert.equal((await c.hitld(['install'])).result.done.commit_guard, 'unchanged');
 
   git(c.root, 'add', '-A');
@@ -260,7 +274,7 @@ const SETTINGS = {
   mainBranch: 'main',
   batchMax: 4,
   fastChecks: [],
-  fullSuite: ["node --test 'test/*.test.js'"],
+  fullSuite: ['node --test "test/*.test.js"'],
   generated: [],
   flakeReruns: 0,
 };
@@ -376,4 +390,199 @@ test('work check applies the same rule to every file in the tree, with private p
   const whole = await c.hitld(['check', 'classification']);
   assert.equal(whole.exit, 1);
   assert.deepEqual(whole.result.problems, added);
+});
+
+// --- Batched reads give what one process per commit and per file gave -------------------------
+
+/**
+ * A history with what the readers must get right: a root commit, a merge whose sides both change
+ * files, a rename, a deletion, a mode change, a binary file, a file past the read limit with front
+ * matter that does not close in it, a store address added then removed, and emails and a private
+ * term in files and messages.
+ */
+function history() {
+  // Built here, so this file holds no address the public check would flag.
+  const PERSON = ['person', 'acme-corp.com'].join('@');
+  const root = realpathSync(tempDir('hitld-guard-'));
+  /** @param {...string} args */
+  const g = (...args) =>
+    execFileSync('git', args, {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Agent',
+        GIT_AUTHOR_EMAIL: 'agent@example.com',
+        GIT_COMMITTER_NAME: 'Agent',
+        GIT_COMMITTER_EMAIL: 'agent@example.com',
+      },
+    }).trim();
+  /** @param {string} message @param {Record<string, string | Buffer | null>} files */
+  const commit = (message, files) => {
+    for (const [path, text] of Object.entries(files)) {
+      if (text === null) g('rm', '-q', '--', path);
+      else {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), text);
+        g('add', '--', path);
+      }
+    }
+    g('commit', '-q', '--allow-empty', '-m', message);
+    return g('rev-parse', 'HEAD');
+  };
+  g('init', '-q', '-b', 'main');
+  g('config', 'core.autocrlf', 'false');
+  // An unrelated commit, so a range can take in the root commit.
+  g('checkout', '-q', '--orphan', 'elsewhere');
+  const elsewhere = commit('elsewhere', { 'x.txt': 'x\n' });
+  g('checkout', '-q', '--orphan', 'main');
+  g('rm', '-rq', '--cached', '.');
+  rmSync(join(root, 'x.txt'));
+  commit(`start\n\nWritten by ${PERSON} on the build-host-7 machine.`, {
+    'docs/plan.md': CONFIDENTIAL,
+    'docs/old.md': 'old\n',
+    '.human-in-the-lead/policy.json': JSON.stringify({ store: { remote: { url: 'x' } } }),
+  });
+  g('checkout', '-q', '-b', 'side');
+  commit('side', { 'side.md': `mail me at ${PERSON}\n`, 'docs/old.md': 'side\n' });
+  g('checkout', '-q', 'main');
+  commit('main side', { 'main.md': '---\nclassification: secret\n---\n' });
+  g('merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+  g('mv', 'docs/old.md', 'docs/renamed.md');
+  commit('rename', { 'docs/plan.md': null, 'bin.dat': Buffer.from([0, 1, 2, 0, 255]) });
+  g('update-index', '--chmod=+x', 'main.md');
+  commit('mode', {});
+  commit('big', { 'big.md': `---\ntitle: big\n${'pad: y\n'.repeat(160 * 1024)}` });
+  commit('no address', { '.human-in-the-lead/policy.json': '{}\n' });
+  commit('empty', {});
+  return { root, elsewhere, g };
+}
+
+/** checkCommits as it was, with one git process per commit and per file. @param {string} cwd @param {string} from @param {string} to @param {any} r */
+function checkCommitsOneByOne(cwd, from, to, r) {
+  /** @param {string[]} args */
+  const g = (args) => execFileSync('git', args, { cwd, maxBuffer: 1 << 28 }).toString('utf8');
+  const RAW = ['--raw', '-z', '--no-abbrev', '--no-renames', '--diff-filter=AMT'];
+  const limit = r.terms?.length ? 64 * 1024 * 1024 : READ_LIMIT;
+  const commits = g(['rev-list', '--reverse', `${from}..${to}`])
+    .split('\n')
+    .filter(Boolean);
+  const blobs = [];
+  const messages = [];
+  for (const c of commits) {
+    blobs.push(...parseRaw(g(['diff-tree', '-r', '-m', '--root', '--no-commit-id', ...RAW, c])));
+    if (r.terms?.length) {
+      const m = judgeMessage(c, g(['log', '-1', '--format=%B', c]), r);
+      if (m) messages.push(m);
+    }
+  }
+  const seen = new Set();
+  const refused = [];
+  for (const b of blobs) {
+    if (seen.has(`${b.sha} ${b.path}`)) continue;
+    seen.add(`${b.sha} ${b.path}`);
+    const out = spawnSync('git', ['cat-file', 'blob', b.sha], { cwd, maxBuffer: limit });
+    const truncated = /** @type {any} */ (out.error)?.code === 'ENOBUFS';
+    const x = judgeContent(b.path, out.stdout, truncated, r);
+    if (x) refused.push(x);
+  }
+  return { files: seen.size, refused: [...refused, ...messages] };
+}
+
+test('checkCommits in a fixed number of processes finds what one process per commit and file found', () => {
+  const { root, elsewhere } = history();
+  const terms = compileTerms([{ term: 'build-host-7', kind: 'device', id: 'PT-1' }]);
+  for (const r of [rules(), rules({ ceiling: 'secret', terms })]) {
+    for (const [from, to] of [
+      [elsewhere, 'HEAD'],
+      ['HEAD', 'HEAD'],
+    ]) {
+      const want = checkCommitsOneByOne(root, from, to, r);
+      assert.deepEqual(checkCommits(root, from, to, r), want, `${from}..${to}`);
+    }
+  }
+  const all = checkCommits(root, elsewhere, 'HEAD', rules({ terms }));
+  // The case each part covers is there: a term in a message, a big file, a store address.
+  assert.ok(all.refused.some((x) => x.commit && x.rule === 'private-term'));
+  assert.ok(
+    checkCommits(root, elsewhere, 'HEAD', rules()).refused.some(
+      (x) => x.path === 'big.md' && x.rule === 'unreadable',
+    ),
+  );
+  assert.ok(all.refused.some((x) => x.rule === 'store-address'));
+});
+
+/** checkPublicRange as it was, with several git processes per commit. @param {{ cwd: string, from?: string, to: string }} o */
+function checkPublicOneByOne(o) {
+  /** @param {string[]} args */
+  const g = (args) => execFileSync('git', args, { cwd: o.cwd, encoding: 'utf8' });
+  const EMAIL =
+    "an email address that is not a noreply one; use a noreply address (a forge gives one) or a placeholder on example.com, and keep a person's own address out of the repository";
+  /** @param {string} commit @param {string[]} paths */
+  const placementIn = (commit, paths) =>
+    paths.flatMap((path) => {
+      if (!/(^|\/)\.human-in-the-lead\/(policy|store-devices)\.json$/.test(path)) return [];
+      const shown = spawnSync('git', ['show', `${commit}:${path}`], {
+        cwd: o.cwd,
+        encoding: 'utf8',
+      });
+      if (shown.status !== 0) return [];
+      const r = judgePlacement(path, shown.stdout);
+      return r ? [{ commit, where: path, line: null, rule: r.rule, message: r.message }] : [];
+    });
+  const commits = commitsIn(o.cwd, o.from, o.to);
+  /** @type {any[]} */
+  const findings = [];
+  const seen = new Set();
+  /** @param {any} f */
+  const add = (f) => {
+    const key = `${f.commit}\0${f.where}\0${f.rule}\0${f.line}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      findings.push(f);
+    }
+  };
+  for (const c of commits) {
+    const changed = g(['diff-tree', '-r', '--root', '--no-commit-id', '--name-only', c])
+      .split('\n')
+      .filter(Boolean);
+    for (const f of placementIn(c, changed)) add(f);
+    for (const a of addedLines(o.cwd, c)) {
+      if (findEmails(a.text).length) {
+        add({ commit: c, where: a.path, line: a.line, rule: 'email', message: EMAIL });
+      }
+    }
+    for (const e of findEmails(g(['log', '-1', '--format=%B', c]))) {
+      add({ commit: c, where: 'commit message', line: e.line, rule: 'email', message: EMAIL });
+    }
+  }
+  const tree = g(['ls-tree', '-r', '--name-only', o.to]).split('\n').filter(Boolean);
+  const head = g(['rev-parse', o.to]).trim();
+  for (const f of placementIn(head, tree)) {
+    if (!findings.some((x) => x.where === f.where && x.rule === f.rule)) add(f);
+  }
+  return { commits: commits.length, findings };
+}
+
+test('checkPublicRange in a fixed number of processes finds what several per commit found', () => {
+  const { root, elsewhere, g } = history();
+  const ranges = [
+    { from: elsewhere, to: 'HEAD' },
+    { from: 'HEAD~4', to: 'HEAD~1' },
+    { to: 'HEAD~2' },
+    { from: '0'.repeat(40), to: 'HEAD' },
+    { from: 'HEAD', to: 'HEAD' },
+  ];
+  for (const range of ranges) {
+    const o = { cwd: root, ...range };
+    assert.deepEqual(checkPublicRange(o), checkPublicOneByOne(o), JSON.stringify(range));
+  }
+  const all = checkPublicRange({ cwd: root, from: elsewhere, to: 'HEAD' });
+  assert.deepEqual([...new Set(all.findings.map((f) => `${f.where}: ${f.rule}`))].sort(), [
+    '.human-in-the-lead/policy.json: store-address',
+    'commit message: email',
+    'side.md: email',
+  ]);
+  assert.equal(all.commits, Number(g('rev-list', '--count', '--no-merges', 'HEAD')));
 });

@@ -25,7 +25,23 @@ import {
   policyFor,
   put,
 } from './tracker-fixture.mjs';
-import { tempDir } from './helpers/tmp.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
+
+/** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = tempDir('hitld-link-probe-');
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    removeTempDir(dir);
+  }
+})();
+const needsSymlink = {
+  skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
+};
 
 /** No person file, private store or store address of this machine is read. */
 const HOME = isolatedEnv();
@@ -993,35 +1009,43 @@ test('the files in a --config directory must be yours, not group-writable, and n
   const elsewhere = tempDir('hitld-cwd-');
   const args = (/** @type {string} */ cfg) => ['work', 'check', '--repo', root, '--config', cfg];
 
-  const writable = configDir();
-  chmodSync(join(writable, 'policy.json'), 0o666);
-  const a = await hitld(args(writable), elsewhere);
-  assert.equal(a.code, 1);
-  assert.match(a.json.message, /writable by group or others/);
+  // Owners and modes are POSIX: on Windows hitld skips those checks (policy.mjs), so only the
+  // link is checked there, where this machine can create one.
+  if (process.platform !== 'win32') {
+    const writable = configDir();
+    chmodSync(join(writable, 'policy.json'), 0o666);
+    const a = await hitld(args(writable), elsewhere);
+    assert.equal(a.code, 1);
+    assert.match(a.json.message, /writable by group or others/);
 
-  const writableTracker = configDir();
-  chmodSync(join(writableTracker, 'tracker.json'), 0o666);
-  const b = await hitld(args(writableTracker), elsewhere);
-  assert.equal(b.code, 1);
-  assert.match(
-    b.json.message,
-    /writable by group or others.*tracker\.json sets where the tracker reads and writes/,
-  );
+    const writableTracker = configDir();
+    chmodSync(join(writableTracker, 'tracker.json'), 0o666);
+    const b = await hitld(args(writableTracker), elsewhere);
+    assert.equal(b.code, 1);
+    assert.match(
+      b.json.message,
+      /writable by group or others.*tracker\.json sets where the tracker reads and writes/,
+    );
+  }
 
-  const linked = configDir();
-  const real = join(tempDir('hitld-real-'), 'tracker.json');
-  writeFileSync(real, '{"schema_version":1}');
-  rmSync(join(linked, 'tracker.json'));
-  symlinkSync(real, join(linked, 'tracker.json'));
-  const c = await hitld(args(linked), elsewhere);
-  assert.equal(c.code, 1);
-  assert.match(c.json.message, /is a symbolic link/);
+  if (canSymlink) {
+    const linked = configDir();
+    const real = join(tempDir('hitld-real-'), 'tracker.json');
+    writeFileSync(real, '{"schema_version":1}');
+    rmSync(join(linked, 'tracker.json'));
+    symlinkSync(real, join(linked, 'tracker.json'));
+    const c = await hitld(args(linked), elsewhere);
+    assert.equal(c.code, 1);
+    assert.match(c.json.message, /is a symbolic link/);
+  }
 
-  const openDir = configDir();
-  chmodSync(openDir, 0o777);
-  const d = await hitld(args(openDir), elsewhere);
-  assert.equal(d.code, 1);
-  assert.match(d.json.message, /which is writable by group or others/);
+  if (process.platform !== 'win32') {
+    const openDir = configDir();
+    chmodSync(openDir, 0o777);
+    const d = await hitld(args(openDir), elsewhere);
+    assert.equal(d.code, 1);
+    assert.match(d.json.message, /which is writable by group or others/);
+  }
 });
 
 test('lists_readme is a safe relative path like the others', () => {
@@ -1033,63 +1057,71 @@ test('lists_readme is a safe relative path like the others', () => {
   assert.doesNotThrow(() => open(root, { configDir: configDir({ lists_readme: 'README.md' }) }));
 });
 
-test('the work directory, the views directory and the README are never reached through a link', () => {
-  const outside = tempDir('hitld-outside-');
-  // A work directory that is a link out of the repository.
-  const a = makeRepo({ commit: false });
-  rmSync(join(a, 'work'), { recursive: true });
-  symlinkSync(outside, join(a, 'work'));
-  assert.throws(() => open(a), /work is a symbolic link/);
+test(
+  'the work directory, the views directory and the README are never reached through a link',
+  needsSymlink,
+  () => {
+    const outside = tempDir('hitld-outside-');
+    // A work directory that is a link out of the repository.
+    const a = makeRepo({ commit: false });
+    rmSync(join(a, 'work'), { recursive: true });
+    symlinkSync(outside, join(a, 'work'));
+    assert.throws(() => open(a), /work is a symbolic link/);
 
-  // A views directory that is a link.
-  const b = makeRepo();
-  symlinkSync(outside, join(b, 'work', 'views'));
-  assert.throws(() => open(b).writeViews(), /work\/views is a symbolic link/);
-  assert.deepEqual(readdirSync(outside), []);
+    // A views directory that is a link.
+    const b = makeRepo();
+    symlinkSync(outside, join(b, 'work', 'views'));
+    assert.throws(() => open(b).writeViews(), /work\/views is a symbolic link/);
+    assert.deepEqual(readdirSync(outside), []);
 
-  // A README that is a link: not read, not written through.
-  const c = makeRepo();
-  writeFileSync(
-    join(outside, 'target.md'),
-    '<!-- work:lists:begin -->\nx\n<!-- work:lists:end -->\n',
-  );
-  symlinkSync(join(outside, 'target.md'), join(c, 'work', 'README.md'));
-  const cfg = tempDir('hitld-cfg-');
-  writeFileSync(
-    join(cfg, 'tracker.json'),
-    JSON.stringify({ schema_version: 1, lists_readme: 'README.md' }),
-  );
-  assert.throws(() => open(c, { configDir: cfg }), /work\/README\.md is a symbolic link/);
-  assert.equal(readFileSync(join(outside, 'target.md'), 'utf8').includes('x'), true);
-});
+    // A README that is a link: not read, not written through.
+    const c = makeRepo();
+    writeFileSync(
+      join(outside, 'target.md'),
+      '<!-- work:lists:begin -->\nx\n<!-- work:lists:end -->\n',
+    );
+    symlinkSync(join(outside, 'target.md'), join(c, 'work', 'README.md'));
+    const cfg = tempDir('hitld-cfg-');
+    writeFileSync(
+      join(cfg, 'tracker.json'),
+      JSON.stringify({ schema_version: 1, lists_readme: 'README.md' }),
+    );
+    assert.throws(() => open(c, { configDir: cfg }), /work\/README\.md is a symbolic link/);
+    assert.equal(readFileSync(join(outside, 'target.md'), 'utf8').includes('x'), true);
+  },
+);
 
-test('an item file or an item folder that is a link is refused, and nothing is written through it', () => {
-  const outside = tempDir('hitld-outside-');
-  const root = makeRepo();
-  const target = join(outside, 'W-7-elsewhere.md');
-  writeFileSync(
-    target,
-    itemText({ id: 'W-7', title: 'Elsewhere', kind: 'work', state: 'planned', project: 'W-2' }),
-  );
-  symlinkSync(target, join(root, 'work', 'items', 'W-7-elsewhere.md'));
-  const t = open(root);
-  assert.deepEqual(t.check().problems, [
-    'work/items/W-7-elsewhere.md: is not a regular file (a symbolic link?); item files are never followed',
-  ]);
-  assert.throws(() => t.get('W-7'), /not in the tracker/);
+test(
+  'an item file or an item folder that is a link is refused, and nothing is written through it',
+  needsSymlink,
+  () => {
+    const outside = tempDir('hitld-outside-');
+    const root = makeRepo();
+    const target = join(outside, 'W-7-elsewhere.md');
+    writeFileSync(
+      target,
+      itemText({ id: 'W-7', title: 'Elsewhere', kind: 'work', state: 'planned', project: 'W-2' }),
+    );
+    symlinkSync(target, join(root, 'work', 'items', 'W-7-elsewhere.md'));
+    const t = open(root);
+    assert.deepEqual(t.check().problems, [
+      'work/items/W-7-elsewhere.md: is not a regular file (a symbolic link?); item files are never followed',
+    ]);
+    assert.throws(() => t.get('W-7'), /not in the tracker/);
 
-  const other = makeRepo();
-  rmSync(join(other, 'work', 'items'), { recursive: true });
-  symlinkSync(outside, join(other, 'work', 'items'));
-  assert.throws(
-    () => open(other).create({ kind: 'work', title: 'x', parent: 'W-2' }),
-    /work\/items is a symbolic link/,
-  );
-  assert.equal(
-    readdirSync(outside).filter((f) => f.startsWith('W-') && f !== 'W-7-elsewhere.md').length,
-    0,
-  );
-});
+    const other = makeRepo();
+    rmSync(join(other, 'work', 'items'), { recursive: true });
+    symlinkSync(outside, join(other, 'work', 'items'));
+    assert.throws(
+      () => open(other).create({ kind: 'work', title: 'x', parent: 'W-2' }),
+      /work\/items is a symbolic link/,
+    );
+    assert.equal(
+      readdirSync(outside).filter((f) => f.startsWith('W-') && f !== 'W-7-elsewhere.md').length,
+      0,
+    );
+  },
+);
 
 test('a plan path that leaves the repository is never probed', () => {
   const root = makeRepo({

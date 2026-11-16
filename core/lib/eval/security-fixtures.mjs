@@ -84,7 +84,7 @@ export const SECURITY_MERGE_SETTINGS = Object.freeze({
   mainBranch: 'main',
   batchMax: 4,
   fastChecks: [],
-  fullSuite: ["node --test 'test/*.test.js'"],
+  fullSuite: ['node --test "test/*.test.js"'],
   generated: [],
   flakeReruns: 0,
 });

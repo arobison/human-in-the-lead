@@ -4,8 +4,9 @@
 // node:sqlite is loaded here only, when the index is built or read, so commands that never touch
 // the index never load it.
 
-import { existsSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { replaceFile } from './host.mjs';
 import { LEDGER_KEY, readLedger } from '../ledger/ledger.mjs';
 
 export const INDEX_FILE = 'index.sqlite';
@@ -72,7 +73,7 @@ export async function rebuildIndex(store) {
   } finally {
     db.close();
   }
-  renameSync(tmp, file);
+  replaceFile(tmp, file);
   return { file, events: events.length, ledger_problems: problems.length };
 }
 
