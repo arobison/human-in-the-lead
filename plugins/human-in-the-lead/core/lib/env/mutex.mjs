@@ -3,7 +3,41 @@
 
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { RM_RETRY } from './fsx.mjs';
 import { isAlive, sleep } from './proc.mjs';
+
+/**
+ * Whether creating the mutex directory failed because it is there. On Windows a directory still
+ * being deleted by its last owner refuses creation with EPERM for a moment: that is the same wait.
+ * @param {unknown} e
+ */
+const taken = (e) => {
+  const code = /** @type {NodeJS.ErrnoException} */ (e).code;
+  return code === 'EEXIST' || (process.platform === 'win32' && code === 'EPERM');
+};
+
+/**
+ * Move a stale mutex aside, then check that what was moved is what was judged stale; if a live
+ * owner slipped in between, put it back. When the move fails (another taker moved it), the
+ * caller looks again at once; on Windows, where a file in it may be open for a moment, it returns
+ * false so the caller waits first instead of spinning.
+ * @param {string} dir @param {number} staleMs @returns {boolean}
+ */
+function moveAsideIfStale(dir, staleMs) {
+  const aside = `${dir}.stale.${process.pid}.${Date.now()}`;
+  try {
+    renameSync(dir, aside);
+  } catch {
+    return process.platform !== 'win32';
+  }
+  try {
+    if (looksStale(aside, staleMs)) rmSync(aside, { recursive: true, force: true, ...RM_RETRY });
+    else renameSync(aside, dir);
+  } catch {
+    // someone else got there first
+  }
+  return true;
+}
 
 /** @param {string} dir @returns {number | null} */
 function ownerOf(dir) {
@@ -45,28 +79,16 @@ export async function withMutex(dir, fn, options = {}) {
       writeFileSync(join(dir, 'owner'), `${process.pid}\n`);
       break;
     } catch (e) {
-      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+      if (!taken(e)) throw e;
     }
-    if (looksStale(dir, staleMs)) {
-      // Move it aside, then check that what we moved is what we judged stale; if a live owner
-      // slipped in between, put it back.
-      const aside = `${dir}.stale.${process.pid}.${Date.now()}`;
-      try {
-        renameSync(dir, aside);
-        if (looksStale(aside, staleMs)) rmSync(aside, { recursive: true, force: true });
-        else renameSync(aside, dir);
-      } catch {
-        // someone else got there first
-      }
-      continue;
-    }
+    if (looksStale(dir, staleMs) && moveAsideIfStale(dir, staleMs)) continue;
     if (Date.now() > deadline) throw new Error(`timed out waiting for the lock at ${dir}`);
     await sleep(pollMs);
   }
   try {
     return await fn();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, ...RM_RETRY });
   }
 }
 
@@ -91,25 +113,15 @@ export function withMutexSync(dir, fn, options = {}) {
       writeFileSync(join(dir, 'owner'), `${process.pid}\n`);
       break;
     } catch (e) {
-      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+      if (!taken(e)) throw e;
     }
-    if (looksStale(dir, staleMs)) {
-      const aside = `${dir}.stale.${process.pid}.${Date.now()}`;
-      try {
-        renameSync(dir, aside);
-        if (looksStale(aside, staleMs)) rmSync(aside, { recursive: true, force: true });
-        else renameSync(aside, dir);
-      } catch {
-        // someone else got there first
-      }
-      continue;
-    }
+    if (looksStale(dir, staleMs) && moveAsideIfStale(dir, staleMs)) continue;
     if (Date.now() > deadline) throw new Error(`timed out waiting for the lock at ${dir}`);
     Atomics.wait(nap, 0, 0, pollMs);
   }
   try {
     return fn();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, ...RM_RETRY });
   }
 }

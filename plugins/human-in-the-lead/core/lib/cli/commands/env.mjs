@@ -4,7 +4,8 @@
 // core/lib/env/; these are thin wrappers over it.
 
 import { execFileSync } from 'node:child_process';
-import { lstatSync, realpathSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
+import { realPath } from '../../env/fsx.mjs';
 import { basename, dirname, join } from 'node:path';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { POLICY_PATH, findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
@@ -115,7 +116,7 @@ function openForExec(ctx) {
   }
   const root = record.root;
   try {
-    if (realpathSync(root) !== root || !lstatSync(join(root, '.git')).isDirectory()) {
+    if (realPath(root) !== root || !lstatSync(join(root, '.git')).isDirectory()) {
       return refuse('primary-mismatch', `${root} is not the canonical path of a primary checkout`);
     }
   } catch {
@@ -131,7 +132,7 @@ function openForExec(ctx) {
   }
   let policyReal;
   try {
-    policyReal = realpathSync(policyPath);
+    policyReal = realPath(policyPath);
   } catch {
     policyReal = null;
   }

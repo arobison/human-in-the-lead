@@ -18,7 +18,7 @@
 // never reads it. One record per worktree; a later run start or run resume there replaces it.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { realpathSync } from 'node:fs';
+import { realPath } from '../env/fsx.mjs';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
 import { findRepoRoot } from '../policy/policy.mjs';
@@ -51,7 +51,7 @@ const text = (v) => typeof v === 'string' && v.length > 0;
 export function worktreeOf(cwd) {
   const root = findRepoRoot(cwd) ?? resolve(cwd);
   try {
-    return realpathSync(root);
+    return realPath(root);
   } catch {
     return root;
   }
