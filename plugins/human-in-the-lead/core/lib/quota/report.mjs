@@ -11,6 +11,7 @@ import { dispatchGate, forecastLine, show } from './gate.mjs';
 import { fileHref, milestoneFacts, oneSentence } from '../tracker/files/views.mjs';
 import { renderYourMove } from '../dashboard/move.mjs';
 import { renderPlan } from '../dashboard/plan.mjs';
+import { fewestCrossings } from '../dashboard/layout.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
 
@@ -231,6 +232,56 @@ function bar(s, q) {
   return `<svg viewBox="0 0 ${W} 16" role="img" aria-label="${esc(text)}" class="bar"><rect width="${W}" height="16" class="track"/><rect x="${reserveX}" width="${W - reserveX}" height="16" class="reserve"/><rect width="${usedW}" height="16" class="used"/>${mark(q.economize_below, 'economize')}${mark(q.critical_below, 'critical path only')}<line x1="${reserveX}" x2="${reserveX}" y1="0" y2="16" class="stop"><title>reserve: stop</title></line></svg>`;
 }
 
+/**
+ * The roadmap's second layout (HITLD-307): no lanes; linked milestones grouped, each group in
+ * columns by longest path with its crossings reduced by barycenter sweeps, the critical path's
+ * group first; unlinked milestones in a grid under them. Computed when the page is generated.
+ * @param {import('../tracker/files/views.mjs').MilestoneGraphNode[]} board the committed milestones
+ * @param {MilestoneGraph} mg
+ * @param {(at: Map<string, { x: number, y: number }>) => { edges: string, nodes: string }} draw
+ * @param {{ W: number, H: number, GX: number, GY: number }} size
+ */
+function fewest(board, mg, draw, { W, H, GX, GY }) {
+  const ids = board.map((n) => n.id);
+  const shown = new Set(ids);
+  const { groups, grid } = fewestCrossings(
+    ids,
+    mg.edges
+      .filter((e) => shown.has(e.from) && shown.has(e.to))
+      .map((e) => /** @type {[string, string]} */ ([e.from, e.to])),
+    { first: mg.critical_path },
+  );
+  const PAD = 16;
+  /** @type {Map<string, { x: number, y: number }>} */
+  const at = new Map();
+  let top = PAD;
+  let cols = 1;
+  let crossings = 0;
+  for (const g of groups) {
+    const rows = Math.max(...g.layers.map((c) => c.length));
+    for (const [l, col] of g.layers.entries()) {
+      // A column shorter than its group's tallest is centered against it.
+      const shift = Math.floor((rows - col.length) / 2);
+      for (const [r, id] of col.entries()) {
+        at.set(id, { x: PAD + l * (W + GX), y: top + (r + shift) * (H + GY) });
+      }
+    }
+    cols = Math.max(cols, g.layers.length);
+    crossings += g.crossings;
+    top += rows * (H + GY) + GY * 2;
+  }
+  const across = Math.max(cols, 3);
+  for (const [k, id] of grid.entries()) {
+    at.set(id, { x: PAD + (k % across) * (W + GX), y: top + Math.floor(k / across) * (H + GY) });
+  }
+  if (grid.length) top += Math.ceil(grid.length / across) * (H + GY);
+  const width =
+    PAD * 2 + (grid.length ? Math.max(cols, Math.min(across, grid.length)) : cols) * (W + GX) - GX;
+  const height = top + PAD - GY;
+  const { edges, nodes } = draw(at);
+  return `<svg class="mg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="Milestone map, fewest crossings: ${board.length} milestones in ${groups.length} linked group${groups.length === 1 ? '' : 's'} and ${grid.length} unlinked, ${crossings} crossings">${edges}\n${nodes}</svg>`;
+}
+
 /** A milestone's anchor on the page. @param {string} id */
 const milestoneAnchor = (id) => `milestone-${id.replace(/[^A-Za-z0-9-]/g, '')}`;
 /** A release's anchor on the page. @param {string} id */
@@ -424,85 +475,90 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
     return `<text class="mg-step" x="${colX(k) + W / 2}" y="17" text-anchor="middle">Step ${k + 1}</text>${k ? `<line class="mg-tick" x1="${x}" x2="${x}" y1="${HEAD - 4}" y2="${height}"/>` : ''}`;
   }).join('');
 
-  const edges = mg.edges
-    .map((e) => {
-      const a = at.get(e.from);
-      const b = at.get(e.to);
-      if (!a || !b) return '';
-      const [x1, y1, x2, y2] = [a.x + W, a.y + H / 2, b.x, b.y + H / 2];
-      const cls = `${e.critical ? ' critical' : ''}${e.items ? '' : ' direct'}`;
-      const stroke = (1.25 + Math.min(e.items, 10) * 0.35).toFixed(2);
-      const label = `${e.to} waits on ${e.from}: ${e.items ? `${e.items} item(s) behind the wait` : 'directly, no items behind it'}${e.critical ? ', on the critical path' : ''}`;
-      // The curve ends level, so its arrowhead is drawn pointing right: no marker, no url().
-      return `<g><title>${esc(label)}</title><path class="mg-edge${cls}" style="stroke-width:${stroke}" d="M${x1} ${y1}C${x1 + GX / 2} ${y1} ${x2 - GX / 2} ${y2} ${x2 - 7} ${y2}"/><path class="mg-head${e.critical ? ' critical' : ''}" d="M${x2 - 8} ${y2 - 4}L${x2} ${y2}L${x2 - 8} ${y2 + 4}z"/></g>`;
-    })
-    .join('');
+  /**
+   * The waits and the milestone boxes, at the given places: the same drawing for both layouts.
+   * @param {Map<string, { x: number, y: number }>} at
+   */
+  const draw = (at) => {
+    const edges = mg.edges
+      .map((e) => {
+        const a = at.get(e.from);
+        const b = at.get(e.to);
+        if (!a || !b) return '';
+        const [x1, y1, x2, y2] = [a.x + W, a.y + H / 2, b.x, b.y + H / 2];
+        const cls = `${e.critical ? ' critical' : ''}${e.items ? '' : ' direct'}`;
+        const stroke = (1.25 + Math.min(e.items, 10) * 0.35).toFixed(2);
+        const label = `${e.to} waits on ${e.from}: ${e.items ? `${e.items} item(s) behind the wait` : 'directly, no items behind it'}${e.critical ? ', on the critical path' : ''}`;
+        // The curve ends level, so its arrowhead is drawn pointing right: no marker, no url().
+        return `<g><title>${esc(label)}</title><path class="mg-edge${cls}" style="stroke-width:${stroke}" d="M${x1} ${y1}C${x1 + GX / 2} ${y1} ${x2 - GX / 2} ${y2} ${x2 - 7} ${y2}"/><path class="mg-head${e.critical ? ' critical' : ''}" d="M${x2 - 8} ${y2 - 4}L${x2} ${y2}L${x2 - 8} ${y2 + 4}z"/></g>`;
+      })
+      .join('');
 
-  const nodes = board
-    .map((n) => {
-      const { x, y } = /** @type {{ x: number, y: number }} */ (at.get(n.id));
-      const f = milestoneFacts(n);
-      const started = n.stage === 'in-flight' || n.stage === 'done';
-      const badges = [
-        ...(n.holds.decisions.length
-          ? [
-              [
-                'decision',
-                `${n.holds.decisions.length} decision${n.holds.decisions.length > 1 ? 's' : ''}`,
-                n.holds.decisions,
-              ],
-            ]
-          : []),
-        ...(n.holds.external.length
-          ? [
-              [
-                'external',
-                `${n.holds.external.length} outside wait${n.holds.external.length > 1 ? 's' : ''}`,
-                n.holds.external,
-              ],
-            ]
-          : []),
-      ];
-      // The releases it lands before, as pills on the progress bar's row, which they shorten.
-      let rx = x + W - 8;
-      const releasePills = mg.releases
-        .filter((r) => r.milestones.includes(n.id))
-        .map((r) => {
-          const w = Math.round(r.release.length * 5.6 + 10);
-          rx -= w;
-          const pill = `<g class="mg-badge release"><title>${esc(`Lands before release ${r.release} (${r.id})`)}</title><rect x="${rx}" y="${y + 57}" width="${w}" height="14" rx="7"/><text x="${rx + w / 2}" y="${y + 67.5}" text-anchor="middle">${esc(r.release)}</text></g>`;
-          rx -= 4;
-          return pill;
-        })
-        .join('');
-      let right = x + W - 8;
-      const pills = badges
-        .map(([cls, text, ids]) => {
-          const w = Math.round(String(text).length * 5.6 + 10);
-          right -= w;
-          const pill = `<g class="mg-badge ${cls}"><title>${esc(`Held up by ${Array.isArray(ids) ? ids.join(', ') : ''}`)}</title><rect x="${right}" y="${y + 7}" width="${w}" height="15" rx="7.5"/><text x="${right + w / 2}" y="${y + 18}" text-anchor="middle">${esc(text)}</text></g>`;
-          right -= 4;
-          return pill;
-        })
-        .join('');
-      const nameRoom = Math.max(8, Math.floor((right - (x + (started ? 12 : 22))) / 7.2));
-      const outcome = clamp(oneSentence(n.outcome, 200) || 'No outcome yet', 34, 2);
-      const share = n.constraints.total ? n.constraints.done / n.constraints.total : 0;
-      const bar = rx < x + W - 8 ? rx - (x + 12) - 6 : W - 24;
-      const label = `${n.id} ${n.title}, ${STAGES.find(([k]) => k === n.stage)?.[1] ?? n.stage}${n.critical ? ', on the critical path' : ''}${n.in_cycle ? ', in a loop of needs' : ''}: ${oneSentence(n.outcome) || 'no outcome yet'}; ${n.in_progress} in progress, ${f.constraints}; ${f.tokens}; ${f.check}`;
-      const cls = `mg-node ${n.stage} ${started ? 'started' : 'hollow'}${n.critical ? ' critical' : ''}${n.in_cycle ? ' loop' : ''}`;
-      return `<a href="#${milestoneAnchor(n.id)}" aria-label="${esc(label)}"><g class="${cls}"><title>${esc(label)}</title><rect class="mg-box" x="${x}" y="${y}" width="${W}" height="${H}" rx="8"/>${started ? `<rect class="mg-strip" x="${x + 1}" y="${y + 1}" width="4" height="${H - 2}" rx="2"/>` : `<circle class="mg-dot" cx="${x + 13}" cy="${y + 15}" r="4"/>`}
-<text x="${x + (started ? 12 : 22)}" y="${y + 19}" class="mg-title">${esc(cut(`${n.id} ${n.title}`, nameRoom))}</text>${pills}${outcome
-        .map(
-          (t, k) =>
-            `<text x="${x + 12}" y="${y + 37 + k * 14}" class="mg-outcome">${esc(t)}</text>`,
-        )
-        .join(
-          '',
-        )}<rect class="mg-bar" x="${x + 12}" y="${y + 62}" width="${bar}" height="4" rx="2"/><rect class="mg-bar-done" x="${x + 12}" y="${y + 62}" width="${(bar * share).toFixed(1)}" height="4" rx="2"/>
-<text x="${x + 12}" y="${y + 81}">${esc(`${n.in_progress} in progress, ${f.constraints}`)}</text><text x="${x + 12}" y="${y + 97}" class="mg-outcome">${esc(cut(f.tokens, 40))}</text><text x="${x + 12}" y="${y + 113}" class="mg-outcome">${esc(f.check)}</text>${releasePills}</g></a>`;
-    })
-    .join('\n');
+    const nodes = board
+      .map((n) => {
+        const { x, y } = /** @type {{ x: number, y: number }} */ (at.get(n.id));
+        const f = milestoneFacts(n);
+        const started = n.stage === 'in-flight' || n.stage === 'done';
+        const badges = [
+          ...(n.holds.decisions.length
+            ? [
+                [
+                  'decision',
+                  `${n.holds.decisions.length} decision${n.holds.decisions.length > 1 ? 's' : ''}`,
+                  n.holds.decisions,
+                ],
+              ]
+            : []),
+          ...(n.holds.external.length
+            ? [
+                [
+                  'external',
+                  `${n.holds.external.length} outside wait${n.holds.external.length > 1 ? 's' : ''}`,
+                  n.holds.external,
+                ],
+              ]
+            : []),
+        ];
+        // The releases it lands before, as pills on the progress bar's row, which they shorten.
+        let rx = x + W - 8;
+        const releasePills = mg.releases
+          .filter((r) => r.milestones.includes(n.id))
+          .map((r) => {
+            const w = Math.round(r.release.length * 5.6 + 10);
+            rx -= w;
+            const pill = `<g class="mg-badge release"><title>${esc(`Lands before release ${r.release} (${r.id})`)}</title><rect x="${rx}" y="${y + 57}" width="${w}" height="14" rx="7"/><text x="${rx + w / 2}" y="${y + 67.5}" text-anchor="middle">${esc(r.release)}</text></g>`;
+            rx -= 4;
+            return pill;
+          })
+          .join('');
+        let right = x + W - 8;
+        const pills = badges
+          .map(([cls, text, ids]) => {
+            const w = Math.round(String(text).length * 5.6 + 10);
+            right -= w;
+            const pill = `<g class="mg-badge ${cls}"><title>${esc(`Held up by ${Array.isArray(ids) ? ids.join(', ') : ''}`)}</title><rect x="${right}" y="${y + 7}" width="${w}" height="15" rx="7.5"/><text x="${right + w / 2}" y="${y + 18}" text-anchor="middle">${esc(text)}</text></g>`;
+            right -= 4;
+            return pill;
+          })
+          .join('');
+        const nameRoom = Math.max(8, Math.floor((right - (x + (started ? 12 : 22))) / 7.2));
+        const outcome = clamp(oneSentence(n.outcome, 200) || 'No outcome yet', 34, 2);
+        const share = n.constraints.total ? n.constraints.done / n.constraints.total : 0;
+        const bar = rx < x + W - 8 ? rx - (x + 12) - 6 : W - 24;
+        const label = `${n.id} ${n.title}, ${STAGES.find(([k]) => k === n.stage)?.[1] ?? n.stage}${n.critical ? ', on the critical path' : ''}${n.in_cycle ? ', in a loop of needs' : ''}: ${oneSentence(n.outcome) || 'no outcome yet'}; ${n.in_progress} in progress, ${f.constraints}; ${f.tokens}; ${f.check}`;
+        const cls = `mg-node ${n.stage} ${started ? 'started' : 'hollow'}${n.critical ? ' critical' : ''}${n.in_cycle ? ' loop' : ''}`;
+        return `<a href="#${milestoneAnchor(n.id)}" aria-label="${esc(label)}"><g class="${cls}"><title>${esc(label)}</title><rect class="mg-box" x="${x}" y="${y}" width="${W}" height="${H}" rx="8"/>${started ? `<rect class="mg-strip" x="${x + 1}" y="${y + 1}" width="4" height="${H - 2}" rx="2"/>` : `<circle class="mg-dot" cx="${x + 13}" cy="${y + 15}" r="4"/>`}
+  <text x="${x + (started ? 12 : 22)}" y="${y + 19}" class="mg-title">${esc(cut(`${n.id} ${n.title}`, nameRoom))}</text>${pills}${outcome
+    .map((t, k) => `<text x="${x + 12}" y="${y + 37 + k * 14}" class="mg-outcome">${esc(t)}</text>`)
+    .join(
+      '',
+    )}<rect class="mg-bar" x="${x + 12}" y="${y + 62}" width="${bar}" height="4" rx="2"/><rect class="mg-bar-done" x="${x + 12}" y="${y + 62}" width="${(bar * share).toFixed(1)}" height="4" rx="2"/>
+  <text x="${x + 12}" y="${y + 81}">${esc(`${n.in_progress} in progress, ${f.constraints}`)}</text><text x="${x + 12}" y="${y + 97}" class="mg-outcome">${esc(cut(f.tokens, 40))}</text><text x="${x + 12}" y="${y + 113}" class="mg-outcome">${esc(f.check)}</text>${releasePills}</g></a>`;
+      })
+      .join('\n');
+    return { edges, nodes };
+  };
+  const { edges, nodes } = draw(at);
 
   const releaseLane = lanes.find((l) => l.release);
   const releaseBottom = releaseLane ? releaseLane.top + releaseLane.height : 0;
@@ -634,7 +690,9 @@ export function milestoneParts(mg, { fileBase = null } = {}) {
     board: `<h2 id="milestones">Milestones</h2>
 <p class="muted">${path} Open a milestone to see its items.</p>
 ${legend}
-<div class="wrap">${svg}</div>
+<div class="layouts" role="radiogroup" aria-label="Layout"><input class="tab-input" type="radio" name="roadmap-layout" id="rm-lanes" checked><label for="rm-lanes">By project</label><input class="tab-input" type="radio" name="roadmap-layout" id="rm-fewest"><label for="rm-fewest">Fewest crossings</label>
+<div class="wrap rm-lanes">${svg}</div>
+<div class="wrap rm-fewest">${fewest(board, mg, draw, { W, H, GX, GY })}</div></div>
 ${proposals}${droppedTable}`,
     drawers: `<a class="drawer-backdrop" href="#milestones" aria-label="Close" tabindex="-1"></a>
 ${panels}
@@ -773,6 +831,7 @@ ol.rows{list-style:none;margin:0;padding:0}ol.rows li{padding:.35rem 0;border-bo
 code{font-size:.85em;overflow-wrap:anywhere}
 .pg-box{fill:var(--card);stroke:var(--line)}.pg-strip,.sw.st-blocked,.sw.st-ready,.sw.st-in-progress,.sw.st-done,.sw.st-proposed{fill:var(--st);background:var(--st)}.st-proposed{--st:var(--st-proposed)}.st-blocked{--st:var(--st-waiting)}.st-ready{--st:var(--st-ready)}.st-in-progress{--st:var(--st-flight)}.st-done{--st:var(--st-done)}
 .pg-node.critical .pg-box{stroke:var(--used);stroke-width:2}.pg-node.st-ready .pg-box{stroke:var(--st-ready)}.pg-node.st-done text{fill:var(--muted)}.pg .pg-id{font-weight:600}.pg .pg-stage{font-size:10px;fill:var(--st)}.pg a:hover .pg-box,.pg a:focus-visible .pg-box{stroke:var(--used);stroke-width:2.5}
+.layouts{display:flex;flex-wrap:wrap;gap:.25rem .5rem;align-items:center}.layouts>label{cursor:pointer;font-size:.85rem;padding:.15rem .6rem;border:1px solid var(--line);border-radius:999px;color:var(--muted)}#rm-lanes:checked+label,#rm-fewest:checked+label{border-color:var(--used);color:var(--fg)}#rm-lanes:focus-visible+label,#rm-fewest:focus-visible+label{outline:2px solid var(--used)}.layouts>.wrap{flex-basis:100%}.rm-fewest{display:none}#rm-fewest:checked~.rm-fewest{display:block}#rm-fewest:checked~.rm-lanes{display:none}
 .pg-sep{stroke:var(--line);stroke-dasharray:2 3}.plan-list{margin:.75rem 0}.plan-list summary{cursor:pointer;color:var(--muted)}.plan-list h4{font-size:.9rem;margin:.75rem 0 .25rem}.plan-list li{margin:.15rem 0}table.stack{min-width:0}
 @media (max-width:600px){table.stack thead{display:none}table.stack tr{display:block;border-bottom:1px solid var(--line);padding:.4rem 0}table.stack td{display:block;border:0;padding:.1rem .2rem}table.stack td[data-label]::before{content:attr(data-label) ": ";color:var(--muted);font-size:.8rem}}
 h1{font-size:1.4rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem}

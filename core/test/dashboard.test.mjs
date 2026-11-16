@@ -222,3 +222,108 @@ test('the plan is cut by project past its size setting, and shows the states the
     /Cut at 7 items by project \(the setting reports.dashboard_plan_max_items\)\. Not drawn: W-19 The second project \(3 items\)\./,
   );
 });
+
+test('the layout: columns by longest path, barycenter sweeps remove crossings, loops are cut, groups and a grid', async () => {
+  const { acyclic, countCrossings, fewestCrossings, longestPathLayers, reduceCrossings } =
+    await import('../lib/dashboard/layout.mjs');
+  /** @type {[string, string][]} */
+  const diamond = [
+    ['W-1', 'W-2'],
+    ['W-1', 'W-3'],
+    ['W-2', 'W-4'],
+    ['W-3', 'W-4'],
+  ];
+  const layers = longestPathLayers(['W-1', 'W-2', 'W-3', 'W-4'], diamond);
+  assert.deepEqual(
+    [...layers],
+    [
+      ['W-1', 0],
+      ['W-2', 1],
+      ['W-3', 1],
+      ['W-4', 2],
+    ],
+  );
+  // A chain that skips a column still takes its longest path: W-5 → W-6 → W-7, and W-5 → W-7.
+  assert.equal(
+    longestPathLayers(
+      ['W-5', 'W-6', 'W-7'],
+      [
+        ['W-5', 'W-6'],
+        ['W-6', 'W-7'],
+        ['W-5', 'W-7'],
+      ],
+    ).get('W-7'),
+    2,
+  );
+  // In ID order W-1 sits over W-2 and W-3 over W-4, so W-1 → W-4 and W-2 → W-3 cross once.
+  /** @type {[string, string][]} */
+  const crossed = [
+    ['W-1', 'W-4'],
+    ['W-2', 'W-3'],
+  ];
+  assert.equal(
+    countCrossings(
+      [
+        ['W-1', 'W-2'],
+        ['W-3', 'W-4'],
+      ],
+      crossed,
+    ),
+    1,
+  );
+  const r = reduceCrossings(
+    new Map([
+      ['W-1', 0],
+      ['W-2', 0],
+      ['W-3', 1],
+      ['W-4', 1],
+    ]),
+    crossed,
+  );
+  assert.equal(r.crossings, 0);
+  assert.deepEqual(r.layers, [
+    ['W-1', 'W-2'],
+    ['W-4', 'W-3'],
+  ]);
+  // A loop is cut, so the layout ends.
+  assert.deepEqual(
+    acyclic(
+      ['W-1', 'W-2'],
+      [
+        ['W-1', 'W-2'],
+        ['W-2', 'W-1'],
+      ],
+    ),
+    [['W-1', 'W-2']],
+  );
+  // Linked nodes grouped, the group holding the critical path first; unlinked ones in a grid.
+  const f = fewestCrossings(
+    ['W-1', 'W-2', 'W-3', 'W-4', 'W-8', 'W-9', 'W-20', 'W-30'],
+    [...diamond, ['W-8', 'W-9']],
+    { first: ['W-9'] },
+  );
+  assert.deepEqual(
+    f.groups.map((g) => g.ids),
+    [
+      ['W-8', 'W-9'],
+      ['W-1', 'W-2', 'W-3', 'W-4'],
+    ],
+  );
+  assert.deepEqual(f.grid, ['W-20', 'W-30']);
+  assert.equal(f.groups[1].crossings, 0);
+});
+
+test('the roadmap offers a second layout, fewest crossings, with no script', async () => {
+  const { html } = await dashboard(fixture());
+  const roadmap = view(html, 'roadmap');
+  assert.match(
+    roadmap,
+    /<input class="tab-input" type="radio" name="roadmap-layout" id="rm-lanes" checked><label for="rm-lanes">By project<\/label>/,
+  );
+  assert.match(roadmap, /<label for="rm-fewest">Fewest crossings<\/label>/);
+  assert.match(
+    roadmap,
+    /<div class="wrap rm-fewest"><svg class="mg" [^>]*aria-label="Milestone map, fewest crossings: /,
+  );
+  assert.match(html, /#rm-fewest:checked~\.rm-fewest\{display:block\}/);
+});
