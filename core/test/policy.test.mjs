@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import {
   chmodSync,
-  mkdtempSync,
   rmSync,
   mkdirSync,
   readFileSync,
@@ -11,7 +10,6 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   findPolicyFile,
@@ -24,6 +22,7 @@ import {
   POLICY_PATH,
 } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const minimal = { schema_version: 1, project: { id: 'fixture', key: 'W' } };
 
@@ -215,7 +214,7 @@ function plant(dir, policy = minimal) {
 }
 
 test('loadPolicy finds policy.json in a parent directory within the repository', () => {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-policy-'));
+  const root = tempDir('hitld-policy-');
   mkdirSync(join(root, '.git'));
   const path = plant(root);
   mkdirSync(join(root, 'src', 'deep'), { recursive: true });
@@ -226,7 +225,7 @@ test('loadPolicy finds policy.json in a parent directory within the repository',
 });
 
 test('a policy.json planted above the repository root is ignored', () => {
-  const outer = mkdtempSync(join(tmpdir(), 'hitld-policy-'));
+  const outer = tempDir('hitld-policy-');
   plant(outer);
   const repo = join(outer, 'repo');
   mkdirSync(join(repo, '.git'), { recursive: true });
@@ -236,7 +235,7 @@ test('a policy.json planted above the repository root is ignored', () => {
 });
 
 test('outside a repository only the given directory is searched', () => {
-  const outer = mkdtempSync(join(tmpdir(), 'hitld-policy-'));
+  const outer = tempDir('hitld-policy-');
   plant(outer);
   mkdirSync(join(outer, 'sub'));
   assert.equal(findPolicyFile(join(outer, 'sub')), null);
@@ -244,7 +243,7 @@ test('outside a repository only the given directory is searched', () => {
 });
 
 test("a worktree's .git file counts as the repository root", () => {
-  const outer = mkdtempSync(join(tmpdir(), 'hitld-policy-'));
+  const outer = tempDir('hitld-policy-');
   plant(outer);
   const wt = join(outer, 'wt');
   mkdirSync(join(wt, 'src'), { recursive: true });
@@ -258,7 +257,7 @@ test(
   'a group- or world-writable policy file is refused',
   { skip: process.platform === 'win32' },
   () => {
-    const root = mkdtempSync(join(tmpdir(), 'hitld-policy-'));
+    const root = tempDir('hitld-policy-');
     const path = plant(root);
     chmodSync(path, 0o666);
     const result = loadPolicy({ cwd: root });
@@ -275,7 +274,7 @@ const posixOnly = { skip: process.platform === 'win32' };
 
 /** A fresh repository with a valid policy.json. */
 function repo() {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-policy-'));
+  const root = tempDir('hitld-policy-');
   mkdirSync(join(root, '.git'));
   return { root, path: plant(root) };
 }
@@ -305,7 +304,7 @@ test(
 
 test('a policy file that resolves outside the repository root is refused', () => {
   const { root } = repo();
-  const elsewhere = mkdtempSync(join(tmpdir(), 'hitld-elsewhere-'));
+  const elsewhere = tempDir('hitld-elsewhere-');
   plant(elsewhere);
   const hitldDir = join(root, '.human-in-the-lead');
   renameSync(hitldDir, join(root, 'moved'));
@@ -353,7 +352,7 @@ test('ownershipProblem: another owner, root, and group or world write', () => {
 });
 
 test('loadPolicy reports a missing or unreadable file plainly', () => {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-policy-'));
+  const root = tempDir('hitld-policy-');
   assert.match(loadPolicy({ cwd: root }).errors[0].message, /was not found/);
   writeFileSync(join(root, 'broken.json'), '{ "schema_version": 1,');
   chmodSync(join(root, 'broken.json'), 0o644);

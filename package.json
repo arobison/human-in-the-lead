@@ -24,12 +24,13 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "test": "node --test \"core/test/**/*.test.mjs\"",
+    "test": "node core/test/run.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "prettier --write --cache .",
+    "format:check": "prettier --check --cache .",
     "spelling": "node core/bin/spelling-check.mjs",
     "check": "npm run typecheck && npm run format:check && npm test",
+    "check:fast": "node scripts/check-fast.mjs",
     "build": "node core/lib/packaging/build.mjs"
   },
   "devDependencies": {

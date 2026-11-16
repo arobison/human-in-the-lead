@@ -5,8 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fakeGitHub, repoFromRemote } from '../lib/merge/github.mjs';
 import {
@@ -17,6 +16,7 @@ import {
   squashMessage,
   validSignoff,
 } from '../lib/merge/pull-request.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const ID = {
   GIT_AUTHOR_NAME: 'Agent',
@@ -68,7 +68,7 @@ function itemAt(dir, id) {
  * @param {{ checks?: Record<string, import('../lib/merge/github.mjs').Check[]>, identity?: boolean }} [o]
  */
 function setup(o = {}) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-pr-')));
+  const base = realpathSync(tempDir('hitld-pr-'));
   const remote = join(base, 'remote.git');
   const root = join(base, 'repo');
   git(base, 'init', '-q', '--bare', '-b', 'main', remote);

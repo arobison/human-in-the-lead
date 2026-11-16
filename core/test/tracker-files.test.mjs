@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { schemas } from '../lib/schema/registry.mjs';
 import { parseItem, renderItem, slugify } from '../lib/tracker/files/frontmatter.mjs';
@@ -19,10 +18,11 @@ import {
   viewReady,
 } from '../lib/tracker/files/views.mjs';
 import { itemText, makeRepo, policyFor, put } from './tracker-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** @param {string} root @param {Record<string, unknown>} [config] */
 function layoutOf(root, config = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-cfg-'));
+  const dir = tempDir('hitld-cfg-');
   writeFileSync(join(dir, 'tracker.json'), JSON.stringify({ schema_version: 1, ...config }));
   const { config: c, errors } = loadTrackerConfig({ repoRoot: root, configDir: dir });
   assert.deepEqual(errors, []);
@@ -135,7 +135,7 @@ test('tracker.json: every setting has a default, and a missing file is the refer
 
 test('tracker.json: the names before HITLD-82 are still read, each with a warning', () => {
   const root = makeRepo({ commit: false });
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-cfg-'));
+  const dir = tempDir('hitld-cfg-');
   writeFileSync(
     join(dir, 'tracker.json'),
     JSON.stringify({
@@ -171,7 +171,7 @@ test('tracker.json: paths must stay inside the repository; unknown keys are refu
     { on_status_change: 'rm -rf /' },
     { optional_keys: ['not_a_key'] },
   ]) {
-    const dir = mkdtempSync(join(tmpdir(), 'hitld-cfg-'));
+    const dir = tempDir('hitld-cfg-');
     writeFileSync(join(dir, 'tracker.json'), JSON.stringify({ schema_version: 1, ...bad }));
     const { config, errors } = loadTrackerConfig({ repoRoot: root, configDir: dir });
     assert.equal(config, null, JSON.stringify(bad));
@@ -181,7 +181,7 @@ test('tracker.json: paths must stay inside the repository; unknown keys are refu
 
 test('tracker.json: the schema_version is required and a newer one is refused', () => {
   const root = makeRepo({ commit: false });
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-cfg-'));
+  const dir = tempDir('hitld-cfg-');
   writeFileSync(join(dir, 'tracker.json'), '{}');
   assert.deepEqual(loadTrackerConfig({ repoRoot: root, configDir: dir }).errors, [
     { path: 'schema_version', message: 'is required' },
@@ -576,7 +576,7 @@ test('paths and key are settings: a tracker elsewhere, under another key, needs 
     }),
     'packages/x/tasks/all/ZZ-7-elsewhere.md': text,
   });
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-cfg-'));
+  const dir = tempDir('hitld-cfg-');
   writeFileSync(
     join(dir, 'tracker.json'),
     JSON.stringify({

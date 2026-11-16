@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderBlock, findBlock, compareBlock, installBlock } from '../lib/contract/block.mjs';
 import { checkContract } from '../lib/contract/check.mjs';
 import { parseReport } from '../lib/contract/report.mjs';
 import { VERSION } from '../lib/version.mjs';
 import { main } from '../lib/cli/main.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-contract-')));
+const tmp = realpathSync(tempDir('hitld-contract-'));
 const dir = () => mkdtempSync(join(tmp, 'p-'));
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
 

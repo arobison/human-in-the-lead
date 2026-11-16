@@ -208,7 +208,7 @@ export const commands = [
         name: 'adopt',
         type: 'string',
         description:
-          'The path of a worktree the harness already created: record it and set it up, never remove it',
+          'The path of a worktree the harness already created: record it and set it up; it is removed only once its branch has merged',
       },
     ],
     run: withEnv(async (input, env) => {

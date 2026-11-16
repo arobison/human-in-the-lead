@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkCommits, readCommits } from '../lib/dco/check.mjs';
 import { git } from './tracker-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const ENTRY = fileURLToPath(new URL('../bin/dco-check.mjs', import.meta.url));
 
@@ -16,7 +16,7 @@ const AGENT = 'Claude <noreply@anthropic.com>';
 
 /** @returns {string} */
 const makeRepo = () => {
-  const root = mkdtempSync(join(tmpdir(), 'hitld-dco-'));
+  const root = tempDir('hitld-dco-');
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'commit.gpgsign', 'false');
   git(root, 'config', 'user.name', 'Merger');

@@ -6,13 +6,11 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   openSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
@@ -25,6 +23,7 @@ import { generateIdentity, parseHeader } from '../lib/store/age.mjs';
 import { git, head, isMachineLocal, mergeAppendOnly, snapshot } from '../lib/store/git.mjs';
 import { INDEX_FILE, readIndex, rebuildIndex } from '../lib/store/index-db.mjs';
 import { sealFormat1 } from './helpers/format1.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const BIN = fileURLToPath(new URL('../bin/hitld.mjs', import.meta.url));
 /** A format-1 file the shipped format-1 writer made: project "fixture", one ledger event. */
@@ -40,7 +39,7 @@ const at = (/** @type {number} */ n) => `2026-11-14T10:${String(n).padStart(2, '
 
 /** A project directory with a policy.json, and a scratch area for stores and files. */
 function fixture(projectId = 'fixture') {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-store-sync-'));
+  const dir = tempDir('hitld-store-sync-');
   const project = join(dir, 'project');
   mkdirSync(join(project, '.human-in-the-lead'), { recursive: true });
   mkdirSync(join(project, '.git'));

@@ -10,7 +10,6 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { openStore } from '../lib/store/store.mjs';
@@ -25,6 +24,7 @@ import { readRotations } from '../lib/store/devices.mjs';
 import { approve, removeApproved } from './helpers/devices.mjs';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { commitAll, fixtureGit, putFiles } from '../lib/eval/orchestrator-fixtures.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 /** Two enrolled devices and one that is not. */
 const DEVICE_A = generateIdentity();
@@ -67,7 +67,7 @@ function otherHost(f, name) {
  * store's host; and stores. The owner has approved devices A and B (device, below).
  */
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'hitld-push-pull-'));
+  const dir = tempDir('hitld-push-pull-');
   const project = join(dir, 'project');
   mkdirSync(project);
   fixtureGit(project, 'init', '-q', '-b', 'main');

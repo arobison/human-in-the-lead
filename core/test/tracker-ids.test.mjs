@@ -6,8 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMergeQueue } from '../lib/merge/queue.mjs';
@@ -24,6 +23,7 @@ import {
   policyFor,
   put,
 } from './tracker-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const HITLD = fileURLToPath(new URL('../bin/hitld.mjs', import.meta.url));
 
@@ -33,7 +33,7 @@ const HITLD = fileURLToPath(new URL('../bin/hitld.mjs', import.meta.url));
  * @param {{ store?: boolean }} [o] store: the sessions share a store remote (default true)
  */
 function sessions({ store = true } = {}) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-ids-')));
+  const base = realpathSync(tempDir('hitld-ids-'));
   const seed = makeRepo({ commit: false });
   put(seed, {
     '.human-in-the-lead/policy.json': JSON.stringify({
@@ -179,7 +179,7 @@ test('a fetch that fails is a warning, and a counter that cannot be reached refu
 });
 
 test('the counter takes numbers by compare and swap, and reads a damaged file as empty', () => {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-ids-counter-')));
+  const base = realpathSync(tempDir('hitld-ids-counter-'));
   const host = join(base, 'store.git');
   mkdirSync(host);
   git(host, 'init', '-q', '--bare');

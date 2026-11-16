@@ -1,15 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
@@ -38,8 +30,9 @@ import {
 } from '../lib/eval/security-fixtures.mjs';
 import { STATUS_INPUT, git, item, makeConsumer, put, report } from './orchestrator-fixture.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = () => realpathSync(mkdtempSync(join(tmpdir(), 'hitld-sec-')));
+const tmp = () => realpathSync(tempDir('hitld-sec-'));
 
 /** @param {{ uri: string, line: number, rule?: string }[]} results @param {string} [version] */
 const sarif = (results, version = '1.0.0') =>

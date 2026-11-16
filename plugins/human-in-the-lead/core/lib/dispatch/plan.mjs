@@ -1,5 +1,6 @@
 // The dispatch plan (design parts 5.2 and 15.3): which ready items start now, within the
-// concurrency cap, the serial resources, the harness's capabilities and the quota gate. Pure: the
+// concurrency cap, the serial resources, the harness's capabilities, the disk floor and the quota
+// gate. Pure: the
 // caller passes what is in flight, which locks other holders have, and the gate.
 //
 // The plan only chooses. Starting is `hitld dispatch start`, one item at a time, which records the
@@ -48,6 +49,7 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   overlapSerialize?: number,
  *   critical?: Set<string>,
  *   setup?: { done: boolean, reason?: string | null, byHand?: string },
+ *   disk?: { state: string, reason: string },
  * }} r
  *   setup: until the first-run setup is done (design part 13.4), every item waits (reason
  *   `setup`) and the cap is one, except `byHand`, the one item the person started by hand
@@ -62,6 +64,8 @@ export function planDispatch(r) {
     notes.push('the harness runs one executor at a time: the cap is pinned at 1');
   }
   const setupWait = r.setup && !r.setup.done ? r.setup : null;
+  // Below the machine's disk floor nothing new starts, inline work included (machine/disk.mjs).
+  const diskFull = r.disk?.state === 'below' ? r.disk : null;
   if (setupWait) {
     cap = Math.min(cap, 1);
     notes.push('setup not done: conservative defaults apply (one executor, the default reserve)');
@@ -89,6 +93,10 @@ export function planDispatch(r) {
         reason: 'setup',
         why: setupWait.reason ?? 'setup not done: run the first-run setup',
       });
+      continue;
+    }
+    if (diskFull) {
+      held.push({ item: id, reason: 'disk', why: diskFull.reason });
       continue;
     }
     if (sizing.tier === 0) {
