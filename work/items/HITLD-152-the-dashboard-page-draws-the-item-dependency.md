@@ -21,17 +21,17 @@ On 2026-11-16, in the chief of staff session, the owner decided two things, reco
 
 ## The reference the owner pointed to
 
-On 2026-11-16 the chief of staff read the owner's reference: a work board specified in another project's tracker, with a design guide for the app it would live in. It is a proposal there and is not built. The project is not named in any public text. It specifies:
+On 2026-11-16 the chief of staff read the owner's reference: a work board built in another project's app, now pushed, with a design guide for the app it lives in. The project is not named in any public text. It reads this project's read API (`hitld work query --json`, version 3, with `claims`, `check` and `show`) and writes nothing. It has:
 
-- **A kanban by lifecycle:** Proposed, Planned, In progress, Done, Dropped. A card shows the ID, title, project, kind, priority and, when claimed, who holds it.
-- **Two dependency graphs:** the item graph and the project graph.
-- **Filters** by initiative, project and kind, and a "waiting on the owner" filter: the open decision items the owner decides, and the items that need them.
-- **Ready and blocked views,** each blocked item with its open needs.
-- **Read-only:** each card links to its file and nothing edits one. The page reads the same parser as the command-line views, so its counts match them, and it runs nothing it reads. It shows one branch and says so, and leaves claims on other branches to the command line.
-- **A UI checklist:** both light and dark themes, a 380 px width, keyboard only, reduced motion, and a clean console.
-- **A place for what needs a look:** the first group of the navigation, with a count of the decisions waiting on the owner.
+- **Scope and search:** a scope picker (all work, a long outcome, a project, a milestone) and a search field that narrow every view. An item opens in a pane on the right.
+- **Your move (the default view):** the owner's attention is the constraint, so each section leads with its number: decisions waiting on the owner, ready to start, work in progress (who holds each, on which branch, claims in other worktrees included until they merge) and waiting outside. Most waited-on first, counting what waits through other items.
+- **Roadmap:** what comes after what, without dates. The milestone map has project lanes, steps across, curved waits (thicker for more items behind them), the critical path in the accent, started milestones solid with a leading strip and idle ones hollow, owner decisions and outside waits as badges, and release gates as flags in a Releases lane. A second layout trades the lanes for fewer crossings. Also lists by milestone, long outcome, or project waits.
+- **Proposals:** one table of bets to commit or drop: what stands between each and committing (ready, waits on the owner's answer, waits on other items) and how many open items wait on it.
+- **Flow:** stage bands (proposed, blocked, ready, in progress, done) day by day from the committed status history, then measures each with the one that must not get worse.
+- **Names and colours:** the tracker's statuses; Blocked and Ready derived as the tracker derives them; a milestone shows progress, not a state. One colour per stage, light and dark.
+- **Each figure once:** a number belongs to the view whose question it answers.
 
-What this design already has: the item graph (the views), and the milestone graph (HITLD-62). What the reference adds: the kanban by lifecycle, the project graph, the filters, the waiting-on-the-owner view, and ready and blocked with open needs. Not taken: the other project's UI component library, because this project takes no runtime dependency, so the page uses its own markup.
+What this design already has: the item graph (the views), and the milestone graph (HITLD-62). What the reference adds: the Your move view, scope and search, Proposals, Flow, and the milestone map's lanes (HITLD-62 takes its layout first). Not taken: the other project's UI component library and its dev server, because this project takes no runtime dependency, so the page uses its own markup and no script.
 
 ## Done when
 
