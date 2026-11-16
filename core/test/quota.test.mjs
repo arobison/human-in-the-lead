@@ -31,7 +31,7 @@ import { evaluateQuotas } from '../lib/quota/quota.mjs';
 import { dispatchGate } from '../lib/quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml } from '../lib/quota/report.mjs';
 
-const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-quota-')));
+const tmp = realpathSync.native(mkdtempSync(join(tmpdir(), 'hitld-quota-')));
 
 /**
  * Whether this machine lets the tests make a symbolic link to a file. Windows refuses one without
@@ -598,7 +598,7 @@ test('a directory written under report.html is accepted, and the old page is rep
   );
   const r = await hitld(['dashboard', '--out', 'old', '--now', iso(T0)], p);
   assert.equal(r.code, 0);
-  assert.equal(r.json.html, join(realpathSync(dir), 'dashboard.html'));
+  assert.equal(r.json.html, join(realpathSync.native(dir), 'dashboard.html'));
   assert.ok(existsSync(join(dir, 'dashboard.html')));
   assert.match(readFileSync(join(dir, 'digest.txt'), 'utf8'), /Dispatch: Stopped at the reserve\./);
   // The old page is removed, and the marker lists the new names only.
