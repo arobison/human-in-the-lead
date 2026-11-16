@@ -115,7 +115,7 @@ Each limit is a **quota**:
 | Field | Meaning |
 |---|---|
 | `unit` | `tokens`, `requests`, `usd`, `credits`, or `plan-percent` (a vendor's "usage" percentage with no published unit) |
-| `window` | `rolling_5h` (the five-hour window of a Claude Pro or Max plan), `weekly`, `monthly_utc` (calendar month, UTC), `run`, or a custom period |
+| `window` | `rolling_5h` (the five-hour window some Claude plans have), `weekly`, `monthly_utc` (calendar month, UTC), `run`, or a custom period |
 | `limit` | The amount per window, where known |
 | `scope` | Which account, harness and models it covers |
 | `source` | `measured` from a vendor readout or API, `estimated` from the ledger, or `declared` in the person's settings |
@@ -126,7 +126,7 @@ Each limit is a **quota**:
 
 The existing run token budget becomes a quota with `window: run`.
 
-**The default limit is the weekly window** of a Claude subscription (`claude-weekly`: `plan-percent` on `weekly`), read from the status line. Pro and Max plans also have a five-hour window; verified Ultra accounts do not. A limit with no reading stops dispatch, so the five-hour window is not a default: while the account's latest status-line snapshot reports a five-hour window that has not reset, the gate adds a `claude-five-hour` limit (`plan-percent` on `rolling_5h`). Claude Code drops a window from its status line once it resets, so the added limit goes with it. A person who declares a limit on `rolling_5h` keeps their own, and nothing is added.
+**The default limit is the weekly window** of a Claude subscription (`claude-weekly`: `plan-percent` on `weekly`), read from the status line. Some plans also have a five-hour window (Pro, Max, and seat-based Team and Enterprise plans, per their documentation); Ultra and usage-based plans do not. A limit with no reading stops dispatch, so the five-hour window is not a default. The gate adds it in one of two ways: while the account's latest status-line snapshot reports a five-hour window that has not reset, it adds a `claude-five-hour` limit (`plan-percent` on `rolling_5h`), which goes once Claude Code drops the window after its reset; or the person file declares a limit on `rolling_5h`, which is used as declared, and nothing is added. On a Team or Enterprise seat the status line may not report the window, so the owner may need to declare the limit by hand.
 
 ### What can be measured, by harness
 

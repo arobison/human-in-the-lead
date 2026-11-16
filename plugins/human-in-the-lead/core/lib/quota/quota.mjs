@@ -21,9 +21,9 @@ const RANK = { low: 0, medium: 1, high: 2 };
 const iso = (ms) => new Date(ms).toISOString();
 
 /**
- * The five-hour window of a Claude Pro or Max plan. It is not a default limit: verified Ultra
- * accounts have no such window, and a limit with no reading stops dispatch. The gate adds it while
- * the account shows one (see shownLimits).
+ * The five-hour window some Claude plans have. It is not a default limit: Ultra and usage-based
+ * plans have no such window, and a limit with no reading stops dispatch. The gate adds it while
+ * the account's status line reports one (see shownLimits); otherwise the person file declares it.
  */
 export const FIVE_HOUR_LIMIT = Object.freeze({
   id: 'claude-five-hour',
@@ -141,7 +141,7 @@ export function evaluateQuotas({
     /** @type {string[]} */
     const notes = [];
     if (limit === FIVE_HOUR_LIMIT)
-      notes.push("added: the account's status line reports a five-hour window (Pro and Max plans)");
+      notes.push("added: the account's status line reports a five-hour window");
     const reserveShare = limit.reserve ?? q.reserve;
     const reserve = limit.limit == null ? null : reserveShare * limit.limit;
 

@@ -328,9 +328,9 @@ test('the five-hour limit is added only while the account shows that window', ()
   const declared = policyWith().quota.limits;
   const ids = (/** @type {Record<string, any>[]} */ snaps, limits = declared) =>
     shownLimits(limits, snaps, T0).map((l) => l.id);
-  // A Pro or Max plan: the latest status-line snapshot reports a five-hour window that has not reset.
+  // A plan with a five-hour window: the latest status-line snapshot reports one that has not reset.
   assert.deepEqual(ids([snap(T0 - 60_000, 30)]), ['claude-weekly', 'claude-five-hour']);
-  // A plan with only a weekly window (a verified Ultra account): nothing is added.
+  // A plan with only a weekly window: nothing is added.
   const weeklyOnly = (/** @type {number} */ at) => {
     const s = snap(at, 0, 30);
     return { ...s, rate_limits: { seven_day: s.rate_limits.seven_day } };

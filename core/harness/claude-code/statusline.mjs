@@ -1,7 +1,7 @@
 // The usage capture (design part 12.5): Claude Code runs the project's status-line command with a
 // JSON description of the session on standard input, which includes the subscription's
-// rate_limits: the weekly window, and the five-hour window on plans that have one (Pro and Max;
-// verified Ultra accounts do not). This records them as a usage snapshot in the project's private
+// rate_limits: the weekly window, and the five-hour window when it reports one (some plans have
+// it; Ultra and usage-based plans do not). This records them as a usage snapshot in the project's private
 // store, so the quota gate (piece (f)) has readings. The default quota is the weekly window; the
 // gate adds the five-hour one while a snapshot shows it, and a quota with no reading stops dispatch.
 //

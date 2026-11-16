@@ -16,7 +16,7 @@
       "$ref": "common#/$defs/text"
     },
     "rate_limits": {
-      "description": "The Claude Code status line's rate_limits, as given: seven_day feeds a weekly limit, and five_hour (Pro and Max plans only) a rolling_5h one. While the latest such snapshot has a five_hour window that has not reset, the gate adds the five-hour limit.",
+      "description": "The Claude Code status line's rate_limits, as given: seven_day feeds a weekly limit, and five_hour (on plans that have that window) a rolling_5h one. While the latest such snapshot has a five_hour window that has not reset, the gate adds the five-hour limit.",
       "type": "object",
       "properties": {
         "five_hour": { "$ref": "#/$defs/window" },
