@@ -2,9 +2,10 @@
 id: HITLD-132
 title: "Tracker upkeep: the stale-item sweep, and a curator pass over work items"
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-13
 ---
 
 ## Why
