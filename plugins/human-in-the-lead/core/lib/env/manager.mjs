@@ -2,7 +2,7 @@
 // ports, locks and secrets, with every allocation tied to a holder (a dispatch ID). This is the
 // seam piece (h)'s dispatch planner uses.
 
-import { realpathSync } from 'node:fs';
+import { realPath } from './fsx.mjs';
 import { dirname, join } from 'node:path';
 import { envSettings } from './config.mjs';
 import { acquireLock, lockStatus, releaseLock } from './locks.mjs';
@@ -22,7 +22,7 @@ export const machineRootFor = (storeRoot) => join(dirname(storeRoot), '_machine'
 /** @param {string} p */
 function realpathOr(p) {
   try {
-    return realpathSync(p);
+    return realPath(p);
   } catch {
     return p;
   }

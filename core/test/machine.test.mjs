@@ -153,6 +153,26 @@ test('probes on macOS: system_profiler and app bundles; a missing tool is a note
   assert.match(none.notes.join(' '), /system_profiler/);
 });
 
+test('Windows: a desktop is a workstation, an SSH session is dedicated, browsers from Program Files', () => {
+  const win = fake({
+    platform: 'win32',
+    env: { ProgramFiles: 'C:\\Program Files', LOCALAPPDATA: 'C:\\Users\\example\\AppData\\Local' },
+    files: {
+      'C:\\Program Files\\Mozilla Firefox\\firefox.exe': '',
+      'C:\\Users\\example\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe': '',
+    },
+  });
+  const p = probeMachine(win);
+  assert.equal(p.role, 'workstation');
+  assert.deepEqual(p.role_hints, ['a Windows desktop', 'a logged-in session']);
+  assert.deepEqual(p.browsers, ['chrome', 'firefox']);
+  assert.match(p.notes.join(' '), /Windows: cores and memory from the os module/);
+  assert.equal(
+    detectRole(fake({ platform: 'win32', env: { SSH_CONNECTION: '1 2 3 4' } })).role,
+    'dedicated',
+  );
+});
+
 test('a later probe that finds less warns and uses the smaller value', () => {
   const first = proposeProfile(probeMachine(fake({ programs: { [SMI]: 'Example GPU, 8192' } })));
   /** @type {Record<string, any>} */

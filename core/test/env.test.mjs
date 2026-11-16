@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   existsSync,
   lstatSync,
@@ -17,7 +17,7 @@ import {
 import { createServer, connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { machineRootFor, openEnv } from '../lib/env/manager.mjs';
@@ -26,6 +26,8 @@ import { findOutsideLinks, scanWorktree, unlinkLink } from '../lib/env/links.mjs
 import { removeFromDisk } from '../lib/env/worktree.mjs';
 import { withMutex } from '../lib/env/mutex.mjs';
 import { createRedactor, splitCommand } from '../lib/env/secrets.mjs';
+import { gitBash, programSpec, shellSpec, spawnOptions } from '../lib/env/shell.mjs';
+import { taskEnv } from '../lib/env/tasks.mjs';
 import { hostname } from 'node:os';
 import { Run, startRun } from '../lib/run/run.mjs';
 import { loadState } from '../lib/run/checkpoint.mjs';
@@ -36,8 +38,64 @@ import { main } from '../lib/cli/main.mjs';
 
 const LOCKS_MJS = fileURLToPath(new URL('../lib/env/locks.mjs', import.meta.url));
 
+const WIN = process.platform === 'win32';
+
+/**
+ * The canonical path, as the manager records it: on Windows the native realpath, which expands
+ * short (8.3) names the way git and the operating system report them.
+ */
+const real = WIN ? realpathSync.native : realpathSync;
+
 /** Everything the tests create is under one temporary directory, removed at the end. */
-const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-env-')));
+const tmp = real(mkdtempSync(join(tmpdir(), 'hitld-env-')));
+
+/**
+ * Whether this machine lets the tests make a symbolic link to a file or to nothing. Windows
+ * refuses one without Developer Mode or elevation; a link to a directory is made as a junction
+ * there (dirLink), which needs neither.
+ */
+const canLinkFiles = (() => {
+  const target = join(tmp, 'link-probe-target');
+  writeFileSync(target, '');
+  try {
+    symlinkSync(target, join(tmp, 'link-probe'));
+    rmSync(join(tmp, 'link-probe'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(target, { force: true });
+  }
+})();
+const NO_FILE_LINKS = canLinkFiles
+  ? false
+  : 'this machine does not allow symbolic links to files (Windows without Developer Mode)';
+
+/**
+ * A link to a directory: a junction on Windows, a symbolic link elsewhere.
+ * @param {string} target @param {string} path
+ */
+const dirLink = (target, path) => symlinkSync(target, path, WIN ? 'junction' : 'dir');
+
+/**
+ * A path as a POSIX shell sees it: on Windows, Git's bash spells C:\x as /c/x.
+ * @param {string} p
+ */
+const shellPath = (p) =>
+  WIN ? p.replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`).replace(/\\/g, '/') : p;
+
+/** @param {string} s */
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Replace a file's content. Git for Windows hides a worktree's .git file, and Windows refuses to
+ * open a hidden file for overwriting, so the file is removed first (as an executor could).
+ * @param {string} path @param {string} text
+ */
+const overwrite = (path, text) => {
+  rmSync(path, { force: true });
+  writeFileSync(path, text);
+};
 /** @type {Set<import('node:child_process').ChildProcess>} */
 const children = new Set();
 /** @type {Set<import('node:net').Server>} */
@@ -55,7 +113,7 @@ after(() => {
       // the repository is already gone
     }
   }
-  rmSync(tmp, { recursive: true, force: true });
+  rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 let counter = 0;
@@ -260,7 +318,7 @@ test('three leases at once get distinct worktrees and ports, and release cleanly
     assert.match(g.wt.lease.branch, /^hitld\/W-\d-task-\d$/);
     assert.equal(
       readFileSync(join(g.wt.lease.path, 'setup.txt'), 'utf8').trim(),
-      `set up for ${g.wt.lease.path}`,
+      `set up for ${shellPath(g.wt.lease.path)}`,
     );
     // cut from the tip of main
     assert.equal(git(['rev-parse', 'HEAD'], g.wt.lease.path), git(['rev-parse', 'main'], repoRoot));
@@ -602,7 +660,7 @@ test('a lock whose holder process is gone is taken over; a live holder is not', 
   const { env, store } = await makeEnv({ repoRoot, machineRoot });
   // A separate process takes the lock (following its own life), then dies without releasing.
   const code = `
-    import { acquireLock } from ${JSON.stringify(LOCKS_MJS)};
+    import { acquireLock } from ${JSON.stringify(pathToFileURL(LOCKS_MJS).href)};
     const r = await acquireLock({ machineRoot: ${JSON.stringify(machineRoot)} }, { resource: 'gpu', holder: 'D-OLD', autoRenew: false });
     console.log(r.acquired ? 'held' : 'failed');
     setInterval(() => {}, 1000);`;
@@ -684,7 +742,7 @@ console.log('sha=' + require('crypto').createHash('sha256').update(s).digest('he
 console.log('leaked=' + Object.keys(process.env).filter((k) => k.startsWith('HITLD_SECRET_')).join(','));
 console.log('other=' + (process.env.DEPLOY_KEY ?? 'unset'));
 console.log('inherited=' + ['NODE_OPTIONS', 'LD_PRELOAD', 'BASH_ENV', 'HITLD_DISPATCH'].filter((k) => process.env[k] !== undefined).join(','));
-console.log('path=' + process.env.PATH.split(':')[0]);
+console.log('path=' + process.env.PATH.split(require('path').delimiter)[0]);
 require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran');
 `;
 
@@ -712,7 +770,7 @@ function dispatchesIn(store, list, options = {}) {
     if (!d.noWorktree) {
       const path = join(dir('dispatch'), d.id);
       git(['worktree', 'add', '-q', '-b', `test/${d.id}-${counter}`, path, 'main'], repoRoot);
-      worktree = realpathSync(path);
+      worktree = real(path);
       wtPaths.set(`${store.root}|${d.id}`, worktree);
     }
     run.record({
@@ -793,7 +851,10 @@ test('a declared task with a live dispatch runs, and the secret stays out of eve
   assert.match(String(result.stdout), /other=unset/);
   // nothing that could load code into the process, or redirect its programs, is inherited
   assert.match(String(result.stdout), /inherited=\n/);
-  assert.match(String(result.stdout), new RegExp(`path=${dirnameOf(process.execPath)}\\n`));
+  assert.match(
+    String(result.stdout),
+    new RegExp(`path=${escapeRe(dirname(process.execPath))}\\r?\\n`),
+  );
   assert.deepEqual(result.secrets_injected, ['NPM_TOKEN']);
   assert.ok(/** @type {any} */ (result.redactions).NPM_TOKEN >= 6);
   assert.equal(process.env.NPM_TOKEN, undefined);
@@ -801,9 +862,6 @@ test('a declared task with a live dispatch runs, and the secret stays out of eve
   const audit = env.events().find((e) => e.kind === 'secret_exec');
   assert.deepEqual([audit?.task, audit?.role, audit?.dispatch], ['publish', 'executor', 'D-1']);
 });
-
-/** @param {string} p */
-const dirnameOf = (p) => p.slice(0, p.lastIndexOf('/'));
 
 test('a free-form command is refused: only a declared task name is accepted', async () => {
   const repoRoot = makeRepo();
@@ -956,9 +1014,9 @@ test('a task that runs in the worktree runs there; a dispatch with no worktree i
     { id: 'D-2', role: 'executor', noWorktree: true },
   ]);
   const ok = await env.execTask({ task: 'where', dispatch: 'D-1' });
-  assert.match(String(ok.stdout), new RegExp(`cwd=${wtPaths.get(`${store.root}|D-1`)}`));
+  assert.match(String(ok.stdout), new RegExp(`cwd=${escapeRe(wtPaths.get(`${store.root}|D-1`))}`));
   const inRepo = await env.execTask({ task: 'in-repo', dispatch: 'D-1' });
-  assert.match(String(inRepo.stdout), new RegExp(`cwd=${repoRoot}\\n`));
+  assert.match(String(inRepo.stdout), new RegExp(`cwd=${escapeRe(repoRoot)}\\r?\\n`));
   assert.equal(
     /** @type {any} */ (await env.execTask({ task: 'where', dispatch: 'D-2' })).error,
     'worktree-mismatch',
@@ -1000,24 +1058,27 @@ test('a worktree whose .git points elsewhere, or a caller outside it, gets nothi
   const evil = makeRepo();
   git(['worktree', 'add', '-q', '-b', 'evil', join(dir('evil'), 'wt'), 'main'], evil);
   const evilAdmin = join(evil, '.git', 'worktrees', 'wt');
-  writeFileSync(join(/** @type {string} */ (wt1), '.git'), `gitdir: ${evilAdmin}\n`);
+  overwrite(join(/** @type {string} */ (wt1), '.git'), `gitdir: ${evilAdmin}\n`);
   const tampered = await env.execTask({ task: 'publish', dispatch: 'D-1' });
   assert.equal(/** @type {any} */ (tampered).error, 'worktree-mismatch');
   // pointing at nothing at all is refused too
-  writeFileSync(join(/** @type {string} */ (wt1), '.git'), 'gitdir: /nonexistent/x\n');
+  overwrite(join(/** @type {string} */ (wt1), '.git'), 'gitdir: /nonexistent/x\n');
   assert.equal(
     /** @type {any} */ (await env.execTask({ task: 'publish', dispatch: 'D-1' })).error,
     'worktree-mismatch',
   );
-  // a .git that is a symbolic link is never followed, even to a genuine pointer
-  const genuine = join(dir('pointer'), 'dotgit');
-  writeFileSync(genuine, `gitdir: ${join(repoRoot, '.git', 'worktrees', 'D-1')}\n`);
-  rmSync(join(/** @type {string} */ (wt1), '.git'));
-  symlinkSync(genuine, join(/** @type {string} */ (wt1), '.git'));
-  assert.equal(
-    /** @type {any} */ (await env.execTask({ task: 'publish', dispatch: 'D-1' })).error,
-    'worktree-mismatch',
-  );
+  // a .git that is a symbolic link is never followed, even to a genuine pointer (where this
+  // machine lets the test make a link to a file)
+  if (canLinkFiles) {
+    const genuine = join(dir('pointer'), 'dotgit');
+    writeFileSync(genuine, `gitdir: ${join(repoRoot, '.git', 'worktrees', 'D-1')}\n`);
+    rmSync(join(/** @type {string} */ (wt1), '.git'));
+    symlinkSync(genuine, join(/** @type {string} */ (wt1), '.git'));
+    assert.equal(
+      /** @type {any} */ (await env.execTask({ task: 'publish', dispatch: 'D-1' })).error,
+      'worktree-mismatch',
+    );
+  }
   assert.ok(!existsSync(marker), 'the task never ran');
 });
 
@@ -1086,6 +1147,77 @@ test('splitCommand splits like a shell would, without expanding anything', () =>
   ]);
   assert.deepEqual(splitCommand(`echo 'a $B' c\\ d ""`), ['echo', 'a $B', 'c d', '']);
   assert.throws(() => splitCommand('echo "open'), /unclosed quote/);
+});
+
+test('programs and policy shell commands start the same way on every platform', () => {
+  const d = dir('programs');
+  const echo = join(d, 'echo-args.js');
+  writeFileSync(echo, 'console.log(JSON.stringify(process.argv.slice(2)))\n');
+  /** @param {import('../lib/env/shell.mjs').SpawnSpec} spec */
+  const run = (spec) =>
+    spawnSync(spec.file, spec.args, {
+      encoding: 'utf8',
+      cwd: d,
+      ...spawnOptions(spec, { ...process.env }),
+    });
+  // A policy shell command is POSIX shell: variables, pipes and redirection work everywhere.
+  const sh = run(shellSpec('echo hello | tr a-z A-Z; exit 4', process.env));
+  assert.equal(sh.status, 4);
+  assert.equal(sh.stdout.trim(), 'HELLO');
+  if (!WIN) {
+    assert.deepEqual(shellSpec('true'), { file: '/bin/sh', args: ['-c', 'true'] });
+    assert.deepEqual(programSpec(['/bin/echo', 'a b']), { file: '/bin/echo', args: ['a b'] });
+    return;
+  }
+  // Windows: a .cmd shim gets every argument through unchanged, nothing read as a command.
+  const args = ['plain', 'with space', 'a"quote', 'x & calc', '%PATH%', '!x!', 'c^', 'p|q', 'b\\'];
+  const shim = join(d, 'tool.cmd');
+  writeFileSync(shim, `@echo off\r\n"${process.execPath}" "${echo}" %*\r\n`);
+  const viaShim = run(programSpec([shim, ...args]));
+  assert.equal(viaShim.status, 0, viaShim.stderr);
+  assert.deepEqual(JSON.parse(viaShim.stdout), args);
+  assert.throws(() => programSpec([shim, 'two\nlines']), /line break/);
+  // A script with a #! line runs with what it names; a bare name is found on PATH with PATHEXT.
+  const script = join(d, 'hello');
+  writeFileSync(script, '#!/bin/sh\necho "hello from $0"\n');
+  assert.match(run(programSpec([script])).stdout, /hello from/);
+  const nodeScript = join(d, 'tool');
+  writeFileSync(nodeScript, `#!/usr/bin/env node\nrequire(${JSON.stringify(echo)})\n`);
+  assert.deepEqual(JSON.parse(run(programSpec([nodeScript, 'a b'])).stdout), ['a b']);
+  assert.match(programSpec(['node', '-v']).file, /node\.exe$/i);
+  assert.ok(gitBash(), "Git for Windows' bash is found");
+});
+
+test("a task's Windows environment: system directories on PATH, what runs set rather than inherited", () => {
+  const out = taskEnv(
+    'C:\\tools\\node.exe',
+    {
+      PATH: 'C:\\evil',
+      ComSpec: 'C:\\evil\\cmd.exe',
+      PATHEXT: '.JS;.EXE',
+      NODE_OPTIONS: '--require x',
+      TEMP: 'C:\\temp',
+      USERPROFILE: 'C:\\Users\\example',
+      APPDATA: 'C:\\Users\\example\\AppData\\Roaming',
+    },
+    'win32',
+  );
+  const path = String(out.PATH).split(';');
+  assert.equal(path[0], 'C:\\tools');
+  assert.ok(!path.includes('C:\\evil'));
+  assert.ok(path.some((p) => /System32$/i.test(p)));
+  assert.match(String(out.ComSpec), /System32\\cmd\.exe$/i);
+  assert.equal(out.PATHEXT, '.COM;.EXE;.BAT;.CMD');
+  assert.equal(out.NODE_OPTIONS, undefined);
+  assert.deepEqual(
+    [out.TEMP, out.USERPROFILE, out.APPDATA],
+    ['C:\\temp', 'C:\\Users\\example', 'C:\\Users\\example\\AppData\\Roaming'],
+  );
+  // elsewhere the PATH is the program's directory and the usual system directories
+  assert.equal(
+    taskEnv('/opt/node/bin/node', { PATH: '/evil' }, 'linux').PATH,
+    '/opt/node/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+  );
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -1215,7 +1347,7 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   assert.equal(setup.code, 0, setup.out);
   assert.ok(existsSync(join(setup.json.path, 'ready.txt')));
   assert.equal(setup.json.branch, 'hitld/W-7-cli');
-  assert.ok(setup.json.path.startsWith(realpathSync(xdg)));
+  assert.ok(setup.json.path.startsWith(real(xdg)));
 
   const port = await hitld(['env', 'port', 'lease', '--dispatch', 'D-7']);
   assert.equal(port.code, 0, port.out);
@@ -1291,7 +1423,7 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   git(['add', '-f', '.'], evil);
   git(['commit', '-q', '-m', 'evil policy'], evil);
   git(['worktree', 'add', '-q', '-b', 'evil', join(dir('evilwt'), 'wt'), 'main'], evil);
-  writeFileSync(
+  overwrite(
     join(executor('D-7').cwd, '.git'),
     `gitdir: ${join(evil, '.git', 'worktrees', 'wt')}\n`,
   );
@@ -1316,13 +1448,13 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
     'primary-mismatch',
   );
   // a record that points at a repository whose policy is for a different project
-  store.write(PRIMARY_KEY, JSON.stringify({ ...record, root: realpathSync(evil) }));
+  store.write(PRIMARY_KEY, JSON.stringify({ ...record, root: real(evil) }));
   const wrongPolicy = await asExecutor(['env', 'exec', 'steal'], 'D-7');
   assert.equal(wrongPolicy.code, 1);
   assert.equal(wrongPolicy.json.error, 'primary-mismatch');
   store.write(PRIMARY_KEY, JSON.stringify(record));
   // put the worktree pointer back: the normal path works again
-  writeFileSync(join(executor('D-7').cwd, '.git'), originalGit);
+  overwrite(join(executor('D-7').cwd, '.git'), originalGit);
   const again = await asExecutor(['env', 'exec', 'publish'], 'D-7');
   assert.equal(again.code, 0, again.out);
 
@@ -1358,7 +1490,14 @@ test('a dependency directory linked from another checkout is flagged at setup an
   const other = makeOtherCheckout();
   const { env } = await makeEnv({
     repoRoot,
-    env: { worktree_setup: [`ln -s '${join(other, 'node_modules')}' node_modules`] },
+    env: {
+      worktree_setup: [
+        // Git's bash on Windows copies for ln -s; a junction is what a Windows tool would make
+        WIN
+          ? `"${process.execPath}" -e "require('fs').symlinkSync(process.argv[1], 'node_modules', 'junction')" '${join(other, 'node_modules')}'`
+          : `ln -s '${join(other, 'node_modules')}' node_modules`,
+      ],
+    },
   });
   const { lease } = await env.createWorktree({ holder: 'D-1', itemId: 'W-1' });
   const setup = await env.runSetup({ holder: 'D-1' });
@@ -1374,34 +1513,38 @@ test('a dependency directory linked from another checkout is flagged at setup an
   assert.ok(otherIntact(other), 'the other checkout is untouched');
 });
 
-test('cleanup leaves the target of a nested, dangling or file link alone, and keeps inside links', async () => {
-  const repoRoot = makeRepo();
-  const other = makeOtherCheckout();
-  const { env } = await makeEnv({ repoRoot });
-  const { lease } = await env.createWorktree({ holder: 'D-2', itemId: 'W-2' });
-  const wt = lease.path;
-  mkdirSync(join(wt, 'packages', 'app', 'deep'), { recursive: true });
-  symlinkSync(
-    join(other, 'node_modules'),
-    join(wt, 'packages', 'app', 'deep', 'node_modules'),
-    'dir',
-  );
-  symlinkSync(join(other, 'keep.txt'), join(wt, 'packages', 'keep-link.txt'));
-  symlinkSync(join(other, 'missing'), join(wt, 'dangling'));
-  // a relative link that climbs out of the worktree, and a link to a directory inside it
-  symlinkSync(wt + '/..', join(wt, 'packages', 'app', 'up'), 'dir');
-  symlinkSync(join(wt, 'packages'), join(wt, 'inside'), 'dir');
-  const r = await env.releaseWorktree({ holder: 'D-2', result: 'abandoned' });
-  assert.deepEqual(r.links_unlinked.sort(), [
-    'dangling',
-    'packages/app/deep/node_modules',
-    'packages/app/up',
-    'packages/keep-link.txt',
-  ]);
-  assert.ok(!existsSync(wt));
-  assert.ok(otherIntact(other));
-  assert.ok(existsSync(dirname(wt)), 'a link that climbed out did not take the parent directory');
-});
+test(
+  'cleanup leaves the target of a nested, dangling or file link alone, and keeps inside links',
+  { skip: NO_FILE_LINKS },
+  async () => {
+    const repoRoot = makeRepo();
+    const other = makeOtherCheckout();
+    const { env } = await makeEnv({ repoRoot });
+    const { lease } = await env.createWorktree({ holder: 'D-2', itemId: 'W-2' });
+    const wt = lease.path;
+    mkdirSync(join(wt, 'packages', 'app', 'deep'), { recursive: true });
+    symlinkSync(
+      join(other, 'node_modules'),
+      join(wt, 'packages', 'app', 'deep', 'node_modules'),
+      'dir',
+    );
+    symlinkSync(join(other, 'keep.txt'), join(wt, 'packages', 'keep-link.txt'));
+    symlinkSync(join(other, 'missing'), join(wt, 'dangling'));
+    // a relative link that climbs out of the worktree, and a link to a directory inside it
+    symlinkSync(wt + '/..', join(wt, 'packages', 'app', 'up'), 'dir');
+    symlinkSync(join(wt, 'packages'), join(wt, 'inside'), 'dir');
+    const r = await env.releaseWorktree({ holder: 'D-2', result: 'abandoned' });
+    assert.deepEqual(r.links_unlinked.sort(), [
+      'dangling',
+      'packages/app/deep/node_modules',
+      'packages/app/up',
+      'packages/keep-link.txt',
+    ]);
+    assert.ok(!existsSync(wt));
+    assert.ok(otherIntact(other));
+    assert.ok(existsSync(dirname(wt)), 'a link that climbed out did not take the parent directory');
+  },
+);
 
 test('a worktree path that is itself a link is refused, not cleaned through', async () => {
   const repoRoot = makeRepo();
@@ -1411,7 +1554,7 @@ test('a worktree path that is itself a link is refused, not cleaned through', as
   // the worktree directory is swapped for a link to another checkout
   const moved = `${lease.path}.moved`;
   renameSync(lease.path, moved);
-  symlinkSync(other, lease.path, 'dir');
+  dirLink(other, lease.path);
   await assert.rejects(env.releaseWorktree({ holder: 'D-3', result: 'abandoned' }));
   assert.ok(otherIntact(other));
   rmSync(lease.path);
@@ -1419,36 +1562,40 @@ test('a worktree path that is itself a link is refused, not cleaned through', as
   await env.releaseWorktree({ holder: 'D-3', result: 'abandoned' });
 });
 
-test('a directory swapped for a link after the walk is not acted on', () => {
-  const other = makeOtherCheckout();
-  mkdirSync(join(other, 'dir-a'));
-  symlinkSync(join(other, 'nowhere'), join(other, 'dir-a', 'victim'));
-  const wt = realpathSync(dir('swap'));
-  mkdirSync(join(wt, 'sub'));
-  symlinkSync(join(other, 'nowhere'), join(wt, 'sub', 'victim'));
-  assert.deepEqual(
-    findOutsideLinks(wt).map((l) => l.path),
-    ['sub/victim'],
-  );
-  // after the walk, "sub" becomes a link into a directory holding a link of the same name
-  renameSync(join(wt, 'sub'), join(wt, 'sub.moved'));
-  symlinkSync(join(other, 'dir-a'), join(wt, 'sub'), 'dir');
-  assert.equal(unlinkLink(wt, 'sub/victim'), false);
-  assert.ok(lstatSync(join(other, 'dir-a', 'victim')).isSymbolicLink(), 'the other link stays');
-  // a fresh walk sees the swapped directory as a link and does not read through it
-  assert.deepEqual(
-    findOutsideLinks(wt).map((l) => l.path),
-    ['sub', 'sub.moved/victim'],
-  );
-  // an entry that stopped being a link is not removed
-  rmSync(join(wt, 'sub'));
-  renameSync(join(wt, 'sub.moved'), join(wt, 'sub'));
-  rmSync(join(wt, 'sub', 'victim'));
-  writeFileSync(join(wt, 'sub', 'victim'), 'now a file\n');
-  assert.equal(unlinkLink(wt, 'sub/victim'), false);
-  assert.equal(readFileSync(join(wt, 'sub', 'victim'), 'utf8'), 'now a file\n');
-  assert.ok(otherIntact(other));
-});
+test(
+  'a directory swapped for a link after the walk is not acted on',
+  { skip: NO_FILE_LINKS },
+  () => {
+    const other = makeOtherCheckout();
+    mkdirSync(join(other, 'dir-a'));
+    symlinkSync(join(other, 'nowhere'), join(other, 'dir-a', 'victim'));
+    const wt = real(dir('swap'));
+    mkdirSync(join(wt, 'sub'));
+    symlinkSync(join(other, 'nowhere'), join(wt, 'sub', 'victim'));
+    assert.deepEqual(
+      findOutsideLinks(wt).map((l) => l.path),
+      ['sub/victim'],
+    );
+    // after the walk, "sub" becomes a link into a directory holding a link of the same name
+    renameSync(join(wt, 'sub'), join(wt, 'sub.moved'));
+    symlinkSync(join(other, 'dir-a'), join(wt, 'sub'), 'dir');
+    assert.equal(unlinkLink(wt, 'sub/victim'), false);
+    assert.ok(lstatSync(join(other, 'dir-a', 'victim')).isSymbolicLink(), 'the other link stays');
+    // a fresh walk sees the swapped directory as a link and does not read through it
+    assert.deepEqual(
+      findOutsideLinks(wt).map((l) => l.path),
+      ['sub', 'sub.moved/victim'],
+    );
+    // an entry that stopped being a link is not removed
+    rmSync(join(wt, 'sub'));
+    renameSync(join(wt, 'sub.moved'), join(wt, 'sub'));
+    rmSync(join(wt, 'sub', 'victim'));
+    writeFileSync(join(wt, 'sub', 'victim'), 'now a file\n');
+    assert.equal(unlinkLink(wt, 'sub/victim'), false);
+    assert.equal(readFileSync(join(wt, 'sub', 'victim'), 'utf8'), 'now a file\n');
+    assert.ok(otherIntact(other));
+  },
+);
 
 test('a directory on another device is a mount point: not descended, and the worktree is not removed', async () => {
   const repoRoot = makeRepo();
@@ -1457,7 +1604,7 @@ test('a directory on another device is a mount point: not descended, and the wor
   const { lease } = await env.createWorktree({ holder: 'D-4', itemId: 'W-4' });
   mkdirSync(join(lease.path, 'mnt'));
   writeFileSync(join(lease.path, 'mnt', 'data.txt'), 'mounted\n');
-  symlinkSync(join(other, 'node_modules'), join(lease.path, 'mnt', 'link'), 'dir');
+  dirLink(join(other, 'node_modules'), join(lease.path, 'mnt', 'link'));
   // fake the device: "mnt" reports a different dev than the rest, without mounting anything
   const mnt = join(lease.path, 'mnt');
   /** @param {string} p */

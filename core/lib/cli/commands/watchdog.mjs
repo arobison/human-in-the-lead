@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import { readLedger, lifecycleId } from '../../ledger/ledger.mjs';
 import { absorb } from '../../run/state.mjs';
-import { processSignal, worktreeSignal } from '../../run/reality.mjs';
+import { gitSnapshot, processSignal, worktreeSignal } from '../../run/reality.mjs';
 import { isNews, readProgress, recordProgress } from '../../dispatch/progress.mjs';
 import {
   continueMessage,
@@ -83,10 +83,14 @@ const shown = (v) => ({
  */
 function sample(p, inFlight, host, ctx) {
   const mainBranch = p.policy.merge?.main_branch ?? 'main';
+  // One look at git for every dispatch this tick, made only when one is sampled here.
+  /** @type {import('../../run/reality.mjs').GitSnapshot | null} */
+  let snap = null;
+  const snapshot = () => (snap ??= gitSnapshot({ cwd: p.repoRoot, mainBranch }));
   for (const entry of inFlight) {
     if (entry.host && entry.host !== host) continue;
     const signals = [
-      worktreeSignal(entry, { cwd: p.repoRoot, mainBranch }),
+      worktreeSignal(entry, { cwd: p.repoRoot, mainBranch, snapshot: snapshot() }),
       entry.mode === 'headless'
         ? processSignal({
             pidFile: join(p.store.root, pidKey(entry.dispatch)),

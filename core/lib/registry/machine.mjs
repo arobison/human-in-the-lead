@@ -11,13 +11,14 @@
 // project's ledger no longer shows the dispatch in flight (reported, abandoned, or the store is
 // gone). Readers skip dead entries; the next writer removes them.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { inflight } from '../ledger/inflight.mjs';
 import { openStore } from '../store/store.mjs';
 import { withMutexSync } from '../env/mutex.mjs';
-import { isAlive, processInfo } from '../env/proc.mjs';
+import { renameOver } from '../env/fsx.mjs';
+import { isAlive, processStarts } from '../env/proc.mjs';
 
 /**
  * @typedef {object} ExecutorEntry one live executor
@@ -95,37 +96,68 @@ export function updateMachineRegistry(machineRoot, fn) {
     mkdirSync(machineRoot, { recursive: true });
     const tmp = `${path}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(registry, null, 2) + '\n');
-    renameSync(tmp, path);
+    renameOver(tmp, path);
     return result;
   });
 }
 
 /**
+ * What liveness checks of several entries can share: the start times of their processes, read in
+ * one call (a call costs a process, and on Windows most of a second), and each project's in-flight
+ * list, read once.
+ * @typedef {object} LivenessFacts
+ * @property {Map<number, string>} [starts]
+ * @property {Map<string, string[] | null>} [running] dispatch IDs in flight, by store root; null
+ *   when the ledger cannot be read
+ */
+
+/**
  * Whether an entry's executor is still running: its process (if recorded) exists and is the same
  * one, and its project's ledger shows the dispatch in flight.
- * @param {ExecutorEntry} e @returns {{ live: true } | { live: false, why: string }}
+ * @param {ExecutorEntry} e @param {LivenessFacts} [facts] shared by a check of many entries
+ * @returns {{ live: true } | { live: false, why: string }}
  */
-export function entryLiveness(e) {
+export function entryLiveness(e, facts = {}) {
   if (e.pid !== undefined && e.host === hostname()) {
     if (!isAlive(e.pid)) return { live: false, why: `its process ${e.pid} is gone` };
     if (e.pid_start) {
-      const info = processInfo(e.pid);
-      if (info && info.start !== e.pid_start) {
+      const start = facts.starts ? facts.starts.get(e.pid) : processStarts([e.pid]).get(e.pid);
+      if (start && start !== e.pid_start) {
         return { live: false, why: `process ${e.pid} is no longer its executor's (ID reused)` };
       }
     }
   }
-  try {
-    // The store path is the registry's own record of where that project's ledger is; the ledger
-    // is only read here, never written.
-    const running = inflight(openStore(e.store_root));
-    if (!running.some((d) => d.dispatch === e.dispatch)) {
-      return { live: false, why: `${e.project} no longer has ${e.dispatch} in flight` };
+  let running = facts.running?.get(e.store_root);
+  if (running === undefined) {
+    try {
+      // The store path is the registry's own record of where that project's ledger is; the
+      // ledger is only read here, never written.
+      running = inflight(openStore(e.store_root)).map((d) => d.dispatch);
+    } catch {
+      running = null;
     }
-  } catch {
-    return { live: false, why: `${e.project}'s ledger cannot be read` };
+    facts.running?.set(e.store_root, running);
+  }
+  if (running === null) return { live: false, why: `${e.project}'s ledger cannot be read` };
+  if (!running.includes(e.dispatch)) {
+    return { live: false, why: `${e.project} no longer has ${e.dispatch} in flight` };
   }
   return { live: true };
+}
+
+/**
+ * A liveness check for these entries that reads each process's start time and each ledger once.
+ * @param {ExecutorEntry[]} entries @returns {typeof entryLiveness}
+ */
+function sharedLiveness(entries) {
+  const here = hostname();
+  const pids = entries
+    .filter((e) => e.pid !== undefined && e.pid_start && e.host === here)
+    .map((e) => /** @type {number} */ (e.pid));
+  /** @type {LivenessFacts} */
+  const facts = { running: new Map() };
+  if (pids.length) facts.starts = processStarts(pids);
+  return (e) => entryLiveness(e, facts);
 }
 
 /**
@@ -134,8 +166,9 @@ export function entryLiveness(e) {
  * @returns {ExecutorEntry[]}
  */
 export function liveExecutors(machineRoot, options = {}) {
-  const check = options.liveness ?? entryLiveness;
-  return Object.values(readMachineRegistry(machineRoot).executors).filter((e) => check(e).live);
+  const entries = Object.values(readMachineRegistry(machineRoot).executors);
+  const check = options.liveness ?? sharedLiveness(entries);
+  return entries.filter((e) => check(e).live);
 }
 
 /**
@@ -170,8 +203,8 @@ export function activeProjects(machineRoot, project) {
  * @returns {{ ok: true, removed: string[] } | { ok: false, layer: 'person' | 'machine', max: number, live: number }}
  */
 export function registerExecutor(machineRoot, entry, max = {}, options = {}) {
-  const check = options.liveness ?? entryLiveness;
   return updateMachineRegistry(machineRoot, (reg) => {
+    const check = options.liveness ?? sharedLiveness(Object.values(reg.executors));
     /** @type {string[]} */
     const removed = [];
     for (const [k, e] of Object.entries(reg.executors)) {
@@ -219,8 +252,8 @@ export function releaseExecutor(machineRoot, project, dispatch) {
  * @returns {{ key: string, why: string }[]}
  */
 export function reconcileExecutors(machineRoot, options = {}) {
-  const check = options.liveness ?? entryLiveness;
   return updateMachineRegistry(machineRoot, (reg) => {
+    const check = options.liveness ?? sharedLiveness(Object.values(reg.executors));
     /** @type {{ key: string, why: string }[]} */
     const gone = [];
     for (const [key, e] of Object.entries(reg.executors)) {
