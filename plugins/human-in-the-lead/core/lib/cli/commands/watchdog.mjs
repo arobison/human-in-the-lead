@@ -7,7 +7,6 @@
 // The core decides; the harness acts. Each action says what to do (poke the agent, stop it and
 // continue it, stop it and re-plan, ask the owner); the skills say which harness tool does it.
 
-import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { readLedger, lifecycleId } from '../../ledger/ledger.mjs';
 import { absorb } from '../../run/state.mjs';
@@ -27,6 +26,7 @@ import {
   Refusal,
   commands as orchestratorCommands,
   guarded,
+  identityOf,
   nowOf,
   notePause,
   pidKey,
@@ -48,13 +48,15 @@ import {
 const SESSION = {
   name: 'session',
   type: 'string',
-  description: "This session's ID, the same on every call. Default: $HITLD_SESSION",
+  description:
+    "This session's ID. Default: $HITLD_SESSION, else the harness's session ID, else the one run start recorded for this worktree",
 };
 /** @type {import('../args.mjs').ArgSpec} */
 const HOST = {
   name: 'host',
   type: 'string',
-  description: "The machine. Default: this machine's host name",
+  description:
+    "The machine. Default: the host run start or run resume recorded for this session, else this machine's host name",
 };
 
 /** A verdict as the watch prints it. @param {Verdict} v */
@@ -136,7 +138,7 @@ export const commands = [
             message: 'no run has started: nothing to watch',
           };
         }
-        const host = /** @type {string | undefined} */ (input.host) ?? hostname();
+        const { host } = identityOf(p, input, ctx);
         const now = nowOf(ctx);
         // The ledger may hold events the run state has not absorbed yet: read them, change nothing.
         const before = readLedger(p.store).events;

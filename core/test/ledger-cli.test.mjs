@@ -137,11 +137,15 @@ test('hitld: a run from the command line, with a second session taking over', as
     'example-laptop',
   ]);
   assert.deepEqual([noLease.code, noLease.json.error], [EXIT.failed, 'lease-lost']);
-  assert.equal(
-    (await hitld(['ledger', 'append', q, '--store', store])).code,
-    EXIT.failed,
-    'no session, no append',
+  assert.deepEqual(noLease.json.differs, ['session']);
+  assert.match(
+    noLease.json.message,
+    /held by session s-1 on example-laptop, not by this session \(s-2\): the session differs/,
   );
+  // Without flags, the session and host are the ones run start recorded for this worktree.
+  const bare = await hitld(['ledger', 'append', q, '--store', store]);
+  assert.equal(bare.code, EXIT.ok, JSON.stringify(bare.json));
+  assert.deepEqual([bare.json.event.session, bare.json.event.host], ['s-1', 'example-laptop']);
 
   const bad = await hitld(['ledger', 'append', '{"event":"merged"}', ...me]);
   assert.equal(bad.code, EXIT.failed);
@@ -155,7 +159,7 @@ test('hitld: a run from the command line, with a second session taking over', as
   );
   assert.equal(
     (await hitld(['ledger', 'tail', '--store', store, '--limit', '1'])).json.events[0].id,
-    forgedFields.json.event.id,
+    bare.json.event.id,
   );
 
   // the lease is held by s-1, so s-2 is refused, and may be sent in by the owner with --force
@@ -227,13 +231,113 @@ test('hitld: a run from the command line, with a second session taking over', as
   assert.deepEqual(rebuilt.json.previous.changed, []);
 });
 
-test('hitld: the session comes from HITLD_SESSION, and is required', async () => {
-  const other = join(dir, 'other-store');
-  const none = await hitld(['run', 'start', '--store', other]);
-  assert.equal(none.code, EXIT.failed);
-  assert.match(none.json.message, /session ID is needed/);
-  const ok = await hitld(['run', 'start', '--store', other], { HITLD_SESSION: 's-9' });
-  assert.equal(ok.json.handover.lease.session, 's-9');
+/** hitld in a working directory of its own. @param {string} cwd @param {string[]} argv @param {NodeJS.ProcessEnv} [env] */
+async function hitldIn(cwd, argv, env = {}) {
+  let out = '';
+  const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env });
+  return { code, json: JSON.parse(out) };
+}
+
+test('hitld: the session comes from --session, HITLD_SESSION, the harness, or run start', async () => {
+  const { hostname } = await import('node:os');
+  const { mkdirSync } = await import('node:fs');
+  const here = join(dir, 'identity');
+  mkdirSync(here);
+  const other = join(dir, 'identity-store');
+  const q = JSON.stringify({ event: 'asked', decision: 'W-60' });
+
+  // Nothing gives one: run start makes one and records it; later calls read it back.
+  const made = await hitldIn(here, ['run', 'start', '--store', other]);
+  assert.equal(made.code, EXIT.ok, JSON.stringify(made.json));
+  assert.match(made.json.identity.session, /^s-[0-9a-f]{12}$/);
+  assert.deepEqual([made.json.identity.host, made.json.identity.source], [hostname(), 'new']);
+  assert.equal(made.json.handover.lease.session, made.json.identity.session);
+  assert.equal((await hitldIn(here, ['run', 'checkpoint', '--store', other])).code, EXIT.ok);
+  const appended = await hitldIn(here, ['ledger', 'append', q, '--store', other]);
+  assert.equal(appended.json.event.session, made.json.identity.session);
+
+  // The harness's session ID comes before the record; HITLD_SESSION and --session before that.
+  const harness = { CLAUDE_CODE_REMOTE_SESSION_ID: 'cse_other' };
+  const viaHarness = await hitldIn(here, ['run', 'checkpoint', '--store', other], harness);
+  assert.deepEqual([viaHarness.json.error, viaHarness.json.differs], ['lease-lost', ['session']]);
+  assert.match(viaHarness.json.message, /not by this session \(cse_other\)/);
+  const viaEnv = await hitldIn(here, ['run', 'checkpoint', '--store', other], {
+    ...harness,
+    HITLD_SESSION: made.json.identity.session,
+  });
+  assert.equal(viaEnv.code, EXIT.ok, JSON.stringify(viaEnv.json));
+  const viaFlag = await hitldIn(here, ['run', 'checkpoint', '--store', other, '--session', 's-9'], {
+    HITLD_SESSION: made.json.identity.session,
+  });
+  assert.equal(viaFlag.json.error, 'lease-lost');
+
+  // An executor shares its orchestrator's harness variables and checkout: it gets neither.
+  const executor = await hitldIn(here, ['run', 'checkpoint', '--store', other], {
+    ...harness,
+    HITLD_ROLE: 'executor',
+  });
+  assert.deepEqual([executor.code, executor.json.error], [EXIT.failed, 'usage']);
+  assert.match(executor.json.message, /session ID is needed/);
+
+  // Elsewhere, with nothing recorded, only run start makes one.
+  const elsewhere = join(dir, 'identity-elsewhere');
+  mkdirSync(elsewhere);
+  const none = await hitldIn(elsewhere, ['run', 'checkpoint', '--store', other]);
+  assert.deepEqual([none.code, none.json.error], [EXIT.failed, 'usage']);
+  const ok = await hitldIn(elsewhere, ['run', 'start', '--store', join(dir, 'identity-store-2')], {
+    HITLD_SESSION: 's-9',
+  });
+  assert.deepEqual([ok.json.handover.lease.session, ok.json.identity.source], ['s-9', 'env']);
+});
+
+test('hitld: the host run start took holds for the session, and a host mismatch says so', async () => {
+  const { mkdirSync } = await import('node:fs');
+  const here = join(dir, 'host');
+  mkdirSync(here);
+  const s = ['--store', join(dir, 'host-store')];
+  const started = await hitldIn(here, [
+    'run',
+    'start',
+    ...s,
+    '--session',
+    's-h',
+    '--host',
+    'far-box',
+  ]);
+  assert.deepEqual(started.json.identity, { session: 's-h', host: 'far-box', source: 'flag' });
+  // The same session, without --host: the recorded host, so the lease still holds.
+  assert.equal(
+    (await hitldIn(here, ['run', 'checkpoint', ...s, '--session', 's-h'])).code,
+    EXIT.ok,
+  );
+  assert.equal((await hitldIn(here, ['run', 'checkpoint', ...s])).code, EXIT.ok);
+
+  // Only the host differs: the session holds the lease, and the refusal says so.
+  const moved = await hitldIn(here, ['run', 'checkpoint', ...s, '--host', 'near-box']);
+  assert.deepEqual([moved.code, moved.json.error], [EXIT.failed, 'lease-host-mismatch']);
+  assert.deepEqual(moved.json.differs, ['host']);
+  assert.equal(moved.json.holder.session, 's-h');
+  assert.match(
+    moved.json.message,
+    /this session \(s-h\) holds the lease on run .+ on host far-box, but this call gives host near-box/,
+  );
+  assert.doesNotMatch(moved.json.message, /not by this session/);
+
+  // Both differ: lost, naming both.
+  const both = await hitldIn(here, [
+    'run',
+    'checkpoint',
+    ...s,
+    '--session',
+    's-x',
+    '--host',
+    'near-box',
+  ]);
+  assert.deepEqual([both.json.error, both.json.differs], ['lease-lost', ['session', 'host']]);
+  assert.match(
+    both.json.message,
+    /not by this session \(s-x on near-box\): the session and the host differ/,
+  );
 });
 
 test("hitld: with a project policy, the store is the project's private store", async () => {

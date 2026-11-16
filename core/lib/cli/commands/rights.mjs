@@ -7,7 +7,7 @@
 // the same text.
 
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { hostname } from 'node:os';
+import { resolveIdentity } from '../../run/identity.mjs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { executorSignal } from '../executor.mjs';
 import { loadPolicy, findRepoRoot } from '../../policy/policy.mjs';
@@ -169,8 +169,8 @@ async function openRights(ctx, openTracker, needs = {}) {
     ? await openTracker({ repoRoot: repoRoot ?? ctx.cwd, policy, env: ctx.env })
     : /** @type {TrackerAdapter} */ (/** @type {unknown} */ (null));
   // The session and machine this runs in: written on the ledger events no dispatch writes.
-  const session = ctx.env.HITLD_SESSION;
-  const who = { ...(session ? { session } : {}), host: hostname() };
+  const { session, host } = resolveIdentity({ env: ctx.env, cwd: ctx.cwd, store });
+  const who = { ...(session ? { session } : {}), host };
   return { deps: { policy, policyHash: loaded.hash, tracker, precedents, store, who }, loaded };
 }
 
@@ -404,12 +404,14 @@ export function makeCommands({ openTracker }) {
         {
           name: 'session',
           type: 'string',
-          description: 'The session making the call. Default: $HITLD_SESSION',
+          description:
+            "The session making the call. Default: $HITLD_SESSION, else the harness's session ID, else the one run start recorded for this worktree",
         },
         {
           name: 'host',
           type: 'string',
-          description: "The machine. Default: this machine's host name",
+          description:
+            "The machine. Default: the host recorded for this session, else this machine's host name",
         },
       ],
       run: async (input, ctx) => {
