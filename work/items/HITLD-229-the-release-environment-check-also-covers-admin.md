@@ -2,7 +2,7 @@
 id: HITLD-229
 title: The release environment check also covers admin bypass and the main-only deployment branch rule
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -19,3 +19,7 @@ HITLD-140 (PR #174) makes the Release workflow refuse to run when the `release` 
 ## Notes
 
 `proposed` because it is a choice about release safety. From D-15's digest on HITLD-140.
+
+## Decided
+
+The owner decided on 2026-11-16 (decision HITLD-380): the check also refuses when administrators can bypass the reviewer rule and when the environment is not limited to deployments from `main`, with the same fail-closed cases as the reviewer check; the check, its tests, CONTRIBUTING.md (Releases) and design part 16.5 follow.
