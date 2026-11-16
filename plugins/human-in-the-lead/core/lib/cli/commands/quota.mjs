@@ -10,6 +10,23 @@ import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { dispatchGate } from '../../quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml, tokensPerItem } from '../../quota/report.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
+import { git } from '../../tracker/files/tree.mjs';
+import { forgeFileBase } from '../../tracker/files/views.mjs';
+
+/**
+ * Where the repository's files are on its forge, for the page's links to tracker files: from the
+ * `origin` remote and its default branch (HEAD, which the forge resolves, when origin/HEAD is not
+ * set). Null when there is no repository or its remote is not a known forge.
+ * @param {string | null | undefined} repoRoot
+ */
+function repositoryFileBase(repoRoot) {
+  if (!repoRoot) return null;
+  const remote = git(repoRoot, ['remote', 'get-url', 'origin'], { allowFail: true }).trim();
+  const head = git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
+    allowFail: true,
+  }).trim();
+  return forgeFileBase(remote, head.startsWith('origin/') ? head.slice('origin/'.length) : 'HEAD');
+}
 import { readQuotaInputs } from '../../quota/inputs.mjs';
 import { ownerDigest } from './rights.mjs';
 
@@ -155,7 +172,7 @@ export const commands = [
         now: g.now,
         milestones,
       });
-      const html = renderHtml(report, g.policy);
+      const html = renderHtml(report, g.policy, { fileBase: repositoryFileBase(g.repoRoot) });
       // The digest is the one `hitld rights digest` builds, with this report's quota lines. It is
       // only read here: the cursor does not move. A project whose decisions cannot be read gets
       // the quota lines alone.

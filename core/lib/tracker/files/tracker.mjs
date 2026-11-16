@@ -893,7 +893,7 @@ export function openTracker({
       put('lists.md', `${header}\n# Item lists\n\n${texts.lists}`);
       put(
         'milestones.md',
-        `${header}\n# Milestones\n\n${renderMilestonesView(tracker.milestoneGraph(), texts.milestones)}`,
+        `${header}\n# Milestones\n\n${renderMilestonesView(tracker.milestoneGraph(), texts.milestones, `${layout.workDir}/${layout.viewsDir}`)}`,
       );
       for (const file of RETIRED_VIEWS) {
         const path = join(dir, file);

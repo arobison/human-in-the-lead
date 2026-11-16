@@ -16,7 +16,12 @@ import {
   tokensByItem,
 } from '../lib/tracker/files/milestones.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
-import { compareVersions, milestoneFacts } from '../lib/tracker/files/views.mjs';
+import {
+  compareVersions,
+  fileHref,
+  forgeFileBase,
+  milestoneFacts,
+} from '../lib/tracker/files/views.mjs';
 import {
   buildReport,
   renderHtml,
@@ -706,6 +711,7 @@ test('the milestone graph: nodes, the one edge, progress, the check and the crit
       state: 'planned',
       layer: 0,
       milestones: ['W-7'],
+      path: 'work/items/W-10-ship-it.md',
     },
   ]);
   assert.deepEqual(
@@ -786,9 +792,10 @@ test('views: milestones.md is the graph and the table; items-graph.md is unchang
       '',
       '| Milestone | State | Outcome | Constraints | Tokens spent | Check | Constraints and their state | Contributions and their state |',
       '|---|---|---|---|---|---|---|---|',
-      '| W-1 The goal (critical path) | Planned | Users trust their config. Second sentence. | 0 of 1 done | — tokens, no appetite set | not yet due | W-7 Planned | — |',
-      '| W-7 Config errors explained (critical path) | Planned | A user with a bad config sees which key is wrong. | 0 of 2 done | — of 1000 tokens | not yet due | W-4 Planned (critical path), W-5 Planned (critical path) | W-9 Planned |',
-      '| W-8 First step shown | Done | The first step is shown. | 1 of 1 done | — tokens, no appetite set | passed | W-3 Done | — |',
+      // Each ID links to its file, relative to the views directory.
+      '| [W-1](../milestones/W-1-goal.md) The goal (critical path) | Planned | Users trust their config. Second sentence. | 0 of 1 done | — tokens, no appetite set | not yet due | [W-7](../milestones/W-7-config-errors-explained.md) Planned | — |',
+      '| [W-7](../milestones/W-7-config-errors-explained.md) Config errors explained (critical path) | Planned | A user with a bad config sees which key is wrong. | 0 of 2 done | — of 1000 tokens | not yet due | [W-4](../items/W-4-second-step.md) Planned (critical path), [W-5](../items/W-5-third-step.md) Planned (critical path) | [W-9](../items/W-9-nice-to-have.md) Planned |',
+      '| [W-8](../milestones/W-8-first-step-shown.md) First step shown | Done | The first step is shown. | 1 of 1 done | — tokens, no appetite set | passed | [W-3](../items/W-3-first-step.md) Done | — |',
       '',
       'Tokens spent come from the ledger in the private store, so this view shows — for them; `hitld dashboard` shows the figures. The item graph is in [items-graph.md](items-graph.md).',
       '',
@@ -838,11 +845,11 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   const panel = /<section class="drill" id="milestone-W-7">.*?<\/section>/s.exec(html)?.[0] ?? '';
   assert.match(
     panel,
-    /<tr><td>W-4 Second step<\/td><td>constraint<\/td><td>Planned<\/td><td>yes<\/td><\/tr>/,
+    /<tr><td><a class="file" href="work\/items\/W-4-second-step\.md">W-4<\/a> Second step<\/td><td>constraint<\/td><td>Planned<\/td><td>yes<\/td><\/tr>/,
   );
   assert.match(
     panel,
-    /<tr><td>W-9 Nice to have<\/td><td>contribution<\/td><td>Planned<\/td><td><\/td><\/tr>/,
+    /<tr><td><a class="file" href="work\/items\/W-9-nice-to-have\.md">W-9<\/a> Nice to have<\/td><td>contribution<\/td><td>Planned<\/td><td><\/td><\/tr>/,
   );
   // Lanes with their names, top to bottom: the release gates first, then long outcomes, then
   // each project; steps across.
@@ -945,7 +952,7 @@ test('escaping: a title with a backslash, a pipe, a quote and &lt; shows as writ
   const view = readFileSync(join(root, 'work', 'views', 'milestones.md'), 'utf8');
   assert.match(
     view,
-    /\n\| W-7 Paths like C:\\\\dir \\\| "quoted" &amp;lt; less \(critical path\) \| Planned \|/,
+    /\n\| \[W-7\]\(\.\.\/milestones\/W-7-config-errors-explained\.md\) Paths like C:\\\\dir \\\| "quoted" &amp;lt; less \(critical path\) \| Planned \|/,
   );
   // The page: HTML-escaped.
   settings(root);
@@ -965,11 +972,11 @@ test('escaping: a backslash before a pipe and a trailing backslash cannot unesca
   assert.equal(t.milestoneGraph().nodes[1].title, title);
   t.writeViews();
   const view = readFileSync(join(root, 'work', 'views', 'milestones.md'), 'utf8');
-  const row = view.split('\n').find((l) => l.startsWith('| W-7 ')) ?? '';
+  const row = view.split('\n').find((l) => l.startsWith('| [W-7]')) ?? '';
   // Each backslash doubled, then the pipe escaped: no `|` in the title is left unescaped.
   assert.ok(
     row.startsWith(
-      '| W-7 A pipe after a backslash \\\\\\| and one at the end \\\\ (critical path) | Planned |',
+      '| [W-7](../milestones/W-7-config-errors-explained.md) A pipe after a backslash \\\\\\| and one at the end \\\\ (critical path) | Planned |',
     ),
     row,
   );
@@ -983,7 +990,11 @@ test('escaping: a backslash before a pipe and a trailing backslash cannot unesca
     0,
   );
   const html = readFileSync(join(root, 'out', 'dashboard.html'), 'utf8');
-  assert.ok(html.includes('<h3>W-7 A pipe after a backslash \\| and one at the end \\ <small>'));
+  assert.ok(
+    html.includes(
+      '<h3><a class="file" href="work/milestones/W-7-config-errors-explained.md">W-7</a> A pipe after a backslash \\| and one at the end \\ <small>',
+    ),
+  );
 });
 
 test('the board shows committed milestones only, lists proposed and dropped ones under it, and dashes a loop', () => {
@@ -1116,4 +1127,84 @@ test('release flags: a done release before the first step, open ones after what 
   // A done release's rule stays in the Releases lane; an open one's runs down the board.
   assert.match(html, /<g class="mg-rule done"><line class="mg-rule-top" [^>]*\/><\/g>/);
   assert.equal((html.match(/<line class="mg-rule-down"/g) ?? []).length, 2);
+});
+
+test('file links: the forge address from the origin remote, never its credentials; else a relative path', () => {
+  const base = 'https://github.com/acme/widgets/blob/HEAD';
+  for (const remote of [
+    'https://github.com/acme/widgets',
+    'https://github.com/acme/widgets.git',
+    'https://someone:secret-token@github.com/acme/widgets.git',
+    'git@github.com:acme/widgets.git',
+    'ssh://git@github.com/acme/widgets.git',
+  ]) {
+    assert.equal(forgeFileBase(remote), base, remote);
+  }
+  assert.equal(
+    forgeFileBase('git@github.com:acme/widgets.git', 'main'),
+    'https://github.com/acme/widgets/blob/main',
+  );
+  // A remote that is not a known forge, or none, gives no address; nor does an odd branch name.
+  for (const remote of [
+    'https://gitlab.example/acme/widgets.git',
+    'http://127.0.0.1:9/git/acme/widgets',
+    '',
+    null,
+  ]) {
+    assert.equal(forgeFileBase(remote), null, String(remote));
+  }
+  assert.equal(forgeFileBase('https://github.com/acme/widgets', 'x y"z'), null);
+  assert.equal(fileHref('work/items/W-4-a.md', { base }), `${base}/work/items/W-4-a.md`);
+  assert.equal(fileHref('work/items/W-4-a.md', { from: 'work/views' }), '../items/W-4-a.md');
+  assert.equal(fileHref('work/items/W-4-a.md'), 'work/items/W-4-a.md');
+});
+
+test('the page links every item, milestone and release ID to its file, plainly, and shows what is clickable', async () => {
+  const root = graphRepo();
+  settings(root);
+  /** @param {string} out */
+  const page = async (out) => {
+    const r = await hitld(['dashboard', '--out', out, '--now', '2026-11-16T12:00:00Z'], root);
+    assert.equal(r.code, 0, JSON.stringify(r.json));
+    return readFileSync(join(root, out, 'dashboard.html'), 'utf8');
+  };
+  // No remote: repository-relative paths.
+  let html = await page('out');
+  const panels = [
+    ...html.matchAll(/<section class="drill" id="milestone-(W-\d+)">(.*?)<\/section>/gs),
+  ];
+  assert.equal(panels.length, 3);
+  for (const [, id, panel] of panels) {
+    const rows = [...panel.matchAll(/<tbody>(.*?)<\/tbody>/gs)].flatMap(
+      (b) => b[1].match(/<tr>.*?<\/tr>/g) ?? [],
+    );
+    assert.ok(rows.length, `${id} lists its items`);
+    for (const row of rows) {
+      assert.match(
+        row,
+        /^<tr><td><a class="file" href="work\/(items|milestones)\/W-\d+-[a-z0-9-]+\.md">W-\d+<\/a> /,
+        row,
+      );
+    }
+    assert.match(
+      panel,
+      new RegExp(`<h3><a class="file" href="work/milestones/${id}-[a-z0-9-]+\\.md">${id}</a> `),
+    );
+  }
+  assert.match(
+    html,
+    /<a href="work\/items\/W-10-ship-it\.md" aria-label="Release 1\.0\.0: W-10 Ship it"><g class="mg-flag open">/,
+  );
+  // Clickable: a pointer, and a visible focus outline for the keyboard.
+  assert.match(html, /\.mg a\{cursor:pointer\}/);
+  assert.match(html, /a:focus-visible\{outline:2px solid var\(--used\)/);
+  assert.doesNotMatch(html, /<script/i);
+  // A GitHub origin: links on the forge, at the default branch, with no credential carried over.
+  git(root, 'remote', 'add', 'origin', 'https://someone:secret-token@github.com/acme/widgets.git');
+  html = await page('out2');
+  assert.match(
+    html,
+    /<a class="file" href="https:\/\/github\.com\/acme\/widgets\/blob\/HEAD\/work\/items\/W-4-second-step\.md">W-4<\/a>/,
+  );
+  assert.doesNotMatch(html, /secret-token|someone@/);
 });

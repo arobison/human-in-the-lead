@@ -8,7 +8,7 @@
 import { effectiveEntries, tokensOf } from './usage.mjs';
 import { waitingForOwner, waited } from '../merge/owner.mjs';
 import { dispatchGate, forecastLine, show } from './gate.mjs';
-import { milestoneFacts, oneSentence } from '../tracker/files/views.mjs';
+import { fileHref, milestoneFacts, oneSentence } from '../tracker/files/views.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
 
@@ -270,10 +270,18 @@ const STAGES = /** @type {const} */ ([
  * the waits between milestones, thicker for more items behind the wait, dashed with none. Only
  * committed milestones are on the board: proposed and dropped ones are listed under it. Each node
  * is a link to its panel; a panel shows when it is the page's target (CSS `:target`), so a node
- * opens to its items with no script.
+ * opens to its items with no script. Every item, milestone and release ID in a panel or on a flag
+ * links to its file: on the forge when `fileBase` is known, else by its repository-relative path.
+ * A link is a plain anchor; nothing is fetched until it is followed.
  * @param {MilestoneGraph} mg
+ * @param {{ fileBase?: string | null }} [where] the forge's address for the repository's files
  */
-export function renderMilestoneSection(mg) {
+export function renderMilestoneSection(mg, { fileBase = null } = {}) {
+  /** An ID linked to its file, or the ID alone without one. @param {string} id @param {string | null} path */
+  const fileLink = (id, path) =>
+    path
+      ? `<a class="file" href="${esc(fileHref(path, { base: fileBase }))}">${esc(id)}</a>`
+      : esc(id);
   if (!mg.nodes.length) {
     return '<h2 id="milestones">Milestones</h2>\n<p class="muted">No milestones in the tracker.</p>';
   }
@@ -462,7 +470,7 @@ export function renderMilestoneSection(mg) {
     .map((r) => {
       const { x, y } = /** @type {{ x: number, y: number }} */ (flagAt.get(r.id));
       const before = r.milestones.length ? `; after ${r.milestones.join(', ')}` : '';
-      return `<g class="mg-flag ${r.state === 'done' ? 'done' : 'open'}"><title>${esc(`Release gate ${r.release}: ${r.id} ${r.title} (${STATE_LABELS[r.state] ?? r.state})${before}`)}</title><line x1="${x}" x2="${x}" y1="${y + 2}" y2="${y + 14}"/><path d="M${x + 1} ${y + 2}L${x + 11} ${y + 6}L${x + 1} ${y + 10}z"/><text x="${x + 16}" y="${y + 11}">${esc(r.release)}</text></g>`;
+      return `<a href="${esc(fileHref(r.path, { base: fileBase }))}" aria-label="${esc(`Release ${r.release}: ${r.id} ${r.title}`)}"><g class="mg-flag ${r.state === 'done' ? 'done' : 'open'}"><title>${esc(`Release gate ${r.release}: ${r.id} ${r.title} (${STATE_LABELS[r.state] ?? r.state})${before}`)}</title><line x1="${x}" x2="${x}" y1="${y + 2}" y2="${y + 14}"/><path d="M${x + 1} ${y + 2}L${x + 11} ${y + 6}L${x + 1} ${y + 10}z"/><text x="${x + 16}" y="${y + 11}">${esc(r.release)}</text></g></a>`;
     })
     .join('');
 
@@ -528,12 +536,12 @@ export function renderMilestoneSection(mg) {
         ? `<div class="wrap"><table style="min-width:0"><thead><tr><th>Item</th><th>As</th><th>State</th><th>Critical path</th></tr></thead><tbody>${n.items
             .map(
               (i) =>
-                `<tr><td>${esc(i.id)} ${esc(i.title)}</td><td>${i.role}</td><td>${esc(STATE_LABELS[i.state] ?? i.state)}</td><td>${i.critical ? 'yes' : ''}</td></tr>`,
+                `<tr><td>${fileLink(i.id, i.path)} ${esc(i.title)}</td><td>${i.role}</td><td>${esc(STATE_LABELS[i.state] ?? i.state)}</td><td>${i.critical ? 'yes' : ''}</td></tr>`,
             )
             .join('')}</tbody></table></div>`
         : '<p class="muted">No constraints or contributions yet.</p>';
       const holds = [...n.holds.decisions, ...n.holds.external];
-      return `<section class="drill" id="${milestoneAnchor(n.id)}"><h3>${esc(n.id)} ${esc(n.title)} <small>${esc(STATE_LABELS[n.state] ?? n.state)}${n.critical ? ', on the critical path' : ''}</small></h3><p>${esc(n.outcome ?? 'No outcome yet.')}</p><p class="muted">${n.in_progress} in progress; constraints ${esc(f.constraints)}; ${esc(f.tokens)}; ${esc(f.check)}.${holds.length ? ` Held up by ${holds.map(esc).join(', ')}.` : ''}</p>${items}<p class="muted">The items' own needs are in the item graph, work/views/items-graph.md in the repository. <a href="#milestones">Close</a></p></section>`;
+      return `<section class="drill" id="${milestoneAnchor(n.id)}"><h3>${fileLink(n.id, n.path)} ${esc(n.title)} <small>${esc(STATE_LABELS[n.state] ?? n.state)}${n.critical ? ', on the critical path' : ''}</small></h3><p>${esc(n.outcome ?? 'No outcome yet.')}</p><p class="muted">${n.in_progress} in progress; constraints ${esc(f.constraints)}; ${esc(f.tokens)}; ${esc(f.check)}.${holds.length ? ` Held up by ${holds.map(esc).join(', ')}.` : ''}</p>${items}<p class="muted">The items' own needs are in the item graph, work/views/items-graph.md in the repository. <a href="#milestones">Close</a></p></section>`;
     })
     .join('\n');
   return `<h2 id="milestones">Milestones</h2>
@@ -546,9 +554,11 @@ ${panels}`;
 
 /**
  * The static report page. @param {Report} r @param {Record<string, any>} policy
+ * @param {{ fileBase?: string | null }} [where] the forge's address for the repository's files, for
+ *   the links to tracker files
  * @returns {string}
  */
-export function renderHtml(r, policy) {
+export function renderHtml(r, policy, { fileBase = null } = {}) {
   const rows = r.quotas
     .map((s) => {
       const f = s.forecast;
@@ -594,7 +604,7 @@ thead th{font-size:.8rem;color:var(--muted);font-weight:600}tr.binding{backgroun
 .bar{width:100%;max-width:20rem;height:1rem;display:block;border-radius:3px;overflow:hidden}
 .mg{display:block;font:12px system-ui,sans-serif}.mg text{fill:var(--fg)}.mg-lane{fill:var(--bg)}.mg-lane.zebra{fill:var(--zebra)}.mg-lane-name{font-weight:600;fill:var(--muted)}.mg-step{fill:var(--muted)}.mg-tick{stroke:var(--line);stroke-dasharray:4 4}
 .mg-box{stroke:var(--mark);stroke-width:1}.started .mg-box{fill:var(--card)}.hollow .mg-box{fill:transparent;stroke:var(--line)}.mg-node.critical .mg-box{stroke:var(--used);stroke-width:2}.mg-node.loop .mg-box{stroke-dasharray:5 3}.mg-title{font-weight:600}.mg .mg-outcome{fill:var(--muted)}
-.mg a:focus .mg-box,.mg a:hover .mg-box{stroke:var(--used);stroke-width:2.5}.mg-bar{fill:var(--track)}.mg-bar-done{fill:var(--st-done)}
+.mg a{cursor:pointer}.mg a:focus{outline:none}.mg a:focus-visible .mg-box,.mg a:hover .mg-box{stroke:var(--used);stroke-width:2.5}.mg a:focus-visible .mg-box{stroke-width:3}.mg a:hover .mg-flag text,.mg a:focus-visible .mg-flag text{text-decoration:underline;fill:var(--used)}a.file{font-weight:600}a:focus-visible{outline:2px solid var(--used);outline-offset:2px}.mg-bar{fill:var(--track)}.mg-bar-done{fill:var(--st-done)}
 .mg-strip,.mg-dot{fill:var(--st)}.mg-node.proposed{--st:var(--st-proposed)}.mg-node.waiting{--st:var(--st-waiting)}.mg-node.ready{--st:var(--st-ready)}.mg-node.in-flight{--st:var(--st-flight)}.mg-node.done{--st:var(--st-done)}
 .mg-badge rect{fill:var(--warn-bg);stroke:#d9a53a}.mg-badge.external rect{fill:var(--track);stroke:var(--mark)}.mg .mg-badge text{font-size:10px}
 .mg-edge{fill:none;stroke:var(--mark)}.mg-edge.direct{stroke-dasharray:4 3}.mg-edge.critical{stroke:var(--used)}.mg-head{fill:var(--mark)}.mg-head.critical{fill:var(--used)}
@@ -622,7 +632,7 @@ ${rows}
 </tbody></table></div>
 ${r.waiting_for_owner.length ? `<h2>Waiting for your merge</h2><ul>${r.waiting_for_owner.map((w) => `<li>${esc(w.item)} on ${esc(w.branch ?? 'no branch')}, waiting ${esc(waited(w.waited_ms))}</li>`).join('')}</ul>` : ''}
 ${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
-${r.milestones ? renderMilestoneSection(r.milestones) : ''}
+${r.milestones ? renderMilestoneSection(r.milestones, { fileBase }) : ''}
 <h2>Ledger</h2>
 <p>${l.entries} events, ${l.tokens} tokens, ${l.items_merged} items merged${l.tokens_per_merged_item == null ? '' : `, ${l.tokens_per_merged_item} tokens per merged item`}.</p>
 <div class="wrap"><table style="min-width:0"><thead><tr><th>Events</th><th>Tokens by model</th><th>Tokens by tier</th></tr></thead><tbody><tr><td><ul>${kv(l.events)}</ul></td><td><ul>${kv(l.tokens_by_model)}</ul></td><td><ul>${kv(l.tokens_by_tier)}</ul></td></tr></tbody></table></div>
