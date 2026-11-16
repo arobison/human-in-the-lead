@@ -5,6 +5,7 @@ kind: work
 state: proposed
 created: 2026-11-15
 project: HITLD-15
+needs: [HITLD-112, HITLD-152]
 ---
 
 ## Why
