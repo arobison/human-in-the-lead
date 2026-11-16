@@ -1,11 +1,12 @@
 ---
 id: HITLD-62
-title: "Milestone graph in the views and the report"
+title: Milestone graph in the views and the report
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-45]
+claimed_by: D-20
 ---
 
 ## Why
