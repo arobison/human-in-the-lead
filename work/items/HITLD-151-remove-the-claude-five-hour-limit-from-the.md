@@ -24,4 +24,4 @@ The owner reports that Anthropic removed the five-hour usage window from Claude 
 
 ## Notes
 
-Raised by the owner in the chief of staff session. A schema value is removed, so it is part of the public interface; HITLD-137's release note and the release record say so. HITLD-149 (declared usage) and HITLD-56 (the status-line readout) work on the same gate and should be built after this, or in one wave with care.
+Raised by the owner in the chief of staff session. A schema value is removed, so it is part of the public interface; HITLD-137's release note and the release record say so. Evidence from 2026-11-16: the `rate_limit_event` the `claude` command printed in a cloud container listed only a `seven_day` window in `unifiedWindows`, with no five-hour window (HITLD-165). It is one sample, and the first step of this item still confirms it. HITLD-149 (declared usage) and HITLD-56 (the status-line readout) work on the same gate and should be built after this, or in one wave with care.
