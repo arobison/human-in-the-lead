@@ -13,6 +13,7 @@ import { executorSignal } from '../executor.mjs';
 import { loadPolicy, findRepoRoot } from '../../policy/policy.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { ownerCheckoutOf } from '../../env/primary.mjs';
+import { diskCheck } from '../../machine/disk.mjs';
 import { openTracker as openFilesTracker } from '../../tracker/files/tracker.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
@@ -239,12 +240,29 @@ export async function ownerDigest(ctx, options = {}) {
       report = null;
     }
   }
+  // The disk line is best-effort too: a store that cannot be measured has none.
+  /** @type {import('../../machine/disk.mjs').DiskState | null} */
+  let disk = null;
+  if (s.policy) {
+    try {
+      disk = diskCheck({
+        env: ctx.env,
+        ...(ctx.machine ? { sources: ctx.machine } : {}),
+        repoRoot: ownerCheckoutOf(ctx.cwd) ?? ctx.cwd,
+        storeRoot: o.deps.store.root,
+        policy: s.policy,
+      });
+    } catch {
+      disk = null;
+    }
+  }
   const digest = buildDigest(o.deps, {
     settings: s.settings,
     trigger: options.trigger,
     since: options.since,
     now,
     report,
+    disk,
     root: ownerCheckoutOf(ctx.cwd),
     full: options.full,
   });

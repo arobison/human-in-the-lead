@@ -516,6 +516,7 @@ test('the digest is assembled from named parts, and the flaky-test part has its 
       'stamp',
       'flakes',
       'quota',
+      'disk',
     ],
   );
   assert.equal(PARTS.includes(flakesPart), true);

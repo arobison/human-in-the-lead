@@ -13,6 +13,7 @@ import { loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { loadSettingsFile } from '../../settings/files.mjs';
 import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
+import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { appendEvent, readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
@@ -30,6 +31,7 @@ import { absorb } from '../../run/state.mjs';
 import { reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
+import { tearDown } from '../../env/teardown.mjs';
 import {
   activeProjects,
   readAccountSnapshots,
@@ -355,9 +357,18 @@ export function plan(p, ctx, byHand) {
   const ours = new Set(running.map((d) => d.dispatch));
   // What this machine has, from a fresh local probe and the machine file's record: the smaller wins.
   const machineFile = loadSettingsFile('machine', { env: ctx.env });
-  const machine = machineResources(machineFile.data, probeMachine(ctx.machine ?? localSources()));
+  const sources = ctx.machine ?? localSources();
+  const machine = machineResources(machineFile.data, probeMachine(sources));
+  const disk = diskCheck({
+    env: ctx.env,
+    sources,
+    repoRoot: p.repoRoot,
+    storeRoot: p.store.root,
+    policy: p.policy,
+  });
   const result = planDispatch({
     machine,
+    disk,
     queue: q.queue,
     sizes: q.sizes,
     running,
@@ -382,7 +393,7 @@ export function plan(p, ctx, byHand) {
     critical: q.critical,
     setup: { ...p.setup, byHand },
   });
-  return { q, result, setup: p.setup };
+  return { q, result: { ...result, disk: diskWarning(disk) }, setup: p.setup };
 }
 
 /**
@@ -409,13 +420,16 @@ export const planJson = (r, setup) => ({
   held: r.held,
   waiting: r.waiting,
   notes: r.notes,
+  ...(r.disk ? { disk: r.disk } : {}),
   next: !setup.done
     ? 'setup is not done: run the first-run setup with the owner (orchestrate skill, first run); a hand-started item runs with hitld dispatch start <ID> --by-hand when the owner asks for it'
-    : r.start.length
-      ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch handle'
-      : r.gate.notify_owner
-        ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
-        : 'nothing to start: wait for the next completion notice; do not poll',
+    : r.disk?.state === 'below'
+      ? `tell the owner: ${r.disk.reason}; worktrees of merged branches go with hitld dispatch watch`
+      : r.start.length
+        ? 'for each item in start: hitld dispatch start <item>, make the call it prints, then hitld dispatch handle'
+        : r.gate.notify_owner
+          ? 'tell the owner: autonomous dispatch has stopped at the quota reserve (see gate.reason)'
+          : 'nothing to start: wait for the next completion notice; do not poll',
 });
 
 /** Where a dispatch's files live in the private store. @param {string} d */
@@ -763,6 +777,10 @@ async function pullRequestMerge(o) {
       }
     }
   }
+  // Then every other finished worktree (env/teardown.mjs): adopted ones of merged branches too.
+  const torn = result.merged.length
+    ? await tearDown(o.env, { events: readLedger(p.store).events, primary: p.repoRoot })
+    : null;
   for (const x of result.rejected) {
     run.record({
       id: `verified-fail-${x.item}-${(result.main.before || 'none').slice(0, 12)}`,
@@ -782,6 +800,7 @@ async function pullRequestMerge(o) {
     ...(o.approve ? { approved: approved.map((b) => b.branch) } : {}),
     merged: result.merged.map((m) => m.item),
     pull_requests: result.merged,
+    ...(torn?.removed.length ? { worktrees_removed: torn.removed.map((x) => x.path) } : {}),
     rejected: result.rejected.map((x) => ({
       ...rejectedJson(/** @type {any} */ (x), main),
       ...(x.checks ? { checks: x.checks } : {}),
@@ -908,6 +927,11 @@ const table = [
         }
         const { q, result, setup } = plan(p, ctx, input['by-hand'] === true ? id : undefined);
         const planned = result.start.find((s) => s.item === id);
+        if (!planned && result.disk?.state === 'below') {
+          throw new Refusal('disk-floor', `${id} waits: ${result.disk.reason}`, {
+            disk: result.disk,
+          });
+        }
         if (!planned) {
           const held = result.held.find((h) => h.item === id);
           const why = held
@@ -1583,6 +1607,8 @@ const table = [
           scanners: p.policy.merge.scanners,
           primaryRoot: p.repoRoot,
         });
+        /** @type {string[]} */
+        const worktreesRemoved = [];
         /** @param {QueueResult} result */
         const record = async (result) => {
           for (const m of result.merged) {
@@ -1599,6 +1625,14 @@ const table = [
                 await env.releaseHolder({ holder: w.holder, result: 'merged' }).catch(() => null);
               }
             }
+          }
+          // Then every other finished worktree (env/teardown.mjs): adopted ones of merged branches too.
+          if (result.merged.length) {
+            const torn = await tearDown(env, {
+              events: readLedger(p.store).events,
+              primary: p.repoRoot,
+            });
+            worktreesRemoved.push(...torn.removed.map((x) => x.path));
           }
           for (const x of result.rejected) {
             run.record({
@@ -1622,6 +1656,7 @@ const table = [
               ? { before: rs[0].main.before, after: rs[rs.length - 1].main.after }
               : null,
             merged: rs.flatMap((r) => r.merged.map((m) => m.item)),
+            ...(worktreesRemoved.length ? { worktrees_removed: worktreesRemoved } : {}),
             rejected: rs.flatMap((r) => r.rejected.map((x) => rejectedJson(x, main))),
             flakes: rs.flatMap((r) =>
               r.flakes.map((f) => ({

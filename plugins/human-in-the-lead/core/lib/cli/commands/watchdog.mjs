@@ -22,6 +22,9 @@ import {
 import { areasTouched } from '../../dispatch/item.mjs';
 import { activePause, lastTimedPause, pauseGate, resumeDue } from '../../quota/pause.mjs';
 import { releaseExecutor } from '../../registry/machine.mjs';
+import { openEnv } from '../../env/manager.mjs';
+import { tearDown } from '../../env/teardown.mjs';
+import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import {
   Refusal,
   commands as orchestratorCommands,
@@ -116,14 +119,14 @@ export const commands = [
   {
     name: 'dispatch watch',
     summary:
-      'The watchdog: which dispatches have stalled and the next step of the ladder for each, and whether a quota pause is due to lift. A script, no model; with --act, the session holding the lease records the steps',
+      'The watchdog: which dispatches have stalled and the next step of the ladder for each, and whether a quota pause is due to lift; it removes the worktrees of merged branches and ended dispatches, and warns when free disk nears the floor. A script, no model; with --act, the session holding the lease records the steps',
     built_by: 'h',
     args: [
       {
         name: 'act',
         type: 'boolean',
         description:
-          'Record the steps that are due and print what to do for each (poke, continue as a follow-up, abandon and re-plan, ask the owner). Only the session holding the lease; without it the command reads and samples only',
+          'Record the steps that are due and print what to do for each (poke, continue as a follow-up, abandon and re-plan, ask the owner). Only the session holding the lease; without it the command records nothing in the ledger: it samples, and tears down finished worktrees',
       },
       SESSION,
       HOST,
@@ -144,6 +147,38 @@ export const commands = [
         const before = readLedger(p.store).events;
         const state = absorb(structuredClone(p.state), before).state;
         sample(p, state.in_flight, host, ctx);
+        // Finished worktrees go (env/teardown.mjs), and free disk is checked against the floor.
+        const torn = await tearDown(
+          openEnv({ repoRoot: p.repoRoot, store: p.store, policy: p.policy, env: ctx.env }),
+          { events: before, primary: p.repoRoot },
+        );
+        const disk = diskWarning(
+          diskCheck({
+            env: ctx.env,
+            ...(ctx.machine ? { sources: ctx.machine } : {}),
+            repoRoot: p.repoRoot,
+            storeRoot: p.store.root,
+            policy: p.policy,
+          }),
+        );
+        const housekeeping = {
+          ...(torn.removed.length || torn.failed.length || torn.untracked.length
+            ? {
+                worktrees: {
+                  removed: torn.removed.map((x) => ({
+                    holder: x.holder,
+                    path: x.path,
+                    why: x.why,
+                  })),
+                  ...(torn.failed.length
+                    ? { failed: torn.failed.map((x) => ({ holder: x.holder, error: x.error })) }
+                    : {}),
+                  ...(torn.untracked.length ? { untracked: torn.untracked } : {}),
+                },
+              }
+            : {}),
+          ...(disk ? { disk } : {}),
+        };
 
         const judge = () => {
           const events = readLedger(p.store).events;
@@ -197,6 +232,7 @@ export const commands = [
             })),
             paused,
             resume,
+            ...housekeeping,
             wake: parts.length > 0,
             wake_message: parts.length ? `watch: ${parts.join('; ')}` : null,
             next: parts.length
@@ -342,6 +378,7 @@ export const commands = [
           actions,
           paused: pause.paused,
           ...(pause.resumed ? { resumed: pause.resumed } : {}),
+          ...housekeeping,
           refill,
           next: actions.length
             ? 'for each action: do what its then says, with the harness tools the orchestrate skill names; then start the refill'
