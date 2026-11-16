@@ -16,6 +16,7 @@ import { describeOption, optionIndex, optionLetter } from '../rights/format.mjs'
 import { askedRecord, listDefaults } from '../rights/pending.mjs';
 import { readTrustEvents, rubberStamps } from '../rights/trust.mjs';
 import { flakesPart } from './flakes.mjs';
+import { sweepPart } from './sweep.mjs';
 import { clip, wrap } from './render.mjs';
 
 /**
@@ -495,6 +496,7 @@ export const PARTS = Object.freeze([
   review,
   stamp,
   flakesPart,
+  sweepPart,
   quota,
   disk,
 ]);

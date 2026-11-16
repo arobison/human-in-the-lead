@@ -203,18 +203,44 @@ Some work recurs and nobody prompts it. It recurs on evidence, not on the calend
 | **Offline evals** | The branch has moved by `eval.every_merges` and the machine is idle | `eval.every_merges` | `hitld eval --offline`; live evals run per release ([part 17](17-evals.md)) |
 | **Calibration review** | A person has `review.every_outcomes` new outcomes of their calls since their last review, or `review.first_after_outcomes` if they have had none | `review.every_outcomes`, `review.first_after_outcomes` | The review for that person alone ([23.4](23-people-in-the-lead.md#234-feedback-to-the-person-the-calibration-review)) |
 | Intake pull and triage (planned) | At a wake, when a source has something new; a triage dispatch if anything arrived | | `hitld intake pull` |
-| Stale-item and flaky-test sweeps (planned) | After merge batches, on an idle machine | | Orphaned claims, `proposed` items older than `sweep.proposed_max_age`, blocked items whose blockers resolved; reruns of recent failures on unchanged code, quarantining and filing items for confirmed flakes |
-| Stale-knowledge sweep (planned) | After merge batches | | `hitld kb stale`, then gardening dispatches |
+| **Stale-item sweep** | `sweep.every_merges` merges since the last sweep | `sweep.every_merges`, `sweep.proposed_max_age` | `hitld work sweep`, then the curator's pass over the work items ([below](#the-stale-item-sweep-and-the-curators-pass)) |
+| Flaky-test sweep (planned) | After merge batches, on an idle machine | | Reruns of recent failures on unchanged code, quarantining and filing items for confirmed flakes |
+| Stale-knowledge sweep (planned) | After merge batches | | `hitld kb stale`, then curator dispatches |
 | Quota check (planned) | At a wake while a run is active | | Usage snapshot and forecast ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)) |
 | Maintenance scan (planned) | On an idle machine, when a feed reports something new | | Dependency updates and security advisories ([part 2](02-loops.md#29-maintenance)) |
 
-The first five rows are built (`hitld cadence due` and `done`); the rows marked planned are the later milestone.
+The first six rows are built (`hitld cadence due` and `done`); the rows marked planned are the later milestone.
 
 An outcome, for a review, is a recorded fact about how a call turned out: an overruled precedent application, a call the owner reversed, a merge the owner approved that was later reverted, or a rating of whether a question was worth asking. A review counts as a read against the person's attention budget, and quiet hours hold it.
 
 **Rules for every job:** its triggers are declared in `policy.json` as thresholds on what they measure, and a threshold of 0 is off. A key does not start with `after_`, which the schema validator keeps for lifecycle hooks, so thresholds read `every_<thing counted>`. A job is idempotent, so a missed or doubled run is harmless. It has a token budget and respects the quota reserve and quiet hours. It writes to the ledger. Its results reach the owner only through digests unless a threshold is crossed. It is owned by the chief of staff, never by an orchestrator session, so replacing an orchestrator leaves the jobs as they were (13.1).
 
-**Deterministic jobs need no agent.** Offline evals, sweeps, quota checks and `cadence due` itself are `hitld` commands; only the follow-up (triage, gardening, a fix) dispatches an agent. So most jobs cost no model tokens.
+**Deterministic jobs need no agent.** Offline evals, sweeps, quota checks and `cadence due` itself are `hitld` commands; only the follow-up (triage, curation, a fix) dispatches an agent. So most jobs cost no model tokens.
+
+### The stale-item sweep and the curator's pass
+
+The tracker drifts from what is built and decided: items stay open after their work merges, a release item's needs mix two releases, specs name things since renamed, plans change after later decisions, and items that change the public interface lack release notes. Two passes read the work items against what changed, after merge batches: a deterministic sweep, and the curator, who reads what a script cannot.
+
+**`hitld work sweep`** uses no model and changes nothing. It reads the tracker, its branches and the ledger, and lists findings of six kinds:
+
+- orphaned claims: a claim branch whose dispatch is not in flight in the ledger;
+- `proposed` items older than `sweep.proposed_max_age` days (0, the default, is off), counted from `created`;
+- blocked items whose blockers are resolved: every need that keeps the item blocked is dropped;
+- items whose branch merged but which are still open on the main branch: a commit there carries the item's `Work-Item:` and a `Dispatch:` trailer, or a ledger `merged` event names it;
+- release items whose needs include items another release item also needs;
+- items whose commits since the last full release changed public surface ([16.5](16-packaging.md#165-releases-and-compatibility)), as `hitld release propose` reads it, with no `release_note`.
+
+A kind it cannot check is listed under `skipped` with the reason, never reported clean: orphaned claims need a ledger that records dispatches, and release notes need `release_note` among the tracker's optional keys. `hitld cadence due` lists the sweep once `sweep.every_merges` items have merged since the last one. Quiet hours do not hold it, since it sends the owner nothing directly. Its findings feed the orchestrator's plan, and the digest lists them, as state that never makes a digest on its own.
+
+**The curator's pass** follows the sweep: a tier-1 dispatch, through the normal brief and report ([part 5](05-execution.md)), following the curate skill. The curator reads the open items against the recent merges, the answered decisions and the design changes, and flags specs that name something since renamed or removed, work done in practice but still open, duplicates, plans a later decision changed, and release or milestone placement that no longer fits. It also runs `npm run spelling` and fixes the British spellings it lists. The spelling check is not a CI gate (the owner's decision), so this pass is what keeps the repository in American English.
+
+**Findings are routed by decision rights, never applied silently** ([4.1](04-decision-rights.md#41-roles)):
+
+- Wording fixes inside an item's facts, and the spelling fixes, go through a pull request, like the curator's edits to the knowledge base ([8.5](08-knowledge-base.md#85-the-kb-tool)): the curator's branch, its report and the merge.
+- Anything that changes scope, a plan, a placement or a release becomes a question for the owner, through the attention budget and the digest ([part 2](02-loops.md#the-owners-attention-as-a-budget)): the curator lists it under `questions`, and the orchestrator asks it.
+- The orchestrator re-plans from the rest, within its own rights.
+
+The curator changes no decision or plan on its own.
 
 **What each harness needs to provide** is wakes, not a list of timed jobs. The wake only lets the chief of staff ask what is due; it does not decide when work happens.
 

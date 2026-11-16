@@ -40,6 +40,7 @@ const HOOKS_SOURCE = 'core/harness/claude-code/hooks/hooks.json';
 const SKILL_EXTRAS = /** @type {Record<string, Record<string, string>>} */ ({
   orchestrate: { 'argument-hint': '[start | resume]' },
   execute: { 'user-invocable': 'false' },
+  curate: { 'user-invocable': 'false' },
 });
 
 /**

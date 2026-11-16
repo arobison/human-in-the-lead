@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "id": "tracker/stale-item-sweep",
+  "suite": "tracker",
+  "category": "tracker",
+  "description": "The stale-item sweep (design part 13.3) reads a fixture tracker with one case of each finding kind beside one that is not: it lists an orphaned claim, a proposed item older than sweep.proposed_max_age, a blocked item whose only blocker was dropped, items merged but still open (by a commit's trailers and by a ledger event), two release items that need the same item, and an item that changed public surface without a release note, in that order, and nothing else. It changes nothing in the repository.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "fixture",
+      "action": "tracker.sweep-fixture",
+      "with": {}
+    },
+    {
+      "id": "sweep",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "sweep", "--now", "2026-11-16T12:00:00Z"]
+      }
+    },
+    {
+      "id": "status",
+      "action": "adopt.git",
+      "with": {
+        "argv": ["status", "--porcelain"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "seven-findings",
+      "grader": "count",
+      "with": {
+        "path": "steps.sweep.result.findings",
+        "equals": 7
+      }
+    },
+    {
+      "id": "all-kinds-checked",
+      "grader": "count",
+      "with": {
+        "path": "steps.sweep.result.checked",
+        "equals": 6
+      }
+    },
+    {
+      "id": "none-skipped",
+      "grader": "count",
+      "with": {
+        "path": "steps.sweep.result.skipped",
+        "equals": 0
+      }
+    },
+    {
+      "id": "finding-1-orphaned-claim",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[0].kind",
+        "value": "orphaned-claim"
+      }
+    },
+    {
+      "id": "finding-1-w-1",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[0].item",
+        "value": "W-1"
+      }
+    },
+    {
+      "id": "finding-2-proposed-too-old",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[1].kind",
+        "value": "proposed-too-old"
+      }
+    },
+    {
+      "id": "finding-2-w-3",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[1].item",
+        "value": "W-3"
+      }
+    },
+    {
+      "id": "finding-3-blockers-resolved",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[2].kind",
+        "value": "blockers-resolved"
+      }
+    },
+    {
+      "id": "finding-3-w-6",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[2].item",
+        "value": "W-6"
+      }
+    },
+    {
+      "id": "finding-4-merged-but-open",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[3].kind",
+        "value": "merged-but-open"
+      }
+    },
+    {
+      "id": "finding-4-w-8",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[3].item",
+        "value": "W-8"
+      }
+    },
+    {
+      "id": "finding-5-merged-but-open",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[4].kind",
+        "value": "merged-but-open"
+      }
+    },
+    {
+      "id": "finding-5-w-10",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[4].item",
+        "value": "W-10"
+      }
+    },
+    {
+      "id": "finding-6-release-needs-overlap",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[5].kind",
+        "value": "release-needs-overlap"
+      }
+    },
+    {
+      "id": "finding-6-w-11",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[5].item",
+        "value": "W-11"
+      }
+    },
+    {
+      "id": "finding-7-missing-release-note",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[6].kind",
+        "value": "missing-release-note"
+      }
+    },
+    {
+      "id": "finding-7-w-14",
+      "grader": "equals",
+      "with": {
+        "path": "steps.sweep.result.findings[6].item",
+        "value": "W-14"
+      }
+    },
+    {
+      "id": "changes-nothing",
+      "grader": "count",
+      "with": {
+        "path": "steps.status.lines",
+        "equals": 0
+      }
+    }
+  ]
+}

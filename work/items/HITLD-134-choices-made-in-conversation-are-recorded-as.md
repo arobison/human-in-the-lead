@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 claimed_by: D-6
+release_note: "`hitld rights record` files a choice the owner made in conversation as a decision."
 ---
 
 ## Why
