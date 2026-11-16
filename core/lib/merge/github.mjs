@@ -38,7 +38,9 @@ export function repoFromRemote(url) {
 /** @param {string} s */
 const checkState = (s) => {
   if (['success', 'neutral', 'skipped'].includes(s)) return 'success';
-  if (['failure', 'error', 'cancelled', 'timed_out', 'action_required', 'stale'].includes(s)) {
+  // GitHub's own conclusion values, spelled as the API sends them. spelling-ok
+  const failed = ['failure', 'error', 'cancelled', 'timed_out', 'action_required', 'stale']; // spelling-ok
+  if (failed.includes(s)) {
     return 'failure';
   }
   return 'pending';

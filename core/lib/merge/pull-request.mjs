@@ -254,7 +254,7 @@ export async function runPullRequestQueue(r) {
      * @type {{ item: string, branch: string, number: number, commit: string, rebuilt: boolean }[]} */
     updated: [],
     main: { before: '', after: '' },
-    /** @type {{ kind: 'fetch' | 'push', message: string } | null} */
+    /** @type {{ kind: 'fetch' | 'push' | 'update', message: string } | null} */
     incident: null,
     state,
   };
@@ -493,6 +493,15 @@ export async function runPullRequestQueue(r) {
             .out.split('\n')
             .filter(Boolean);
           git(dir, ['merge', '--abort']);
+          if (!files.length) {
+            // Not a conflict: git could not merge at all (no committer identity, say). Nothing is
+            // the executor's to fix, so nothing is sent back; the queue stops and says why.
+            result.incident = {
+              kind: 'update',
+              message: `merging ${s.mainBranch} into ${e.branch} failed without a conflict: ${merged.err || merged.out}`,
+            };
+            break;
+          }
           reject(e, {
             reason: 'conflict',
             files,

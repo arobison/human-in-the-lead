@@ -63,7 +63,9 @@ function itemAt(dir, id) {
 
 /**
  * A clone of a bare remote standing in for GitHub, with W-1 to W-3 planned on main.
- * @param {{ checks?: Record<string, import('../lib/merge/github.mjs').Check[]> }} [o]
+ * The clone has a git identity, as an orchestrator's checkout does, unless `identity` is false:
+ * the queue's own commits (main merged in, rebuilt files) are made with it.
+ * @param {{ checks?: Record<string, import('../lib/merge/github.mjs').Check[]>, identity?: boolean }} [o]
  */
 function setup(o = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hitld-pr-')));
@@ -72,6 +74,10 @@ function setup(o = {}) {
   git(base, 'init', '-q', '--bare', '-b', 'main', remote);
   git(base, 'clone', '-q', remote, root);
   git(root, 'checkout', '-q', '-b', 'main');
+  if (o.identity !== false) {
+    git(root, 'config', 'user.name', 'Orchestrator');
+    git(root, 'config', 'user.email', 'orchestrator@example.com');
+  }
   put(root, {
     'shared.txt': 'one\n',
     'work/items/W-1.md': itemText('W-1', 'planned'),
@@ -274,6 +280,37 @@ test('after a merge the next branch is brought up to date by a merge, rebuilt, p
     assert.match(message, /Work-Item: W-3/);
     assert.doesNotMatch(message, /W-1/);
   } finally {
+    t.done();
+  }
+});
+
+test('a merge of main that fails without a conflict is an incident, and nothing is sent back', async () => {
+  // No identity anywhere git looks: the queue cannot commit main into the branch.
+  const saved = { home: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_NOSYSTEM };
+  process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+  process.env.GIT_CONFIG_NOSYSTEM = '1';
+  const t = setup({ identity: false });
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'b.txt': 'b\n' });
+    const bBefore = t.remoteTip('hitld/W-2');
+    const r = await t.pass([a, b]);
+    assert.deepEqual(
+      r.merged.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.deepEqual(r.rejected, []);
+    assert.equal(r.incident?.kind, 'update');
+    assert.match(
+      String(r.incident?.message),
+      /merging main into hitld\/W-2 failed without a conflict/,
+    );
+    assert.equal(t.remoteTip('hitld/W-2'), bBefore, 'the branch is left as it was');
+  } finally {
+    if (saved.home === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = saved.home;
+    if (saved.system === undefined) delete process.env.GIT_CONFIG_NOSYSTEM;
+    else process.env.GIT_CONFIG_NOSYSTEM = saved.system;
     t.done();
   }
 });
