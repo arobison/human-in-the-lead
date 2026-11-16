@@ -1,10 +1,11 @@
 ---
 id: HITLD-133
-title: "Merging through GitHub pull requests, for sessions that cannot push main"
+title: Merging through GitHub pull requests, for sessions that cannot push main
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-7
 ---
 
 ## Why
