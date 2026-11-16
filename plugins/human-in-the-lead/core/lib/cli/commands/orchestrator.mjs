@@ -51,6 +51,13 @@ import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mj
 import { planDispatch } from '../../dispatch/plan.mjs';
 import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
+import {
+  mergedSincePlanned,
+  overlapsInFlight,
+  touchesOf,
+  trackedFiles,
+} from '../../dispatch/touches.mjs';
+import { mainRefOf, missingReleaseNote } from '../../dispatch/release-note.mjs';
 import { runMergeQueue } from '../../merge/queue.mjs';
 import { ghGitHub, remoteUrl, repoFromRemote } from '../../merge/github.mjs';
 import {
@@ -331,6 +338,22 @@ export function readyQueue(p, ctx) {
 }
 
 /**
+ * An item's file, repository-relative, from the files tracker on this checkout; undefined when
+ * the tracker has no such item.
+ * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} id
+ * @returns {string | undefined}
+ */
+function itemPathOf(p, ctx, id) {
+  try {
+    const { tracker } = readWorkItems({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
+    const path = /** @type {Item | null} */ (tracker.get(id))?.path;
+    return typeof path === 'string' ? path : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The dispatch plan for the free slots.
  * `byHand`: the item the person started by hand; it is the only one that runs before setup is done.
  * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand]
@@ -348,11 +371,34 @@ export function plan(p, ctx, byHand) {
   const locks = new Map(
     env.lockStatus().map((l) => [l.resource, l.held_by && !l.stale ? l.held_by : null]),
   );
+  // Touches for the overlap rule and the brief: an item's own, else derived from its text and the
+  // repository (dispatch/touches.mjs); a dispatch in flight keeps those its dispatched event
+  // recorded. The repository is listed only when some item has no touches of its own.
+  /** @type {Map<string, string[]>} */
+  const recorded = new Map();
+  for (const e of readLedger(p.store).events) {
+    if (e.event === 'dispatched' && Array.isArray(e.touches)) recorded.set(e.dispatch, e.touches);
+  }
+  /** @type {string[] | null} */
+  let files = null;
+  const inline = /** @type {string[]} */ (p.policy.dispatch?.inline_globs ?? []);
+  /** @param {Item | undefined} item @param {string} [dispatch] */
+  const touchesFor = (item, dispatch) => {
+    if (!item) return { touches: [], source: /** @type {const} */ ('none') };
+    if (!(item.touches ?? []).length && !(dispatch && recorded.has(dispatch)) && files === null) {
+      files = trackedFiles(p.repoRoot);
+    }
+    return touchesOf(item, {
+      files,
+      inline,
+      recorded: dispatch ? (recorded.get(dispatch) ?? null) : null,
+    });
+  };
   const running = q.inFlight.map((d) => ({
     dispatch: d.dispatch,
     item: d.item,
     serial_resources: d.serial_resources ?? [],
-    touches: /** @type {string[]} */ (q.byId.get(d.item)?.touches ?? []),
+    touches: touchesFor(q.byId.get(d.item), d.dispatch).touches,
   }));
   const ours = new Set(running.map((d) => d.dispatch));
   // What this machine has, from a fresh local probe and the machine file's record: the smaller wins.
@@ -392,8 +438,9 @@ export function plan(p, ctx, byHand) {
     overlapSerialize: p.policy.dispatch.serialize_overlap_share,
     critical: q.critical,
     setup: { ...p.setup, byHand },
+    touches: (item) => touchesFor(item),
   });
-  return { q, result: { ...result, disk: diskWarning(disk) }, setup: p.setup };
+  return { q, result: { ...result, disk: diskWarning(disk) }, setup: p.setup, running };
 }
 
 /**
@@ -414,6 +461,8 @@ export const planJson = (r, setup) => ({
     estimate_tokens: s.sizing.estimate_tokens,
     ...(s.sizing.owner_review ? { owner_review: s.sizing.owner_review } : {}),
     serial: s.serial,
+    touches: s.touches.touches,
+    touches_source: s.touches.source,
     notes: s.notes,
   })),
   inline: r.inline.map((s) => s.item),
@@ -925,7 +974,11 @@ const table = [
             { handover: due },
           );
         }
-        const { q, result, setup } = plan(p, ctx, input['by-hand'] === true ? id : undefined);
+        const { q, result, setup, running } = plan(
+          p,
+          ctx,
+          input['by-hand'] === true ? id : undefined,
+        );
         const planned = result.start.find((s) => s.item === id);
         if (!planned && result.disk?.state === 'below') {
           throw new Refusal('disk-floor', `${id} waits: ${result.disk.reason}`, {
@@ -958,9 +1011,30 @@ const table = [
         const resultPath = join(p.store.root, resultKey(dispatch));
         const isolation = tier <= 2 ? 'worktree' : 'none';
         const sizing = planned.sizing;
+        const touches = planned.touches;
+        // What the brief says about overlapping work: the dispatches in flight on the same paths,
+        // and what merged on them since the item was planned.
+        const overlaps = overlapsInFlight(touches.touches, running);
+        const merged = mergedSincePlanned({
+          repoRoot: p.repoRoot,
+          main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
+          path: typeof item.path === 'string' ? item.path : undefined,
+          touches: touches.touches,
+        });
         /** @param {string | null} worktree */
         const briefFor = (worktree) =>
-          renderBrief({ item, sizing, dispatch, branch, policy: p.policy, isolation, worktree });
+          renderBrief({
+            item,
+            sizing,
+            dispatch,
+            branch,
+            policy: p.policy,
+            isolation,
+            worktree,
+            touches,
+            overlaps,
+            merged,
+          });
 
         // Write ahead: the dispatch is in the ledger before anything starts.
         run.record({
@@ -976,6 +1050,9 @@ const table = [
           brief_hash: createHash('sha256').update(briefFor(null)).digest('hex'),
           skill_versions: { hitld_version: VERSION },
           estimate_tokens: sizing.estimate_tokens,
+          ...(touches.source !== 'none'
+            ? { touches: touches.touches, touches_source: touches.source }
+            : {}),
           ...(sizing.areas[0] ? { area: sizing.areas[0] } : {}),
           host: run.host,
           ...(tier === 3 ? { mode } : {}),
@@ -1230,6 +1307,21 @@ const table = [
               notes: 'report shape and branch checked; acceptance checks run as merge fast checks',
             });
             out.queued_to_merge = branch;
+            // The release-note rule: a change to the public interface needs the item's
+            // release_note. Flagged for a follow-up; the branch is still queued.
+            const missing = missingReleaseNote({
+              repoRoot: p.repoRoot,
+              main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
+              commit: r.commit.sha,
+              itemPath: itemPathOf(p, ctx, entry.item),
+              publicGlobs: p.policy.merge?.public_globs ?? [],
+            });
+            if (missing) {
+              out.release_note_missing = {
+                files: missing.files,
+                next: `the change touches the public interface but ${entry.item} has no release_note: hitld dispatch follow-up --dispatch ${d} --message "<ask for a one-line release_note on the item>"`,
+              };
+            }
             // The evidence goes in the body of the branch's pull request (merge.via pull-request).
             p.store.write(
               reportEvidenceKey(entry.item),
@@ -1318,6 +1410,9 @@ const table = [
           skill_versions: { hitld_version: VERSION },
           host: run.host,
           ...(first.serial_resources ? { serial_resources: first.serial_resources } : {}),
+          ...(first.touches
+            ? { touches: first.touches, touches_source: first.touches_source }
+            : {}),
           notes: `follow-up of ${from}`,
         });
         run.record({

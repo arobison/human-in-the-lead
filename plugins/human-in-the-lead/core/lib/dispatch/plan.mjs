@@ -27,6 +27,7 @@ import { overlapShare } from './item.mjs';
  * @property {0 | 1 | 2 | 3} tier as it will run, after degrading for the harness
  * @property {Sizing} sizing
  * @property {string[]} serial
+ * @property {import('./touches.mjs').Touches} touches what the overlap rule used
  * @property {string[]} notes degradations and the like
  *
  * @typedef {{ item: string, reason: string, why: string }} Held
@@ -50,9 +51,12 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   critical?: Set<string>,
  *   setup?: { done: boolean, reason?: string | null, byHand?: string },
  *   disk?: { state: string, reason: string },
+ *   touches?: (item: Item) => import('./touches.mjs').Touches,
  * }} r
  *   setup: until the first-run setup is done (design part 13.4), every item waits (reason
  *   `setup`) and the cap is one, except `byHand`, the one item the person started by hand
+ *   touches: an item's touches for the overlap rule (touches.mjs: its own, else derived); by
+ *   default its own
  */
 export function planDispatch(r) {
   const caps = r.capabilities;
@@ -83,6 +87,13 @@ export function planDispatch(r) {
   let lastGate = null;
   let economized = false;
   let waiting = 0;
+  /** @param {Item} item @returns {import('./touches.mjs').Touches} */
+  const touchesOf =
+    r.touches ??
+    ((item) => {
+      const own = /** @type {string[]} */ (item.touches ?? []);
+      return { touches: own, source: own.length ? 'item' : 'none' };
+    });
 
   for (const item of r.queue) {
     const id = String(item.id);
@@ -105,6 +116,7 @@ export function planDispatch(r) {
         tier: 0,
         sizing,
         serial: [],
+        touches: touchesOf(item),
         notes: ['the orchestrator does it inline, through the merge queue as a tier-0 branch'],
       });
       continue;
@@ -165,7 +177,8 @@ export function planDispatch(r) {
       });
       continue;
     }
-    const share = overlapShare(item.touches ?? [], runningTouches);
+    const touches = touchesOf(item);
+    const share = overlapShare(touches.touches, runningTouches);
     if (share >= (r.overlapSerialize ?? 0.5)) {
       held.push({
         item: id,
@@ -187,9 +200,9 @@ export function planDispatch(r) {
         'no separate sessions here: tier 3 runs as tier 2 at the highest model and effort, with a smaller slice of the item',
       );
     }
-    start.push({ item: id, tier, sizing, serial, notes: itemNotes });
+    start.push({ item: id, tier, sizing, serial, touches, notes: itemNotes });
     for (const s of serial) busy.add(s);
-    runningTouches.push(...(item.touches ?? []));
+    runningTouches.push(...touches.touches);
   }
 
   return {
