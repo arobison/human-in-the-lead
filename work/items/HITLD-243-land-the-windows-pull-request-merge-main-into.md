@@ -2,7 +2,7 @@
 id: HITLD-243
 title: "Land the Windows pull request: merge main into fix/windows, resolve the conflicts and get its checks green"
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 claimed_by: D-21
