@@ -5,10 +5,12 @@ kind: work
 state: planned
 created: 2026-11-16
 project: HITLD-15
-needs: [HITLD-243]
+needs: [HITLD-243, HITLD-153]
 ---
 
 ## Why
+
+Ordering (the owner, in the chief of staff session): this waits for HITLD-153, so the planner builds the fix for a finished-but-unmerged item holding a slot first. It is an ordering choice, not a technical dependency.
 
 The owner decided (HITLD-245) that the store moves from `~/.local/share/human-in-the-lead/<id>` to `%LOCALAPPDATA%\human-in-the-lead\<id>` on Windows, before outside users rely on the old path. PR #186 (Windows) left it alone as a decision.
 

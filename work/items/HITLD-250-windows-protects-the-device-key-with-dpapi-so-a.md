@@ -5,10 +5,12 @@ kind: work
 state: planned
 created: 2026-11-16
 project: HITLD-15
-needs: [HITLD-243]
+needs: [HITLD-243, HITLD-153]
 ---
 
 ## Why
+
+Ordering (the owner, in the chief of staff session): this waits for HITLD-153, so the planner builds the fix for a finished-but-unmerged item holding a slot first. It is an ordering choice, not a technical dependency.
 
 hitld has no keychain tool on Windows, so a local `store device init` fails with `device-no-keychain` and suggests `--cloud`. The owner decided (HITLD-246) to protect the key with Windows DPAPI, through PowerShell and with no extra dependency. For v0.1.0, not rc.2.
 
