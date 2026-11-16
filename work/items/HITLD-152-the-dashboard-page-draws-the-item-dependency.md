@@ -18,6 +18,7 @@ On 2026-11-16, in the chief of staff session, the owner decided two things, reco
 
 - **What the page shows (HITLD-176):** all four: the plan (the item dependency graph), milestone progress, what is happening now, and quota and spend. In the owner's words, a work page designed in another project "could serve as a basis for the built in dashboard here plus the stuff above where it's not already covered by this design".
 - **When (HITLD-177):** next, before the rest of rc.2. This item and HITLD-62 join the milestone Consumer live.
+- **Which views (the owner's own words, in the UX review of the milestone board, PR #196):** "we're also missing a bunch of stuff from the dyno work page, your moves, flow, proposals". The page takes the reference's Your move (the default view), the full Proposals view (all proposed items, not only milestones) and Flow, as well as the Roadmap that HITLD-62 builds. HITLD-62 merges first, after the owner's UX review; this item builds on it.
 
 ## The reference the owner pointed to
 
@@ -40,7 +41,8 @@ What this design already has: the item graph (the views), and the milestone grap
   - **Milestone progress:** the milestone graph of HITLD-62, drawn by the same code: each milestone's clauses, its constraints done, and what holds it up.
   - **What is happening now:** the dispatches running and what each is doing, pull requests waiting on the owner or on checks, and decisions waiting for the owner's answer, each with its age.
   - **Quota and spend:** the weekly usage against the reserve and its forecast, and what sessions and probes have cost.
-- The owner reviews, in a walk-through (HITLD-135), one question at a time, which parts of the reference below the page takes and how, and the answers are recorded as decisions before anything is built.
+- The page has the reference's views: **Your move** (the owner's decisions, ready to start, work in progress and waiting outside, each section leading with its number), **Roadmap** (HITLD-62's milestone board), **Proposals** (a table of every proposed item: the idea, what stands between it and committing, how many open items wait on it) and **Flow** (stage bands day by day from the committed status history, then the measures with the one that must not get worse).
+- The owner reviews each view in the rendered file, one at a time, and the owner's notes are recorded as decisions, as for the milestone board.
 - The page stays one file with no script from elsewhere and no network request. Opening it in a browser with no network shows all four views.
 - The graphs are drawn by HITLd's own layout code, with no new runtime dependency, legible for a tracker of a few hundred items. Each node links to its item file in the repository, and a text list of the same nodes sits under each graph for a screen reader.
 - A graph too large to read is cut by project or by state, with a setting for what the page shows by default, and the full graph remains in `work/views/`.
