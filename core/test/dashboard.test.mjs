@@ -8,7 +8,7 @@ import { chmodSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { git, isolatedEnv, itemText, makeRepo, put } from './tracker-fixture.mjs';
-import { assertPageSafe } from './helpers/page-safety.mjs';
+import { assertPageSafe, scriptElements } from './helpers/page-safety.mjs';
 
 const HOME = isolatedEnv();
 const NOW = '2026-11-16T12:00:00Z';
@@ -402,7 +402,7 @@ test('one inline script: allowed by its hash alone, data as escaped JSON, and tr
   git(root, 'commit', '-q', '-m', 'hostile');
   const { html } = await dashboard(root);
   assertPageSafe(html);
-  const code = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+  const code = scriptElements(html)[0]?.code ?? '';
   const data = JSON.parse(/const D = (\{.*?\});\n/s.exec(code)?.[1] ?? 'null');
   assert.equal(data.items['W-42'].t, '</script><script>alert(1)</script><!-- & more');
   const { scriptJson } = await import('../lib/dashboard/script.mjs');
