@@ -5,10 +5,12 @@ kind: work
 state: planned
 created: 2026-11-16
 project: HITLD-15
-needs: [HITLD-243]
+needs: [HITLD-243, HITLD-153]
 ---
 
 ## Why
+
+Ordering (the owner, in the chief of staff session): this waits for HITLD-153, so the planner builds the fix for a finished-but-unmerged item holding a slot first. It is an ordering choice, not a technical dependency.
 
 `refs/hitld/published/*` pile up, and each `work publish` reads all of them. PR #186 batches the reads, but the list still grows. The owner decided (HITLD-248) to prune the refs whose branch has merged to main.
 
