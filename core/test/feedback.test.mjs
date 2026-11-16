@@ -16,7 +16,23 @@ import { HEADINGS, FORM_OF, renderIssueBody } from '../lib/feedback/render.mjs';
 import { feedbackRecordsIn } from '../lib/feedback/guard.mjs';
 import { checkRecord } from '../lib/feedback/record.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
-import { tempDir } from './helpers/tmp.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
+
+/** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = tempDir('hitld-link-probe-');
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    removeTempDir(dir);
+  }
+})();
+const needsSymlink = {
+  skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
+};
 
 const root = tempDir('hitld-feedback-');
 const repo = join(root, 'repo');
@@ -195,15 +211,19 @@ test('feedback: a store in the repository, or in a worktree, is refused', async 
   assert.equal(existsSync(join(wt, 'store')), false);
 });
 
-test('feedback: a link inside the store that leads into the repository is refused', async () => {
-  const linked = join(root, 'linked');
-  mkdirSync(linked);
-  mkdirSync(join(repo, 'trap'));
-  symlinkSync(join(repo, 'trap'), join(linked, 'feedback'));
-  const r = await hitld(['feedback', '--kind', 'bug', '--words', 'w', '--store', linked]);
-  assert.equal(r.code, 1);
-  assert.deepEqual(readdirSync(join(repo, 'trap')), []);
-});
+test(
+  'feedback: a link inside the store that leads into the repository is refused',
+  needsSymlink,
+  async () => {
+    const linked = join(root, 'linked');
+    mkdirSync(linked);
+    mkdirSync(join(repo, 'trap'));
+    symlinkSync(join(repo, 'trap'), join(linked, 'feedback'));
+    const r = await hitld(['feedback', '--kind', 'bug', '--words', 'w', '--store', linked]);
+    assert.equal(r.code, 1);
+    assert.deepEqual(readdirSync(join(repo, 'trap')), []);
+  },
+);
 
 test('feedback list shows waiting records; drop marks one dropped and list stops showing it', async () => {
   const before = await hitld(['feedback', 'list', '--store', store]);

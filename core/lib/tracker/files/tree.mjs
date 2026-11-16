@@ -23,8 +23,9 @@ import { insidePath, isRegularFile, readNoFollow } from './safe.mjs';
  * @property {string[]} errors problems found while reading it
  * @property {string} [version] the file's version (working-tree reads only)
  *
- * @typedef {{ where: string, path?: string, ref?: string }} Place
- *   a worktree's working copy (path) or a ref (ref); where is the label shown to people
+ * @typedef {{ where: string, path?: string, ref?: string, branch?: string }} Place
+ *   a worktree's working copy (path) or a ref (ref); where is the label shown to people; branch:
+ *   for a worktree on a branch, that branch's ref
  */
 
 /**
@@ -144,18 +145,23 @@ export function fileNamesIn(root, layout, place) {
       return existsSync(dir) ? readdirSync(dir).filter((f) => filePattern.test(f)) : [];
     });
   }
-  const listing = git(
+  return fileNamesInPlaces(root, layout, [place]);
+}
+
+/**
+ * Item file names (not contents) in every place, together: refs are read as in loadPlaces.
+ * @param {string} root @param {Layout} layout @param {Place[]} places
+ * @returns {string[]}
+ */
+export function fileNamesInPlaces(root, layout, places) {
+  const onRefs = refItemFiles(
     root,
-    ['ls-tree', '-r', '--name-only', place.ref ?? '', '--', layout.workDir],
-    {
-      allowFail: true,
-    },
+    layout,
+    places.filter((p) => !p.path).map((p) => p.ref ?? ''),
   );
-  return listing
-    .split('\n')
-    .filter((p) => folderNames(layout).includes(p.split('/').at(-2) ?? ''))
-    .map((p) => p.split('/').pop() ?? '')
-    .filter((f) => filePattern.test(f));
+  return places.flatMap((p) =>
+    p.path ? fileNamesIn(root, layout, p) : (onRefs.get(p.ref ?? '') ?? []).map((f) => f.file),
+  );
 }
 
 /**
@@ -175,7 +181,11 @@ export function listPlaces(root, layout, { remotes = false } = {}) {
     const branch = block.match(/^branch refs\/heads\/(.*)$/m)?.[1];
     if (!path || /^prunable/m.test(block)) continue;
     if (branch) withWorktree.add(branch);
-    places.push({ where: `${branch ?? 'detached'} (worktree)`, path });
+    places.push({
+      where: `${branch ?? 'detached'} (worktree)`,
+      path,
+      ...(branch ? { branch: `refs/heads/${branch}` } : {}),
+    });
   }
   places.push(...refPlaces(root, layout, { remotes, skipBranches: withWorktree }));
   return places;
@@ -206,47 +216,174 @@ export function refPlaces(root, layout, { remotes = true, skipBranches = new Set
  * before HITLD-82 (a branch made before the migration) are read in the current form (legacy.mjs).
  * The working tree itself is read by loadWorkTree as it is, so the check and the migration see
  * what the files hold.
+ *
+ * A command that reads the same refs twice (`work check --branches` reads every place, then the
+ * claims) passes one `cache`: a ref already in it is not read again, and each ref read is added.
+ * `preload` names refs to read into the cache in the same batch without returning them.
  * @param {string} root @param {Layout} layout @param {Place[]} places
+ * @param {{ cache?: Map<string, Entry[]>, preload?: string[] }} [options]
  * @returns {{ where: string, ref?: string, items: Entry[] }[]}
  */
-export function loadPlaces(root, layout, places) {
-  const { file: filePattern } = patterns(layout.key);
-  /** @type {{ where: string, ref?: string, items: Entry[] }[]} */
-  const out = [];
-  /** @type {{ entry: { items: Entry[] }, sha: string, path: string, file: string, folder: string }[]} */
-  const wanted = [];
-  for (const p of places) {
-    if (p.path) {
-      const items = loadWorkTree(p.path, layout).map((e) => ({ ...e, data: fromLegacy(e.data) }));
-      out.push({ where: p.where, items });
-      continue;
-    }
-    const listing = git(root, ['ls-tree', '-r', p.ref ?? '', '--', layout.workDir], {
-      allowFail: true,
-    });
-    const entry = { where: p.where, ref: p.ref, items: /** @type {Entry[]} */ ([]) };
-    out.push(entry);
-    for (const line of listing.split('\n').filter(Boolean)) {
-      const m = line.match(/^\d+ blob ([0-9a-f]+)\t(.*)$/);
-      const file = m?.[2].split('/').pop() ?? '';
-      const folder = m?.[2].split('/').at(-2) ?? '';
-      if (m && filePattern.test(file) && folderNames(layout).includes(folder)) {
-        wanted.push({ entry, sha: m[1], path: m[2], file, folder });
-      }
-    }
+export function loadPlaces(root, layout, places, { cache = new Map(), preload = [] } = {}) {
+  const refs = [
+    ...new Set([...places.filter((p) => !p.path).map((p) => p.ref ?? ''), ...preload]),
+  ].filter((ref) => !cache.has(ref));
+  const onRefs = refItemFiles(root, layout, refs);
+  const wanted = refs.flatMap((ref) => onRefs.get(ref) ?? []);
+  const blobs = wanted.length ? readBlobs(root, [...new Set(wanted.map((w) => w.sha))]) : new Map();
+  for (const ref of refs) {
+    cache.set(
+      ref,
+      (onRefs.get(ref) ?? []).map((f) => ({
+        path: f.path,
+        file: f.file,
+        folder: f.folder,
+        ...legacyParsed(parseItem(blobs.get(f.sha) ?? '')),
+      })),
+    );
   }
-  if (wanted.length) {
-    const blobs = readBlobs(root, [...new Set(wanted.map((w) => w.sha))]);
-    for (const w of wanted) {
-      w.entry.items.push({
-        path: w.path,
-        file: w.file,
-        folder: w.folder,
-        ...legacyParsed(parseItem(blobs.get(w.sha) ?? '')),
-      });
+  return places.map((p) =>
+    p.path
+      ? {
+          where: p.where,
+          items: loadWorkTree(p.path, layout).map((e) => ({ ...e, data: fromLegacy(e.data) })),
+        }
+      : { where: p.where, ref: p.ref, items: [...(cache.get(p.ref ?? '') ?? [])] },
+  );
+}
+
+/**
+ * @typedef {{ sha: string, path: string, file: string, folder: string }} RefFile
+ *   an item file on a ref: its blob, repository-relative path, name and folder
+ */
+
+/**
+ * The item files on each ref, read without a process per ref. A clone can carry hundreds of refs
+ * (an upstream's branches), and starting a process costs far more on some machines (Windows with
+ * endpoint protection: about 200 ms) than others. So one `git cat-file --batch-check` finds each
+ * item folder's tree on every ref, and one `git cat-file --batch` reads the distinct trees,
+ * however many refs share them. A ref without the work directory, or that does not resolve, has
+ * no files. Only a folder's direct entries count, as in loadWorkTree.
+ * @param {string} root @param {Layout} layout @param {string[]} refs
+ * @returns {Map<string, RefFile[]>} ref → its item files
+ */
+export function refItemFiles(root, layout, refs) {
+  const { file: filePattern } = patterns(layout.key);
+  const workDir = layout.workDir.replace(/\/+$/, '');
+  const folders = folderNames(layout);
+  /** @type {Map<string, RefFile[]>} */
+  const out = new Map();
+  const asked = [...new Set(refs.filter(Boolean))].flatMap((ref) =>
+    folders.map((folder) => ({ ref, folder })),
+  );
+  if (!asked.length) return out;
+  const answer = git(root, ['cat-file', '--batch-check'], {
+    allowFail: true,
+    input: `${asked.map((a) => `${a.ref}:${workDir}/${a.folder}`).join('\n')}\n`,
+  }).split('\n');
+  // One answer line per line asked: "<object> tree <size>", or "<what was asked> missing".
+  /** @type {{ ref: string, folder: string, tree: string }[]} */
+  const found = [];
+  asked.forEach((a, i) => {
+    const m = /^([0-9a-f]{40,64}) tree \d+$/.exec(answer[i] ?? '');
+    if (m) found.push({ ...a, tree: m[1] });
+  });
+  const trees = readTrees(root, [...new Set(found.map((f) => f.tree))]);
+  for (const { ref, folder, tree } of found) {
+    const files = out.get(ref) ?? [];
+    out.set(ref, files);
+    for (const e of trees.get(tree) ?? []) {
+      if (!e.blob || !filePattern.test(e.name)) continue;
+      files.push({ sha: e.sha, path: `${workDir}/${folder}/${e.name}`, file: e.name, folder });
     }
   }
   return out;
+}
+
+/**
+ * Read tree objects by ID in one `git cat-file --batch`: each one's entries. An entry is a blob
+ * when `git ls-tree` would call it one (a file or a symbolic link), not a tree or a submodule.
+ * @param {string} root @param {string[]} shas
+ * @returns {Map<string, { name: string, sha: string, blob: boolean }[]>}
+ */
+export function readTrees(root, shas) {
+  /** @type {Map<string, { name: string, sha: string, blob: boolean }[]>} */
+  const trees = new Map();
+  if (!shas.length) return trees;
+  const buf = execFileSync('git', ['cat-file', '--batch'], {
+    cwd: root,
+    maxBuffer: 1 << 28,
+    input: `${shas.join('\n')}\n`,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  let at = 0;
+  while (at < buf.length) {
+    const eol = buf.indexOf(10, at);
+    if (eol < 0) break;
+    const [sha, type, size] = buf.subarray(at, eol).toString().split(' ');
+    if (type !== 'tree') {
+      at = eol + 1; // "<name> missing"
+      continue;
+    }
+    const start = eol + 1;
+    const end = start + Number(size);
+    const hashBytes = sha.length / 2; // 20 for SHA-1, 32 for SHA-256
+    /** @type {{ name: string, sha: string, blob: boolean }[]} */
+    const entries = [];
+    // Each entry: "<octal mode> <name>\0" and the object's ID as raw bytes.
+    let p = start;
+    while (p < end) {
+      const space = buf.indexOf(32, p);
+      const nul = buf.indexOf(0, space);
+      const mode = buf.subarray(p, space).toString();
+      const name = buf.subarray(space + 1, nul).toString('utf8');
+      const id = buf.subarray(nul + 1, nul + 1 + hashBytes).toString('hex');
+      entries.push({ name, sha: id, blob: mode.startsWith('100') || mode === '120000' });
+      p = nul + 1 + hashBytes;
+    }
+    trees.set(sha, entries);
+    at = end + 1;
+  }
+  return trees;
+}
+
+/**
+ * Read objects by name (such as `<commit>:<path>`) in one `git cat-file --batch`: each one's text,
+ * in order, or null where the name does not resolve to a blob. A name holding a line break cannot
+ * go on the input's line and reads as null.
+ * @param {string} root @param {string[]} names
+ * @returns {(string | null)[]}
+ */
+export function readNamed(root, names) {
+  const asked = names.filter((n) => !/[\r\n]/.test(n));
+  if (!asked.length) return names.map(() => null);
+  const buf = execFileSync('git', ['cat-file', '--batch'], {
+    cwd: root,
+    maxBuffer: 1 << 28,
+    input: `${asked.join('\n')}\n`,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  /** @type {(string | null)[]} */
+  const texts = [];
+  let at = 0;
+  // One answer per name: "<object> <type> <size>", the content and a line feed; or a single line
+  // "<name> missing" (or "ambiguous").
+  for (let i = 0; i < asked.length && at < buf.length; i++) {
+    const eol = buf.indexOf(10, at);
+    if (eol < 0) break;
+    const header = /^([0-9a-f]{40,64}) (\w+) (\d+)$/.exec(buf.subarray(at, eol).toString());
+    if (!header) {
+      texts.push(null);
+      at = eol + 1;
+      continue;
+    }
+    const start = eol + 1;
+    const end = start + Number(header[3]);
+    texts.push(header[2] === 'blob' ? buf.subarray(start, end).toString('utf8') : null);
+    at = end + 1;
+  }
+  let j = 0;
+  return names.map((n) => (/[\r\n]/.test(n) ? null : (texts[j++] ?? null)));
 }
 
 /** @param {ReturnType<typeof parseItem>} parsed */

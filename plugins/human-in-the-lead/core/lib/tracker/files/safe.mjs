@@ -14,11 +14,10 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  realpathSync,
-  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { realPath, renameReplacing } from '../../platform/fs.mjs';
 
 const O_NOFOLLOW = fs.O_NOFOLLOW ?? 0;
 
@@ -56,8 +55,8 @@ export function insidePath(root, rel) {
   let existing = full;
   for (;;) {
     try {
-      const real = realpathSync(existing);
-      const back = relative(realpathSync(root), real);
+      const real = realPath(existing);
+      const back = relative(realPath(root), real);
       if (back === '..' || back.startsWith(`..${sep}`) || isAbsolute(back)) {
         throw new Error(`${JSON.stringify(rel)} resolves outside the repository`);
       }
@@ -108,7 +107,7 @@ export function writeNoFollow(path, text) {
   } finally {
     closeSync(fd);
   }
-  renameSync(tmp, path);
+  renameReplacing(tmp, path);
 }
 
 /** Create a new file exclusively, never through a link. Fails with EEXIST if anything is there. @param {string} path @param {string} text */

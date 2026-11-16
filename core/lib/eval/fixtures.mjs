@@ -6,9 +6,10 @@
 //   copy  a copy of evals/fixtures/<options.from> from the scenario's evals directory
 
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { isObject, seededRandom, seededShuffle, sandboxPath, writeSandboxFile } from './util.mjs';
+import { realPath } from '../platform/fs.mjs';
 
 /**
  * @typedef {object} Fixture
@@ -156,7 +157,7 @@ function copyFixture(dir, { options, evalsDir }) {
   if (
     lstatSync(root).isSymbolicLink() ||
     !lstatSync(source).isDirectory() ||
-    realpathSync(source) !== resolve(realpathSync(root), from)
+    realPath(source) !== resolve(realPath(root), from)
   ) {
     throw new Error(
       `fixture copy: evals/fixtures/${from} is not a directory, or is a symbolic link`,

@@ -101,7 +101,7 @@ export function buildConsumer(root, options = {}) {
       {
         schema_version: 1,
         project: { id: 'orch-fixture', key: 'W' },
-        merge: { mode: 'queue', full_suite: ["node --test 'test/*.test.js'"] },
+        merge: { mode: 'queue', full_suite: ['node --test "test/*.test.js"'] },
         ...(options.policy ?? {}),
       },
       null,
@@ -233,7 +233,7 @@ export const MERGE_SETTINGS = Object.freeze({
   mainBranch: 'main',
   batchMax: 4,
   fastChecks: ['node --check src/a.js'],
-  fullSuite: ["node --test 'test/*.test.js'"],
+  fullSuite: ['node --test "test/*.test.js"'],
   generated: [{ globs: ['gen/**'], regenerate: 'node gen.mjs' }],
   flakeReruns: 1,
   flake: { compareRuns: 3, compareRunsMax: 3, burnInRuns: 2, testGlobs: ['test/**'] },

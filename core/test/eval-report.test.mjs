@@ -15,7 +15,20 @@ import { COMMANDS } from '../lib/cli/table.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { acceptCommand, changesAgainst, renderEvalReport } from '../lib/eval/report.mjs';
-import { tempDir } from './helpers/tmp.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
+
+/** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = tempDir('hitld-link-probe-');
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    removeTempDir(dir);
+  }
+})();
 
 const tmp = () => tempDir('hitld-eval-report-test-');
 
@@ -410,7 +423,7 @@ test('hitld eval report renders the latest stored run into reports/ in the priva
   assert.equal(
     r.json.html,
     join(
-      realpathSync(w.env.XDG_DATA_HOME),
+      realpathSync.native(w.env.XDG_DATA_HOME),
       'human-in-the-lead',
       'hitld-evals',
       'reports',
@@ -453,11 +466,14 @@ test('hitld eval report --out stays inside the repository or the private store, 
   assert.equal(refused.json.error, 'output-path');
   assert.equal(existsSync(outside), false);
   assert.equal((await w.hitld(args('../escape'))).json.error, 'output-path');
-  // A symlink out of the repository does not smuggle the write out.
+  // A symlink out of the repository does not smuggle the write out (where this machine can
+  // create one).
   mkdirSync(outside, { recursive: true });
-  symlinkSync(outside, join(w.cwd, 'link'));
-  assert.equal((await w.hitld(args('link/sub'))).json.error, 'output-path');
-  assert.equal(existsSync(join(outside, 'sub')), false);
+  if (canSymlink) {
+    symlinkSync(outside, join(w.cwd, 'link'));
+    assert.equal((await w.hitld(args('link/sub'))).json.error, 'output-path');
+    assert.equal(existsSync(join(outside, 'sub')), false);
+  }
   // Inside the repository is fine, repeatedly.
   assert.equal((await w.hitld(args('out'))).code, 0);
   assert.equal((await w.hitld(args('out'))).code, 0);
@@ -468,11 +484,13 @@ test('hitld eval report --out stays inside the repository or the private store, 
   assert.equal((await w.hitld(args('docs'))).json.error, 'output-path');
   assert.equal(readFileSync(join(w.cwd, 'docs', file), 'utf8'), 'mine');
   // Nor one reached through a symlink.
-  mkdirSync(join(w.cwd, 'tricky'));
-  writeFileSync(join(outside, 'target'), 'keep');
-  symlinkSync(join(outside, 'target'), join(w.cwd, 'tricky', file));
-  assert.equal((await w.hitld(args('tricky'))).json.error, 'output-path');
-  assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
+  if (canSymlink) {
+    mkdirSync(join(w.cwd, 'tricky'));
+    writeFileSync(join(outside, 'target'), 'keep');
+    symlinkSync(join(outside, 'target'), join(w.cwd, 'tricky', file));
+    assert.equal((await w.hitld(args('tricky'))).json.error, 'output-path');
+    assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
+  }
   // The private store is allowed, and so is sharing reports/ with `hitld dashboard`.
   assert.equal(
     (await w.hitld(args(join(w.env.XDG_DATA_HOME, 'human-in-the-lead', 'hitld-evals', 'mine'))))

@@ -18,7 +18,7 @@
 // anything else.
 
 import { blockRange } from './config.mjs';
-import { fileNamesIn, git, listPlaces, patterns } from './tree.mjs';
+import { fileNamesInPlaces, git, listPlaces, patterns } from './tree.mjs';
 import { CodedError } from '../../cli/errors.mjs';
 
 /**
@@ -55,11 +55,9 @@ export function assertOrchestrator(root, layout, env = process.env) {
 export function takenNumbers(root, layout, range) {
   const { file: filePattern } = patterns(layout.key);
   const taken = new Set();
-  for (const p of listPlaces(root, layout, { remotes: true })) {
-    for (const f of fileNamesIn(root, layout, p)) {
-      const n = Number(filePattern.exec(f)?.[1].slice(layout.key.length + 1));
-      if (n >= range.from && (range.to === null || n <= range.to)) taken.add(n);
-    }
+  for (const f of fileNamesInPlaces(root, layout, listPlaces(root, layout, { remotes: true }))) {
+    const n = Number(filePattern.exec(f)?.[1].slice(layout.key.length + 1));
+    if (n >= range.from && (range.to === null || n <= range.to)) taken.add(n);
   }
   return taken;
 }
@@ -98,11 +96,13 @@ export function allocate(root, layout, { block, write, remove, tries = 8, shared
       throw e;
     }
     const mine = path.split('/').pop() ?? '';
-    const rivals = listPlaces(root, layout, { remotes: true })
-      .flatMap((p) => fileNamesIn(root, layout, p))
-      .filter(
-        (f) => Number(filePattern.exec(f)?.[1].slice(layout.key.length + 1)) === n && f !== mine,
-      );
+    const rivals = fileNamesInPlaces(
+      root,
+      layout,
+      listPlaces(root, layout, { remotes: true }),
+    ).filter(
+      (f) => Number(filePattern.exec(f)?.[1].slice(layout.key.length + 1)) === n && f !== mine,
+    );
     if (rivals.some((f) => f < mine)) {
       remove(path);
       continue;

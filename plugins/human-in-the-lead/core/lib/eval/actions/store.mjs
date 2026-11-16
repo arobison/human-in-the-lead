@@ -15,6 +15,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { generateIdentity, decrypt, isAgeFile, parseIdentities } from '../../store/age.mjs';
 import { APPROVALS_KEY, openDeviceAsks, readApprovals } from '../../store/devices.mjs';
 import { DEVICES_BRANCH, PROPOSALS_DIR, STORE_BRANCH } from '../../store/remote-git.mjs';
@@ -113,7 +114,7 @@ function envFor(sandbox, name, o = {}) {
     XDG_DATA_HOME: join(dir, 'data'),
     XDG_CONFIG_HOME: join(dir, 'config'),
     HITLD_SESSION: `s-${name}`,
-    ...(hasHost(sandbox) ? { HITLD_STORE_REMOTE: `file://${hostDir(sandbox)}` } : {}),
+    ...(hasHost(sandbox) ? { HITLD_STORE_REMOTE: pathToFileURL(hostDir(sandbox)).href } : {}),
     ...(key ? { HITLD_STORE_IDENTITY: key } : {}),
     ...(o.executor ? { HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' } : {}),
   };

@@ -2,12 +2,15 @@
 // declares, and cleaned up without ever losing uncommitted work.
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { checkHolder, worktreeRoot } from './config.mjs';
 import { git, gitOk } from './git.mjs';
 import { findOutsideLinks, unlinkOutsideLinks } from './links.mjs';
 import { logEvent, readRegistry, updateRegistry } from './registry.mjs';
+import { realPath } from './fsx.mjs';
+import { killTree } from './proc.mjs';
+import { shellSpec, spawnOptions } from './shell.mjs';
 
 /**
  * @typedef {import('./registry.mjs').WorktreeLease} WorktreeLease
@@ -54,9 +57,9 @@ export async function createWorktree(ctx, request) {
     /** @type {WorktreeLease} */
     const lease = {
       holder,
-      path: realpathSync(path),
+      path: realPath(path),
       branch,
-      repo_root: realpathSync((await git(['rev-parse', '--show-toplevel'], ctx.repoRoot)).trim()),
+      repo_root: realPath((await git(['rev-parse', '--show-toplevel'], ctx.repoRoot)).trim()),
       base,
       adopted: false,
       state: 'ready',
@@ -77,8 +80,8 @@ export async function createWorktree(ctx, request) {
  */
 export async function adoptWorktree(ctx, request) {
   const holder = checkHolder(request.holder);
-  const path = realpathSync(resolve(ctx.repoRoot, request.path));
-  const top = realpathSync((await git(['rev-parse', '--show-toplevel'], path)).trim());
+  const path = realPath(resolve(ctx.repoRoot, request.path));
+  const top = realPath((await git(['rev-parse', '--show-toplevel'], path)).trim());
   if (top !== path) throw new Error(`${path} is not the top of a git worktree`);
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], path)).trim();
   const common = resolve(path, (await git(['rev-parse', '--git-common-dir'], path)).trim());
@@ -90,7 +93,7 @@ export async function adoptWorktree(ctx, request) {
       holder,
       path,
       branch,
-      repo_root: dirname(realpathSync(common)),
+      repo_root: dirname(realPath(common)),
       base: ctx.settings.mainBranch ?? 'main',
       adopted: true,
       state: 'ready',
@@ -105,7 +108,9 @@ export async function adoptWorktree(ctx, request) {
 const TAIL = 2000;
 
 /**
- * Run one setup command through the shell in a directory.
+ * Run one setup command through the shell in a directory: /bin/sh, or on Windows Git's bash
+ * (shell.mjs), since the commands are written for a POSIX shell. A timeout stops the command's
+ * whole process tree on Windows, where stopping the shell would leave its children running.
  *
  * Trust boundary (design parts 10 and 13.2): `command` is an entry of policy.json
  * env.worktree_setup, a key marked x-hitld-executes. The owner declares it as a shell command and
@@ -120,21 +125,34 @@ function runStep(command, cwd, env, timeoutMs) {
     const started = Date.now();
     let out = '';
     // Owner-declared shell command (env.worktree_setup, x-hitld-executes); see above.
-    const child = spawn(command, { cwd, env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const spec = shellSpec(command, env);
+    const child = spawn(spec.file, spec.args, {
+      cwd,
+      ...spawnOptions(spec, env),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const note = spec.note ? `note: ${spec.note}\n` : '';
     /** @param {Buffer} d */
     const take = (d) => {
       out = (out + d.toString('utf8')).slice(-TAIL * 2);
     };
     child.stdout.on('data', take);
     child.stderr.on('data', take);
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
+    const timer = setTimeout(() => {
+      if (process.platform === 'win32' && child.pid) killTree(child.pid);
+      else child.kill('SIGTERM');
+    }, timeoutMs);
     child.on('error', (e) => {
       clearTimeout(timer);
-      resolveStep({ exit_code: null, ms: Date.now() - started, output_tail: e.message });
+      resolveStep({ exit_code: null, ms: Date.now() - started, output_tail: note + e.message });
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolveStep({ exit_code: code, ms: Date.now() - started, output_tail: out.slice(-TAIL) });
+      resolveStep({
+        exit_code: code,
+        ms: Date.now() - started,
+        output_tail: note + out.slice(-(TAIL - note.length)),
+      });
     });
   });
 }
@@ -220,7 +238,7 @@ async function saveUncommitted(lease) {
 /** @param {string} p */
 const realOr = (p) => {
   try {
-    return realpathSync(p);
+    return realPath(p);
   } catch {
     return p;
   }

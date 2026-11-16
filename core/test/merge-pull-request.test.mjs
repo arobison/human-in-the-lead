@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fakeGitHub, repoFromRemote } from '../lib/merge/github.mjs';
+import { stageAll } from '../lib/merge/queue.mjs';
 import {
   approvePulls,
   emptyPullState,
@@ -286,9 +287,23 @@ test('after a merge the next branch is brought up to date by a merge, rebuilt, p
 
 test('a merge of main that fails without a conflict is an incident, and nothing is sent back', async () => {
   // No identity anywhere git looks: the queue cannot commit main into the branch.
-  const saved = { home: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_NOSYSTEM };
-  process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-  process.env.GIT_CONFIG_NOSYSTEM = '1';
+  // user.useConfigOnly too: without it git guesses one from the system where it can (Git for
+  // Windows reads the signed-in account's name and email), and the merge would succeed.
+  const vars = /** @type {const} */ ([
+    'GIT_CONFIG_GLOBAL',
+    'GIT_CONFIG_NOSYSTEM',
+    'GIT_CONFIG_COUNT',
+    'GIT_CONFIG_KEY_0',
+    'GIT_CONFIG_VALUE_0',
+  ]);
+  const saved = Object.fromEntries(vars.map((v) => [v, process.env[v]]));
+  Object.assign(process.env, {
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'user.useConfigOnly',
+    GIT_CONFIG_VALUE_0: 'true',
+  });
   const t = setup({ identity: false });
   try {
     const a = t.branch('W-1', { 'a.txt': 'a\n' });
@@ -307,10 +322,10 @@ test('a merge of main that fails without a conflict is an incident, and nothing 
     );
     assert.equal(t.remoteTip('hitld/W-2'), bBefore, 'the branch is left as it was');
   } finally {
-    if (saved.home === undefined) delete process.env.GIT_CONFIG_GLOBAL;
-    else process.env.GIT_CONFIG_GLOBAL = saved.home;
-    if (saved.system === undefined) delete process.env.GIT_CONFIG_NOSYSTEM;
-    else process.env.GIT_CONFIG_NOSYSTEM = saved.system;
+    for (const v of vars) {
+      if (saved[v] === undefined) delete process.env[v];
+      else process.env[v] = saved[v];
+    }
     t.done();
   }
 });
@@ -415,6 +430,22 @@ test('an approval does not hold once the branch gets a commit the queue did not 
   }
 });
 
+test('stageAll: a file that differs only in line endings is no change to commit', () => {
+  const root = realpathSync(tempDir('hitld-stage-'));
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'config', 'core.autocrlf', 'true');
+  put(root, { 'views/ready.md': 'a\nb\n' });
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'start');
+  // The checkout has CRLF (core.autocrlf); a generator writes the same text with LF.
+  rmSync(join(root, 'views/ready.md'));
+  git(root, 'checkout', '--', 'views/ready.md');
+  put(root, { 'views/ready.md': 'a\nb\n' });
+  assert.equal(stageAll(root), false);
+  put(root, { 'views/ready.md': 'a\nc\n' });
+  assert.equal(stageAll(root), true);
+});
+
 test('whether a pull request waits is one function of its changed paths and the policy', () => {
   assert.equal(pullRequestWaits(['src/a.js'], { merge: { mode: 'owner' } }), true);
   assert.equal(pullRequestWaits(['work/items/W-1.md'], { merge: { mode: 'queue' } }), false);
@@ -426,6 +457,9 @@ test('the pieces: no checks named refuses, sign-offs, remote URLs', async () => 
   assert.equal(repoFromRemote('https://github.com/acme/app.git'), 'acme/app');
   assert.equal(repoFromRemote('git@github.com:acme/app.git'), 'acme/app');
   assert.equal(repoFromRemote('http://proxy@127.0.0.1:1234/git/acme/app'), 'acme/app');
+  // A local path: its last two segments, with either separator.
+  assert.equal(repoFromRemote('/srv/git/acme/app.git'), 'acme/app');
+  assert.equal(repoFromRemote('C:\\srv\\git\\acme\\app.git'), 'acme/app');
   const t = setup();
   try {
     await assert.rejects(
@@ -469,7 +503,7 @@ test('hitld merge with merge.via pull-request: presented to the owner, approved 
         mode: 'owner',
         via: 'pull-request',
         pull_request: { checks: ['test'] },
-        full_suite: ["node --test 'test/*.test.js'"],
+        full_suite: ['node --test "test/*.test.js"'],
       },
     },
   });

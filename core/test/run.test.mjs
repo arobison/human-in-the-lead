@@ -15,7 +15,7 @@ import { STATE_KEY, listCheckpoints, loadState } from '../lib/run/checkpoint.mjs
 import { LeaseError } from '../lib/run/lease.mjs';
 import { Run, rebuildRun, resumeRun, startRun, takeLease } from '../lib/run/run.mjs';
 import { dispatchExecutor, recordCompletion, reportResult } from '../lib/run/protocol.mjs';
-import { gitReality } from '../lib/run/reality.mjs';
+import { gitReality, gitSnapshot, worktreeSignal } from '../lib/run/reality.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
 const BASE = Date.parse('2026-11-14T03:00:00Z');
@@ -761,4 +761,63 @@ test('git reality counts commits past the main branch it is given, not a fixed m
   assert.equal(gitReality({ cwd: root, mainBranch: 'trunk' }).hasCommits?.(entry), true);
   // The fallback main does not exist here, so nothing can be counted against it.
   assert.equal(gitReality({ cwd: root }).hasCommits?.(entry), false);
+});
+
+test('one git snapshot serves the worktree signal of every dispatch, as git in each would', () => {
+  const root = tempDir('hitld-reality-');
+  const git = (/** @type {string} */ cwd, /** @type {string[]} */ ...args) =>
+    execFileSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'config', 'user.name', 'Test');
+  git(root, 'config', 'user.email', 'test@example.com');
+  writeFileSync(join(root, 'a.txt'), 'a\n');
+  git(root, 'add', '.');
+  git(root, 'commit', '-q', '-m', 'init');
+  // D-1: a worktree on its branch, two commits ahead, one file changed
+  const wt = join(tempDir('hitld-reality-wt-'), 'D-1');
+  git(root, 'worktree', 'add', '-q', '-b', 'hitld/W-1-one', wt, 'main');
+  for (const n of ['b', 'c']) {
+    writeFileSync(join(wt, `${n}.txt`), `${n}\n`);
+    git(wt, 'add', '.');
+    git(wt, 'commit', '-q', '-m', n);
+  }
+  writeFileSync(join(wt, 'b.txt'), 'changed\n');
+  // D-2: a branch with no worktree, one commit ahead
+  git(root, 'branch', 'hitld/W-2-two', 'main');
+  git(root, 'switch', '-q', 'hitld/W-2-two');
+  writeFileSync(join(root, 'd.txt'), 'd\n');
+  git(root, 'add', '.');
+  git(root, 'commit', '-q', '-m', 'd');
+  git(root, 'switch', '-q', 'main');
+
+  const snapshot = gitSnapshot({ cwd: root, mainBranch: 'main' });
+  /** @param {Record<string, any>} entry */
+  const signal = (entry) =>
+    worktreeSignal(/** @type {any} */ (entry), { cwd: root, mainBranch: 'main', snapshot });
+  const byBranch = signal({ dispatch: 'D-1', branch: 'hitld/W-1-one' });
+  const recorded = signal({ dispatch: 'D-1', branch: 'hitld/W-1-one', worktree: wt });
+  for (const s of [byBranch, recorded]) {
+    assert.equal(s?.head, git(wt, 'rev-parse', 'HEAD'));
+    assert.equal(s?.commits, 2);
+    assert.equal(s?.dirty, 1);
+  }
+  assert.deepEqual(signal({ dispatch: 'D-2', branch: 'hitld/W-2-two' }), {
+    source: 'worktree',
+    head: git(root, 'rev-parse', 'hitld/W-2-two'),
+    commits: 1,
+  });
+  assert.equal(signal({ dispatch: 'D-3', branch: 'hitld/W-3-none' }), null);
+  assert.equal(signal({ dispatch: 'D-4' }), null);
+  // Without a snapshot each call takes its own look, with the same answer.
+  assert.deepEqual(
+    worktreeSignal(/** @type {any} */ ({ dispatch: 'D-1', branch: 'hitld/W-1-one' }), {
+      cwd: root,
+    }),
+    byBranch,
+  );
+  git(root, 'worktree', 'remove', '--force', wt);
 });

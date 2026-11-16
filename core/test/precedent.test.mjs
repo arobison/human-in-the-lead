@@ -20,7 +20,23 @@ import {
 import { parsePrecedent, renderPrecedent } from '../lib/precedent/store.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { makeProject } from './helpers/project.mjs';
-import { tempDir } from './helpers/tmp.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
+
+/** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = tempDir('hitld-link-probe-');
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    removeTempDir(dir);
+  }
+})();
+const needsSymlink = {
+  skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
+};
 
 /** @param {Record<string, any>} [more] */
 /** The owner's question. */
@@ -297,7 +313,7 @@ test('an invalid precedent is not stored, and updating one keeps its file', () =
   assert.equal(project.precedents.get('P-1')?.state, 'retired');
 });
 
-test('a symbolic link at a precedent file is refused, never written through', () => {
+test('a symbolic link at a precedent file is refused, never written through', needsSymlink, () => {
   const project = makeProject();
   const outside = tempDir('hitld-outside-');
   const target = join(outside, 'authorized_keys');
@@ -309,13 +325,17 @@ test('a symbolic link at a precedent file is refused, never written through', ()
   assert.equal(readFileSync(target, 'utf8'), 'keep me\n');
 });
 
-test('a symbolic link at the precedents directory is refused, never written through', () => {
-  const project = makeProject();
-  const outside = tempDir('hitld-outside-');
-  symlinkSync(outside, join(project.root, 'precedents'));
-  assert.throws(() => project.precedents.put(precedent()), /symbolic link/);
-  assert.deepEqual(readdirSync(outside), []);
-});
+test(
+  'a symbolic link at the precedents directory is refused, never written through',
+  needsSymlink,
+  () => {
+    const project = makeProject();
+    const outside = tempDir('hitld-outside-');
+    symlinkSync(outside, join(project.root, 'precedents'));
+    assert.throws(() => project.precedents.put(precedent()), /symbolic link/);
+    assert.deepEqual(readdirSync(outside), []);
+  },
+);
 
 test('a front-matter file that is not JSON data is refused with its name', () => {
   assert.throws(

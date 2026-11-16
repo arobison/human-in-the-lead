@@ -13,7 +13,7 @@
 // held to the same checks as policy.json: owned by the user, not group- or world-writable, no links.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { termsForProject } from '../../store/private-terms.mjs';
@@ -25,6 +25,7 @@ import { SWEEP_KINDS, sweepTracker } from '../../tracker/files/sweep.mjs';
 import { readLedger } from '../../ledger/ledger.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { CodedError } from '../errors.mjs';
+import { realPath } from '../../platform/fs.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} CommandContext
@@ -121,7 +122,7 @@ function inside(dir, path) {
   let at = path;
   for (;;) {
     try {
-      const rel = relative(realpathSync(dir), realpathSync(at));
+      const rel = relative(realPath(dir), realPath(at));
       return rel === '' || !(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel));
     } catch {
       if (dirname(at) === at) return false;

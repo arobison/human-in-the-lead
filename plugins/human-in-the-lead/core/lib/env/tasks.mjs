@@ -11,8 +11,10 @@
 // What this does not stop: an agent that can read another live dispatch's ID can borrow it, and so
 // borrow that role's tasks. Closing that is the harness sandbox's job (a later milestone).
 
-import { statSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { statSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, win32 } from 'node:path';
+import { realPath } from './fsx.mjs';
+import { envValue, systemRoot } from './shell.mjs';
 import { readLedger } from '../ledger/ledger.mjs';
 import { liveDispatch } from '../ledger/inflight.mjs';
 import { checkHolder } from './config.mjs';
@@ -66,19 +68,72 @@ export function dispatchRecord(store, id) {
 /** The variables a task's process may inherit; everything else is dropped. */
 const INHERIT = ['HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TMPDIR', 'TERM'];
 const SAFE_PATH = ['/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+/**
+ * What a Windows process needs to start and find its files (temporary and profile directories,
+ * program locations). None of these loads code into a process. SystemRoot, windir, ComSpec and
+ * PATHEXT, which choose what runs, are set by taskEnv rather than inherited.
+ */
+const INHERIT_WINDOWS = [
+  'SystemDrive',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'USERNAME',
+  'USERDOMAIN',
+  'COMPUTERNAME',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'ProgramData',
+  'ProgramFiles',
+  'ProgramFiles(x86)',
+  'ProgramW6432',
+  'CommonProgramFiles',
+  'CommonProgramFiles(x86)',
+  'CommonProgramW6432',
+  'PUBLIC',
+  'NUMBER_OF_PROCESSORS',
+  'PROCESSOR_ARCHITECTURE',
+  'PROCESSOR_IDENTIFIER',
+  'OS',
+];
 
 /**
  * The environment a task's process starts with: a few harmless variables from the caller and a
  * fixed PATH. Anything that can load code into the process (NODE_OPTIONS, LD_PRELOAD,
- * DYLD_INSERT_LIBRARIES, BASH_ENV, a PATH of the caller's choosing) is not inherited.
+ * DYLD_INSERT_LIBRARIES, BASH_ENV, a PATH of the caller's choosing) is not inherited. On Windows
+ * the PATH is the program's directory and the system directories, and SystemRoot, windir, ComSpec
+ * and PATHEXT are set from the system directory (one that holds cmd.exe), not copied.
  * @param {string} program @param {NodeJS.ProcessEnv} from
+ * @param {NodeJS.Platform} [platform]
  * @returns {NodeJS.ProcessEnv}
  */
-function taskEnv(program, from) {
+export function taskEnv(program, from, platform = process.platform) {
   /** @type {NodeJS.ProcessEnv} */
   const out = {};
   for (const k of INHERIT) if (from[k] !== undefined) out[k] = from[k];
-  out.PATH = [dirname(program), ...SAFE_PATH].join(':');
+  if (platform !== 'win32') {
+    out.PATH = [dirname(program), ...SAFE_PATH].join(':');
+    return out;
+  }
+  for (const k of INHERIT_WINDOWS) {
+    const v = envValue(from, k);
+    if (v !== undefined) out[k] = v;
+  }
+  const root = systemRoot(from);
+  const sys = win32.join(root, 'System32');
+  out.SystemRoot = root;
+  out.windir = root;
+  out.ComSpec = win32.join(sys, 'cmd.exe');
+  out.PATHEXT = '.COM;.EXE;.BAT;.CMD';
+  out.PATH = [
+    win32.dirname(program),
+    sys,
+    root,
+    win32.join(sys, 'Wbem'),
+    win32.join(sys, 'WindowsPowerShell', 'v1.0'),
+  ].join(';');
   return out;
 }
 
@@ -88,7 +143,7 @@ function taskEnv(program, from) {
  */
 function isInside(root, path) {
   try {
-    const p = realpathSync(path);
+    const p = realPath(path);
     return p === root || inside(root, p);
   } catch {
     return false;
@@ -116,8 +171,8 @@ function commandOf(task, primaryRoot) {
   }
   if (task.repo_script) {
     try {
-      const root = realpathSync(primaryRoot);
-      const path = realpathSync(resolve(root, task.repo_script));
+      const root = realPath(primaryRoot);
+      const path = realPath(resolve(root, task.repo_script));
       if (!inside(root, path)) return { error: 'repo_script leaves the repository' };
       if (!statSync(path).isFile()) return { error: 'repo_script is not a file' };
       return { argv: [path] };

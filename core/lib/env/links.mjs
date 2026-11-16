@@ -12,7 +12,8 @@
 //
 // What is left, a worktree with no outside link in it, is removed by `git worktree remove`.
 
-import { lstatSync, opendirSync, readlinkSync, realpathSync, unlinkSync } from 'node:fs';
+import { lstatSync, opendirSync, readlinkSync, unlinkSync } from 'node:fs';
+import { realPath } from './fsx.mjs';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 
 /**
@@ -45,7 +46,7 @@ const isLink = (full) => lstatSync(full).isSymbolicLink();
  */
 export function scanWorktree(worktree, seam = {}) {
   const lstat = seam.lstat ?? lstatSync;
-  const root = realpathSync(worktree);
+  const root = realPath(worktree);
   const rootDev = lstat(root).dev;
   /** @type {OutsideLink[]} */
   const found = [];
@@ -55,7 +56,7 @@ export function scanWorktree(worktree, seam = {}) {
   const walk = (rel) => {
     const here = rel ? join(root, rel) : root;
     // A directory swapped for a link after it was found: do not read through it.
-    if (realpathSync(here) !== here) return;
+    if (realPath(here) !== here) return;
     const handle = opendirSync(here);
     /** @type {string[]} */
     const names = [];
@@ -79,7 +80,7 @@ export function scanWorktree(worktree, seam = {}) {
         /** @type {string | null} */
         let real = null;
         try {
-          real = realpathSync(full);
+          real = realPath(full);
         } catch {
           // dangling or unreadable: nothing to protect, and not safe to trust
         }
@@ -113,7 +114,7 @@ export function unlinkLink(root, rel) {
   const full = join(root, rel);
   const parent = dirname(full);
   try {
-    if (realpathSync(parent) !== parent) return false; // the parent became a link
+    if (realPath(parent) !== parent) return false; // the parent became a link
     if (!isLink(full)) return false; // no longer a link: not ours to remove
     // Trust boundary: `full` was found by lstat under the worktree's own real path and is checked
     // just above to be a link in a non-link parent. unlink removes the link entry, never its
@@ -134,7 +135,7 @@ export function unlinkLink(root, rel) {
  */
 export function unlinkOutsideLinks(worktree, seam) {
   if (isLink(worktree)) throw new Error(`${worktree} is a link; refusing to clean it up`);
-  const root = realpathSync(worktree);
+  const root = realPath(worktree);
   if (root !== worktree) throw new Error(`${worktree} is not a real path (${root}); refusing`);
   /** @type {OutsideLink[]} */
   const unlinked = [];

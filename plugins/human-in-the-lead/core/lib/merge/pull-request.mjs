@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
 import { findTerms, matchMessage } from '../guard/private-terms.mjs';
 import { QUARANTINE_PATH } from './quarantine.mjs';
-import { dependencyOrder, shellExec } from './queue.mjs';
+import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
 
 /**
  * @typedef {import('./queue.mjs').Entry} Entry
@@ -263,12 +263,25 @@ export async function runPullRequestQueue(r) {
       'policy merge.pull_request.checks is empty: with merge.via pull-request the queue waits for the checks it names, and with none it could not keep main green, so it will not merge',
     );
   }
-  const fetched = git(r.repoRoot, [
-    'fetch',
-    '--quiet',
-    remote,
-    `+refs/heads/${s.mainBranch}:${mainRef}`,
-  ]);
+  // Main and every waiting branch in one fetch: one round trip, not one per branch. It fails as a
+  // whole when one branch is not on the remote yet; then main is fetched alone, and each branch
+  // on its own below, as before.
+  const branchRefspecs = [...new Set(r.entries.map((e) => e.branch))].map(
+    (b) => `+refs/heads/${b}:refs/remotes/${remote}/${b}`,
+  );
+  const together = branchRefspecs.length
+    ? git(r.repoRoot, [
+        'fetch',
+        '--quiet',
+        remote,
+        `+refs/heads/${s.mainBranch}:${mainRef}`,
+        ...branchRefspecs,
+      ])
+    : null;
+  const allFetched = together?.ok === true;
+  const fetched = allFetched
+    ? /** @type {{ ok: boolean, out: string, err: string }} */ (together)
+    : git(r.repoRoot, ['fetch', '--quiet', remote, `+refs/heads/${s.mainBranch}:${mainRef}`]);
   if (!fetched.ok) {
     result.incident = { kind: 'fetch', message: `fetching ${s.mainBranch}: ${fetched.err}` };
     return result;
@@ -317,12 +330,9 @@ export async function runPullRequestQueue(r) {
         continue;
       }
       const branchRef = `refs/remotes/${remote}/${e.branch}`;
-      const got = git(r.repoRoot, [
-        'fetch',
-        '--quiet',
-        remote,
-        `+refs/heads/${e.branch}:${branchRef}`,
-      ]);
+      const got = allFetched
+        ? { ok: true }
+        : git(r.repoRoot, ['fetch', '--quiet', remote, `+refs/heads/${e.branch}:${branchRef}`]);
       if (!got.ok) {
         // Only this checkout has it: push it, never forced.
         if (!git(r.repoRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${e.branch}`]).ok) {
@@ -518,8 +528,7 @@ export async function runPullRequestQueue(r) {
           const out = exec(g.regenerate, dir, {});
           if (!out.ok) throw new Error(`regenerating ${g.globs.join(', ')} failed: ${out.output}`);
         }
-        if (git(dir, ['status', '--porcelain']).out) {
-          gitOk(dir, ['add', '--all']);
+        if (stageAll(dir)) {
           gitOk(dir, [
             'commit',
             '--quiet',

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { policyDefaults } from '../lib/policy/policy.mjs';
 import { dispatchGate } from '../lib/quota/gate.mjs';
 import { openEnv, machineRootFor } from '../lib/env/manager.mjs';
@@ -98,7 +98,7 @@ test('registering past the person or machine maximum is refused', () => {
 test('many processes registering at once never pass the cap or corrupt the file', async () => {
   const root = dir('machine');
   const script = `
-    import { registerExecutor } from ${JSON.stringify(REGISTRY)};
+    import { registerExecutor } from ${JSON.stringify(pathToFileURL(REGISTRY).href)};
     const [root, project] = process.argv.slice(2);
     const r = registerExecutor(root, { project, dispatch: 'D-1', item: 'W-1', store_root: root, resources: [] },
       { machine: 3 }, { liveness: () => ({ live: true }) });

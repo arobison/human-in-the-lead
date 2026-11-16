@@ -21,8 +21,6 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  realpathSync,
-  renameSync,
   rmSync,
   statSync,
   writeSync,
@@ -34,6 +32,7 @@ import { mergePolicy, ownershipProblem, readTrustedFile } from '../policy/policy
 import { executorSignal } from '../cli/executor.mjs';
 import { renameSettings } from './renamed.mjs';
 import { newerRefusal, stampLowest } from './versions.mjs';
+import { realPath, renameReplacing } from '../platform/fs.mjs';
 
 /**
  * @typedef {import('../schema/validate.mjs').ValidationError} ValidationError
@@ -161,8 +160,8 @@ function readLinkedSettings(loc, uid) {
     const link = lstatSync(loc.path);
     if (POSIX && link.uid !== uid)
       return refuse(`is a link owned by another user (uid ${link.uid})`);
-    const realBase = realpathSync(loc.base);
-    const realDir = realpathSync(loc.dir);
+    const realBase = realPath(loc.base);
+    const realDir = realPath(loc.dir);
     const rel = relative(realBase, realDir);
     if (rel.startsWith('..') || isAbsolute(rel)) {
       return refuse(`is in ${realDir}, outside ${realBase}`);
@@ -182,7 +181,7 @@ function readLinkedSettings(loc, uid) {
   /** @type {number} */
   let fd;
   try {
-    real = realpathSync(loc.path);
+    real = realPath(loc.path);
     fd = openSync(real, fsConstants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   } catch (e) {
     return { error: `cannot be read: its target ${e instanceof Error ? e.message : String(e)}` };
@@ -196,7 +195,7 @@ function readLinkedSettings(loc, uid) {
       const chain = targetChainProblem(dirname(real), uid);
       if (chain) return refuse(`links to ${real}, which ${chain}`);
     }
-    const now = statSync(realpathSync(loc.path));
+    const now = statSync(realPath(loc.path));
     if (now.ino !== st.ino || now.dev !== st.dev) return refuse('changed while it was being read');
     return { text: readFileSync(fd, 'utf8'), real };
   } finally {
@@ -410,8 +409,8 @@ export function writeSettingsFile(kind, data, options = {}) {
   // Trust boundary: the directory comes from the current user's own XDG variables or home, never
   // from a repository; it is checked below before anything is written into it.
   mkdirSync(loc.dir, { recursive: true, mode: 0o700 });
-  const realBase = realpathSync(loc.base);
-  const realDir = realpathSync(loc.dir);
+  const realBase = realPath(loc.base);
+  const realDir = realPath(loc.dir);
   const rel = relative(realBase, realDir);
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`${loc.dir} resolves to ${realDir}, outside ${realBase}; not written`);
@@ -439,7 +438,7 @@ export function writeSettingsFile(kind, data, options = {}) {
     closeSync(fd);
   }
   try {
-    renameSync(tmp, join(realDir, `${kind}.json`));
+    renameReplacing(tmp, join(realDir, `${kind}.json`));
   } catch (e) {
     rmSync(tmp, { force: true });
     throw e;

@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { schemas } from '../schema/registry.mjs';
 import { checkSchema, formatErrors, validate } from '../schema/validate.mjs';
 import { canonicalJson } from '../policy/policy.mjs';
@@ -39,7 +39,7 @@ export function fromLegacyScenario(data) {
   return { ...rest, suite: piece };
 }
 
-const ACTIONS_DIR = new URL('./actions/', import.meta.url);
+const ACTIONS_DIR = fileURLToPath(new URL('./actions/', import.meta.url));
 
 /** @type {Promise<Record<string, Action>> | undefined} */
 let actionsPromise;
@@ -53,7 +53,7 @@ export function loadActions() {
   actionsPromise ??= (async () => {
     /** @type {Record<string, Action>} */
     const all = {};
-    const dir = ACTIONS_DIR.pathname;
+    const dir = ACTIONS_DIR;
     for (const f of readdirSync(dir)
       .filter((n) => n.endsWith('.mjs'))
       .sort()) {
