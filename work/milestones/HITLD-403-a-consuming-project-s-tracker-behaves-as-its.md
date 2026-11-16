@@ -11,7 +11,7 @@ done_when:
   - "c2: Migrations and `work close` change only what they report."
   - "c3: Items and milestones are written and linked by command, also on a branch for review."
   - "c4: An item with a Plan and touches sizes below tier 3 in a project whose `work_dir` is not `work`, and the guide says what to write."
-constraints: [HITLD-255 c1, HITLD-269 c1, HITLD-259 c2, HITLD-261 c2, HITLD-266 c2, HITLD-257 c3, HITLD-270 c3, HITLD-275 c3, HITLD-276 c3, HITLD-285 c4, HITLD-286 c4, HITLD-287 c4]
+constraints: [HITLD-255 c1, HITLD-269 c1, HITLD-259 c2, HITLD-261 c2, HITLD-266 c2, HITLD-257 c3, HITLD-270 c3, HITLD-275 c3, HITLD-276 c3, HITLD-285 c4, HITLD-286 c4, HITLD-287 c4, HITLD-413 c3]
 check: integration-test a fixture consumer tracker, formatted by prettier, migrated, edited by command and closed, passes `work check` and sizes to the expected tiers
 ---
 
