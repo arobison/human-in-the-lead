@@ -27,6 +27,9 @@ On 2026-11-16, in the chief of staff session, the owner gave two instructions fo
   - If it may create items: in which state, with what limits, and whether the orchestrator or the owner triages them.
   - If it reports: where in the report the finding goes. The report shape has `questions` and no place for found work.
   - Who files a reported finding: the orchestrator, the chief of staff, or the owner.
+- The chief-of-staff skill says it learns of new and changed items by pulling, not by being pushed: it queries the tracker for items created or changed since its last look at session start, at each hourly check-in, and before it answers the owner about the plan; the orchestrator's digest lists what it filed (decision of the owner, 2026-11-16, recorded as HITLD-213).
+- When executors later earn the right to file `proposed` items themselves, the trust is per model type, since models differ in capability, not one level for all (the owner, 2026-11-16, recorded as HITLD-214). The later item carries this.
+- Whoever reviews an executor's work may file items too, beyond sending fixes back to the executor, for example a bug the review uncovers in a part of the project unrelated to the task at hand (the owner, 2026-11-16, recorded as HITLD-215). The review skill and the decision rights say how, and the reviewer searches for a duplicate first.
 - Design 3 (ID rules), design 4 (the executor row) and design 5.6 (the report shape) say the chosen answer, in one change the owner approves.
 - Then the build items follow, one per piece: the report check, the command if there is one, the skills and the contract block. The contract block and the report shape are part of the plugin's public interface.
 
