@@ -8,20 +8,14 @@
 // list (never a shell string), with GIT_DIR and GIT_WORK_TREE pinned to the store so no other
 // repository is found, with the owner's global and system git config ignored (a signing or hook
 // setting there cannot change what runs), and with hooks off (core.hooksPath=/dev/null) so nothing
-// in the store or a bundle can run. The passphrase is never in git's environment.
+// in the store or a bundle can run. The passphrase is never in git's environment. Git for Windows
+// reads /dev/null in both places as its own empty device.
 
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
+import { hostEnv, removeFile, replaceFile } from './host.mjs';
 
 /** The branch that holds the store's history. */
 export const BRANCH = 'main';
@@ -82,8 +76,7 @@ export const isMachineLocal = (path) =>
  */
 export function git(root, args, options = {}) {
   const env = {
-    PATH: process.env.PATH ?? '/usr/bin:/bin',
-    HOME: process.env.HOME ?? root,
+    ...hostEnv(root),
     LANG: 'C',
     LC_ALL: 'C',
     GIT_DIR: join(root, '.git'),
@@ -268,8 +261,40 @@ function tree(root, commit) {
   return out;
 }
 
-/** @param {string} root @param {string} sha */
-const blob = (root, sha) => git(root, ['cat-file', 'blob', sha]).stdout;
+/**
+ * Read blobs by ID in one `git cat-file --batch`, not a process each: starting a process costs
+ * far more on some machines (Windows with endpoint protection: about 200 ms) than others, and a
+ * merge can touch hundreds of files. A blob that is not there is an error, as `cat-file blob`.
+ * @param {string} root @param {Iterable<string>} shas
+ * @returns {Map<string, Buffer>}
+ */
+function blobs(root, shas) {
+  /** @type {Map<string, Buffer>} */
+  const out = new Map();
+  const wanted = [...new Set(shas)];
+  if (!wanted.length) return out;
+  const buf = git(root, ['cat-file', '--batch'], { input: `${wanted.join('\n')}\n` }).stdout;
+  // Per object: "<id> blob <size>\n<bytes>\n", or "<what was asked> missing\n".
+  let at = 0;
+  while (at < buf.length) {
+    const eol = buf.indexOf(10, at);
+    if (eol < 0) break;
+    const [sha, type, size] = buf.subarray(at, eol).toString('utf8').split(' ');
+    if (size === undefined) {
+      at = eol + 1;
+      continue;
+    }
+    const start = eol + 1;
+    const end = start + Number(size);
+    if (type === 'blob') out.set(sha, buf.subarray(start, end));
+    at = end + 1;
+  }
+  const missing = wanted.find((sha) => !out.has(sha));
+  if (missing !== undefined) {
+    throw new StoreGitError('git-failed', `git cat-file failed in the store: no blob ${missing}`);
+  }
+  return out;
+}
 
 /**
  * The one merge base of two commits, or null for unrelated histories.
@@ -385,8 +410,9 @@ export function mergeIncoming(root, theirs) {
   }
   if (conflicts.length) return { result: 'conflict', conflicts };
 
-  /** @type {Map<string, Buffer | null>} what to write (null: delete) */
-  const writes = new Map();
+  // First what each path needs, then every blob that takes in one read.
+  /** @type {({ path: string, take: string | null } | { path: string, base: string | null, ours: string, theirs: string } | { path: string, why: string })[]} */
+  const plan = [];
   const paths = new Set([...tb.keys(), ...to.keys(), ...tt.keys()]);
   for (const path of [...paths].sort()) {
     if (path === '.gitignore') continue;
@@ -394,16 +420,14 @@ export function mergeIncoming(root, theirs) {
     const ts = t ?? null;
     if (o === ts || b === ts) continue; // the same, or only we changed it
     if (b === o) {
-      writes.set(path, ts === null ? null : blob(root, ts));
+      plan.push({ path, take: ts });
       continue;
     }
     if (path.endsWith('.jsonl') && o !== null && ts !== null) {
-      const m = mergeAppendOnly(b ? blob(root, b) : null, blob(root, o), blob(root, ts));
-      if ('why' in m) conflicts.push({ path, why: m.why });
-      else writes.set(path, Buffer.from(m.text));
+      plan.push({ path, base: b, ours: o, theirs: ts });
       continue;
     }
-    conflicts.push({
+    plan.push({
       path,
       why:
         o === null || ts === null
@@ -411,13 +435,41 @@ export function mergeIncoming(root, theirs) {
           : 'changed on both sides',
     });
   }
+  /** @type {string[]} */
+  const needed = [];
+  for (const p of plan) {
+    if ('why' in p) continue;
+    if ('take' in p) {
+      if (p.take !== null) needed.push(p.take);
+    } else needed.push(...(p.base ? [p.base] : []), p.ours, p.theirs);
+    // What this store committed there, to check against before writing.
+    const committed = to.get(p.path)?.sha;
+    if (committed !== undefined) needed.push(committed);
+  }
+  const read = blobs(root, needed);
+  const blob = (/** @type {string} */ sha) => /** @type {Buffer} */ (read.get(sha));
+
+  /** @type {Map<string, Buffer | null>} what to write (null: delete) */
+  const writes = new Map();
+  for (const p of plan) {
+    if ('why' in p) {
+      conflicts.push({ path: p.path, why: p.why });
+    } else if ('take' in p) {
+      writes.set(p.path, p.take === null ? null : blob(p.take));
+    } else {
+      const m = mergeAppendOnly(p.base ? blob(p.base) : null, blob(p.ours), blob(p.theirs));
+      if ('why' in m) conflicts.push({ path: p.path, why: m.why });
+      else writes.set(p.path, Buffer.from(m.text));
+    }
+  }
   if (conflicts.length) return { result: 'conflict', conflicts };
 
   // Write only what this store still holds as we committed it a moment ago.
   for (const path of writes.keys()) {
     const file = join(root, ...path.split('/'));
     const now = existsSync(file) ? readFileSync(file) : null;
-    const committed = to.has(path) ? blob(root, /** @type {TreeEntry} */ (to.get(path)).sha) : null;
+    const sha = to.get(path)?.sha;
+    const committed = sha === undefined ? null : blob(sha);
     if ((now === null) !== (committed === null) || (now && committed && !now.equals(committed))) {
       throw new StoreGitError(
         'store-changed',
@@ -428,12 +480,12 @@ export function mergeIncoming(root, theirs) {
   for (const [path, content] of writes) {
     const file = join(root, ...path.split('/'));
     if (content === null) {
-      if (existsSync(file)) unlinkSync(file);
+      if (existsSync(file)) removeFile(file);
     } else {
       mkdirSync(dirname(file), { recursive: true });
       const tmp = `${file}.${process.pid}.tmp`;
       writeFileSync(tmp, content);
-      renameSync(tmp, file);
+      replaceFile(tmp, file);
     }
   }
   git(root, ['add', '-A']);

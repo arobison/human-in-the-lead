@@ -3,7 +3,7 @@
 // baseline as the regression gate.
 
 import { fileURLToPath } from 'node:url';
-import { realpathSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadPolicy, policyHash, resolvePolicy, findRepoRoot } from '../policy/policy.mjs';
 import { ownerCheckoutOf } from '../env/primary.mjs';
@@ -23,6 +23,7 @@ import {
 } from './results.mjs';
 import { runCases } from './runner.mjs';
 import { discoverScenarios, loadActions, matchesFilter, scenarioSetVersion } from './scenario.mjs';
+import { realPath } from '../platform/fs.mjs';
 
 /** The plugin's own evals directory, and the checkout it is in. */
 export const PLUGIN_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -40,7 +41,7 @@ const STAND_IN_PROJECT = { id: 'hitld-evals', key: 'EV' };
  */
 const real = (dir) => {
   try {
-    return realpathSync(dir);
+    return realPath(dir);
   } catch {
     return dir;
   }

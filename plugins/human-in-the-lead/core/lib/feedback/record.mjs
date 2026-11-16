@@ -3,7 +3,7 @@
 // person's words and the project's IDs, so it is written only into the private store and never
 // into the repository or any worktree. Publishing it is a separate, approved step (publish.mjs).
 
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { findRepoRoot } from '../policy/policy.mjs';
@@ -11,6 +11,7 @@ import { readLedger } from '../ledger/ledger.mjs';
 import { schemas } from '../schema/registry.mjs';
 import { formatErrors } from '../schema/validate.mjs';
 import { VERSION } from '../version.mjs';
+import { realPath } from '../platform/fs.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
@@ -38,7 +39,7 @@ function canonical(path) {
     tail.unshift(head.slice(dirname(head).length + 1));
     head = dirname(head);
   }
-  return join(realpathSync(head), ...tail);
+  return join(realPath(head), ...tail);
 }
 
 /** @param {string} root @param {string} path */

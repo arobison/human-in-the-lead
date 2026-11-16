@@ -6,8 +6,9 @@
 // authenticated encryption, checked against this project and this version's schemas, and its
 // bundle verified before anything is fetched.
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { replaceFile } from './host.mjs';
 import { schemas } from '../schema/registry.mjs';
 import { VERSION } from '../version.mjs';
 import { openStore } from './store.mjs';
@@ -96,7 +97,7 @@ export function exportStore(options) {
   // The owner names the file. Written beside it, then renamed, readable by the owner only.
   const tmp = join(dirname(file), `.${process.pid}.hitld-export.tmp`);
   writeFileSync(tmp, bytes, { mode: 0o600 });
-  renameSync(tmp, file);
+  replaceFile(tmp, file);
   return {
     file,
     project: options.projectId,

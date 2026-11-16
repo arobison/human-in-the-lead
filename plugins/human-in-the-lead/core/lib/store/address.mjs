@@ -14,8 +14,9 @@
 // Light on purpose: the hooks read the address to tell whether a remote is configured before the
 // push and pull code (and node:sqlite behind it) is loaded.
 
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { replaceFile } from './host.mjs';
 import { loadSettingsFile, writeSettingsFile } from '../settings/files.mjs';
 import { checkRemoteUrl } from './remote-git.mjs';
 import { ensureRepo } from './git.mjs';
@@ -83,7 +84,7 @@ export function setRemote(root, url) {
   const path = overridePath(root);
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify({ schema_version: 1, url }, null, 2) + '\n', { mode: 0o600 });
-  renameSync(tmp, path);
+  replaceFile(tmp, path);
   return { url, previous: before?.url ?? null };
 }
 
