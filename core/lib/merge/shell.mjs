@@ -15,9 +15,8 @@
 // shell parses its Windows command line with its own rules, which collapse doubled backslashes.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitBash } from '../env/shell.mjs';
 
 /** The variable that carries the command text to the shell; unset before the command runs. */
 export const COMMAND_VAR = '__HITLD_SHELL_COMMAND';
@@ -27,35 +26,15 @@ export const SHELL_SCRIPT = `eval "unset ${COMMAND_VAR}; $${COMMAND_VAR}"`;
 
 const SUPERVISOR = fileURLToPath(new URL('./shell-supervise.mjs', import.meta.url));
 
-/** @type {string | null | undefined} */
-let found;
-
 /**
- * Git for Windows' POSIX shell (`<Git>\bin\sh.exe`, else `bash.exe`), found from where git.exe is
- * on PATH (`<Git>\cmd`, `<Git>\bin` or `<Git>\mingw64\bin`), else from `git --exec-path`
- * (`<Git>\mingw64\libexec\git-core`). Null when there is none. Read once per process.
+ * Git for Windows' POSIX shell, as the environment manager finds it (env/shell.mjs `gitBash`):
+ * next to the git on PATH, else from `git --exec-path`, else in Program Files. Null when there is
+ * none. Read once per process.
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string | null}
  */
 export function gitShell(env = process.env) {
-  if (found !== undefined) return found;
-  /** @param {string} root */
-  const shellIn = (root) =>
-    ['sh.exe', 'bash.exe'].map((n) => join(root, 'bin', n)).find((p) => existsSync(p)) ?? null;
-  /** @type {string[]} */
-  const roots = [];
-  for (const dir of (env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean)) {
-    const d = dir.replace(/^"(.*)"$/, '$1');
-    if (existsSync(join(d, 'git.exe'))) roots.push(dirname(d), dirname(dirname(d)));
-  }
-  for (const root of roots) {
-    const sh = shellIn(root);
-    if (sh) return (found = sh);
-  }
-  const r = spawnSync('git', ['--exec-path'], { encoding: 'utf8', windowsHide: true });
-  const exec = r.status === 0 ? r.stdout.trim() : '';
-  found = exec ? shellIn(join(exec, '..', '..', '..')) : null;
-  return found;
+  return gitBash(env)?.file ?? null;
 }
 
 /**
