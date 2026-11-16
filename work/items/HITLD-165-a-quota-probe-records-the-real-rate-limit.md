@@ -13,18 +13,26 @@ The quota gate needs a real reading of the owner's plan usage. In a cloud sessio
 
 The owner decided (HITLD-166) to build a probe, with the declared figure of HITLD-164 kept as the fallback.
 
+## Settled by the owner
+
+On 2026-11-16, in the chief of staff session, the owner decided these in a design walk-through, recorded as decisions:
+
+- **When it runs (HITLD-168):** when a reading is needed and stale. The gate probes before starting work when the last reading is older than a set age (30 minutes to start), and again as the used share nears the reserve. There is no timer, and the owner can ask for one by hand.
+- **Which model, and its cost (HITLD-169):** the smallest model with a one-word prompt, and the cost is recorded in the ledger as probe spend, not counted against any item's budget.
+- **How it combines with a declared figure (HITLD-170):** a probe reading is used while it is fresh, and the declared estimate of HITLD-164 only when no fresh reading exists.
+- **When it cannot give a reading (HITLD-171):** in the owner's words, "shouldn't it escalate that issue up to the orechestrator and eventually to you and then to me? seems like a good test of the system's overall escalation machinery". Read as: the gate keeps running on the declared estimate, and the failure (denied, failed, or an unrecognized format) is raised up the chain, from the orchestrator to the chief of staff to the owner, who is last.
+- **Where it runs (HITLD-172):** wherever the gate needs a reading: the orchestrator's container for its dispatch decisions, and the chief of staff for the digest and status. Each reading is written to the store when it is reachable, so other sessions can use a fresh one.
+- **The status-line capture (HITLD-173):** in the owner's words, "i think probably retire the status line...do those even work in the claude code desktop app? the agents can get all of that info from the private store, right? and the status line would really be something for me to glance at in the chief of staff session? not sure that adds value". Read as: retire the status-line usage capture and use the probe everywhere. The documentation describes a status line only for the terminal CLI (desktop, web and IDE are not documented) and cloud sessions do not read `settings.local.json`, where the capture installs.
+
 ## Done when
 
-- The owner and the chief of staff review the design in a walk-through (HITLD-135), one question at a time, and the answers are recorded as decisions before anything is built. The questions:
-  - How often a probe runs, and what triggers it (session start, a quota check, near the reserve, a fresh figure requested by the owner).
-  - Which model the probe uses, and how its own cost is counted against the quota it measures.
-  - What a reading is stored as (the usage snapshot schema has `five_hour` and `seven_day` fields from the status line; the event carries `unifiedWindows`), its confidence, and how a probe reading and a declared figure are combined.
-  - What happens when the probe is denied by a session's permission system, fails, or the output format changes.
-  - Where it may run: the orchestrator's container, the chief of staff's session, the owner's own machine.
-  - Whether the owner's local status-line capture feeds the same snapshots.
-- Then the build items follow, one per piece: the probe command, the snapshot change, the gate's use of it, and the tests against a recorded event.
+- The probe command runs one minimal print-mode call on the smallest model, parses the `rate_limit_event`, and records the reading as a usage snapshot marked `measured`, with the windows the event lists, and writes it to the store when it is reachable.
+- The gate probes when the last reading is older than a setting (30 minutes by default) and as the used share nears the reserve, and uses a fresh reading before the declared estimate.
+- The probe's cost is written to the ledger as probe spend and counted against no item.
+- A probe that is denied, fails or meets an unrecognized format is recorded with its reason, the gate falls back to the declared estimate, and the failure is raised through the escalation path: in the orchestrator's message, then relayed by the chief of staff to the owner. An eval scenario covers a denied probe, a failed one and a format change, and checks each reaches the owner.
+- The status-line usage capture (`hitld install --statusline` and the `hitld-statusline` command) is retired, with its tests, guide text and first-run offer, and the usage snapshot schema no longer has the `five_hour` field (see HITLD-151).
+- Tests run against a recorded `rate_limit_event`. `npm run check`, the offline eval gate and `hitld work check` pass.
 
 ## Notes
 
-State is `proposed` on the owner's instruction, so the design is reviewed with them first. Related: HITLD-149 (a declared figure, settled by HITLD-164), HITLD-56 (the status-line readout), HITLD-151 (removing the five-hour limit, for which this sample is one more piece of evidence: the event listed no five-hour window). The granularity of `utilization` is not known: the one sample was a round 0.5.
-
+State stays `proposed` until the owner moves it to `planned`. Open: whether the status-line readout of HITLD-56, which uses the harness status line as its display, should stay, move to another surface or be dropped, since the status line is documented for the terminal CLI only. The granularity of `utilization` is not known: the one sample was a round 0.5. Related: HITLD-149 (a declared figure, settled by HITLD-164), HITLD-151.
