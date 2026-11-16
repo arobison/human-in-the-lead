@@ -327,3 +327,19 @@ test('the roadmap offers a second layout, fewest crossings, with no script', asy
   );
   assert.match(html, /#rm-fewest:checked~\.rm-fewest\{display:block\}/);
 });
+
+test('Proposals: every proposed item, what stands between it and committing, and what waits on it', async () => {
+  const { html } = await dashboard(fixture());
+  const p = view(html, 'proposals');
+  assert.match(p, /<span class="num">2<\/span> proposed items, 1 ready to commit\./);
+  assert.match(
+    p,
+    /<tr data-item="W-40"><td data-label="Idea"><a class="file" href="work\/items\/W-40-a-bet-on-b-bold-b-things.md">W-40<\/a> A bet on &lt;b&gt;bold&lt;\/b&gt; things<\/td><td data-label="Before committing">Waits on your answer: W-6<\/td><td data-label="Waiting on it">0<\/td><\/tr>/,
+  );
+  assert.match(
+    p,
+    /<tr data-item="W-41">.*?<td data-label="Before committing">Ready to commit<\/td>/,
+  );
+  assert.doesNotMatch(p, /<b>bold<\/b>/, 'tracker text is escaped');
+  assert.doesNotMatch(p, /data-item="W-4"/, 'planned items are not proposals');
+});

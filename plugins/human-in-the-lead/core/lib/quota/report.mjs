@@ -11,6 +11,7 @@ import { dispatchGate, forecastLine, show } from './gate.mjs';
 import { fileHref, milestoneFacts, oneSentence } from '../tracker/files/views.mjs';
 import { renderYourMove } from '../dashboard/move.mjs';
 import { renderPlan } from '../dashboard/plan.mjs';
+import { renderProposals } from '../dashboard/proposals.mjs';
 import { fewestCrossings } from '../dashboard/layout.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
@@ -806,6 +807,7 @@ ${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>$
             label: 'Plan',
             html: renderPlan(r.work, policy.reports ?? {}, { fileBase }),
           },
+          { id: 'proposals', label: 'Proposals', html: renderProposals(r.work, { fileBase }) },
         ]
       : []),
     { id: 'spend', label: 'Quota and spend', html: spend },
