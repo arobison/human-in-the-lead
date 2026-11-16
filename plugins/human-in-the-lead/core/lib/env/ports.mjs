@@ -4,12 +4,16 @@
 // started it: same ID, same start time, same working directory.
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, openSync, closeSync, realpathSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { checkHolder } from './config.mjs';
 import { logEvent, updateRegistry } from './registry.mjs';
-import { isAlive, matchProcess, processInfo, sleep } from './proc.mjs';
+import { isAlive, killTree, matchProcess, processInfo, sleep } from './proc.mjs';
+import { realPath } from './fsx.mjs';
+import { programSpec, spawnOptions } from './shell.mjs';
+
+const WIN = process.platform === 'win32';
 
 /**
  * @typedef {import('./registry.mjs').PortLease} PortLease
@@ -55,7 +59,8 @@ function reap(registry) {
   /** @type {number[]} */
   const reaped = [];
   for (const [key, lease] of Object.entries(registry.ports)) {
-    if (lease.server && matchProcess(lease.server) === 'gone') {
+    // A dead process needs no identity check: whether it is alive is enough, and costs nothing.
+    if (lease.server && !isAlive(lease.server.pid)) {
       delete registry.ports[key];
       reaped.push(lease.port);
     }
@@ -108,25 +113,28 @@ export async function leasePort(ctx, request) {
  */
 export async function startServer(ctx, request) {
   const holder = checkHolder(request.holder);
-  const cwd = realpathSync(resolve(request.cwd));
-  const [file, ...args] = request.argv;
+  const cwd = realPath(resolve(request.cwd));
+  const file = request.argv[0];
   if (!file) throw new Error('startServer needs a command');
   const lease = await updateRegistry(ctx.store, (registry) => {
     const l = Object.values(registry.ports).find((p) => p.holder === holder);
     if (!l) throw new Error(`${holder} has no leased port; lease one first`);
-    if (l.server && matchProcess(l.server) !== 'gone') {
+    if (l.server && isAlive(l.server.pid)) {
       throw new Error(`${holder}'s port ${l.port} already has a server (pid ${l.server.pid})`);
     }
     return l;
   });
+  const childEnv = { ...(request.env ?? process.env), PORT: String(lease.port) };
+  // On Windows a .cmd shim (npm run dev) or a script is started through what runs it.
+  const spec = programSpec(request.argv, childEnv);
   const logDir = join(ctx.store.root, 'env', 'logs');
   mkdirSync(logDir, { recursive: true });
   const logFd = openSync(join(logDir, `${holder}-${lease.port}.log`), 'a');
   let child;
   try {
-    child = spawn(file, args, {
+    child = spawn(spec.file, spec.args, {
       cwd,
-      env: { ...(request.env ?? process.env), PORT: String(lease.port) },
+      ...spawnOptions(spec, childEnv),
       detached: true,
       stdio: ['ignore', logFd, logFd],
     });
@@ -139,19 +147,25 @@ export async function startServer(ctx, request) {
     await new Promise((r) => child.once('error', r));
     throw new Error(`could not start ${file}`);
   }
-  // The identity must be read from the running process, so wait for it to exist.
+  // The identity must be read from the running process, so wait for it to exist. On Windows no
+  // working directory can be read: the exact start time is the identity, and the directory
+  // recorded is the one the server was started in.
+  const ready = (/** @type {ReturnType<typeof processInfo>} */ i) => (WIN ? i : i?.cwd);
   let info = processInfo(pid);
-  for (let i = 0; i < 50 && !info?.cwd; i++) {
+  for (let i = 0; i < 50 && !ready(info); i++) {
     await sleep(20);
     info = processInfo(pid);
   }
-  if (!info?.cwd) throw new Error(`could not read the identity of the server process ${pid}`);
+  if (!info || !ready(info)) {
+    throw new Error(`could not read the identity of the server process ${pid}`);
+  }
+  const identity = info;
   return updateRegistry(ctx.store, (registry) => {
     const l = registry.ports[String(lease.port)];
     l.server = {
       pid,
-      start: info.start,
-      cwd: /** @type {string} */ (info.cwd),
+      start: identity.start,
+      cwd: identity.cwd ?? cwd,
       command: request.argv.join(' '),
       started_at: new Date().toISOString(),
     };
@@ -204,29 +218,23 @@ export async function releasePort(ctx, request) {
 
 /**
  * Stop a process the manager started: ask, wait, and only if it is still the same process, force.
+ * The caller has just matched it. While waiting only its liveness is polled: an identity check
+ * costs a process (most of a second on Windows), and one is made before forcing.
+ *
+ * On Windows there is nothing to ask: no signal reaches a handler there, and a process tree is
+ * stopped at once with taskkill /T /F (the server runs detached, so its children are in its tree).
  * @param {number} pid @param {import('./registry.mjs').ServerRecord} recorded @param {number} graceMs
  */
 async function stopOwn(pid, recorded, graceMs) {
-  /** @param {NodeJS.Signals} sig */
-  const signal = (sig) => {
-    try {
-      // The server runs detached as its own group leader; stop its group so its children go too.
-      process.kill(-pid, sig);
-    } catch {
-      try {
-        process.kill(pid, sig);
-      } catch {
-        // already gone
-      }
-    }
-  };
-  signal('SIGTERM');
+  // The server runs detached as its own group leader; stop its group so its children go too.
+  killTree(pid, 'SIGTERM');
   const deadline = Date.now() + graceMs;
   while (Date.now() < deadline) {
-    if (!isAlive(pid) || matchProcess(recorded) !== 'match') return true;
+    if (!isAlive(pid)) return true;
     await sleep(50);
   }
-  if (matchProcess(recorded) === 'match') signal('SIGKILL');
+  if (WIN) return matchProcess(recorded) !== 'match';
+  if (matchProcess(recorded) === 'match') killTree(pid, 'SIGKILL');
   await sleep(100);
-  return matchProcess(recorded) !== 'match';
+  return !isAlive(pid) || matchProcess(recorded) !== 'match';
 }
