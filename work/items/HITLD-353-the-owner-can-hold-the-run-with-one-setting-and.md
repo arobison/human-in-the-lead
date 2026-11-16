@@ -12,7 +12,7 @@ project: HITLD-15
 
 
 
-- One owner setting (or one command that writes it) holds the run: while it is set, `dispatch plan` and `ready` offer no item to start, say it is held by the owner and since when, and a running executor is not stopped. Releasing it is the same one step.
+- **Decided by the owner (HITLD-427): the hold lives in the run, set by a command.** `hitld run hold` and `hitld run release` hold and release the run, recorded in the ledger with who asked and why. While held, `dispatch plan` and `ready` offer no item to start, say it is held by the owner and since when, and a running executor is not stopped. A new run starts released. The orchestrator runs the command on the owner's word relayed by the chief of staff (a hold only tightens, so the orchestrator obeys it).
 - The hold is distinct from the quota gate's own pause: the gate sets and lifts its pause by itself, and the owner's hold is never lifted by the gate. The plan shows both when both apply.
 - The orchestrate skill and design 12 say who may set it (the owner, through the chief of staff) and that an orchestrator obeys it before any other rule. Tests cover set, release, and a hold set while an executor runs.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
