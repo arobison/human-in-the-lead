@@ -172,6 +172,14 @@ test('rights ask and rights answer write the files tracker of the primary checko
   assert.equal(fields.answered_by, 'owner');
   assert.equal(fields.precedent, 'P-1');
   assert.equal(fields.resolved_by_precedent, undefined);
+  // The ledger keeps the answer as written, for a merge under the owner's delegation to check a
+  // changed answer against (HITLD-150).
+  const tail = await c.hitld(['ledger', 'tail', '--limit', '100']);
+  const recorded = tail.result.events.find(
+    (/** @type {any} */ e) => e.event === 'answered' && e.decision === id,
+  );
+  assert.equal(recorded?.text, fields.answer);
+  assert.equal(recorded?.at, fields.answered_at);
   const again = await c.hitld(['rights', 'answer', id, '--answer', 'B']);
   assert.equal(again.result.error, 'not-open');
 

@@ -170,7 +170,7 @@
       "enum": ["default"]
     },
     "text": {
-      "description": "On logged: the call, in a sentence, as the orchestrator decided it without asking. The digest lists it, and the owner can reverse it by this event's ID.",
+      "description": "On logged: the call, in a sentence, as the orchestrator decided it without asking. The digest lists it, and the owner can reverse it by this event's ID. On answered: the answer as written in the decision item, which a merge under the owner's delegation checks a changed answer against.",
       "$ref": "common#/$defs/text"
     },
     "area": {

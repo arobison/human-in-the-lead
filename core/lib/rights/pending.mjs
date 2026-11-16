@@ -176,7 +176,11 @@ export function sweepDefaults(deps, settings) {
       deps.tracker.update(id, { answer, answered_at: at, answered_via: 'default' }, version);
       deps.tracker.transition(id, 'done', 'a default was applied', {});
       recordDecisionEvent(deps.store, 'asked', id, at, { who: deps.who });
-      recordDecisionEvent(deps.store, 'answered', id, at, { via: 'default', who: deps.who });
+      recordDecisionEvent(deps.store, 'answered', id, at, {
+        via: 'default',
+        who: deps.who,
+        text: answer,
+      });
       recordTrustEvent(
         deps.store,
         {

@@ -3,7 +3,9 @@
 //
 //   1. route     a branch that changes nothing under merge.owner_paths or merge.owner_areas goes
 //                through the queue as in queue mode; the rest wait for the owner (all of them
-//                when both settings are empty)
+//                when both settings are empty). owner_paths is read in order, the last glob a
+//                file matches deciding, and a glob that starts with "!" takes the files it
+//                matches back out: ["**", "!work/**"] holds everything but the tracker
 //   2. check     the queue rebases the owner's branches, runs the commit guard, the fast checks,
 //                the scanners and the full suite, and holds the tested commit (queue.mjs, hold);
 //                a branch that fails is sent back and never shown
@@ -21,7 +23,7 @@
 //                proposed there, and the owner decides
 
 import { spawnSync } from 'node:child_process';
-import { globsOverlap } from '../dispatch/item.mjs';
+import { allWithin, globsOverlap, sample } from '../dispatch/item.mjs';
 import { matchesAny } from '../precedent/glob.mjs';
 import { diffSurface, emptySurface } from '../release/delta.mjs';
 import { schemaFields } from '../release/surface.mjs';
@@ -69,7 +71,10 @@ import { advanceTo, runMergeQueue } from './queue.mjs';
  * @property {Evidence[]} branches
  *
  * @typedef {{ area: string, clean_run: number, approvals: number, change: Record<string, unknown>, question: string }} Proposal
- * @typedef {{ approvals: number, as_presented: number, reverted: number, median_latency_ms: number | null, clean_run: number }} AreaApprovals
+ * @typedef {{ approvals: number, as_presented: number, reverted: number, median_latency_ms: number | null, clean_run: number,
+ *   delegated: number, delegated_reverted: number }} AreaApprovals delegated: merges made without
+ *   asking under the owner's delegation (merge.pull_request.delegated_by); a revert of one resets
+ *   the clean run
  */
 
 /** The private store key of the batch last put to the owner. */
@@ -147,14 +152,30 @@ const ownerAreas = (policy) => policy.merge?.owner_areas ?? [];
 const everywhere = (policy) => !ownerPaths(policy).length && !ownerAreas(policy).length;
 
 /**
+ * Whether a file is under merge.owner_paths: read in order, the last glob that matches it decides,
+ * and a glob that starts with "!" takes the files it matches back out. A file no glob matches is
+ * not under them.
+ * @param {string} file @param {string[]} globs
+ */
+export function underOwnerPaths(file, globs) {
+  let under = false;
+  for (const g of globs) {
+    const out = g.startsWith('!');
+    if (matchesAny([out ? g.slice(1) : g], file)) under = !out;
+  }
+  return under;
+}
+
+/**
  * Whether a branch that changes these files waits for the owner (step 1). Every branch does when
  * merge.owner_paths and merge.owner_areas are both empty; otherwise one that changes a file under
- * owner_paths, or in an area named in owner_areas ("unassigned" for files in no area).
+ * owner_paths (underOwnerPaths), or in an area named in owner_areas ("unassigned" for files in no
+ * area).
  * @param {string[]} files @param {Policy} policy
  */
 export function waitsForOwner(files, policy) {
   if (everywhere(policy)) return true;
-  if (files.some((f) => matchesAny(ownerPaths(policy), f))) return true;
+  if (files.some((f) => underOwnerPaths(f, ownerPaths(policy)))) return true;
   const named = ownerAreas(policy);
   return areasOf(files, policy).some((a) => named.includes(a));
 }
@@ -550,14 +571,19 @@ export function approvalEvents(p, merged, asPresented, at) {
 }
 
 /**
- * The trust events for a revert of an item the owner approved: one per area its approval counted
- * in, not yet marked reverted. None when no approval of the item is recorded.
+ * The trust events for a revert of an item the owner approved, or one the system merged without
+ * asking under the owner's delegation: one per area its merge counted in, not yet marked reverted.
+ * None when neither is recorded for the item.
  * @param {Record<string, any>[]} trust the trust events so far @param {string} item
  * @returns {Record<string, any>[]}
  */
 export function revertEvents(trust, item) {
   const areas = new Set(
-    trust.filter((e) => e.kind === 'merge-approval' && e.subject === item).map((e) => e.area),
+    trust
+      .filter(
+        (e) => (e.kind === 'merge-approval' || e.kind === 'merge-delegated') && e.subject === item,
+      )
+      .map((e) => e.area),
   );
   const done = new Set(
     trust.filter((e) => e.kind === 'merge-reverted' && e.subject === item).map((e) => e.area),
@@ -570,7 +596,8 @@ export function revertEvents(trust, item) {
 /**
  * The owner's merge approvals per area: how many, how many as presented, how many reverted since,
  * the median latency, and the clean run: the latest approvals in a row that were taken as
- * presented and not reverted.
+ * presented and not reverted. A revert of a merge made without asking under the owner's delegation
+ * counts against the area too: the run starts again from the revert.
  * @param {Record<string, any>[]} trust
  * @returns {Record<string, AreaApprovals>}
  */
@@ -580,16 +607,34 @@ export function approvalSummary(trust) {
   );
   /** @type {Record<string, AreaApprovals & { latencies: number[] }>} */
   const out = {};
-  for (const e of trust) {
-    if (e.kind !== 'merge-approval') continue;
-    const a = (out[e.area] ??= {
+  /** @param {string} area */
+  const of = (area) =>
+    (out[area] ??= {
       approvals: 0,
       as_presented: 0,
       reverted: 0,
       median_latency_ms: null,
       clean_run: 0,
+      delegated: 0,
+      delegated_reverted: 0,
       latencies: [],
     });
+  /** @type {Set<string>} */
+  const delegated = new Set();
+  for (const e of trust) {
+    if (e.kind === 'merge-delegated') {
+      of(e.area).delegated++;
+      delegated.add(`${e.area}\0${e.subject}`);
+      continue;
+    }
+    if (e.kind === 'merge-reverted' && delegated.has(`${e.area}\0${e.subject}`)) {
+      const a = of(e.area);
+      a.delegated_reverted++;
+      a.clean_run = 0;
+      continue;
+    }
+    if (e.kind !== 'merge-approval') continue;
+    const a = of(e.area);
     const back = reverted.has(`${e.area}\0${e.subject}`);
     a.approvals++;
     if (e.as_presented) a.as_presented++;
@@ -612,17 +657,37 @@ export function approvalSummary(trust) {
 }
 
 /**
- * The owner_paths globs that reach into an area; for "unassigned", those no area's paths overlap.
- * @param {string} area @param {Policy} policy @returns {string[]}
+ * The owner_paths globs that reach into an area (for "unassigned", those no area's paths overlap),
+ * and owner_paths as a yes to letting the queue take the area would leave them: a glob inside the
+ * area goes; one that reaches past it (["**"], say) stays, and the area's own paths are added after
+ * it as exclusions ("!<glob>"), so only that area stops waiting. Exclusions with no glob left to
+ * take files out of are dropped.
+ * @param {string} area @param {Policy} policy @returns {{ reaching: string[], next: string[] }}
  */
 function ownerPathsIn(area, policy) {
   const areas = /** @type {{ name: string, paths?: string[] }[]} */ (policy.rights?.areas ?? []);
   const paths = ownerPaths(policy);
+  const including = paths.filter((g) => !g.startsWith('!'));
+  /** @type {string[]} */
+  let next;
+  /** @type {string[]} */
+  let reaching;
   if (area === UNASSIGNED) {
-    return paths.filter((g) => !areas.some((a) => (a.paths ?? []).some((x) => globsOverlap(g, x))));
+    reaching = including.filter(
+      (g) => !areas.some((a) => (a.paths ?? []).some((x) => globsOverlap(g, x))),
+    );
+    next = paths.filter((g) => !reaching.includes(g));
+  } else {
+    const own = areas.find((a) => a.name === area)?.paths ?? [];
+    reaching = including.filter((g) => own.some((x) => globsOverlap(g, x)));
+    const inside = reaching.filter((g) => allWithin([g], own));
+    next = paths.filter((g) => !inside.includes(g));
+    if (reaching.length > inside.length) {
+      for (const x of own) if (!next.includes(`!${x}`)) next.push(`!${x}`);
+    }
   }
-  const own = areas.find((a) => a.name === area)?.paths ?? [];
-  return paths.filter((g) => own.some((x) => globsOverlap(g, x)));
+  if (!next.some((g) => !g.startsWith('!'))) next = [];
+  return { reaching, next };
 }
 
 /**
@@ -636,7 +701,7 @@ function ownerPathsIn(area, policy) {
  */
 export function queueProposals(summary, policy, proposed = {}) {
   const after = policy.merge?.propose_queue_after ?? 20;
-  const areas = /** @type {{ name: string }[]} */ (policy.rights?.areas ?? []);
+  const areas = /** @type {{ name: string, paths?: string[] }[]} */ (policy.rights?.areas ?? []);
   /** @type {Proposal[]} */
   const out = [];
   for (const [area, s] of Object.entries(summary)) {
@@ -645,10 +710,22 @@ export function queueProposals(summary, policy, proposed = {}) {
     const covered = everywhere(policy)
       ? [...areas.map((a) => a.name), UNASSIGNED]
       : ownerAreas(policy);
-    const reaching = ownerPathsIn(area, policy);
+    const { reaching, next: nextPaths } = ownerPathsIn(area, policy);
     if (!covered.includes(area) && !reaching.length) continue;
+    // An area none of whose files waits needs no proposal (the tracker, under ["**", "!work/**"]).
+    const own = areas.find((a) => a.name === area);
+    if (
+      own &&
+      !covered.includes(area) &&
+      !(
+        /** @type {string[]} */ (own.paths ?? []).some((g) =>
+          underOwnerPaths(sample(g), ownerPaths(policy)),
+        )
+      )
+    ) {
+      continue;
+    }
     const nextAreas = covered.filter((a) => a !== area);
-    const nextPaths = ownerPaths(policy).filter((g) => !reaching.includes(g));
     /** @type {Record<string, unknown>} */
     const change =
       !nextAreas.length && !nextPaths.length

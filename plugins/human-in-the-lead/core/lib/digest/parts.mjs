@@ -10,6 +10,7 @@
 import { effectiveEvents } from '../ledger/summary.mjs';
 import { readLedger } from '../ledger/ledger.mjs';
 import { waited } from '../merge/owner.mjs';
+import { revertCommand } from '../merge/pull-request.mjs';
 import { MODE_LABEL } from '../quota/report.mjs';
 import { listApplications, listLoggedCalls, precedentHealth } from '../rights/flow.mjs';
 import { describeOption, optionIndex, optionLetter } from '../rights/format.mjs';
@@ -199,7 +200,8 @@ const held = {
   },
 };
 
-// Items merged since the cursor, from the ledger.
+// Items merged since the cursor, from the ledger. One merged without asking under the owner's
+// delegation (a merged event naming its decision) says so, with the command that reverses it.
 
 /** @type {Part} */
 const merged = {
@@ -219,12 +221,27 @@ const merged = {
       title: titleOf(deps, e.item),
       at: e.at,
       ...(e.commit ? { commit: e.commit } : {}),
+      ...(e.decision && e.commit
+        ? {
+            delegated_by: e.decision,
+            reverse: revertCommand({ item: e.item, commit: e.commit }),
+          }
+        : {}),
     }));
     const reverted = after
       .filter((e) => e.event === 'reverted')
       .map((e) => ({ item: e.item, title: titleOf(deps, e.item), at: e.at }));
     const entries = [
-      ...mergedItems.map((m) => [clip(`${m.item} ${m.title}`)]),
+      ...mergedItems.map((m) =>
+        m.delegated_by
+          ? wrap(
+              `${m.title}, merged without asking under ${m.delegated_by}. Reverse it: git revert ${String(m.commit).slice(0, 12)}`,
+              `${m.item} `,
+              '   ',
+              3,
+            )
+          : [clip(`${m.item} ${m.title}`)],
+      ),
       ...reverted.map((m) => [clip(`${m.item} reverted ${m.title}`)]),
     ];
     return {
@@ -235,6 +252,13 @@ const merged = {
             title: 'Merged',
             entries,
             noun: 'items',
+            ...(mergedItems.some((m) => m.delegated_by)
+              ? {
+                  notes: [
+                    `Reverse a merge made without asking: ${revertCommand({ item: '<ID>', commit: '<commit>' })}`,
+                  ],
+                }
+              : {}),
             news: true,
           }
         : null,
