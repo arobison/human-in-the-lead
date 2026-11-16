@@ -23,3 +23,5 @@ hitld has no keychain tool on Windows, so a local `store device init` fails with
 ## Notes
 
 From the owner's decisions on the open questions in the Windows pull request (PR #186, HITLD-243). Needs HITLD-243: the pull request changes the same code.
+
+Also reported as GitHub issue #134 (friction, triage 2026-11-16): store device init has no Windows keychain support, so a Windows machine enrolls only via --cloud, keeping a private key in a user environment variable. This item covers the feature (DPAPI). The issue also asks that, until the key is protected, the Windows refusal say plainly that `--cloud` leaves the private key in a user environment variable, so a person can choose WSL with the Linux Secret Service instead. That wording change is part of this item's first step.

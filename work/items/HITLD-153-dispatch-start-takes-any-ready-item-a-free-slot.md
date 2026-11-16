@@ -26,3 +26,9 @@ In the first self-hosted run, with nothing running and a cap of 2, `hitld dispat
 ## Notes
 
 Found by the orchestrator in the chief of staff's run and verified in the code. HITLD-130 changes dispatch plan and start for the disk floor, and HITLD-136 changes the brief and the overlap rule, so build this after them or in one wave with care. It does not block HITLD-109 as written; it joined the milestone Consumer live (HITLD-67) and the first step toward rc.2 (HITLD-189).
+
+Also reported as GitHub issue #151 (bug): The refill after dispatch complete offers the same item again while its finished branch waits to merge, inviting duplicate work.
+
+And as GitHub issue #159 (bug): dispatch start --by-hand is refused as not-planned after setup with both slots free, because the planner filled the slots with its own top picks.
+
+Triage 2026-11-16: both duplicate this item, which covers them; the issues are untouched on GitHub, and the two reports raise this item's reach.
