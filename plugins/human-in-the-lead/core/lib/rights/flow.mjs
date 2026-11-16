@@ -394,12 +394,15 @@ function citeCandidates(candidates, classification) {
  *   otherwise it waits for the next digest and `showQuestion` writes `sent` when it is shown.
  * @param {Deps} deps
  * @param {Record<string, any>} given as in schemas/question.schema.json (direction, its name before HITLD-82, is read as touches_direction)
- * @param {{ judged?: Record<string, boolean>, send?: boolean, ownerOnly?: boolean, binds?: Record<string, string> }} [options]
+ * @param {{ judged?: Record<string, boolean>, send?: boolean, ownerOnly?: boolean, binds?: Record<string, string>, recorded?: boolean, at?: string }} [options]
  *   judged: the holder's judgment, per candidate precedent ID, of whether its plain-language
  *   conditions and exceptions fit (design part 4.3, step 2). ownerOnly: a question only the
  *   owner's own answer settles (a store device's enrollment or removal, design 0003 section 6):
  *   it goes to the owner whatever the rules say about areas, no precedent resolves it, it carries
- *   no default, and the record says so, so `rights sweep` never applies one.
+ *   no default, and the record says so, so `rights sweep` never applies one. recorded: the owner
+ *   already chose, in the harness's question tool or in chat (`recordChoice`): it is the owner's
+ *   whatever the rules say, no precedent resolves it, it carries no default, and it is sent at
+ *   once. at: when it was asked and sent, instead of now.
  * @returns {Result}
  */
 export function askQuestion(deps, given, options = {}) {
@@ -414,7 +417,15 @@ export function askQuestion(deps, given, options = {}) {
     return fail('invalid-question', normalized.errors.join('; '), { errors: normalized.errors });
   }
   const question = normalized.question;
-  const route = routeQuestion(question, deps.policy);
+  const routed = routeQuestion(question, deps.policy);
+  // A choice the owner made is the owner's, whichever decider the rules name: the owner outranks
+  // an area owner, and a call the system could have made was still the owner's once they made it.
+  const route = options.recorded
+    ? { ...routed, decider: /** @type {const} */ ('owner'), deciders: ['owner'] }
+    : routed;
+  if (options.recorded && question.default_if_unanswered) {
+    return fail('invalid-default', 'a choice recorded with its answer carries no default');
+  }
   if (options.ownerOnly) {
     if (route.deciders.length !== 1 || route.deciders[0] !== 'owner') {
       return fail(
@@ -429,14 +440,15 @@ export function askQuestion(deps, given, options = {}) {
   }
   if (route.decider === 'system') return { ok: true, outcome: 'system', route };
 
-  const match = options.ownerOnly
-    ? { candidates: [] }
-    : matchPrecedents(factsOf(question, route), deps.precedents.list(), {
-        policy: deps.policy,
-        route,
-      });
+  const match =
+    options.ownerOnly || options.recorded
+      ? { candidates: [] }
+      : matchPrecedents(factsOf(question, route), deps.precedents.list(), {
+          policy: deps.policy,
+          route,
+        });
   const { resolved, remaining } = resolveByPrecedent(match.candidates, options.judged);
-  const at = nowOf(deps);
+  const at = options.at ?? nowOf(deps);
   const classification = question.classification ?? 'internal';
   const area = areaLabel(route.areas);
   const facts = factsOf(question, route);
@@ -606,7 +618,7 @@ export function askQuestion(deps, given, options = {}) {
     at,
   );
   recordDecisionEvent(deps.store, 'asked', id, at, { who: deps.who });
-  if (options.send) {
+  if (options.send || options.recorded) {
     recordDecisionEvent(deps.store, 'sent', id, at, { delivery: 'interrupt', who: deps.who });
     recordShown(deps, id, check, at);
   }
@@ -699,6 +711,8 @@ export function showQuestion(deps, input) {
  *   narrow?: Narrowing,
  *   code?: string,
  *   applies?: Record<string, string>[],
+ *   words?: boolean,
+ *   latency_unknown?: boolean,
  * }} input
  *   code: the check code of the question as shown; without it, the code this session last showed.
  *   applies: what each action waiting under this ID would do when answered (for a device
@@ -709,6 +723,11 @@ export function showQuestion(deps, input) {
  *   An answer that names no option is refused (`answer-matches-no-option`) and nothing is recorded.
  *   narrow: structured narrowing, when the decider's words are not enough.
  *   by: who answered, "owner" or a contributor ID; it must be one of the decision's deciders, or the owner.
+ *   words: the owner's own words stand as the answer when they name no option (a choice the owner
+ *   made in conversation: "Other" in the question tool, or an answer in chat); words that fit
+ *   more than one option are still refused.
+ *   latency_unknown: when the question was shown is not known, so no latency is recorded and the
+ *   answer is left out of the rubber-stamp share.
  * @returns {Result}
  */
 export function answerDecision(deps, input) {
@@ -766,7 +785,7 @@ export function answerDecision(deps, input) {
   // (a device decision would otherwise be applied as a refusal). A decision with no options at all
   // takes its answer as words.
   const offered = /** @type {Record<string, any>[]} */ (question.options ?? []);
-  if (parsed.option === null && offered.length > 0) {
+  if (parsed.option === null && offered.length > 0 && (parsed.ambiguous || !input.words)) {
     const listed = offered.map((o, i) => describeOption(o, i)).join(' | ');
     return fail(
       'answer-matches-no-option',
@@ -875,7 +894,7 @@ export function answerDecision(deps, input) {
       ?.at ??
     null;
   const waited = startedAt === null ? NaN : Date.parse(at) - Date.parse(startedAt);
-  const latency = Number.isFinite(waited) ? Math.max(0, waited) : null;
+  const latency = Number.isFinite(waited) && !input.latency_unknown ? Math.max(0, waited) : null;
   const recommended = question.recommendation
     ? optionIndex({ options: question.options ?? [] }, question.recommendation.option)
     : null;
@@ -938,6 +957,99 @@ export function answerDecision(deps, input) {
     precedent: precedent ? { id: precedent.id, rule: precedent.rule, stored_in: place } : null,
     warnings,
   };
+}
+
+/** How a choice the owner made in conversation reached the session. */
+export const RECORD_CHANNELS = /** @type {const} */ (['question-tool', 'chat']);
+
+/**
+ * File a choice the owner made in conversation, in the harness's question tool or in chat, as a
+ * decision and its answer in one step. It writes what `askQuestion` and then `answerDecision`
+ * write: the decision item, the ask record with its check code, the ledger's asked, sent and
+ * answered, and the trust record's asked and answered. So the choice counts in the attention
+ * budget (sent as an interrupt), in decision latency and in the trust record like any other.
+ *
+ * Everything that can be refused is checked before anything is written: the channel, the time it
+ * was shown, the question, the answer against its options, and the check code. A refusal leaves
+ * no trace.
+ * @param {Deps} deps
+ * @param {Record<string, any>} given the question, as in schemas/question.schema.json
+ * @param {{ answer: string, via: string, code?: string, shown_at?: string, worth_asking?: boolean }} input
+ *   answer: the option picked (a letter or a label) or the owner's own words. via: question-tool
+ *   or chat. code: the check code of the question as it was shown; when given, it must be the
+ *   code of the question recorded. shown_at: when the question was put to the owner; without it,
+ *   now, and no latency goes in the trust record.
+ * @returns {Result}
+ */
+export function recordChoice(deps, given, input) {
+  if (!RECORD_CHANNELS.includes(/** @type {any} */ (input.via))) {
+    return fail('usage', `via must be ${RECORD_CHANNELS.join(' or ')}`);
+  }
+  const now = nowOf(deps);
+  /** @type {string | undefined} */
+  let shownAt;
+  if (input.shown_at !== undefined) {
+    const ms = Date.parse(input.shown_at);
+    if (Number.isNaN(ms)) return fail('usage', 'shown_at is not a timestamp');
+    if (ms > Date.parse(now)) return fail('usage', 'shown_at is later than now');
+    shownAt = new Date(ms).toISOString();
+  }
+  const raw = fromLegacyQuestion(given);
+  const invalid = schemas().validate('question', raw);
+  if (invalid.length) {
+    return fail('invalid-question', formatErrors(invalid), { errors: invalid });
+  }
+  const normalized = normalizeQuestion(raw);
+  if (normalized.errors.length) {
+    return fail('invalid-question', normalized.errors.join('; '), { errors: normalized.errors });
+  }
+  const question = normalized.question;
+  const missing = missingFromQuestion(question);
+  if (missing.length) {
+    return fail(
+      'incomplete-question',
+      `a recorded choice keeps what the owner was shown; it lacks: ${missing.join(', ')}`,
+      { missing },
+    );
+  }
+  const parsed = parseAnswer(input.answer, question);
+  if (parsed.option === null && (parsed.ambiguous || !parsed.text)) {
+    return fail(
+      'answer-matches-no-option',
+      parsed.ambiguous
+        ? "the words fit more than one option, so nothing was recorded. Give the option's letter or label"
+        : 'the answer is empty, so nothing was recorded',
+    );
+  }
+  // No precedent is matched for a recorded choice, so the context is not extended and the code is
+  // the code of the question as given.
+  const check = checkCode({
+    question: question.question,
+    context: question.context,
+    options: question.options,
+  });
+  if (input.code !== undefined && normalizeCode(input.code) !== check) {
+    return fail(
+      'answer-question-changed',
+      `the choice was shown with check code ${normalizeCode(input.code)}, and the question given has check code ${check}, so nothing was recorded. Record the question as it was shown`,
+      { check, given: normalizeCode(input.code) },
+    );
+  }
+  const asked = askQuestion(deps, question, { recorded: true, at: shownAt ?? now });
+  if (!asked.ok) return asked;
+  const answered = answerDecision(deps, {
+    decision: asked.decision,
+    answer: input.answer,
+    via: input.via,
+    code: check,
+    words: true,
+    latency_unknown: shownAt === undefined,
+    ...(typeof input.worth_asking === 'boolean' ? { worth_asking: input.worth_asking } : {}),
+  });
+  // Answering an item just asked fails only on a broken precedent offer; the decision then stays
+  // open, and `rights answer` takes it.
+  if (!answered.ok) return { ...answered, decision: asked.decision, check };
+  return { ...answered, recorded: input.via, asked_at: shownAt ?? now, route: asked.route };
 }
 
 /**

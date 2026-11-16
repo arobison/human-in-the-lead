@@ -26,6 +26,7 @@ import {
   logCall,
   overrule,
   rateWorthAsking,
+  recordChoice,
   recordReversal,
   showQuestion,
 } from '../../rights/flow.mjs';
@@ -136,6 +137,7 @@ const EXECUTOR_REFUSED = new Map([
   ['rights digest', "the orchestrator's"],
   ['rights log', "the orchestrator's"],
   ['rights answer', "the owner's"],
+  ['rights record', "the owner's"],
   ['rights overrule', "the owner's"],
   ['rights reverse', "the owner's"],
   ['rights rate', "the owner's"],
@@ -504,6 +506,57 @@ export function makeCommands({ openTracker }) {
                 : 'the next push from this device is encrypted to the new set of devices (a checkpoint does it, or hitld store push)',
           },
         };
+      },
+    },
+    {
+      name: 'rights record',
+      summary:
+        "File a choice the owner made in conversation, in the question tool or in chat, as a decision and its answer in one step: the tracker item, the ask record, the ledger's asked, sent and answered, and the trust record, as rights ask and rights answer would",
+      built_by: 'e',
+      args: [
+        ...questionArgs,
+        {
+          name: 'answer',
+          type: 'string',
+          description:
+            "The option the owner picked (a letter or an option's label), or the owner's own words when they picked none",
+          required: true,
+        },
+        {
+          name: 'via',
+          type: 'string',
+          description:
+            'How it arrived: question-tool (the harness question tool) or chat (the owner wrote it)',
+          required: true,
+        },
+        {
+          name: 'code',
+          type: 'string',
+          description:
+            'The check code shown with the question. When given, it must be the code of the question recorded',
+        },
+        {
+          name: 'shown-at',
+          type: 'string',
+          description:
+            'When the question was put to the owner (a timestamp). Default: now, and no latency is recorded',
+        },
+        {
+          name: 'worth-asking',
+          type: 'string',
+          description: 'yes or no: was it worth asking? Optional, never required',
+        },
+      ],
+      run: async (input, ctx) => {
+        const o = await open(ctx, { tracker: true });
+        if (o.failure) return o.failure;
+        return recordChoice(o.deps, questionOf(input, ctx), {
+          answer: /** @type {string} */ (input.answer),
+          via: /** @type {string} */ (input.via),
+          ...(typeof input.code === 'string' ? { code: input.code } : {}),
+          ...(typeof input['shown-at'] === 'string' ? { shown_at: input['shown-at'] } : {}),
+          worth_asking: yesNo(input['worth-asking'], 'worth-asking'),
+        });
       },
     },
     {
