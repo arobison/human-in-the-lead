@@ -1,10 +1,11 @@
 ---
 id: HITLD-131
-title: "Faster checks, in CI and for executors"
+title: Faster checks, in CI and for executors
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-15
 project: HITLD-15
+claimed_by: D-11
 ---
 
 ## Why
