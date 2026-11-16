@@ -360,7 +360,7 @@ function remoteCommands() {
     {
       name: 'store status',
       summary:
-        "Report the remote and where its address came from, the local and remote versions, whether a push or a pull is due, this device's approval, the approved devices, the device requests waiting to be put to the owner and the device decisions waiting for the owner's answer; changes nothing in the store (owner only)",
+        "Report the remote and where its address came from, the local and remote versions, whether a push or a pull is due, this device's approval, the approved devices, the device requests waiting to be put to the owner, the device decisions waiting for the owner's answer, and whether the store syncs here (`sync.ready`), with each cause and its fix when it does not; changes nothing in the store (owner only)",
       built_by: 'consumer-live',
       mcp: false,
       args: [STORE],
@@ -378,6 +378,7 @@ function remoteCommands() {
           requests: fetched.requests,
           requestsError: fetched.error,
           warnings: legacyWarnings(findRepoRoot(ctx.cwd)),
+          env: ctx.env,
         });
       }),
     },
