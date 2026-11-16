@@ -924,6 +924,7 @@ test('every command this piece owns is built', async () => {
       'work claims',
       'work check',
       'work views',
+      'work publish',
     ],
   );
   for (const c of mine) assert.equal(typeof c.run, 'function', c.name);

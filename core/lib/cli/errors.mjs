@@ -103,6 +103,13 @@ export const ERROR_CODES = Object.freeze({
   'nothing-to-rate': 'No decision has been answered yet.',
   'not-found': 'The ID is not in the tracker or the store.',
 
+  // Publishing tracker changes
+  'main-changed':
+    'The main branch changed a tracker file this session changed too, in a way this session has not seen; nothing was published.',
+  'push-failed': 'The push of the new branch to the remote failed; nothing was published.',
+  classification:
+    "A file is above the repository's classification ceiling or holds the private store's address or device list; nothing was published.",
+
   // Feedback and the send gate
   'not-an-approval': 'The answer is not approve, edit or by-hand.',
   'not-approved': 'Only an approved publication from the send gate is sent.',
