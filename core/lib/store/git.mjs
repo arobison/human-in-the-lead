@@ -8,20 +8,14 @@
 // list (never a shell string), with GIT_DIR and GIT_WORK_TREE pinned to the store so no other
 // repository is found, with the owner's global and system git config ignored (a signing or hook
 // setting there cannot change what runs), and with hooks off (core.hooksPath=/dev/null) so nothing
-// in the store or a bundle can run. The passphrase is never in git's environment.
+// in the store or a bundle can run. The passphrase is never in git's environment. Git for Windows
+// reads /dev/null in both places as its own empty device.
 
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
+import { hostEnv, removeFile, replaceFile } from './host.mjs';
 
 /** The branch that holds the store's history. */
 export const BRANCH = 'main';
@@ -82,8 +76,7 @@ export const isMachineLocal = (path) =>
  */
 export function git(root, args, options = {}) {
   const env = {
-    PATH: process.env.PATH ?? '/usr/bin:/bin',
-    HOME: process.env.HOME ?? root,
+    ...hostEnv(root),
     LANG: 'C',
     LC_ALL: 'C',
     GIT_DIR: join(root, '.git'),
@@ -428,12 +421,12 @@ export function mergeIncoming(root, theirs) {
   for (const [path, content] of writes) {
     const file = join(root, ...path.split('/'));
     if (content === null) {
-      if (existsSync(file)) unlinkSync(file);
+      if (existsSync(file)) removeFile(file);
     } else {
       mkdirSync(dirname(file), { recursive: true });
       const tmp = `${file}.${process.pid}.tmp`;
       writeFileSync(tmp, content);
-      renameSync(tmp, file);
+      replaceFile(tmp, file);
     }
   }
   git(root, ['add', '-A']);

@@ -2,24 +2,28 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
+import { hostEnv, retryBusy } from '../lib/store/host.mjs';
+
+/** A path written with "/", in this system's separators (Windows: "\"). @param {string} p */
+const native = (p) => p.split('/').join(sep);
 
 test('the default store path is ~/.local/share/human-in-the-lead/<project-id>/', () => {
   assert.equal(
     privateStorePath('example-project', { env: {}, home: '/home/o' }),
-    '/home/o/.local/share/human-in-the-lead/example-project',
+    native('/home/o/.local/share/human-in-the-lead/example-project'),
   );
 });
 
 test('XDG_DATA_HOME is respected when absolute', () => {
   assert.equal(
     privateStorePath('p', { env: { XDG_DATA_HOME: '/data' }, home: '/home/o' }),
-    '/data/human-in-the-lead/p',
+    native('/data/human-in-the-lead/p'),
   );
   assert.equal(
     privateStorePath('p', { env: { XDG_DATA_HOME: 'relative' }, home: '/home/o' }),
-    '/home/o/.local/share/human-in-the-lead/p',
+    native('/home/o/.local/share/human-in-the-lead/p'),
   );
 });
 
@@ -63,4 +67,73 @@ test('store keys cannot leave the store', () => {
   for (const key of ['../x', '/etc/passwd', 'a/../../x', '', 'a\0b']) {
     assert.throws(() => store.read(key), /store key/, key);
   }
+  // On Windows a backslash separates too, and a drive or UNC path is absolute.
+  if (process.platform === 'win32') {
+    for (const key of ['..\\x', 'a\\..\\..\\x', 'C:\\x', 'C:/x', '\\\\server\\share\\x']) {
+      assert.throws(() => store.read(key), /store key/, key);
+    }
+  }
+});
+
+test('git is given the system it runs on: HOME as before elsewhere, the profile on Windows', () => {
+  const env = {
+    PATH: '/bin',
+    HOME: '/home/o',
+    USERPROFILE: 'C:/Users/o',
+    APPDATA: 'C:/Users/o/AppData/Roaming',
+    GIT_DIR: '/elsewhere',
+    SECRET: 'x',
+  };
+  assert.deepEqual(hostEnv('/store', { env, platform: 'linux' }), {
+    PATH: '/bin',
+    HOME: '/home/o',
+  });
+  assert.deepEqual(hostEnv('/store', { env: { PATH: '/bin' }, platform: 'darwin' }), {
+    PATH: '/bin',
+    HOME: '/store',
+  });
+  assert.deepEqual(hostEnv(null, { env, platform: 'linux' }), { PATH: '/bin' });
+  // Windows: the profile's variables pass, names in any case; HOME only when it is set.
+  const win = { Path: 'C:/bin', userprofile: 'C:/Users/o', SystemRoot: 'C:/Windows', SECRET: 'x' };
+  assert.deepEqual(hostEnv('/store', { env: win, platform: 'win32' }), {
+    PATH: 'C:/bin',
+    USERPROFILE: 'C:/Users/o',
+    SystemRoot: 'C:/Windows',
+  });
+  assert.equal(hostEnv('/store', { env, platform: 'win32' }).HOME, '/home/o');
+  assert.equal(hostEnv('/store', { env, platform: 'win32' }).APPDATA, env.APPDATA);
+  assert.equal(hostEnv('/store', { env, platform: 'win32' }).GIT_DIR, undefined);
+  assert.equal(hostEnv(null, { env, platform: 'win32' }).HOME, undefined);
+});
+
+test('a busy file is tried again on Windows only, a bounded number of times', () => {
+  const busy = (/** @type {string} */ code) => Object.assign(new Error(code), { code });
+  /** @type {number[]} */
+  const waits = [];
+  const wait = (/** @type {number} */ ms) => void waits.push(ms);
+  let tries = 0;
+  const flaky = () => {
+    if (++tries < 3) throw busy('EBUSY');
+    return 'done';
+  };
+  assert.equal(retryBusy(flaky, { platform: 'win32', wait }), 'done');
+  assert.equal(tries, 3);
+  assert.equal(waits.length, 2);
+  tries = 0;
+  assert.throws(() => retryBusy(flaky, { platform: 'linux', wait }), { code: 'EBUSY' });
+  assert.equal(tries, 1, 'elsewhere a busy file is an error at once');
+  tries = 0;
+  const never = () => {
+    tries++;
+    throw busy('EPERM');
+  };
+  assert.throws(() => retryBusy(never, { platform: 'win32', wait }), { code: 'EPERM' });
+  assert.ok(tries > 1 && tries < 20, 'given up after a few tries');
+  tries = 0;
+  const missing = () => {
+    tries++;
+    throw busy('ENOENT');
+  };
+  assert.throws(() => retryBusy(missing, { platform: 'win32', wait }), { code: 'ENOENT' });
+  assert.equal(tries, 1, 'only a busy file is tried again');
 });

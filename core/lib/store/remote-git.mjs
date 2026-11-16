@@ -48,6 +48,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { hostEnv } from './host.mjs';
 import { StoreRemoteError, remoteMoved } from './remote.mjs';
 import { DEVICES_BRANCH, PROPOSALS_DIR } from './placement.mjs';
 
@@ -702,8 +703,9 @@ function checkDir(dirPath) {
 function baseEnv(dir) {
   /** @type {Record<string, string>} */
   const env = {
-    PATH: process.env.PATH ?? '/usr/bin:/bin',
-    HOME: process.env.HOME ?? dir,
+    // On Windows also where the profile is, so ssh finds ~/.ssh, the owner's global config is
+    // found for the connection keys, and the credential manager finds its data (host.mjs).
+    ...hostEnv(dir),
     LANG: 'C',
     LC_ALL: 'C',
     GIT_DIR: dir,
