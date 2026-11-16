@@ -478,8 +478,11 @@ export function viewCriticalPath(g, top = 5) {
  *   once everything it waits on is done)
  * @property {MilestoneStage} stage
  * @property {number} in_progress its constraints in progress
- * @property {{ decisions: string[], external: string[] }} holds open owner decisions and outside
- *   waits that hold it up: among its open constraints, and what those need directly
+ * @property {{ decisions: string[], owner_decisions: string[], external: string[] }} holds open
+ *   decisions (and those of them the owner decides) and outside waits that hold it up: among its
+ *   open constraints, and what those need directly
+ * @property {string[]} waits open milestones it needs that are not done
+ * @property {number} waiting_on_it open items and milestones that need it
  * @property {boolean} in_cycle it is in a loop of needs (the check reports the loop)
  * @property {MilestoneGraphItem[]} items its constraints, then its contributions
  * @typedef {'proposed' | 'waiting' | 'ready' | 'in-flight' | 'done' | 'dropped'} MilestoneStage
@@ -496,11 +499,13 @@ export function viewCriticalPath(g, top = 5) {
  * @property {MilestoneGraphEdge[]} edges
  * @property {string[]} critical_path the milestone critical path, first-needed first; empty when
  *   no open milestone has estimate tokens remaining
- * @property {{ id: string | null, title: string }[]} lanes long outcomes (id null), then each
- *   project with a milestone, in ID order
- * @property {{ id: string, title: string, release: string, state: string, layer: number }[]} releases
+ * @property {{ id: string | null, title: string, state: string | null }[]} lanes long outcomes (id
+ *   and state null), then each project with a milestone, in ID order
+ * @property {{ id: string, title: string, release: string, state: string, layer: number, milestones: string[] }[]} releases
  *   work items with a `release` version (release gates), at the step of the first milestone that
- *   names them, or after the last step when none does
+ *   names them; else at the step of the last milestone they need; else after the last step.
+ *   `milestones` are those that land before it: the milestones it needs, and those with an item
+ *   constraint it needs
  */
 
 /** An item's weight on a critical path: its estimate, or 1 without one. @param {Node | undefined} it */
@@ -552,7 +557,11 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
     const of = (kind) => [
       ...new Set(around.filter((n) => n.data.kind === kind).map((n) => String(n.data.id))),
     ];
-    return { decisions: of('decision'), external: of('external') };
+    return {
+      decisions: of('decision'),
+      owner_decisions: of('decision').filter((id) => g.get(id)?.data.decider === DEFAULT_OWNER),
+      external: of('external'),
+    };
   };
 
   /** @type {Map<string, number>} */
@@ -638,6 +647,11 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
       stage: stageOf(m),
       in_progress: ids.filter((x) => g.get(x)?.data.state === 'in-progress').length,
       holds: holdsOf(m),
+      waits: milestoneNeeds(m).filter((x) => g.get(x)?.data.state !== 'done'),
+      waiting_on_it: [
+        ...g.dependents(id),
+        ...g.milestones.filter((o) => g.isOpen(o) && g.needs(o).includes(id)),
+      ].length,
       in_cycle: looped.has(id),
       items: [
         ...ids.map((x) => item(x, 'constraint')),
@@ -655,10 +669,16 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
     }));
   });
   const lanes = [
-    ...(g.milestones.some((m) => !m.data.project) ? [{ id: null, title: 'Long outcomes' }] : []),
+    ...(g.milestones.some((m) => !m.data.project)
+      ? [{ id: null, title: 'Long outcomes', state: null }]
+      : []),
     ...g.projects
       .filter((p) => g.milestones.some((m) => m.data.project === p.data.id))
-      .map((p) => ({ id: String(p.data.id), title: shortTitle(String(p.data.title)) })),
+      .map((p) => ({
+        id: String(p.data.id),
+        title: shortTitle(String(p.data.title)),
+        state: String(p.data.state),
+      })),
   ];
   const last = Math.max(0, ...nodes.map((n) => n.layer + 1));
   const releases = g.items
@@ -666,12 +686,22 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
     .map((it) => {
       const id = String(it.data.id);
       const at = nodes.filter((n) => n.items.some((i) => i.id === id)).map((n) => n.layer);
+      const needs = g.needs(it);
+      // What lands before it: a milestone it needs, or one with an item constraint it needs
+      // (a milestone that only contains a needed milestone is not itself needed).
+      const before = g.milestones.filter(
+        (m) =>
+          needs.includes(String(m.data.id)) ||
+          g.needs(m).some((x) => x !== id && !isM(x) && needs.includes(x)),
+      );
+      const after = before.map((m) => layers.get(String(m.data.id)) ?? 0);
       return {
         id,
         title: String(it.data.title),
         release: String(it.data.release),
         state: String(it.data.state),
-        layer: at.length ? Math.min(...at) : last,
+        layer: at.length ? Math.min(...at) : after.length ? Math.max(...after) : last,
+        milestones: before.map((m) => String(m.data.id)),
       };
     });
   return { nodes, edges, critical_path: path, lanes, releases };

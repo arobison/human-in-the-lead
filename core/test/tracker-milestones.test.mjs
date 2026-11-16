@@ -642,6 +642,7 @@ const graphRepo = () =>
         state: 'planned',
         project: 'W-2',
         release: '1.0.0',
+        needs: ['W-5'],
       }),
       'work/items/W-9-nice-to-have.md': itemText({
         id: 'W-9',
@@ -687,18 +688,34 @@ test('the milestone graph: nodes, the one edge, progress, the check and the crit
   assert.deepEqual(
     mg.nodes.map((n) => [n.id, n.stage, n.in_progress, n.holds, n.in_cycle]),
     [
-      ['W-1', 'waiting', 0, { decisions: [], external: [] }, false],
-      ['W-7', 'ready', 0, { decisions: ['W-6'], external: [] }, false],
-      ['W-8', 'done', 0, { decisions: [], external: [] }, false],
+      ['W-1', 'waiting', 0, { decisions: [], owner_decisions: [], external: [] }, false],
+      ['W-7', 'ready', 0, { decisions: ['W-6'], owner_decisions: ['W-6'], external: [] }, false],
+      ['W-8', 'done', 0, { decisions: [], owner_decisions: [], external: [] }, false],
     ],
   );
   assert.deepEqual(mg.lanes, [
-    { id: null, title: 'Long outcomes' },
-    { id: 'W-2', title: 'project' },
+    { id: null, title: 'Long outcomes', state: null },
+    { id: 'W-2', title: 'project', state: 'planned' },
   ]);
   assert.deepEqual(mg.releases, [
-    { id: 'W-10', title: 'Ship it', release: '1.0.0', state: 'planned', layer: 2 },
+    // W-10 needs W-5, a constraint of W-7: W-7 lands before it, and it stands at W-7's step.
+    {
+      id: 'W-10',
+      title: 'Ship it',
+      release: '1.0.0',
+      state: 'planned',
+      layer: 0,
+      milestones: ['W-7'],
+    },
   ]);
+  assert.deepEqual(
+    mg.nodes.map((n) => [n.id, n.waits, n.waiting_on_it]),
+    [
+      ['W-1', ['W-7'], 0],
+      ['W-7', [], 1],
+      ['W-8', [], 0],
+    ],
+  );
   assert.deepEqual(mg.critical_path, ['W-7', 'W-1']);
   const w7 = /** @type {any} */ (mg.nodes[1]);
   assert.equal(w7.outcome, 'A user with a bad config sees which key is wrong.');
@@ -810,7 +827,7 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
   assert.match(html, /<h2 id="milestones">Milestones<\/h2>/);
   assert.match(
     html,
-    /<svg class="mg" [^>]*aria-label="Milestone board: 3 milestones in 3 lanes over 3 steps, 1 waits between them"/,
+    /<svg class="mg" [^>]*aria-label="Milestone board: 3 milestones in 3 lanes over 2 steps, 1 waits between them"/,
   );
   // Each node links to its panel; a panel shows only as the page's target.
   for (const id of ['W-1', 'W-7', 'W-8']) {
@@ -840,11 +857,29 @@ test('hitld dashboard adds the graph to its page as inline SVG; each node opens 
     /<rect class="mg-lane" x="0" y="26" [^>]*\/><text class="mg-lane-name" x="8" y="\d+">Releases</,
   );
   assert.ok(!html.includes('>0 tokens'), 'no card claims 0 tokens without a ledger record');
-  assert.match(html, /<text class="mg-step"[^>]*>Step 3<\/text>/);
+  // The release's rule runs from its flag down through every lane, behind the boxes; W-7, which
+  // lands before it, carries its version.
+  const height = /<svg class="mg" width="\d+" height="(\d+)"/.exec(html)?.[1];
   assert.match(
     html,
-    /<g class="mg-flag open"><title>Release gate 1\.0\.0: W-10 Ship it \(Planned\)<\/title>/,
+    new RegExp(
+      `<g class="mg-rule open"><line class="mg-rule-top" [^>]*/><line class="mg-rule-down" [^>]*y2="${height}"/></g>`,
+    ),
   );
+  assert.ok(
+    html.indexOf('class="mg-rule') < html.indexOf('class="mg-node'),
+    'rules are drawn first',
+  );
+  assert.match(
+    html,
+    /<g class="mg-badge release"><title>Lands before release 1\.0\.0 \(W-10\)<\/title>/,
+  );
+  assert.match(html, /Release gate 1\.0\.0: W-10 Ship it \(Planned\); after W-7/);
+  // Proposal tables stack their cells at phone width, with each cell's label, and no script.
+  assert.match(html, /@media \(max-width:600px\)\{\.mg-props thead\{display:none\}/);
+  assert.match(html, /\.mg-props td\[data-label\]::before\{content:attr\(data-label\) ": "/);
+  assert.match(html, /<text class="mg-step"[^>]*>Step 2<\/text>/);
+  assert.doesNotMatch(html, />Step 3</);
   // Not started: hollow, with a stage dot; started or done: solid, with a strip.
   assert.match(html, /<g class="mg-node ready hollow critical">.*?<circle class="mg-dot"/s);
   assert.match(html, /<g class="mg-node waiting hollow critical">/);
@@ -959,11 +994,42 @@ test('the board shows committed milestones only, lists proposed and dropped ones
   /** @type {any} */ (mg.nodes[0]).in_cycle = true;
   const html = renderMilestoneSection(mg);
   assert.doesNotMatch(html, /<a href="#milestone-W-7" aria-label/);
+  // Proposals as a table: the idea, what stands between it and committing, what waits on it.
   assert.match(
     html,
-    /Proposed, not on the board: <a href="#milestone-W-7">W-7 Config errors explained<\/a>\./,
+    /<h3 class="mg-h">Proposed milestones, not on the board<\/h3>.*?<table class="mg-props">/s,
   );
+  assert.match(
+    html,
+    /<tr><td data-label="Idea"><a href="#milestone-W-7">W-7 Config errors explained<\/a><\/td><td data-label="Before committing">Waits on your answer: W-6<\/td><td data-label="Waiting on it">1<\/td><\/tr>/,
+  );
+  assert.doesNotMatch(html, /Dropped milestones/);
   assert.match(html, /<section class="drill" id="milestone-W-7">/, 'its panel is still there');
   assert.match(html, /<g class="mg-node waiting hollow critical loop">/);
   assert.match(html, /2 milestones in 3 lanes/);
+});
+
+test('proposals: whole proposed projects first, then lone milestones; other waits named; dropped in their own table', () => {
+  const mg = open(graphRepo()).milestoneGraph();
+  const [w1, w7, w8] = /** @type {any[]} */ (mg.nodes);
+  w1.state = 'proposed';
+  w7.state = 'proposed';
+  w8.state = 'dropped';
+  /** @type {any} */ (mg.lanes[1]).state = 'proposed';
+  const html = renderMilestoneSection(mg);
+  const rows = [...html.matchAll(/<tr( class="mg-group")?>(.*?)<\/tr>/g)].map((m) =>
+    m[2].replace(/<[^>]+>/g, '|').replace(/\|+/g, '|'),
+  );
+  assert.deepEqual(rows.slice(1, 5), [
+    '|W-2 project, a proposed project|',
+    '|W-7 Config errors explained|Waits on your answer: W-6|1|',
+    '|Lone milestones|',
+    '|W-1 The goal|Waits on other items: W-7|0|',
+  ]);
+  assert.match(
+    html,
+    /<h3 class="mg-h">Dropped milestones<\/h3>.*?<td data-label="Idea"><a href="#milestone-W-8">W-8 First step shown<\/a><\/td><td data-label="Constraints">1 of 1 done<\/td>/s,
+  );
+  // Nothing committed is left, so the board has only the release lane.
+  assert.match(html, /0 milestones in 1 lanes/);
 });
