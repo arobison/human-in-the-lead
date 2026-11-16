@@ -79,7 +79,11 @@
       },
       {
         "name": "core",
-        "paths": ["core/**", "plugins/human-in-the-lead/core/**"]
+        "paths": [
+          "core/**",
+          "plugins/human-in-the-lead/core/**",
+          "plugins/human-in-the-lead/hooks/**"
+        ]
       },
       {
         "name": "plugins",
@@ -87,11 +91,7 @@
           "plugins/*",
           "plugins/human-in-the-lead/*",
           "plugins/human-in-the-lead/.claude-plugin/**",
-          "plugins/human-in-the-lead/bin/**",
-          "plugins/human-in-the-lead/hooks/**",
-          "plugins/human-in-the-lead/schemas/**",
-          "plugins/human-in-the-lead/templates/**",
-          "plugins/human-in-the-lead/evals/**"
+          "plugins/human-in-the-lead/bin/**"
         ]
       },
       {
@@ -105,7 +105,7 @@
       },
       {
         "name": "schemas",
-        "paths": ["schemas/**"]
+        "paths": ["schemas/**", "plugins/human-in-the-lead/schemas/**"]
       },
       {
         "name": "docs",
@@ -121,11 +121,11 @@
       },
       {
         "name": "evals",
-        "paths": ["evals/**"]
+        "paths": ["evals/**", "plugins/human-in-the-lead/evals/**"]
       },
       {
         "name": "templates",
-        "paths": ["templates/**"]
+        "paths": ["templates/**", "plugins/human-in-the-lead/templates/**"]
       },
       {
         "name": "packaging",

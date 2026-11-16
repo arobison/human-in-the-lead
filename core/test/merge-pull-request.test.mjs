@@ -1135,6 +1135,7 @@ test("this repository's areas: each proposal frees one area; the tracker, alread
       'work/releases/**',
       '!core/**',
       '!plugins/human-in-the-lead/core/**',
+      '!plugins/human-in-the-lead/hooks/**',
     ],
   });
   const policyWithCore = {
@@ -1154,6 +1155,11 @@ test("this repository's areas: each proposal frees one area; the tracker, alread
     pullRequestWaits(['plugins/human-in-the-lead/schemas/x.json'], policyWithCore),
     true,
   );
+  assert.equal(
+    pullRequestWaits(['plugins/human-in-the-lead/hooks/hooks.json'], policyWithCore),
+    false,
+  );
+  assert.equal(pullRequestWaits(['plugins/human-in-the-lead/bin/hitld'], policyWithCore), true);
   assert.equal(
     pullRequestWaits(['plugins/human-in-the-lead/skills/x/SKILL.md'], policyWithCore),
     true,
@@ -1190,6 +1196,34 @@ test("this repository's areas: each proposal frees one area; the tracker, alread
     [],
     'every file of the plugin build is in an area',
   );
+  // Every generated copy follows its source (HITLD-318): a yes to schemas, templates or evals frees
+  // its plugin copy, and the plugins area keeps only what the build does not write.
+  for (const [area, source, copy] of [
+    [
+      'schemas',
+      'schemas/policy/merge.schema.json',
+      'plugins/human-in-the-lead/schemas/policy/merge.schema.json',
+    ],
+    [
+      'templates',
+      'templates/AGENTS.contract.md',
+      'plugins/human-in-the-lead/templates/AGENTS.contract.md',
+    ],
+    ['evals', 'evals/README.md', 'plugins/human-in-the-lead/evals/README.md'],
+  ]) {
+    const [p] = queueProposals(approvalSummary(run(area)), REPO_POLICY);
+    const yes = {
+      ...REPO_POLICY,
+      merge: { ...REPO_POLICY.merge, owner_paths: p.change['merge.owner_paths'] },
+    };
+    assert.equal(pullRequestWaits([source, copy], yes), false, area);
+    assert.equal(pullRequestWaits(['plugins/human-in-the-lead/core/lib/x.mjs'], yes), true, area);
+  }
+  assert.deepEqual(tracked.filter((f) => areasOf([f], REPO_POLICY)[0] === 'plugins').sort(), [
+    'plugins/human-in-the-lead/.claude-plugin/plugin.json',
+    'plugins/human-in-the-lead/README.md',
+    'plugins/human-in-the-lead/bin/hitld',
+  ]);
   const releases = queueProposals(approvalSummary(run('releases')), REPO_POLICY);
   assert.deepEqual(releases[0].change['merge.owner_paths'], [
     '**',
