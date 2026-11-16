@@ -246,7 +246,7 @@ export function estimateTokens(item, tier, areas, history, d) {
       history.filter(
         (h) => h.tier === tier && h.area === (areas[0] ?? null) && h.kind === (item.kind ?? null),
       ),
-      ESTIMATE_MIN_SAMPLES,
+      min,
     )
       .map((h) => h.tokens)
       .filter((x) => typeof x === 'number')

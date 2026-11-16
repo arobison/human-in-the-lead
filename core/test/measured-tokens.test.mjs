@@ -359,6 +359,10 @@ test('the estimator weighs measured figures over typed ones', () => {
   const few = [at(120_000, true), at(90_000, false), at(80_000, false)];
   assert.equal(measuredFirst(few, 3).length, 3);
   assert.equal(estimateTokens(item, 2, ['core'], few, policy).tokens, 90_000);
+  // The minimum is the policy's (dispatch.estimate_min_samples): at 1, the one measured figure
+  // sets the estimate and the typed ones are set aside.
+  const one = { ...policy, estimate_min_samples: 1 };
+  assert.equal(estimateTokens(item, 2, ['core'], few, one).tokens, 120_000);
 });
 
 // --- dispatch complete ------------------------------------------------------------------------
