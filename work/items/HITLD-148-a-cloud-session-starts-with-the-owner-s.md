@@ -16,6 +16,7 @@ The person file and the machine file live in each container's home directory. A 
 
 - A cloud session in an enrolled environment starts with the owner's person settings (caps, reserve, declared limits, attention budget and quiet hours) read from the private store, so it asks for nothing the owner already answered.
 - The machine file is recorded at session start from the probe, as it already is for a cloud VM, and the owner's answers about the machine are kept in the store, not asked again.
+- The orchestrator acts on the chief of staff's wake message that the owner said to go on without the store only when the owner's word is in a record it can read from the store (HITLD-174). Until that record exists the rule in the skills stays as HITLD-142 left it, and nothing stalls on this decision.
 - The first-run setup asks only for what is missing, and says what it took from the store.
 - When the store cannot be reached at session start, the session runs on the conservative defaults (one executor, the default reserve, no declared limits), says what it could not read and why, and asks nothing the store would have answered once it is reachable. The owner can say in their own message to go on.
 - A change to the person file is made only in the owner's own turn, and reaches the store through `hitld store push`. An executor cannot change it.
