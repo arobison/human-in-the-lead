@@ -2,16 +2,9 @@
 // inside the private store or the repository (symlinks resolved), and never over a file the
 // report did not create. A directory remembers what reports made in it in a marker file.
 
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { realPath } from './platform/fs.mjs';
 
 /** The real path of a path that may not exist yet: its nearest existing ancestor, resolved. @param {string} p */
 export function realish(p) {
@@ -21,7 +14,7 @@ export function realish(p) {
     tail.unshift(head.slice(dirname(head).length + 1));
     head = dirname(head);
   }
-  return join(realpathSync(head), ...tail);
+  return join(realPath(head), ...tail);
 }
 
 /** @param {string} root @param {string} p */

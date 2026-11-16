@@ -130,18 +130,22 @@ function claimCommits(root, main, wanted) {
  * where the main branch's copy differs (it shows it planned). Claims an unclaim commit has retired
  * do not count.
  * @param {string} root @param {Layout} layout
+ * @param {{ cache?: Map<string, import('./tree.mjs').Entry[]> }} [options] cache: refs already
+ *   read by the same command (see loadPlaces)
  * @returns {ClaimedItem[]}
  */
-export function findClaims(root, layout) {
+export function findClaims(root, layout, { cache } = {}) {
   const main = mainRef(root, layout);
   const refs = refPlaces(root, layout).filter(
     (p) => p.ref !== main && !(p.ref ?? '').endsWith(`/${layout.mainBranch}`),
   );
   // The main branch and every other ref, read together.
-  const placed = loadPlaces(root, layout, [
-    ...(main ? [{ where: layout.mainBranch, ref: main }] : []),
-    ...refs,
-  ]);
+  const placed = loadPlaces(
+    root,
+    layout,
+    [...(main ? [{ where: layout.mainBranch, ref: main }] : []), ...refs],
+    { cache },
+  );
   const mainItems = main
     ? new Map((placed.shift()?.items ?? []).map((e) => [String(e.data?.id), e.data]))
     : new Map();

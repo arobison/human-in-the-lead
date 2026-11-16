@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { answerDecision, askQuestion, overrule } from '../lib/rights/flow.mjs';
@@ -17,6 +17,19 @@ import { main } from '../lib/cli/main.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
 import { mayAppearIn, moreRestrictedThan, rank } from '../lib/precedent/classification.mjs';
 import { makeProject } from './helpers/project.mjs';
+
+/** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = mkdtempSync(join(tmpdir(), 'hitld-link-probe-'));
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
 
 /** An area-owner question: novelty inside cache goes to C-3. */
 const areaQuestion = (/** @type {Record<string, any>} */ more = {}) =>
@@ -489,13 +502,16 @@ test('--file reads only inside the repository, never through MCP, and never echo
   await assert.rejects(rights.run({ file: outside }, ctx), /inside the repository/);
   await assert.rejects(rights.run({ file: '../../../etc/passwd' }, ctx), /inside the repository/);
 
-  // A symbolic link inside the repository to a file outside it is followed and refused.
-  symlinkSync(outside, join(project.root, 'link.json'));
-  await assert.rejects(rights.run({ file: 'link.json' }, ctx), (e) => {
-    assert.match(String(e), /inside the repository/);
-    assert.ok(!String(e).includes('hunter2'));
-    return true;
-  });
+  // A symbolic link inside the repository to a file outside it is followed and refused
+  // (where this machine can create one).
+  if (canSymlink) {
+    symlinkSync(outside, join(project.root, 'link.json'));
+    await assert.rejects(rights.run({ file: 'link.json' }, ctx), (e) => {
+      assert.match(String(e), /inside the repository/);
+      assert.ok(!String(e).includes('hunter2'));
+      return true;
+    });
+  }
 
   // A file inside the repository that is not JSON: no parse details, no content.
   writeFileSync(join(project.root, 'bad.json'), '{"password": "hunter2" oops');

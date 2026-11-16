@@ -35,7 +35,7 @@ import {
 } from '../lib/eval/results.mjs';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
-const tmp = () => realpathSync(mkdtempSync(join(tmpdir(), 'hitld-eval-baselines-test-')));
+const tmp = () => realpathSync.native(mkdtempSync(join(tmpdir(), 'hitld-eval-baselines-test-')));
 
 /** @param {string} name @param {boolean} valid the item the scenario validates is valid */
 const scenario = (name, valid = true) => ({
@@ -458,7 +458,7 @@ test('a baseline accepted on one machine gates a machine with an empty private s
   const ci = workspace({ env: { CI: 'true', HOSTNAME: 'runner-7' } });
   assert.deepEqual(committedFiles(ci.cwd), []);
   mkdirSync(join(ci.cwd, 'evals', 'baselines'));
-  copyFileSync(file, join(ci.cwd, 'evals', 'baselines', file.split('/').at(-1)));
+  copyFileSync(file, join(ci.cwd, 'evals', 'baselines', basename(file)));
   assert.deepEqual(ci.store().list('eval/baselines/'), []);
   const gated = await ci.offline(['--require-baseline']);
   assert.equal(gated.code, 0, JSON.stringify(gated.json));

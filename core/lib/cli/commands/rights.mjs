@@ -6,7 +6,7 @@
 // JSON file (--file), because the command-line parser takes only flat options. An MCP tool takes
 // the same text.
 
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolveIdentity } from '../../run/identity.mjs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { executorSignal } from '../executor.mjs';
@@ -42,6 +42,7 @@ import { TRIGGERS, buildDigest, markDigest } from '../../digest/digest.mjs';
 import { buildReport } from '../../quota/report.mjs';
 import { readQuotaInputs } from '../../quota/inputs.mjs';
 import { CodedError } from '../errors.mjs';
+import { realPath } from '../../platform/fs.mjs';
 
 /**
  * @typedef {import('../../tracker/interface.mjs').TrackerAdapter} TrackerAdapter
@@ -82,8 +83,8 @@ function jsonInput(input, name, ctx) {
     const root = findRepoRoot(ctx.cwd);
     if (!root) throw new Error('--file needs a repository: none contains this directory');
     try {
-      const path = realpathSync(resolve(ctx.cwd, file));
-      const inside = relative(realpathSync(root), path);
+      const path = realPath(resolve(ctx.cwd, file));
+      const inside = relative(realPath(root), path);
       if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) {
         throw new Error('outside');
       }

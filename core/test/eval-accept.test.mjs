@@ -83,7 +83,7 @@ function workspace(scenarios = { a: GOOD }) {
   const store = () =>
     openStore(
       join(
-        realpathSync(/** @type {string} */ (env.XDG_DATA_HOME)),
+        realpathSync.native(/** @type {string} */ (env.XDG_DATA_HOME)),
         'human-in-the-lead',
         'hitld-evals',
       ),
