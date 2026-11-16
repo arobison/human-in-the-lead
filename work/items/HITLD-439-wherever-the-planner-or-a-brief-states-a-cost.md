@@ -2,7 +2,7 @@
 id: HITLD-439
 title: Wherever the planner or a brief states a cost, it says where the estimate came from and how many completions it rests on
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-436]
