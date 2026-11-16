@@ -55,7 +55,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, critical path, milestones, unreleased, lists, dependency diagrams) |
 | `hitld ready` | The ready queue in priority order, with tiers and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
-| `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection |
+| `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection; with `merge.via: pull-request`, one pass over GitHub pull requests instead: open or update, wait for the named checks, bring up to date by merging `main`, squash-merge through `gh api` ([14.2](14-integration.md#142-the-queue)). Its tests run against a fake GitHub API |
 | `hitld run status / retire` and `hitld handover` | Read who holds the run lease and where wakes go; release the lease of a session that ended; write the hand-over and give up the lease ([part 13](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)) |
 | `hitld ledger append / tail / in-flight / summary` | Ledger operations; `in-flight` for restart; `summary` for the run report |
 | `hitld rights who --file <question.json>` | Which decider, by which rule |
@@ -152,6 +152,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `not-waiting`: The branch is not waiting to merge.
 - `stale`: A presented branch changed after the owner saw it.
 - `ambiguous`: The name matches more than one presented branch, or a branch other than the item was dispatched on.
+- `no-github-remote`: merge.via is pull-request, and the git remote merge.pull_request.remote names no GitHub repository.
 
 **Decisions and precedents**
 
