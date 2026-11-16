@@ -2,7 +2,7 @@
 id: HITLD-436
 title: A completion's token count cannot be corrected, and the estimator takes one outlier as the typical cost
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
