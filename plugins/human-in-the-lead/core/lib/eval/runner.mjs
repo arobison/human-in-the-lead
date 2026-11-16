@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFakeAdapter } from '../../harness/fake/fake.mjs';
+import { isolateProcessEnv } from '../isolated-env.mjs';
 import { GRADERS, boundVerdict } from './graders.mjs';
 import { buildFixture } from './fixtures.mjs';
 import { NO_PROFILE, PROFILES, missingCapabilities } from './profiles.mjs';
@@ -104,6 +105,11 @@ export async function runCase(loaded, profile, options) {
   }
 
   const sandbox = mkdtempSync(join(tmpdir(), 'hitld-eval-'));
+  // The case's steps run with a home of their own and an isolated environment, so a person file, a
+  // machine file or an HITLD_* variable on this machine cannot change a verdict (HITLD-131). The
+  // home is beside the sandbox, not in it: the sandbox is often the fixture's repository.
+  const home = mkdtempSync(join(tmpdir(), 'hitld-eval-home-'));
+  const restoreEnv = isolateProcessEnv(home);
   /** @type {unknown[]} */
   const transcript = [];
   let tokens = 0;
@@ -191,6 +197,8 @@ export async function runCase(loaded, profile, options) {
       transcript,
     });
   } finally {
+    restoreEnv();
+    rmSync(home, { recursive: true, force: true });
     if (!options.keepSandbox) rmSync(sandbox, { recursive: true, force: true });
   }
 }

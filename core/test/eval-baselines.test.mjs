@@ -92,17 +92,16 @@ function workspace(where = {}) {
       err: () => {},
       cwd,
       env: { XDG_DATA_HOME: data, ...where.env, ...more },
+      now: () => new Date(clock),
     });
     return { code, json: JSON.parse(out.join('') || 'null') };
   };
   const store = () => openStore(join(data, 'human-in-the-lead', 'hitld-evals'));
-  // A run's ID starts with the second it was made in, so two runs of one workspace wait for
-  // different seconds.
-  let last = 0;
+  // A run's ID starts with the second it was made in, so each run of one workspace moves the
+  // workspace's clock on to a later second than the last, without waiting for one to pass.
+  let clock = Date.now();
   const offline = async (/** @type {string[]} */ extra = []) => {
-    const wait = (Math.floor(Date.now() / 1000) + 1) * 1000 - Date.now();
-    if (Math.floor(Date.now() / 1000) === last) await new Promise((r) => setTimeout(r, wait));
-    last = Math.floor(Date.now() / 1000);
+    clock = Math.max(clock + 1000, Date.now());
     return hitld(['eval', '--offline', '--evals-dir', 'evals', ...extra]);
   };
   return { cwd, data, hitld, store, offline };

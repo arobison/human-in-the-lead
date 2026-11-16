@@ -12,9 +12,18 @@ npm test               # node:test, no test framework
 npm run typecheck      # tsc --noEmit over core/
 npm run format         # Prettier; npm run format:check to check only
 npm run spelling       # lists British spellings in tracked text files
-npm run check          # typecheck, format check and tests
+npm run check          # typecheck, format check and tests: the gate before a report
+npm run check:fast     # while you work: typecheck, format check of changed files, tests of touched areas
 node core/bin/hitld.mjs --help
 ```
+
+`npm test` gives each test file a fresh home and an isolated environment (`core/test/helpers/isolated-home.mjs`): a person file, a machine file, a git config or an `HITLD_*` variable on your machine cannot change a result, and a test that reaches your real home fails. It ends with the slowest test files. `npm run check:fast -- --list` prints which tests it would run and why.
+
+## CI
+
+`.github/workflows/ci.yml` runs the typecheck, format check, tests and offline evals as parallel jobs, the tracker check, and `check`, which passes only when all of them did; `dco` and `public` beside them. A pull request that changes only `work/` skips the code checks inside their jobs, which still report success, so required checks never wait on a job that did not run. `.github/workflows/codeql.yml` analyzes every pull request that changes code or a workflow and every push to main, and skips the analysis the same way for a pull request that changes only `work/`, `docs/` or other text (`scripts/ci-changes.mjs` decides both from the diff).
+
+The CodeQL workflow is the advanced setup, which GitHub accepts only while the default setup is off: Repository → Settings → Code security → Code scanning → CodeQL analysis → the "…" menu → Switch to advanced, then close the generated workflow without committing it (this one is already there). Required checks are set in Settings → Rules (or Branches): name the jobs (`check`, `dco`, `public`, `Analyze (actions)`, `Analyze (javascript-typescript)`), not the code scanning result `CodeQL`, which a text-only pull request never gets.
 
 ## The merge scanner
 
