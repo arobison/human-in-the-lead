@@ -32,3 +32,5 @@ On 2026-11-16, in the chief of staff session, the owner decided two choices in t
 ## Notes
 
 Raised in the chief of staff session, where each new container needed the same setup carried in a message. HITLD-142 gets the store reachable from an orchestrator; this item puts the person and machine settings in it. HITLD-39 and HITLD-88 (done) built the walk-through this builds on.
+
+The executor cap is a person setting, not a project one (the owner, 2026-11-16, HITLD-230): the settings a cloud session starts with include it, and HITLD-204 removes the project layer for it.
