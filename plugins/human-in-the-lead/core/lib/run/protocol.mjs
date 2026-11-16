@@ -58,9 +58,13 @@ export const farAboveEstimate = (tokens, estimate) =>
 /**
  * The `reported` event for a completion. It carries the estimate the dispatch started with beside
  * the tokens it cost, so estimate against actual can be read per item (HITLD-436). The tokens are
- * output plus fresh input, never cache reads (core/harness/claude-code/completion.mjs).
+ * output plus fresh input, never cache reads (core/harness/claude-code/completion.mjs). Beside them
+ * (HITLD-438): where the figure came from (tokens_source), the harness's counts kept apart with the
+ * cost it reports (usage), and what the executor said its own run cost (self_reported_tokens), a
+ * guess that is never the tokens.
  * @param {{ dispatch: string, item: string, role?: string, host?: string | null }} entry an in-flight entry
- * @param {Omit<Completion, 'dispatch'> & { dispatch?: string }} completion
+ * @param {Omit<Completion, 'dispatch'> & { dispatch?: string, tokensSource?: string | null,
+ *   parts?: Record<string, number | null> | null, selfReported?: number | null }} completion
  * @param {import('../ledger/ledger.mjs').LedgerEntry[]} [events] the ledger, to find the estimate
  */
 export function reportedEvent(entry, completion, events = []) {
@@ -74,6 +78,15 @@ export function reportedEvent(entry, completion, events = []) {
     ...(entry.role !== undefined ? { role: entry.role } : {}),
     ...(result ? { result } : {}),
     tokens: completion.usage?.tokens ?? null,
+    ...(completion.usage?.tokens != null && completion.tokensSource
+      ? { tokens_source: completion.tokensSource }
+      : {}),
+    ...(completion.parts && Object.keys(usageOf(completion.parts)).length
+      ? { usage: usageOf(completion.parts) }
+      : {}),
+    ...(typeof completion.selfReported === 'number'
+      ? { self_reported_tokens: completion.selfReported }
+      : {}),
     ...(estimate !== undefined ? { estimate_tokens: estimate } : {}),
     tool_calls: completion.usage?.toolCalls ?? null,
     duration_ms: completion.usage?.durationMs ?? null,
@@ -82,6 +95,13 @@ export function reportedEvent(entry, completion, events = []) {
       : {}),
   };
 }
+
+/**
+ * The harness's counts for the ledger: only those it gave.
+ * @param {Record<string, number | null>} parts
+ */
+const usageOf = (parts) =>
+  Object.fromEntries(Object.entries(parts).filter(([, v]) => typeof v === 'number'));
 
 /**
  * Start an executor under the write-ahead protocol.

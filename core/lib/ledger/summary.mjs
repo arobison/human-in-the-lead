@@ -9,7 +9,9 @@
 //   A completion's tokens are output plus fresh input, never cache reads, and a corrected figure
 //   (hitld ledger correct-tokens) stands in for the one it corrects.
 // - Estimate against actual: each completion's tokens beside the estimate its dispatch started
-//   with (the `reported` event's estimate_tokens, else its `dispatched` event's).
+//   with (the `reported` event's estimate_tokens, else its `dispatched` event's), where the figure
+//   came from (measured by the harness, or typed by hand), and the executor's own figure, a guess
+//   shown beside it that is never counted as tokens anywhere (HITLD-438).
 // - First-pass yield, of accepted items: the share that had exactly one executor dispatch, whose
 //   first verification passed and was never followed by a failed one.
 // - Waste: tokens on dispatches that were abandoned, whose work failed verification (a `verified`
@@ -236,13 +238,16 @@ export function summarize(allEvents) {
 }
 
 /**
- * Each completion's tokens beside the estimate it started with, and the median of actual over
- * estimate where both are known.
+ * Each completion's tokens beside the estimate it started with, where the figure came from, and
+ * what the executor said it cost (a guess, shown for comparison and never read as the cost); the
+ * median of actual over estimate where both are known, and the same over measured figures alone.
  * @param {LedgerEntry[]} events as they stand after corrections
  */
 export function estimateMeasures(events) {
-  /** @type {{ dispatch: string, item: string, estimate_tokens: number | null, tokens: number | null, ratio: number | null }[]} */
+  /** @type {{ dispatch: string, item: string, estimate_tokens: number | null, tokens: number | null, tokens_source: string | null, ratio: number | null, self_reported_tokens?: number }[]} */
   const by_dispatch = [];
+  /** @type {Record<string, number>} */
+  const sources = { measured: 0, typed: 0, unstated: 0 };
   for (const e of events) {
     if (e.event !== 'reported') continue;
     const estimate =
@@ -250,24 +255,55 @@ export function estimateMeasures(events) {
         ? e.estimate_tokens
         : (startEstimate(events, e.dispatch, e.item) ?? null);
     const tokens = typeof e.tokens === 'number' ? e.tokens : null;
+    const source = tokens === null ? null : (e.tokens_source ?? null);
+    if (tokens !== null) sources[sourceKind(source)] += 1;
     by_dispatch.push({
       dispatch: e.dispatch,
       item: e.item,
       estimate_tokens: estimate,
       tokens,
+      tokens_source: source,
       ratio: estimate && tokens !== null ? Math.round((tokens / estimate) * 100) / 100 : null,
+      ...(typeof e.self_reported_tokens === 'number'
+        ? { self_reported_tokens: e.self_reported_tokens }
+        : {}),
     });
   }
-  const ratios = by_dispatch
-    .map((r) => r.ratio)
-    .filter((r) => r !== null)
-    .sort((a, b) => /** @type {number} */ (a) - /** @type {number} */ (b));
+  /** @param {typeof by_dispatch} rows */
+  const medianRatio = (rows) =>
+    percentile(
+      /** @type {number[]} */ (
+        rows
+          .map((r) => r.ratio)
+          .filter((r) => r !== null)
+          .sort((a, b) => /** @type {number} */ (a) - /** @type {number} */ (b))
+      ),
+      0.5,
+    );
+  const compared = by_dispatch.filter((r) => r.ratio !== null).length;
   return {
-    compared: ratios.length,
-    median_ratio: percentile(/** @type {number[]} */ (ratios), 0.5),
+    compared,
+    median_ratio: medianRatio(by_dispatch),
+    median_ratio_measured: medianRatio(
+      by_dispatch.filter((r) => sourceKind(r.tokens_source) === 'measured'),
+    ),
+    sources,
     by_dispatch,
   };
 }
+
+/**
+ * Whether a completion's token figure was measured by the harness, typed by hand, or written
+ * before the ledger said (HITLD-438).
+ * @param {string | null | undefined} source the reported event's tokens_source
+ * @returns {'measured' | 'typed' | 'unstated'}
+ */
+export const sourceKind = (source) =>
+  source === 'typed'
+    ? 'typed'
+    : source === 'session-record' || source === 'result-file' || source === 'notification'
+      ? 'measured'
+      : 'unstated';
 
 /**
  * The calls made without asking, and who made them: the count per session and machine. A call

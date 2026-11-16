@@ -745,6 +745,37 @@ function securitySentBack(x, main) {
   return `Your branch, rebased onto ${main}, adds security findings that are in neither the baseline nor the recorded verdicts:\n${list}\nFor each: fix it with a test that would have caught it, or propose a verdict in your report under calls, with the finding's key: by design (name the trust boundary at the sink) or false positive (a one-line reason). Accepting a real finding as a risk is the owner's decision.`;
 }
 
+/** The token sources that are measured by the harness, not typed by hand (HITLD-438). */
+const MEASURED_SOURCES = ['session-record', 'result-file', 'notification'];
+
+/**
+ * What `dispatch complete` says about a completion's tokens: the figure recorded and where it came
+ * from, the harness's counts and cost, and the executor's own figure beside it as a guess. An
+ * interactive dispatch completed without the harness's record says how to give it.
+ * @param {ReturnType<typeof completionOf>} c
+ * @param {Record<string, any> | undefined} dispatched the dispatch's `dispatched` event
+ */
+function tokensOut(c, dispatched) {
+  const recorded = c.usage?.tokens ?? null;
+  /** @type {Record<string, any>} */
+  const out = { recorded, source: recorded === null ? null : (c.tokensSource ?? null) };
+  if (c.parts) out.usage = c.parts;
+  if (typeof c.turns === 'number') out.turns = c.turns;
+  if (typeof c.selfReported === 'number') {
+    out.self_reported = {
+      tokens: c.selfReported,
+      note: "the executor's own figure: a guess, kept apart and never the recorded cost",
+      ...(recorded !== null && recorded > 0 && MEASURED_SOURCES.includes(out.source)
+        ? { ratio_to_measured: Math.round((c.selfReported / recorded) * 100) / 100 }
+        : {}),
+    };
+  }
+  if (dispatched?.mode === 'interactive' && c.tokensSource !== 'session-record') {
+    out.warning = `an interactive dispatch's tokens are measured from the harness's record of the executor's session, and none was given: ${recorded === null ? 'no figure is recorded' : 'the figure is recorded as typed by hand'}. Save the session's result events (the event list of kind result) to a file and give it with --session-record; ${recorded === null ? '' : 'once this is recorded, '}hitld ledger correct-tokens can only type a figure`;
+  }
+  return out;
+}
+
 /** The private store key of the evidence a verified report gave, for its pull request's body. @param {string} item */
 const reportEvidenceKey = (item) => `merge/reports/${item}.json`;
 
@@ -1311,7 +1342,9 @@ const table = [
           on_complete:
             call.tool === 'Bash'
               ? `hitld dispatch complete --dispatch ${dispatch} --result-file ${resultPath}`
-              : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-calls N --duration-ms N]`,
+              : call.tool === 'session'
+                ? `save the session's record, its result events (the event list of kind result), to a file; hitld dispatch complete --dispatch ${dispatch} --session-record <file> [--report-file <the report, when it came apart>]. Only when the record is not available: --report-file <file> --tokens N, which the ledger records as typed`
+                : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-calls N --duration-ms N], --tokens only when the notification shows no usage block`,
         };
       }),
   },
@@ -1370,10 +1403,16 @@ const table = [
       },
       { name: 'result-file', type: 'string', description: "A headless run's JSON result" },
       {
+        name: 'session-record',
+        type: 'string',
+        description:
+          "An interactive dispatch's record, as the harness keeps it: the result messages of the executor's session (a cloud session's event list of kind result, or claude -p stream JSON), saved to a file. Its tokens, cache reads and cost are read from it, from the turns since the dispatch started; without --report-file, its last turn is the report",
+      },
+      {
         name: 'tokens',
         type: 'integer',
         description:
-          "What the dispatch cost, from the notification where it shows it (undocumented): output tokens plus fresh input (uncached input and cache writes), never cache reads. A headless result's is computed the same way. A figure three times the dispatch's estimate or more is refused without --tokens-over-estimate",
+          "What the dispatch cost, typed by hand when the harness record is not available: output tokens plus fresh input (uncached input and cache writes), never cache reads, and never the executor's own figure, which is a guess. The ledger records it as typed. Refused with --result-file or --session-record, which are measured. A figure three times the dispatch's estimate or more is refused without --tokens-over-estimate",
       },
       {
         name: 'tokens-over-estimate',
@@ -1400,32 +1439,72 @@ const table = [
           if (done) return { ok: true, dispatch: d, already: true, event: done };
           throw new Refusal('not-in-flight', `${d} is not in flight`);
         }
+        const typedTokens = /** @type {number | undefined} */ (input.tokens);
+        const measuredFrom = ['result-file', 'session-record'].find(
+          (k) => typeof input[k] === 'string',
+        );
+        if (typedTokens !== undefined && measuredFrom) {
+          throw new Refusal(
+            'usage',
+            `--tokens is for a figure typed by hand when the harness record is not available; --${measuredFrom} is measured, and its figure is recorded`,
+          );
+        }
+        const dispatchedEvent = readLedger(p.store).events.find(
+          (e) => e.event === 'dispatched' && e.dispatch === d,
+        );
         /** @type {import('../../../harness/claude-code/adapter.mjs').Notification} */
         let n;
-        if (typeof input['result-file'] === 'string') {
+        if (typeof input['session-record'] === 'string') {
+          n = {
+            kind: 'session',
+            record: readInput(input['session-record'], ctx),
+            ...(typeof input['report-file'] === 'string'
+              ? { text: readInput(input['report-file'], ctx) }
+              : {}),
+            since: dispatchedEvent?.at ?? null,
+          };
+        } else if (typeof input['result-file'] === 'string') {
           n = { kind: 'headless', json: readInput(input['result-file'], ctx) };
         } else if (typeof input['report-file'] === 'string') {
           n = {
             kind: 'subagent',
             text: readInput(input['report-file'], ctx),
             usage: {
-              tokens: /** @type {number | undefined} */ (input.tokens) ?? null,
+              tokens: typedTokens ?? null,
               toolCalls: /** @type {number | undefined} */ (input['tool-calls']) ?? null,
               durationMs: /** @type {number | undefined} */ (input['duration-ms']) ?? null,
             },
           };
         } else {
           const stored = p.store.read(resultKey(d));
-          if (stored === null) throw new Refusal('usage', 'give --report-file or --result-file');
+          if (stored === null)
+            throw new Refusal('usage', 'give --session-record, --result-file or --report-file');
           n = { kind: 'headless', json: stored };
         }
-        const completion = completionOf(d, n);
+        /** @type {ReturnType<typeof completionOf>} */
+        let completion;
+        try {
+          completion = completionOf(d, n);
+        } catch (e) {
+          if (n.kind === 'subagent') throw e;
+          throw new Refusal(
+            'usage',
+            `${n.kind === 'session' ? '--session-record' : 'the headless result'}: ${/** @type {Error} */ (e).message}`,
+          );
+        }
         // A figure far above the estimate is most often a cache-read total, which would stand as the
         // item's cost and set the estimate of the next items (HITLD-436): refused before anything
-        // is recorded or released, so the same command can run again with the right figure.
+        // is recorded or released, so the same command can run again with the right figure. A
+        // measured figure (HITLD-438) leaves cache reads out by construction, so it is recorded
+        // whatever its size, with a note.
         const estimate = startEstimate(readLedger(p.store).events, d, entry.item);
         const tokens = completion.usage?.tokens;
-        if (farAboveEstimate(tokens, estimate) && input['tokens-over-estimate'] !== true) {
+        const measured = MEASURED_SOURCES.includes(completion.tokensSource ?? '');
+        if (
+          !measured &&
+          farAboveEstimate(tokens, estimate) &&
+          input['tokens-over-estimate'] !== true
+        ) {
           throw new Refusal(
             'tokens-over-estimate',
             `${d} would record ${tokens} tokens, ${Math.floor(/** @type {number} */ (tokens) / /** @type {number} */ (estimate))} times its estimate of ${estimate} (refused at ${TOKENS_FAR_ABOVE_ESTIMATE} times). A completion's tokens are output plus fresh input (uncached input and cache writes), never cache reads: run this again with that figure, or add --tokens-over-estimate if the run really cost ${tokens}`,
@@ -1451,8 +1530,13 @@ const table = [
             : []),
           ...(farAboveEstimate(tokens, estimate)
             ? [
-                `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, confirmed with --tokens-over-estimate`,
+                measured
+                  ? `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, measured`
+                  : `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, confirmed with --tokens-over-estimate`,
               ]
+            : []),
+          ...(completion.tokensSource === 'typed'
+            ? ['tokens typed by hand: the harness record was not given']
             : []),
         ];
         run.record({
@@ -1466,7 +1550,12 @@ const table = [
         });
 
         /** @type {Result} */
-        const out = { ok: true, dispatch: d, item: entry.item };
+        const out = {
+          ok: true,
+          dispatch: d,
+          item: entry.item,
+          tokens: tokensOut(completion, dispatchedEvent),
+        };
         // An executor dispatched on an earlier release reports to a successor on the new one: its
         // report is accepted within the same minor (design part 16.5, Upgrades).
         const executor = reportVersion(dispatchedOn(readLedger(p.store).events, d));

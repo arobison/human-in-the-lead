@@ -141,7 +141,10 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 | `skill_versions` | Plugin version and the versions of the skills involved |
 | `at` | Event time |
 | `result` | How the attempt ended. For `reported`: `done`, `partial`, `blocked`; for `verified`: `pass`, `fail` with defect count. Written as `outcome` before HITLD-82, and read as `result` |
-| `tokens`, `tool_calls`, `duration_ms` | From the completion notice |
+| `tokens`, `tool_calls`, `duration_ms` | From the completion notice. `tokens` is output plus fresh input, never cache reads |
+| `tokens_source` | Where `tokens` came from: measured from the harness's record of the session (`session-record`), a headless run's result (`result-file`) or the notification's usage block (`notification`), or typed by hand when there is no record (`typed`). The estimator weighs measured figures over typed ones: when similar completions hold enough measured figures, the others are set aside |
+| `usage` | The harness's counts kept apart (uncached input, output, cache writes, cache reads) and the cost it reports, where its record or result gives them |
+| `self_reported_tokens` | What the executor's report says its own run cost: a guess, kept for comparison and never read as the cost |
 | `tokens_before_first_edit` | Onboarding cost, from the harness's telemetry where it provides it; empty for now, because Claude Code provides it only through OpenTelemetry ([part 11](11-metrics-and-control.md#111-measures)) |
 | `estimate_tokens` | Copied from the item at dispatch |
 | `commit` | Final commit of the branch |

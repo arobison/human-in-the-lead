@@ -158,6 +158,11 @@ function checkEventRules(e) {
   if (e.step !== undefined && e.event !== 'stalled') {
     errors.push({ path: 'step', message: 'is only for stalled' });
   }
+  for (const f of ['tokens_source', 'usage', 'self_reported_tokens']) {
+    if (e[f] !== undefined && e.event !== 'reported') {
+      errors.push({ path: f, message: 'is only for reported' });
+    }
+  }
   if (e.defects !== undefined && !(e.event === 'verified' && e.result === 'fail')) {
     errors.push({ path: 'defects', message: 'is only for a failed verification' });
   }

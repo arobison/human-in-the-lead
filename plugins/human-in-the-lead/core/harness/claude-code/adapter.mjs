@@ -10,7 +10,13 @@
 
 import { CAPABILITIES } from './capabilities.mjs';
 import { followUpInstruction, instructionFor } from './instructions.mjs';
-import { headlessCompletion, subagentCompletion } from './completion.mjs';
+import {
+  headlessCompletion,
+  reportFromNotification,
+  selfReportedTokens,
+  sessionRecordCompletion,
+  subagentCompletion,
+} from './completion.mjs';
 
 /**
  * @typedef {import('../interface.mjs').HarnessAdapter} HarnessAdapter
@@ -26,7 +32,11 @@ import { headlessCompletion, subagentCompletion } from './completion.mjs';
  * @property {(text: string, urgency: string) => Promise<string>} [say] a message to the owner in the main session
  *
  * @typedef {{ kind: 'subagent', text: string, usage?: { tokens?: number | null, toolCalls?: number | null, durationMs?: number | null } | null, commit?: string }
- *   | { kind: 'headless', json: string, commit?: string }} Notification
+ *   | { kind: 'headless', json: string, commit?: string }
+ *   | { kind: 'session', record: string, text?: string, since?: string | null, commit?: string }} Notification
+ *   session: an interactive session's completion, from the harness's own record of the session
+ *   (`record`); `text` is the report when it came apart from the record (as the chief of staff
+ *   relayed it), else the record's last turn is the report
  */
 
 export const ID = 'claude-code';
@@ -42,13 +52,29 @@ export class ContractCall extends Error {
 }
 
 /**
- * Turn a notification into a Completion.
+ * Turn a notification into a Completion. What the executor says its own run cost is read from the
+ * report and kept apart as a guess (selfReported), never as the completion's tokens (HITLD-438).
  * @param {string} dispatch @param {Notification} n
- * @returns {Completion & { usageSource: string, sessionId?: string | null, costUsd?: number | null, isError?: boolean, permissionDenials?: unknown[] }}
+ * @returns {Completion & import('./completion.mjs').ParsedCompletion & { selfReported: number | null }}
  */
 export function completionOf(dispatch, n) {
-  const parsed = n.kind === 'headless' ? headlessCompletion(n.json) : subagentCompletion(n);
-  return { ...parsed, ...(n.commit ? { commit: n.commit } : {}), dispatch };
+  const parsed =
+    n.kind === 'headless'
+      ? headlessCompletion(n.json)
+      : n.kind === 'session'
+        ? sessionRecordCompletion(n.record, { since: n.since ?? null })
+        : subagentCompletion(n);
+  const report =
+    n.kind === 'session' && typeof n.text === 'string' && n.text.trim()
+      ? reportFromNotification(n.text)
+      : parsed.report;
+  return {
+    ...parsed,
+    report,
+    selfReported: selfReportedTokens(report),
+    ...(n.commit ? { commit: n.commit } : {}),
+    dispatch,
+  };
 }
 
 /**

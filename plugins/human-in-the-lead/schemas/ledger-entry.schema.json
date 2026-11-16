@@ -99,8 +99,49 @@
       "minimum": 0
     },
     "tokens": {
-      "description": "From the completion notice; null when the harness does not report usage.",
+      "description": "On reported: what the dispatch cost, output tokens plus fresh input (uncached input and cache writes), never cache reads; null when nothing gave a figure. tokens_source says where it came from. What the executor said its own run cost is never this figure: it is self_reported_tokens.",
       "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "tokens_source": {
+      "description": "On reported, beside tokens (HITLD-438): where the figure came from. session-record: measured, from the harness's own record of the executor's session (an interactive dispatch). result-file: measured, from a headless run's result. notification: the usage block of the harness's completion notification (undocumented). typed: typed by hand, because the harness record was not available; a correction (hitld ledger correct-tokens) is typed. The estimator weighs a measured figure over a typed one. Absent on a line written before it, whose source is not known.",
+      "enum": ["session-record", "result-file", "notification", "typed"]
+    },
+    "usage": {
+      "description": "On reported, when the harness's record or result gave them (HITLD-438): its counts kept apart, cache reads included, and the cost it reports. tokens is input_tokens plus cache_write_tokens plus output_tokens.",
+      "type": "object",
+      "properties": {
+        "input_tokens": {
+          "description": "Uncached input.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_write_tokens": {
+          "description": "Input written to the cache.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_read_tokens": {
+          "description": "Input read from the cache: kept apart, never counted in tokens.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost_usd": {
+          "description": "The cost the harness reports, in US dollars.",
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "self_reported_tokens": {
+      "description": "On reported (HITLD-438): the token figure the executor's report gives for its own run. A guess, since an executor has no meter for its own usage: kept for comparison with the measured figure, and never read as the cost by the summary, the digest or the estimator.",
+      "type": "integer",
       "minimum": 0
     },
     "tool_calls": {

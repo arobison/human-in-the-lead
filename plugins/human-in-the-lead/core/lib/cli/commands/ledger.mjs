@@ -219,8 +219,22 @@ const RAW_APPEND_FIELDS = {
   reverted: ['item', 'dispatch', 'commit', 'notes', 'corrects'],
 };
 const RAW_APPEND_EVENTS = Object.keys(RAW_APPEND_FIELDS);
-/** What a correction of a completion does not copy from it: its own, or set afresh. */
-const OWN_FIELDS = ['id', 'at', 'schema_version', 'run', 'corrects', 'notes', 'tokens'];
+/**
+ * What a correction of a completion does not copy from it: its own, or set afresh. A corrected
+ * figure is typed by hand, so the harness's counts the original carried do not stand beside it
+ * (HITLD-438); what the executor said it cost does.
+ */
+const OWN_FIELDS = [
+  'id',
+  'at',
+  'schema_version',
+  'run',
+  'corrects',
+  'notes',
+  'tokens',
+  'tokens_source',
+  'usage',
+];
 /** Fields the system sets: a caller's are dropped, not refused. */
 const SYSTEM_FIELDS = ['id', 'run', 'at', 'schema_version'];
 
@@ -422,6 +436,7 @@ const table = [
         const { event: written, appended } = run.record({
           ...kept,
           tokens,
+          tokens_source: 'typed',
           corrects: id,
           notes: `${target.notes ? `${target.notes}; ` : ''}tokens corrected from ${before ?? 'none'} to ${tokens} by ${by.session}: ${why}`,
         });
