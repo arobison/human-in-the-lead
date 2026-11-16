@@ -21,7 +21,7 @@ import {
   planRef,
   planSpecific,
 } from './item.mjs';
-import { effectiveEvents } from '../ledger/summary.mjs';
+import { effectiveEvents, sourceKind } from '../ledger/summary.mjs';
 
 /**
  * How many similar past completions the estimate needs before their median replaces the policy
@@ -38,6 +38,7 @@ export const ESTIMATE_MIN_SAMPLES = 3;
  * @property {string | null} kind
  * @property {number} tier
  * @property {number | null} tokens actual tokens, from the completion notice
+ * @property {boolean} [measured] the figure was measured by the harness, not typed by hand
  * @property {boolean | null} firstPass whether its first verification passed; false for a
  *   dispatch the watchdog found stalled, which was not a clean first pass whatever followed
  * @property {boolean} [stalled] the watchdog found it stalled (not cut off by a usage limit)
@@ -185,10 +186,12 @@ export function estimateTokens(item, tier, areas, history, d) {
   const breadth = Math.max(1, (item.touches ?? []).length);
   const scale = 1 + 0.25 * (breadth - 1);
   const similar = /** @type {number[]} */ (
-    history
-      .filter(
+    measuredFirst(
+      history.filter(
         (h) => h.tier === tier && h.area === (areas[0] ?? null) && h.kind === (item.kind ?? null),
-      )
+      ),
+      ESTIMATE_MIN_SAMPLES,
+    )
       .map((h) => h.tokens)
       .filter((x) => typeof x === 'number')
   );
@@ -209,6 +212,20 @@ export function estimateTokens(item, tier, areas, history, d) {
         }
       : {}),
   };
+}
+
+/**
+ * A measured figure weighs over a typed one (HITLD-438): when similar completions hold at least
+ * `min` figures the harness measured, the typed ones and those whose source the ledger does not
+ * state are set aside. Below that, every figure counts, as before the ledger said where they came
+ * from.
+ * @param {HistoryEntry[]} entries similar completions
+ * @param {number} min the sample the estimate needs
+ * @returns {HistoryEntry[]}
+ */
+export function measuredFirst(entries, min) {
+  const measured = entries.filter((h) => h.measured === true && typeof h.tokens === 'number');
+  return measured.length >= min ? measured : entries;
 }
 
 /**
@@ -252,6 +269,9 @@ export function historyFromLedger(ledger, itemOf) {
       kind: item?.kind ?? null,
       tier: d.tier,
       tokens: e.event === 'reported' && typeof e.tokens === 'number' ? e.tokens : null,
+      ...(e.event === 'reported' && sourceKind(e.tokens_source) === 'measured'
+        ? { measured: true }
+        : {}),
       // A stall counts against familiar ground: the calibration sees it as a miss at its tier.
       firstPass: stall
         ? false
