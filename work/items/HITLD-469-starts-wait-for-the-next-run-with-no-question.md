@@ -28,3 +28,5 @@ Recommended: Wait for the next run. The chief of staff recommended it.
 ## Answer
 
 Recorded in the front matter once answered.
+
+Clarified by the owner on 2026-11-17: "the next run" means a new orchestrator. By the design a hand-over successor resumes the same run, but a successor in a fresh container cannot resume (HITLD-323; the owner decided in HITLD-324 that a successor starts a fresh run). So the work starts under a successor that starts a new run, seeded from the last run's numbers, at the usage-window reset; the current orchestrator does not run `hitld handover`. Nothing starts before then.
