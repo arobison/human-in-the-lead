@@ -139,6 +139,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `forbidden-field`: The event carries a field this caller may not set.
 - `forbidden-correction`: The correction would change an entry this caller may not correct.
 - `already-corrected`: The ledger event was already corrected; correct the event that corrected it, which now stands.
+- `no-estimate`: The dispatch carries no start estimate of its own (a follow-up): correct the earlier dispatch it reads its estimate from.
 
 **Dispatch, handover and the merge queue**
 

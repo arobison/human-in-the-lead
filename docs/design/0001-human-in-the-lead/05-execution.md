@@ -146,7 +146,8 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 | `usage` | The harness's counts kept apart (uncached input, output, cache writes, cache reads) and the cost it reports, where its record or result gives them |
 | `self_reported_tokens` | What the executor's report says its own run cost: a guess, kept for comparison and never read as the cost |
 | `tokens_before_first_edit` | Onboarding cost, from the harness's telemetry where it provides it; empty for now, because Claude Code provides it only through OpenTelemetry ([part 11](11-metrics-and-control.md#111-measures)) |
-| `estimate_tokens` | Copied from the item at dispatch |
+| `estimate_tokens` | The estimate the dispatch started with, set at sizing; a follow-up carries none and reads the item's earlier one. It is read capped at `dispatch.estimate_max_multiple` times the tier's default, unless the item set it, so a wrong figure cannot raise the `--tokens-over-estimate` threshold, lengthen the watchdog's limits or make estimate against actual read low. `hitld ledger correct-estimate` corrects it with a `dispatched` event that is read in place of the original |
+| `estimate_source`, `estimate_samples` | On `dispatched`: where the estimate came from (`item`, `history`, `default`, or `typed` for a correction) and how many similar past completions there were, so an estimate that rested on one record shows in the ledger. A line written before them reads as source unknown |
 | `commit` | Final commit of the branch |
 | `decision` | On `asked`, `sent` and `answered`: the decision item. Each is written once per decision. A decision a precedent resolves has none of them: no one was asked |
 | `delivery`, `via` | On `sent`: `interrupt` when the question was sent at once, which uses one of the person's `interrupts_per_day`, or `digest`. On `answered`: `default` when no one answered and the decision took its default; it is then left out of decision latency |

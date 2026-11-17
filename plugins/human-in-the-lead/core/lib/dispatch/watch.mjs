@@ -27,6 +27,7 @@
 // failure and does not count on the ladder.
 
 import { lastProcess, progressTimes } from './progress.mjs';
+import { startEstimate } from '../ledger/ledger.mjs';
 
 /**
  * @typedef {import('../ledger/ledger.mjs').LedgerEntry} LedgerEntry
@@ -117,12 +118,9 @@ export function watchDispatches(r) {
       (e) => e.event === 'dispatched' && e.dispatch === entry.dispatch,
     );
     const tier = entry.tier ?? dispatched?.tier ?? 1;
-    // A follow-up carries no estimate of its own: the item's last one stands.
-    const estimate =
-      dispatched?.estimate_tokens ??
-      r.events.findLast(
-        (e) => e.event === 'dispatched' && e.item === entry.item && e.estimate_tokens !== undefined,
-      )?.estimate_tokens;
+    // A follow-up carries no estimate of its own: the item's last one stands. Read capped, and
+    // corrected where a correction stands, so a poisoned figure cannot lengthen the limits.
+    const estimate = startEstimate(r.events, entry.dispatch, entry.item, r.policy.dispatch);
     const limits = stallLimits(tier, estimate, r.policy);
     const started = Date.parse(entry.started_at);
     const signals = r.signals(entry);

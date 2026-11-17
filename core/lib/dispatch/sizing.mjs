@@ -22,6 +22,10 @@ import {
   planSpecific,
 } from './item.mjs';
 import { effectiveEvents, sourceKind } from '../ledger/summary.mjs';
+import { ESTIMATE_SETTINGS, estimateSettings } from '../ledger/ledger.mjs';
+
+// The estimator's settings live beside the start estimate, which reads them too (HITLD-450).
+export { ESTIMATE_SETTINGS, estimateSettings };
 
 /**
  * @typedef {import('./item.mjs').Item} Item
@@ -167,29 +171,6 @@ export function sizeItem(item, policy, history = []) {
     ...(estimate.note ? { estimate_note: estimate.note } : {}),
     areas,
     owner_review: reviewed,
-  };
-}
-
-/** The estimator's settings, with their defaults (schemas/policy/dispatch.schema.json). */
-export const ESTIMATE_SETTINGS = /** @type {const} */ ({
-  min_samples: { key: 'dispatch.estimate_min_samples', default: 3 },
-  max_multiple: { key: 'dispatch.estimate_max_multiple', default: 3 },
-});
-
-/**
- * The estimator's settings as the policy sets them.
- * @param {Record<string, any>} d policy.dispatch
- * @returns {{ min_samples: number, max_multiple: number }}
- */
-export function estimateSettings(d) {
-  return {
-    min_samples: Number.isInteger(d?.estimate_min_samples)
-      ? d.estimate_min_samples
-      : ESTIMATE_SETTINGS.min_samples.default,
-    max_multiple:
-      typeof d?.estimate_max_multiple === 'number' && d.estimate_max_multiple >= 1
-        ? d.estimate_max_multiple
-        : ESTIMATE_SETTINGS.max_multiple.default,
   };
 }
 

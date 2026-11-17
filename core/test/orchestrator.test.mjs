@@ -1042,6 +1042,8 @@ test('a completion records its start estimate, refuses a figure far above it, an
       dispatch: 'D-1',
       item: 'W-2',
       estimate_tokens: estimate,
+      estimate_source: 'default',
+      estimate_samples: 0,
       tokens: 8065,
       tokens_source: 'typed',
       ratio: Math.round((8065 / estimate) * 100) / 100,

@@ -64,7 +64,7 @@
       "default": 3
     },
     "estimate_max_multiple": {
-      "description": "A median of similar past completions more than this many times the tier's default is not used: the plan uses the default and says why. An estimate set on the item itself is kept, with a note.",
+      "description": "A median of similar past completions more than this many times the tier's default is not used: the plan uses the default and says why. An estimate set on the item itself is kept, with a note. A start estimate the ledger records is read capped at this many times its tier's default, unless the item set it: the --tokens-over-estimate refusal, the watchdog's limits and estimate against actual rest on the capped figure.",
       "type": "number",
       "minimum": 1,
       "default": 3

@@ -27,7 +27,9 @@ import { TERMINAL_EVENTS, readLedger } from './ledger.mjs';
  * @param {InFlight[]} list @param {LedgerEntry} e @returns {InFlight[]}
  */
 export function applyInflight(list, e) {
-  if (e.dispatch === undefined) return list;
+  // A correction changes a figure on an event already applied (hitld ledger correct-tokens,
+  // correct-estimate): it neither starts nor ends a dispatch.
+  if (e.dispatch === undefined || e.corrects !== undefined) return list;
   const at = list.findIndex((d) => d.dispatch === e.dispatch);
   if (e.event === 'dispatched') {
     if (at >= 0) return list;

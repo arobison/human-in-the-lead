@@ -2,11 +2,12 @@
 id: HITLD-450
 title: A start estimate recorded on a dispatch is capped, and says where it came from
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-438, HITLD-439]
 claimed_by: D-37
+release_note: `hitld ledger correct-estimate` corrects a dispatch's recorded start estimate with a new ledger event, read in place of the original. A start estimate is read capped at `dispatch.estimate_max_multiple` times its tier's default unless the item set it, so the `--tokens-over-estimate` refusal, the watchdog's limits and the estimate against actual in `hitld ledger summary` rest on the capped figure. A `dispatched` event records where its estimate came from (`estimate_source`) and how many completions it rested on (`estimate_samples`); an older one reads as source unknown.
 ---
 
 ## Done when

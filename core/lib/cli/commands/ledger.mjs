@@ -5,7 +5,14 @@
 import { join } from 'node:path';
 import { findRepoRoot, loadPolicy, policyDefaults } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
-import { LedgerError, appendEvent, correctsValidly, readLedger } from '../../ledger/ledger.mjs';
+import {
+  LedgerError,
+  appendEvent,
+  correctsValidly,
+  readLedger,
+  startEstimateOf,
+} from '../../ledger/ledger.mjs';
+import { TOKENS_FAR_ABOVE_ESTIMATE } from '../../run/protocol.mjs';
 import { inflight } from '../../ledger/inflight.mjs';
 import { summary } from '../../ledger/summary.mjs';
 import { LeaseError } from '../../run/lease.mjs';
@@ -235,6 +242,21 @@ const OWN_FIELDS = [
   'tokens_source',
   'usage',
 ];
+/**
+ * What a correction of a dispatch's start estimate does not copy from it: its own, or set afresh.
+ * A corrected estimate is typed by hand and rests on no completion (HITLD-450).
+ */
+const OWN_ESTIMATE_FIELDS = [
+  'id',
+  'at',
+  'schema_version',
+  'run',
+  'corrects',
+  'notes',
+  'estimate_tokens',
+  'estimate_source',
+  'estimate_samples',
+];
 /** Fields the system sets: a caller's are dropped, not refused. */
 const SYSTEM_FIELDS = ['id', 'run', 'at', 'schema_version'];
 
@@ -444,6 +466,142 @@ const table = [
       }),
   },
   {
+    name: 'ledger correct-estimate',
+    summary:
+      "Correct a dispatch's recorded start estimate: a dispatched event that corrects the named one, as the session holding the lease",
+    built_by: 'b',
+    args: [
+      {
+        name: 'event',
+        type: 'string',
+        positional: true,
+        required: true,
+        description:
+          'The ID of the dispatched event whose estimate is wrong (dispatched-D-<n>), or of the correction that now stands for it',
+      },
+      {
+        name: 'tokens',
+        type: 'integer',
+        required: true,
+        description:
+          "What the estimate should have been: most often the tier's default (dispatch.default_estimates)",
+      },
+      {
+        name: 'why',
+        type: 'string',
+        required: true,
+        description:
+          'Why the recorded estimate is wrong, in a sentence: recorded with the correction',
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const tokens = /** @type {number} */ (input.tokens);
+        const why = String(input.why ?? '').trim();
+        if (!Number.isInteger(tokens) || tokens < 0) {
+          return {
+            ok: false,
+            error: 'usage',
+            message: '--tokens must be a whole number, 0 or more',
+          };
+        }
+        if (!why)
+          return { ok: false, error: 'usage', message: '--why must say why, in a sentence' };
+        const s = setup(input, ctx);
+        const d = s.policy.dispatch;
+        const loaded = loadState(s.store);
+        if (!loaded.state) {
+          throw new CodedError(
+            'no-run',
+            `no run state (${loaded.problems.join('; ')}); start a run with hitld run start`,
+          );
+        }
+        const by = who(input, ctx, s.store);
+        const run = new Run(
+          s.store,
+          { ...by, kept: s.kept, expirySeconds: s.expirySeconds },
+          loaded.state,
+        );
+        const id = String(input.event);
+        const events = readLedger(s.store).events;
+        const target = events.find((e) => e.id === id);
+        if (!target || target.event !== 'dispatched') {
+          return {
+            ok: false,
+            error: 'forbidden-correction',
+            message: `${id} is ${target ? `a ${target.event} event` : 'not in the ledger'}; only a dispatch (a dispatched event) has a start estimate to correct`,
+          };
+        }
+        if (typeof target.estimate_tokens !== 'number') {
+          // A follow-up carries no estimate of its own: the item's earlier one stands for it.
+          const from = startEstimateOf(events, target.dispatch, target.item, d);
+          return {
+            ok: false,
+            error: 'no-estimate',
+            message: `${id} carries no estimate of its own${from ? `: ${target.dispatch} reads the one on ${from.event} (${from.dispatch}); correct that one` : ''}`,
+            ...(from ? { reads_from: from.event } : {}),
+          };
+        }
+        // One correction stands for an event at a time: a second one corrects the first, so the
+        // ledger never holds two estimates for the same dispatch.
+        const standing = events.find((e) => e.corrects === id && correctsValidly(target, e));
+        if (standing) {
+          return {
+            ok: false,
+            error: 'already-corrected',
+            message: `${id} was already corrected by ${standing.id} (estimate ${standing.estimate_tokens}); correct ${standing.id} instead`,
+            corrected_by: standing.id,
+          };
+        }
+        const before = startEstimateOf(events, target.dispatch, target.item, d);
+        if (target.estimate_tokens === tokens) {
+          return {
+            ok: true,
+            appended: false,
+            event: target,
+            message: `${id} already records an estimate of ${tokens}`,
+          };
+        }
+        // The correction is the dispatch again, with the right estimate: every other field stands,
+        // so it changes nothing but the estimate wherever the ledger is read. It is typed by hand
+        // and rests on no completion.
+        const kept = Object.fromEntries(
+          Object.entries(target).filter(([k]) => !OWN_ESTIMATE_FIELDS.includes(k)),
+        );
+        const { event: written, appended } = run.record({
+          ...kept,
+          estimate_tokens: tokens,
+          estimate_source: 'typed',
+          estimate_samples: 0,
+          corrects: id,
+          notes: `${target.notes ? `${target.notes}; ` : ''}estimate corrected from ${target.estimate_tokens} to ${tokens} by ${by.session}: ${why}`,
+        });
+        const after = startEstimateOf(readLedger(s.store).events, target.dispatch, target.item, d);
+        /** @param {ReturnType<typeof startEstimateOf>} e */
+        const reading = (e) =>
+          e
+            ? {
+                recorded: e.recorded,
+                reads_as: e.tokens,
+                source: e.source,
+                ...(e.capped ? { capped_at: e.cap } : {}),
+                // A completion that would record more than this is refused without
+                // --tokens-over-estimate, unless its figure is measured.
+                refused_above: e.tokens * TOKENS_FAR_ABOVE_ESTIMATE,
+              }
+            : null;
+        return {
+          ok: true,
+          appended,
+          event: written,
+          estimate: { before: reading(before), after: reading(after) },
+        };
+      }),
+  },
+  {
     name: 'ledger tail',
     summary: 'Show the latest ledger events',
     built_by: 'b',
@@ -476,7 +634,10 @@ const table = [
     summary: 'The run report: tokens per accepted item, first-pass yield, waste, decision latency',
     built_by: 'b',
     args: [STORE],
-    run: (input, ctx) => ({ ok: true, ...summary(setup(input, ctx).store) }),
+    run: (input, ctx) => {
+      const s = setup(input, ctx);
+      return { ok: true, ...summary(s.store, s.policy.dispatch) };
+    },
   },
   {
     name: 'run start',

@@ -1227,6 +1227,11 @@ const table = [
           brief_hash: createHash('sha256').update(briefFor(null)).digest('hex'),
           skill_versions: { hitld_version: VERSION },
           estimate_tokens: sizing.estimate_tokens,
+          // Where the estimate came from and how many completions it rests on (HITLD-450).
+          estimate_source: sizing.estimate_source,
+          ...(sizing.estimate_samples !== undefined
+            ? { estimate_samples: sizing.estimate_samples }
+            : {}),
           ...(touches.source !== 'none'
             ? { touches: touches.touches, touches_source: touches.source }
             : {}),
@@ -1497,7 +1502,13 @@ const table = [
         // is recorded or released, so the same command can run again with the right figure. A
         // measured figure (HITLD-438) leaves cache reads out by construction, so it is recorded
         // whatever its size, with a note.
-        const estimate = startEstimate(readLedger(p.store).events, d, entry.item);
+        // Read capped and corrected (HITLD-450): a poisoned start estimate cannot raise the bar.
+        const estimate = startEstimate(
+          readLedger(p.store).events,
+          d,
+          entry.item,
+          p.policy.dispatch,
+        );
         const tokens = completion.usage?.tokens;
         const measured = MEASURED_SOURCES.includes(completion.tokensSource ?? '');
         if (
@@ -1544,6 +1555,7 @@ const table = [
             entry,
             { ...completion, ...(commit ? { commit } : {}) },
             readLedger(p.store).events,
+            p.policy.dispatch,
           ),
           ...(notes.length ? { notes: notes.join('; ') } : {}),
           ...(refused.length ? { result: 'blocked', reason: PERMISSIONS_REASON } : {}),

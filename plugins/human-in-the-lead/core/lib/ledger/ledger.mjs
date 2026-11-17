@@ -163,6 +163,11 @@ function checkEventRules(e) {
       errors.push({ path: f, message: 'is only for reported' });
     }
   }
+  for (const f of ['estimate_source', 'estimate_samples']) {
+    if (e[f] !== undefined && e.event !== 'dispatched') {
+      errors.push({ path: f, message: 'is only for dispatched' });
+    }
+  }
   if (e.defects !== undefined && !(e.event === 'verified' && e.result === 'fail')) {
     errors.push({ path: 'defects', message: 'is only for a failed verification' });
   }
@@ -246,23 +251,6 @@ export function nextDispatchId(source) {
 export const lifecycleId = (event, dispatch) => `${event}-${dispatch}`;
 
 /**
- * The token estimate a dispatch started with: its `dispatched` event's estimate_tokens, or, for a
- * follow-up (which carries none of its own), the item's last estimate before it. Undefined when the
- * ledger has none.
- * @param {LedgerEntry[]} events @param {string} dispatch @param {string} [item]
- * @returns {number | undefined}
- */
-export function startEstimate(events, dispatch, item) {
-  const own = events.find((e) => e.event === 'dispatched' && e.dispatch === dispatch);
-  if (typeof own?.estimate_tokens === 'number') return own.estimate_tokens;
-  const of = item ?? own?.item;
-  if (of === undefined) return undefined;
-  return events.findLast(
-    (e) => e.event === 'dispatched' && e.item === of && typeof e.estimate_tokens === 'number',
-  )?.estimate_tokens;
-}
-
-/**
  * Whether `correction` may correct `target`: the same kind of event, about the same item or the
  * same dispatch (the rule core/lib/quota/usage.mjs applies to the same ledger).
  * @param {LedgerEntry} target @param {LedgerEntry} correction
@@ -271,6 +259,157 @@ export const correctsValidly = (target, correction) =>
   target.event === correction.event &&
   ((correction.item !== undefined && correction.item === target.item) ||
     (correction.dispatch !== undefined && correction.dispatch === target.dispatch));
+
+/** The estimator's settings, with their defaults (schemas/policy/dispatch.schema.json). */
+export const ESTIMATE_SETTINGS = /** @type {const} */ ({
+  min_samples: { key: 'dispatch.estimate_min_samples', default: 3 },
+  max_multiple: { key: 'dispatch.estimate_max_multiple', default: 3 },
+});
+
+/**
+ * The estimator's settings as the policy sets them.
+ * @param {Record<string, any>} [d] policy.dispatch
+ * @returns {{ min_samples: number, max_multiple: number }}
+ */
+export function estimateSettings(d = {}) {
+  return {
+    min_samples: Number.isInteger(d.estimate_min_samples)
+      ? d.estimate_min_samples
+      : ESTIMATE_SETTINGS.min_samples.default,
+    max_multiple:
+      typeof d.estimate_max_multiple === 'number' && d.estimate_max_multiple >= 1
+        ? d.estimate_max_multiple
+        : ESTIMATE_SETTINGS.max_multiple.default,
+  };
+}
+
+/** The tier defaults of dispatch.default_estimates, as schemas/policy/dispatch.schema.json sets them. */
+export const DEFAULT_ESTIMATES = Object.freeze(
+  /** @type {Record<string, number>} */ ({ 1: 60000, 2: 150000, 3: 400000 }),
+);
+
+/**
+ * Where a start estimate came from (HITLD-450): the item's own estimate_tokens, the median of
+ * similar past completions, the tier's default, or a figure typed by hand (hitld ledger
+ * correct-estimate). A `dispatched` event written before HITLD-450 does not say: `unknown`.
+ */
+export const ESTIMATE_SOURCES = Object.freeze(['item', 'history', 'default', 'typed']);
+
+/**
+ * The most a start estimate is read as: dispatch.estimate_max_multiple times the tier's default
+ * (dispatch.default_estimates), the same bound the planner puts on a median of past completions.
+ * A dispatch whose tier is not known is bounded by the highest tier's. Null when nothing bounds it:
+ * tier 0 (inline work, no estimate) or a default of 0.
+ * @param {number | undefined} tier @param {Record<string, any>} [d] policy.dispatch
+ * @returns {number | null}
+ */
+export function estimateCap(tier, d) {
+  const t = Number.isInteger(tier) ? Math.min(3, /** @type {number} */ (tier)) : 3;
+  if (t <= 0) return null;
+  const base = Number(d?.default_estimates?.[String(t)] ?? DEFAULT_ESTIMATES[String(t)]);
+  if (!(base > 0)) return null;
+  return Math.round(base * estimateSettings(d).max_multiple);
+}
+
+/**
+ * The `dispatched` events as they stand after corrections, in the order they were first written:
+ * each original with the latest correction that stands for it (hitld ledger correct-estimate). A
+ * correction counts only when it names an earlier `dispatched` event of the same dispatch or item;
+ * one whose target is not among the events (a view with corrections already applied, as the run
+ * report reads) stands on its own.
+ * @param {LedgerEntry[]} events
+ * @returns {{ original: LedgerEntry, current: LedgerEntry }[]}
+ */
+export function standingDispatches(events) {
+  /** @type {{ original: LedgerEntry, current: LedgerEntry }[]} */
+  const slots = [];
+  /** @type {Map<string, { slot: { original: LedgerEntry, current: LedgerEntry }, event: LedgerEntry }>} */
+  const byId = new Map();
+  for (const e of events) {
+    if (e.event !== 'dispatched') continue;
+    const target = e.corrects === undefined ? undefined : byId.get(e.corrects);
+    if (e.corrects !== undefined && target) {
+      if (!correctsValidly(target.event, e)) continue;
+      target.slot.current = e;
+      byId.set(e.id, { slot: target.slot, event: e });
+      continue;
+    }
+    if (byId.has(e.id)) continue;
+    const slot = { original: e, current: e };
+    slots.push(slot);
+    byId.set(e.id, { slot, event: e });
+  }
+  return slots;
+}
+
+/**
+ * @typedef {object} StartEstimate
+ * @property {number} tokens what the start estimate is read as: the recorded figure, capped
+ * @property {number} recorded the figure the ledger holds, after any correction
+ * @property {number | null} cap the bound it was read under (estimateCap); null when none applied
+ * @property {boolean} capped the recorded figure was above the bound
+ * @property {'item' | 'history' | 'default' | 'typed' | 'unknown'} source where the figure came
+ *   from; `unknown` on an event written before the ledger said
+ * @property {number | null} samples how many completions it rested on; null when not recorded
+ * @property {string} event the ID of the `dispatched` event (or the correction) it was read from
+ * @property {string} dispatch the dispatch that carries it: the dispatch itself, or for a
+ *   follow-up, the item's earlier dispatch
+ * @property {string | null} corrected_by the correction it was read from, if any
+ */
+
+/**
+ * The token estimate a dispatch started with, and where it came from: its `dispatched` event's
+ * estimate_tokens (or the correction that stands for it), or, for a follow-up (which carries none
+ * of its own), the item's last estimate before it. It is read capped at estimateCap for its tier,
+ * so a poisoned figure cannot raise the --tokens-over-estimate refusal threshold, lengthen the
+ * watchdog's limits or make estimate against actual read low (HITLD-450). An estimate the item set
+ * itself is the owner's or the planner's and is read as recorded, as the planner kept it.
+ * Undefined when the ledger has none.
+ * @param {LedgerEntry[]} events @param {string} dispatch @param {string} [item]
+ * @param {Record<string, any>} [d] policy.dispatch: the tier defaults and the maximum multiple
+ * @returns {StartEstimate | undefined}
+ */
+export function startEstimateOf(events, dispatch, item, d) {
+  const standing = standingDispatches(events);
+  const at = standing.findIndex((s) => s.original.dispatch === dispatch);
+  const has = (/** @type {{ current: LedgerEntry }} */ s) =>
+    typeof s.current.estimate_tokens === 'number';
+  let pick = at >= 0 && has(standing[at]) ? standing[at] : undefined;
+  if (!pick) {
+    const of = item ?? standing[at]?.original.item;
+    if (of === undefined) return undefined;
+    pick = (at >= 0 ? standing.slice(0, at) : standing).findLast(
+      (s) => s.original.item === of && has(s),
+    );
+  }
+  if (!pick) return undefined;
+  const e = pick.current;
+  const recorded = /** @type {number} */ (e.estimate_tokens);
+  const source = ESTIMATE_SOURCES.includes(e.estimate_source) ? e.estimate_source : 'unknown';
+  const cap = source === 'item' ? null : estimateCap(e.tier ?? pick.original.tier, d);
+  const capped = cap !== null && recorded > cap;
+  return {
+    tokens: capped ? /** @type {number} */ (cap) : recorded,
+    recorded,
+    cap,
+    capped,
+    source,
+    samples: Number.isInteger(e.estimate_samples) ? e.estimate_samples : null,
+    event: e.id,
+    dispatch: pick.original.dispatch,
+    corrected_by: e === pick.original ? null : e.id,
+  };
+}
+
+/**
+ * The token estimate a dispatch started with, as it is read: startEstimateOf's figure.
+ * @param {LedgerEntry[]} events @param {string} dispatch @param {string} [item]
+ * @param {Record<string, any>} [d] policy.dispatch
+ * @returns {number | undefined}
+ */
+export function startEstimate(events, dispatch, item, d) {
+  return startEstimateOf(events, dispatch, item, d)?.tokens;
+}
 
 /** Two events are the same event if they differ only in when they were written. @param {LedgerEntry} a @param {LedgerEntry} b */
 const sameEvent = (a, b) => {
@@ -322,7 +461,11 @@ export function appendEvent(store, event, options = {}) {
   }
   if (entry.dispatch !== undefined) {
     const mine = events.filter((e) => e.dispatch === entry.dispatch && e.corrects === undefined);
-    if (entry.event === 'dispatched' && mine.some((e) => e.event === 'dispatched')) {
+    if (
+      entry.event === 'dispatched' &&
+      entry.corrects === undefined &&
+      mine.some((e) => e.event === 'dispatched')
+    ) {
       throw new LedgerError(`${entry.dispatch} was already dispatched`);
     }
     if (entry.corrects === undefined) {
