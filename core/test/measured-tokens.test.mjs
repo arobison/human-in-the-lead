@@ -302,6 +302,7 @@ test('the summary, the quota report and the estimator never read the guess as a 
     dispatch: 'D-1',
     item: 'W-1',
     estimate_tokens: 100_000,
+    estimate_source: 'unknown',
     tokens: 200_000,
     tokens_source: 'session-record',
     ratio: 2,

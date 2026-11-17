@@ -66,10 +66,11 @@ export const farAboveEstimate = (tokens, estimate) =>
  * @param {Omit<Completion, 'dispatch'> & { dispatch?: string, tokensSource?: string | null,
  *   parts?: Record<string, number | null> | null, selfReported?: number | null }} completion
  * @param {import('../ledger/ledger.mjs').LedgerEntry[]} [events] the ledger, to find the estimate
+ * @param {Record<string, any>} [d] policy.dispatch: the bound the estimate is read under
  */
-export function reportedEvent(entry, completion, events = []) {
+export function reportedEvent(entry, completion, events = [], d) {
   const result = reportResult(completion.report);
-  const estimate = startEstimate(events, entry.dispatch, entry.item);
+  const estimate = startEstimate(events, entry.dispatch, entry.item, d);
   return {
     id: lifecycleId('reported', entry.dispatch),
     event: 'reported',
@@ -108,7 +109,7 @@ const usageOf = (parts) =>
  * @param {Run} run
  * @param {HarnessAdapter} adapter
  * @param {Omit<DispatchRequest, 'dispatch'> & { dispatch?: string }} request
- * @param {{ worktree?: string, estimateTokens?: number, serialResources?: string[], skillVersions?: Record<string, string>, model?: string, effort?: string }} [extra]
+ * @param {{ worktree?: string, estimateTokens?: number, estimateSource?: string, estimateSamples?: number, serialResources?: string[], skillVersions?: Record<string, string>, model?: string, effort?: string }} [extra]
  * @returns {Promise<DispatchHandle>}
  */
 export async function dispatchExecutor(run, adapter, request, extra = {}) {
@@ -132,6 +133,8 @@ export async function dispatchExecutor(run, adapter, request, extra = {}) {
       ...(extra.skillVersions ? { skills: extra.skillVersions } : {}),
     },
     ...(extra.estimateTokens !== undefined ? { estimate_tokens: extra.estimateTokens } : {}),
+    ...(extra.estimateSource !== undefined ? { estimate_source: extra.estimateSource } : {}),
+    ...(extra.estimateSamples !== undefined ? { estimate_samples: extra.estimateSamples } : {}),
     host: run.host,
     ...(extra.serialResources?.length ? { serial_resources: extra.serialResources } : {}),
   });

@@ -157,7 +157,17 @@
       "minimum": 0
     },
     "estimate_tokens": {
+      "description": "On dispatched: the token estimate the dispatch started with, set at sizing; on reported, a copy of it. A follow-up's dispatched carries none: the item's earlier one stands. It is read capped at dispatch.estimate_max_multiple times the tier's default, unless the item set it (HITLD-450). A correction (hitld ledger correct-estimate) is a dispatched event that corrects the original, and is read in its place.",
       "$ref": "common#/$defs/tokens"
+    },
+    "estimate_source": {
+      "description": "On dispatched, beside estimate_tokens (HITLD-450): where the estimate came from. item: the item's own estimate_tokens. history: the median of similar past completions. default: the tier's default (dispatch.default_estimates). typed: typed by hand, as a correction (hitld ledger correct-estimate) is. Absent on a line written before it, whose source is not known.",
+      "enum": ["item", "history", "default", "typed"]
+    },
+    "estimate_samples": {
+      "description": "On dispatched, beside estimate_source (HITLD-450): how many similar past completions with a token count there were when it was sized, so an estimate that rested on one record shows in the ledger itself. 0 for an item's own estimate and a typed one. Absent on a line written before it.",
+      "type": "integer",
+      "minimum": 0
     },
     "commit": {
       "$ref": "common#/$defs/commit"

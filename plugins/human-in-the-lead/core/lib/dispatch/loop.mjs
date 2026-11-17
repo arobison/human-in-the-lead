@@ -57,7 +57,11 @@ export async function runDispatchLoop(r) {
   /** @param {string} dispatch @param {Completion} completion */
   const absorb = (dispatch, completion) => {
     const entry = r.run.state.in_flight.find((/** @type {any} */ d) => d.dispatch === dispatch);
-    if (entry) r.run.record(reportedEvent(entry, completion, readLedger(r.run.store).events));
+    if (entry) {
+      r.run.record(
+        reportedEvent(entry, completion, readLedger(r.run.store).events, r.policy.dispatch),
+      );
+    }
     pending.delete(dispatch);
     const id = /** @type {string} */ (itemOf.get(dispatch));
     const { report } = parseReport(completion.report);
@@ -129,7 +133,12 @@ export async function runDispatchLoop(r) {
             budgetTokens: p.sizing.estimate_tokens,
             classification: item.classification ?? 'internal',
           },
-          { estimateTokens: p.sizing.estimate_tokens, serialResources: p.serial },
+          {
+            estimateTokens: p.sizing.estimate_tokens,
+            estimateSource: p.sizing.estimate_source,
+            estimateSamples: p.sizing.estimate_samples,
+            serialResources: p.serial,
+          },
         );
       } catch {
         refused.add(String(item.id));

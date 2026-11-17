@@ -9,9 +9,11 @@
 //   A completion's tokens are output plus fresh input, never cache reads, and a corrected figure
 //   (hitld ledger correct-tokens) stands in for the one it corrects.
 // - Estimate against actual: each completion's tokens beside the estimate its dispatch started
-//   with (the `reported` event's estimate_tokens, else its `dispatched` event's), where the figure
-//   came from (measured by the harness, or typed by hand), and the executor's own figure, a guess
-//   shown beside it that is never counted as tokens anywhere (HITLD-438).
+//   with (its `dispatched` event's, or the correction that stands for it, else the `reported`
+//   event's copy), read capped at dispatch.estimate_max_multiple times the tier's default, with where
+//   the estimate came from ("unknown" on a line written before the ledger said, HITLD-450); where
+//   the figure came from (measured by the harness, or typed by hand), and the executor's own
+//   figure, a guess shown beside it that is never counted as tokens anywhere (HITLD-438).
 // - First-pass yield, of accepted items: the share that had exactly one executor dispatch, whose
 //   first verification passed and was never followed by a failed one.
 // - Waste: tokens on dispatches that were abandoned, whose work failed verification (a `verified`
@@ -23,7 +25,13 @@
 //   any reason but a usage limit, which is not the executor's failure), by model, tier and area as
 //   dispatched; with the ladder steps taken, executors cut off by a limit, and quota pauses.
 
-import { TERMINAL_EVENTS, correctsValidly, readLedger, startEstimate } from './ledger.mjs';
+import {
+  TERMINAL_EVENTS,
+  correctsValidly,
+  estimateCap,
+  readLedger,
+  startEstimateOf,
+} from './ledger.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
@@ -61,8 +69,9 @@ export function effectiveEvents(events) {
 
 /**
  * @param {LedgerEntry[]} allEvents
+ * @param {Record<string, any>} [d] policy.dispatch: the bound start estimates are read under
  */
-export function summarize(allEvents) {
+export function summarize(allEvents, d) {
   const events = effectiveEvents(allEvents);
 
   /** @type {Map<string, { item: string, role?: string, tokens: number, tokenless: boolean, abandoned: boolean, failed: boolean, reverted: boolean, ended: boolean }>} */
@@ -231,29 +240,49 @@ export function summarize(allEvents) {
       queue: spread(queues),
       owner: spread(owners),
     },
-    estimate_vs_actual: estimateMeasures(events),
+    estimate_vs_actual: estimateMeasures(events, d, allEvents),
     logged_calls: loggedMeasures(events),
     stalls,
   };
 }
 
 /**
- * Each completion's tokens beside the estimate it started with, where the figure came from, and
- * what the executor said it cost (a guess, shown for comparison and never read as the cost); the
- * median of actual over estimate where both are known, and the same over measured figures alone.
+ * Each completion's tokens beside the estimate it started with and where that came from, where the
+ * figure came from, and what the executor said it cost (a guess, shown for comparison and never
+ * read as the cost); the median of actual over estimate where both are known, and the same over
+ * measured figures alone. The estimate is read as startEstimateOf reads it: corrected, and capped
+ * (estimate_recorded then says what the ledger holds), so a poisoned figure cannot make a ratio
+ * read low (HITLD-450).
  * @param {LedgerEntry[]} events as they stand after corrections
+ * @param {Record<string, any>} [d] policy.dispatch
+ * @param {LedgerEntry[]} [all] the whole ledger, corrections and what they correct in place, for
+ *   the start estimates: a correction stands where its original was written
  */
-export function estimateMeasures(events) {
-  /** @type {{ dispatch: string, item: string, estimate_tokens: number | null, tokens: number | null, tokens_source: string | null, ratio: number | null, self_reported_tokens?: number }[]} */
+export function estimateMeasures(events, d, all = events) {
+  /** @type {{ dispatch: string, item: string, estimate_tokens: number | null, estimate_source: string | null, estimate_samples?: number, estimate_recorded?: number, tokens: number | null, tokens_source: string | null, ratio: number | null, self_reported_tokens?: number }[]} */
   const by_dispatch = [];
   /** @type {Record<string, number>} */
   const sources = { measured: 0, typed: 0, unstated: 0 };
+  /** @type {Record<string, number>} */
+  const estimate_sources = { item: 0, history: 0, default: 0, typed: 0, unknown: 0 };
   for (const e of events) {
     if (e.event !== 'reported') continue;
-    const estimate =
-      typeof e.estimate_tokens === 'number'
-        ? e.estimate_tokens
-        : (startEstimate(events, e.dispatch, e.item) ?? null);
+    const start = startEstimateOf(all, e.dispatch, e.item, d);
+    // Without a `dispatched` event to read, the copy the completion carries, under the bound.
+    const copyCap = estimateCap(undefined, d);
+    const copy =
+      start || typeof e.estimate_tokens !== 'number'
+        ? null
+        : {
+            tokens: copyCap !== null ? Math.min(e.estimate_tokens, copyCap) : e.estimate_tokens,
+            recorded: e.estimate_tokens,
+            capped: copyCap !== null && e.estimate_tokens > copyCap,
+            source: 'unknown',
+            samples: null,
+          };
+    const read = start ?? copy;
+    const estimate = read ? read.tokens : null;
+    if (read) estimate_sources[read.source] += 1;
     const tokens = typeof e.tokens === 'number' ? e.tokens : null;
     const source = tokens === null ? null : (e.tokens_source ?? null);
     if (tokens !== null) sources[sourceKind(source)] += 1;
@@ -261,6 +290,9 @@ export function estimateMeasures(events) {
       dispatch: e.dispatch,
       item: e.item,
       estimate_tokens: estimate,
+      estimate_source: read ? read.source : null,
+      ...(typeof read?.samples === 'number' ? { estimate_samples: read.samples } : {}),
+      ...(read?.capped ? { estimate_recorded: read.recorded } : {}),
       tokens,
       tokens_source: source,
       ratio: estimate && tokens !== null ? Math.round((tokens / estimate) * 100) / 100 : null,
@@ -288,6 +320,7 @@ export function estimateMeasures(events) {
       by_dispatch.filter((r) => sourceKind(r.tokens_source) === 'measured'),
     ),
     sources,
+    estimate_sources,
     by_dispatch,
   };
 }
@@ -383,8 +416,9 @@ export function stallMeasures(events) {
 
 /**
  * @param {PrivateStore} store
+ * @param {Record<string, any>} [d] policy.dispatch
  */
-export function summary(store) {
+export function summary(store, d) {
   const { events, problems } = readLedger(store);
-  return { ...summarize(events), ledger_problems: problems };
+  return { ...summarize(events, d), ledger_problems: problems };
 }
