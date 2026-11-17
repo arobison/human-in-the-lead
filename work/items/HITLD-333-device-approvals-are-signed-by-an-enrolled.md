@@ -19,6 +19,7 @@ This is a one-way door: making approvals verifiable changes the store format, ne
 - Approvals (and enrollment of a device) are verifiable: a device accepts an approval only when it carries a signature from a device already approved, with a defined first-device step and key rotation, and a pull refuses an approval that does not verify.
 - Existing stores migrate without losing history, and a device that cannot read the new format says so.
 - A test shows that an approval not signed by an approved device is refused.
+- One device key the owner flagged for rotation is rotated as part of this item, once the rotation step exists (the owner's decision HITLD-463; the details are held privately, not here).
 - `npm run check`, the offline eval gate and `hitld work check` pass.
 
 ## Notes
