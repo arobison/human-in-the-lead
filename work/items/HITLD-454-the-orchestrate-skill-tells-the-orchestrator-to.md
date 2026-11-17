@@ -2,9 +2,10 @@
 id: HITLD-454
 title: The orchestrate skill tells the orchestrator to complete an interactive dispatch with --session-record
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-38
 ---
 
 ## Done when
