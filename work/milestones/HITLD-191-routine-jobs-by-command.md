@@ -10,7 +10,7 @@ done_when:
   - "c1: Reversible tracker edits land without a per-change approval and can be reversed by command."
   - "c2: Merges, publishes, claims and closes follow one written routine and carry the full trailers."
   - "c3: Finished sessions, published refs and stale items are cleaned up by command."
-constraints: [HITLD-143 c1, HITLD-288 c1, HITLD-218 c2, HITLD-297 c2, HITLD-202 c2, HITLD-228 c2, HITLD-203 c2, HITLD-49 c2, HITLD-76 c2, HITLD-167 c3, HITLD-252 c3, HITLD-220 c3, HITLD-386 c2, HITLD-429 c2]
+constraints: [HITLD-143 c1, HITLD-288 c1, HITLD-218 c2, HITLD-297 c2, HITLD-202 c2, HITLD-228 c2, HITLD-203 c2, HITLD-49 c2, HITLD-76 c2, HITLD-167 c3, HITLD-252 c3, HITLD-220 c3, HITLD-386 c2, HITLD-429 c2, HITLD-472 c2]
 check: demo a run's tracker edits, merges, publishes, claims, closes and clean-up done by hitld commands with no per-change prompt, one edit reversed by command, run by the owner
 ---
 
