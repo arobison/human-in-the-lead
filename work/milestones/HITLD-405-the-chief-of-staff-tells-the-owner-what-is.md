@@ -11,7 +11,7 @@ done_when:
   - "c2: One question per call, a queue offered in batches, and no bare number without what it names."
   - "c3: Notifications, found work and the usage figure are handled during long tasks and on schedule."
   - "c4: The harness table covers the Claude desktop app."
-constraints: [HITLD-146 c1, HITLD-55 c1, HITLD-216 c2, HITLD-217 c2, HITLD-182 c3, HITLD-155 c3, HITLD-219 c3, HITLD-289 c4, HITLD-387 c3, HITLD-466 c2]
+constraints: [HITLD-146 c1, HITLD-55 c1, HITLD-216 c2, HITLD-217 c2, HITLD-182 c3, HITLD-155 c3, HITLD-219 c3, HITLD-289 c4, HITLD-387 c3, HITLD-466 c2, HITLD-498 c3]
 check: demo the owner reviews one recorded chief-of-staff session against the four clauses, with the offline eval scenarios of each item passing
 ---
 
