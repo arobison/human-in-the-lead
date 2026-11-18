@@ -24,14 +24,15 @@ Design-heavy: stays proposed and is walked through with the owner. Related: HITL
 ## Decided so far (the owner, 2026-11-18, in a walk-through)
 
 - **Continuity (HITLD-484):** the ledger and the tracker carry continuity between orchestrator sessions; there is no run object. A new orchestrator rebuilds from the ledgers and the tracker and GitHub. No lease, checkpoint or hand-over note: the chief of staff starts one orchestrator at a time.
-- **Numbering (HITLD-485):** orchestrator-numbered IDs. The chief of staff numbers each orchestrator it starts (orch-4, 5, ...) and tells it; its dispatches and ledger events are D-4.1, D-4.2 and E-4.1. Existing D-1 to D-38 stay as they are. HITLD-74's per-machine blocks are not needed.
-- **Where the ledger goes (HITLD-486):** the private store, one file per orchestrator, pushed as it goes. Nothing merges. It needs the cloud store enrollment fixed (HITLD-323, HITLD-333), which a durable store needs anyway.
+- **Numbering (HITLD-489, replacing HITLD-485):** event and dispatch IDs are unique by construction: time-ordered random IDs that cannot collide across containers, one append-only file per writer, and the global ledger as the union of those files read through the local index. Display numbers are assigned when the index ingests them; trailers on main carry the unique short ID. Existing D-1 to D-38 stay as they are. HITLD-74's per-machine blocks, and orchestrator-numbered IDs (HITLD-485), are dropped: a machine is a new thing every time in the cloud, and orchestrator numbers depend on a disposable chief of staff session. Tracker IDs (HITLD-n) are a separate case: human-facing, from one counter in the store with a compare-and-swap push, as now.
+- **Where the ledger goes (HITLD-486):** the private store, one file per writer (orchestrators and the chief of staff), pushed as it goes. Nothing merges. It needs the cloud store enrollment fixed (HITLD-323, HITLD-333), which a durable store needs anyway.
+- **How global (HITLD-490):** each project keeps its own raw ledger in its own private store, so confidentiality stays per project. A person-level layer holds only the aggregates learning needs across projects (estimates, token ratios, trust calibration); no raw events cross projects.
 - **The owner hold (HITLD-487):** with the chief of staff, passed on in each new orchestrator's start brief and by message to the live one, and recorded as the owner's decision in the tracker. This replaces the decision HITLD-427, which put it in the run.
 - **Replacing an orchestrator (HITLD-488):** on measured context pressure only (today's share of 0.7). The completion count (`orchestrator.handover_after_completions`, 20) is dropped.
 
 ## Consequences to file (not yet filed)
 
-- Reshape or supersede HITLD-74 (per-machine blocks) as orchestrator-numbered IDs, and reconcile nothing: the old ledgers stay as they are.
+- Replace HITLD-74 (per-machine blocks) with unique-by-construction IDs and per-writer ledger files, and reconcile nothing: the old ledgers stay as they are. Also build the person-level aggregate layer (HITLD-490) and fix the store enrollment so ledgers actually reach the store: today every cloud container's ledger stays in that container.
 - Reshape HITLD-323 (a successor cannot resume) into the store enrollment fix and one file per orchestrator; Q2 to Q4 there fall away or change.
 - Reword HITLD-190 c2 (a successor in a fresh container resumes from the store) to "a successor rebuilds from the store's ledger files and the tracker".
 - HITLD-466 (run names) becomes orchestrator names or goes away.
