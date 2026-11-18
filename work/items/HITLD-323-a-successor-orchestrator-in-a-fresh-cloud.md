@@ -5,7 +5,7 @@ kind: work
 state: proposed
 created: 2026-11-16
 project: HITLD-15
-needs: [HITLD-74, HITLD-148]
+needs: [HITLD-148]
 ---
 
 ## Why
@@ -16,15 +16,14 @@ So the design's hand-over (a successor takes over from the store) does not work 
 
 ## Done when
 
-The owner decided each of these in the question box on 2026-11-16 (HITLD-329 to 332):
+**Reshaped on 2026-11-18** by the owner's decisions HITLD-484 to HITLD-490: there is no run object, so a successor does not resume a run; it rebuilds from the store's per-writer ledger files (HITLD-74) and the tracker (HITLD-492). What is left of this item is making the store carry them from a cloud container.
 
-- `hitld run start` and `hitld run resume` refuse to go on when the store cannot carry a hand-over (this container never pulled the store, or its device cannot push), unless the owner opts out with `--no-sync` (HITLD-329).
-- `hitld handover` checks that its store push can land before it releases the lease, and keeps the lease, saying why, when it cannot (HITLD-330).
-- A checkpoint push refused with `device-not-enrolled` warns the owner once, early, and again at each hand-over; it does not block dispatch (HITLD-331).
-- When no successor can resume, the run records a pause and tells the owner exactly what is missing and what to do; nothing starts until the owner answers, and no fresh run starts by itself (HITLD-332).
-- A fresh container can resume: the state it needs (checkpoint, ledger summary, usage, person settings, open decisions) is carried by a channel that works without hand-copying (HITLD-74 numbering and HITLD-148 settings), or `hitld run resume` says exactly what is missing and how to restore it.
-- A test or eval covers a hand-over in a fresh checkout and the refused-sync case.
+- A cloud container's device is enrolled in the store so its pushes of its ledger file and settings land: an approved cloud environment does not meet `device-not-enrolled`. Enrollment of a cloud device works without hand-copying keys, and an executor cannot enroll one.
+- A push refused with `device-not-enrolled` warns the owner once, early, and again whenever an orchestrator is replaced; it does not block dispatch (HITLD-331, kept).
+- A test covers a cloud container pushing its ledger file to the store and a fresh container pulling it and rebuilding an orchestrator's view from it.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
+
+**Superseded by the no-run decision:** the run-command refusals and hand-over order from the 2026-11-16 answers HITLD-329 (`run start` and `run resume` refusing without a store that can carry a hand-over), HITLD-330 (`handover` checking its push before releasing the lease) and HITLD-332 (a stalled-run pause), since those commands go with the run object (HITLD-492). A hand-over note is no longer needed.
 
 ## Analysis for the walk-through (chief of staff, corrected 2026-11-16)
 

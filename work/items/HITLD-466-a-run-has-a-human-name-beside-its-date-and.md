@@ -2,7 +2,7 @@
 id: HITLD-466
 title: A run has a human name beside its date-and-number ID, proposed by the chief of staff and renameable
 kind: work
-state: planned
+state: proposed
 created: 2026-11-17
 project: HITLD-15
 ---
@@ -23,3 +23,8 @@ A run is told apart today only by `<date>-<n>`, such as 2026-11-16-1. The owner 
 ## Notes
 
 Design: a new ledger field and a new public command; touches `docs/design/0001-human-in-the-lead/` 05-execution.md (the ledger fields), 13-operations.md (the run) and 16-packaging.md (the command). Code, schema and design: the owner's own yes to merge. Related: HITLD-405 c2 (no bare number without what it names).
+
+## Reshape needed (2026-11-18)
+
+The owner decided in HITLD-470 (HITLD-484 to HITLD-490) that there is no run object, so "a run has a name" no longer has a run to name. What a person reads now are orchestrator sessions and the dispatches and events they write (display numbers assigned at ingest, HITLD-489). This item moves to `proposed` until it is reshaped to cover those: a human name for an orchestrator session (proposed by the chief of staff, derived from the focus it serves, renameable) and for a dispatch where a bare ID would not tell the owner what it is. The derived-name choice (HITLD-467) stands.
+
