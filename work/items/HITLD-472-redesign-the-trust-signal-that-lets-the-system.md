@@ -40,3 +40,7 @@ Design-heavy: stays proposed and is walked through with the owner. Related: HITL
 - How today's settings (`merge.owner_paths`, `merge.owner_areas`, `merge.propose_queue_after`) migrate, and what happens to the per-area trust events.
 - Whether any learned parameter remains (for example the aging period or the distinct-items count) and where it lives (HITLD-408).
 
+## One trust engine (2026-11-19)
+
+The owner decided (HITLD-506) that committing to work earns its rungs by the same machinery as merging; the commitment design is in HITLD-291. Build the trust record, the unlock bar and the re-lock rule so both can use them.
+
