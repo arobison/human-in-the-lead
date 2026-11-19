@@ -26,3 +26,15 @@ The owner asked on 2026-11-19 whether running HITLd from inside a harness like C
 ## Notes
 
 Design-heavy: stays proposed and is walked through with the owner. This is exploration, not a build, and it should not delay v0.1.0. Related: HITLD-405 c4 (the harness table covers the Claude desktop app), HITLD-165, HITLD-418 (how usage limits are reported and gated on different plans), HITLD-470 and HITLD-492 (no run object; the ledger and tracker carry continuity), HITLD-441 (deferral and emergent escalations), HITLD-507 (a general trust engine), HITLD-333 (the store key), HITLD-448 (the dashboard as the owner's view), HITLD-89 (event-driven cadences), HITLD-96 (a hosted tracker), HITLD-493 (the audit of defaults).
+
+## Added 2026-11-19: the service as the owner's decision and approval surface
+
+The owner said that turning HITLd into a service is a really interesting idea, because it would also let a web interface (and other clients) take the owner's decisions and approvals directly, as an alternative to telling the chief of staff. The owner also gave a comparison ("like dyno") that the chief of staff did not recognize; to be filled in when the owner says what it refers to. The study should cover, in addition to the points above:
+
+- **A decision and approval surface.** The owner answers decisions, approves merges and commitments (HITLD-472, HITLD-291), and gives input on proposals from a web interface, alongside the chief of staff. Questions are durable and belong to the service, not to a session, so a dropped question box (about a dozen in one stretch of 2026-11-17 to 2026-11-19) cannot lose one.
+- **Authority.** Today an approval counts only from the owner's own message, which the harness guarantees. A web surface needs its own proof that an action is the owner's: per-person keys and signed answers (HITLD-409, HITLD-333). Until then, anything written from a web page is data, not an answer.
+- **One place, once, counted.** HITLD-407 (the owner answers once, in one place, and it counts) was built on the chief of staff's session being that place; the study says whether the service becomes the place, with the chief of staff as one client.
+- **Several humans.** Named contributors and their input recorded under their own names (HITLD-501) fit a service naturally.
+- **Safety of what is shown.** Issue bodies, reports and item text on a decision page are untrusted: rendered as inert data, with nothing in them able to act.
+- **A cheap first step.** Whether a read-and-propose inbox can be prototyped with the existing published Artifact (shared state, clickable proposals) before anything is built, with the authority question settled before an answer from it counts.
+
