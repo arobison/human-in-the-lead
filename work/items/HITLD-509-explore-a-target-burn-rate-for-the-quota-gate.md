@@ -44,6 +44,10 @@ The owner raised the risk that projects knowing about each other can leak confid
 
 Existing work to start from (the owner asked for literature): the pace is a decentralized feedback controller. TCP congestion control (additive-increase, multiplicative-decrease, AIMD; Chiu and Jain, 1989) lets senders that know nothing about each other converge toward fair shares of one bottleneck, using only a shared congestion signal; here the signal is "the account total is ahead of the line" and the rate is a project's executor concurrency and spend. Cautions: feedback delay (the probe reads about every 30 minutes and spend accumulates over hours) needs conservative gains to avoid oscillating between sprinting and stalling; fairness only emerges among projects that are trying to use capacity; priority differences, if wanted, are a local setting (a weighted increase rate), not an exchange of information. Token buckets suit the line itself, and adaptive concurrency limits (AIMD-style limiters) apply to the executor count of HITLD-534. These are from the chief of staff's general knowledge and are not yet checked against the sources; the study should cite and check them.
 
+## Decided on 2026-11-19, continued (HITLD-550)
+
+The pace controller starts from AIMD with conservative gains: additive increase while the account total is below the line, multiplicative decrease when it is above, the same rule adapting executor concurrency (HITLD-534). Slow gains absorb the feedback delay. The study may swap it on evidence. A first window needs no special case: like TCP's slow start, the controller begins with a small rate and increases.
+
 ## Still to decide
 
-The controller's shape (AIMD or another), its gains and its feedback interval; the first window (whether it runs the line from the start or learns first). Both are for this study to settle with the owner.
+The gains and the feedback interval, set from measurement once the probe (HITLD-165) exists.
