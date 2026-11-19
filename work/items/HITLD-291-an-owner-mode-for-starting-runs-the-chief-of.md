@@ -1,6 +1,6 @@
 ---
 id: HITLD-291
-title: "An owner mode for starting runs: the chief of staff proposes every next run, and standing approval is earned like the automatic merge queue"
+title: "Committing to work is a trust system: a goal under a budget, with rungs the system earns"
 kind: work
 state: proposed
 created: 2026-11-16
@@ -42,3 +42,20 @@ The owner said that committing to work always needs their sign-off today, and th
 - The chief of staff's proposals (HITLD-291's original question: who proposes each next run when one ends, and when an idle orchestrator is allowed).
 - How the trust records for commitments and for merging share one record, and how the owner sees them (the dashboard).
 
+## Decided on 2026-11-19 (HITLD-522, 523, 524)
+
+The word "run" in this item's first form is gone: there is no run object (HITLD-470, 492). A commitment is a goal under a budget, and it ends when the goal is met, the budget is spent or the quota gate says stop.
+
+- **What a goal is, and where the budget lives (HITLD-522):** a goal is an existing milestone or release item, which already has an outcome and checkable done-when clauses. The budget (tokens, time, the owner's attention) lives in a commitment decision the owner signs with the goal and the rung for each kind of commitment. A new budget is a new decision, and it carries the proof from HITLD-515.
+- **The veto window at rung 2 (HITLD-523):** counted in the owner's awake time (quiet hours pause it), set per kind in the signed commitment decision, default 4 hours. The owner objects by any reply or by putting the item on hold, which stays held at every rung. Silence proceeds only after the window.
+- **When a commitment ends (HITLD-524):** initially the system stops and the chief of staff confers with the owner, who decides the next goal and budget. Choosing the next goal is itself a kind of commitment on the trust scale, so it earns rungs by the same machinery (HITLD-506): eventually the system may choose how to spend its budget on the next goals, and later propose new goals on its own. Creating a new goal is a separate kind from choosing among existing ones. Each step is the owner's to grant through an unlock proposal, never taken by the system itself (design 4.6).
+- **The quota gate:** its reserve always wins over any budget (HITLD-422).
+- **The first goal and budget** are chosen when the owner signs the first commitment decision. It is a choice at that time, not a design decision.
+
+## Risk to watch
+
+A goal's quality cannot be scored by a command the way a code change can (HITLD-518), so the evidence for letting the system propose its own goals is weaker. The study (HITLD-507) should say what evidence "a goal turned out to be the wrong one" leaves, and whether that kind may reach rung 3.
+
+## What is left
+
+The one trust record and how the owner sees it (the dashboard) are settled in HITLD-507.
