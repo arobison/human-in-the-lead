@@ -32,7 +32,7 @@ Design-heavy: stays proposed and is walked through with the owner. Related: HITL
 - **After a miss (HITLD-479):** an unlocked kind goes back to waiting at once and must meet the bar again from zero; unlocking it again comes to the owner as a decision.
 - **Size is not the measure (HITLD-480, HITLD-481).** A fixed limit on changed lines is dropped. The gate is verifiability, not an attention budget (HITLD-482): a change is eligible only when its checks could have caught a wrong version, it is cleanly revertible and it is outside the never-unlock kinds. No review budget or ranking.
 
-## Still to decide
+## Still to decide (as of 2026-11-18; the section below, dated 2026-11-19, settles most of it)
 
 - How the unlock bar (history, per kind) and the verifiability gate (per change) combine: whether a kind must have earned the bar and each change must also be verifiable, or verifiability alone decides once a kind is unlocked.
 - What counts as verifiable, concretely: tests that fail before the change and pass after, evals that cover the behavior, an independent reviewer's agreement, every check green including CodeQL; and who scores it (never the author of the change).
@@ -44,3 +44,13 @@ Design-heavy: stays proposed and is walked through with the owner. Related: HITL
 
 The owner decided (HITLD-506) that committing to work earns its rungs by the same machinery as merging; the commitment design is in HITLD-291. Build the trust record, the unlock bar and the re-lock rule so both can use them.
 
+## Decided on 2026-11-19 (HITLD-518, 519, 520, 521)
+
+- **What counts as verifiable (HITLD-518):** the gate is mechanical only. A command scores it, never the author and never a model's opinion: a test that fails on the base and passes on the change, or an eval that covers the changed behavior; every check green, including CodeQL; the change cleanly revertible; no never-unlock path touched. Both gates apply: the kind has earned the unlock bar, and the change is verifiable.
+- **What an unlock proposal shows (HITLD-519):** the merges with their ages and checks, the evidence signals looked for and not found, five of the changes in full, and what the kind would cover from now on.
+- **How a change's kind is decided (HITLD-520):** path rules in policy name each kind and set its ceiling; a change touching several kinds takes the most restrictive. A classifier reads only the diff and can send a change to the owner but never promote one. Today's `merge.owner_paths` become the never-unlock kinds; `merge.propose_queue_after` goes away; past approval counts do not count toward the new bar.
+- **The bar's numbers (HITLD-521):** fixed settings in policy (15 merges, 7 days of aging, 8 distinct items). The measuring in HITLD-408 may propose a change from evidence; only the owner changes them.
+
+## What is left
+
+Nothing in the design is open here. `merge.owner_areas` fold into the path rules (an area is a named set of paths), and the per-area trust events stay as history and do not count toward the new bar (HITLD-520). The build waits on the trust engine study (HITLD-507) for the common shape.
