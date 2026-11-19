@@ -29,3 +29,7 @@ Recommended: Only items no open design can change. The chief of staff recommende
 ## Answer
 
 Recorded in the front matter once answered.
+
+## Follow-up on 2026-11-19 (HITLD-539)
+
+The chief of staff audited the 166 open items against the open designs (59 unaffected, 92 affected, 15 unsure) and gave the owner a list of 20 `planned` items with no open needs that no open design can change. The owner approved it as the only set the successor orchestrator may start at the reset: HITLD-30, 32, 41, 49, 55, 75, 185, 187, 194, 201, 202, 229, 241, 249, 251, 252, 296, 300, 342 and 413. Left out: HITLD-97 (authors in the interchange format, reshaped by HITLD-517), HITLD-203 (the owner chose a model-ID trailer, which executor sessions may not write) and HITLD-378 (it sits between three meanings of budget, HITLD-412, 509 and 291).
