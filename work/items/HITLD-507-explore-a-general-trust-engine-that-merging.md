@@ -25,3 +25,16 @@ The owner said on 2026-11-19, while designing the trust ladder for committing to
 ## Notes
 
 Design-heavy: stays proposed and is walked through with the owner. The study should keep HITLD-472 and HITLD-291 moving: both can be built against the common shape once it is settled. Related: HITLD-472, HITLD-291, HITLD-493 (the audit of defaults, which touches `trust.rubber_stamp_seconds` and the small-sample thresholds), HITLD-44 and HITLD-501 (several humans), HITLD-491, HITLD-409.
+
+
+## Decided on 2026-11-19 (HITLD-525, 526, 527)
+
+- **The engine owns the ladder; each process registers its kinds (HITLD-525):** the engine owns the unlock bar, the re-lock on a miss, the trust record and the owner's unlock proposals. Each process registers its kinds of decision, its evidence signals and its verifiability rule, and asks whether it may proceed. A new process is a registration, not a new system.
+- **Trust is per project (HITLD-526):** earned and recorded in each project's own record. In another project the system may propose the same unlock, citing the first project's evidence, and the owner decides.
+- **Supervision modes, not a ladder (HITLD-527):** the engine's central concept is a supervision mode, such as ask first, tell then proceed, proceed and report, independent check, or two people. Each process registers its modes, which is tighter than which (a partial order, so two modes can be incomparable), and the unlock steps it allows. "Most restrictive wins" and "a classifier can only tighten" (HITLD-520) need only that order. A ladder is the special case where the modes form a chain: commitment registers the three rungs of HITLD-505 as a chain, and merging registers waits and eligible. Limits such as a budget cap stay in a kind's definition.
+
+## Still to decide
+
+- The evidence signals the engine can share across processes, and which stay with a process.
+- What the owner sees: one view of every kind, its mode, its evidence and its next unlock proposal.
+- Whether a process outside merging and commitment (releases, for example) registers first, to test the shape.
