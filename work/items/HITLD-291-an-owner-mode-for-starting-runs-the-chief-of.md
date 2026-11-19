@@ -59,3 +59,8 @@ A goal's quality cannot be scored by a command the way a code change can (HITLD-
 ## What is left
 
 The one trust record and how the owner sees it (the dashboard) are settled in HITLD-507.
+
+
+## Note on 2026-11-19 (HITLD-527)
+
+The three rungs of HITLD-505 are this process's registration with the trust engine: a chain of supervision modes (ask first, tell then proceed, proceed and report). The engine's concept is more general than a ladder, so a commitment kind may later register a mode that does not sit on the chain, such as an independent check.

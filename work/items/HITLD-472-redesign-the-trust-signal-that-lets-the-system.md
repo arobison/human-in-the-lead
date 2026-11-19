@@ -54,3 +54,8 @@ The owner decided (HITLD-506) that committing to work earns its rungs by the sam
 ## What is left
 
 Nothing in the design is open here. `merge.owner_areas` fold into the path rules (an area is a named set of paths), and the per-area trust events stay as history and do not count toward the new bar (HITLD-520). The build waits on the trust engine study (HITLD-507) for the common shape.
+
+
+## Note on 2026-11-19 (HITLD-527)
+
+Merging registers with the trust engine as a small chain of supervision modes (waits for the owner, eligible to self-merge). The engine's concept is supervision modes with an order, not only a ladder, so a kind may later register a mode such as an independent check.
