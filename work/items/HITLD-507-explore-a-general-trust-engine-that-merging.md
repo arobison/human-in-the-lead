@@ -33,7 +33,7 @@ Design-heavy: stays proposed and is walked through with the owner. The study sho
 - **Trust is per project (HITLD-526):** earned and recorded in each project's own record. In another project the system may propose the same unlock, citing the first project's evidence, and the owner decides.
 - **Supervision modes, not a ladder (HITLD-527):** the engine's central concept is a supervision mode, such as ask first, tell then proceed, proceed and report, independent check, or two people. Each process registers its modes, which is tighter than which (a partial order, so two modes can be incomparable), and the unlock steps it allows. "Most restrictive wins" and "a classifier can only tighten" (HITLD-520) need only that order. A ladder is the special case where the modes form a chain: commitment registers the three rungs of HITLD-505 as a chain, and merging registers waits and eligible. Limits such as a budget cap stay in a kind's definition.
 
-## Still to decide
+## Still to decide (as of the first 2026-11-19 section; the sections below settle most of it)
 
 - The evidence signals the engine can share across processes, and which stay with a process.
 - What the owner sees: one view of every kind, its mode, its evidence and its next unlock proposal.
@@ -43,3 +43,12 @@ Design-heavy: stays proposed and is walked through with the owner. The study sho
 
 - **Built with merging and commitment together (HITLD-528):** the owner chose to build the engine with both processes at once, rather than merging first. It tests the generality at once; it is the biggest first step, and commitment's evidence is the weaker of the two.
 - **The trust record is derived (HITLD-529):** a kind's mode is the latest signed unlock decision for it, minus any re-lock event, and its evidence (aged merges, reverts, budget outcomes) is computed from ledger events and tracker records on demand. There is no separate counter to drift, and a lost record can be rebuilt.
+
+## Decided on 2026-11-19, continued (HITLD-547, 548)
+
+- **What the owner sees (HITLD-547):** one Trust view lists every kind with its current mode, the evidence behind it and how near it is to its unlock bar. An unlock proposal arrives as a normal decision in the owner's queue, showing the evidence and a sample (HITLD-519). Nothing unlocks until the owner answers.
+- **Evidence signals (HITLD-548):** the engine owns the signals every process has: the owner's report that a decision was wrong, a re-opened or reverted outcome, and aging without objection. Each process registers its own on top (a failing check on main for merging, a budget overrun for commitment, a missed escalation for escalation fixes). The owner's report is always a miss, in any kind.
+
+## What is left
+
+Which process outside merging and commitment registers next (releases, for example) to test the shape: decided when the study is built, not now. The study itself (this item) is otherwise settled; it files its build items.
