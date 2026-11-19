@@ -36,7 +36,7 @@ The owner said that committing to work always needs their sign-off today, and th
 
 ### Still to decide
 
-- What a goal is in the tracker: a milestone, a release item, or a new kind of record; what a budget holds (tokens, wall-clock, the owner's attention) and who sets it.
+- What a goal is in the tracker: a milestone, a release item, or a new kind of record; what a budget holds (tokens, wall-clock, the owner's attention) and who sets it. The burn-rate knob (a target pace in plan-percent per hour, appetite, shape and the owner's review throughput) is explored in HITLD-509.
 - The veto window at rung 2, and how the owner is told and objects.
 - The first goal and budget to try, and how this meets the weekly quota gate (the gate's reserve stays the owner's).
 - The chief of staff's proposals (HITLD-291's original question: who proposes each next run when one ends, and when an idle orchestrator is allowed).
