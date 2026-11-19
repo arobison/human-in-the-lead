@@ -27,3 +27,13 @@ The owner asked on 2026-11-19 what the target token burn rate should be, and how
 ## Notes
 
 Design-heavy: stays proposed and is walked through with the owner. Related: HITLD-291 (a goal under a budget; what a budget holds), HITLD-418 (how usage limits are reported on different plans), HITLD-351 and HITLD-422 (weekly usage above the reserve), HITLD-149 (a declared usage figure reaching the gate), HITLD-438 (measured per-dispatch tokens), HITLD-153 (the `awaiting_merge` state), HITLD-165, HITLD-493 (the audit of numeric defaults), HITLD-508 (executors and providers differ in cost and speed).
+
+## Decided on 2026-11-19 (HITLD-530, 531)
+
+- **The target pace (HITLD-530):** an even line from the window's start to the reserve at the reset. Ahead of the line the gate slows work early; behind it the system may use the spare capacity, but only on work a commitment allows. The reserve stays untouched, and the owner's own use counts as a draw on the line.
+- **Shared by several projects and by use outside HITLd (HITLD-531):** one person-level pace on the account's total, recomputed continuously. Use outside HITLd (interactive work, other projects HITLd does not manage, on-off use) is the measured remainder and has priority. The HITLd portion is split into a share per project by the owner's weights, default an even split among projects with an active commitment. Every project's gate reads the same total, so none overshoots. This is a person-level aggregate, which HITLD-490 allows; no raw events cross projects.
+
+## Open points
+
+- **Readings are sparse in the cloud.** There is no status line in a cloud session, so the account's total usage comes from the owner's declared figure (HITLD-149) and the plan limit's reset time. The pace can only be as fresh as the last reading; use outside HITLd is inferred from the gap between readings and HITLd's own measured tokens (HITLD-438), so it is an estimate. The design should say how stale a reading may be before the gate treats the pace as unknown, and what it does then.
+- **Weights and the first window** (how the owner sets project weights, and whether the first window runs the line without learning anything) are not decided.
