@@ -38,3 +38,7 @@ On 2026-11-16, in the chief of staff session, the owner decided these in a desig
 ## Notes
 
 State stays `proposed` until the owner moves it to `planned`. The status-line readout of HITLD-56 was dropped by the owner (HITLD-175), so only the capture's retirement concerns the status line here. The granularity of `utilization` is not known: the one sample was a round 0.5. Related: HITLD-149 (a declared figure, settled by HITLD-164), HITLD-151.
+
+## Note on 2026-11-19
+
+The owner decided (HITLD-549, 550) that the pace controller reads the account's total utilization from this probe, so the probe is a prerequisite for HITLD-558.

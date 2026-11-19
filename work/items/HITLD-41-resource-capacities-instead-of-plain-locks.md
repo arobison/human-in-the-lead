@@ -17,3 +17,7 @@ Per design 13.4: a GPU may take one heavy or several light holders. A plain lock
 - The machine profile sets a capacity per resource; holders take a weight; a plain serial resource has capacity 1.
 - Holders queue in arrival order, and a waiting heavy holder is not overtaken by later light ones.
 - Existing lock behavior (stale holders, expiry, waits recorded) is unchanged for capacity 1.
+
+## Note on 2026-11-19
+
+The owner decided (HITLD-534) that executor count follows measured headroom, with `max_executors` a ceiling; heavy steps hold weighted capacity. This item is a part of that build, now tracked in HITLD-559.

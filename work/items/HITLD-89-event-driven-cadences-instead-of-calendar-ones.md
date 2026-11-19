@@ -19,3 +19,7 @@ Reports, digests, calibration reviews and baselines run on calendar cadences. Ag
 - Calibration reviews trigger on evidence (enough new outcomes), and nightly baselines and evals on an idle machine.
 - Design parts 2, 12, 13 and 23 describe the triggers, and the policy keys say what they measure.
 
+
+## Note on 2026-11-19
+
+The owner decided (HITLD-536) that the chief of staff looks and reports on events first, with a slow timer of every few hours as a safety net for a lost event, and a digest sent when something needs the owner, not on the clock. This item is the build for that. The chief of staff's own check-in was changed from hourly to every 4 hours on 2026-11-19.
