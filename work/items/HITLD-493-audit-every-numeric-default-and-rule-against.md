@@ -25,3 +25,12 @@ The owner asked on 2026-11-18 whether other parts of the design are too simplist
 ## Notes
 
 Design-heavy: stays proposed and is walked through with the owner. Related: HITLD-472 (the trust signal), HITLD-470 (the run), HITLD-441 (emergent escalations and deferral), HITLD-408 (learned parameters).
+
+## Decided on 2026-11-19 (HITLD-532, 533)
+
+- **When an executor is stuck or over (HITLD-532):** stuck means no progress events for a set time (no tool call, commit or token movement) in the session's event stream; over means its token budget is spent. A wide wall-clock limit stays only as a backstop for sessions that report nothing. A slow executor that is moving is left alone. `dispatch.stall_after` and `dispatch.deadline` change from the real limits to a backstop.
+- **How an item is tiered and costed (HITLD-533):** from the measured tokens of similar finished items (HITLD-438, 450), with the item's own plan and required reading as the prior until there are enough completions. File count (`dispatch.tier1_max_touches`) and familiar yield stay only as one weak input.
+
+## Still to decide in this audit
+
+The fixed executor cap (`max_executors`); the rubber-stamp timer and small-sample thresholds (`trust.rubber_stamp_seconds`, `precedent.review_min_applications`, `review.first_after_outcomes`), which HITLD-507 may absorb; prose rules where structure is needed; the count and calendar cadences for digests and reports (HITLD-89); and whether the chief of staff counts against the attention limits.
