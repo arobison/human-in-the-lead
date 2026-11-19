@@ -41,3 +41,7 @@ The owner said that turning HITLd into a service is a really interesting idea, b
 ## Decided on 2026-11-19 (HITLD-515)
 
 The authority question is settled for any surface: an answer counts by a checkable proof, not by its channel (HITLD-515). A web page can therefore carry an answer once a proof exists. What this study still decides is whether a service is worth building to host such a surface.
+
+## Decided on 2026-11-19 (HITLD-540)
+
+The owner decided to stay in the harness for now and treat a real control plane as a much later milestone. A service would have to be a public host that cloud sessions call (they are outbound-only containers behind an allowlisted proxy), with per-session credentials; that is overkill today. This item moves from HITLD-405 c4 to the new milestone HITLD-541, which is not under any release stage. The study stays open as exploration, and the in-harness fixes for dropped questions and polling are tracked separately.
