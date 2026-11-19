@@ -5,13 +5,14 @@ kind: milestone
 state: proposed
 created: 2026-11-16
 project: HITLD-15
-outcome: The owner answers only in the chief of staff's session, the answer reaches any session that needs it as a record only the owner's turn can create, and signatures show who gave each approval.
+outcome: An answer from the owner counts by a proof the system can check, whatever channel carries it, and reaches any session that needs it.
 done_when:
   - "c1: The designs for driving other sessions and for answers reaching the orchestrator's prompts are settled and built."
   - "c2: A permission denial is a typed fault that escalates once."
   - "c3: Commits and sign-offs carry the agreed identity."
   - "c4: Device approvals verify by signature."
-constraints: [HITLD-126 c1, HITLD-254 c1, HITLD-240 c1, HITLD-180 c1, HITLD-291 c1, HITLD-186 c2, HITLD-179 c3, HITLD-333 c4]
+  - "c5: An answer counts by a proof the system can check, whatever channel carries it."
+constraints: [HITLD-126 c1, HITLD-254 c1, HITLD-240 c1, HITLD-180 c1, HITLD-291 c1, HITLD-186 c2, HITLD-179 c3, HITLD-333 c4, HITLD-564 c5]
 check: demo the owner answers a held question in the chief-of-staff session, the orchestrator's command runs with no prompt in its own session, and an unsigned approval is refused
 ---
 

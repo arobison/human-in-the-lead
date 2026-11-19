@@ -24,3 +24,7 @@ The effective executor cap is the smallest of the person's, the machine's, the p
 ## Notes
 
 Raised by the owner in the chief of staff session. It sits beside HITLD-41 (resource capacities) and HITLD-71 (load-aware dispatch), which assume the work runs on the machine the gate measures, and HITLD-126 (the chief of staff driving other environments). The plan quota stays the cap that spans every placement.
+
+## Note on 2026-11-19
+
+The owner decided (HITLD-534) that the machine cap and heavy-work gates apply only where executors share a machine, and that `max_executors` becomes a ceiling; see HITLD-559.

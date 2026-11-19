@@ -21,3 +21,7 @@ An executor's environment holds secrets, and a listing of it (to check which var
 ## Notes
 
 Structural options (executors holding no store key unless they need one, a key per dispatch that is removed on completion, the key in a file with only its path in the environment) go to the HITLD-333 walk-through, not this item. Related: HITLD-333, HITLD-315 (executors run the right tests at the right times). A hook and a skill line and a ledger-adjacent refusal: the owner's own yes to merge.
+
+## Note on 2026-11-19
+
+The owner decided (HITLD-537) that every rule an executor could break by accident is enforced by a hook or a scrubbed environment and every fact comes from an independent source; this item is the first of that, and the general item is HITLD-562.
