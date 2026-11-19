@@ -25,3 +25,14 @@ On 2026-11-16 several problems that had to jump the queue were handled by hand, 
 ## Notes
 
 Design-heavy: stays proposed and is walked through with the owner. Related: HITLD-353 (the owner hold), HITLD-355 (an owner's request past the usage gate), HITLD-387 (the chief of staff files investigations itself), HITLD-239 (repeated orchestrator silence), HITLD-154 (a wait eating the owner's attention), HITLD-153 (the planner). Placed under HITLD-189 c2 (the planner offers only items that can start and that the owner allows).
+
+## Decided on 2026-11-19 (HITLD-544, 545, 546)
+
+- **It joins the designs settled before any release item is built (HITLD-544).**
+- **Who escalates (HITLD-545):** a closed list of mechanical conditions the system detects itself raises an escalation automatically; the first entries come from the incidents of 2026-11-16: every start blocked by one bad record (HITLD-436), a dispatch holding a slot with no live session (HITLD-314), an item that is finished but unmerged being offered again (HITLD-153), and a status contradicting its own conclusion (HITLD-386). For anything else the chief of staff declares an escalation with a reason from the same list. The owner is told and can demote it. The planner puts escalations first and keeps one slot reserved for them even when the pace line says slow.
+- **Who may fix one (HITLD-546):** the fix for a declared escalation may start at once in the reserved slot, within a small budget per escalation. Anything over that budget, any one-way-door change, or anything on a never-unlock kind (HITLD-474) still waits for the owner's yes. The owner is told when it starts. Escalation fixes are their own kind in the trust engine (HITLD-507), so the standing can grow or shrink on evidence.
+- **The quota gate still holds:** an escalation does not pass the reserve (HITLD-422); under critical-path-only mode it counts as critical path.
+
+## Still to decide
+
+The size of the per-escalation budget and of the reserved slot. An item the owner holds stays held even if an escalation would otherwise pick it up (HITLD-353, HITLD-504).
