@@ -38,3 +38,8 @@ Design-heavy: stays proposed and is walked through with the owner. The study sho
 - The evidence signals the engine can share across processes, and which stay with a process.
 - What the owner sees: one view of every kind, its mode, its evidence and its next unlock proposal.
 - Whether a process outside merging and commitment (releases, for example) registers first, to test the shape.
+
+## Decided on 2026-11-19, continued (HITLD-528, 529)
+
+- **Built with merging and commitment together (HITLD-528):** the owner chose to build the engine with both processes at once, rather than merging first. It tests the generality at once; it is the biggest first step, and commitment's evidence is the weaker of the two.
+- **The trust record is derived (HITLD-529):** a kind's mode is the latest signed unlock decision for it, minus any re-lock event, and its evidence (aged merges, reverts, budget outcomes) is computed from ledger events and tracker records on demand. There is no separate counter to drift, and a lost record can be rebuilt.
