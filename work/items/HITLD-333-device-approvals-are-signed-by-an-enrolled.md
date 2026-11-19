@@ -30,3 +30,7 @@ Design choices are the owner's: the first step is a walk-through, one question a
 
 - **The first device (the owner, 2026-11-16, decision HITLD-433):** the owner confirms the first device by hand: it shows a fingerprint, the owner confirms in their own turn, and its public key is pinned in the store's header. Every later device needs a signature from an already-approved device.
 - Still to decide, one at a time: key rotation, how existing stores migrate, and what a device that cannot read the new format does.
+
+## Decided on 2026-11-19 (HITLD-515, HITLD-516)
+
+An answer's validity depends on a proof the system can check, not on its channel (HITLD-515). Which key signs an answer (the device key, with the person known by enrollment, or a separate person key) is not decided; it is settled when this item's migration is designed (HITLD-516).

@@ -21,3 +21,7 @@ The owner said on 2026-11-18 that for proposals it is important that the humans 
 ## Notes
 
 Design: proposed; the shape of the list, how a contributor gives input (the dashboard, the tracker, a comment) and how it reaches the chief of staff are walked through with the owner. Related: HITLD-44 (how a team shares the loops), HITLD-409 and HITLD-36 (an answer counts only from the person who gave it; per-person keys), HITLD-152 (the Proposals view). Until per-person keys exist, input is recorded by name but not signed. Code and design: the owner's own yes to merge.
+
+## Decided on 2026-11-19 (HITLD-517)
+
+Contributor input counts when a tracker platform authenticated its author (GitHub, Jira, Linear), with each tracker adapter supplying the author (HITLD-96). The contributor list maps platform accounts to people, one entry per platform per person. The text is copied and hashed when recorded, because platforms let authors edit or delete a comment. A comment from an integration or bot account is not a person. On HITLd's own git-file tracker the input comes through the contributor's pull request on the platform, since git commit authors are not authenticated unless signed. Input only: decisions stay the owner's until HITLD-44 says who else decides.

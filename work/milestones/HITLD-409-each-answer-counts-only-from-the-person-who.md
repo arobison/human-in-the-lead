@@ -16,3 +16,7 @@ check: demo two people each answer a decision with their own key, and an unsigne
 ## Notes
 
 Proposed by the planning pass HITLD-343 on the owner's decision HITLD-366: HITLD-36 gets its own milestone under HITLD-53 with the decision HITLD-44 (which needs it). The owner commits it later. Stage: after v0.1.0.
+
+## Decided on 2026-11-19 (HITLD-515, HITLD-516)
+
+A decision answer is valid by a checkable proof, not by its channel (HITLD-515). Whose key signs is open until HITLD-333's migration is designed (HITLD-516). How a team shares the loops stays with HITLD-44.

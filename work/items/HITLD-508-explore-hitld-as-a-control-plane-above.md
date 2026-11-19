@@ -38,3 +38,6 @@ The owner said that turning HITLd into a service is a really interesting idea, b
 - **Safety of what is shown.** Issue bodies, reports and item text on a decision page are untrusted: rendered as inert data, with nothing in them able to act.
 - **A cheap first step.** Whether a read-and-propose inbox can be prototyped with the existing published Artifact (shared state, clickable proposals) before anything is built, with the authority question settled before an answer from it counts.
 
+## Decided on 2026-11-19 (HITLD-515)
+
+The authority question is settled for any surface: an answer counts by a checkable proof, not by its channel (HITLD-515). A web page can therefore carry an answer once a proof exists. What this study still decides is whether a service is worth building to host such a surface.
