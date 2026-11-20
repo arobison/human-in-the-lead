@@ -83,7 +83,7 @@ The owner said dyno measures in two ways, locally or by driving a remote machine
   - HITLD enforces the classification rule: no values in public text, and the public tracker, pull requests and reports carry references only.
 - **What this puts in question (for the walk-through):**
   - whether HITLD still needs its own benchmark lock and quiet-machine hold (design 13.2 and 13.4, HITLD-559) at all, or whether dyno's reservation replaces them even for local measurements;
-  - what HITLD does when a measurement is refused, queued for a long time or cancelled;
+  - what HITLD does when a measurement is refused, queued for a long time or canceled;
   - the machine named in a reference is whatever dyno supplies; HITLD does not interpret it.
 
 ## Noted on 2026-11-20 (the owner: HITLD reads results, reasons about them and starts measurements)
@@ -140,4 +140,8 @@ The owner agreed with dropping the local-measurement hook (the proposal above). 
 ## Noted on 2026-11-20 (the classification walk-through, HITLD-632 to 635)
 
 A result's label is the `classification` field holding an object with two keys: `readers` (public, any-model, approved-models, local-model-only, tools-only, owner-only) and `reach` (this-machine, synced-store, bucket-client-encrypted, bucket-provider-managed, anywhere), and a registered place for a bucket. A result starts local-model-only and this-machine-only until the bucket dyno owns is registered. Dyno's result output should use this shape; dyno's first example JSON is checked against it.
+
+## Decided on 2026-11-20 (HITLD-641): what HITLD may start without asking, at first
+
+The owner decided that HITLD starts without asking only the measurements an executor needs for its own item, within a per-item cap on how many. Scheduled baselines on the main branch, and a search for the commit a regression came in, ask the owner first, until the trust engine (HITLD-552) has enough evidence to propose unlocking each kind (merging's unlock bar is the model). So measurement kinds register on the trust engine as separate kinds of decision: an executor's own-item measurement (starts), a baseline (asks), a regression search (asks). The cap, and who is told when a start is refused or queued, are still to settle.
 
