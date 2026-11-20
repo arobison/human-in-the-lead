@@ -180,7 +180,7 @@ export function watchDispatches(r) {
       (r.ended?.has(entry.dispatch) || (entry.harness_ref && r.ended?.has(entry.harness_ref)))
     ) {
       return verdict('unreported', {
-        why: 'its session has ended or is idle and its dispatch has no completed report: chase it, do not wait',
+        why: 'its session has ended or is idle and its dispatch has no completed report (its report may be unsent, or sent and not yet completed): chase it, do not wait',
       });
     }
     if (r.host && entry.host && entry.host !== r.host) {
@@ -287,7 +287,7 @@ export function watchDispatches(r) {
  * @param {Verdict} v
  */
 export const chaseStep = (v) =>
-  `read the final state of session ${v.harness_ref ?? `of ${v.dispatch}`} (its last message, its result events): when it holds the report in the fixed shape, relay it to the orchestrator as reported ${v.dispatch}; otherwise send it ${v.dispatch}'s report request (report_request). Do not wait for it`;
+  `first check whether ${v.dispatch}'s report already reached the orchestrator (then it only waits for hitld dispatch complete); if not, read the final state of session ${v.harness_ref ?? `of ${v.dispatch}`} (its last message, its result events): when it holds the report in the fixed shape, relay it to the orchestrator holding the lease as reported ${v.dispatch}; otherwise send it the report request (report_request). Do not wait for it`;
 
 /** The message that asks a session that ended its turn without reporting to send its report. @param {string} dispatch */
 export const reportRequest = (dispatch) =>

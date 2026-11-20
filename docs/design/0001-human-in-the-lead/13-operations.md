@@ -50,7 +50,7 @@ Nothing crosses between the two sessions except files and short messages. An ans
 **Replacement.** An orchestrator is replaced when its measured context passes `orchestrator.handover_context_share` (0.7 today), and not otherwise (HITLD-488). The completion count that once stood in for context pressure is dropped.
 
 1. When replacement is due, the orchestrator starts nothing new.
-2. It processes the completions of work it started that reports only to it, such as background agents and headless runs, because no successor would hear of them. An interactive session does not hold it up: it reports through the chief of staff, which started it.
+2. It processes the completions of work it started that reports only to it, such as background agents and headless runs, because no successor would hear of them. An interactive session does not hold it up: its brief names the orchestrator that started it, and it sends its report to that session at the end of every turn (HITLD-147). A report sent to a replaced orchestrator reaches the successor through the chief of staff, which started the session and relays a report its watch finds still in flight.
 3. It ends its turn, saying so in its message to the chief of staff.
 4. The chief of staff starts a successor from a fresh brief. The successor rebuilds from the ledger, the tracker and GitHub, as above.
 
@@ -63,7 +63,7 @@ The owner's conversation does not move: the chief of staff tells the owner in on
 | Source | Who receives it | How it reaches the orchestrator |
 |---|---|---|
 | GitHub events (pull-request activity, CI results) | The chief of staff, which owns the subscriptions | It sends the event to the orchestrator it started |
-| Completion notices | The session that dispatched the work: background agents and headless runs report to the orchestrator itself; sessions the chief of staff started report to the chief of staff | Directly, or relayed by the chief of staff |
+| Completion notices | The session that dispatched the work: background agents and headless runs report to the orchestrator itself; sessions the chief of staff started send their report to the orchestrator session their brief names (HITLD-147) | Directly, or relayed by the chief of staff when the session ended without reporting or its orchestrator was replaced |
 | Scheduled tasks | The chief of staff, which owns them all | It runs the job's `hitld` command, or sends the wake to the orchestrator |
 
 The chief of staff looks and reports **on events first** (HITLD-536): a pull request's checks finish, an executor goes quiet, a decision is waiting, the pace line is crossed, a usage reading goes stale. A slow timer of every few hours (a setting) is only a safety net for a lost event; the chief of staff's own check-in is every 4 hours from 2026-11-19, changed from hourly. On every wake it also runs `hitld cadence due` ([13.3](#133-the-scheduler-later-milestone)) and runs what it lists: a digest, a report, baselines, evals or a calibration review. Recurring work is due on evidence, so the wake needs no schedule of its own. When no orchestrator is live and work is waiting, the chief of staff starts one instead of waking anyone.

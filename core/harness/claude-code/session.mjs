@@ -14,6 +14,9 @@ export const SESSION_VARIABLES = Object.freeze([
   'CLAUDE_CODE_SESSION_ID',
 ]);
 
+/** The shape of a session ID: one word, no spaces or line breaks, at most 128 characters. */
+export const SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
 /**
  * This session's ID as Claude Code gives it, or null outside Claude Code.
  * @param {NodeJS.ProcessEnv | undefined} env
@@ -22,7 +25,7 @@ export const SESSION_VARIABLES = Object.freeze([
 export function sessionIdOf(env) {
   for (const name of SESSION_VARIABLES) {
     const v = env?.[name];
-    if (typeof v === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(v)) return v;
+    if (typeof v === 'string' && SESSION_ID_PATTERN.test(v)) return v;
   }
   return null;
 }

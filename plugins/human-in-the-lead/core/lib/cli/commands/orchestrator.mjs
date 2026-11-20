@@ -122,6 +122,7 @@ import { securityGate } from '../../merge/security.mjs';
 import { CAPABILITIES, MATRIX } from '../../../harness/claude-code/capabilities.mjs';
 import { followUpInstruction, instructionFor } from '../../../harness/claude-code/instructions.mjs';
 import { completionOf } from '../../../harness/claude-code/adapter.mjs';
+import { SESSION_ID_PATTERN } from '../../../harness/claude-code/session.mjs';
 import { install } from '../../install/install.mjs';
 import { dispatchedOn, reportVersion } from '../../install/drift.mjs';
 import { pushingAfter } from '../../store/auto-sync.mjs';
@@ -1137,6 +1138,19 @@ const table = [
     run: (input, ctx) =>
       guarded(async () => {
         const p = project(ctx);
+        // A session ID given by hand (--session, $HITLD_SESSION) is checked for the shape a
+        // harness gives one before anything uses it: an executor's brief names it (HITLD-147), so
+        // a space or a line break in it would change the brief's text.
+        const given = identityOf(p, input, ctx);
+        if (
+          (given.source === 'flag' || given.source === 'env') &&
+          !SESSION_ID_PATTERN.test(String(given.session))
+        ) {
+          throw new Refusal(
+            'usage',
+            `the session ID from ${given.source === 'flag' ? '--session' : '$HITLD_SESSION'} is not one a harness gives: one word of letters, digits and . _ : -, at most 128 characters, with no spaces or line breaks`,
+          );
+        }
         const run = runOf(p, input, ctx);
         const id = String(input.item);
         const due = dueFor(run, p.policy, input);
@@ -1194,10 +1208,9 @@ const table = [
         // harness's session ID. One only the run's own record holds is not an address the harness
         // can send to, so it gives no block, and the start is refused below.
         const byMessage = reportsByMessage({ tier, mode });
-        const me = identityOf(p, input, ctx);
         const reportTo =
-          byMessage && me.session && ['flag', 'env', 'harness'].includes(String(me.source))
-            ? me.session
+          byMessage && given.session && ['flag', 'env', 'harness'].includes(String(given.source))
+            ? given.session
             : null;
         const xenv = executorEnv(dispatch, p.policy.project.id);
         const briefPath = join(p.store.root, briefKey(dispatch));
@@ -1230,11 +1243,13 @@ const table = [
             reportTo,
           });
         // Refused before anything is recorded or made: a brief without the block leaves the
-        // executor ending its turns where no one hears them.
+        // executor ending its turns where no one hears them. The check reads the rendered brief,
+        // not reportTo alone, so that a later change to renderBrief that drops or rewords the
+        // block is refused here instead of reaching an executor.
         if (byMessage && !(reportTo && hasReportBlock(briefFor(null), reportTo))) {
           throw new Refusal(
             'no-report-block',
-            `${id} runs as an interactive session, which reports by message, and its brief has no communication block: ${me.session ? `this session's ID (${me.session}) comes only from the run's record, not from --session, $HITLD_SESSION or the harness` : 'no session ID is known'}. Pass --session <your harness session ID> or set HITLD_SESSION, then start it again`,
+            `${id} runs as an interactive session, which reports by message, and its brief has no communication block: this session's ID (${given.session}) comes only from the run's record, not from --session, $HITLD_SESSION or the harness. Pass --session <your harness session ID> or set HITLD_SESSION, then start it again`,
           );
         }
 
