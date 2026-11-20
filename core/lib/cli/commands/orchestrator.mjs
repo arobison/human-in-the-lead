@@ -39,6 +39,7 @@ import { absorb } from '../../run/state.mjs';
 import { TOKENS_FAR_ABOVE_ESTIMATE, farAboveEstimate, reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
+import { chooseBranch } from '../../env/worktree.mjs';
 import { tearDown } from '../../env/teardown.mjs';
 import {
   activeProjects,
@@ -1168,8 +1169,19 @@ const table = [
         }
         const item = /** @type {Item} */ (q.byId.get(id));
         const dispatch = nextDispatchId(readLedger(p.store).events);
-        const branch = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
+        const wanted = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
         const tier = planned.tier;
+        // Tier 3 cuts its own worktree. An earlier dispatch of the item, abandoned, may have left
+        // its branch behind (HITLD-194): settle the name now, so the ledger and the brief carry
+        // the branch the worktree gets. A branch with unmerged commits is never touched.
+        const env =
+          tier === 3
+            ? openEnv({ repoRoot: p.repoRoot, store: p.store, policy: p.policy, env: ctx.env })
+            : null;
+        const branchChoice = env
+          ? await chooseBranch(p.repoRoot, wanted, env.settings.mainBranch)
+          : null;
+        const branch = branchChoice?.branch ?? wanted;
         const mode = /** @type {'headless' | 'interactive'} */ (
           String(input.mode ?? planned.mode ?? p.policy.dispatch.tier3_mode)
         );
@@ -1272,20 +1284,15 @@ const table = [
 
         /** @type {string | null} */
         let worktree = null;
-        if (tier === 3) {
+        if (env) {
           // Its own worktree from hitld env, set up before the executor starts.
-          const env = openEnv({
-            repoRoot: p.repoRoot,
-            store: p.store,
-            policy: p.policy,
-            env: ctx.env,
-          });
           try {
-            const made = await env.createWorktree({
-              holder: dispatch,
-              itemId: id,
-              slug: slugify(item.title),
-            });
+            const made = await env.createWorktree({ holder: dispatch, itemId: id, branch });
+            if (made.lease.branch !== branch) {
+              throw new Error(
+                `the worktree got ${made.lease.branch}, not ${branch} as recorded: the branch changed while ${dispatch} started`,
+              );
+            }
             worktree = made.lease.path;
             const setup = await env.runSetup({ holder: dispatch });
             if (!setup.ok) throw new Error('the declared worktree setup failed');
@@ -1339,6 +1346,14 @@ const table = [
           item: id,
           tier,
           branch,
+          // What the item's branch name held and which branch this dispatch took (HITLD-194).
+          ...(branchChoice && branchChoice.chose !== 'new'
+            ? {
+                branch_found: branchChoice.found,
+                branch_chose: branchChoice.chose,
+                branch_note: branchChoice.note,
+              }
+            : {}),
           worktree,
           brief_file: briefPath,
           executor_env: envPrefix(xenv),

@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main } from '../lib/cli/main.mjs';
@@ -22,7 +22,7 @@ import { pauseTransition } from '../lib/quota/pause.mjs';
 import { evaluateQuotas } from '../lib/quota/quota.mjs';
 import { declaredReset } from '../lib/quota/window.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
-import { git, makeConsumer, put } from './orchestrator-fixture.mjs';
+import { git, item, makeConsumer, put } from './orchestrator-fixture.mjs';
 
 const HOOKS = resolve(fileURLToPath(new URL('../harness/claude-code/hooks/', import.meta.url)));
 
@@ -813,4 +813,108 @@ test('repeated silence goes to the owner: the third unanswered wake sets escalat
   const again = await wakeThenWatch(7000);
   assert.equal(again.wakes_since_heard, 1);
   assert.equal(again.escalate_to_owner, false);
+});
+
+// --- Dispatched again after an abandon (HITLD-194) -----------------------------------------------
+
+/**
+ * Start tier-3 W-4, optionally commit on its branch, let the watchdog abandon it, and start W-4
+ * again: at once, as the refill does, or after the next watch has torn the old worktree down.
+ * @param {{ withCommit: boolean, tearDownFirst: boolean }} o
+ */
+async function abandonAndRedispatch(o) {
+  const c = clocked({
+    files: {
+      'work/items/W-4-redesign.md': item({
+        id: 'W-4',
+        title: 'Redesign',
+        kind: 'work',
+        state: 'planned',
+        tier_override: '3',
+        touches: ['src/other.js'],
+      }),
+    },
+  });
+  c.status(10, 72000);
+  await c.hitld(['run', 'start']);
+  const first = await c.hitld(['dispatch', 'start', 'W-4']);
+  assert.equal(first.exit, 0, JSON.stringify(first.result));
+  assert.equal(first.result.tier, 3);
+  assert.equal(first.result.branch_chose, undefined, 'a first dispatch names nothing it found');
+  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'bash-1']);
+  if (o.withCommit) {
+    writeFileSync(join(first.result.worktree, 'half-done.txt'), 'half\n');
+    git(first.result.worktree, 'add', 'half-done.txt');
+    git(first.result.worktree, 'commit', '-q', '-m', 'half done');
+  }
+  const oldTip = git(c.root, 'rev-parse', first.result.branch);
+  // Quiet past the headless limit (sampling the commit counts as progress once), then abandoned.
+  let at = 0;
+  let abandoned = false;
+  while (!abandoned && at < 18000) {
+    c.at((at += 6000));
+    const watch = await c.hitld(['dispatch', 'watch', '--act']);
+    assert.equal(watch.exit, 0, JSON.stringify(watch.result));
+    abandoned = watch.result.actions.some((/** @type {any} */ a) => a.step === 'abandon');
+  }
+  assert.ok(abandoned, 'the watchdog abandoned D-1');
+  if (o.tearDownFirst) {
+    c.at(at + 60);
+    await c.hitld(['dispatch', 'watch', '--act']);
+    assert.ok(!existsSync(first.result.worktree), 'the abandoned worktree is torn down');
+  } else {
+    assert.ok(existsSync(first.result.worktree), 'the abandoned worktree is still there');
+  }
+  const second = await c.hitld(['dispatch', 'start', 'W-4']);
+  assert.equal(second.exit, 0, JSON.stringify(second.result));
+  assert.equal(second.result.dispatch, 'D-2');
+  assert.equal(git(second.result.worktree, 'branch', '--show-current'), second.result.branch);
+  assert.equal(git(second.result.worktree, 'rev-parse', 'HEAD'), git(c.root, 'rev-parse', 'main'));
+  const dispatched = c.events().find((e) => e.event === 'dispatched' && e.dispatch === 'D-2');
+  assert.equal(dispatched?.branch, second.result.branch, 'the ledger records the branch it got');
+  assert.ok(
+    readFileSync(second.result.brief_file, 'utf8').includes(second.result.branch),
+    'the brief names the branch it got',
+  );
+  /** @param {string} branch */
+  const tip = (branch) => {
+    try {
+      return git(c.root, 'rev-parse', '--verify', '-q', `refs/heads/${branch}`);
+    } catch {
+      return null;
+    }
+  };
+  return { c, first: first.result, second: second.result, oldTip, tip };
+}
+
+test('dispatched again at once after an abandon, an item takes a fresh branch name (HITLD-194)', async () => {
+  const { first, second, oldTip, tip } = await abandonAndRedispatch({
+    withCommit: false,
+    tearDownFirst: false,
+  });
+  assert.equal(second.branch, `${first.branch}-2`);
+  assert.equal(second.branch_found, 'checked-out');
+  assert.equal(second.branch_chose, 'fresh');
+  assert.match(second.branch_note, /is checked out in another worktree, so it is left as it is/);
+  assert.equal(tip(first.branch), oldTip, 'the old branch is untouched');
+});
+
+test('dispatched again after the teardown, an item with nothing on its branch starts on its own name (HITLD-194)', async () => {
+  const { first, second } = await abandonAndRedispatch({ withCommit: false, tearDownFirst: true });
+  // The teardown deleted the branch (nothing on it was unmerged), so the name is free again.
+  assert.equal(second.branch, first.branch);
+  assert.equal(second.branch_chose, undefined);
+});
+
+test('abandoned with a commit on its branch, an item dispatched again takes a fresh name and leaves the commit (HITLD-194)', async () => {
+  const { c, first, second, oldTip, tip } = await abandonAndRedispatch({
+    withCommit: true,
+    tearDownFirst: true,
+  });
+  assert.equal(second.branch, `${first.branch}-2`);
+  assert.equal(second.branch_found, 'unmerged');
+  assert.equal(second.branch_chose, 'fresh');
+  assert.match(second.branch_note, /holds commits not in main, so it is left as it is/);
+  assert.equal(tip(first.branch), oldTip, 'the unmerged branch is untouched');
+  assert.equal(git(c.root, 'show', `${first.branch}:half-done.txt`), 'half');
 });

@@ -407,6 +407,68 @@ test('cleanup never loses uncommitted work; failed worktrees are kept up to the 
   await env.releaseWorktree({ holder: 'D-3', result: 'abandoned' });
 });
 
+test('an item dispatched again after an abandon gets a worktree, and unmerged work is never touched (HITLD-194)', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot });
+  const commit = (/** @type {string} */ path, /** @type {string} */ file) => {
+    writeFileSync(join(path, file), `${file}\n`);
+    git(['add', file], path);
+    git(['-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', file], path);
+  };
+
+  // Abandoned with nothing on its branch: the second dispatch reuses the name, from main's tip.
+  const first = await env.createWorktree({ holder: 'D-1', itemId: 'W-1', slug: 'task' });
+  assert.equal(first.branch_choice?.chose, 'new');
+  await env.releaseWorktree({ holder: 'D-1', result: 'abandoned' });
+  commit(repoRoot, 'main-moved.txt');
+  const again = await env.createWorktree({ holder: 'D-2', itemId: 'W-1', slug: 'task' });
+  assert.equal(again.lease.branch, first.lease.branch);
+  assert.deepEqual([again.branch_choice?.found, again.branch_choice?.chose], ['merged', 'reuse']);
+  assert.equal(git(['rev-parse', 'HEAD'], again.lease.path), git(['rev-parse', 'main'], repoRoot));
+
+  // Abandoned with a commit on it: that branch keeps its tip, and the next dispatch takes -2.
+  commit(again.lease.path, 'work.txt');
+  const kept = git(['rev-parse', again.lease.branch], repoRoot).trim();
+  await env.releaseWorktree({ holder: 'D-2', result: 'abandoned' });
+  const third = await env.createWorktree({ holder: 'D-3', itemId: 'W-1', slug: 'task' });
+  assert.equal(third.lease.branch, `${first.lease.branch}-2`);
+  assert.deepEqual([third.branch_choice?.found, third.branch_choice?.chose], ['unmerged', 'fresh']);
+  assert.match(
+    String(third.branch_choice?.note),
+    /holds commits not in main, so it is left as it is/,
+  );
+  assert.equal(
+    git(['rev-parse', first.lease.branch], repoRoot).trim(),
+    kept,
+    'the unmerged branch is untouched',
+  );
+  assert.equal(git(['rev-parse', 'HEAD'], third.lease.path), git(['rev-parse', 'main'], repoRoot));
+
+  // -2 is still checked out in a kept worktree (a failed dispatch), so the next takes -3.
+  await env.releaseWorktree({ holder: 'D-3', result: 'failed' });
+  const fourth = await env.createWorktree({ holder: 'D-4', itemId: 'W-1', slug: 'task' });
+  assert.equal(fourth.lease.branch, `${first.lease.branch}-3`);
+  assert.ok(existsSync(third.lease.path), 'the failed worktree is kept');
+
+  // A branch with nothing on it but checked out in a kept worktree is not reused either.
+  await env.createWorktree({ holder: 'D-6', itemId: 'W-3', slug: 'task' });
+  await env.releaseWorktree({ holder: 'D-6', result: 'failed' });
+  const held = await env.createWorktree({ holder: 'D-7', itemId: 'W-3', slug: 'task' });
+  assert.equal(held.lease.branch, 'hitld/W-3-task-2');
+  assert.deepEqual(
+    [held.branch_choice?.found, held.branch_choice?.chose],
+    ['checked-out', 'fresh'],
+  );
+
+  // A remote-tracking branch of the name with commits not on main counts as unmerged too.
+  git(['update-ref', 'refs/remotes/origin/hitld/W-2-task', kept], repoRoot);
+  const remote = await env.createWorktree({ holder: 'D-5', itemId: 'W-2', slug: 'task' });
+  assert.equal(remote.lease.branch, 'hitld/W-2-task-2');
+  for (const holder of ['D-3', 'D-4', 'D-5', 'D-6', 'D-7']) {
+    await env.releaseWorktree({ holder, result: 'abandoned' });
+  }
+});
+
 test('a harness-created worktree is adopted, set up, and never removed by cleanup', async () => {
   const repoRoot = makeRepo();
   const { env } = await makeEnv({ repoRoot, env: { worktree_setup: ['echo hi > adopted.txt'] } });
