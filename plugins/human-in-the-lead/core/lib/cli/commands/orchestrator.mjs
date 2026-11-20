@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { budgetsOf, checkKnowledgeBase, KB_DIR, loadKnowledgeBase } from '../../kb/kb.mjs';
+import { mergeErrors as kbMergeErrors } from '../../kb/kb.mjs';
 import { loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { loadSettingsFile } from '../../settings/files.mjs';
@@ -1960,17 +1960,7 @@ const table = [
           },
           // The knowledge base in the rebased tree, held to main's budgets: its errors refuse the
           // branch in either merge mode (design 8.5). Stale notes and the index are warnings.
-          kbCheck: (dir) => {
-            if (!existsSync(join(dir, KB_DIR))) return [];
-            try {
-              const kb = loadKnowledgeBase(dir);
-              return checkKnowledgeBase(kb, budgetsOf(p.policy)).errors.map(
-                (x) => `${x.path} ${x.message}`,
-              );
-            } catch (e) {
-              return [`the knowledge base could not be read: ${/** @type {Error} */ (e).message}`];
-            }
-          },
+          kbCheck: (dir) => kbMergeErrors(dir, p.policy, layout.defaultClassification),
           // From main's policy and tracker.json, never the branch's own; the private terms from
           // the private store, so every commit's files and message are checked for them.
           classification: {

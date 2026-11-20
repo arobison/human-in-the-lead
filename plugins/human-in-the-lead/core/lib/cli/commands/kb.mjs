@@ -8,6 +8,8 @@ import { CodedError } from '../errors.mjs';
 import { loadPolicy, policyDefaults } from '../../policy/policy.mjs';
 import { parsePrecedent, PRECEDENT_DIR } from '../../precedent/store.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
+import { loadTrackerConfig, resolveLayout } from '../../tracker/files/config.mjs';
+import { rulesFrom } from '../../guard/classification.mjs';
 import { repoRootOf } from '../../tracker/files/tree.mjs';
 import { insidePath, isRegularFile, readNoFollow } from '../../tracker/files/safe.mjs';
 import {
@@ -36,7 +38,9 @@ const repoArg = {
 };
 
 /**
- * The repository, its policy (the defaults when it has none) and its knowledge base.
+ * The repository, its policy (the defaults when it has none), its tracker settings and its
+ * knowledge base. A note with no label takes the repository's default classification, as the
+ * commit guard reads it (tracker.json default_classification).
  * @param {Record<string, unknown>} input @param {CommandContext} ctx
  */
 function open(input, ctx) {
@@ -55,43 +59,67 @@ function open(input, ctx) {
     );
   }
   const policy = loaded.policy ?? policyDefaults();
-  return { repoRoot, policy, budgets: budgetsOf(policy), kb: loadKnowledgeBase(repoRoot) };
+  const tracker = loadTrackerConfig({ repoRoot });
+  if (!tracker.config) {
+    throw new CodedError(
+      'tracker',
+      `tracker.json: ${tracker.errors.map((e) => `${e.path} ${e.message}`).join('; ')}`,
+    );
+  }
+  const layout = resolveLayout(tracker.config, policy);
+  const { defaultClassification } = rulesFrom(policy, tracker.config.default_classification);
+  let kb;
+  try {
+    kb = loadKnowledgeBase(repoRoot, { defaultClassification });
+  } catch (e) {
+    throw new CodedError('usage', `${KB_DIR}/: ${/** @type {Error} */ (e).message}`);
+  }
+  return { repoRoot, policy, layout, defaultClassification, budgets: budgetsOf(policy), kb };
 }
 
 /**
- * What decisions.md lists: the tracker's answered decisions and the repository's active public
- * precedents. Null, with the reason, when the tracker cannot be read.
- * @param {string} repoRoot @param {Record<string, any>} policy @param {CommandContext} ctx
+ * What decisions.md lists: the tracker's answered decisions and the repository's active
+ * precedents, only those whose label is public (one with none takes the repository's default
+ * classification). With no work directory there are none; a tracker that cannot be read is an
+ * error, so decisions.md is never rewritten from nothing.
+ * @param {ReturnType<typeof open>} o @param {CommandContext} ctx
  * @returns {{ decisions: DecisionLine[], precedents: PrecedentLine[] } | { error: string }}
  */
-function decisionSources(repoRoot, policy, ctx) {
+function decisionSources(o, ctx) {
+  const isPublic = (/** @type {unknown} */ c) => (c ?? o.defaultClassification) === 'public';
   /** @type {DecisionLine[]} */
   let decisions = [];
-  try {
-    const tracker = openTracker({ repoRoot, policy, env: ctx.env });
-    decisions = tracker
-      .query({ kind: 'decision', state: 'done' })
-      .filter((d) => typeof d.answer === 'string' && d.answer)
-      .map((d) => ({
-        id: String(d.id),
-        title: String(d.title ?? d.id),
-        answer: String(d.answer),
-        ...(typeof d.answered_at === 'string' ? { answered_at: d.answered_at } : {}),
-      }));
-  } catch (e) {
-    if (existsSync(join(repoRoot, '.human-in-the-lead', 'tracker.json'))) {
+  if (existsSync(join(o.repoRoot, o.layout.workDir))) {
+    try {
+      const tracker = openTracker({ repoRoot: o.repoRoot, policy: o.policy, env: ctx.env });
+      decisions = tracker
+        .query({ kind: 'decision', state: 'done' })
+        .filter((d) => typeof d.answer === 'string' && d.answer && isPublic(d.classification))
+        .map((d) => ({
+          id: String(d.id),
+          title: String(d.title ?? d.id),
+          answer: String(d.answer),
+          ...(typeof d.answered_at === 'string' ? { answered_at: d.answered_at } : {}),
+        }));
+    } catch (e) {
       return { error: `the tracker could not be read: ${/** @type {Error} */ (e).message}` };
     }
   }
   /** @type {PrecedentLine[]} */
   const precedents = [];
-  const dir = insidePath(repoRoot, PRECEDENT_DIR);
+  const dir = insidePath(o.repoRoot, PRECEDENT_DIR);
   if (existsSync(dir)) {
     for (const f of readdirSync(dir).sort()) {
       if (!/^P-[1-9][0-9]*(-.*)?\.md$/.test(f) || !isRegularFile(join(dir, f))) continue;
-      const p = parsePrecedent(readNoFollow(join(dir, f)), f);
-      const shown = p.classification === undefined || p.classification === 'public';
-      if (p.state === 'active' && shown) precedents.push({ id: p.id, rule: p.rule });
+      let p;
+      try {
+        p = parsePrecedent(readNoFollow(join(dir, f)), f);
+      } catch (e) {
+        return { error: /** @type {Error} */ (e).message };
+      }
+      if (p.state === 'active' && isPublic(p.classification) && typeof p.rule === 'string') {
+        precedents.push({ id: String(p.id), rule: p.rule });
+      }
     }
   }
   return { decisions, precedents };
@@ -102,9 +130,9 @@ export const commands = [
   {
     name: 'kb search',
     summary:
-      'Search the knowledge base: each term expanded through kb/glossary.md, ranked by how many terms a note matches, then by matches in its front matter and body. Superseded notes are left out',
+      'Search the knowledge base: each term expanded through kb/glossary.md, ranked by how many terms a note matches, then by matches in its front matter and body; at most 20 results. Only notes the index lists are searched: public, valid and not superseded',
     built_by: 'signal',
-    output: ['ok', 'terms', 'expanded', 'results', 'count'],
+    output: ['ok', 'terms', 'expanded', 'results', 'count', 'total'],
     args: [
       {
         name: 'terms',
@@ -131,6 +159,7 @@ export const commands = [
         terms,
         ...found,
         count: found.results.length,
+        ...(kb.problems.length ? { problems: kb.problems } : {}),
         ...(kb.exists ? {} : { warnings: [`${KB_DIR}/ does not exist in this repository`] }),
       };
     },
@@ -140,25 +169,37 @@ export const commands = [
     summary:
       "Regenerate kb/index.md from the notes' front matter, split by area into kb/areas/<area>/index.md when it exceeds kb.index_tokens_max, and kb/decisions.md from the answered decisions and active precedents",
     built_by: 'signal',
-    output: ['ok', 'written', 'removed', 'split', 'tokens', 'notes'],
+    output: ['ok', 'written', 'removed', 'refused', 'skipped', 'split', 'tokens', 'notes'],
     args: [repoArg],
     run(input, ctx) {
-      const { repoRoot, policy, budgets, kb } = open(input, ctx);
+      const o = open(input, ctx);
+      const { repoRoot, budgets, kb } = o;
       if (!kb.exists) {
-        throw new CodedError('usage', `${KB_DIR}/ does not exist in ${repoRoot}; create it first`);
+        throw new CodedError(
+          'usage',
+          `${KB_DIR}/ is not a directory in ${repoRoot}; create it first`,
+        );
       }
       const index = buildIndex(kb, budgets);
-      const sources = decisionSources(repoRoot, policy, ctx);
+      const sources = decisionSources(o, ctx);
       if ('error' in sources) throw new CodedError('tracker', sources.error);
       const files = new Map(index.files);
       files.set('decisions.md', buildDecisions(sources.decisions, sources.precedents));
       const done = writeGenerated(kb, files);
       return {
-        ok: true,
+        // A file in a generated file's place that hitld did not generate is never overwritten.
+        ok: done.refused.length === 0,
         ...done,
+        // Notes with invalid front matter are not listed; hitld kb check names their errors.
+        skipped: index.skipped,
         split: index.split,
         tokens: index.tokens,
         notes: kb.notes.length,
+        ...(done.refused.length
+          ? {
+              message: `not overwritten, because hitld did not generate them (no generated mark on the third line): ${done.refused.join(', ')}; move or rename them, then run hitld kb index again`,
+            }
+          : {}),
       };
     },
   },
@@ -194,8 +235,8 @@ export const commands = [
     output: ['ok', 'problems', 'count'],
     args: [repoArg],
     run(input, ctx) {
-      const { kb } = open(input, ctx);
-      const problems = linkProblems(kb);
+      const { kb, budgets } = open(input, ctx);
+      const problems = linkProblems(kb, budgets);
       return { ok: problems.length === 0, problems, count: problems.length };
     },
   },
@@ -214,13 +255,14 @@ export const commands = [
       repoArg,
     ],
     run(input, ctx) {
-      const { repoRoot, policy, budgets, kb } = open(input, ctx);
+      const o = open(input, ctx);
+      const { budgets, kb } = o;
       let now = ctx.now ? ctx.now().getTime() : Date.now();
       if (input.now !== undefined) {
         now = Date.parse(String(input.now));
         if (Number.isNaN(now)) throw new CodedError('usage', '--now is not a timestamp');
       }
-      const sources = decisionSources(repoRoot, policy, ctx);
+      const sources = decisionSources(o, ctx);
       const result = checkKnowledgeBase(kb, budgets, {
         now,
         ...('error' in sources ? {} : { decisions: sources }),

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { budgetsOf, checkKnowledgeBase, loadKnowledgeBase } from '../lib/kb/kb.mjs';
+import { mergeErrors } from '../lib/kb/kb.mjs';
 import { fakeGitHub, repoFromRemote } from '../lib/merge/github.mjs';
 import { stageAll } from '../lib/merge/queue.mjs';
 import {
@@ -375,10 +375,7 @@ test('a branch whose knowledge base fails kb check goes back before a pull reque
         }),
       ],
       {
-        kbCheck: (/** @type {string} */ dir) =>
-          checkKnowledgeBase(loadKnowledgeBase(dir), budgetsOf(null)).errors.map(
-            (x) => `${x.path} ${x.message}`,
-          ),
+        kbCheck: (/** @type {string} */ dir) => mergeErrors(dir, null, 'public'),
       },
     );
     assert.deepEqual(

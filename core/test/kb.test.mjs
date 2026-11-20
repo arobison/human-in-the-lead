@@ -20,12 +20,20 @@ import { main } from '../lib/cli/main.mjs';
 import {
   budgetsOf,
   buildDecisions,
+  buildIndex,
   checkKnowledgeBase,
   expandTerm,
   GENERATED_MARK,
   loadKnowledgeBase,
+  mergeErrors,
   parseGlossary,
+  safeLine,
+  searchKnowledgeBase,
+  writeGenerated,
 } from '../lib/kb/kb.mjs';
+import { fakeGitHub } from '../lib/merge/github.mjs';
+import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
+import { STATUS_INPUT, item, makeConsumer, report } from './orchestrator-fixture.mjs';
 import { runMergeQueue } from '../lib/merge/queue.mjs';
 import { policyDefaults } from '../lib/policy/policy.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -331,10 +339,7 @@ test('at merge: a branch whose notes fail kb check goes back; stale notes alone 
   const main = commitAll(f.root, 'a clean knowledge base, with stale notes');
   const policy = policyDefaults();
   /** @param {string} dir */
-  const kbCheck = (dir) =>
-    checkKnowledgeBase(loadKnowledgeBase(dir), budgetsOf(policy)).errors.map(
-      (x) => `${x.path} ${x.message}`,
-    );
+  const kbCheck = (dir) => mergeErrors(dir, policy, 'public');
   assert.deepEqual(kbCheck(f.root), [], 'stale notes are warnings, not errors');
 
   git(f.root, 'switch', '-q', '-c', 'hitld/KB-1');
@@ -376,3 +381,332 @@ test('at merge: a branch whose notes fail kb check goes back; stale notes alone 
   );
   assert.notEqual(git(f.root, 'rev-parse', 'main'), main, 'main moved to the clean branch');
 });
+
+/**
+ * A repository with a kb/ and, when given, tracker files and tracker.json, committed.
+ * @param {Record<string, string>} files
+ */
+function repoWith(files) {
+  const root = realpathSync(tempDir('hitld-kb-repo-'));
+  git(root, 'init', '-q', '-b', 'main');
+  put(root, {
+    '.human-in-the-lead/policy.json': JSON.stringify({
+      schema_version: 1,
+      project: { id: 'kb-repo', key: 'KB' },
+    }),
+    ...files,
+  });
+  commitAll(root, 'start');
+  /** @param {string[]} argv */
+  const hitld = async (argv) => {
+    let out = '';
+    const code = await main(argv, {
+      out: (t) => (out += t),
+      err: () => {},
+      cwd: root,
+      env: { PATH: process.env.PATH },
+    });
+    return { code, result: /** @type {Record<string, any>} */ (JSON.parse(out)) };
+  };
+  return { root, hitld };
+}
+
+/** @param {Record<string, string>} f */
+const fm = (f, body = 'Body.\n') =>
+  `---\n${Object.entries(f)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')}\n---\n\n${body}`;
+
+test('decisions.md lists only public decisions and precedents; a confidential one never leaks (review 1)', async () => {
+  const r = repoWith({
+    'kb/note.md': fm({ summary: 'A note.' }),
+    'work/items/KB-1-pick-a-cache.md': fm({
+      id: 'KB-1',
+      title: 'Pick a cache',
+      kind: 'decision',
+      state: 'done',
+      created: '2026-11-01',
+      decider: 'owner',
+      answer: 'The response store',
+      answered_at: '2026-11-02T10:00:00Z',
+    }),
+    'work/items/KB-2-acquire-foo-corp.md': fm({
+      id: 'KB-2',
+      title: 'Acquire Foo Corp',
+      kind: 'decision',
+      state: 'done',
+      created: '2026-11-01',
+      decider: 'owner',
+      classification: 'confidential',
+      answer: 'Yes, bid 12M for Foo Corp',
+      answered_at: '2026-11-03T10:00:00Z',
+    }),
+  });
+  const { code, result } = await r.hitld(['kb', 'index']);
+  assert.equal(code, 0, JSON.stringify(result));
+  const text = readFileSync(join(r.root, 'kb/decisions.md'), 'utf8');
+  assert.match(text, /- KB-1 \(2026-11-02\): Pick a cache\. Answer: The response store/);
+  assert.ok(!/Foo Corp|KB-2/.test(text), 'the confidential decision is not in decisions.md');
+  // The check compares decisions.md with the same public list: current, no warning.
+  const checked = await r.hitld(['kb', 'check']);
+  assert.ok(!checked.result.warnings.some((/** @type {any} */ w) => w.kind === 'decisions'));
+
+  // A repository whose files are internal by default lists no decision without a public label.
+  put(r.root, {
+    '.human-in-the-lead/tracker.json': JSON.stringify({
+      schema_version: 1,
+      default_classification: 'internal',
+    }),
+  });
+  await r.hitld(['kb', 'index']);
+  assert.match(readFileSync(join(r.root, 'kb/decisions.md'), 'utf8'), /None answered yet\./);
+});
+
+test('kb index never writes outside kb/ or over a file it did not generate (review 2 to 4)', async () => {
+  const budgets = { ...budgetsOf(null), indexTokensMax: 10 };
+  const r = repoWith({
+    'docs/index.md': '# Hand-written docs index\n',
+    'kb/a.md': fm({ summary: 'Note a.', areas: '[alpha]' }),
+    'kb/b.md': fm({ summary: 'Note b.', areas: '[beta]' }),
+    'kb/escape.md': fm({ summary: 'Escapes.', areas: '["../../docs"]' }),
+    // In a generated file's place, written by hand: no mark on the third line.
+    'kb/areas/beta/index.md': fm({ summary: 'The beta area, by hand.' }),
+    // Says the mark, but not as the third line: a note, never removed.
+    'kb/areas/gamma/index.md': fm({ summary: `Mentions ${GENERATED_MARK} in passing.` }),
+  });
+  const kb = loadKnowledgeBase(r.root, { defaultClassification: 'public' });
+  assert.deepEqual(kb.generated.size, 0);
+  assert.ok(kb.notes.some((n) => n.path === 'areas/gamma/index.md'));
+  const index = buildIndex(kb, budgets);
+  assert.equal(index.split, true);
+  assert.ok(index.skipped.includes('kb/escape.md'), 'an area that is not a name is not listed');
+  assert.ok(![...index.files.keys()].some((k) => k.includes('..')));
+  const done = writeGenerated(kb, index.files);
+  assert.deepEqual(done.refused, ['kb/areas/beta/index.md']);
+  assert.equal(
+    readFileSync(join(r.root, 'kb/areas/beta/index.md'), 'utf8'),
+    fm({ summary: 'The beta area, by hand.' }),
+  );
+  assert.equal(readFileSync(join(r.root, 'docs/index.md'), 'utf8'), '# Hand-written docs index\n');
+  assert.ok(existsSync(join(r.root, 'kb/areas/gamma/index.md')));
+  assert.throws(
+    () => writeGenerated(kb, new Map([['areas/../../docs/index.md', 'x']])),
+    /not a place for a generated file/,
+  );
+  assert.throws(() => writeGenerated(kb, new Map([['notes.md', 'x']])), /not a place/);
+
+  // Through the command: refused files make it fail and are named; nothing else is touched.
+  const cli = await r.hitld(['kb', 'index']);
+  assert.equal(cli.result.ok, true, JSON.stringify(cli.result));
+  const small = repoWith({
+    '.human-in-the-lead/policy.json': JSON.stringify({
+      schema_version: 1,
+      project: { id: 'kb-repo', key: 'KB' },
+    }),
+    'kb/a.md': fm({ summary: 'Note a.', areas: '[alpha]' }),
+    'kb/index.md': '# My own index\n\nNot generated.\n',
+  });
+  const refused = await small.hitld(['kb', 'index']);
+  assert.equal(refused.code, 1);
+  assert.deepEqual(refused.result.refused, ['kb/index.md']);
+  assert.deepEqual(refused.result.written, ['kb/decisions.md']);
+  assert.match(refused.result.message, /not overwritten/);
+  assert.equal(
+    readFileSync(join(small.root, 'kb/index.md'), 'utf8'),
+    '# My own index\n\nNot generated.\n',
+  );
+});
+
+test('a megabyte of brackets, parentheses or backticks is checked in bounded time (review 5)', () => {
+  const root = realpathSync(tempDir('hitld-kb-big-'));
+  git(root, 'init', '-q', '-b', 'main');
+  const mb = 1024 * 1024;
+  put(root, {
+    'kb/brackets.md': fm({ summary: 'Brackets.' }, `${'['.repeat(mb)}\n`),
+    'kb/parens.md': fm({ summary: 'Parens.' }, `${'('.repeat(mb)}\n`),
+    'kb/links.md': fm({ summary: 'Links.' }, `${'](x'.repeat(mb / 3)}\n`),
+    'kb/ticks.md': fm({ summary: 'Ticks.' }, `${'`a'.repeat(mb / 2)}\n`),
+    'kb/fences.md': fm({ summary: 'Fences.' }, '```\n'.repeat(mb / 4)),
+    'kb/glossary.md': fm({ summary: 'Terms.' }, `- **a**: ${'(['.repeat(mb / 2)}\n`),
+  });
+  const started = Date.now();
+  const kb = loadKnowledgeBase(root, { defaultClassification: 'public' });
+  // Scanned even with no budget to skip them by: the scanners are linear and capped.
+  const unbounded = { ...budgetsOf(null), noteTokensMax: 10 * mb };
+  checkKnowledgeBase(kb, unbounded, { stale: false });
+  checkKnowledgeBase(kb, budgetsOf(null), { stale: false });
+  searchKnowledgeBase(kb, { terms: ['a', 'x'] });
+  parseGlossary(`- **a**: ${'(['.repeat(mb / 2)}`);
+  const ms = Date.now() - started;
+  assert.ok(ms < 5000, `took ${ms} ms`);
+});
+
+test('search shows only what the index lists: no note above public, none with invalid front matter, at most 20 results (review 6, 7)', async () => {
+  /** @type {Record<string, string>} */
+  const files = {
+    'kb/secret.md': fm({ summary: 'Vendor plan.', classification: 'confidential' }, 'vendor\n'),
+    'kb/odd.md': fm({ summary: 'Odd label.', classification: 'top-secret' }, 'vendor\n'),
+    'kb/unlabeled.md': fm({ summary: 'No label.' }, 'vendor\n'),
+  };
+  for (let i = 0; i < 25; i++)
+    files[`kb/many/n${i}.md`] = fm({ summary: `Note ${i}.` }, 'vendor\n');
+  const r = repoWith(files);
+  const found = await r.hitld(['kb', 'search', 'vendor']);
+  assert.equal(found.result.count, 20);
+  assert.equal(found.result.total, 26, 'the 25 notes and the unlabeled one, public by default');
+  const paths = found.result.results.map((/** @type {any} */ x) => x.path);
+  assert.ok(!paths.includes('kb/secret.md'));
+  assert.ok(!paths.includes('kb/odd.md'));
+
+  // Unlabeled notes take the repository's label: internal by default here, so none is shown.
+  put(r.root, {
+    '.human-in-the-lead/tracker.json': JSON.stringify({
+      schema_version: 1,
+      default_classification: 'internal',
+    }),
+  });
+  const internal = await r.hitld(['kb', 'search', 'vendor']);
+  assert.equal(internal.result.total, 0);
+  await r.hitld(['kb', 'index']);
+  assert.ok(!readFileSync(join(r.root, 'kb/index.md'), 'utf8').includes('unlabeled.md'));
+});
+
+test('the generated files copy one escaped, bounded line; a summary with a line break is invalid (review 8)', async () => {
+  const r = repoWith({
+    'kb/x.md': fm({ summary: '"a\\n\\n# Injected heading"' }),
+    'kb/y.md': fm({ summary: 'See [click](http://evil) <img src=x onerror=1> `code`' }),
+  });
+  const kb = loadKnowledgeBase(r.root, { defaultClassification: 'public' });
+  assert.ok(kb.notes.find((n) => n.path === 'x.md')?.errors.some((e) => /summary/.test(e)));
+  const text = /** @type {string} */ (buildIndex(kb, budgetsOf(null)).files.get('index.md'));
+  assert.ok(!text.includes('Injected'), 'an invalid note is not listed');
+  assert.ok(!/^# Injected/m.test(text));
+  assert.match(text, /See \\\[click\\\]\(http:\/\/evil\) \\<img src=x onerror=1\\> \\`code\\`/);
+  assert.equal(safeLine('a\n\n# b\u0007c', 100), 'a # b c');
+  assert.equal(safeLine('x'.repeat(50), 10), `${'x'.repeat(9)}…`);
+  const d = buildDecisions(
+    [{ id: 'W-1', title: 'T\n# H', answer: '[a](http://e) <b>'.repeat(40) }],
+    [],
+  );
+  const line = /** @type {string} */ (d.split('\n').find((l) => l.startsWith('- W-1')));
+  assert.ok(!d.includes('\n# H'));
+  assert.ok(line.includes('\\[a\\]') && line.includes('\\<b\\>'));
+  assert.ok(line.length < 700, 'title and answer are bounded');
+});
+
+test('hidden entries hold no notes, but a symbolic link there is still refused; kb as a file is an error; supersedes itself is an error (nits)', () => {
+  const root = realpathSync(tempDir('hitld-kb-nits-'));
+  git(root, 'init', '-q', '-b', 'main');
+  put(root, {
+    'kb/.d/x.md': '# Not a note\n',
+    'kb/self.md': fm({ summary: 'Retires itself.', supersedes: '[self.md]' }),
+    'outside.md': 'x\n',
+  });
+  execFileSync('ln', ['-s', '../outside.md', join(root, 'kb/.hidden.md')]);
+  execFileSync('ln', ['-s', '../../outside.md', join(root, 'kb/.d/link.md')]);
+  const kb = loadKnowledgeBase(root);
+  assert.deepEqual(
+    kb.notes.map((n) => n.path),
+    ['self.md'],
+  );
+  assert.deepEqual(kinds(checkKnowledgeBase(kb, budgetsOf(null), { stale: false }).errors), [
+    'front-matter kb/self.md',
+    'unreadable kb/.d/link.md',
+    'unreadable kb/.hidden.md',
+  ]);
+  const file = realpathSync(tempDir('hitld-kb-file-'));
+  git(file, 'init', '-q', '-b', 'main');
+  put(file, { kb: 'not a directory\n' });
+  assert.deepEqual(mergeErrors(file, null, 'public'), ['kb is not a directory']);
+});
+
+/**
+ * A consumer project whose dispatched W-1 adds a note with a broken link, run through `hitld
+ * merge`: the orchestrator's own kbCheck, in the given merge settings.
+ * @param {Record<string, unknown>} merge
+ */
+async function mergeWithBadNote(merge) {
+  const c = makeConsumer({
+    policy: { merge: { full_suite: ['node --test "test/*.test.js"'], ...merge } },
+  });
+  const viaPR = merge.via === 'pull-request';
+  const remote = join(c.base, 'remote.git');
+  let github = null;
+  if (viaPR) {
+    git(c.base, 'init', '-q', '--bare', '-b', 'main', remote);
+    git(c.root, 'remote', 'add', 'origin', remote);
+    git(c.root, 'push', '-q', 'origin', 'main');
+    github = fakeGitHub({ remote, checks: () => [{ name: 'test', state: 'success' }] });
+  }
+  /** @param {string[]} argv */
+  const hitld = async (argv) => {
+    let out = '';
+    const exit = await main(argv, {
+      out: (t) => (out += t),
+      err: () => {},
+      cwd: c.root,
+      env: c.env,
+      ...(github ? { github: () => /** @type {any} */ (github) } : {}),
+    });
+    return { exit, result: JSON.parse(out) };
+  };
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  assert.equal((await hitld(['run', 'start'])).exit, 0);
+  const start = await hitld(['dispatch', 'start', 'W-1']);
+  assert.equal(start.exit, 0, JSON.stringify(start.result));
+  await hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const branch = start.result.branch;
+  git(c.root, 'switch', '-q', '-c', branch);
+  put(c.root, {
+    'work/items/W-1-add-numbers.md': item({
+      id: 'W-1',
+      title: 'Add numbers',
+      kind: 'work',
+      state: 'done',
+      touches: ['src/calc.js', 'kb/**'],
+    }),
+    'kb/numbers.md': fm({ summary: 'How numbers are added.' }, 'See [the guide](gone.md).\n'),
+  });
+  git(c.root, 'add', '-A');
+  git(
+    c.root,
+    'commit',
+    '-q',
+    '-m',
+    'W-1',
+    '-m',
+    'Work-Item: W-1\nDispatch: D-1\nAgent-Role: executor',
+  );
+  const sha = git(c.root, 'rev-parse', 'HEAD');
+  if (viaPR) git(c.root, 'push', '-q', 'origin', branch);
+  git(c.root, 'switch', '-q', 'main');
+  const note = join(c.base, 'note.txt');
+  writeFileSync(note, report({ item: 'W-1', sha, branch }));
+  const done = await hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  assert.equal(done.result.queued_to_merge, branch, JSON.stringify(done.result));
+  const before = git(c.root, 'rev-parse', 'main');
+  const merged = await hitld(['merge']);
+  return { c, merged, before, github };
+}
+
+for (const [name, merge] of /** @type {[string, Record<string, unknown>][]} */ ([
+  ['queue mode', { mode: 'queue' }],
+  ['owner mode', { mode: 'owner' }],
+  [
+    'owner mode with merge.via pull-request',
+    { mode: 'owner', via: 'pull-request', pull_request: { checks: ['test'] } },
+  ],
+])) {
+  test(`hitld merge, ${name}: the orchestrator's kb check sends back a branch with a broken link (review 9)`, async () => {
+    const { c, merged, before, github } = await mergeWithBadNote(merge);
+    assert.equal(merged.exit, 0, JSON.stringify(merged.result));
+    const rejected = merged.result.rejected.map((/** @type {any} */ x) => [x.item, x.reason]);
+    assert.deepEqual(rejected, [['W-1', 'knowledge_base']], JSON.stringify(merged.result));
+    const x = merged.result.rejected[0];
+    assert.match(JSON.stringify(x), /kb\/numbers\.md gone\.md: no such file/);
+    assert.match(x.follow_up.message, /fails hitld kb check/);
+    assert.equal(git(c.root, 'rev-parse', 'main'), before, 'main did not move');
+    assert.deepEqual(merged.result.merged, []);
+    if (github) assert.equal(/** @type {any} */ (github).pulls.length, 0);
+  });
+}
