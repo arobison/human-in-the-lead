@@ -20,3 +20,7 @@ Proposed by the planning pass HITLD-343 on the owner's decision HITLD-366: HITLD
 ## Decided on 2026-11-19 (HITLD-515, HITLD-516)
 
 A decision answer is valid by a checkable proof, not by its channel (HITLD-515). Whose key signs is open until HITLD-333's migration is designed (HITLD-516). How a team shares the loops stays with HITLD-44.
+
+## Moved on 2026-11-20 (HITLD-592)
+
+On the owner's approval of the nine roadmap moves (HITLD-592), this milestone is no longer a need of v0.1.0-rc.5 (HITLD-568) and stays after v0.1.0: the key that signs answers waits on the HITLD-333 migration design (HITLD-516).

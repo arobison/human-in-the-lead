@@ -20,4 +20,4 @@ Step 3 of 4. HITLD-150 needs HITLD-133 (done).
 
 Re-scoped as a v0.1.0-rc.3 milestone (HITLD-400) by the planning pass HITLD-343, on the owner's decision HITLD-359: the met clause was dropped. It was c1 "Tracker-only pull requests merge through hitld under the stated sign-off, headless executors are not launched where they cannot work" (HITLD-132, 141 and 150, all done). The new c1 to c3 are the proposal's c2 to c4. HITLD-160 went to HITLD-67 c3 instead (the owner's decision HITLD-364). The check changed with the clauses.
 
-HITLD-76 and HITLD-220 were proposed as contributions and are constraints instead (the owner's decision HITLD-377). HITLD-76 needs the open decision HITLD-27, so this milestone, and rc.3, wait on that decision.
+HITLD-76 and HITLD-220 were proposed as contributions and are constraints instead (the owner's decision HITLD-377). HITLD-76 returned to proposed (HITLD-578).

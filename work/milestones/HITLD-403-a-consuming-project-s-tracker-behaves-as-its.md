@@ -12,7 +12,7 @@ done_when:
   - "c3: Items and milestones are written and linked by command, also on a branch for review."
   - "c4: An item with a Plan and touches sizes below the heaviest profile in a project whose `work_dir` is not `work`, and the guide says what to write."
   - "c5: The tracker is kept true to what was built and decided: a curator applies the changes the owner has decided and flags drift, and the chief of staff verifies its pull requests against the decision records."
-constraints: [HITLD-255 c1, HITLD-269 c1, HITLD-259 c2, HITLD-261 c2, HITLD-266 c2, HITLD-257 c3, HITLD-270 c3, HITLD-275 c3, HITLD-276 c3, HITLD-285 c4, HITLD-286 c4, HITLD-287 c4, HITLD-413 c3, HITLD-500 c4, HITLD-583 c5, HITLD-220 c5]
+constraints: [HITLD-255 c1, HITLD-269 c1, HITLD-259 c2, HITLD-261 c2, HITLD-266 c2, HITLD-257 c3, HITLD-270 c3, HITLD-275 c3, HITLD-276 c3, HITLD-285 c4, HITLD-286 c4, HITLD-413 c3, HITLD-583 c5, HITLD-220 c5]
 check: integration-test a fixture consumer tracker, formatted by prettier, migrated, edited by command and closed, passes `work check` and sizes to the expected profiles
 ---
 
