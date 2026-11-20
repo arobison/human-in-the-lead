@@ -135,6 +135,10 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `lock-held`: A named resource lock is held by someone else.
 - `lock-timeout`: A named resource lock was not free before the wait ended.
 
+**Quotas**
+
+- `invalid-snapshot`: The usage snapshot does not match its schema.
+
 **Ledger**
 
 - `invalid-event`: The ledger event does not match its schema or lacks a field its kind needs.
