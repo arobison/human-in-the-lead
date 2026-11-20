@@ -3,9 +3,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
+import { tidyWorkingTree } from '../lib/tracker/files/publish.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { addTerm } from '../lib/store/private-terms.mjs';
 import { commitAll, git, isolatedEnv, itemText, makeRepo, put } from './tracker-fixture.mjs';
@@ -112,6 +113,12 @@ test('a session with decisions filed and answered publishes them as one commit o
   assert.equal(git(root, 'rev-parse', 'HEAD'), head);
   assert.equal(git(root, 'symbolic-ref', '--short', 'HEAD').trim(), 'claude/session');
   assert.equal(git(root, 'status', '--porcelain'), status);
+  assert.deepEqual(r.working_tree, {
+    branch: 'claude/session',
+    action: 'left',
+    tidied: [],
+    kept: [],
+  });
 
   // Publishing again before main moves pushes nothing new.
   const again = await run(root, publish(), env);
@@ -133,6 +140,76 @@ test('a session with decisions filed and answered publishes them as one commit o
   assert.equal(answered.published, true, JSON.stringify(answered));
   assert.deepEqual(answered.files, [{ path: 'work/items/W-7-which-color.md', change: 'changed' }]);
   assert.equal(git(remote, 'rev-parse', `${answered.branch}^`), git(remote, 'rev-parse', 'main'));
+});
+
+test('publishing from main takes the published copies out of the working tree, so a later pull fast-forwards', async () => {
+  const { root, remote, env } = session();
+  git(root, 'checkout', '-q', 'main');
+  // Two decisions filed (new files), one answered (a changed file), and a file outside the tracker.
+  put(root, {
+    'work/items/W-6-which-way.md': decision('W-6', 'Which way?', 'done'),
+    'work/items/W-7-which-color.md': decision('W-7', 'Which color?'),
+    'work/items/W-8-which-size.md': decision('W-8', 'Which size?'),
+    'notes.txt': 'not tracker\n',
+  });
+  git(root, 'add', 'work/items/W-8-which-size.md'); // one of them staged, as a session may
+
+  const r = await run(root, publish(), env);
+  assert.equal(r.code, 0, JSON.stringify(r));
+  assert.equal(r.published, true);
+  assert.deepEqual(r.working_tree, {
+    branch: 'main',
+    action: 'removed',
+    tidied: [
+      'work/items/W-6-which-way.md',
+      'work/items/W-7-which-color.md',
+      'work/items/W-8-which-size.md',
+    ],
+    kept: [],
+  });
+  assert.match(r.message, /taken out of main's working tree/);
+  // Only what was published moved: the file outside the tracker is still there.
+  assert.equal(git(root, 'status', '--porcelain', '--untracked-files=all'), '?? notes.txt\n');
+  rmSync(join(root, 'notes.txt'));
+  assert.equal(git(root, 'status', '--porcelain', '--untracked-files=all'), '');
+
+  // The pull request merges (squashed: a new commit with the published tree), and main is pulled.
+  const tree = git(remote, 'rev-parse', `${r.branch}^{tree}`).trim();
+  const squash = git(
+    remote,
+    '-c',
+    'user.name=Forge',
+    '-c',
+    'user.email=forge@example.invalid',
+    'commit-tree',
+    tree,
+    '-p',
+    'main',
+    '-m',
+    'squash',
+  ).trim();
+  git(remote, 'update-ref', 'refs/heads/main', squash);
+  git(root, 'pull', '-q', '--ff-only', 'origin', 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').trim(), squash);
+  assert.equal(git(root, 'status', '--porcelain', '--untracked-files=all'), '');
+  assert.match(readFileSync(join(root, 'work/items/W-7-which-color.md'), 'utf8'), /Which color\?/);
+  const after = await run(root, publish(), env);
+  assert.equal(after.published, false);
+  assert.match(after.message, /changed no tracker file/);
+});
+
+test('a published copy changed again before it is taken out is kept', () => {
+  const { root } = session();
+  git(root, 'checkout', '-q', 'main');
+  const layout = { workDir: 'work', viewsDir: 'views', mainBranch: 'main', key: 'W' };
+  put(root, { 'work/items/W-7-which-color.md': decision('W-7', 'Which color?') });
+  const blob = git(root, 'hash-object', 'work/items/W-7-which-color.md').trim();
+  put(root, { 'work/items/W-7-which-color.md': decision('W-7', 'Which color, now?') });
+  const t = tidyWorkingTree(root, /** @type {any} */ (layout), [
+    { path: 'work/items/W-7-which-color.md', change: 'added', blob },
+  ]);
+  assert.deepEqual(t, { branch: 'main', tidied: [], kept: ['work/items/W-7-which-color.md'] });
+  assert.match(readFileSync(join(root, 'work/items/W-7-which-color.md'), 'utf8'), /now\?/);
 });
 
 test('a session with nothing to publish says so and pushes nothing', async () => {
