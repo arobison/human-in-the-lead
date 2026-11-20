@@ -470,7 +470,7 @@ export const commands = [
   {
     name: 'work check',
     summary:
-      'Check schema, references, cycles, classification and orphaned claims; view freshness on main',
+      "Check schema, references, cycles, classification and orphaned claims; view freshness on main; on main, warn of an open item that a commit's Work-Item or Closes trailer names, and a done item that no commit's trailer names",
     built_by: 'a',
     args: [
       {
@@ -495,6 +495,7 @@ export const commands = [
         branches: Boolean(input.branches),
         inflight,
         terms: terms.matchers,
+        consistency: true,
       });
       const { problems, files } = checked;
       const warnings = [...t.warnings(), ...terms.warnings, ...(checked.warnings ?? [])];
@@ -504,6 +505,15 @@ export const commands = [
         files,
         problems,
         ...(warnings.length ? { warnings } : {}),
+        // Warnings, never problems: the orchestrator offers the fix (design 3.4).
+        ...(checked.consistency
+          ? {
+              mismatches: checked.consistency.mismatches,
+              ...(checked.consistency.skipped.length
+                ? { mismatches_skipped: checked.consistency.skipped }
+                : {}),
+            }
+          : {}),
         summary: problems.length
           ? `${problems.length} problem(s)`
           : files === 0

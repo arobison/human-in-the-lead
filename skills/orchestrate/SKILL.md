@@ -146,6 +146,15 @@ Run `hitld merge` after a completion that queued a branch, when no notice is pen
 - Owner mode with `merge.owner_paths` or `merge.owner_areas` set: a pull request that changes nothing there is merged once its named checks pass, without asking, decided from its diff alone. With `merge.pull_request.delegated_by`, its squash carries the owner's sign-off from their latest approval and a `Delegated-by` trailer naming that decision, and it is listed under `delegated` with the command that reverses it; the digest lists it the same way. One marked `no_signoff` in `presented` waits only because no approval of the owner's has recorded their sign-off yet; one with `links` adds or changes a symbolic link; one with `answer_unverified` changes a decision's answer that the rights flow did not record (say which, and why, to the owner). A revert of such a merge is recorded with `hitld ledger append '{"event":"reverted","item":"<ID>"}'` once the revert merges, and counts against the area.
 - `proposals` (owner mode, after an approval): the area's clean run reached `merge.propose_queue_after`. Put each to the owner with `hitld rights ask --question <its question>`; only the owner changes `policy.json`.
 
+**Closing by trailer, and the check on `main`.** A branch a person made by hand can close an item without editing it: a commit carrying `Closes: <ID>` has `hitld merge`, in queue and owner mode, commit the item's Done edit on top of that branch in the same merge. `closed` in the output lists those items, and in owner mode each presented branch shows its own `closed`: say so in its line. `Refs: <ID>` only links. Words in a commit message ("fixes", "closes") never count. A `rejected` entry with reason `closes` is a trailer the merge cannot honor (no such item, not a work item, proposed or dropped); its `problems` say which.
+
+After each merge batch, and at run start, run `hitld work check` in the primary checkout on `main`. Its `mismatches` are warnings: never fix one silently. Offer the owner the fix for each, in one message, recommendation first:
+
+- `open-with-commit`: a commit on `main` carries the item's `Work-Item:` or `Closes:` trailer while the item is still open, often a commit that reached `main` outside the merge path. Recommend closing it when its `Done when` holds: an inline item (step 2). Otherwise the owner says why it stays open; record that in the item's Notes, which also ends the warning.
+- `done-without-commit`: a done work item that no commit on `main` names in a trailer, such as one marked done by hand. Recommend confirming it: a line in its Notes naming the commit or pull request that did the work, published with `--trailer "Refs: <ID>"`. Otherwise reopen it to `planned`. Which one is the owner's call.
+
+`mismatches_skipped` says what was not checked and why: off `main`, a shallow clone, or no commit naming an item yet.
+
 ## 7. Questions
 
 From a report's `questions`, or your own:

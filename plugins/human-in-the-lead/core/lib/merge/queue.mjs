@@ -5,7 +5,11 @@
 //   2. rebase    each onto the tip of the batch under construction, in a worktree of the queue's
 //                own (the main checkout is the orchestrator's); a conflict confined to generated
 //                files takes the batch's version, any other conflict goes back to the executor
-//   3. fast      the classification guard on each of the branch's commits, their files and,
+//   3. close     each item a branch's commits name in a `Closes:` trailer gets its `state: done`
+//                edit, committed on top of the branch's own commits, so it merges (and reverts)
+//                with them (design 3.4, HITLD-49); a trailer that cannot be honored goes back to
+//                the executor. `Refs:` changes nothing. Then, on the branch with that edit:
+//      fast      the classification guard on each of the branch's commits, their files and,
 //                with private terms in the settings, their messages (design part 10.3),
 //                two tracker items with one ID in the rebased tree are refused (design 3.4),
 //                a branch that changes the quarantine file is refused (design 14.7), then the
@@ -68,6 +72,10 @@ import {
  * @property {(dir: string) => string[]} [trackerCheck] the problems of the tracker in a checked-out
  *   tree that refuse a branch: two items with one ID (design 3.4). Not a policy fast check, so it
  *   runs whatever merge.fast_checks says
+ * @property {(dir: string, from: string, to: string) => { closed: { id: string }[], problems: string[] }} [closeByTrailer]
+ *   in the queue's worktree, checked out at the rebased branch `to`: commit the `state: done` edit
+ *   of each item a commit in from..to names in a `Closes:` trailer (tracker/files/closing.mjs).
+ *   Without it, no trailer closes anything
  *
  * @typedef {object} FlakeSettings
  * @property {number} [compareRuns] runs of the full suite on each side of the base comparison
@@ -79,7 +87,7 @@ import {
  *
  * @typedef {(command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string }} Exec
  *
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'duplicate_id' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'closes' | 'classification' | 'duplicate_id' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
  *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string,
  *   message?: string, findings?: import('./security.mjs').SentBack[] }} Rejected
  * @typedef {{ runs: number, failures: number }} SideRuns
@@ -93,7 +101,8 @@ import {
  * @typedef {{ commit: string, tests: string[] }} Excused failures of quarantined tests that did not fail the suite
  * @typedef {{ item: string, runs: number, ok: boolean }} BurnIn
  * @typedef {{ item: string, branch: string, commit: string, parent: string, changed: string[],
- *   dispatch?: string }} Tested a branch that passed every check, rebased onto `parent`
+ *   dispatch?: string, closed?: string[] }} Tested a branch that passed every check, rebased onto
+ *   `parent`; closed: the items its `Closes:` trailers closed in it
  */
 
 /** The ref that keeps a held batch's tested commit while it waits for the owner. */
@@ -250,7 +259,8 @@ export async function runMergeQueue(r) {
   const exec = r.exec ?? shellExec;
   const s = r.settings;
   const result = {
-    /** @type {{ item: string, branch: string, commit: string, dispatch?: string }[]} */
+    /** closed: the items the branch's `Closes:` trailers closed in the same merge.
+     * @type {{ item: string, branch: string, commit: string, dispatch?: string, closed?: string[] }[]} */
     merged: [],
     /** @type {Rejected[]} */
     rejected: [],
@@ -438,7 +448,7 @@ export async function runMergeQueue(r) {
     let base = result.main.before;
     while (pending.length) {
       // Build a batch on the current base.
-      /** @type {(Entry & { commit: string, parent: string, changed: string[] })[]} */
+      /** @type {(Entry & { commit: string, parent: string, changed: string[], closed: string[] })[]} */
       const batch = [];
       const rejectedNow = new Set(result.rejected.map((x) => x.item));
       let tip = base;
@@ -482,9 +492,25 @@ export async function runMergeQueue(r) {
           rejectedNow.add(e.item);
           continue;
         }
+        // Closing by trailer: the Done edit of each item a `Closes:` trailer names, committed on
+        // top of the branch, before every check below, so they all cover it.
+        const closing = s.closeByTrailer?.(dir, tip, rb.sha) ?? { closed: [], problems: [] };
+        if (closing.problems.length) {
+          result.rejected.push({
+            item: e.item,
+            branch: e.branch,
+            reason: 'closes',
+            output: closing.problems.join('\n'),
+            message: `A Closes: trailer on your branch cannot be honored: ${closing.problems.join('; ')}. Fix the trailer (git commit --amend, or a rebase for an earlier commit): Closes: names a planned or in-progress work item that the branch finishes; use Refs: to link one without closing it.`,
+            dispatch: e.dispatch,
+          });
+          rejectedNow.add(e.item);
+          continue;
+        }
+        const head = closing.closed.length ? gitOk(dir, ['rev-parse', 'HEAD']) : rb.sha;
         // The commit guard's rule, on every commit the branch brings. Not a policy fast check, so
         // it runs whatever merge.fast_checks says, and a hook skipped with --no-verify gains nothing.
-        const guard = checkCommits(dir, tip, rb.sha, s.classification ?? STRICT);
+        const guard = checkCommits(dir, tip, head, s.classification ?? STRICT);
         if (guard.refused.length) {
           result.rejected.push({
             item: e.item,
@@ -514,7 +540,7 @@ export async function runMergeQueue(r) {
         }
         // The files the branch changes, and which of them it adds, modifies or renames to (the
         // burn-in's), from one diff.
-        const diff = changedBetween(dir, tip, rb.sha);
+        const diff = changedBetween(dir, tip, head);
         const changedFiles = diff.map((d) => d.path);
         const changed = changedFiles.join(' ');
         // Only the orchestrator quarantines a test, and only on evidence (design 14.7).
@@ -575,7 +601,7 @@ export async function runMergeQueue(r) {
               HITLD_CHANGED_FILES: changed,
               HITLD_BURN_IN_FILES: testFiles.join('\n'),
               HITLD_BURN_IN_RUN: String(done),
-              HITLD_BURN_IN_SEED: String(Number.parseInt(rb.sha.slice(0, 8), 16) + done * 7919),
+              HITLD_BURN_IN_SEED: String(Number.parseInt(head.slice(0, 8), 16) + done * 7919),
             });
             if (!out.ok) burnt = out.output;
           }
@@ -595,7 +621,7 @@ export async function runMergeQueue(r) {
             continue;
           }
         }
-        const scan = r.security?.check({ ...e, dir, commit: rb.sha, base, checkout }) ?? {
+        const scan = r.security?.check({ ...e, dir, commit: head, base, checkout }) ?? {
           ok: true,
         };
         if (!scan.ok) {
@@ -610,8 +636,14 @@ export async function runMergeQueue(r) {
           rejectedNow.add(e.item);
           continue;
         }
-        batch.push({ ...e, commit: rb.sha, parent: tip, changed: changedFiles });
-        tip = rb.sha;
+        batch.push({
+          ...e,
+          commit: head,
+          parent: tip,
+          changed: changedFiles,
+          closed: closing.closed.map((c) => c.id),
+        });
+        tip = head;
       }
       if (!batch.length) {
         pending = later;
@@ -748,7 +780,7 @@ export async function runMergeQueue(r) {
         pending = [
           ...batch
             .filter((b) => b !== culprit)
-            .map(({ commit: _c, parent: _p, changed: _f, ...e }) => e),
+            .map(({ commit: _c, parent: _p, changed: _f, closed: _x, ...e }) => e),
           ...later,
         ];
         continue;
@@ -769,6 +801,7 @@ export async function runMergeQueue(r) {
               parent: b.parent,
               changed: b.changed,
               ...(b.dispatch ? { dispatch: b.dispatch } : {}),
+              ...(b.closed.length ? { closed: b.closed } : {}),
             })),
           ],
         };
@@ -792,6 +825,7 @@ export async function runMergeQueue(r) {
           branch: b.branch,
           commit: b.commit,
           ...(b.dispatch ? { dispatch: b.dispatch } : {}),
+          ...(b.closed.length ? { closed: b.closed } : {}),
         });
       pending = later;
     }

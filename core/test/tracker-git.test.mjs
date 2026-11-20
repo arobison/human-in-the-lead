@@ -800,6 +800,15 @@ test('hitld work check, query, show and views run from the repository', async ()
       'work/items/W-4-second-step.md: W-4 is open and under no milestone; make it a constraint of the milestone clause it serves',
       'work/items/W-5-third-step.md: W-5 is open and under no milestone; make it a constraint of the milestone clause it serves',
     ],
+    // On main: the trailers checked against the items (tracker-closing.test.mjs). No commit names
+    // an item yet, so done items are not checked.
+    mismatches: [],
+    mismatches_skipped: [
+      {
+        kind: 'done-without-commit',
+        why: 'no commit on main names an item in a Work-Item, Closes or Refs trailer yet, so no done item could have one',
+      },
+    ],
     summary: '6 files, no problems',
   });
   const q = await hitld(['work', 'query', '--ready'], root);
