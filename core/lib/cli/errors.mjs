@@ -94,6 +94,8 @@ export const ERROR_CODES = Object.freeze({
   'invalid-default':
     'The default if unanswered is not allowed here: not a two-way door, or not one of the options.',
   'invalid-decision': 'The decision record or answer is not valid.',
+  'invalid-trust-event':
+    'The trust event the question would record does not match its schema; nothing was recorded.',
   'answer-matches-no-option':
     "The answer names none of the decision's options, or words that fit more than one; nothing was recorded.",
   'answer-question-changed':
