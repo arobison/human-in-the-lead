@@ -126,3 +126,14 @@ The consumer's session accepted the split, filed a design item for storage acros
 - **The status call fixes a failure seen the same day.** Timing measurements shared an 8-core machine with test suites at a load average near 50, and the measurements proved nothing; until now an orchestrator had to pass a hand-written rule (wait for a one-minute load under 4) into every brief. A status call that HITLD checks before heavy work turns that into a gate. Recorded as a sighting on HITLD-559.
 - **For the walk-through:** a rule for tool adapters in HITLD's guidance, that an adapter's configuration names no code to run except in a property HITLD marks as executing and the owner approves. The command that HITLD runs to call dyno is such a property.
 
+## Decided on 2026-11-20 (HITLD-624): the lock hook is dropped
+
+The owner agreed with dropping the local-measurement hook (the proposal above). This supersedes the hook in the answer on the benchmark lock, and the completion command asked for earlier:
+
+- **Dyno keeps its rule** that its data and configuration name no code to run. HITLD has the same rule, with a marked, owner-approved exception. If dyno later needs hooks, they belong in owner-level machine configuration outside the repository, which no agent can edit, as an approved exception; not now.
+- **Dyno gates itself on measured machine load.** It queues or refuses a local measurement until the machine is quiet, so what protects a measurement is the ground truth (load, thermal state, other GPU use), not a cooperative lock that a browser, a build or a person's own command would ignore.
+- **Dyno's status call reports three states** for the machine and each target it controls: busy, waiting for quiet (a local measurement is queued behind other work) and quiet, with who started the current measurement and for how long. HITLD gates its own heavy steps (tests, builds) on that status. While the state is waiting for quiet, HITLD starts no new heavy steps and lets the running ones finish, so the machine drains without a lock and a queued measurement is not starved.
+- **Completion is by poll or a watched record.** `measure status <handle>` to poll, and a completion record (a file, or a line in an event log) that HITLD watches, consistent with its event-first cadence (HITLD-536). Dyno runs no command on completion.
+- **HITLD's machine-wide lock guards only HITLD's own processes** (its executors' heavy steps and the merge queue). It no longer tries to represent a measurement, a target machine or a farm.
+- **Still to design:** the shape of the status and the completion record (dyno proposes them), how HITLD's load gate reads the status, and the rule for tool adapters in HITLD's guidance (an adapter's configuration names no code to run except in a property HITLD marks as executing and the owner approves).
+
