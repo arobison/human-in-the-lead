@@ -6,7 +6,7 @@
 import { resolve } from 'node:path';
 import { attackArea, DEFAULT_SEED } from '../../adversary/attack.mjs';
 import { changedFiles, dueRegistries } from '../../adversary/due.mjs';
-import { filePending, recordBreak } from '../../adversary/record.mjs';
+import { filePending, nameFix, pendingRegressions, recordBreak } from '../../adversary/record.mjs';
 import { registries } from '../../adversary/registry.mjs';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { formatErrors } from '../../schema/validate.mjs';
@@ -52,7 +52,26 @@ function load(input, ctx) {
       `policy.json: ${formatErrors(loaded.errors).split('\n').join('; ')}`,
     );
   }
-  return { root, regs: registries(root, /** @type {any} */ (loaded.policy)) };
+  return {
+    root,
+    policy: /** @type {any} */ (loaded.policy),
+    regs: registries(root, /** @type {any} */ (loaded.policy)),
+  };
+}
+
+/**
+ * Refuse an executor: recording breaks and filing fix items are the adversary's and the
+ * orchestrator's. The plugin's guard refuses these commands to executors first (they are not on
+ * its executor list); this is the second line, for a session without the guard.
+ * @param {import('../table.mjs').CommandContext} ctx @param {string} what
+ */
+function refuseExecutor(ctx, what) {
+  if (ctx.env?.HITLD_ROLE === 'executor') {
+    throw new CodedError(
+      'not-permitted',
+      `an executor does not ${what}; put the break in your report, and the orchestrator dispatches the adversary`,
+    );
+  }
 }
 
 /**
@@ -131,6 +150,7 @@ export const commands = [
       ...repoArg,
     ],
     run(input, ctx) {
+      if (input.record) refuseExecutor(ctx, 'record breaks');
       const { root, regs } = load(input, ctx);
       const seed = typeof input.seed === 'number' ? input.seed : DEFAULT_SEED;
       const pick = chosen(regs, root, input);
@@ -216,6 +236,7 @@ export const commands = [
       ...repoArg,
     ],
     run(input, ctx) {
+      refuseExecutor(ctx, 'record breaks');
       const { root, regs } = load(input, ctx);
       const {
         regs: [reg],
@@ -248,11 +269,22 @@ export const commands = [
   {
     name: 'adversary file',
     summary:
-      "File the fix items of regression tests whose item is pending (the orchestrator, on main): each is filed, named in its test's todo mark, and committed with it",
+      "File the fix items of regression tests whose item is pending (the orchestrator, on main): each is filed, named in its test's todo mark, and committed with it. With --test and --fix, name an item already filed in one test instead",
     built_by: 'signal',
-    output: ['ok', 'filed', 'skipped'],
+    output: ['ok', 'filed', 'skipped', 'pending', 'reason', 'next', 'test', 'fix', 'commit'],
     args: [
       { name: 'area', type: 'string', description: 'One area (default: every registry)' },
+      {
+        name: 'test',
+        type: 'string',
+        description:
+          'With --fix: the one regression test whose pending todo mark should name that item',
+      },
+      {
+        name: 'fix',
+        type: 'string',
+        description: 'With --test: the item already filed for its break',
+      },
       {
         name: 'no-commit',
         type: 'boolean',
@@ -262,14 +294,38 @@ export const commands = [
       ...repoArg,
     ],
     run(input, ctx) {
-      const { root, regs } = load(input, ctx);
+      refuseExecutor(ctx, 'file fix items');
+      const { root, regs, policy } = load(input, ctx);
       const pick = chosen(regs, root, { area: input.area });
-      const r = filePending(root, pick.regs, {
+      /** @type {import('../../adversary/record.mjs').Io} */
+      const io = {
         tracker: () => open({ repo: root }, ctx),
         commit: !input['no-commit'],
         env: ctx.env,
         ...(typeof input.parent === 'string' ? { parent: input.parent } : {}),
-      });
+      };
+      if (typeof input.test === 'string' || typeof input.fix === 'string') {
+        if (typeof input.test !== 'string' || typeof input.fix !== 'string') {
+          throw new CodedError('usage', '--test and --fix go together');
+        }
+        return { ok: true, ...nameFix(root, pick.regs, input.test, input.fix, io) };
+      }
+      if (policy.merge?.via === 'pull-request') {
+        // `work publish` carries only tracker files to main, so a test renamed here would keep its
+        // pending mark there, and a fresh checkout would file the item again.
+        return {
+          ok: false,
+          reason:
+            'merge.via is pull-request: an item filed here reaches main through hitld work publish, which leaves the test behind',
+          next: 'file each item below with hitld work new and hitld work publish, then on a branch run hitld adversary file --test <test> --fix <ID> for each of its tests and merge that branch',
+          pending: pendingRegressions(root, pick.regs).map((p) => ({
+            invariant: p.invariant,
+            tests: p.tests.map((t) => t.test),
+            draft: p.draft,
+          })),
+        };
+      }
+      const r = filePending(root, pick.regs, io);
       return { ok: r.skipped.length === 0, ...r };
     },
   },

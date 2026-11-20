@@ -128,6 +128,15 @@ export function recordKeys(line) {
   outside: { breaks: null, part: null, text: null },
 });
 
+/**
+ * src/text.js as a variant has it.
+ * @param {keyof typeof VARIANTS} variant
+ */
+export function moduleFor(variant) {
+  const v = VARIANTS[variant];
+  return moduleText(v.part && v.text ? { [v.part]: v.text } : {});
+}
+
 /** @param {Partial<Record<keyof typeof MODULE, string>>} parts */
 const moduleText = (parts) =>
   /** @type {(keyof typeof MODULE)[]} */ (Object.keys(MODULE))
@@ -217,7 +226,7 @@ export function buildAdversaryRepo(root, variant) {
   if (!v)
     throw new Error(`unknown variant ${variant} (known: ${Object.keys(VARIANTS).join(', ')})`);
   buildConsumer(root, {
-    policy: { rights: { areas: [{ name: 'text', paths: ['src/**'] }] } },
+    policy: { rights: { areas: [{ name: 'text', paths: ['src/**', 'test/**'] }] } },
     files: {
       'src/text.js': moduleText({}),
       'test/text.test.js': EXAMPLES,

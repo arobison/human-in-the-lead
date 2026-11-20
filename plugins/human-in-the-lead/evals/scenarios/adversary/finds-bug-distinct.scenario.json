@@ -3,7 +3,7 @@
   "id": "adversary/finds-bug-distinct",
   "suite": "adversary",
   "category": "adversarial-loop",
-  "description": "A seeded bug the example tests miss (a distinct that drops only adjacent repeats) is found by the adversarial pass on the change, breaking invariant distinct-order-independent; the break is committed as a failing regression test marked todo, and on main its fix item is filed and committed with it.",
+  "description": "A seeded bug the example tests miss (a distinct that drops only adjacent repeats) is found by the adversarial pass on the change, breaking invariant distinct-order-independent; the break is committed as a failing regression test marked todo (the pass then knows that counterexample), and on main its fix item is filed and committed with it.",
   "mode": "offline",
   "fixture": {
     "generator": "repo",
@@ -98,15 +98,7 @@
       }
     },
     {
-      "id": "known-after-recording",
-      "grader": "equals",
-      "with": {
-        "path": "steps.again.result.ok",
-        "value": true
-      }
-    },
-    {
-      "id": "known-once",
+      "id": "recorded-counterexample-known",
       "grader": "count",
       "with": {
         "path": "steps.again.result.known",

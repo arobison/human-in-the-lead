@@ -3,7 +3,7 @@
 // then remove its todo mark. It stays unless a decision retires it.
 //
 // Found: the property gave false, not true
-// hitld-adversary: {"area":"core","invariant":"safe-path-stays-inside","args":["./a:"],"message":"the property gave false, not true"}
+// hitld-adversary: {"area":"core","invariant":"safe-path-stays-inside","args":["./a:"],"message":"the property gave false, not true","todo":"fix item pending: A path safePath accepts names a place inside the repository, and reads the same when given again."}
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as subject from "./properties.mjs";

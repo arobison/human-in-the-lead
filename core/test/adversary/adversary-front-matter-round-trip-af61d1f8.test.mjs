@@ -3,7 +3,7 @@
 // then remove its todo mark. It stays unless a decision retires it.
 //
 // Found: the property gave false, not true
-// hitld-adversary: {"area":"core","invariant":"front-matter-round-trip","args":["a",[",\""]],"message":"the property gave false, not true"}
+// hitld-adversary: {"area":"core","invariant":"front-matter-round-trip","args":["a",[",\""]],"message":"the property gave false, not true","todo":"fix item pending: Front matter written by renderItem reads back as the same title and needs with parseItem."}
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as subject from "./properties.mjs";

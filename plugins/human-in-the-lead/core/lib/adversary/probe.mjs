@@ -4,7 +4,7 @@
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { evaluate } from './forms.mjs';
+import { counterexampleDigest, evaluate } from './forms.mjs';
 import { cases, shrink } from './generate.mjs';
 
 /**
@@ -16,17 +16,21 @@ import { cases, shrink } from './generate.mjs';
  * @property {string} [second_module] absolute: the inverse's or oracle's module
  * @property {string} [second] the inverse or oracle export
  * @property {import('./generate.mjs').Gen[]} args
- * @property {number} runs
- * @property {number} seed
+ * @property {number} runs per seed
+ * @property {number[]} seeds tried in turn, until one finds a break
+ * @property {string[]} [known] digests of counterexamples already recorded: passed over
  * @property {unknown[]} [check] check these arguments only, instead of attacking
  *
  * @typedef {{ id: string, runs: number, error?: string,
  *   break?: { args: unknown[], variant?: unknown[], message: string, found_at: number } }} ProbeResult
  */
 
-/** What precedes the results on stdout. */
-// attack.mjs holds the same string; importing this file would run it.
+/** What precedes the results on stdout, with the job's nonce. attack.mjs holds the same string;
+ * importing this file would run it. */
 const MARK = '@@hitld-adversary-probe@@';
+
+/** How many failing cases that shrink to a recorded counterexample one invariant's search takes. */
+const SHRINKS_PER_INVARIANT = 40;
 
 /** @type {Map<string, Record<string, unknown>>} */
 const loaded = new Map();
@@ -52,18 +56,29 @@ async function probe(inv) {
   } catch (e) {
     return { id: inv.id, runs: 0, error: `could not load: ${e instanceof Error ? e.message : e}` };
   }
-  const fails = (/** @type {unknown[]} */ args) => evaluate(inv, fns, args) !== null;
   if (inv.check) {
     const b = evaluate(inv, fns, inv.check);
     return { id: inv.id, runs: 1, ...(b ? { break: { args: inv.check, ...b, found_at: 1 } } : {}) };
   }
+  const known = new Set(inv.known ?? []);
+  const fails = (/** @type {unknown[]} */ args) => evaluate(inv, fns, args) !== null;
+  // Every failing case is shrunk the same way, so the cases of one bug settle on one smallest
+  // counterexample. One already recorded is passed over, and the search goes on: another break
+  // of the same invariant still shows while the first one's fix is open. Shrinking costs, so
+  // after SHRINKS_PER_INVARIANT recorded ones the search stops.
   let n = 0;
-  for (const args of cases(inv.args, inv.seed, inv.runs)) {
-    n++;
-    if (!fails(args)) continue;
-    const small = shrink(inv.args, args, fails);
-    const b = /** @type {import('./forms.mjs').Break} */ (evaluate(inv, fns, small));
-    return { id: inv.id, runs: n, break: { args: small, ...b, found_at: n } };
+  let shrinks = 0;
+  for (const seed of inv.seeds) {
+    for (const args of cases(inv.args, seed, inv.runs)) {
+      n++;
+      if (!fails(args)) continue;
+      const small = shrink(inv.args, args, fails);
+      const b = /** @type {import('./forms.mjs').Break} */ (evaluate(inv, fns, small));
+      if (!known.has(counterexampleDigest({ args: small, variant: b.variant }))) {
+        return { id: inv.id, runs: n, break: { args: small, ...b, found_at: n } };
+      }
+      if (++shrinks >= SHRINKS_PER_INVARIANT) return { id: inv.id, runs: n };
+    }
   }
   return { id: inv.id, runs: n };
 }
@@ -79,4 +94,4 @@ for (const inv of job.invariants) {
   }
 }
 // After a marker, so what the code under attack prints cannot be taken for the results.
-process.stdout.write(`\n${MARK}${JSON.stringify({ results })}`);
+process.stdout.write(`\n${MARK}${job.nonce}${JSON.stringify({ results })}`);

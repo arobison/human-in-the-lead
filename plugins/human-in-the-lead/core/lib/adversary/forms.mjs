@@ -3,6 +3,7 @@
 // or what broke. The same rules write the regression test for a break (regression.mjs), so a
 // recorded test checks exactly what the pass checked.
 
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, inspect } from 'node:util';
 import { hashSeed, seededShuffle } from '../eval/util.mjs';
 
@@ -21,6 +22,17 @@ export const FORMS = Object.freeze({
  * @typedef {{ target: Function, second?: Function }} Fns target, and the inverse or oracle
  * @typedef {{ message: string, variant?: unknown[] }} Break
  */
+
+/**
+ * A counterexample's short digest: what tells one recorded break from another. The regression
+ * test's file name carries it.
+ * @param {{ args: unknown[], variant?: unknown[] }} c
+ */
+export const counterexampleDigest = (c) =>
+  createHash('sha256')
+    .update(JSON.stringify({ args: c.args, variant: c.variant ?? null }))
+    .digest('hex')
+    .slice(0, 8);
 
 /** @param {unknown} v */
 export const show = (v) => inspect(v, { depth: 6, breakLength: Infinity, maxStringLength: 400 });

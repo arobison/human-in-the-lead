@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
-import { safePath } from '../precedent/glob.mjs';
+import { matchesAny, safePath } from '../precedent/glob.mjs';
 import { schemas } from '../schema/registry.mjs';
 import { formatErrors } from '../schema/validate.mjs';
 
@@ -42,14 +42,28 @@ function insideFile(root, rel) {
 /**
  * The problems with a registry beyond its schema.
  * @param {string} root @param {RegistryData} data @param {string} area
+ * @param {string[] | null} paths the area's globs, when known
  * @returns {string[]}
  */
-function crossCheck(root, data, area) {
+function crossCheck(root, data, area, paths) {
   /** @type {string[]} */
   const errors = [];
   if (data.area !== area) errors.push(`area is ${data.area}, but the file belongs to ${area}`);
   const dir = safePath(data.tests_dir);
   if ('error' in dir) errors.push(`tests_dir: ${dir.error}`);
+  else {
+    if (existsSync(join(root, dir.path))) {
+      const real = realpathSync(join(root, dir.path));
+      const top = realpathSync(root);
+      if (real !== top && !real.startsWith(top + sep)) {
+        errors.push(`tests_dir: ${data.tests_dir} leads outside the repository`);
+      }
+    }
+    // A break's test belongs to the area it guards, so a change to it gets the area's pass too.
+    if (paths && !matchesAny(paths, `${dir.path}/adversary-x-0.test.mjs`)) {
+      errors.push(`tests_dir: ${data.tests_dir} is not inside the ${area} area's paths`);
+    }
+  }
   const seen = new Set();
   for (const inv of data.invariants) {
     const at = `invariant ${inv.id}`;
@@ -84,9 +98,10 @@ function crossCheck(root, data, area) {
 /**
  * Read one registry file.
  * @param {string} root @param {string} rel @param {string} area
+ * @param {string[] | null} [paths] the area's globs: tests_dir must lie inside them
  * @returns {{ data: RegistryData | null, errors: string[] }}
  */
-export function readRegistry(root, rel, area) {
+export function readRegistry(root, rel, area, paths = null) {
   const bad = insideFile(root, rel);
   if (bad) return { data: null, errors: [bad] };
   let raw;
@@ -98,7 +113,7 @@ export function readRegistry(root, rel, area) {
   const problems = schemas().validateEntity('invariants', raw);
   if (problems.length) return { data: null, errors: formatErrors(problems).split('\n') };
   const data = /** @type {RegistryData} */ (raw);
-  const errors = crossCheck(root, data, area);
+  const errors = crossCheck(root, data, area, paths);
   return { data: errors.length ? null : data, errors };
 }
 
@@ -116,7 +131,7 @@ export function registries(root, policy) {
     const pointer = typeof a.invariants === 'string' && a.invariants.endsWith('.json');
     const rel = pointer ? /** @type {string} */ (a.invariants) : defaultRegistryPath(a.name);
     if (!pointer && !existsSync(join(root, rel))) continue;
-    const { data, errors } = readRegistry(root, rel, a.name);
+    const { data, errors } = readRegistry(root, rel, a.name, a.paths);
     out.push({ area: a.name, path: rel, paths: a.paths, data, errors });
   }
   return out;

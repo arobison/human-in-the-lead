@@ -1,6 +1,7 @@
 // Recording a break (design 6.3, step 3): confirm it, write its regression test, confirm the test
-// fails, and commit it with its fix item. Nothing is recorded on an agent's word: the
-// counterexample is checked against the invariant again first, so a false break records nothing.
+// fails, and only then file its fix item and commit the two together. Nothing is recorded on an
+// agent's word: the counterexample is checked against the invariant again first, so a false break
+// records nothing.
 //
 // Only the orchestrator creates tracker items, on main (core/lib/tracker/files/ids.mjs). So a
 // break is recorded in two halves where needed: wherever the pass runs, the test is committed
@@ -9,10 +10,10 @@
 // test's todo mark.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { CodedError } from '../cli/errors.mjs';
-import { attackArea, testPrefix } from './attack.mjs';
+import { attackArea, openRegressions } from './attack.mjs';
 import { FORMS } from './forms.mjs';
 import {
   filedTodo,
@@ -37,9 +38,27 @@ import {
  *   parent: the project a fix item is filed under (default: the registry's fix_parent)
  */
 
+/** A tracker ID, such as W-214: what --fix must be, so it cannot carry anything else. */
+export const ITEM_ID = /^[A-Z][A-Z0-9]*-[1-9][0-9]*$/;
+
 /** @param {string} root @param {string[]} args */
 const git = (root, args) =>
   execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+/**
+ * An existing item named as a break's fix, or why it cannot be.
+ * @param {Io} io @param {string} id
+ * @returns {string | null} what is wrong
+ */
+function checkFix(io, id) {
+  if (!ITEM_ID.test(id)) return `--fix must be an item ID such as W-214, not ${JSON.stringify(id)}`;
+  try {
+    io.tracker().get(id);
+    return null;
+  } catch (e) {
+    return `--fix ${id}: ${e instanceof Error ? e.message : e}`;
+  }
+}
 
 /**
  * The fix item's title and body.
@@ -75,7 +94,7 @@ const dispatchTrailers = (env) => [
 ];
 
 /**
- * Commit exactly these paths, or undo and say why not.
+ * Commit exactly these paths, or undo the staging and say why not.
  * @param {string} root @param {string[]} paths @param {string} message
  * @returns {{ commit: string } | { error: string }}
  */
@@ -117,6 +136,22 @@ function fileItem(io, reg, draft) {
 }
 
 /**
+ * Make the tests directory, and check it is a real directory inside the repository, through no
+ * link out.
+ * @param {string} root @param {string} testsDir
+ * @returns {string | null} what is wrong
+ */
+function testsDirInside(root, testsDir) {
+  const dir = join(root, testsDir);
+  mkdirSync(dir, { recursive: true });
+  const real = realpathSync(dir);
+  const top = realpathSync(root);
+  return real === top || real.startsWith(top + sep)
+    ? null
+    : `tests_dir ${testsDir} leads outside the repository`;
+}
+
+/**
  * Record one break.
  * @param {string} root
  * @param {Registry} reg
@@ -132,29 +167,27 @@ export function recordBreak(root, reg, invariant, o) {
   if (!data || !inv) {
     return { ok: false, invariant, reason: reg.errors[0] ?? `no invariant ${invariant}` };
   }
+  if (o.fix !== undefined) {
+    const bad = checkFix(o, o.fix);
+    if (bad) return { ok: false, invariant, reason: bad };
+  }
   const result = attackArea(root, reg, {
     invariants: [invariant],
     ...(o.args ? { check: o.args } : {}),
     ...(o.seed !== undefined ? { seed: o.seed } : {}),
   });
   if (result.errors.length) return { ok: false, invariant, reason: result.errors.join('; ') };
-  const fresh = result.breaks[0];
-  const known = result.known[0];
-  if (!fresh && known && !o.args) {
-    return {
-      ok: false,
-      invariant,
-      reason: `already recorded: ${known.tests.join(', ')} is open; pass the arguments of another break to record it`,
-    };
-  }
-  const b = fresh ?? known;
+  const b = result.breaks[0];
   if (!b) {
+    const known = result.known.find((k) => k.found_at > 0);
     return {
       ok: false,
       invariant,
-      reason: o.args
-        ? 'not a break: the invariant holds for these arguments'
-        : 'no break found with this seed',
+      reason: known
+        ? `already recorded: ${known.tests.join(', ')} holds this counterexample`
+        : o.args
+          ? 'not a break: the invariant holds for these arguments'
+          : 'no new break found with this seed',
     };
   }
   const c = { args: b.args, ...(b.variant ? { variant: b.variant } : {}) };
@@ -162,28 +195,40 @@ export function recordBreak(root, reg, invariant, o) {
   if (existsSync(join(root, test))) {
     return { ok: false, invariant, reason: `${test} exists: this break is recorded` };
   }
-  const draft = fixDraft(reg, b, test);
-  const filed = o.fix ? { id: o.fix, path: null } : fileItem(o, reg, draft);
-  const fix = 'id' in filed ? filed : null;
-  const todo = fix ? filedTodo(fix.id, inv.statement) : pendingTodo(inv.statement);
-  const undo = () => {
-    rmSync(join(root, test), { force: true });
-    if (fix?.path) rmSync(join(root, fix.path), { force: true });
-  };
-  mkdirSync(dirname(join(root, test)), { recursive: true });
-  writeFileSync(
-    join(root, test),
-    regressionText({ area: reg.area, registry: reg.path, data, inv, c, todo, message: b.message }),
-  );
+  const outside = testsDirInside(root, data.tests_dir);
+  if (outside) return { ok: false, invariant, reason: outside };
+  const pending = pendingTodo(inv.statement);
+  const text = regressionText({
+    area: reg.area,
+    registry: reg.path,
+    data,
+    inv,
+    c,
+    todo: pending,
+    message: b.message,
+  });
+  writeFileSync(join(root, test), text);
+  // The test must fail before any item is filed: a filed item's ID is used for good.
   const run = regressionFails(root, test);
   if (!run.fails) {
-    undo();
+    rmSync(join(root, test), { force: true });
     return {
       ok: false,
       invariant,
       reason: `the regression test did not fail as a todo test: ${run.output.trim().split('\n').slice(-5).join(' ')}`,
     };
   }
+  const draft = fixDraft(reg, b, test);
+  /** @type {{ id: string, path: string | null } | { pending: string }} */
+  let filed;
+  try {
+    filed = o.fix ? { id: o.fix, path: null } : fileItem(o, reg, draft);
+  } catch (e) {
+    rmSync(join(root, test), { force: true });
+    throw e;
+  }
+  const fix = 'id' in filed ? filed : null;
+  if (fix) writeFileSync(join(root, test), retodo(text, pending, filedTodo(fix.id, inv.statement)));
   /** @type {string | null} */
   let commit = null;
   if (o.commit !== false) {
@@ -205,7 +250,8 @@ export function recordBreak(root, reg, invariant, o) {
         .trim(),
     );
     if ('error' in made) {
-      undo();
+      rmSync(join(root, test), { force: true });
+      if (fix?.path) rmSync(join(root, fix.path), { force: true });
       return { ok: false, invariant, reason: made.error };
     }
     commit = made.commit;
@@ -224,69 +270,158 @@ export function recordBreak(root, reg, invariant, o) {
 }
 
 /**
- * File the fix items of regression tests whose item is pending (the orchestrator, on main): for
- * each, file the item, name it in the test's todo mark, and commit the two together. A test that
- * no longer fails is left for the person who fixed it to clear, and reported.
- * @param {string} root @param {Registry[]} regs @param {Io} io
+ * The fix item's draft for every pending break of one invariant: one item, whatever the number of
+ * counterexamples.
+ * @param {Registry} reg @param {import('./registry.mjs').Invariant} inv
+ * @param {(import('./regression.mjs').Regression & { test: string })[]} tests
  */
-export function filePending(root, regs, io) {
-  /** @type {{ test: string, fix: string, item_path: string, commit: string | null }[]} */
-  const filed = [];
-  /** @type {{ test: string, reason: string }[]} */
-  const skipped = [];
+function groupDraft(reg, inv, tests) {
+  const lines = tests.map(
+    (t) =>
+      `- \`${JSON.stringify(t.args)}\`${t.variant ? ` reordered \`${JSON.stringify(t.variant)}\`` : ''}: ${t.message} (\`${t.test}\`)`,
+  );
+  return {
+    title: `Invariant ${inv.id} of the ${reg.area} area holds for every input`,
+    body: [
+      '## Why',
+      '',
+      `The adversarial pass (design 6.3) broke invariant \`${inv.id}\` of the ${reg.area} area (\`${reg.path}\`): ${inv.statement}`,
+      '',
+      `Form: ${inv.form}: ${FORMS[inv.form]}. The counterexamples, each with its regression test:`,
+      '',
+      ...lines,
+      '',
+      '## Done when',
+      '',
+      ...tests.map((t) => `- \`${t.test}\` passes, and its todo mark is removed.`),
+      `- \`hitld adversary attack --area ${reg.area}\` reports no break of \`${inv.id}\`.`,
+      '',
+    ].join('\n'),
+  };
+}
+
+/**
+ * The regression tests whose fix item is pending, one group per invariant, with the draft of the
+ * group's one fix item.
+ * @param {string} root @param {Registry[]} regs
+ */
+export function pendingRegressions(root, regs) {
+  /** @type {{ reg: Registry, invariant: string, statement: string, tests: { test: string, text: string }[], draft: { title: string, body: string } }[]} */
+  const out = [];
   for (const reg of regs) {
     const data = reg.data;
     if (!data) continue;
-    const dir = join(root, data.tests_dir);
-    if (!existsSync(dir)) continue;
-    for (const name of readdirSync(dir).sort()) {
-      if (!name.startsWith('adversary-') || !/\.test\.m?js$/.test(name)) continue;
-      const test = `${data.tests_dir.replace(/\/$/, '')}/${name}`;
-      const text = readFileSync(join(root, test), 'utf8');
-      const r = readRegression(text);
-      const inv = r && data.invariants.find((i) => i.id === r.invariant);
-      if (!r || !inv || !name.startsWith(testPrefix(inv.id))) continue;
-      if (r.todo !== pendingTodo(inv.statement)) continue;
-      if (!regressionFails(root, test).fails) {
-        skipped.push({ test, reason: 'it passes now: remove its todo mark instead' });
+    const open = openRegressions(root, data.tests_dir);
+    for (const inv of data.invariants) {
+      const tests = open.filter(
+        (r) => r.invariant === inv.id && r.todo === pendingTodo(inv.statement),
+      );
+      if (!tests.length) continue;
+      out.push({
+        reg,
+        invariant: inv.id,
+        statement: inv.statement,
+        tests: tests.map((t) => ({ test: t.test, text: readFileSync(join(root, t.test), 'utf8') })),
+        draft: groupDraft(reg, inv, tests),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Name an item already filed in one regression test's todo mark, in place of its pending one.
+ * For where `hitld adversary file` cannot file (merge through pull requests): the item is filed
+ * and published on main, and this renames the mark on a branch.
+ * @param {string} root @param {Registry[]} regs @param {string} test @param {string} id @param {Io} io
+ */
+export function nameFix(root, regs, test, id, io) {
+  const bad = checkFix(io, id);
+  if (bad) throw new CodedError('usage', bad);
+  const group = pendingRegressions(root, regs).find((p) => p.tests.some((t) => t.test === test));
+  const found = group?.tests.find((t) => t.test === test);
+  if (!group || !found) {
+    throw new CodedError('usage', `${test} is not a regression test with its fix item pending`);
+  }
+  writeFileSync(
+    join(root, test),
+    retodo(found.text, pendingTodo(group.statement), filedTodo(id, group.statement)),
+  );
+  if (io.commit === false) return { test, fix: id, commit: null };
+  const made = commitPaths(
+    root,
+    [test],
+    [
+      `${id}: name the fix item in ${test}`,
+      '',
+      `Work-Item: ${id}`,
+      ...dispatchTrailers(io.env ?? {}),
+    ].join('\n'),
+  );
+  if ('error' in made) {
+    writeFileSync(join(root, test), found.text);
+    throw new CodedError('failed', made.error);
+  }
+  return { test, fix: id, commit: made.commit };
+}
+
+/**
+ * File the fix items of regression tests whose item is pending (the orchestrator, on main): one
+ * item per invariant, named in the todo mark of each of its pending tests, and committed with
+ * them. A test that no longer fails is left for the person who fixed it to clear, and reported.
+ * @param {string} root @param {Registry[]} regs @param {Io} io
+ */
+export function filePending(root, regs, io) {
+  /** @type {{ invariant: string, tests: string[], fix: string, item_path: string, commit: string | null }[]} */
+  const filed = [];
+  /** @type {{ test: string, reason: string }[]} */
+  const skipped = [];
+  for (const g of pendingRegressions(root, regs)) {
+    const failing = g.tests.filter((t) => {
+      if (regressionFails(root, t.test).fails) return true;
+      skipped.push({ test: t.test, reason: 'it passes now: remove its todo mark instead' });
+      return false;
+    });
+    if (!failing.length) continue;
+    const item = fileItem(io, g.reg, g.draft);
+    if ('pending' in item) throw new CodedError('not-permitted', item.pending);
+    for (const t of failing) {
+      writeFileSync(
+        join(root, t.test),
+        retodo(t.text, pendingTodo(g.statement), filedTodo(item.id, g.statement)),
+      );
+    }
+    const paths = failing.map((t) => t.test);
+    /** @type {string | null} */
+    let commit = null;
+    if (io.commit !== false) {
+      const made = commitPaths(
+        root,
+        [...paths, item.path],
+        [
+          `${item.id}: fix item for the breaks of invariant ${g.invariant}`,
+          '',
+          `Filed from ${paths.join(', ')}, which now name it in their todo marks.`,
+          '',
+          `Work-Item: ${item.id}`,
+          ...dispatchTrailers(io.env ?? {}),
+        ].join('\n'),
+      );
+      if ('error' in made) {
+        for (const t of failing) writeFileSync(join(root, t.test), t.text);
+        rmSync(join(root, item.path), { force: true });
+        for (const t of failing) skipped.push({ test: t.test, reason: made.error });
         continue;
       }
-      const draft = fixDraft(
-        reg,
-        { ...r, statement: inv.statement, form: `${inv.form}: ${FORMS[inv.form]}` },
-        test,
-      );
-      const item = fileItem(io, reg, draft);
-      if ('pending' in item) throw new CodedError('not-permitted', item.pending);
-      writeFileSync(
-        join(root, test),
-        retodo(text, pendingTodo(inv.statement), filedTodo(item.id, inv.statement)),
-      );
-      /** @type {string | null} */
-      let commit = null;
-      if (io.commit !== false) {
-        const made = commitPaths(
-          root,
-          [test, item.path],
-          [
-            `${item.id}: fix item for the break of invariant ${inv.id}`,
-            '',
-            `Filed from ${test}, which now names it in its todo mark.`,
-            '',
-            `Work-Item: ${item.id}`,
-            ...dispatchTrailers(io.env ?? {}),
-          ].join('\n'),
-        );
-        if ('error' in made) {
-          writeFileSync(join(root, test), text);
-          rmSync(join(root, item.path), { force: true });
-          skipped.push({ test, reason: made.error });
-          continue;
-        }
-        commit = made.commit;
-      }
-      filed.push({ test, fix: item.id, item_path: item.path, commit });
+      commit = made.commit;
     }
+    filed.push({
+      invariant: g.invariant,
+      tests: paths,
+      fix: item.id,
+      item_path: item.path,
+      commit,
+    });
   }
   return { filed, skipped };
 }

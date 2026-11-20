@@ -4,8 +4,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { attackArea, openRegressions } from '../lib/adversary/attack.mjs';
@@ -15,7 +15,15 @@ import { cases, draw, shrink } from '../lib/adversary/generate.mjs';
 import { filePending, recordBreak } from '../lib/adversary/record.mjs';
 import { CodedError } from '../lib/cli/errors.mjs';
 import { readRegistry, registries } from '../lib/adversary/registry.mjs';
-import { readRegression, regressionText, retodo } from '../lib/adversary/regression.mjs';
+import {
+  literal,
+  readRegression,
+  regressionFails,
+  regressionText,
+  retodo,
+} from '../lib/adversary/regression.mjs';
+import { main } from '../lib/cli/main.mjs';
+import { moduleFor, REGISTRY, VARIANTS } from '../lib/eval/adversary-fixtures.mjs';
 import { seededRandom } from '../lib/eval/util.mjs';
 import { loadPolicy } from '../lib/policy/policy.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -113,9 +121,9 @@ test('forms: each says what broke, and holds where it should', () => {
 
 /**
  * A repository with one area and its registry. @param {Record<string, string>} files
- * @param {Record<string, unknown>} [registry]
+ * @param {Record<string, unknown>} [registry] @param {Record<string, unknown>} [policyExtra]
  */
-function repo(files, registry) {
+function repo(files, registry, policyExtra = {}) {
   const root = tempDir('adversary-');
   const git = (/** @type {string[]} */ ...args) =>
     execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -127,7 +135,8 @@ function repo(files, registry) {
     '.human-in-the-lead/policy.json': JSON.stringify({
       schema_version: 1,
       project: { id: 'adv', key: 'W' },
-      rights: { areas: [{ name: 'lib', paths: ['src/**'] }] },
+      rights: { areas: [{ name: 'lib', paths: ['src/**', 'test/**'] }] },
+      ...policyExtra,
     }),
     'package.json': '{ "type": "module" }\n',
     'kb/areas/lib/invariants.json': JSON.stringify({
@@ -242,19 +251,42 @@ test('the probe: what the code prints is not read as results, and it sees no sec
   }
 });
 
+/** A tracker that refuses to create items, as the files tracker does off main. */
+const refusing = {
+  get: () => ({}),
+  createEntity: () => {
+    throw new CodedError('not-permitted', 'only the orchestrator creates tracker entities');
+  },
+};
+
+/** A tracker that files items into the repository, as W-7, W-8 and so on. @param {string} root */
+function filingTracker(root) {
+  let n = 7;
+  /** @type {Record<string, unknown>[]} */
+  const made = [];
+  return {
+    made,
+    get: (/** @type {string} */ id) => {
+      if (!/^W-(7|8|9)$/.test(id)) throw new Error(`no item ${id}`);
+      return {};
+    },
+    createEntity: (/** @type {Record<string, unknown>} */ d) => {
+      made.push(d);
+      const id = `W-${n++}`;
+      mkdirSync(join(root, 'work/items'), { recursive: true });
+      writeFileSync(join(root, `work/items/${id}-fix.md`), `---\nid: ${id}\n---\n${d.body}`);
+      return { id, path: `work/items/${id}-fix.md` };
+    },
+  };
+}
+
 test('a break becomes a todo regression test, its fix item pending until filed on main', () => {
   const { root, git } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
   const [reg] = regsOf(root);
   const r = attackArea(root, reg);
   assert.equal(r.breaks.length, 1);
   assert.deepEqual(r.breaks[0].args, [11], 'the smallest counterexample');
-  const refusing = {
-    get: () => ({}),
-    createEntity: () => {
-      throw new CodedError('not-permitted', 'only the orchestrator creates tracker entities');
-    },
-  };
-  // Any other failure to file is not a refusal: it propagates, and nothing is written.
+  // Any other failure to file is not a refusal: it propagates, and nothing is left behind.
   assert.throws(() =>
     recordBreak(root, reg, 'twice-is-once', {
       tracker: () => ({
@@ -280,35 +312,144 @@ test('a break becomes a todo regression test, its fix item pending until filed o
     /its fix item pending[\s\S]*Dispatch: D-5\nAgent-Role: adversary/,
   );
   assert.deepEqual(git('show', '--name-only', '--format=', 'HEAD').trim().split('\n'), [rec.test]);
-  assert.deepEqual(openRegressions(root, 'test/adversary', 'twice-is-once'), [rec.test]);
+  assert.deepEqual(
+    openRegressions(root, 'test/adversary', 'twice-is-once').map((o) => o.test),
+    [rec.test],
+  );
   const again = attackArea(root, reg);
   assert.equal(again.breaks.length, 0);
   assert.equal(again.known.length, 1, 'known while its regression test is open');
   const twice = recordBreak(root, reg, 'twice-is-once', { tracker: () => refusing });
   assert.equal(twice.ok, false, 'recorded once');
 
-  const filing = {
-    get: () => ({}),
-    createEntity: (/** @type {Record<string, unknown>} */ d) => {
-      assert.equal(d.state, 'proposed');
-      mkdirSync(join(root, 'work/items'), { recursive: true });
-      writeFileSync(join(root, 'work/items/W-7-fix.md'), `---\nid: W-7\n---\n${d.body}`);
-      return { id: 'W-7', path: 'work/items/W-7-fix.md' };
-    },
-  };
-  const f = filePending(root, [reg], { tracker: () => filing });
+  const tracker = filingTracker(root);
+  const f = filePending(root, [reg], { tracker: () => tracker });
   assert.deepEqual(f.skipped, []);
   assert.deepEqual(
-    f.filed.map((x) => [x.test, x.fix]),
-    [[rec.test, 'W-7']],
+    f.filed.map((x) => [x.tests, x.fix]),
+    [[[rec.test], 'W-7']],
   );
+  assert.equal(tracker.made[0].state, 'proposed');
   assert.match(readRegression(readFileSync(join(root, rec.test), 'utf8'))?.todo ?? '', /^W-7: /);
   assert.deepEqual(
     git('show', '--name-only', '--format=', 'HEAD').trim().split('\n').sort(),
     [rec.test, 'work/items/W-7-fix.md'].sort(),
     'the item and the test that names it, in one commit',
   );
-  assert.deepEqual(filePending(root, [reg], { tracker: () => filing }).filed, [], 'filed once');
+  assert.deepEqual(filePending(root, [reg], { tracker: () => tracker }).filed, [], 'filed once');
+});
+
+test('--fix must be an existing item ID: it cannot carry trailers into the commit', () => {
+  const { root, git } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
+  const [reg] = regsOf(root);
+  const tracker = filingTracker(root);
+  const forged = 'W-1\n\nWork-Item: W-999\nDispatch: D-77\nSigned-off-by: Eve <e@x>';
+  const bad = recordBreak(root, reg, 'twice-is-once', { tracker: () => tracker, fix: forged });
+  assert.equal(bad.ok, false);
+  assert.match(!bad.ok ? bad.reason : '', /must be an item ID/);
+  const missing = recordBreak(root, reg, 'twice-is-once', { tracker: () => tracker, fix: 'W-1' });
+  assert.match(!missing.ok ? missing.reason : '', /no item W-1/);
+  assert.equal(git('status', '--porcelain').trim(), '');
+  assert.equal(git('rev-list', '--count', 'HEAD').trim(), '1');
+  const ok = recordBreak(root, reg, 'twice-is-once', { tracker: () => tracker, fix: 'W-8' });
+  assert.ok(ok.ok);
+  assert.match(
+    git('log', '-1', '--format=%B'),
+    /^W-8: regression test[\s\S]*\n\nWork-Item: W-8\s*$/,
+  );
+  assert.equal(tracker.made.length, 0, 'no item filed when one is named');
+});
+
+test('the item is filed only after its test is shown to fail', () => {
+  const { root } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
+  const [reg] = regsOf(root);
+  const rec = recordBreak(root, reg, 'twice-is-once', {
+    tracker: () => ({
+      get: () => ({}),
+      createEntity: () => {
+        const dir = join(root, 'test/adversary');
+        const [file] = readdirSync(dir);
+        assert.ok(regressionFails(root, `test/adversary/${file}`).fails, 'the test fails first');
+        mkdirSync(join(root, 'work/items'), { recursive: true });
+        writeFileSync(join(root, 'work/items/W-7-fix.md'), '---\nid: W-7\n---\n');
+        return { id: 'W-7', path: 'work/items/W-7-fix.md' };
+      },
+    }),
+  });
+  assert.ok(rec.ok);
+});
+
+test('known means the same counterexample: a second break of an invariant shows while the first is open', () => {
+  // f breaks idempotence at n = 11 (an off-by-one above 9) and at n = -20 (another bug below -19).
+  const { root } = repo({
+    'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n < -19 ? n + 1 : n);\n',
+  });
+  const [reg] = regsOf(root);
+  const first = attackArea(root, reg);
+  assert.equal(first.breaks.length, 1);
+  const rec = recordBreak(root, reg, 'twice-is-once', {
+    args: first.breaks[0].args,
+    tracker: () => refusing,
+  });
+  assert.ok(rec.ok);
+  const second = attackArea(root, reg);
+  assert.equal(second.breaks.length, 1, 'the other bug is a new break, not known');
+  assert.notDeepEqual(second.breaks[0].args, first.breaks[0].args);
+  assert.equal(second.known.length, 1);
+});
+
+test('an open regression test that passes now fails the pass: its todo mark must go', () => {
+  const { root, git } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
+  const [reg] = regsOf(root);
+  const rec = recordBreak(root, reg, 'twice-is-once', { tracker: () => refusing });
+  assert.ok(rec.ok);
+  writeFileSync(join(root, 'src/f.js'), 'export const f = (n) => n;\n');
+  git('commit', '-qam', 'the fix');
+  const r = attackArea(root, reg);
+  assert.deepEqual(r.breaks, []);
+  assert.match(r.errors.join('\n'), /passes now: .*remove its todo mark/);
+});
+
+test("an invariant's tests are its own: an ID that prefixes another's does not share them", () => {
+  const inv = (/** @type {string} */ id, /** @type {string} */ target) => ({
+    id,
+    statement: `${id} holds.`,
+    checked: '2026-11-20',
+    form: 'idempotent',
+    module: 'src/f.js',
+    target,
+    args: [{ type: 'integer', min: -50, max: 50 }],
+  });
+  const { root } = repo(
+    {
+      'src/f.js':
+        'export const f = (n) => Math.abs(n);\nexport const g = (n) => (n > 9 ? n - 1 : n);\n',
+    },
+    { invariants: [inv('a', 'f'), inv('a-b', 'g')] },
+  );
+  const [reg] = regsOf(root);
+  const rec = recordBreak(root, reg, 'a-b', { tracker: () => refusing });
+  assert.ok(rec.ok);
+  if (!rec.ok) return;
+  assert.match(rec.test, /adversary-a-b-/);
+  assert.deepEqual(openRegressions(root, 'test/adversary', 'a'), []);
+  assert.equal(openRegressions(root, 'test/adversary', 'a-b').length, 1);
+});
+
+test('tests_dir lies inside the area and the repository, through no link out', () => {
+  const { root } = repo({ 'src/f.js': 'export const f = (n) => n;\n' });
+  const rel = 'kb/areas/lib/invariants.json';
+  const text = readFileSync(join(root, rel), 'utf8');
+  writeFileSync(join(root, rel), text.replace('"test/adversary"', '"docs/adversary"'));
+  assert.match(readRegistry(root, rel, 'lib', ['src/**', 'test/**']).errors.join(), /not inside/);
+  const outside = tempDir('adversary-outside-');
+  mkdirSync(join(root, 'test'), { recursive: true });
+  symlinkSync(outside, join(root, 'test/adversary'));
+  writeFileSync(join(root, rel), text);
+  assert.match(
+    readRegistry(root, rel, 'lib', ['src/**', 'test/**']).errors.join(),
+    /leads outside the repository/,
+  );
 });
 
 test('a false break records nothing', () => {
@@ -324,6 +465,24 @@ test('a false break records nothing', () => {
   assert.match(!r.ok ? r.reason : '', /^not a break/);
   assert.equal(git('status', '--porcelain').trim(), '');
 });
+
+const FORMATTED = `// hitld-adversary: {"area":"lib","invariant":"i","args":["todo: 'x'"],"message":"m","todo":"fix item pending: It's \\"fine\\"."}
+// Found: todo: 'not the mark'
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as subject from '../../src/p.js';
+
+test(
+  'invariant i: todo: "not the mark either"',
+  {
+    todo: 'fix item pending: It\\'s "fine".',
+  },
+  () => {
+    const args = /** @type {[any]} */ (["todo: 'x'"]);
+    assert.equal(subject.p(...args), true);
+  },
+);
+`;
 
 test('a regression test reads back after a formatter rewrites it, and its todo mark changes in place', () => {
   /** @type {any} */
@@ -350,16 +509,32 @@ test('a regression test reads back after a formatter rewrites it, and its todo m
   const r = readRegression(text);
   assert.deepEqual(r?.args, ['a\u2028b']);
   assert.equal(r?.todo, 'fix item pending: It\'s "fine".');
-  // As Prettier with singleQuote writes it: single quotes, the option on its own line.
-  const formatted = text.replace(
-    /\{ todo: "(.*)" \}/,
-    (_m, body) => `{\n    todo: '${JSON.parse(`"${body}"`).replace(/'/g, "\\'")}',\n  }`,
+  assert.equal(r?.marked, true);
+  // As Prettier with singleQuote leaves it, with "todo:" in the counterexample, a comment and
+  // the title: only the option in the test call is the mark.
+  const f = readRegression(FORMATTED);
+  assert.equal(f?.marked, true);
+  const filed = retodo(FORMATTED, 'fix item pending: It\'s "fine".', "W-3: a \\ and 'quote'.");
+  assert.equal(readRegression(filed)?.todo, "W-3: a \\ and 'quote'.");
+  assert.ok(filed.includes("    todo: 'W-3: a \\\\ and \\'quote\\'.',\n"), filed);
+  assert.ok(filed.includes(`["todo: 'x'"]`), 'the counterexample is untouched');
+  assert.ok(filed.includes("// Found: todo: 'not the mark'"), 'the comment is untouched');
+  assert.throws(() => retodo(FORMATTED, 'something else', 'W-3'), /does not carry/);
+  const unmarked = FORMATTED.replace("    todo: 'fix item pending: It\\'s \"fine\".',\n", '');
+  assert.equal(
+    readRegression(unmarked)?.marked,
+    false,
+    'a test whose todo mark is gone is not open',
   );
-  assert.notEqual(formatted, text);
-  assert.equal(readRegression(formatted)?.todo, 'fix item pending: It\'s "fine".');
-  const filed = retodo(formatted, 'fix item pending: It\'s "fine".', 'W-3: it\'s "fine".');
-  assert.equal(readRegression(filed)?.todo, 'W-3: it\'s "fine".');
-  assert.match(filed, /todo: 'W-3: it\\'s "fine"\.'/);
+});
+
+test('literal: one-pass escaping gives a string JavaScript reads back exactly', () => {
+  for (const s of ['plain', "it's", 'a "q"', 'back\\slash\\', 'line\nbreak\u2028\r', '\\\'"']) {
+    for (const q of ["'", '"']) {
+      const lit = literal(s, q);
+      assert.equal(new Function(`return ${lit};`)(), s, lit);
+    }
+  }
 });
 
 test('due: an area is due when a change touches its paths or its registry', () => {
@@ -374,9 +549,115 @@ test('due: an area is due when a change touches its paths or its registry', () =
     due.map((d) => [d.registry.area, d.changed]),
     [['lib', ['src/new.js']]],
   );
-  git('add', '-A');
-  git('commit', '-q', '-m', 'change');
-  const reg = readFileSync(join(root, 'kb/areas/lib/invariants.json'), 'utf8');
-  writeFileSync(join(root, 'kb/areas/lib/invariants.json'), reg.replace('Applying', 'Applying'));
-  assert.equal(dueRegistries(regs, changedFiles(root, 'main')).length, 1);
+  // The registry alone: a change outside the area's paths that still gets its pass.
+  git('stash', '-u', '-q');
+  const rel = 'kb/areas/lib/invariants.json';
+  const reg = JSON.parse(readFileSync(join(root, rel), 'utf8'));
+  reg.invariants[0].statement = 'Applying f twice gives what applying it once gives.';
+  writeFileSync(join(root, rel), JSON.stringify(reg));
+  assert.deepEqual(
+    dueRegistries(regs, changedFiles(root, 'main')).map((d) => d.changed),
+    [[rel]],
+    'the registry alone changed',
+  );
+});
+
+test('the pass tries several seeds: every seeded bug of the fixture area is found at seeds 1 to 10, and no clean control raises anything', () => {
+  for (const [variant, spec] of Object.entries(VARIANTS)) {
+    if (!spec.part) continue;
+    const root = tempDir('adversary-seeds-');
+    mkdirSync(join(root, 'src'));
+    mkdirSync(join(root, 'kb/areas/text'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), '{ "type": "module" }\n');
+    writeFileSync(join(root, 'src/text.js'), moduleFor(/** @type {any} */ (variant)));
+    writeFileSync(join(root, 'kb/areas/text/invariants.json'), JSON.stringify(REGISTRY));
+    const rel = 'kb/areas/text/invariants.json';
+    const { data, errors } = readRegistry(root, rel, 'text');
+    const reg = { area: 'text', path: rel, paths: ['src/**'], data, errors };
+    for (let seed = 1; seed <= 10; seed++) {
+      const r = attackArea(root, reg, { seed });
+      assert.deepEqual(r.errors, []);
+      assert.deepEqual(
+        r.breaks.map((b) => b.invariant),
+        spec.breaks ? [spec.breaks] : [],
+        `${variant} at seed ${seed}`,
+      );
+    }
+  }
+});
+
+test('executors are refused the commands that record breaks and file items', async () => {
+  const { root } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
+  for (const argv of [
+    ['adversary', 'record', '--area', 'lib', '--invariant', 'twice-is-once'],
+    ['adversary', 'attack', '--record'],
+    ['adversary', 'file'],
+  ]) {
+    const r = await hitld(argv, root, { HITLD_ROLE: 'executor' });
+    assert.equal(r.exit, 1, argv.join(' '));
+    assert.equal(r.result.error, 'not-permitted', argv.join(' '));
+  }
+  const plain = await hitld(['adversary', 'attack'], root, { HITLD_ROLE: 'executor' });
+  assert.equal(plain.result.ok, false, 'reading the pass is allowed: it reports the break');
+  assert.equal(plain.result.breaks.length, 1);
+});
+
+test('adversary file refuses under merge through pull requests, with the drafts and the path to take', async () => {
+  const { root } = repo(
+    { 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' },
+    undefined,
+    { merge: { mode: 'owner', via: 'pull-request' } },
+  );
+  const [reg] = regsOf(root);
+  const rec = recordBreak(root, reg, 'twice-is-once', { tracker: () => refusing });
+  assert.ok(rec.ok);
+  const r = await hitld(['adversary', 'file'], root, {});
+  assert.equal(r.result.ok, false);
+  assert.match(r.result.reason, /pull-request/);
+  assert.match(r.result.next, /adversary file --test <test> --fix <ID>/);
+  assert.deepEqual(
+    r.result.pending.map((/** @type {any} */ p) => p.tests),
+    [[rec.ok ? rec.test : '']],
+  );
+});
+
+/**
+ * Run hitld in a repository. @param {string[]} argv @param {string} cwd
+ * @param {Record<string, string>} env
+ */
+async function hitld(argv, cwd, env) {
+  let out = '';
+  const exit = await main(argv, {
+    out: (t) => (out += t),
+    err: () => {},
+    cwd,
+    env: { PATH: process.env.PATH, ...env },
+  });
+  return { exit, result: JSON.parse(out) };
+}
+
+const GUARD = fileURLToPath(new URL('../harness/claude-code/hooks/guard.mjs', import.meta.url));
+/** @param {string} command @param {string | null} agentType */
+const guard = (command, agentType) =>
+  spawnSync(process.execPath, [GUARD], {
+    input: JSON.stringify({
+      ...(agentType ? { agent_type: agentType } : {}),
+      tool_name: 'Bash',
+      tool_input: { command },
+    }),
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH },
+  }).stdout;
+
+test('guard: an executor is denied every hitld adversary command (default deny); the adversary is not', () => {
+  for (const command of [
+    'hitld adversary file',
+    'hitld adversary attack --record',
+    'node core/bin/hitld.mjs adversary record --area core --invariant x',
+    'hitld adversary attack --base main',
+    'hitld adversary due',
+  ]) {
+    assert.match(guard(command, 'human-in-the-lead:executor-tier2'), /"deny"/, command);
+    assert.equal(guard(command, 'human-in-the-lead:adversary'), '', command);
+  }
 });

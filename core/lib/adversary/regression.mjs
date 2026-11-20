@@ -4,22 +4,20 @@
 // test stands alone: it imports only the area's own modules, and checks what the pass checked.
 
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
-import { testPrefix } from './attack.mjs';
+import { counterexampleDigest } from './forms.mjs';
 
 /**
  * @typedef {import('./registry.mjs').Invariant} Invariant
  * @typedef {import('./registry.mjs').RegistryData} RegistryData
  * @typedef {{ args: unknown[], variant?: unknown[] }} Counterexample
+ * @typedef {{ area: string, invariant: string, args: unknown[], variant?: unknown[],
+ *   message: string, todo: string, digest: string, marked: boolean }} Regression
+ *   todo: the mark as written; marked: the test still carries a todo option
  */
 
-/** @param {Counterexample} c */
-const digest = (c) =>
-  createHash('sha256')
-    .update(JSON.stringify({ args: c.args, variant: c.variant ?? null }))
-    .digest('hex')
-    .slice(0, 8);
+/** The regression test file name prefix for an invariant: for naming only. @param {string} id */
+export const testPrefix = (id) => `adversary-${id}-`;
 
 /**
  * The regression test's path, repository-relative.
@@ -27,7 +25,7 @@ const digest = (c) =>
  */
 export function regressionPath(data, inv, c) {
   const ext = inv.module.endsWith('.mjs') ? 'mjs' : 'js';
-  return posix.join(data.tests_dir, `${testPrefix(inv.id)}${digest(c)}.test.${ext}`);
+  return posix.join(data.tests_dir, `${testPrefix(inv.id)}${counterexampleDigest(c)}.test.${ext}`);
 }
 
 /** An import specifier from the test's directory to a module. @param {string} from @param {string} to */
@@ -45,11 +43,29 @@ const js = (v) => JSON.stringify(v);
  */
 const tuple = (list) => `/** @type {[${list.map(() => 'any').join(', ')}]} */ (${js(list)})`;
 
-/** Text for a comment line: no character that would end the line. @param {string} t */
-const oneLine = (t) =>
-  t.replace(/[\r\n\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+/** A character as a \u escape. @param {string} c */
+const escaped = (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`;
 
-/** The line that carries the break as data, for filing its fix item later. */
+/** Text for a comment line: no character that would end the line. @param {string} t */
+const oneLine = (t) => t.replace(/[\r\n\u2028\u2029]/g, escaped);
+
+/**
+ * A JavaScript string literal in the given quote, built in one pass: the quote and the backslash
+ * are escaped, and every control or line-ending character is written as a \u escape.
+ * @param {string} s @param {string} quote ' or "
+ */
+export function literal(s, quote) {
+  let out = quote;
+  for (const c of s) {
+    const code = c.charCodeAt(0);
+    if (c === quote || c === '\\') out += `\\${c}`;
+    else if (code < 0x20 || code === 0x7f || c === '\u2028' || c === '\u2029') out += escaped(c);
+    else out += c;
+  }
+  return `${out}${quote}`;
+}
+
+/** The line that carries the break as data: the counterexample and the todo mark. */
 const META = '// hitld-adversary:';
 
 /** The todo mark of a test whose fix item is not filed yet. @param {string} statement */
@@ -59,55 +75,93 @@ export const pendingTodo = (statement) => `fix item pending: ${statement}`;
 export const filedTodo = (id, statement) => `${id}: ${statement}`;
 
 /**
- * The break a regression test records, and its todo mark, or null when the file is not one.
+ * The end of the string literal that opens at `at`, past its closing quote, or -1. Only escapes
+ * are skipped; nothing is decoded.
+ * @param {string} text @param {number} at
+ */
+function literalEnd(text, at) {
+  const quote = text[at];
+  for (let i = at + 1; i < text.length; i++) {
+    if (text[i] === '\\') i++;
+    else if (text[i] === quote) return i + 1;
+    else if (text[i] === '\n' && quote !== '`') return -1;
+  }
+  return -1;
+}
+
+/**
+ * Where the todo option's string literal sits in the test call, or null. The search starts at the
+ * `test(` call, past the comments and the metadata line, and skips every string literal on the
+ * way, so a counterexample or a title that holds "todo:" is never taken for the option.
  * @param {string} text
- * @returns {{ area: string, invariant: string, args: unknown[], variant?: unknown[], message: string, todo: string | null } | null}
+ * @returns {{ start: number, end: number, quote: string } | null}
+ */
+function todoLiteral(text) {
+  const call = /^test\(/m.exec(text);
+  if (!call) return null;
+  for (let i = call.index; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === '`') {
+      const end = literalEnd(text, i);
+      if (end < 0) return null;
+      i = end - 1;
+      continue;
+    }
+    if (c === '=' && text[i + 1] === '>') return null; // the test's body: no option before it
+    if (text.startsWith('todo', i) && !/[\w$]/.test(text[i - 1] ?? '')) {
+      let j = i + 4;
+      while (/\s/.test(text[j] ?? '')) j++;
+      if (text[j] !== ':') continue;
+      j++;
+      while (/\s/.test(text[j] ?? '')) j++;
+      if (text[j] !== '"' && text[j] !== "'") return null;
+      const end = literalEnd(text, j);
+      return end < 0 ? null : { start: j, end, quote: text[j] };
+    }
+  }
+  return null;
+}
+
+/**
+ * The break a regression test records, or null when the file is not one.
+ * @param {string} text
+ * @returns {Regression | null}
  */
 export function readRegression(text) {
   const line = text.split('\n').find((l) => l.startsWith(`${META} `));
   if (!line) return null;
   try {
     const meta = JSON.parse(line.slice(META.length + 1));
-    const mark = todoMark(text);
-    return { ...meta, todo: mark ? mark.value : null };
+    if (typeof meta.invariant !== 'string' || !Array.isArray(meta.args)) return null;
+    return {
+      ...meta,
+      todo: typeof meta.todo === 'string' ? meta.todo : '',
+      digest: counterexampleDigest(meta),
+      marked: todoLiteral(text) !== null,
+    };
   } catch {
     return null;
   }
 }
 
 /**
- * The todo option in a test's source, in either quote style and across a line break, as a
- * formatter may leave it.
- * @param {string} text
- * @returns {{ at: number, length: number, quote: string, value: string } | null}
- */
-function todoMark(text) {
-  const m = /\btodo:\s*(?:(")((?:[^"\\\n]|\\.)*)"|(')((?:[^'\\\n]|\\.)*)')/.exec(text);
-  if (!m) return null;
-  const quote = m[1] ?? m[3];
-  const body = m[2] ?? m[4];
-  const value =
-    quote === '"'
-      ? JSON.parse(`"${body}"`)
-      : JSON.parse(`"${body.replace(/\\'/g, "'").replace(/"/g, '\\"')}"`);
-  return { at: m.index, length: m[0].length, quote, value };
-}
-
-/** A string literal in a quote style. @param {string} s @param {string} quote */
-function literal(s, quote) {
-  const json = JSON.stringify(s);
-  if (quote === '"') return json;
-  return `'${json.slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'")}'`;
-}
-
-/**
- * The same test with another todo mark, written in the quote style it had.
+ * The same test with another todo mark: in the metadata line, and in the test call in the quote
+ * style it had.
  * @param {string} text @param {string} from @param {string} to
  */
 export function retodo(text, from, to) {
-  const mark = todoMark(text);
-  if (!mark || mark.value !== from) throw new Error('the test does not carry that todo mark');
-  return `${text.slice(0, mark.at)}todo: ${literal(to, mark.quote)}${text.slice(mark.at + mark.length)}`;
+  const r = readRegression(text);
+  const at = todoLiteral(text);
+  if (!r || !at || r.todo !== from) throw new Error('the test does not carry that todo mark');
+  const swapped = `${text.slice(0, at.start)}${literal(to, at.quote)}${text.slice(at.end)}`;
+  return swapped
+    .split('\n')
+    .map((l) => {
+      if (!l.startsWith(`${META} `)) return l;
+      const meta = JSON.parse(l.slice(META.length + 1));
+      return `${META} ${oneLine(js({ ...meta, todo: to }))}`;
+    })
+    .join('\n');
 }
 
 /**
@@ -149,6 +203,7 @@ export function regressionText({ area, registry, data, inv, c, todo, message }) 
     args: c.args,
     ...(c.variant ? { variant: c.variant } : {}),
     message,
+    todo,
   };
   const lines = [
     `// An adversarial regression test (design 6.3): the pass broke invariant ${inv.id} of area`,
@@ -169,7 +224,7 @@ export function regressionText({ area, registry, data, inv, c, todo, message }) 
         ]
       : []),
     '',
-    `test(${js(`invariant ${inv.id}: ${inv.statement}`)}, { todo: ${js(todo)} }, () => {`,
+    `test(${js(`invariant ${inv.id}: ${inv.statement}`)}, { todo: ${literal(todo, '"')} }, () => {`,
     `  const args = ${tuple(c.args)};`,
     ...bodies[inv.form].map((l) => `  ${l}`),
     '});',
