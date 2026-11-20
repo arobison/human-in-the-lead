@@ -11,7 +11,7 @@ done_when:
   - "c2: Learned state and token accounting show in `hitld metrics` and the dashboard."
   - "c3: A description-quality guide, check and eval exist."
   - "c4: A friction digest per version, and an honest record for feedback the agent finds."
-constraints: [HITLD-81 c1, HITLD-112 c2, HITLD-139 c2, HITLD-75 c3, HITLD-48 c4, HITLD-277 c4, HITLD-43 c4, HITLD-436 c1, HITLD-438 c1, HITLD-439 c1, HITLD-450 c1, HITLD-454 c1, HITLD-458 c1, HITLD-459 c1, HITLD-491 c1, HITLD-493 c4, HITLD-418 c2, HITLD-601 c2, HITLD-511 c2, HITLD-444 c2, HITLD-622 c2]
+constraints: [HITLD-81 c1, HITLD-112 c2, HITLD-139 c2, HITLD-75 c3, HITLD-48 c4, HITLD-277 c4, HITLD-43 c4, HITLD-436 c1, HITLD-438 c1, HITLD-439 c1, HITLD-450 c1, HITLD-454 c1, HITLD-458 c1, HITLD-459 c1, HITLD-491 c1, HITLD-493 c4, HITLD-418 c2, HITLD-601 c2, HITLD-511 c2, HITLD-444 c2, HITLD-622 c2, HITLD-640 c2]
 check: integration-test a seeded ledger produces the expected learned state, token shares and one proposal, and a seeded poor description is flagged
 ---
 
@@ -24,3 +24,5 @@ Proposed by the planning pass HITLD-343 on the owner's decision HITLD-363; the o
 HITLD-511 (merge-risk prediction) and HITLD-444 (the Roadmap routing polish) joined clause c2 here, after v0.1.0. HITLD-595 and HITLD-596 left clause c4 for milestone HITLD-403 (clause c5).
 
 HITLD-622 (a project-owned data area in the private store, later option) joined clause c2 on the owner's decision HITLD-623.
+
+HITLD-640 (evidence of which harness and model combination reaches accepted outcomes for fewer tokens) joined clause c2 as a proposal.
