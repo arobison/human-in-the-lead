@@ -5,7 +5,16 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
@@ -31,6 +40,9 @@ const OWNER = {
 
 /** @param {ReturnType<typeof makeConsumer>} c */
 const storeOf = (c) => privateStorePath(PROJECT, { env: c.env });
+
+/** The store pulled at session start from the address in use. @param {ReturnType<typeof makeConsumer>} c */
+const pulled = (c) => recordPull(storeOf(c), { status: 'done', url: CLOUD.HITLD_STORE_REMOTE });
 
 /** @param {ReturnType<typeof makeConsumer>} c @param {Record<string, any>} data */
 const putPerson = (c, data) =>
@@ -91,7 +103,7 @@ test('a fresh cloud container with the store reads the owner settings and asks o
   await ownerAnswered(c);
   // A new container: no person or machine file in its home, the store pulled at session start.
   removeHomeSettings(c);
-  recordPull(storeOf(c), { status: 'done' });
+  pulled(c);
   const env = { ...CLOUD };
   const r = (await c.hitld(['config', 'explain', '--json'], { env })).result;
   assert.equal(r.ok, true, JSON.stringify(r));
@@ -126,7 +138,7 @@ test('a session without the store runs the setup as before', async () => {
   assert.equal(r.setup.conservative, null);
   assert.equal(r.files.person.store, null);
   // Enrolled, and the store reached but empty (the first session ever): the setup asks too.
-  recordPull(storeOf(c), { status: 'done' });
+  pulled(c);
   const empty = (await c.hitld(['config', 'explain', '--json'], { env: CLOUD })).result;
   assert.deepEqual(empty.setup.missing, ['person', 'machine']);
   assert.equal(empty.setup.conservative, null);
@@ -138,6 +150,7 @@ test('the store cannot be reached at session start: conservative defaults, it sa
   removeHomeSettings(c);
   recordPull(storeOf(c), {
     status: 'unreachable',
+    url: CLOUD.HITLD_STORE_REMOTE,
     code: 'remote-unreachable',
     message: 'could not resolve host',
   });
@@ -159,7 +172,10 @@ test('the store cannot be reached at session start: conservative defaults, it sa
   const plan = (await c.hitld(['dispatch', 'plan'], { env: CLOUD })).result;
   assert.equal(plan.cap, 1);
   assert.ok(plan.held.every((/** @type {{ reason: string }} */ h) => h.reason !== 'setup'));
-  assert.ok(plan.start.length <= 1);
+  assert.equal(plan.start.length, 1, 'exactly one executor starts');
+  // Every reader of the cap sees the same one executor.
+  assert.equal(r.cap, 1);
+  assert.equal(value(r, 'executors.cap').value, 1);
 });
 
 test('an enrolled session that has not pulled yet does not read the copy, and says to pull', () => {
@@ -184,7 +200,7 @@ test('a stale copy: a person file left in the container gives way to the store, 
     { schema_version: 1, max_executors: 8 },
     { env: c.env, cwd: tmpdir() },
   );
-  recordPull(storeOf(c), { status: 'done' });
+  pulled(c);
   const fresh = (await c.hitld(['config', 'explain', '--json'], { env: CLOUD })).result;
   assert.equal(fresh.cap, 3, "the store's cap applies, not the container's");
   assert.equal(value(fresh, 'quota.reserve').value, 0.4);
@@ -196,7 +212,12 @@ test('a stale copy: a person file left in the container gives way to the store, 
     ),
   );
   // The pull at the next session start fails: neither the store's copy nor the container's is used.
-  recordPull(storeOf(c), { status: 'failed', code: 'age-no-match', message: 'no key opens it' });
+  recordPull(storeOf(c), {
+    status: 'failed',
+    url: CLOUD.HITLD_STORE_REMOTE,
+    code: 'age-no-match',
+    message: 'no key opens it',
+  });
   const stale = (await c.hitld(['config', 'explain', '--json'], { env: CLOUD })).result;
   assert.equal(stale.files.person.store.local_file_ignored, true);
   assert.match(stale.setup.conservative, /the last pull .* failed: age-no-match/);
@@ -221,7 +242,7 @@ test('config write person --merge in a fresh container starts from the store, no
   const c = makeConsumer({ setup: false });
   await ownerAnswered(c);
   removeHomeSettings(c);
-  recordPull(storeOf(c), { status: 'done' });
+  pulled(c);
   const w = await c.hitld(
     ['config', 'write', 'person', '--merge', '--data', '{"quota":{"reserve":0.3}}'],
     { env: CLOUD },
@@ -273,7 +294,7 @@ test("the owner's answers about a kind of machine are kept in the store and used
   assert.equal(kept['cloud-vm'].cores, undefined, 'the probe gives the rest');
   // A new container: no machine file; the store pulled at session start.
   removeHomeSettings(c);
-  recordPull(storeOf(c), { status: 'done' });
+  pulled(c);
   const next = await run(['machine', 'detect', '--write'], CLOUD);
   assert.equal(next.written, true, JSON.stringify(next));
   assert.equal(next.kind_source, 'store');
@@ -283,7 +304,12 @@ test("the owner's answers about a kind of machine are kept in the store and used
   assert.equal(file.disk_floor_mb, 2048);
   // Without a pull that reached the remote, the probe alone proposes the profile.
   removeHomeSettings(c);
-  recordPull(storeOf(c), { status: 'unreachable', code: 'remote-unreachable', message: 'x' });
+  recordPull(storeOf(c), {
+    status: 'unreachable',
+    url: CLOUD.HITLD_STORE_REMOTE,
+    code: 'remote-unreachable',
+    message: 'x',
+  });
   const unreached = await run(['machine', 'detect'], CLOUD);
   assert.equal(unreached.kind_source, 'detected');
   assert.equal(unreached.proposed.disk_floor_mb, undefined);
@@ -319,4 +345,177 @@ test('a pull records what it did, and a damaged record reads as never pulled', a
   assert.equal(readLastPull(root), null);
   rmSync(path);
   writeSetupDone(c.env);
+});
+
+test('config write --merge with the store not up to date writes nothing: no stale copy reaches the store', async () => {
+  const c = makeConsumer({ setup: false });
+  await ownerAnswered(c);
+  const before = openStore(storeOf(c)).read(PERSON_KEY);
+  // A container's older file: a looser cap and a smaller reserve; the pull at start failed.
+  writeSettingsFile(
+    'person',
+    { schema_version: 1, max_executors: 8, quota: { reserve: 0.1 } },
+    { env: c.env, cwd: tmpdir() },
+  );
+  const local = readFileSync(settingsLocation('person', { env: c.env }).path, 'utf8');
+  recordPull(storeOf(c), {
+    status: 'unreachable',
+    url: CLOUD.HITLD_STORE_REMOTE,
+    code: 'remote-unreachable',
+    message: 'could not resolve host',
+  });
+  for (const argv of [
+    ['config', 'write', 'person', '--merge', '--data', '{"quota":{"critical_below":0.2}}'],
+    ['config', 'write', 'person', '--data', JSON.stringify(OWNER)],
+    ['config', 'write', 'machine', '--data', '{"schema_version":1,"kind":"cloud-vm"}'],
+  ]) {
+    const w = (await c.hitld(argv, { env: CLOUD })).result;
+    assert.equal(w.ok, false);
+    assert.equal(w.error, 'settings-not-pulled');
+    assert.match(w.message, /could not reach the remote/);
+    assert.match(w.message, /^nothing was written: /);
+    assert.match(w.message, /Run hitld store pull, then write again/);
+  }
+  assert.equal(openStore(storeOf(c)).read(PERSON_KEY), before, 'the store copy is unchanged');
+  assert.equal(openStore(storeOf(c)).read(MACHINE_KEY), null);
+  assert.equal(
+    readFileSync(settingsLocation('person', { env: c.env }).path, 'utf8'),
+    local,
+    'the person file is unchanged',
+  );
+  // On the owner's own machine (not a cloud session), their file is written; the store's copy is not.
+  const own = (
+    await c.hitld(
+      ['config', 'write', 'person', '--merge', '--data', '{"quota":{"critical_below":0.2}}'],
+      {
+        env: { HITLD_STORE_REMOTE: CLOUD.HITLD_STORE_REMOTE },
+      },
+    )
+  ).result;
+  assert.equal(own.ok, true, JSON.stringify(own));
+  assert.equal(own.data.quota.critical_below, 0.2);
+  assert.equal(own.store.written, false);
+  assert.equal(own.store.error, 'settings-not-pulled');
+  assert.match(own.store.why, /could not reach the remote/);
+  assert.equal(openStore(storeOf(c)).read(PERSON_KEY), before, 'the store copy is still unchanged');
+});
+
+test('the store copy is read with trusted loading: a link or a file others can write is refused, and its content is never shown', async () => {
+  const c = makeConsumer({ setup: false });
+  pulled(c);
+  const root = storeOf(c);
+  const secret = join(c.base, 'not-settings.txt');
+  writeFileSync(secret, 'SECRET-CONTENT-123 not json');
+  mkdirSync(join(root, 'settings'), { recursive: true });
+  symlinkSync(secret, join(root, PERSON_KEY));
+  const env = { ...c.env, ...CLOUD };
+  const linked = readStoreSettings(root, { projectId: PROJECT, env });
+  assert.equal(linked.state, 'unreadable');
+  assert.match(linked.reason ?? '', /symbolic link/);
+  assert.doesNotMatch(linked.reason ?? '', /SECRET-CONTENT/);
+  const shown = (await c.hitld(['config', 'explain', '--json'], { env: CLOUD })).result;
+  assert.doesNotMatch(JSON.stringify(shown), /SECRET-CONTENT/);
+  rmSync(join(root, PERSON_KEY));
+  putPerson(c, OWNER);
+  chmodSync(join(root, PERSON_KEY), 0o666);
+  const writable = readStoreSettings(root, { projectId: PROJECT, env });
+  assert.equal(writable.state, 'unreadable');
+  assert.match(writable.reason ?? '', /writable/);
+  chmodSync(join(root, PERSON_KEY), 0o600);
+  const other = readStoreSettings(root, { projectId: PROJECT, env, uid: 12345 });
+  assert.equal(other.state, 'unreadable', 'a copy owned by another user is refused');
+  assert.equal(readStoreSettings(root, { projectId: PROJECT, env }).state, 'read');
+});
+
+test('a store copy that does not load is refused with a reason that holds none of its text', () => {
+  const c = makeConsumer({ setup: false });
+  pulled(c);
+  const root = storeOf(c);
+  const env = { ...c.env, ...CLOUD };
+  const store = openStore(root);
+  /** @param {string} key @param {string} text */
+  const refused = (key, text) => {
+    store.write(key, text);
+    chmodSync(join(root, key), 0o600);
+    const s = readStoreSettings(root, { projectId: PROJECT, env });
+    rmSync(join(root, key));
+    assert.equal(s.state, 'unreadable', text);
+    assert.equal(s.person, null);
+    assert.equal(s.machine, null);
+    assert.doesNotMatch(s.reason ?? '', /LEAK/, text);
+    return s.reason ?? '';
+  };
+  assert.match(refused(PERSON_KEY, '{"LEAK": '), /is not valid JSON/);
+  assert.match(refused(PERSON_KEY, '["LEAK"]'), /is not an object/);
+  assert.match(
+    refused(PERSON_KEY, '{"schema_version":1,"__proto__":{"LEAK":1}}'),
+    /1 unknown key, which never travel/,
+  );
+  assert.match(refused(PERSON_KEY, '{"schema_version":1,"LEAK":1}'), /1 unknown key/);
+  assert.match(refused(PERSON_KEY, '{"schema_version":999}'), /schema_version|newer/);
+  assert.match(
+    refused(PERSON_KEY, '{"schema_version":1,"max_executors":"LEAK"}'),
+    /does not match the person schema \(1 problem\)/,
+  );
+  assert.match(
+    refused(PERSON_KEY, '{"schema_version":1,"quota":{"__proto__":{"LEAK":1}}}'),
+    /does not match the person schema/,
+  );
+  assert.match(
+    refused(MACHINE_KEY, '{"cloud-vm":{"max_executors":2,"cores":8,"LEAK":1}}'),
+    /cloud-vm holds cores, 1 unknown key, which never travel/,
+  );
+  assert.match(refused(MACHINE_KEY, '{"LEAK":{"max_executors":2}}'), /not one of/);
+  assert.match(refused(MACHINE_KEY, '{"__proto__":{"max_executors":2}}'), /not one of/);
+  assert.match(
+    refused(MACHINE_KEY, '{"cloud-vm":{"capacity":{"LEAK name!":1}}}'),
+    /not a plain name/,
+  );
+  assert.match(
+    refused(MACHINE_KEY, '{"cloud-vm":{"max_executors":"LEAK"}}'),
+    /does not match the machine schema/,
+  );
+});
+
+test('a pull counts only for the address in use, and only for a day', () => {
+  const c = makeConsumer({ setup: false });
+  putPerson(c, OWNER);
+  const root = storeOf(c);
+  const env = { ...c.env, ...CLOUD };
+  recordPull(root, { status: 'done', url: '/elsewhere/another-store.git' });
+  const other = readStoreSettings(root, { projectId: PROJECT, env });
+  assert.equal(other.state, 'unreadable');
+  assert.match(other.reason ?? '', /another store address/);
+  const at = new Date('2026-11-20T10:00:00Z');
+  recordPull(root, { status: 'done', url: CLOUD.HITLD_STORE_REMOTE }, () => at);
+  const fresh = readStoreSettings(root, {
+    projectId: PROJECT,
+    env,
+    now: () => new Date(at.getTime() + 23 * 3600_000),
+  });
+  assert.equal(fresh.state, 'read');
+  const old = readStoreSettings(root, {
+    projectId: PROJECT,
+    env,
+    now: () => new Date(at.getTime() + 25 * 3600_000),
+  });
+  assert.equal(old.state, 'unreadable');
+  assert.match(old.reason ?? '', /more than 24 hours old/);
+});
+
+test('from a linked worktree, config write writes nothing to the store', async () => {
+  const c = makeConsumer({ setup: false });
+  await ownerAnswered(c);
+  const before = openStore(storeOf(c)).read(PERSON_KEY);
+  const tree = join(c.base, 'linked');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'linked', tree], { cwd: c.root });
+  for (const kind of ['person', 'machine']) {
+    const r = await c.hitld(['config', 'write', kind, '--data', '{"schema_version":1}'], {
+      cwd: tree,
+    });
+    assert.equal(r.result.error, 'not-permitted');
+    assert.match(r.result.message, /linked worktree/);
+  }
+  assert.equal(openStore(storeOf(c)).read(PERSON_KEY), before);
+  assert.equal(openStore(storeOf(c)).read(MACHINE_KEY), null);
 });

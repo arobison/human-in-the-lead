@@ -578,6 +578,21 @@ export function loadEffectivePolicy(options = {}) {
     running: options.running,
   };
   const eff = effectiveSettings(layers);
+  // The person settings were expected from the store and not read (HITLD-163): one executor, so
+  // every reader of the cap (the plan, config explain, idle slots) sees the same number.
+  const conservative = setupState(files).conservative;
+  if (conservative && eff.cap > 1) {
+    const entry = eff.values.find((e) => e.key === 'executors.cap');
+    if (entry) {
+      entry.overridden = [
+        { layer: entry.layer, value: entry.value, why: 'the store was not read: one executor' },
+        ...entry.overridden,
+      ];
+      entry.value = 1;
+      entry.layer = 'default';
+    }
+    eff.cap = 1;
+  }
   const errors = [...person.errors, ...machine.errors, ...eff.errors];
   return {
     path: loaded.path,

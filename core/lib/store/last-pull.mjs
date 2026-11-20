@@ -5,7 +5,10 @@
 //
 // Machine-local, like the record of what was merged (push-pull.mjs): it lives inside the store's
 // .git directory, which is never committed, never bundled and refused if a bundle carries it.
-//   <store>/.git/hitld-pull.json   { schema_version, at, status, code?, message? }
+//   <store>/.git/hitld-pull.json   { schema_version, at, status, url?, code?, message? }
+//
+// A push that went through records `done` too: it merged the remote's head first. A record is
+// tied to the remote's address, and is too old to count after MAX_AGE_HOURS (settings/store-copy.mjs).
 //
 // Light on purpose: settings loading reads it on every command, before any push or pull code is
 // loaded.
@@ -17,12 +20,17 @@ import { ensureRepo } from './git.mjs';
 
 const FILE = 'hitld-pull.json';
 
+/** How long a pull that reached the remote counts: the settings in the store are read for this long. */
+export const MAX_AGE_HOURS = 24;
+
 /**
  * @typedef {object} LastPull
  * @property {string} at when the pull ran (ISO 8601)
  * @property {'done' | 'unreachable' | 'failed'} status done: the remote was reached and merged (or
  *   was empty, or already merged); unreachable: it could not be reached; failed: it answered and
  *   what it holds could not be used
+ * @property {string} [url] the remote's address the pull was made against (absent when the pull
+ *   failed before an address was opened)
  * @property {string} [code] for unreachable and failed: the error's code
  * @property {string} [message] for unreachable and failed: what went wrong
  */
@@ -66,6 +74,7 @@ export function readLastPull(root) {
       return {
         at: v.at,
         status: v.status,
+        ...(typeof v.url === 'string' ? { url: v.url } : {}),
         ...(typeof v.code === 'string' ? { code: v.code } : {}),
         ...(typeof v.message === 'string' ? { message: v.message } : {}),
       };

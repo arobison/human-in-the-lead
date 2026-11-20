@@ -232,8 +232,8 @@ export async function pullStore(o) {
     recordPull(
       o.root,
       result.ok
-        ? { status: 'done' }
-        : { status: 'failed', code: String(r.error), message: String(r.message) },
+        ? { status: 'done', url: o.url }
+        : { status: 'failed', url: o.url, code: String(r.error), message: String(r.message) },
     );
     return result;
   } catch (e) {
@@ -243,6 +243,7 @@ export async function pullStore(o) {
         : 'failed';
     const message = e instanceof Error ? e.message : String(e);
     recordPull(o.root, {
+      url: o.url,
       status: UNREACHABLE_CODES.has(code) ? 'unreachable' : 'failed',
       code,
       message,
@@ -283,6 +284,19 @@ async function pullOnce(o) {
  *   resolve this device again from the store, after a merge; without it, `devices` stands
  */
 export async function pushStore(o) {
+  const result = await pushOnce(o);
+  // A push that went through merged the remote's head first: the store is as new as the remote.
+  if (/** @type {Record<string, unknown>} */ (result)?.ok) {
+    recordPull(o.root, { status: 'done', url: o.url });
+  }
+  return result;
+}
+
+/**
+ * One push, unrecorded: what pushStore does.
+ * @param {PushPullOptions & { refresh?: () => import('./devices-port.mjs').Devices }} o
+ */
+async function pushOnce(o) {
   // Refused unless the owner has approved this device's key, as far as this store knows. Enrolled
   // means its own key is among the recipients, so the device can always open what it pushed.
   assertEnrolled(o.devices);

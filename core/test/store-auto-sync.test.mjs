@@ -3,6 +3,7 @@
 // do the same for a session that dies between them. Two sessions are two private stores on two
 // devices, with a bare repository standing in for the store's host.
 
+import { readLastPull } from '../lib/store/last-pull.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -560,6 +561,9 @@ test('autoPull and autoPush: a conflict is a failure that names the paths, nothi
     contextFromCwd(f.project, a.env)
   );
   assert.equal((await autoPush(ca)).result, 'pushed');
+  // A push that went through merged the remote first: it counts as reaching the remote.
+  assert.equal(readLastPull(ca.store)?.status, 'done');
+  assert.equal(typeof readLastPull(ca.store)?.url, 'string');
   const cb = /** @type {NonNullable<ReturnType<typeof contextFromCwd>>} */ (
     contextFromCwd(f.project, b.env)
   );
@@ -570,6 +574,9 @@ test('autoPull and autoPush: a conflict is a failure that names the paths, nothi
   assert.equal(pulled.status, 'failed');
   assert.equal(pulled.error?.code, 'conflict');
   assert.ok(pulled.error?.conflicts);
+  // A pull that came back not ok is recorded as failed, so the settings in the store are not read.
+  assert.equal(readLastPull(cb.store)?.status, 'failed');
+  assert.equal(readLastPull(cb.store)?.code, 'conflict');
   assert.equal(b.store.read('notes/n.md'), 'two\n');
 });
 

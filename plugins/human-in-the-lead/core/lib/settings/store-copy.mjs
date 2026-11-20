@@ -20,10 +20,15 @@
 // not bring up to date is not used (HITLD-163), and the session runs on the conservative defaults
 // and says why.
 
+import { chmodSync, lstatSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { chooseRemote } from '../store/address.mjs';
-import { readLastPull } from '../store/last-pull.mjs';
+import { MAX_AGE_HOURS, readLastPull } from '../store/last-pull.mjs';
 import { cloudSession } from '../store/reach.mjs';
 import { openStore, privateStorePath } from '../store/store.mjs';
+import { ROLES } from '../machine/detect.mjs';
+import { readTrustedFile } from '../policy/policy.mjs';
+import { schemas } from '../schema/registry.mjs';
 import { validateSettings } from './files.mjs';
 import { newerRefusal, stampLowest } from './versions.mjs';
 
@@ -41,6 +46,12 @@ export const MACHINE_ANSWERS = Object.freeze([
   'disk_floor_mb',
   'capacity',
 ]);
+
+/** A resource name in `capacity`: plain, as policy.json names what work needs. */
+const RESOURCE_NAME = /^[a-z][a-z0-9_-]{0,63}$/;
+
+/** Why the copies are read with trusted loading, for refusals. */
+const WHY = "the store's settings set caps and limits";
 
 /**
  * @typedef {object} StoreSettings
@@ -94,10 +105,12 @@ export function projectStore(projectId, options = {}) {
 
 /**
  * Why a remote is expected and not known to be up to date here, or null when the copy may be read.
+ * The last pull must have reached the remote at the address in use, within MAX_AGE_HOURS.
  * @param {string} root @param {string} projectId @param {NodeJS.ProcessEnv} env
+ * @param {() => Date} now
  * @returns {{ problem: string | null, pulled_at?: string }}
  */
-function freshness(root, projectId, env) {
+function freshness(root, projectId, env, now) {
   /** @type {ReturnType<typeof chooseRemote>} */
   let address = null;
   try {
@@ -107,26 +120,55 @@ function freshness(root, projectId, env) {
       problem: `the store's address cannot be read: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
-  // No address: the store is this machine's own (or this session's, not enrolled), and what it
-  // holds was written here.
+  // No address: the session is not enrolled, so there is no store to bring up to date, and what
+  // this store holds was written here. The setup runs as before (HITLD-148, Done when).
   if (!address) return { problem: null };
+  const pull = 'run hitld store status for why, then hitld store pull';
   const last = readLastPull(root);
-  if (!last) {
-    return {
-      problem:
-        'the store has not been pulled in this session yet: run hitld store status for why, then hitld store pull',
-    };
-  }
+  if (!last) return { problem: `the store has not been pulled in this session yet: ${pull}` };
   if (last.status !== 'done') {
     return {
       problem: `the last pull (${last.at}) ${last.status === 'unreachable' ? 'could not reach the remote' : 'failed'}: ${last.code ? `${last.code}: ` : ''}${last.message ?? 'no detail'}`,
     };
   }
+  if (last.url !== address.url) {
+    return {
+      problem: `the last pull (${last.at}) was made against another store address than the one in use: ${pull}`,
+    };
+  }
+  const age = now().getTime() - Date.parse(last.at);
+  if (!(age >= 0 && age <= MAX_AGE_HOURS * 3600_000)) {
+    return {
+      problem: `the last pull that reached the remote (${last.at}) is more than ${MAX_AGE_HOURS} hours old: ${pull}`,
+    };
+  }
   return { problem: null, pulled_at: last.at };
 }
 
+/** The top-level keys a file of this kind may name, so a refusal names only those. */
+const known = (/** @type {'person' | 'machine'} */ kind) =>
+  new Set(Object.keys(/** @type {any} */ (schemas().get(kind))?.properties ?? {}));
+
 /**
- * Parse and check the traveling person settings. Returns the data, or why it is refused.
+ * The keys of an object that are not allowed, named only when the schema knows them; the rest are
+ * counted, so a refusal never echoes the file's own content.
+ * @param {string[]} extra @param {'person' | 'machine'} kind
+ */
+function extraKeys(extra, kind) {
+  const names = known(kind);
+  const named = extra.filter((k) => names.has(k));
+  const others = extra.length - named.length;
+  return [...named, ...(others ? [`${others} unknown key${others === 1 ? '' : 's'}`] : [])].join(
+    ', ',
+  );
+}
+
+/** @param {unknown} v */
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Parse and check the traveling person settings. Returns the data, or why it is refused. A reason
+ * never holds the file's own text.
  * @param {string} text @returns {{ data: Record<string, any> } | { why: string }}
  */
 function parsePerson(text) {
@@ -134,12 +176,10 @@ function parsePerson(text) {
   let data;
   try {
     data = JSON.parse(text);
-  } catch (e) {
-    return { why: `${PERSON_KEY} is not JSON: ${e instanceof Error ? e.message : e}` };
+  } catch {
+    return { why: `${PERSON_KEY} is not valid JSON` };
   }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { why: `${PERSON_KEY} is not an object` };
-  }
+  if (!isObject(data)) return { why: `${PERSON_KEY} is not an object` };
   const newer = newerRefusal('person', data);
   if (newer) return { why: `${PERSON_KEY}: ${newer.message}` };
   const extra = Object.keys(data).filter(
@@ -147,18 +187,21 @@ function parsePerson(text) {
   );
   if (extra.length) {
     return {
-      why: `${PERSON_KEY} holds ${extra.join(', ')}, which never travel in the store (only ${PERSON_TRAVELS.join(', ')} do)`,
+      why: `${PERSON_KEY} holds ${extraKeys(extra, 'person')}, which never travel in the store (only ${PERSON_TRAVELS.join(', ')} do)`,
     };
   }
   const errors = validateSettings('person', data);
   if (errors.length) {
-    return { why: `${PERSON_KEY}: ${errors.map((e) => `${e.path} ${e.message}`).join('; ')}` };
+    return {
+      why: `${PERSON_KEY} does not match the person schema (${errors.length} problem${errors.length === 1 ? '' : 's'}); hitld config write person replaces it`,
+    };
   }
   return { data };
 }
 
 /**
- * Parse and check the owner's machine answers, keyed by kind of machine.
+ * Parse and check the owner's machine answers, keyed by kind of machine. A reason never holds the
+ * file's own text.
  * @param {string} text @returns {{ data: Record<string, Record<string, any>> } | { why: string }}
  */
 function parseMachine(text) {
@@ -166,24 +209,33 @@ function parseMachine(text) {
   let data;
   try {
     data = JSON.parse(text);
-  } catch (e) {
-    return { why: `${MACHINE_KEY} is not JSON: ${e instanceof Error ? e.message : e}` };
+  } catch {
+    return { why: `${MACHINE_KEY} is not valid JSON` };
   }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { why: `${MACHINE_KEY} is not an object` };
-  }
+  if (!isObject(data)) return { why: `${MACHINE_KEY} is not an object` };
   for (const [kind, answers] of Object.entries(data)) {
-    if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
-      return { why: `${MACHINE_KEY}: ${kind} is not an object` };
+    if (!(/** @type {readonly string[]} */ (ROLES).includes(kind))) {
+      return {
+        why: `${MACHINE_KEY} names a kind of machine that is not one of ${ROLES.join(', ')}`,
+      };
     }
+    if (!isObject(answers)) return { why: `${MACHINE_KEY}: ${kind} is not an object` };
     const extra = Object.keys(answers).filter((k) => !MACHINE_ANSWERS.includes(k));
     if (extra.length) {
-      return { why: `${MACHINE_KEY}: ${kind} holds ${extra.join(', ')}, which never travel` };
+      return {
+        why: `${MACHINE_KEY}: ${kind} holds ${extraKeys(extra, 'machine')}, which never travel (only ${MACHINE_ANSWERS.join(', ')} do)`,
+      };
+    }
+    const capacity = /** @type {any} */ (answers).capacity;
+    if (isObject(capacity) && !Object.keys(capacity).every((n) => RESOURCE_NAME.test(n))) {
+      return {
+        why: `${MACHINE_KEY}: ${kind} capacity names a resource that is not a plain name (lower-case letters, digits, "_" and "-")`,
+      };
     }
     const errors = validateSettings('machine', { schema_version: 1, kind, ...answers });
     if (errors.length) {
       return {
-        why: `${MACHINE_KEY}: ${kind}: ${errors.map((e) => `${e.path} ${e.message}`).join('; ')}`,
+        why: `${MACHINE_KEY}: ${kind} does not match the machine schema (${errors.length} problem${errors.length === 1 ? '' : 's'}); hitld config write machine replaces it`,
       };
     }
   }
@@ -191,9 +243,32 @@ function parseMachine(text) {
 }
 
 /**
+ * Read one copy with the trusted loading the settings files get (readTrustedFile): a regular file
+ * owned by the current user, writable by nobody else, not a symbolic link, inside the store.
+ * @param {string} root @param {string} key @param {number | undefined} uid for tests
+ * @returns {{ text: string | null } | { why: string }}
+ */
+function readCopy(root, key, uid) {
+  const path = join(resolve(root), key);
+  try {
+    lstatSync(path);
+  } catch (e) {
+    if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT') return { text: null };
+    return { why: `${key} cannot be read` };
+  }
+  const read = readTrustedFile(path, root, {
+    why: WHY,
+    rootName: 'the store',
+    ...(uid !== undefined ? { uid } : {}),
+  });
+  return 'error' in read ? { why: `${key} ${read.error}` } : { text: read.text };
+}
+
+/**
  * Read the settings that travel in the project's store.
  * @param {string | null} root the project's store, or null when there is no project
- * @param {{ projectId: string, env?: NodeJS.ProcessEnv }} o
+ * @param {{ projectId: string, env?: NodeJS.ProcessEnv, now?: () => Date, uid?: number }} o
+ *   now and uid are for tests
  * @returns {StoreSettings}
  */
 export function readStoreSettings(root, o) {
@@ -201,24 +276,21 @@ export function readStoreSettings(root, o) {
   const none = { state: 'none', store: root, person: null, machine: null };
   if (!root) return none;
   const env = o.env ?? process.env;
-  const fresh = freshness(root, o.projectId, env);
-  const store = openStore(root);
-  /** @type {string | null} */
-  let personText = null;
-  /** @type {string | null} */
-  let machineText = null;
-  try {
-    personText = store.read(PERSON_KEY);
-    machineText = store.read(MACHINE_KEY);
-  } catch (e) {
+  const fresh = freshness(root, o.projectId, env, o.now ?? (() => new Date()));
+  if (fresh.problem) return { ...none, state: 'unreadable', reason: fresh.problem };
+  const at = fresh.pulled_at ? { pulled_at: fresh.pulled_at } : {};
+  const personRead = readCopy(root, PERSON_KEY, o.uid);
+  const machineRead = readCopy(root, MACHINE_KEY, o.uid);
+  const refused = [personRead, machineRead].flatMap((r) => ('why' in r ? [r.why] : []));
+  if (refused.length) {
     return {
       ...none,
       state: 'unreadable',
-      reason: `the store cannot be read: ${e instanceof Error ? e.message : String(e)}`,
+      reason: `the store's copy is refused: ${refused.join('; ')}`,
     };
   }
-  if (fresh.problem) return { ...none, state: 'unreadable', reason: fresh.problem };
-  const at = fresh.pulled_at ? { pulled_at: fresh.pulled_at } : {};
+  const personText = 'text' in personRead ? personRead.text : null;
+  const machineText = 'text' in machineRead ? machineRead.text : null;
   if (personText === null && machineText === null) return { ...none, ...at };
   const person = personText === null ? null : parsePerson(personText);
   const machine = machineText === null ? null : parseMachine(machineText);
@@ -240,6 +312,31 @@ export function readStoreSettings(root, o) {
 }
 
 /**
+ * Why `config write` may not put what travels in the store now, or null. When the store is
+ * expected and this machine could not bring it up to date, a write would start from a stale copy
+ * (or a container's leftover file) and the next push would spread it: pull first. A cloud session
+ * writes nothing then; a machine writes its own file and leaves the store's copy.
+ * @param {StoreSettings} s
+ * @returns {string | null}
+ */
+export function storeWriteRefusal(s) {
+  if (s.state !== 'unreadable') return null;
+  return `the project's store is not up to date here (${s.reason}), and writing it now could replace newer settings with older ones. Run hitld store pull, then write again`;
+}
+
+/**
+ * Make a copy the owner's alone (mode 600), so trusted loading reads it whatever the umask.
+ * @param {string} root @param {string} key
+ */
+function keepPrivate(root, key) {
+  try {
+    chmodSync(join(resolve(root), key), 0o600);
+  } catch {
+    // A platform without modes: trusted loading checks nothing there either.
+  }
+}
+
+/**
  * After the owner's own `config write`: put what travels in the project's store, for the next
  * `hitld store push`. The caller has already written the settings file, which refuses executors.
  * @param {'person' | 'machine'} kind @param {Record<string, any>} data the file as written
@@ -252,6 +349,7 @@ export function writeStoreSettings(kind, data, root) {
     // Stamped with the lowest schema_version its own content needs, not the whole file's.
     const copy = stampLowest('person', travelingPerson(data));
     store.write(PERSON_KEY, JSON.stringify(copy, null, 2) + '\n');
+    keepPrivate(root, PERSON_KEY);
     return { key: PERSON_KEY, written: true };
   }
   const machineKind = data.kind ?? data.role;
@@ -267,6 +365,7 @@ export function writeStoreSettings(kind, data, root) {
   }
   all[machineKind] = machineAnswers(data);
   store.write(MACHINE_KEY, JSON.stringify(all, null, 2) + '\n');
+  keepPrivate(root, MACHINE_KEY);
   return { key: MACHINE_KEY, written: true };
 }
 

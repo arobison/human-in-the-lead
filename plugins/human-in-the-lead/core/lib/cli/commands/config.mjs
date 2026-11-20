@@ -20,8 +20,12 @@ import {
   personLayer,
   projectStore,
   readStoreSettings,
+  MACHINE_KEY,
+  PERSON_KEY,
+  storeWriteRefusal,
   writeStoreSettings,
 } from '../../settings/store-copy.mjs';
+import { cloudSession } from '../../store/reach.mjs';
 import { pinnedProjects } from '../../settings/pins.mjs';
 import { pinWarnings } from '../../settings/versions.mjs';
 import { readLedger } from '../../ledger/ledger.mjs';
@@ -281,18 +285,40 @@ export const commands = [
           errors,
         };
       }
-      // The project's store holds the settings that travel (HITLD-148): a merge starts from the
-      // person settings this session uses, which may have come from there.
+      // The project's store holds the settings that travel (HITLD-148). When it is expected and
+      // not up to date here, nothing is written: a write would start from a stale copy, or from a
+      // container's leftover file, and the next push would spread it. A merge starts from the
+      // person settings this session uses, which may have come from the store.
       const here = projectHere(ctx);
+      const fromStore = here
+        ? readStoreSettings(here.store, { projectId: here.projectId, env: ctx.env })
+        : null;
+      // In a cloud session the person file in the container is set aside while the store is not
+      // read, so a write would change nothing this session uses and could spread a stale copy:
+      // nothing is written. On the person's own machine, their file is written and the store's
+      // copy is left as it is, with the reason.
+      const stale = fromStore ? storeWriteRefusal(fromStore) : null;
+      if (stale && cloudSession(ctx.env)) {
+        return {
+          ok: false,
+          error: 'settings-not-pulled',
+          message: `nothing was written: ${stale}`,
+        };
+      }
       let next = data;
       let merge = input.merge === true;
-      if (merge && kind === 'person' && here) {
+      if (merge && kind === 'person' && fromStore) {
         const local = loadSettingsFile('person', { env: ctx.env });
-        const layer = personLayer(
-          local.data,
-          readStoreSettings(here.store, { projectId: here.projectId, env: ctx.env }),
-          ctx.env,
-        );
+        const layer = personLayer(local.data, fromStore, ctx.env);
+        // A merge never starts from a local file the session set aside (only in a cloud session,
+        // which the refusal above already covers).
+        if (layer.ignored) {
+          return {
+            ok: false,
+            error: 'settings-not-pulled',
+            message: `nothing was written: ${stale ?? 'the person file is set aside'}`,
+          };
+        }
         if (layer.source === 'store' || layer.source === 'store-and-file') {
           next = mergePolicy(layer.person ?? {}, /** @type {Record<string, any>} */ (data));
           merge = false;
@@ -301,12 +327,19 @@ export const commands = [
       const written = writeSettingsFile(kind, next, { env: ctx.env, cwd: ctx.cwd, merge });
       // Written in the owner's own turn (writeSettingsFile refuses executors); the next
       // hitld store push carries it to the remote.
-      const store = here
-        ? {
-            ...writeStoreSettings(kind, written.data, here.store),
-            next: 'hitld store push carries it to the store remote, so a new session reads it',
-          }
-        : null;
+      const store = !here
+        ? null
+        : stale
+          ? {
+              key: kind === 'person' ? PERSON_KEY : MACHINE_KEY,
+              written: false,
+              error: 'settings-not-pulled',
+              why: `the store's copy was not written: ${stale}`,
+            }
+          : {
+              ...writeStoreSettings(kind, written.data, here.store),
+              next: 'hitld store push carries it to the store remote, so a new session reads it',
+            };
       const replan = replanAfterWrite(ctx);
       return {
         ok: true,
