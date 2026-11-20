@@ -12,7 +12,7 @@ done_when:
   - "c3: Commits and sign-offs carry the agreed identity."
   - "c4: Device approvals verify by signature."
   - "c5: An answer counts by a proof the system can check, whatever channel carries it."
-constraints: [HITLD-126 c1, HITLD-254 c1, HITLD-240 c1, HITLD-180 c1, HITLD-291 c1, HITLD-186 c2, HITLD-179 c3, HITLD-333 c4, HITLD-564 c5]
+constraints: [HITLD-126 c1, HITLD-180 c1, HITLD-291 c1, HITLD-179 c3, HITLD-333 c4, HITLD-564 c5]
 check: demo the owner answers a held question through two channels that each carry a checkable proof, the orchestrator's command runs with no prompt in its own session, and an answer without a proof is refused
 ---
 
@@ -23,3 +23,7 @@ Proposed by the planning pass HITLD-343 on the owner's decision HITLD-363; the o
 ## Decided on 2026-11-19 (HITLD-515)
 
 The clause "the owner answers only in the chief of staff's session" gives way to a channel-neutral rule: an answer counts when it carries a proof the system can check. Today that proof is the harness-attested turn in the owner's session; later it is the person's signature (HITLD-333, HITLD-409). The session, a web page or any other client only carries the proof, and a write from a web page without a proof is data, not an answer. The wording of this milestone's outcome and its check is to be revised to match.
+
+## Changed on 2026-11-20 (HITLD-607)
+
+HITLD-254, HITLD-240 and HITLD-186 moved to milestone HITLD-404 (clause c4) on the owner's decision HITLD-607. HITLD-126, HITLD-180 and HITLD-179 stay here.

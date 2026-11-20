@@ -23,3 +23,7 @@ Found by the executor of D-33 (HITLD-421), reported as not blocking, and visible
 ## Notes
 
 Dashboard and code: needs the owner's own yes to merge. Related: HITLD-421 (the stage columns), HITLD-152 (the views). Proposed placement: HITLD-192 c1 (every open item shows on the board).
+
+## Moved on 2026-11-20 (HITLD-605)
+
+On the owner's decision HITLD-605, this item moved from milestone HITLD-192 (c1) to milestone HITLD-408 (c2). It ships after v0.1.0 and is under no release.

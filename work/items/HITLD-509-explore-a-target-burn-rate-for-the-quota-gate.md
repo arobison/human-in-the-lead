@@ -55,3 +55,7 @@ The gains and the feedback interval, set from measurement once the probe (HITLD-
 ## Terms decided on 2026-11-20 (HITLD-577)
 
 Appetite is how big a milestone is estimated to be, from its item estimates (HITLD-412). Budget is what the owner allows a signed commitment to spend (HITLD-522). Pace is the rate the plan allows per hour, the even line (HITLD-530). Where this item uses one of these words for another meaning, the meaning above applies.
+
+## Moved on 2026-11-20 (HITLD-602)
+
+On the owner's decision HITLD-602, this item moved from milestone HITLD-189 (c2) to milestone HITLD-567 (c1), where its build belongs with pacing work to the plan (release stage rc.5).
