@@ -36,3 +36,23 @@ Design-heavy: stays `proposed` and is walked through with the owner before any b
 
 Benchmark results will live in a bucket owned by dyno, not in the sealed private store, so the taxonomy has to say what a label means for each storage backend (the sealed store and a bucket with its own protection), not only which channels may carry the data.
 
+## Walk-through on 2026-11-20: what the owner decided so far
+
+The owner walked through the first questions one at a time. Each is a recorded decision:
+
+- **Structure (HITLD-625):** labels on data plus clearances on channels, in two dimensions, with default deny, an explicit deny winning, and owner-level guardrails that can only narrow. Borrowed from lattice labels and from cloud permission systems (resource tags matched by conditions, organization policies that cap grants, perimeters that stop data leaving); their policy language is not borrowed.
+- **What carries a label and the default (HITLD-626):** entities, files, data areas, tool outputs and ledger events can carry a label. Unlabeled data takes its container's label; with no container, the strictest: nobody but the owner, this machine only.
+- **Who changes a label (HITLD-627):** any agent or the system may tighten one; only the owner may loosen one, as a signed, recorded decision with a reason.
+- **Derived data (HITLD-628):** a verdict, summary, headline or result ID takes the strictest label of its inputs, unless the owner lowers a named kind of derived data by a signed decision. Nothing is lowered by default.
+- **Enforcement (HITLD-629):** at the commands and tools that return data (HITLD's commands, dyno's result commands, a hook on file reads), which check the label against the clearance of the model the session runs on before returning labeled data, and fail closed. The public-text check stays. The limit: it cannot stop a person pasting data into a prompt, or a tool that bypasses these commands.
+- **Default clearances (HITLD-630):** the remote model on the owner's own account is cleared for public, internal and confidential data, but not for secret data or labels that say no remote model or owner only; a local model is cleared for anything except owner only; any other provider needs the owner's decision.
+- **Vocabulary (HITLD-631):** explicit, with no shorthands, because agents mostly use labels and the owner will not remember what a shorthand means. Who may read: public; any model (including a remote model on the owner's account); local model only; tools only (no model sees it); owner only. The widest place it may reach: this machine only; the owner's synced private store; a private bucket with client-side encryption; a private bucket with provider-managed encryption; anywhere. The owner registers concrete places (this machine, the store, the bucket dyno owns) under a class. Benchmark results start as local model only and this machine only until the bucket is registered.
+
+## Still to settle in the walk-through
+
+- Whether a role (an executor, an orchestrator, the curator) may hold a standing clearance for its job beyond its model's, and how that is recorded.
+- How a label is written in a file and in a command's JSON (two explicit fields, their names, and how a place class is registered), and what dyno's result label looks like so the two agree.
+- The one-time move of today's four level names (public, internal, confidential, secret) on existing entities to explicit labels, through the tracker's migration mechanism, after which the old names are retired.
+- What a clearance is for a tool, for the synced store's sealing, and for a bucket, so the same rule decides every channel.
+- Build items, filed from the decisions, each with its own done-when.
+
