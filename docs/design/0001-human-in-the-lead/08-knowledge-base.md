@@ -86,7 +86,7 @@ The commonest reason an agent fails to find a note is that it searched for a dif
 
 ## 8.5 The `kb` tool
 
-Part of the `hitld` command line ([part 15](15-architecture.md)). `search`, `index`, `stale`, `links` and `check` are in "One signal end to end" (not yet built); `orphans` and `reindex` come later ([part 21](21-scope.md)):
+Part of the `hitld` command line ([part 15](15-architecture.md)). `search`, `index`, `stale`, `links` and `check` are built (HITLD-55); `orphans` and `reindex` come later ([part 21](21-scope.md)):
 
 | Command | Does |
 |---|---|
@@ -97,6 +97,8 @@ Part of the `hitld` command line ([part 15](15-architecture.md)). `search`, `ind
 | `hitld kb orphans` | Notes no brief, index entry or other note links to |
 | `hitld kb links` | Broken links, and links to superseded notes |
 | `hitld kb check` | All of the above plus front-matter schema and size budgets; runs at merge, in either merge mode |
+
+**As built (HITLD-55).** The front matter is read with the files backend's reader and checked against `schemas/kb-note.schema.json`; the budgets and the age limit are the `kb` section of `policy.json` (`kb.index_tokens_max`, `kb.note_tokens_max`, `kb.max_age_unsourced`), with tokens estimated as characters / 4. A file named `index.md` anywhere under `kb/`, and `kb/decisions.md`, are generated and are not notes; a split index puts each area's index at `kb/areas/<area>/index.md`. `supersedes` paths are relative to `kb/`, other links relative to the note. The glossary's entries are list lines, `- **term**: synonym, synonym`. `kb check` fails on a note with no or bad front matter, a note over its budget and a broken or superseded link, and the merge refuses a branch for the same, in both merge modes and with `merge.via` push or pull-request; stale notes, an index or `decisions.md` that is not current, and an index over budget after splitting are warnings, because the curator re-verifies stale notes after merges and two branches that each change notes would otherwise refuse each other. A note above public is left out of the index; the commit guard holds the repository's ceiling ([10.3](10-security.md#103-information-classification)). Not built yet: `kb stale` orders by path, not by brief citations (the ledger does not count them yet); `kb.retriever` is not a setting, since only `grep+index` exists; `checked_at` is not stamped at merge; the index is not regenerated at merge; the private store's notes are not read.
 
 **`checked_at` is stamped at merge** with the merged commit, not the executor branch's commit. A hash that is not reachable counts as stale.
 

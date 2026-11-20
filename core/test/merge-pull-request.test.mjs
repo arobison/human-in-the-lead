@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { budgetsOf, checkKnowledgeBase, loadKnowledgeBase } from '../lib/kb/kb.mjs';
 import { fakeGitHub, repoFromRemote } from '../lib/merge/github.mjs';
 import { stageAll } from '../lib/merge/queue.mjs';
 import {
@@ -151,6 +152,7 @@ function setup(o = {}) {
         ...(x.delegatedBy ? { delegatedBy: x.delegatedBy } : {}),
         ...(x.answers ? { answers: x.answers } : {}),
         ...(x.conditionalChecks ? { conditionalChecks: x.conditionalChecks } : {}),
+        ...(x.kbCheck ? { kbCheck: x.kbCheck } : {}),
       },
       policy: { merge: { mode: x.mode ?? 'queue', ...(x.merge ?? {}) } },
       github,
@@ -357,6 +359,33 @@ test('a branch that does not close its item goes back, so the close lands in the
       [['W-1', 'not_closed']],
     );
     assert.match(String(r.rejected[0].message), /hitld work close W-1/);
+    assert.equal(t.github.pulls.length, 0, 'no pull request is opened for it');
+  } finally {
+    t.done();
+  }
+});
+
+test('a branch whose knowledge base fails kb check goes back before a pull request is opened (HITLD-55)', async () => {
+  const t = setup();
+  try {
+    const r = await t.pass(
+      [
+        t.branch('W-1', {
+          'kb/note.md': '---\nsummary: A note.\n---\n\nSee [gone](gone.md).\n',
+        }),
+      ],
+      {
+        kbCheck: (/** @type {string} */ dir) =>
+          checkKnowledgeBase(loadKnowledgeBase(dir), budgetsOf(null)).errors.map(
+            (x) => `${x.path} ${x.message}`,
+          ),
+      },
+    );
+    assert.deepEqual(
+      r.rejected.map((x) => [x.item, x.reason, x.output]),
+      [['W-1', 'knowledge_base', 'kb/note.md gone.md: no such file']],
+    );
+    assert.match(String(r.rejected[0].message), /fails hitld kb check/);
     assert.equal(t.github.pulls.length, 0, 'no pull request is opened for it');
   } finally {
     t.done();

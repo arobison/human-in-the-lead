@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { budgetsOf, checkKnowledgeBase, KB_DIR, loadKnowledgeBase } from '../../kb/kb.mjs';
 import { loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { loadSettingsFile } from '../../settings/files.mjs';
@@ -671,11 +672,14 @@ const sentBack = (x, main) =>
     ? `Rebase onto ${main}: your change conflicts with merged work in ${(x.files ?? []).join(', ') || 'your branch'}. Keep both intents; if they contradict, say so under questions.`
     : x.reason === 'classification'
       ? `Your branch adds files above the repository's classification ceiling: ${(x.files ?? []).join(', ')}. Take them out of every commit on the branch, not only the last; such files belong in the private store. Lowering a classification is the owner's decision: if one is wrong, say so under questions.`
-      : x.reason === 'fast_check'
-        ? `The merge queue's fast check "${x.command}" fails on your branch rebased onto ${main}. Fix it on your branch.`
-        : x.reason === 'security'
-          ? securitySentBack(x, main)
-          : `Your branch fails the full suite in its merge batch ("${x.command}"); bisection named it. Fix it on your branch.`;
+      : x.reason === 'knowledge_base'
+        ? (x.message ??
+          `Your branch fails hitld kb check rebased onto ${main}. Fix the notes on your branch.`)
+        : x.reason === 'fast_check'
+          ? `The merge queue's fast check "${x.command}" fails on your branch rebased onto ${main}. Fix it on your branch.`
+          : x.reason === 'security'
+            ? securitySentBack(x, main)
+            : `Your branch fails the full suite in its merge batch ("${x.command}"); bisection named it. Fix it on your branch.`;
 
 /** A rejected entry as `hitld merge` prints it. @param {import('../../merge/queue.mjs').Rejected} x @param {string} main */
 const rejectedJson = (x, main) => ({
@@ -683,7 +687,10 @@ const rejectedJson = (x, main) => ({
   reason: x.reason,
   ...(x.files ? { files: x.files } : {}),
   ...(x.command ? { command: x.command } : {}),
-  ...((x.reason === 'classification' || x.reason === 'duplicate_id') && x.output
+  ...((x.reason === 'classification' ||
+    x.reason === 'duplicate_id' ||
+    x.reason === 'knowledge_base') &&
+  x.output
     ? { problems: x.output.split('\n') }
     : {}),
   follow_up:
@@ -919,6 +926,7 @@ async function pullRequestMerge(o) {
       setup: o.settings.setup,
       classification: o.settings.classification,
       trackerCheck: o.settings.trackerCheck,
+      kbCheck: o.settings.kbCheck,
       itemAt: (dir, item) => {
         if (!existsSync(join(dir, layout.workDir))) return null;
         const found = loadWorkTree(dir, layout).find((x) => String(x.data?.id) === item);
@@ -1948,6 +1956,19 @@ const table = [
               return duplicateIds(loadWorkTree(dir, layout));
             } catch (e) {
               return [`the tracker files could not be read: ${/** @type {Error} */ (e).message}`];
+            }
+          },
+          // The knowledge base in the rebased tree, held to main's budgets: its errors refuse the
+          // branch in either merge mode (design 8.5). Stale notes and the index are warnings.
+          kbCheck: (dir) => {
+            if (!existsSync(join(dir, KB_DIR))) return [];
+            try {
+              const kb = loadKnowledgeBase(dir);
+              return checkKnowledgeBase(kb, budgetsOf(p.policy)).errors.map(
+                (x) => `${x.path} ${x.message}`,
+              );
+            } catch (e) {
+              return [`the knowledge base could not be read: ${/** @type {Error} */ (e).message}`];
             }
           },
           // From main's policy and tracker.json, never the branch's own; the private terms from
