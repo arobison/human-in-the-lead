@@ -13,7 +13,7 @@ done_when:
   - "c4: Device approvals verify by signature."
   - "c5: An answer counts by a proof the system can check, whatever channel carries it."
 constraints: [HITLD-126 c1, HITLD-254 c1, HITLD-240 c1, HITLD-180 c1, HITLD-291 c1, HITLD-186 c2, HITLD-179 c3, HITLD-333 c4, HITLD-564 c5]
-check: demo the owner answers a held question in the chief-of-staff session, the orchestrator's command runs with no prompt in its own session, and an unsigned approval is refused
+check: demo the owner answers a held question through two channels that each carry a checkable proof, the orchestrator's command runs with no prompt in its own session, and an answer without a proof is refused
 ---
 
 ## Notes

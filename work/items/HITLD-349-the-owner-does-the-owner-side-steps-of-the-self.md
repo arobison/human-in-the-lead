@@ -21,3 +21,7 @@ The owner, on their own computer, this evening (2026-11-16): the steps of HITLD-
 ## Notes
 
 HITLD-109 needs this item so the planner does not offer HITLD-109 while its owner-side steps are open. Remove the `needs` on this item if the owner decides to let an executor start the install PR first. The decision to wait is HITLD-350.
+
+## Moved on 2026-11-20 (HITLD-592)
+
+On the owner's approval of the nine roadmap moves (HITLD-592), this item is placed under milestone HITLD-67 as `HITLD-349 c1`: the owner's own install step belongs to the first clause, the owner directing one item end to end on an installed release.

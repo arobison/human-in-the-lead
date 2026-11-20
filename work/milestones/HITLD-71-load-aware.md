@@ -21,4 +21,8 @@ From HITLD-28:
 
 - **load-aware** (capability). Outcome: heavy work waits while the person's machine is busy. Done when: admission defers heavy work above the load threshold and quiet holds start below it, on a fixture machine profile. Check: an integration test with simulated load. Constraints: HITLD-41, HITLD-42.
 
-Shaped by the planning pass HITLD-343 (2026-11-16). Stage: after v0.1.0. In the cloud, executors often do not run on the measured machine (HITLD-145), which lowers this milestone's value there.
+Shaped by the planning pass HITLD-343 (2026-11-16). Stage: v0.1.0-rc.5 (HITLD-568), since 2026-11-20 (HITLD-592). In the cloud, executors often do not run on the measured machine (HITLD-145), which lowers this milestone's value there.
+
+## Moved on 2026-11-20 (HITLD-592)
+
+On the owner's approval of the nine roadmap moves (HITLD-592), this milestone joins v0.1.0-rc.5 (HITLD-568) and is now one of its needs, so the stage noted above ("after v0.1.0") no longer holds.

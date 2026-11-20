@@ -26,3 +26,7 @@ Triaged 2026-11-18: proposed. Related: HITLD-493 (the audit includes routing by 
 ## Folded on 2026-11-20 (reconciliation, HITLD-575)
 
 The owner decided that this item describes the old sizing model, which HITLD-561 replaces (an item's tier and cost come from measured history with its plan as the prior, HITLD-533). This item is folded into HITLD-561 and closes when that item lands; it is not built separately.
+
+## Moved on 2026-11-20 (HITLD-592)
+
+On the owner's approval of the nine roadmap moves (HITLD-592), this item moved from milestone HITLD-403 (c4) to milestone HITLD-567 (c3), where HITLD-561, which replaces the old sizing model and folds this item in (HITLD-575), already sits.

@@ -10,7 +10,7 @@ done_when:
   - "c1: `npm run hitld:setup` installs the command and the plugin pinned to a tag, including the marketplace step and for desktop-app users, and the committed settings keep the pinned source and auto-update."
   - "c2: The contract block survives prettier and markdownlint, and `hitld check contract` still passes."
   - "c3: Setup and first-run refusals name the real cause: the settings write, `hitld ready` on a branch, a credential helper set at the installation level, and work from more than one machine."
-constraints: [HITLD-25 c1, HITLD-262 c1, HITLD-263 c1, HITLD-264 c1, HITLD-273 c1, HITLD-256 c2, HITLD-258 c3, HITLD-260 c3, HITLD-271 c3, HITLD-272 c3, HITLD-418 c3]
+constraints: [HITLD-25 c1, HITLD-262 c1, HITLD-263 c1, HITLD-264 c1, HITLD-273 c1, HITLD-256 c2, HITLD-258 c3, HITLD-260 c3, HITLD-271 c3, HITLD-272 c3]
 check: demo someone other than the authors follows the new-project guide on a fresh fixture clone and ends with one item merged and closed, the steps recorded
 ---
 

@@ -6,12 +6,12 @@ state: planned
 created: 2026-11-19
 project: HITLD-15
 release: 0.1.0-rc.5
-needs: [HITLD-401, HITLD-566, HITLD-567, HITLD-407, HITLD-409]
+needs: [HITLD-401, HITLD-566, HITLD-567, HITLD-407, HITLD-71]
 ---
 
 ## Why
 
-The fifth release candidate is the system earning trust: the stage the owner added before v0.1.0 (decision HITLD-551), after the design walk-throughs of 2026-11-19. It follows v0.1.0-rc.4 (HITLD-401) and waits for two new milestones, the system earns trust (HITLD-566) and work is paced to the plan (HITLD-567), and for the milestones on answers and proof (HITLD-407, HITLD-409).
+The fifth release candidate is the system earning trust: the stage the owner added before v0.1.0 (decision HITLD-551), after the design walk-throughs of 2026-11-19. It follows v0.1.0-rc.4 (HITLD-401) and waits for two new milestones, the system earns trust (HITLD-566) and work is paced to the plan (HITLD-567), and for the milestones on answers and proof (HITLD-407) and on load-aware admission (HITLD-71). The milestone on each answer counting only from the person who gave it (HITLD-409) is after v0.1.0: the key that signs answers waits on the HITLD-333 migration design (HITLD-516).
 
 ## Done when
 
@@ -23,4 +23,4 @@ The fifth release candidate is the system earning trust: the stage the owner add
 
 ## Notes
 
-Made by the chief of staff on the owner's decision HITLD-551; the scope is a proposal for the owner to amend. The milestones HITLD-407 and HITLD-409 (answers and proof) were under no release before.
+Made by the chief of staff on the owner's decision HITLD-551; the scope is a proposal for the owner to amend. The milestone HITLD-407 (answers and proof) was under no release before. HITLD-409 stays after v0.1.0 (HITLD-592).

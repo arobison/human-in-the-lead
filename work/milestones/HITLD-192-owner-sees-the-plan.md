@@ -18,6 +18,6 @@ check: demo opening dashboard.html, finding every open item under a milestone an
 
 Step 4 of 4. This is c4 of Consumer live (HITLD-67) in its own right; amend or drop the duplicate there.
 
-Re-scoped as a v0.1.0-rc.3 milestone (HITLD-400) by the planning pass HITLD-343, on the owner's decision HITLD-359: the met clause was dropped. It was c1 "hitld dashboard generates one file with the four views from live records" (HITLD-62 and 152, both done). HITLD-147 was removed: it is executor reporting, under HITLD-67 c1, not the page. The new c1 and c2 are the proposal's c2 and c3. The check changed with the clauses.
+Re-scoped as a v0.1.0-rc.3 milestone (HITLD-400); it moved to v0.1.0-rc.3.1 (HITLD-593) on the owner's decisions HITLD-591 and 592 by the planning pass HITLD-343, on the owner's decision HITLD-359: the met clause was dropped. It was c1 "hitld dashboard generates one file with the four views from live records" (HITLD-62 and 152, both done). HITLD-147 was removed: it is executor reporting, under HITLD-67 c1, not the page. The new c1 and c2 are the proposal's c2 and c3. The check changed with the clauses.
 
 The planning pass HITLD-343 also placed HITLD-378 (whether milestone contributions stay in the design) under c1; it was filed after the proposal was written. HITLD-267, 268 and 339 were proposed as contributions and are constraints instead (the owner's decision HITLD-377).
