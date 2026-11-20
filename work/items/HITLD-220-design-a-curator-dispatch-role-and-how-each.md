@@ -23,3 +23,7 @@ HITLD-132 built `hitld work sweep` and a curator pass that is one ordinary track
 ## Notes
 
 `proposed` because it is a design choice. Raised from D-13's digest questions on HITLD-132 (merged as PR #163) and the owner's answer. The defaults chosen the same evening: `proposed` items are flagged after 30 days; the sweep runs after merges only.
+
+## Decided on 2026-11-20 (HITLD-582)
+
+The outline of the curator role is decided: a curator agent in a fresh small session per job, briefed with decision IDs, drafts bulk program-management work and opens tracker pull requests; the chief of staff verifies it against the decision records and merges tracker-only pull requests under the standing grant. The build is HITLD-583. How each kind of sweep finding routes to an action is still open here.
