@@ -24,3 +24,7 @@ The owner decided in a walk-through on 2026-11-18 (HITLD-470; HITLD-484 to HITLD
 ## Notes
 
 Needs HITLD-74 (unique-by-construction IDs and per-writer files) and HITLD-323 (the store enrollment, so ledgers reach the store). Code, skill, schema and design: the owner's own yes to merge. Related: HITLD-190 c2, HITLD-353 (the owner hold), HITLD-466 (names), HITLD-470 (the decision).
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (HITLD-492): part of the ledger design: removes the run object. The decisions since then are the ledger and no-run decisions (HITLD-484 to 490). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

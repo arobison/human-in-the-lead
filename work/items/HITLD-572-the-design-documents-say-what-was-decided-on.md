@@ -27,3 +27,7 @@ The decisions of 2026-11-19 (HITLD-512 to 571) are in the tracker, but `docs/des
 ## Notes
 
 Needs the reconciliation of the open items (HITLD-565), so the docs describe the plan that survives it. Design: the owner's own yes to merge. Placed under HITLD-405 c1 (a claim about HITLd cites the design) by the chief of staff, a proposal for the owner to move.
+
+## Glossary (HITLD-577)
+
+The design glossary defines appetite, budget and pace as decided: appetite is estimated size (HITLD-412), budget is what the owner allows a commitment to spend (HITLD-522), pace is the rate the plan allows per hour (HITLD-530).

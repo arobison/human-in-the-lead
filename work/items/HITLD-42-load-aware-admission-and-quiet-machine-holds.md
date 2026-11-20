@@ -22,3 +22,7 @@ Per design 13.4: heavy work started on a loaded machine is slow and flaky (desig
 ## Note on 2026-11-19
 
 The owner decided (HITLD-534) that executor count follows measured headroom; load-aware admission is a part of HITLD-559.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (493): load-aware admission thresholds; machine-load gates (weak). The decisions since then are the audit of defaults (HITLD-532 to 538). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

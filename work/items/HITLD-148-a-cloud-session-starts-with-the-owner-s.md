@@ -34,3 +34,7 @@ On 2026-11-16, in the chief of staff session, the owner decided two choices in t
 Raised in the chief of staff session, where each new container needed the same setup carried in a message. HITLD-142 gets the store reachable from an orchestrator; this item puts the person and machine settings in it. HITLD-39 and HITLD-88 (done) built the walk-through this builds on.
 
 The executor cap is a person setting, not a project one (the owner, 2026-11-16, HITLD-230): the settings a cloud session starts with include it, and HITLD-204 removes the project layer for it.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (333,508,470): settings in private store; store enrollment. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the ledger and no-run decisions (HITLD-484 to 490); stay in the harness and answers by proof (HITLD-540, 515); answers, proof and contributors (HITLD-515 to 517). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

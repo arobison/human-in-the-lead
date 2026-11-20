@@ -28,3 +28,7 @@ Raised by the owner in the chief of staff session. It sits beside HITLD-41 (reso
 ## Note on 2026-11-19
 
 The owner decided (HITLD-534) that the machine cap and heavy-work gates apply only where executors share a machine, and that `max_executors` becomes a ceiling; see HITLD-559.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (508,509,493): executors declare where they run, cap/gates, concurrency. The decisions since then are stay in the harness and answers by proof (HITLD-540, 515); the pace decisions (HITLD-530, 549, 550); the audit of defaults (HITLD-532 to 538). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

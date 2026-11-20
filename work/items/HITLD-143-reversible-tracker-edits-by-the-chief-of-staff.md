@@ -25,3 +25,7 @@ Tracker items are text files in git, so a change to one is easy to review and ea
 ## Notes
 
 Raised by the owner in the chief of staff session. It builds on HITLD-125 (one command to publish tracker changes), HITLD-133 (merging through pull requests) and HITLD-131 (tracker-only pull requests skip the code checks), and on the decision-rights design for two-way doors (part 4). HITLD-132's curator findings stay routed as that item says. The owner decides the class and the delegated sign-off, so the first step of whoever builds this is a decision for the owner, not a default.
+
+## Rewritten on 2026-11-20 (reconciliation, HITLD-576)
+
+Under the one trust engine (HITLD-507, 552) this item is the registration of a kind that the owner has already unlocked by standing rule: today's delegation is recorded as the owner's initial grant, a decision the owner signs dated at migration and citing the standing rule, with the same evidence and re-lock as any kind. It is not a separate rights mechanism.

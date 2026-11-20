@@ -27,3 +27,7 @@ On 2026-11-16, in the chief of staff session, the owner decided how an orchestra
 ## Notes
 
 Raised by the owner in the chief of staff session. HITLD-136 also changes what the brief says, so build the two in order or in one wave with care. HITLD-144 covers the orchestrator's message to the chief of staff and the Stop-hook test. The watchdog from HITLD-92 catches a stalled executor, and this adds the one that finished without reporting.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (470/492,508): run state harness reference, executor report chain. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the ledger and no-run decisions (HITLD-484 to 490); stay in the harness and answers by proof (HITLD-540, 515). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

@@ -23,3 +23,7 @@ project: HITLD-15
 ## Notes
 
 Found by the chief of staff in the first self-hosted run, with the two stray items (created and removed by hand before the retry) as the evidence. It fixes a gap against HITLD-134's own Done-when, so it is a bug and not a design change.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (472/507,333/409): rights record trust event. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); answers, proof and contributors (HITLD-515 to 517). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

@@ -28,3 +28,7 @@ The owner decided (HITLD-525 to 529, 547, 548) that one trust engine serves merg
 ## Notes
 
 Built with merging and commitment together (HITLD-528). Related: HITLD-507 (the study), HITLD-472, HITLD-291. Design is settled in the cited decisions; code, skill, schema and policy changes need the owner's own yes to merge. Placement is the chief of staff's, a proposal for the owner to move.
+
+## Initial grants (HITLD-576)
+
+On migration the engine records today's standing delegations (tracker-only merges and reversible tracker edits by the chief of staff and orchestrator, HITLD-143 and 218) as the owner's initial grants: kinds already unlocked, each by a decision the owner signs dated at migration and citing the standing rule.

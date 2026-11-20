@@ -23,3 +23,7 @@ needs: [HITLD-235]
 ## Notes
 
 Found by orch-1 (relay 2026-11-16) and filed under HITLD-181. Related to HITLD-141 (merged: tier 3 does not launch headless where it cannot run) and HITLD-235 (the probe for headless ability, which could probe this too). HITLD-109 (self-hosting) removes the cause for this repository, not for the next one.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (508): agents installed in harness, plan tier. The decisions since then are stay in the harness and answers by proof (HITLD-540, 515). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

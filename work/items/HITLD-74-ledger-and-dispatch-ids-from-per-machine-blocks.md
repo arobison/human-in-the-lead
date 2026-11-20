@@ -22,3 +22,7 @@ Replaced on 2026-11-18 by the owner's decision HITLD-489. The first design here 
 ## Notes
 
 Related: HITLD-490 (the ledger is per project, with a person-level layer: HITLD-491), HITLD-323 (the store enrollment so the files reach the store), HITLD-492 (removing the run object), HITLD-470 and HITLD-484 to HITLD-490. Code, schema and design: the owner's own yes to merge.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (HITLD-74): part of the ledger design: unique IDs, per-writer ledger files. The decisions since then are the ledger and no-run decisions (HITLD-484 to 490). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

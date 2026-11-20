@@ -21,3 +21,7 @@ The tracker numbers items `HITLD-N` and GitHub numbers pull requests `#N`, and t
 ## Notes
 
 The owner's instruction, 2026-11-16: "I need more specificity when talking about issue numbers." Filed under HITLD-181.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (74/489): rule writes dispatch as D-N; display numbers change. The decisions since then are the ledger and no-run decisions (HITLD-484 to 490). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

@@ -22,3 +22,7 @@ Reported in GitHub issue #201. An item's plan made an outside spec normative; th
 ## Notes
 
 Triaged 2026-11-18: proposed. Related: HITLD-493 (the audit includes routing by file count as a proxy for size), HITLD-439 and HITLD-450 (where an estimate came from). Code and skill: the owner's own yes to merge.
+
+## Folded on 2026-11-20 (reconciliation, HITLD-575)
+
+The owner decided that this item describes the old sizing model, which HITLD-561 replaces (an item's tier and cost come from measured history with its plan as the prior, HITLD-533). This item is folded into HITLD-561 and closes when that item lands; it is not built separately.

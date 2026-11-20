@@ -2,7 +2,7 @@
 id: HITLD-355
 title: An item the owner asks for starts past the usage gate with its cost shown, and the owner can work live in an executor session
 kind: work
-state: planned
+state: proposed
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ The owner asked on 2026-11-16 what the right workflow is when they are working w
 ## Notes
 
 Code, skill and policy: needs the owner's own yes to merge. Related: HITLD-353 (an owner hold switch), HITLD-315 (executors' test cadence), HITLD-346 (releasing a branch). The decisions are HITLD-356 (the gate) and HITLD-357 (live work).
+
+## Returned to proposed on 2026-11-20 (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (509): owner pull skips usage gate. The decisions since then are the pace decisions (HITLD-530, 549, 550). The owner decided (HITLD-578) that the items the decisions change most return to `proposed` until reshaped, so the planner does not offer them; the owner promotes the item again once it is reshaped.

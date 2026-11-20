@@ -19,3 +19,7 @@ Found by D-20 while building the milestone graph (HITLD-62). `estimate_tokens` i
 ## Decided
 
 The owner decided on 2026-11-16 (decision HITLD-381): this repository enables `estimate_tokens` (add it to `optional_keys` in `.human-in-the-lead/tracker.json`), and the milestone graph's critical path and tokens-left axis use it.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (509,291): estimate_tokens enable; estimates/budget unit. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the pace decisions (HITLD-530, 549, 550). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

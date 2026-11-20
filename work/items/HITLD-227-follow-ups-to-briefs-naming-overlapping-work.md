@@ -22,3 +22,7 @@ HITLD-136 (PR #168) made briefs name overlapping work and made `dispatch complet
 ## Notes
 
 From D-14's digest on HITLD-136. Needs HITLD-136 merged.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (470/492 (weak)): design 03 data model and 05 brief contents docs; orchestrate skill. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the ledger and no-run decisions (HITLD-484 to 490). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

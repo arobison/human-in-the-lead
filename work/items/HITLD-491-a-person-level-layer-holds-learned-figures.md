@@ -22,3 +22,7 @@ The owner decided on 2026-11-18 (HITLD-490) that the ledger is per project, so c
 ## Notes
 
 Needs HITLD-74 (per-writer ledger files) and, to be useful in a cloud run, the store enrollment fix in HITLD-323. Code and design: the owner's own yes to merge. Related: HITLD-408 (learned parameters, token shares), HITLD-439 and HITLD-450 (estimates and where they came from).
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (ledger (HITLD-491)): part of the ledger design: person-level aggregate layer. The decisions since then are the ledger and no-run decisions (HITLD-484 to 490). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

@@ -22,3 +22,7 @@ The chief of staff learns of events (an orchestrator's message, a failed CI chec
 ## Notes
 
 Found by the chief of staff in the first self-hosted run and raised under the owner's instruction that problems it meets are checked against the tracker and filed (HITLD-181). It is related to HITLD-154 (a sensor for the owner's waiting), HITLD-144 (the orchestrator's end-of-turn message reaches the chief of staff) and HITLD-180 (numbered relays).
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (508): notifications polling. The decisions since then are stay in the harness and answers by proof (HITLD-540, 515). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

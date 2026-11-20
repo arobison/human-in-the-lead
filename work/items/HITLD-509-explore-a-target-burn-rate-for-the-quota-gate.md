@@ -51,3 +51,7 @@ The pace controller starts from AIMD with conservative gains: additive increase 
 ## Still to decide
 
 The gains and the feedback interval, set from measurement once the probe (HITLD-165) exists.
+
+## Terms decided on 2026-11-20 (HITLD-577)
+
+Appetite is how big a milestone is estimated to be, from its item estimates (HITLD-412). Budget is what the owner allows a signed commitment to spend (HITLD-522). Pace is the rate the plan allows per hour, the even line (HITLD-530). Where this item uses one of these words for another meaning, the meaning above applies.

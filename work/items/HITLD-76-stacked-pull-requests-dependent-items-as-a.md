@@ -2,7 +2,7 @@
 id: HITLD-76
 title: "Stacked pull requests: dependent items as a GitHub stack, merged in order by the merge queue"
 kind: work
-state: planned
+state: proposed
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-49, HITLD-27]
@@ -32,3 +32,6 @@ From GitHub's stacked pull request docs (public preview; read from the github/do
 - Keeping the history linear needs a cascading rebase: `gh stack rebase` then `gh stack push` (which pushes with `--force-with-lease`), or the server-side "Rebase stack" button, which writes signed commits and keeps approvals when the diff is unchanged. Agents here never force-push, so prefer the server-side rebase, or decide this explicitly.
 - Open questions for this item: how each squash commit in a stack merge gets the approver's `Signed-off-by` (HITLD-59) through the asynchronous merge API; and whether hitld's own merge queue drives GitHub's merge queue or the stack merge API directly.
 
+## Returned to proposed on 2026-11-20 (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (472): stacked PRs merged by queue in automatic mode. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556). The owner decided (HITLD-578) that the items the decisions change most return to `proposed` until reshaped, so the planner does not offer them; the owner promotes the item again once it is reshaped.

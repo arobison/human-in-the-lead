@@ -22,3 +22,7 @@ HITLd is built to run itself. Once v0.1.0-rc.1 is tagged, this repository instal
 - Moving the pin to a later release is a one-line PR the owner merges; the guide for this repository says so.
 
 Sequenced after HITLD-243 (landing the Windows pull request) on the owner's instruction of 2026-11-16, "start with the windows PR": the owner's order, and the self-host install then pins a build that includes the Windows fixes. Not a technical dependency; remove the `needs` on HITLD-243 if the order changes. The planner also held a start slot for this item while it was proposed but not started, which kept HITLD-243 from starting (HITLD-153).
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (333,470/492,508): self-host install: store enrollment device, CoS-run, orchestrator dispatch. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the ledger and no-run decisions (HITLD-484 to 490); stay in the harness and answers by proof (HITLD-540, 515); answers, proof and contributors (HITLD-515 to 517). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

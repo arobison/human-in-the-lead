@@ -20,3 +20,7 @@ Found by the executor of D-37 (HITLD-450) and reported on 2026-11-17: sizing's b
 ## Notes
 
 Needs HITLD-450. Related: HITLD-439 (the estimate source and settings). Code: needs the owner's own yes to merge.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (493,509): estimate cap. The decisions since then are the pace decisions (HITLD-530, 549, 550); the audit of defaults (HITLD-532 to 538). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

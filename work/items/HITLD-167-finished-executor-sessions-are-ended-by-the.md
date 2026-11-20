@@ -27,3 +27,6 @@ A tier-3 executor in a cloud harness is a session the chief of staff started, in
 
 Raised by the owner in the chief of staff session. Settled by the owner in a walk-through on 2026-11-16 (HITLD-205 to 209); state moved from `proposed` to `planned`. Until it is built the working rule is `relay N: stop <dispatch>` when an executor's work is merged or dropped. HITLD-130 removes worktrees of merged branches, which is a different resource.
 
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (508,492): session ending, relay verbs. The decisions since then are the ledger and no-run decisions (HITLD-484 to 490); stay in the harness and answers by proof (HITLD-540, 515). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.
