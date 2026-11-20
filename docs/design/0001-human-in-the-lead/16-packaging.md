@@ -149,6 +149,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready).
 - `disk-floor`: Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.
 - `not-in-flight`: The dispatch is not in flight.
+- `no-report-block`: An executor that reports by message (an interactive session) would get a brief without the communication block, because no session ID it could send its report to is known: pass --session or set HITLD_SESSION, or run in a harness that gives one.
 - `tokens-over-estimate`: The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.
 - `unknown-dispatch`: The dispatch has no recorded harness reference, so it cannot be continued.
 - `still-running`: The dispatch is still running; its completion notice comes first.

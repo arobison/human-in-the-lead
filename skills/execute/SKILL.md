@@ -26,7 +26,7 @@ Prefix every `hitld` command with the environment the brief gives (`HITLD_DISPAT
    If the decider is not `system` and no precedent fits, the contract says the call is not yours: do not block. Do the parts that do not depend on it, and put the question under `questions` with your recommendation.
 5. **Stop when "Done when" holds**, or at the brief's report-at budget, whichever comes first.
 6. **Close.** When the change touches the public interface (`merge.public_globs` in `policy.json`), give the item a one-line `release_note` first; the report check flags one that is missing. `hitld work close <ID>` in the same branch, as the last change. Commit with the trailers `Work-Item: <ID>`, `Dispatch: D-<n>`, `Agent-Role:`, `Agent-Model:` (your model ID) and `Agent-Effort:`. Never push, never touch `main`.
-7. **Report**, as your final message, in the fixed shape and nothing else:
+7. **Report** in the fixed shape and nothing else. When your brief names the orchestrator's session (its line `Report up the chain`), your last act of every turn is to send that session the report, or your exact blocker, with the harness's message tool (on the web, `send_message`), even when nothing changed: the last words of a turn reach no one. Otherwise the report is your final message:
 
 ```
 item: <ID>

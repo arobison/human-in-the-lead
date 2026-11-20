@@ -97,7 +97,7 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
 2. Make that call exactly as printed:
    - `Agent` (tiers 1 and 2): every input field as given, including `name`, `isolation`, `model`, `effort` and `run_in_background`. Do not edit the prompt: the brief points to the item and plan on purpose.
    - `Bash` (tier 3, headless): the command as given, with `run_in_background: true`.
-   - `session` (tier 3, interactive): with a chief of staff, put `start_session` in your message (in the cloud, add the brief's text: the chief of staff cannot read your files). When you are both, start the session yourself, or ask the owner.
+   - `session` (tier 3, interactive): with a chief of staff, put `start_session` in your message (in the cloud, add the brief's text: the chief of staff cannot read your files). When you are both, start the session yourself, or ask the owner. Its brief ends with the communication block, which names your session: the executor sends its report there at the end of every turn. `dispatch start` writes it from your session ID, and refuses with `no-report-block` when it has none it could send to: pass `--session <your harness session ID>`.
 3. `hitld dispatch handle --dispatch D-<n> --harness-ref <the agent ID or background task ID>`.
 
 Make worktrees only through `hitld env` (`hitld dispatch start` does it for tier 3, `hitld env setup` otherwise), never with `git worktree add` or by hand: then each one is tracked, and goes when its branch merges or its dispatch ends.
@@ -106,7 +106,7 @@ Then do useful work between notices: merge, answer questions, triage. Do not wai
 
 ## 4. On each completion notice
 
-1. Save the notification text to a temporary file (for a tier-3 session, the report the chief of staff sent). `hitld dispatch complete --dispatch D-<n> --report-file <file>`, adding `--tool-calls` and `--duration-ms` when the notification shows them, and `--context-percent` when your harness shows how much of your context is used. For a tier-3 interactive session, save its result events (`list_events`, kind result, every page) to a file and add `--session-record <file>`; use `--tokens` only when no record is available (output plus fresh input, never cache reads, and never the executor's own figure, which is a guess; a figure 3x the estimate is refused without `--tokens-over-estimate`). For a headless run: `--result-file <the path in on_complete>`.
+1. Save the notification text to a temporary file (for a tier-3 session, the report it sent you, or the one the chief of staff relayed). `hitld dispatch complete --dispatch D-<n> --report-file <file>`, adding `--tool-calls` and `--duration-ms` when the notification shows them, and `--context-percent` when your harness shows how much of your context is used. For a tier-3 interactive session, save its result events (`list_events`, kind result, every page) to a file and add `--session-record <file>`; use `--tokens` only when no record is available (output plus fresh input, never cache reads, and never the executor's own figure, which is a guess; a figure 3x the estimate is refused without `--tokens-over-estimate`). For a headless run: `--result-file <the path in on_complete>`.
 2. `blocked_by: executor-permissions` means the harness recorded the executor's permission mode refusing commands the contract requires (`refused_commands`). It is recorded as blocked, not as a bad report shape: send no follow-up, which would meet the same refusal, and tell the owner. For the rest of the run, no item is dispatched that way on this harness. `permission_warning` means only the report's text mentions a refusal: nothing is held; read the report, and if the executor was refused, tell the owner instead of following up.
    Otherwise read `result`, `questions`, `calls`, `deviations` and `report_errors`. A `done` report is queued to merge. In owner merge mode (policy `merge.mode` is `owner`) it waits there for the owner: see step 6. `executor_version` means the executor ran an earlier release: its report is accepted within the same minor. A `warning` there means another minor: handle the report as usual.
 3. The output's `refill` is the new plan: start its items (step 3). This is the only way slots are refilled.
@@ -170,6 +170,8 @@ The chief of staff's watchdog (`hitld dispatch watch`) wakes you with `watch: ..
    - `abandon`: stop the agent if it still runs (a background agent: `TaskStop`; a headless run: `kill` its `stop.pid`; an interactive session: `relay` with stop). The item is ready again.
    - `ask`: stop it as for `abandon`. Then `hitld rights ask --question '<the action's question as JSON>'` and add the decision to the item's `needs`, so it is not dispatched again before the owner answers. Section 7 and `hitld rights pending` decide when it goes to the owner.
 3. Start the items in `refill.start` (step 3). When `resumed` is in the output, dispatch has resumed after a pause: say so in your next message.
+
+An interactive session whose turn ended with no report is chased, not waited on: `hitld dispatch watch --ended <its session>` lists it under `unreported`, and the chief of staff reads its final state and relays the report, or sends it `report_request`. When you are both, do that yourself; a dispatch in that state is never left to the stall ladder.
 
 ## Posting text where others read it
 

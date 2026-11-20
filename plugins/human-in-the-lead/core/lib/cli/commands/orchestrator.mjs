@@ -69,7 +69,13 @@ import {
   refusedCommands,
   refusedNote,
 } from '../../dispatch/permissions.mjs';
-import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
+import {
+  envPrefix,
+  executorEnv,
+  hasReportBlock,
+  renderBrief,
+  reportsByMessage,
+} from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
 import {
   mergedSincePlanned,
@@ -1183,6 +1189,16 @@ const table = [
             { plan: planJson(result, setup) },
           );
         }
+        // An executor that reports by message gets the communication block (HITLD-147), naming
+        // this session as its commands here already name it: --session, $HITLD_SESSION or the
+        // harness's session ID. One only the run's own record holds is not an address the harness
+        // can send to, so it gives no block, and the start is refused below.
+        const byMessage = reportsByMessage({ tier, mode });
+        const me = identityOf(p, input, ctx);
+        const reportTo =
+          byMessage && me.session && ['flag', 'env', 'harness'].includes(String(me.source))
+            ? me.session
+            : null;
         const xenv = executorEnv(dispatch, p.policy.project.id);
         const briefPath = join(p.store.root, briefKey(dispatch));
         const resultPath = join(p.store.root, resultKey(dispatch));
@@ -1211,7 +1227,16 @@ const table = [
             touches,
             overlaps,
             merged,
+            reportTo,
           });
+        // Refused before anything is recorded or made: a brief without the block leaves the
+        // executor ending its turns where no one hears them.
+        if (byMessage && !(reportTo && hasReportBlock(briefFor(null), reportTo))) {
+          throw new Refusal(
+            'no-report-block',
+            `${id} runs as an interactive session, which reports by message, and its brief has no communication block: ${me.session ? `this session's ID (${me.session}) comes only from the run's record, not from --session, $HITLD_SESSION or the harness` : 'no session ID is known'}. Pass --session <your harness session ID> or set HITLD_SESSION, then start it again`,
+          );
+        }
 
         // Write ahead: the dispatch is in the ledger before anything starts.
         run.record({
