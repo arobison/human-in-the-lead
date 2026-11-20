@@ -151,9 +151,29 @@ An issue from feedback is an ordinary signal ([2.1](02-loops.md#21-intake)): unt
 - **Worked well is evidence, not work.** A `worked-well` signal is attached to the area it names, so shaping and design review see it before they change that area.
 - **Duplicates add reach.** Several people reporting the same friction raise its reach, as for any signal.
 
-### Implicit friction signals (later milestone)
+### Implicit friction signals
 
-Some friction shows in what people do rather than what they say. The ledger and the decision log already record:
+Some friction shows in what people do rather than what they say. Two sources record it.
+
+**Friction events, from the session record** (built, HITLD-595). Most of the friction in a run is already in the harness's own record of the session: the first retrospective (HITLD-589) found questions dropped by restarts, replies lost while a question box was open, instructions repeated after a compaction, and corrections of claims that went against a recorded decision, all found by hand. `hitld friction scan --session-record <file>` reads that record through the harness adapter (for Claude Code, a cloud session's event list or `claude -p` stream output, saved to a file; [part 15](15-architecture.md)) and appends a `friction` event to the ledger for each sighting. Each event carries:
+
+| Field | What |
+|---|---|
+| `friction_class` | The class (below) |
+| `source` | Whose action shows it: `owner`, `delegate` or `system` |
+| `evidence` | The record's ID for the event or message, its time, and for a semantic class a short exact quote (at most 120 characters). No more of the text is copied |
+| `decisions` | The owner decisions settled by then (`answered` events, not defaults), so the friction controller (HITLD-596) takes rates per decision, not per day |
+| `cause` | When the class has one: `restart` for a question a restart dropped within a minute, `dropped` for a question asked again after it was dropped, `box-open` for a reply written while a box was open |
+| `confidence`, `self_recognized` | The independent reader's confidence; true when the chief of staff recorded it itself |
+
+An event's ID is its class and its evidence's ID, so a second scan of the same record appends nothing. The scan is the chief of staff's; an executor is refused. The events live in the ledger, in the private store, per project (HITLD-490), and carry no project secrets and no private names.
+
+- **Deterministic classes, with no model:** `question-dropped` (a box closed unanswered by a restart, an error or an interrupt; one still open when the record ends is not counted), `question-repeated` (the same words asked again), `worker-restart`, `owner-interrupt`, `compaction`, `reply-lost` and `permission-denied` (a tool call the permission mode refused, source `delegate`).
+- **Semantic classes, by an independent reader**, never the chief of staff, since the system does not grade its own work (18.3, guardrail 4): `owner-correction`, `repeated-instruction` and `owner-did-work`, read from the owner's own messages, and `bundled-question` and `already-decided`, read from the questions put to the owner. `hitld friction messages` gives the reader those messages (never harness notices or other sessions' messages); `--classified <file>` gives the scan its output, one `{ ref, class, quote, confidence }` per message. A line is recorded only when its message is one the reader was given, its class reads that kind of message, its quote is an exact part of the message and its confidence is at least 0.7. Below that, or with no class, the message stays unclassified; any other failure is reported and left out. Nothing is guessed. The reader is chosen by the cascade (HITLD-581): the cheapest rung whose agreement with a sample the owner rated by hand passes, measured per message.
+- **The chief of staff records what it recognizes.** An owner correction or repeat it notices in the moment is a `friction` event through `hitld ledger append`, which marks it `self_recognized` and fills in the decision count, so the reader's reading can be compared with its own.
+- **The starting classes** are the first retrospective's findings, refined as the controller learns which classes matter. A new class is a schema change.
+
+**Counts the ledger and the decision log already hold** (later milestone):
 
 - precedent applications the person overruled;
 - answers rated not worth asking;
@@ -185,4 +205,4 @@ When visible–sealed drift exceeds `selfimprove.drift_max`, stage 2 pauses, and
 
 - **Stage 1** follows once the offline eval suite of "One signal end to end" exists ([part 21](21-scope.md)); live evals are not required to begin.
 - **Stage 2** follows once the ledger measures (the "Full measure set" milestone) and the controllers (the "Controllers" milestone) exist, so that its signals and its own effects can be measured.
-- **Giving feedback** (18.4): the issue forms, `hitld feedback` (recording, list, drop, render), the skill's part, the generalizer and filing exist now. The first live test in a consuming project is where feedback starts. The friction digest comes after them.
+- **Giving feedback** (18.4): the issue forms, `hitld feedback` (recording, list, drop, render), the skill's part, the generalizer and filing exist now. The first live test in a consuming project is where feedback starts. Friction events from the session record (`hitld friction scan`) exist; the friction controller (HITLD-596) and the friction digest come after them.

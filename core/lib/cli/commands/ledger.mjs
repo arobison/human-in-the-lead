@@ -38,6 +38,7 @@ import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
 import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
+import { decisionsAt } from '../../friction/friction.mjs';
 import { activePause } from '../../quota/pause.mjs';
 import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
@@ -224,6 +225,9 @@ const RAW_APPEND_FIELDS = {
   ],
   merged: ['item', 'dispatch', 'branch', 'commit', 'notes', 'corrects'],
   reverted: ['item', 'dispatch', 'commit', 'notes', 'corrects'],
+  // The chief of staff's own sighting of friction (HITLD-595): marked self-recognized, with the
+  // decision count filled in here, so the independent reader's reading can be compared with it.
+  friction: ['friction_class', 'source', 'evidence', 'cause', 'notes'],
 };
 const RAW_APPEND_EVENTS = Object.keys(RAW_APPEND_FIELDS);
 /**
@@ -265,7 +269,7 @@ const table = [
   {
     name: 'ledger append',
     summary:
-      'Append an asked, sent, answered, logged, verified, merged or reverted event, as the session holding the lease (its ID, run and time are set here)',
+      'Append an asked, sent, answered, logged, verified, merged, reverted or friction event, as the session holding the lease (its ID, run and time are set here)',
     built_by: 'b',
     args: [
       {
@@ -345,6 +349,14 @@ const table = [
               message: `corrects ${JSON.stringify(fields.corrects)}, which is ${target ? `a ${target.event} event about ${target.item ?? target.dispatch ?? 'something else'}` : 'not in the ledger'}; a correction must name an earlier ${fields.event} event with the same item or dispatch`,
             };
           }
+        }
+        if (fields.event === 'friction') {
+          fields.self_recognized = true;
+          const at = typeof fields.evidence?.at === 'string' ? fields.evidence.at : undefined;
+          fields.decisions = decisionsAt(
+            readLedger(s.store).events,
+            at ?? (ctx.now ? ctx.now() : new Date()).toISOString(),
+          );
         }
         // An event no dispatch writes says which session and machine wrote it.
         const { event: written, appended } = run.record(
