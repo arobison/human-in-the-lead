@@ -3,8 +3,15 @@
 // beside the project stores, not inside one. Waiters queue in arrival order. A lock is stale when
 // its holder's process is gone (or has been replaced by another with the same ID), or when it was
 // not renewed before it expired; the next taker then takes it over.
+//
+// A resource has a capacity (design 13.4, HITLD-41): the machine profile's `capacity` gives the
+// weight units it takes, and each holder takes a weight. A resource with no entry has capacity 1
+// and keeps the single lock file above, unchanged. A resource with a larger capacity records each
+// holder in its own file under <resource>.holders/, admitted under a mutex while the live weights
+// fit. Either way only the first in the queue may try, so a heavy holder waiting at the head is
+// not overtaken by light ones that arrive after it.
 
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -22,10 +29,12 @@ import { isAlive, processStart, sleep } from './proc.mjs';
  * @property {string} acquired_at
  * @property {string} renewed_at
  * @property {string} expires_at
+ * @property {number} [weight] the units it holds of a resource with a capacity above 1
  *
  * @typedef {object} LockContext
  * @property {string} machineRoot the machine-wide directory, with locks/ beneath it
  * @property {string} [repoRoot] the repository's primary checkout, for the per-repository resources
+ * @property {Record<string, number>} [capacity] the machine profile's capacity per resource
  * @property {(kind: string, data: Record<string, unknown>) => void} [log]
  *
  * @typedef {object} LockHandle
@@ -65,6 +74,60 @@ function physical(ctx, resource) {
   const key = createHash('sha256').update(ctx.repoRoot).digest('hex').slice(0, 12);
   return `${resource}.${key}`;
 }
+
+/**
+ * The weight units a resource takes: the machine profile's entry, else 1. A per-repository
+ * resource is serial by nature and always has capacity 1.
+ * @param {LockContext} ctx @param {string} resource @returns {number}
+ */
+export function capacityOf(ctx, resource) {
+  if (PER_REPOSITORY.includes(resource)) return 1;
+  const c = ctx.capacity?.[resource];
+  return Number.isInteger(c) && /** @type {number} */ (c) >= 1 ? /** @type {number} */ (c) : 1;
+}
+
+/** @param {LockContext} ctx @param {string} resource */
+const holdersDir = (ctx, resource) =>
+  join(ctx.machineRoot, 'locks', `${physical(ctx, resource)}.holders`);
+/** @param {LockContext} ctx @param {string} resource @param {string} holder */
+const holderFile = (ctx, resource, holder) => join(holdersDir(ctx, resource), `${holder}.json`);
+
+/**
+ * The holders recorded for a resource with a capacity, oldest first.
+ * @param {LockContext} ctx @param {string} resource
+ * @returns {{ path: string, record: LockRecord | null }[]}
+ */
+function readHolders(ctx, resource) {
+  const dir = holdersDir(ctx, resource);
+  let names;
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const name of names) {
+    const path = join(dir, name);
+    const record = readLock(path);
+    if (record !== undefined) out.push({ path, record });
+  }
+  const at = (/** @type {LockRecord | null} */ r) => (r ? Date.parse(r.acquired_at) || 0 : 0);
+  return out.sort((a, b) => at(a.record) - at(b.record));
+}
+
+/**
+ * Write a weighted holder's record whole: a reader under the admission mutex would take a
+ * half-written file for an unreadable, stale one and remove it.
+ * @param {string} path @param {LockRecord} record
+ */
+function writeHolder(path, record) {
+  const tmp = `${path}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`;
+  writeFileSync(tmp, JSON.stringify(record) + '\n');
+  renameSync(tmp, path);
+}
+
+/** @param {LockRecord | null} r */
+const weightOf = (r) => (r && Number.isInteger(r.weight) ? /** @type {number} */ (r.weight) : 1);
 
 /** @param {LockContext} ctx @param {string} resource */
 const lockFile = (ctx, resource) =>
@@ -199,7 +262,95 @@ async function attempt(ctx, resource, holder, pid, pidStart, ttlMs) {
 }
 
 /**
- * Acquire a serial resource for a holder.
+ * One attempt to take `weight` units of a resource with a capacity above 1. Under the resource's
+ * admission mutex: stale holders are removed (and logged as takeovers), the live weights are
+ * summed, and the holder is recorded if its weight fits. Asking again as a holder renews it and
+ * keeps the weight it holds.
+ * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
+ * @param {string | null} pidStart @param {number} ttlMs @param {number} weight @param {number} capacity
+ * @returns {Promise<{ taken: true, record: LockRecord, renewed?: boolean }
+ *   | { taken: false, held_by: LockRecord | null, used: number }>}
+ */
+async function attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weight, capacity) {
+  const dir = holdersDir(ctx, resource);
+  mkdirSync(dir, { recursive: true });
+  /** @type {{ previous_holder: string | null, reason: string }[]} */
+  const takeovers = [];
+  const result = await withMutex(`${dir}.admit`, () => {
+    const now = Date.now();
+    /** @type {LockRecord | null} */
+    let own = null;
+    /** @type {LockRecord[]} */
+    const live = [];
+    for (const h of readHolders(ctx, resource)) {
+      if (h.record && h.record.holder === holder) {
+        own = h.record;
+        continue;
+      }
+      const reason = staleReason(h.record, now);
+      if (reason) {
+        rmSync(h.path, { force: true });
+        takeovers.push({ previous_holder: h.record?.holder ?? null, reason });
+        continue;
+      }
+      live.push(/** @type {LockRecord} */ (h.record));
+    }
+    // A live single lock file (left from when this resource had capacity 1) fills the resource.
+    const single = readLock(lockFile(ctx, resource));
+    const singleLive = single && single.holder !== holder && !staleReason(single, now);
+    const used = singleLive ? capacity : live.reduce((n, r) => n + weightOf(r), 0);
+    const path = holderFile(ctx, resource, holder);
+    if (own) {
+      const renewed = {
+        ...newRecord(resource, holder, pid, pidStart, ttlMs, own.acquired_at),
+        weight: weightOf(own),
+      };
+      writeHolder(path, renewed);
+      return { taken: /** @type {const} */ (true), record: renewed, renewed: true };
+    }
+    if (used + weight > capacity) {
+      return {
+        taken: /** @type {const} */ (false),
+        held_by: singleLive ? single : (live[0] ?? null),
+        used,
+      };
+    }
+    const record = { ...newRecord(resource, holder, pid, pidStart, ttlMs), weight };
+    writeHolder(path, record);
+    return { taken: /** @type {const} */ (true), record };
+  });
+  for (const t of takeovers) ctx.log?.('lock_takeover', { resource, holder, ...t });
+  return result;
+}
+
+/**
+ * For a resource whose capacity is now 1: a live weighted holder left from when it had more
+ * keeps it held until it ends. A check before the single lock, not under its mutex; it matters
+ * only while the machine profile's capacity is lowered under live holders.
+ * @param {LockContext} ctx @param {string} resource @param {string} holder
+ * @returns {{ taken: false, held_by: LockRecord } | null}
+ */
+function weightedHolderBesides(ctx, resource, holder) {
+  const now = Date.now();
+  const other = readHolders(ctx, resource).find(
+    (h) => h.record && h.record.holder !== holder && !staleReason(h.record, now),
+  );
+  return other ? { taken: false, held_by: /** @type {LockRecord} */ (other.record) } : null;
+}
+
+/**
+ * Who holds a resource now, for a refusal: the single lock's holder, else the oldest weighted one.
+ * @param {LockContext} ctx @param {string} resource @returns {LockRecord | null}
+ */
+function currentHolder(ctx, resource) {
+  const single = readLock(lockFile(ctx, resource));
+  if (single) return single;
+  return readHolders(ctx, resource).find((h) => h.record)?.record ?? null;
+}
+
+/**
+ * Acquire a serial resource for a holder, taking `weight` units of its capacity (default 1). A
+ * weight above the resource's capacity could never be granted and is refused.
  *
  * Without `wait`, returns at once, taken or not. With `wait`, the caller queues behind earlier
  * arrivals and polls until it is first and the lock is free, or `timeoutMs` passes. A holder that
@@ -207,13 +358,25 @@ async function attempt(ctx, resource, holder, pid, pidStart, ttlMs) {
  * in-process handle renews it on a timer, so it expires only if this process stops.
  * @param {LockContext} ctx
  * @param {{ resource: string, holder: string, pid?: number, ttlSeconds?: number, wait?: boolean,
- *   timeoutMs?: number, pollMs?: number, autoRenew?: boolean }} request
+ *   timeoutMs?: number, pollMs?: number, autoRenew?: boolean, weight?: number }} request
  * @returns {Promise<{ acquired: true, handle: LockHandle, record: LockRecord, waited_ms: number }
- *   | { acquired: false, held_by: LockRecord | null, waited_ms: number, timed_out: boolean }>}
+ *   | { acquired: false, held_by: LockRecord | null, waited_ms: number, timed_out: boolean,
+ *       capacity: number }>}
  */
 export async function acquireLock(ctx, request) {
   const resource = checkResource(request.resource);
   const holder = checkHolder(request.holder);
+  const capacity = capacityOf(ctx, resource);
+  const weight = request.weight ?? 1;
+  if (!Number.isInteger(weight) || weight < 1) {
+    throw new Error(`weight ${JSON.stringify(weight)} is not a whole number of at least 1`);
+  }
+  if (weight > capacity) {
+    throw new Error(
+      `weight ${weight} is more than ${resource}'s capacity of ${capacity} (the machine profile's capacity.${resource})`,
+    );
+  }
+  const weighted = capacity > 1;
   const pid = request.pid ?? process.pid;
   const ttlMs = (request.ttlSeconds ?? 300) * 1000;
   const pollMs = request.pollMs ?? 50;
@@ -238,12 +401,21 @@ export async function acquireLock(ctx, request) {
       const myTurn = queue.length === 0 || (ticket !== null && queue[0] === ticket);
       if (myTurn) {
         if (pidStart === undefined) pidStart = processStart(pid);
-        const r = await attempt(ctx, resource, holder, pid, pidStart, ttlMs);
+        const r = weighted
+          ? await attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weight, capacity)
+          : (weightedHolderBesides(ctx, resource, holder) ??
+            (await attempt(ctx, resource, holder, pid, pidStart, ttlMs)));
         if (r.taken) {
           dropTicket();
           const waited = Date.now() - started;
           if (queued) ctx.log?.('lock_wait', { resource, holder, waited_ms: waited });
-          ctx.log?.('lock_acquired', { resource, holder, pid, renewed: r.renewed ?? false });
+          ctx.log?.('lock_acquired', {
+            resource,
+            holder,
+            pid,
+            renewed: r.renewed ?? false,
+            ...(weighted ? { weight: weightOf(r.record), capacity } : {}),
+          });
           return {
             acquired: true,
             record: r.record,
@@ -256,24 +428,25 @@ export async function acquireLock(ctx, request) {
               pidStart,
               ttlMs,
               request.autoRenew !== false,
+              weighted ? weightOf(r.record) : null,
             ),
           };
         }
         if (!request.wait) {
-          return { acquired: false, held_by: r.held_by, waited_ms: 0, timed_out: false };
+          return { acquired: false, held_by: r.held_by, waited_ms: 0, timed_out: false, capacity };
         }
       } else if (!request.wait) {
-        const held = readLock(lockFile(ctx, resource));
-        return { acquired: false, held_by: held ?? null, waited_ms: 0, timed_out: false };
+        const held = currentHolder(ctx, resource);
+        return { acquired: false, held_by: held, waited_ms: 0, timed_out: false, capacity };
       }
       if (Date.now() >= deadline) {
         dropTicket();
-        const held = readLock(lockFile(ctx, resource));
         return {
           acquired: false,
-          held_by: held ?? null,
+          held_by: currentHolder(ctx, resource),
           waited_ms: Date.now() - started,
           timed_out: true,
+          capacity,
         };
       }
       if (!ticket) {
@@ -292,21 +465,19 @@ export async function acquireLock(ctx, request) {
 /**
  * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
  * @param {string | null} pidStart @param {number} ttlMs @param {boolean} autoRenew
+ * @param {number | null} weight the weight held, for a resource with a capacity above 1
  * @returns {LockHandle}
  */
-function makeHandle(ctx, resource, holder, pid, pidStart, ttlMs, autoRenew) {
-  const path = lockFile(ctx, resource);
+function makeHandle(ctx, resource, holder, pid, pidStart, ttlMs, autoRenew, weight) {
+  const path = weight === null ? lockFile(ctx, resource) : holderFile(ctx, resource, holder);
   /** @type {NodeJS.Timeout | null} */
   let timer = null;
   const renew = () => {
     const cur = readLock(path);
-    if (cur && cur.holder === holder) {
-      writeFileSync(
-        path,
-        JSON.stringify({ ...newRecord(resource, holder, pid, pidStart, ttlMs, cur.acquired_at) }) +
-          '\n',
-      );
-    }
+    if (!cur || cur.holder !== holder) return;
+    const record = newRecord(resource, holder, pid, pidStart, ttlMs, cur.acquired_at);
+    if (weight === null) writeFileSync(path, JSON.stringify(record) + '\n');
+    else writeHolder(path, { ...record, weight });
   };
   if (autoRenew) {
     timer = setInterval(renew, Math.max(1000, Math.floor(ttlMs / 3)));
@@ -331,6 +502,12 @@ function makeHandle(ctx, resource, holder, pid, pidStart, ttlMs, autoRenew) {
 export function releaseLock(ctx, request) {
   const resource = checkResource(request.resource);
   const holder = checkHolder(request.holder);
+  const own = holderFile(ctx, resource, holder);
+  if (readLock(own)?.holder === holder) {
+    rmSync(own, { force: true });
+    ctx.log?.('lock_released', { resource, holder });
+    return { released: true };
+  }
   const path = lockFile(ctx, resource);
   const cur = readLock(path);
   if (!cur) return { released: false };
@@ -341,13 +518,25 @@ export function releaseLock(ctx, request) {
 }
 
 /**
- * Who holds what, and who waits, for the named resources.
+ * Who holds what, and who waits, for the named resources. `held_by` and `stale` describe the
+ * single lock's holder, or for a resource with a capacity the oldest weighted holder; `holders`
+ * lists every holder with its weight, and `used` sums the live weights against `capacity`.
  * @param {LockContext} ctx @param {string[]} resources
  */
 export function lockStatus(ctx, resources) {
   const now = Date.now();
   return resources.map((resource) => {
-    const record = readLock(lockFile(ctx, checkResource(resource)));
+    const single = readLock(lockFile(ctx, checkResource(resource)));
+    const weighted = readHolders(ctx, resource);
+    const record = single ?? weighted[0]?.record;
+    const holders = [
+      ...(single === undefined ? [] : [{ record: single, weight: capacityOf(ctx, resource) }]),
+      ...weighted.map((h) => ({ record: h.record, weight: weightOf(h.record) })),
+    ].map((h) => ({
+      holder: h.record?.holder ?? null,
+      weight: h.weight,
+      stale: staleReason(h.record, now),
+    }));
     const waiting = liveQueue(ctx, resource).map((t) => {
       try {
         return JSON.parse(readFileSync(join(queueDir(ctx, resource), t), 'utf8')).holder;
@@ -357,9 +546,12 @@ export function lockStatus(ctx, resources) {
     });
     return {
       resource,
+      capacity: capacityOf(ctx, resource),
+      used: holders.filter((h) => !h.stale).reduce((n, h) => n + h.weight, 0),
       held_by: record?.holder ?? null,
       stale: record === undefined ? false : staleReason(record, now),
       record: record ?? null,
+      holders,
       waiting,
     };
   });

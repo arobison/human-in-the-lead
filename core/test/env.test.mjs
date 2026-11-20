@@ -171,7 +171,7 @@ async function freeRange(size, from) {
 /**
  * @param {{ repoRoot: string, env?: Record<string, any>, read?: import('../lib/env/secrets.mjs').SecretReader,
  *   machineRoot?: string, range?: { min: number, max: number }, callerEnv?: NodeJS.ProcessEnv,
- *   merge?: Record<string, any> }} o
+ *   merge?: Record<string, any>, capacity?: Record<string, number> }} o
  */
 async function makeEnv(o) {
   const range = o.range ?? (await freeRange(20));
@@ -195,6 +195,7 @@ async function makeEnv(o) {
     env: o.callerEnv ?? { ...process.env },
     machineRoot,
     secretReader: o.read,
+    capacity: o.capacity,
   });
   return {
     store,
@@ -715,6 +716,128 @@ test('a lock past its expiry without renewal is stale; renewing keeps it', async
   assert.ok(again.acquired);
   assert.equal(env.lockStatus().find((l) => l.resource === 'benchmark')?.stale, null);
   env.releaseLock({ resource: 'benchmark', holder: 'D-1' });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Capacities (HITLD-41, design 13.4): a resource takes weight up to its capacity
+
+test('a resource with capacity takes several light holders or one heavy one', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
+  const lights = [];
+  for (const holder of ['D-1', 'D-2', 'D-3', 'D-4']) {
+    const r = await env.acquireLock({ resource: 'gpu', holder, weight: 1 });
+    assert.ok(r.acquired, `${holder} fits`);
+    lights.push(r);
+  }
+  const fifth = await env.acquireLock({ resource: 'gpu', holder: 'D-5', weight: 1 });
+  assert.equal(fifth.acquired, false, 'four light holders fill a capacity of 4');
+  const status = env.lockStatus().find((l) => l.resource === 'gpu');
+  assert.equal(status?.capacity, 4);
+  assert.equal(status?.used, 4);
+  assert.deepEqual(status?.holders.map((h) => h.holder).sort(), ['D-1', 'D-2', 'D-3', 'D-4']);
+  for (const l of lights) if (l.acquired) assert.ok(l.handle.release());
+  const heavy = await env.acquireLock({ resource: 'gpu', holder: 'D-6', weight: 4 });
+  assert.ok(heavy.acquired, 'a heavy holder takes the whole capacity');
+  const light = await env.acquireLock({ resource: 'gpu', holder: 'D-7' });
+  assert.equal(light.acquired, false, 'nothing fits beside a heavy holder');
+  assert.equal(!light.acquired && light.held_by?.holder, 'D-6');
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.held_by, 'D-6');
+  const released = await env.releaseHolder({ holder: 'D-6', result: 'merged' });
+  assert.deepEqual(released.locks, ['gpu']);
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.used, 0);
+  await assert.rejects(
+    () => env.acquireLock({ resource: 'gpu', holder: 'D-8', weight: 5 }),
+    /more than gpu's capacity of 4/,
+  );
+  await assert.rejects(
+    () => env.acquireLock({ resource: 'benchmark', holder: 'D-8', weight: 2 }),
+    /more than benchmark's capacity of 1/,
+    'a resource with no capacity entry is serial',
+  );
+});
+
+test('a waiting heavy holder is not overtaken by light ones that arrive after it', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
+  /** @type {string[]} */
+  const trace = [];
+  /** @param {string} holder @param {number} weight @param {number} holdMs */
+  const work = async (holder, weight, holdMs) => {
+    const got = await env.acquireLock({ resource: 'gpu', holder, weight, wait: true, pollMs: 10 });
+    assert.ok(got.acquired);
+    trace.push(`${holder} in`);
+    await sleep(holdMs);
+    trace.push(`${holder} out`);
+    got.handle.release();
+  };
+  // Two light holders run; a heavy one arrives and waits; light ones that come later would fit
+  // beside the first two, but they queue behind the heavy one.
+  const a = work('D-1', 1, 150);
+  const b = work('D-2', 1, 150);
+  await sleep(30);
+  const heavy = work('D-3', 4, 50);
+  await sleep(30);
+  const c = work('D-4', 1, 10);
+  const d = work('D-5', 1, 10);
+  await Promise.all([a, b, heavy, c, d]);
+  const at = (/** @type {string} */ e) => trace.indexOf(e);
+  assert.ok(at('D-3 in') > at('D-1 out') && at('D-3 in') > at('D-2 out'), trace.join(', '));
+  assert.ok(at('D-4 in') > at('D-3 out'), `D-4 did not overtake D-3: ${trace.join(', ')}`);
+  assert.ok(at('D-5 in') > at('D-3 out'), `D-5 did not overtake D-3: ${trace.join(', ')}`);
+  const w = env.lockWaits();
+  assert.equal(w.gpu.waits, 3, 'the heavy holder and the two light ones behind it waited');
+});
+
+test('a weighted holder whose process is gone, or that expired, is taken over', async (t) => {
+  const repoRoot = makeRepo();
+  const machineRoot = dir('machine');
+  const { env } = await makeEnv({ repoRoot, machineRoot, capacity: { gpu: 2 } });
+  const code = `
+    import { acquireLock } from ${JSON.stringify(pathToFileURL(LOCKS_MJS).href)};
+    const r = await acquireLock({ machineRoot: ${JSON.stringify(machineRoot)}, capacity: { gpu: 2 } }, { resource: 'gpu', holder: 'D-OLD', weight: 2, autoRenew: false });
+    console.log(r.acquired ? 'held' : 'failed');
+    setInterval(() => {}, 1000);`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', code], {
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  children.add(child);
+  await new Promise((resolve, reject) => {
+    child.stdout.once('data', (d) =>
+      String(d).includes('held') ? resolve(undefined) : reject(new Error(String(d))),
+    );
+    child.once('error', reject);
+  });
+  const blocked = await env.acquireLock({ resource: 'gpu', holder: 'D-NEW' });
+  assert.equal(blocked.acquired, false, 'its holder is alive');
+  child.kill('SIGKILL');
+  await new Promise((r) => child.once('exit', r));
+  assert.match(String(env.lockStatus().find((l) => l.resource === 'gpu')?.stale), /is gone/);
+  const taken = await env.acquireLock({ resource: 'gpu', holder: 'D-NEW', weight: 2 });
+  assert.ok(taken.acquired);
+  const takeover = env.events().find((e) => e.kind === 'lock_takeover');
+  assert.equal(takeover?.previous_holder, 'D-OLD');
+  env.releaseLock({ resource: 'gpu', holder: 'D-NEW' });
+
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const a = await env.acquireLock({
+    resource: 'gpu',
+    holder: 'D-1',
+    ttlSeconds: 1,
+    autoRenew: false,
+  });
+  assert.ok(a.acquired);
+  t.mock.timers.tick(1200);
+  assert.match(String(env.lockStatus().find((l) => l.resource === 'gpu')?.stale), /expired/);
+  const again = await env.acquireLock({ resource: 'gpu', holder: 'D-1', ttlSeconds: 60 });
+  assert.ok(again.acquired, 'asking again as the holder renews');
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.stale, null);
+  assert.equal(
+    env.lockStatus().find((l) => l.resource === 'gpu')?.used,
+    1,
+    'renewing adds no weight',
+  );
+  assert.deepEqual(env.releaseLock({ resource: 'gpu', holder: 'D-1' }), { released: true });
 });
 
 test('the mutex takes over one whose owner is dead', async () => {
@@ -1639,4 +1762,57 @@ test('a holders file under its name before HITLD-82 (registry.json, with status)
   const reg = readRegistry(store);
   assert.equal(reg.worktrees['D-1'].state, 'setup-failed');
   assert.equal('status' in reg.worktrees['D-1'], false);
+});
+
+test('hitld env lock takes the capacity from the machine profile and a weight per holder', async () => {
+  const repoRoot = makeRepo();
+  mkdirSync(join(repoRoot, '.human-in-the-lead'));
+  writeFileSync(
+    join(repoRoot, '.human-in-the-lead', 'policy.json'),
+    JSON.stringify({ schema_version: 1, project: { id: 'cap-fixture', key: 'W' } }),
+    { mode: 0o600 },
+  );
+  git(['add', '-f', '.human-in-the-lead/policy.json'], repoRoot);
+  git(['commit', '-q', '-m', 'policy'], repoRoot);
+  const xdg = dir('xdg');
+  const env = { ...process.env, XDG_DATA_HOME: xdg, XDG_CONFIG_HOME: xdg };
+  const machineDir = join(xdg, 'human-in-the-lead', '_machine');
+  mkdirSync(machineDir, { recursive: true });
+  writeFileSync(
+    join(machineDir, 'machine.json'),
+    JSON.stringify({ schema_version: 1, capacity: { gpu: 4 } }),
+    { mode: 0o600 },
+  );
+  /** @param {string[]} argv */
+  const hitld = async (argv) => {
+    let out = '';
+    const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd: repoRoot, env });
+    return { code, out, json: JSON.parse(out) };
+  };
+  const lock = (/** @type {string} */ d, /** @type {number} */ w) =>
+    hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', d, '--weight', String(w)]);
+  const light = await lock('D-1', 1);
+  assert.equal(light.code, 0, light.out);
+  assert.equal(light.json.weight, 1);
+  const heavy = await lock('D-2', 3);
+  assert.equal(heavy.code, 0, heavy.out);
+  const full = await lock('D-3', 1);
+  assert.equal(full.code, 1, 'the profile gives gpu 4 units, all taken');
+  assert.equal(full.json.error, 'lock-held');
+  const status = (await hitld(['env', 'status'])).json.locks.find(
+    (/** @type {any} */ l) => l.resource === 'gpu',
+  );
+  assert.equal(status.capacity, 4);
+  assert.equal(status.used, 4);
+  // a resource the profile gives no capacity stays serial
+  const bench = await hitld(['env', 'lock', '--resource', 'benchmark', '--dispatch', 'D-1']);
+  assert.equal(bench.code, 0, bench.out);
+  assert.equal(bench.json.weight, undefined);
+  for (const [r, d] of [
+    ['gpu', 'D-1'],
+    ['gpu', 'D-2'],
+    ['benchmark', 'D-1'],
+  ]) {
+    assert.equal((await hitld(['env', 'unlock', '--resource', r, '--dispatch', d])).code, 0);
+  }
 });

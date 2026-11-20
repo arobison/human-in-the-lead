@@ -284,9 +284,9 @@ The project marks which of its commands are heavy; the merge queue's full suite 
 
 ### Capacities and quiet holds
 
-**Heavy steps hold weighted capacity** (HITLD-534). Tests, builds and benchmarks hold weighted machine capacity through a wrapper that the executor hook enforces, and a performance run takes the machine exclusively (the quiet hold below). Where executors share a machine, their count follows measured headroom; in the cloud each executor has its own container. *Decided, not built (HITLD-559, HITLD-41, HITLD-42, HITLD-145).*
+**Heavy steps hold weighted capacity** (HITLD-534). Tests, builds and benchmarks hold weighted machine capacity through a wrapper that the executor hook enforces, and a performance run takes the machine exclusively (the quiet hold below). Where executors share a machine, their count follows measured headroom; in the cloud each executor has its own container. *Decided, not built (HITLD-559, HITLD-42, HITLD-145); the weighted capacity itself is built (HITLD-41, below).*
 
-**A resource has a capacity, not just a lock.** Each holder takes a weight. A GPU with capacity 4 may take one heavy holder (weight 4) or several light ones (weight 1 each). A plain serial resource has capacity 1. Holders queue in arrival order, and a heavy holder at the head of the queue is not overtaken by light ones that arrive after it.
+**A resource has a capacity, not just a lock.** Each holder takes a weight. A GPU with capacity 4 may take one heavy holder (weight 4) or several light ones (weight 1 each). A plain serial resource has capacity 1. Holders queue in arrival order, and a heavy holder at the head of the queue is not overtaken by light ones that arrive after it. *As built (HITLD-41):* the machine profile's `capacity` sets the units per resource, and `hitld env lock --weight` takes a weight (default 1). A resource with no entry, and the per-repository merge queue, keep the single lock file; one with a larger capacity records each holder in its own file, admitted under a mutex while the live weights fit. `hitld env status` shows each resource's `capacity`, `used` and `holders`. The dispatch planner still treats a resource with any live holder as taken; admission by free units is HITLD-42's.
 
 **A quiet machine is its own kind of hold**, for timing-sensitive work such as benchmarks:
 
