@@ -18,7 +18,7 @@ project: HITLD-15
 
 ## Why
 
-The owner's first consuming project, Cesium 2.0, has a workbench harness (dyno) that runs rendering benchmark suites, runs studies with domain-specific instruments, shows commit-by-commit trends for performance metrics and identifies regressions. The owner asked how HITLD should know how to use those tools when they are needed, and what abstraction connects them.
+The first outside consuming project, Cesium 2.0 (this repository stays the first consumer, in rc.2: decision HITLD-612), has a workbench harness (dyno) that runs rendering benchmark suites, runs studies with domain-specific instruments, shows commit-by-commit trends for performance metrics and identifies regressions. The owner asked how HITLD should know how to use those tools when they are needed, and what abstraction connects them.
 
 The design already decides the direction (design parts 3.3, 2.17, 5.x, 13.2 and 13.3): the project's measurement tool owns runs and studies; the system references them through the evidence source and does not duplicate them; executors measure through it and cite run IDs; benchmark runs hold the benchmark lock and a quiet machine; budgets and regressions come from the tool's measurements. What is missing: nothing in the core implements the evidence source (the interface is three calls, run, study and an optional start), no item or milestone builds it, and nothing says how a project declares what its tool can do or how an agent learns when to reach for it.
 
@@ -39,3 +39,7 @@ Design-heavy: stays `proposed` and is walked through with the owner before any b
 ## Decided on 2026-11-20 (HITLD-610)
 
 The owner said the harness, dyno, is in the cesium-2.0-webgpu-pox branch of the cesiumgs/cesium repository and that Cesium is the first consumer, and decided to place the walk-through on the roadmap: it is a constraint of milestone HITLD-567 (clause c2), so it is settled before HITLD-559 and any build item that depends on the evidence source starts.
+
+## Clarified on 2026-11-20 (HITLD-612)
+
+Cesium is the first outside consumer, not the consumer of rc.2 (that is this repository, HITLD-67). Its setup and release pin belong to v0.1.0 (HITLD-24, HITLD-66); this walk-through is placed in rc.5, before v0.1.0, so the design is settled before the first outside project depends on it.
