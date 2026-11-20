@@ -41,6 +41,7 @@ import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.
 import { revertEvents } from '../../merge/owner.mjs';
 import { decisionsAt } from '../../friction/friction.mjs';
 import { activePause } from '../../quota/pause.mjs';
+import { declaredFigureAsks } from '../../quota/inputs.mjs';
 import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 import { VersionDriftError, runVersionCheck } from '../../install/drift.mjs';
@@ -914,6 +915,13 @@ const table = [
             policy: s.policy,
           }),
         );
+        // A usage figure the owner declared that nears the reserve or has grown old (HITLD-164):
+        // the owner is asked for a fresh one. Dispatch waits for it only at the reserve.
+        const figures = declaredFigureAsks(s.store, {
+          cwd: s.cwd,
+          env: ctx.env,
+          now: (ctx.now ? ctx.now() : new Date()).getTime(),
+        });
         return {
           ok: true,
           run: state.run,
@@ -928,11 +936,12 @@ const table = [
           handover,
           handover_file: file ? join(s.store.root, file) : null,
           ...(disk ? { disk } : {}),
+          ...(figures.length ? { ask_figure: figures } : {}),
           next: `${
             lease.free
               ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${join(s.store.root, file)}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
               : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}${paused ? `; dispatch is paused at ${paused.limit}${paused.resets_at ? `: schedule one wake for ${paused.resets_at}, the reset` : ', reset time unknown: the check-in looks again'}` : ''}`
-          }${disk ? `; tell the owner: ${disk.reason}` : ''}`,
+          }${disk ? `; tell the owner: ${disk.reason}` : ''}${figures.map((f) => `; ask the owner for a fresh usage figure for ${f.limit}, as their account shows it (${f.why}), and record it with hitld quota declare in their own turn`).join('')}`,
         };
       }),
   },

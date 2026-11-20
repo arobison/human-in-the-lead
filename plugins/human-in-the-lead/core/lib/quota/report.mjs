@@ -142,6 +142,7 @@ export function buildReport({
       binding: gate.binding,
       forecast: gate.forecast,
       ask_owner: gate.ask_owner,
+      refresh: gate.refresh,
       unread: gate.unread,
     },
     quotas: gate.quotas,
@@ -154,6 +155,13 @@ export function buildReport({
 }
 
 /** @typedef {ReturnType<typeof buildReport>} Report */
+
+/**
+ * The ask for a fresh usage figure, as the digest and `hitld run status` put it.
+ * @param {{ limit: string, why: string }} f
+ */
+export const refreshLine = (f) =>
+  `Asked: a fresh usage figure for ${f.limit}, as your account shows it (${f.why}); give it with hitld quota declare.`;
 
 export const MODE_LABEL = {
   normal: 'Normal dispatch',
@@ -173,6 +181,7 @@ export function renderDigest(r) {
   lines.push(`Dispatch: ${MODE_LABEL[r.gate.mode]}.`);
   lines.push(r.gate.reason);
   if (r.gate.ask_owner) lines.push('The owner is asked before this hard limit is passed.');
+  for (const f of r.gate.refresh) lines.push(refreshLine(f));
   if (r.waiting_for_owner.length) {
     lines.push('', `Waiting for your merge (${r.waiting_for_owner.length}):`);
     for (const w of r.waiting_for_owner) {
