@@ -24,3 +24,7 @@ Evidence: core/lib/tracker/files/ids.mjs:40-45 refuses off main; migrate.mjs:259
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `backlog`, area `tracker`, still present on main, confidence 0.75. Changes the rule on who creates tracker entities and where; needs shaping, not a quick fix.
+
+## Second sighting on 2026-11-20
+
+A curator job that prepared the nine roadmap moves in a git worktree could not allocate the new release item's ID there, because `hitld work new` refuses on a branch other than main; it took the number from the store counter in a throwaway clone of main and moved the file over. Preparing a new item or a migration for review on a branch, with an ID from the same counter, is what this item asks for.

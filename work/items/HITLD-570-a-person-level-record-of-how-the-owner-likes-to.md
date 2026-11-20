@@ -33,3 +33,8 @@ The owner decided (HITLD-569) that how the owner likes to work is its own record
 ## Notes
 
 Design-heavy in its details (the entry format, the loading, the seed): stays proposed and is walked through with the owner. Skill, code and schema: the owner's own yes to merge. Placed under HITLD-405 c2 (what the chief of staff tells the owner, one question per call) by the chief of staff, a proposal for the owner to move. Related: HITLD-135 (walk-throughs), HITLD-148 (a cloud session starts with the owner's settings), HITLD-490 and HITLD-507, HITLD-515, HITLD-543 (a pending decision per question).
+
+## Evidence from the first retrospective (2026-11-20, HITLD-589)
+
+- **P1:** seed the record now with the standing rules the owner has stated in this run (ask one question at a time; no asking whether to start while the gate is closed; no asking what order to answer in; no messages about no-op events; look decisions up before claiming), shown to the owner once to confirm. The owner repeated "ask me one at a time" 4 times, 3 of them after a compaction or restart.
+- **P3:** the record must also be reloaded after every compaction, not only at session start: 3 of the 4 repeats and 5 of the 7 decision-related corrections came after a reset.
