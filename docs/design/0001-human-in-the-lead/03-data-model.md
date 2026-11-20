@@ -489,7 +489,7 @@ A project's benchmark tool is the reference implementation. Executors measure th
 
 ### Private store
 
-The ledger, confidential research, relationship notes, process studies, private signals and judgment records live in a **private store**: a directory outside the repo (`~/.local/share/human-in-the-lead/<project-id>/`). Its interface is a small key-path file API (read, append, write, list) so it can later be backed by something else.
+The ledger, confidential research, relationship notes, process studies, private signals and judgment records live in a **private store**: a directory outside the repo: `$XDG_DATA_HOME/human-in-the-lead/<project-id>/` when `XDG_DATA_HOME` is set, on every platform; else `%LOCALAPPDATA%\human-in-the-lead\<project-id>\` on Windows (decided, HITLD-245) and `~/.local/share/human-in-the-lead/<project-id>/` elsewhere. A Windows store at the old place, `~/.local/share`, is moved once, with a message, the first time the path is resolved. Its interface is a small key-path file API (read, append, write, list) so it can later be backed by something else.
 
 It holds two kinds of data (decided, [Q1](22-open-questions.md#q1-where-does-the-private-store-live-and-do-other-machines-share-it)):
 

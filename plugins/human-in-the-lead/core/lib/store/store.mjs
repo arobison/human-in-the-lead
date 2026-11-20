@@ -1,8 +1,10 @@
 // The private store (design part 3.3): where the ledger, run state, leases, usage snapshots,
 // confidential material and eval results live, outside the repository.
 //
-// Default path: $XDG_DATA_HOME/human-in-the-lead/<project-id>/, which is
-// ~/.local/share/human-in-the-lead/<project-id>/ when XDG_DATA_HOME is unset.
+// Default path: $XDG_DATA_HOME/human-in-the-lead/<project-id>/ when XDG_DATA_HOME is set, on every
+// platform; else %LOCALAPPDATA%\human-in-the-lead\<project-id>\ on Windows and
+// ~/.local/share/human-in-the-lead/<project-id>/ elsewhere (data-home.mjs, which also moves a
+// Windows store from the old ~/.local/share place once).
 //
 // The store is a small key-path file API (read, write, append, list) so it can later be backed by
 // something else. Keys are relative paths such as "ledger.jsonl" or "runs/R-3/run-state.json".
@@ -20,8 +22,8 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dataDir } from './data-home.mjs';
 import { replaceFile } from './host.mjs';
 
 const PROJECT_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -29,9 +31,9 @@ const PROJECT_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /**
  * The private store directory for a project.
  * @param {string} projectId policy.json project.id
- * @param {{ env?: NodeJS.ProcessEnv, home?: string, repoRoot?: string }} [options]
- *   env and home are for tests; repoRoot, when given, makes it an error for the store to be
- *   inside the repository.
+ * @param {import('./data-home.mjs').DataHomeOptions & { repoRoot?: string }} [options]
+ *   env, home and platform are for tests; repoRoot, when given, makes it an error for the store
+ *   to be inside the repository.
  * @returns {string}
  */
 export function privateStorePath(projectId, options = {}) {
@@ -40,10 +42,7 @@ export function privateStorePath(projectId, options = {}) {
       `project ID ${JSON.stringify(projectId)} is not a safe directory name (lower-case letters, digits, ".", "_", "-")`,
     );
   }
-  const env = options.env ?? process.env;
-  const xdg = env.XDG_DATA_HOME;
-  const base = xdg && isAbsolute(xdg) ? xdg : join(options.home ?? homedir(), '.local', 'share');
-  const path = join(base, 'human-in-the-lead', projectId);
+  const path = join(dataDir(options), projectId);
   if (options.repoRoot) {
     const rel = relative(resolve(options.repoRoot), path);
     if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {

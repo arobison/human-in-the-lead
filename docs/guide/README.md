@@ -40,7 +40,7 @@ The status-line usage capture (`.claude/settings.local.json`, git-ignored) is of
 
 ## What the project keeps
 
-Your tracker items (in `work/` unless you set another folder), `.human-in-the-lead/policy.json`, the contract in `AGENTS.md`, and your own rules. Anything confidential (the ledger, research, relationship notes) lives in a private store outside the repository, under `$XDG_DATA_HOME/human-in-the-lead/<project ID>/` (by default `~/.local/share/human-in-the-lead/<project ID>/`). Your settings as a person and for each machine live in `~/.config/human-in-the-lead/person.json` and the machine file; every project on the machine reads them, so no page tells you to remove them.
+Your tracker items (in `work/` unless you set another folder), `.human-in-the-lead/policy.json`, the contract in `AGENTS.md`, and your own rules. Anything confidential (the ledger, research, relationship notes) lives in a private store outside the repository, under `$XDG_DATA_HOME/human-in-the-lead/<project ID>/` when `XDG_DATA_HOME` is set, on every platform. Without it, the store is in `%LOCALAPPDATA%\human-in-the-lead\<project ID>\` on Windows and `~/.local/share/human-in-the-lead/<project ID>/` on macOS and Linux. Earlier releases used `~/.local/share` on Windows too: the first time `hitld` looks for the store after you upgrade, it moves it from there, and says so. Your settings as a person and for each machine live in `~/.config/human-in-the-lead/person.json` and the machine file; every project on the machine reads them, so no page tells you to remove them.
 
 ## Project rules
 

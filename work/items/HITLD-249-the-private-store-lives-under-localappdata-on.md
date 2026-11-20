@@ -6,6 +6,7 @@ state: planned
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-243, HITLD-153]
+release_note: "On Windows the private stores and the machine file live under `%LOCALAPPDATA%\\human-in-the-lead` (`XDG_DATA_HOME`, when set, still overrides it on every platform); the first time `hitld` resolves the path, it moves what is still at the old `~/.local/share/human-in-the-lead` there, with a message."
 ---
 
 ## Why

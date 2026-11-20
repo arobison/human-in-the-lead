@@ -121,8 +121,14 @@ test('the person file is configuration and the machine file sits beside the regi
     join('/h/.config/human-in-the-lead/person.json'),
   );
   assert.equal(
-    settingsLocation('machine', { env: relative, home: '/h' }).path,
+    settingsLocation('machine', { env: relative, home: '/h', platform: 'linux' }).path,
     join('/h/.local/share/human-in-the-lead/_machine/machine.json'),
+  );
+  assert.equal(
+    settingsLocation('machine', { env: { LOCALAPPDATA: '/l' }, home: '/h', platform: 'win32' })
+      .path,
+    join('/l/human-in-the-lead/_machine/machine.json'),
+    'on Windows the machine file sits beside the private stores, under %LOCALAPPDATA%',
   );
 });
 
