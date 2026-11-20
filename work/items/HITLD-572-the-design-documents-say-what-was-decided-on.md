@@ -2,7 +2,7 @@
 id: HITLD-572
 title: The design documents say what was decided on 2026-11-19, in one change the owner approves
 kind: work
-state: proposed
+state: planned
 created: 2026-11-19
 project: HITLD-15
 needs: [HITLD-565]
@@ -35,3 +35,7 @@ The design glossary defines appetite, budget and pace as decided: appetite is es
 ## Tiers (HITLD-581)
 
 The design part on sizing tiers (part 5.1) is rewritten for the decision that discrete tiers go: an execution mode picked from capability needs, a cost-ordered model-and-effort cascade, and a token budget measured from history, with `tier_override` becoming a profile override. Every other part that says "tier" follows.
+
+## Promoted on 2026-11-20 (HITLD-588)
+
+The owner decided (HITLD-588) that this is drafted now by a curator-style job: an agent briefed with the decision IDs rewrites the affected design parts as one pull request, the chief of staff verifies each part against the decision records, and the owner approves it. The release-stage part (part 21) follows once the roadmap audit's moves are settled.
