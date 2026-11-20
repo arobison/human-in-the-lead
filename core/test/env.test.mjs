@@ -464,7 +464,29 @@ test('an item dispatched again after an abandon gets a worktree, and unmerged wo
   git(['update-ref', 'refs/remotes/origin/hitld/W-2-task', kept], repoRoot);
   const remote = await env.createWorktree({ holder: 'D-5', itemId: 'W-2', slug: 'task' });
   assert.equal(remote.lease.branch, 'hitld/W-2-task-2');
-  for (const holder of ['D-3', 'D-4', 'D-5', 'D-6', 'D-7']) {
+  // A remote-tracking tip already in main is no obstacle: the name is reused.
+  const root = git(['rev-list', '--max-parents=0', 'main'], repoRoot).trim();
+  git(['update-ref', 'refs/remotes/origin/hitld/W-4-task', root], repoRoot);
+  const merged = await env.createWorktree({ holder: 'D-8', itemId: 'W-4', slug: 'task' });
+  assert.deepEqual([merged.lease.branch, merged.branch_choice?.chose], ['hitld/W-4-task', 'reuse']);
+
+  // A remote whose name holds a slash: its unmerged tip still counts.
+  git(['update-ref', 'refs/remotes/my/remote/hitld/W-5-task', kept], repoRoot);
+  const slashed = await env.createWorktree({ holder: 'D-9', itemId: 'W-5', slug: 'task' });
+  assert.equal(slashed.lease.branch, 'hitld/W-5-task-2');
+
+  // When every fresh name is taken too, a coded refusal, and no worktree.
+  for (let n = 1; n < 100; n++) {
+    git(['branch', n === 1 ? 'hitld/W-6-task' : `hitld/W-6-task-${n}`, kept], repoRoot);
+  }
+  await assert.rejects(
+    env.createWorktree({ holder: 'D-10', itemId: 'W-6', slug: 'task' }),
+    (/** @type {any} */ e) =>
+      e.code === 'branch-names-taken' && /-2 to .*-99 are all taken/.test(e.message),
+  );
+  assert.equal(env.registry().worktrees['D-10'], undefined);
+
+  for (const holder of ['D-3', 'D-4', 'D-5', 'D-6', 'D-7', 'D-8', 'D-9']) {
     await env.releaseWorktree({ holder, result: 'abandoned' });
   }
 });

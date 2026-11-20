@@ -168,8 +168,8 @@ The chief of staff's watchdog (`hitld dispatch watch`) wakes you with `watch: ..
 2. For each action, as its `then` says:
    - `poke`: with `via: agent`, send `message` to the agent (`SendMessage` to `to.harness_ref`). With `via: chief_of_staff` (an interactive tier-3 session), put it in `relay`.
    - `follow-up`: stop the agent's current turn (`TaskStop` with its agent ID), then make the `instruction` call exactly as printed. It is a new dispatch (`continues_as`) on the same agent, with its commits kept; its completion goes to step 4.
-   - `abandon`: stop the agent if it still runs (a background agent: `TaskStop`; a headless run: `kill` its `stop.pid`; an interactive session: `relay` with stop). The item is ready again.
-   - `ask`: stop it as for `abandon`. Then `hitld rights ask --question '<the action's question as JSON>'` and add the decision to the item's `needs`, so it is not dispatched again before the owner answers. Section 7 and `hitld rights pending` decide when it goes to the owner.
+   - `abandon`: stop the agent if it still runs (a background agent: `TaskStop`; a headless run: `kill` its `stop.pid`; an interactive session: `relay` with stop). The item is ready again. Before the refill, give up the claim its branch made: `hitld work unclaim <item> --reason 'abandoned: <reason>'` (it says when there is none), or the next dispatch cannot claim the item.
+   - `ask`: stop it and give up its claim as for `abandon`. Then `hitld rights ask --question '<the action's question as JSON>'` and add the decision to the item's `needs`, so it is not dispatched again before the owner answers. Section 7 and `hitld rights pending` decide when it goes to the owner.
 3. Start the items in `refill.start` (step 3). When `resumed` is in the output, dispatch has resumed after a pause: say so in your next message.
 
 ## Posting text where others read it

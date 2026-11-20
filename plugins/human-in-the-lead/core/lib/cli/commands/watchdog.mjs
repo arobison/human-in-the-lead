@@ -375,7 +375,7 @@ export const commands = [
               item: v.item,
               reason: v.reason,
               stop,
-              then: `stop the agent if it still runs; ${v.item} is ready again and the refill below dispatches it afresh`,
+              then: `stop the agent if it still runs; give up its claim, if its branch made one, with hitld work unclaim ${v.item} --reason '<why>' (HITLD-194); ${v.item} is ready again and the refill below dispatches it afresh`,
             });
           } else {
             const question = stallQuestion(v, p.policy, now, {

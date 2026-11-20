@@ -40,6 +40,7 @@ import { TOKENS_FAR_ABOVE_ESTIMATE, farAboveEstimate, reportedEvent } from '../.
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
 import { chooseBranch } from '../../env/worktree.mjs';
+import { CodedError } from '../errors.mjs';
 import { tearDown } from '../../env/teardown.mjs';
 import {
   activeProjects,
@@ -1178,9 +1179,17 @@ const table = [
           tier === 3
             ? openEnv({ repoRoot: p.repoRoot, store: p.store, policy: p.policy, env: ctx.env })
             : null;
-        const branchChoice = env
-          ? await chooseBranch(p.repoRoot, wanted, env.settings.mainBranch)
-          : null;
+        /** @type {import('../../env/worktree.mjs').BranchChoice | null} */
+        let branchChoice = null;
+        if (env) {
+          try {
+            branchChoice = await chooseBranch(p.repoRoot, wanted, env.settings.mainBranch);
+          } catch (e) {
+            // Before the ledger write: nothing is recorded, and the item stays ready.
+            if (e instanceof CodedError) throw new Refusal(e.code, e.message);
+            throw e;
+          }
+        }
         const branch = branchChoice?.branch ?? wanted;
         const mode = /** @type {'headless' | 'interactive'} */ (
           String(input.mode ?? planned.mode ?? p.policy.dispatch.tier3_mode)
@@ -1287,7 +1296,12 @@ const table = [
         if (env) {
           // Its own worktree from hitld env, set up before the executor starts.
           try {
-            const made = await env.createWorktree({ holder: dispatch, itemId: id, branch });
+            const made = await env.createWorktree({
+              holder: dispatch,
+              itemId: id,
+              branch,
+              ...(branchChoice ? { choice: branchChoice } : {}),
+            });
             if (made.lease.branch !== branch) {
               throw new Error(
                 `the worktree got ${made.lease.branch}, not ${branch} as recorded: the branch changed while ${dispatch} started`,
