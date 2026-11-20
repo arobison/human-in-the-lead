@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { askedKey, checkCode, recordChoice } from '../lib/rights/flow.mjs';
 import { pendingDecisions } from '../lib/rights/pending.mjs';
-import { readTrustEvents, trustSummary } from '../lib/rights/trust.mjs';
+import { invalidTrustEvent, readTrustEvents, trustSummary } from '../lib/rights/trust.mjs';
+import { schemas } from '../lib/schema/registry.mjs';
 import { readLedger } from '../lib/ledger/ledger.mjs';
 import { summarize } from '../lib/ledger/summary.mjs';
 import { attentionDefaults } from '../lib/settings/attention.mjs';
@@ -303,4 +304,124 @@ test("rights record is refused outside the owner's turn, and writes nothing", as
   const nowhere = tempDir('hitld-owner-');
   const owner = /** @type {any} */ (await record?.run?.(input, { cwd: nowhere, env: {} }));
   assert.notEqual(owner.error, 'not-permitted');
+});
+
+// HITLD-160: a question with no structured attributes, and the links a recorded choice carries.
+
+/** A question with no areas, paths, tags, triggers or item kind: nothing a precedent could match. */
+const bare = () => {
+  const { triggers: _t, item_kind: _k, ...rest } = question({ title: 'Name the attention report' });
+  return rest;
+};
+
+test('a question with no structured attributes is recorded, through the question tool and in chat', () => {
+  for (const via of ['question-tool', 'chat']) {
+    const { deps } = clocked();
+    const r = recordChoice(deps, bare(), { answer: 'B', via });
+    assert.equal(r.ok, true, `${via}: ${JSON.stringify(r)}`);
+    assert.equal(r.recorded, via);
+    const d = deps.tracker.get(r.decision);
+    assert.equal(d.state, 'done', via);
+    assert.equal(d.answered_via, via);
+    assert.equal(d.answer, 'B. Self-hosting: it waits for the runner');
+    assert.ok(deps.store.read(askedKey(r.decision)), `${via}: the ask record is written`);
+    assert.deepEqual(
+      ledger(deps).map((e) => e.event),
+      ['asked', 'sent', 'answered'],
+      via,
+    );
+    const trust = readTrustEvents(deps.store);
+    assert.deepEqual(
+      trust.map((e) => [e.kind, e.subject]),
+      [
+        ['asked', r.decision],
+        ['answered', r.decision],
+      ],
+      via,
+    );
+    // No facts to keep, so the asked event carries none rather than an empty set the schema refuses.
+    assert.equal(trust[0].facts, undefined, via);
+    assert.equal(trust[0].area, 'unassigned', via);
+  }
+});
+
+test('a trust event the schema refuses is refused before anything is written', () => {
+  const registry = schemas();
+  const real = registry.validateEntity;
+  // Fault injection: every trust event is refused, as the empty facts once were.
+  registry.validateEntity = function (/** @type {string} */ name, /** @type {any} */ value) {
+    if (name === 'trust-event') return [{ path: '/facts', message: 'refused by the test' }];
+    return real.call(this, name, value);
+  };
+  try {
+    for (const via of ['question-tool', 'chat']) {
+      const { deps } = clocked();
+      const r = recordChoice(deps, question(), { answer: 'A', via });
+      assert.equal(r.ok, false, via);
+      assert.equal(r.error, 'invalid-trust-event', via);
+      assert.match(r.message, /refused by the test/, via);
+      assert.deepEqual(deps.tracker.query({}), [], `${via}: no decision item`);
+      assert.equal(deps.store.read(askedKey('W-1')), null, `${via}: no ask record`);
+      assert.deepEqual(readLedger(deps.store).events, [], `${via}: no ledger event`);
+      assert.equal(deps.store.read('trust/events.jsonl'), null, `${via}: no trust event`);
+    }
+  } finally {
+    registry.validateEntity = real;
+  }
+  assert.equal(
+    invalidTrustEvent(
+      { kind: 'asked', area: 'unassigned', subject: 'W-1', facts: {} },
+      '2026-11-14T10:00:00Z',
+    )?.includes('facts'),
+    true,
+  );
+});
+
+test('rights record writes the links it is given: opened_from on the decision, needs on what it blocks', async () => {
+  const files = (/** @type {string[]} */ optional) => ({
+    '.human-in-the-lead/tracker.json': JSON.stringify({
+      schema_version: 1,
+      optional_keys: optional,
+    }),
+    'work/projects/W-7-reports.md': item(
+      { id: 'W-7', title: 'Reports', kind: 'project', state: 'planned', owner: 'owner' },
+      '\n## Summary\n\n',
+    ),
+    'work/items/W-8-place-the-report.md': item(
+      { id: 'W-8', title: 'Place the report', kind: 'work', state: 'planned', project: 'W-7' },
+      '\n## Why\n\nIt needs a milestone.\n',
+    ),
+  });
+  const linked = JSON.stringify({
+    ...bare(),
+    parent: 'W-7',
+    opened_from: ['W-8'],
+    blocks: ['W-8'],
+  });
+  const record = ['rights', 'record', '--question', linked, '--answer', 'A', '--via', 'chat'];
+
+  const on = makeConsumer({ files: files(['opened_from']) });
+  const r = await on.hitld(record);
+  assert.equal(r.exit, EXIT.ok, JSON.stringify(r.result));
+  const decision = (await on.hitld(['work', 'show', r.result.decision, '--json'])).result.entity;
+  assert.deepEqual(decision.opened_from, ['W-8']);
+  const blocked = (await on.hitld(['work', 'show', 'W-8', '--json'])).result.entity;
+  assert.deepEqual(blocked.needs, [r.result.decision]);
+  const mine = ((await on.hitld(['work', 'check'])).result.problems ?? []).filter(
+    (/** @type {string} */ p) => p.includes(r.result.decision) || p.includes('W-8'),
+  );
+  assert.deepEqual(mine, []);
+
+  // A tracker whose files cannot hold opened_from refuses it, before anything is written, and says
+  // what to turn on; it is never dropped.
+  const off = makeConsumer({ files: files([]) });
+  const before = git(off.root, 'status', '--porcelain');
+  const refused = await off.hitld(record);
+  assert.equal(refused.result.error, 'not-created', JSON.stringify(refused.result));
+  assert.match(refused.result.message, /turn on opened_from in tracker\.json optional_keys/);
+  assert.equal(git(off.root, 'status', '--porcelain'), before, 'no file is written');
+  const stillOpen = (await off.hitld(['work', 'show', 'W-8', '--json'])).result.entity;
+  assert.equal(stillOpen.needs, undefined);
+  const events = (await off.hitld(['ledger', 'show', '--json'])).result;
+  assert.equal(JSON.stringify(events).includes('"asked"'), false);
 });

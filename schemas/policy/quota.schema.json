@@ -56,6 +56,12 @@
         }
       ]
     },
+    "declared_refresh_hours": {
+      "description": "How old a usage figure the owner declared (hitld quota declare) may grow before hitld run status and the digest ask for a fresh one. They also ask when the estimate from it nears the reserve (below economize_below). Dispatch waits for it only at the reserve.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 12
+    },
     "forecast_hours": {
       "description": "How many recent hours the burn rate is smoothed over. Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it.",
       "type": "number",
