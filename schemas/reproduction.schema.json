@@ -1,0 +1,99 @@
+{
+  "$id": "reproduction",
+  "title": "Reproduction",
+  "description": "The checked outcome of reproducing one reported bug (design part 2.2, step 3): kept as the message of the commit at refs/hitld/reproductions/<signal> when the bug was reproduced. The reproducer's reply, in $defs.reply, is untrusted output and is checked against it before anything uses it.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "signal": { "$ref": "common#/$defs/signalId" },
+    "verdict": { "const": "reproduced" },
+    "base": {
+      "description": "The commit the test fails on.",
+      "$ref": "common#/$defs/commit"
+    },
+    "test": {
+      "description": "The test file, repository-relative, under a test directory.",
+      "$ref": "#/$defs/testPath"
+    },
+    "failing": {
+      "description": "The tests in the file that failed on the base commit, by name, as the runner reported them.",
+      "type": "array",
+      "items": { "$ref": "common#/$defs/untrustedText" },
+      "minItems": 1
+    },
+    "expected_failure": {
+      "description": "The text the reproducer said the failure shows; the check found it in every failing run.",
+      "$ref": "#/$defs/failureText"
+    },
+    "runs": {
+      "description": "How many sandboxed runs failed the same way.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "checked_at": { "$ref": "common#/$defs/timestamp" }
+  },
+  "required": [
+    "schema_version",
+    "signal",
+    "verdict",
+    "base",
+    "test",
+    "failing",
+    "expected_failure",
+    "runs",
+    "checked_at"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "testPath": {
+      "type": "string",
+      "pattern": "^(test|tests)/([A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\\.test\\.(js|mjs|cjs)$",
+      "maxLength": 200
+    },
+    "failureText": {
+      "description": "A short piece of the error a failing run shows, such as the reported error message.",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 300,
+      "x-hitld-untrusted": true
+    },
+    "reply": {
+      "description": "The reproducer's reply: one JSON object. A reproduced bug names its test and the failure text; one that is not reproduced names what is missing and writes no test.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "verdict": { "const": "reproduced" },
+            "test": { "$ref": "#/$defs/testPath" },
+            "expected_failure": { "$ref": "#/$defs/failureText" },
+            "summary": { "$ref": "#/$defs/replyText" }
+          },
+          "required": ["verdict", "test", "expected_failure"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "verdict": { "const": "not-reproduced" },
+            "reason": { "$ref": "#/$defs/replyText" },
+            "missing": {
+              "description": "What the report would need for a reproduction: the request for information is drafted from it.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/replyText" },
+              "maxItems": 10
+            }
+          },
+          "required": ["verdict", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "replyText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "x-hitld-untrusted": true
+    }
+  }
+}

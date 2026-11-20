@@ -53,7 +53,7 @@ Still to come:
 - *Decided, not built (HITLD-629, HITLD-638):* a hook on file reads that checks a file's label against the session's effective clearance before the content is returned, beside the check in every `hitld` command that returns data ([information classification](#103-information-classification));
 - `SessionStart`: loads the role's contract and the policy, and refuses to start an executor outside a worktree.
 
-**Sandboxing.** Executors run with the harness's own sandbox enabled where one exists. Any tool run on untrusted input (tests of external PRs, fuzzers) must run with no network, no secrets, and no write outside its scratch area. The mechanism is each harness adapter's job, not this design's.
+**Sandboxing.** Executors run with the harness's own sandbox enabled where one exists. Any tool run on untrusted input (tests of external PRs, fuzzers) must run with no network, no secrets, and no write outside its scratch area. The mechanism is each harness adapter's job, not this design's. *Built for the reproducer (HITLD-30), for tests that run on Node:* `hitld reproduce` exports the base commit's files with no repository, runs the test in a child process with an isolated environment, Node's permission model (reads inside the sandbox only, writes to its scratch only, no child processes, workers or addons) and a preload that refuses every network call, and keeps a checked test at `refs/hitld/reproductions/<signal>`, never on a branch.
 
 **Vetting new tools.** Before a third-party tool (a tracker, a scanner, a test runner) is adopted, it is tried in a sandbox with outbound network denied and logged. Network defaults, telemetry and any executable fields are recorded in a decision item.
 
