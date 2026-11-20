@@ -42,3 +42,7 @@ State stays `proposed` until the owner moves it to `planned`. The status-line re
 ## Note on 2026-11-19
 
 The owner decided (HITLD-549, 550) that the pace controller reads the account's total utilization from this probe, so the probe is a prerequisite for HITLD-558.
+
+## Evidence on 2026-11-20
+
+The manual technique works from a cloud container today: `claude -p "reply with the single word ok" --model <smallest model> --output-format stream-json --verbose` prints a `rate_limit_event` whose `utilization` (0.90 at the reading) and `resetsAt` give the weekly figure with a resolution of 0.01, and `surpassedThreshold` names the last crossed threshold. It needed no owner input. The reset task now takes its reading this way.

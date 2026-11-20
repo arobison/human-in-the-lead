@@ -28,3 +28,7 @@ A question box to the owner is dropped when the worker restarts (about a dozen t
 ## Notes
 
 Skill and code: the owner's own yes to merge. Placed under HITLD-405 c2 (one question per call, a queue offered in batches) by the chief of staff, a proposal for the owner to move. Related: HITLD-135 (design walk-throughs), HITLD-407 and HITLD-515 (answers and proof), HITLD-540 (stay in the harness), HITLD-441 (deferral).
+
+## Evidence from the first retrospective (2026-11-20, HITLD-589)
+
+- **P4:** the pending decision should also cover lost owner replies (5 replies sent while a box was open were lost, and twice the owner had to type the message again) and silent placements: 2 placement questions were dropped, never asked again, and the tracker now shows those items placed anyway. After a restart or compaction the chief of staff lists the pending decisions before anything else.
