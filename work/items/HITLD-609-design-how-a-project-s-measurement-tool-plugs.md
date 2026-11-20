@@ -35,3 +35,7 @@ The design already decides the direction (design parts 3.3, 2.17, 5.x, 13.2 and 
 ## Notes
 
 Design-heavy: stays `proposed` and is walked through with the owner before any build. Related: HITLD-559 (a performance run takes the machine; proposed), HITLD-42 (load-aware admission and quiet-machine holds), HITLD-135 (the walk-through skill), HITLD-403 (a consuming project's tracker behaves as its own). Design only so far; the placement under a milestone is the owner's.
+
+## Decided on 2026-11-20 (HITLD-610)
+
+The owner said the harness, dyno, is in the cesium-2.0-webgpu-pox branch of the cesiumgs/cesium repository and that Cesium is the first consumer, and decided to place the walk-through on the roadmap: it is a constraint of milestone HITLD-567 (clause c2), so it is settled before HITLD-559 and any build item that depends on the evidence source starts.
