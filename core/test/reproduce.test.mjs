@@ -5,6 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
+import { createSocket } from 'node:dgram';
 import {
   existsSync,
   mkdirSync,
@@ -23,7 +25,7 @@ import {
   readReproduction,
   validateReply,
 } from '../lib/reproduce/reproduce.mjs';
-import { reproducerRefusal } from '../harness/claude-code/hooks/reproducer-guard.mjs';
+import { reproducerRefusal } from '../harness/claude-code/hooks/reproducer-rules.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
 /** The tests that run code need the Node the sandbox trusts; below it the sandbox refuses. */
@@ -206,6 +208,18 @@ test(
     const server = createServer((_q, res) => res.end('reached')).listen(0, '127.0.0.1');
     await new Promise((r) => server.once('listening', r));
     const port = /** @type {import('node:net').AddressInfo} */ (server.address()).port;
+    // Listeners a raw handle would reach: a UDP socket and a unix socket outside the sandbox.
+    /** @type {string[]} */
+    const received = [];
+    const udp = createSocket('udp4');
+    udp.on('message', (m) => received.push(`udp:${m}`));
+    await new Promise((r) => udp.bind(0, '127.0.0.1', () => r(undefined)));
+    const sock = join(f.base, 'outside.sock');
+    const uds = createNetServer((c) => {
+      received.push('uds:connected');
+      c.on('data', (d) => received.push(`uds:${d}`));
+    }).listen(sock);
+    await new Promise((r) => uds.once('listening', r));
     // The same request from outside the sandbox works.
     assert.equal(await (await fetch(`http://127.0.0.1:${port}/`)).text(), 'reached');
     const denied = { code: 'HITLD_NETWORK_DENIED' };
@@ -239,6 +253,11 @@ test(
       `test('make a link', () => symlinkSync('/etc/passwd', ${JSON.stringify(join(f.sandbox, 'scratch', 'run', 'tmp', 'l'))}));`,
       "test('child', async () => (await import('node:child_process')).execFileSync('true'));",
       "test('binding', () => process.binding('tcp_wrap'));",
+      "test('dgram socket', () => assert.throws(() => dgram.createSocket('udp4'), denied));",
+      "test('dgram class', () => assert.throws(() => new dgram.Socket('udp4'), denied));",
+      `test('raw pipe', () => { const Pipe = process.stdout._handle.constructor; const p = new Pipe(0); assert.throws(() => p.connect({ oncomplete() {} }, ${JSON.stringify(join(f.base, 'outside.sock'))}), denied); });`,
+      `test('raw pipe on stdout', () => assert.throws(() => process.stdout._handle.connect({ oncomplete() {} }, ${JSON.stringify(join(f.base, 'outside.sock'))}), denied));`,
+      `test('raw tcp', () => assert.throws(() => net._createServerHandle('127.0.0.1', 0, 4), denied));`,
       '',
     ];
     process.env.HITLD_TEST_SECRET = 'not-for-the-sandbox';
@@ -248,6 +267,11 @@ test(
     } finally {
       delete process.env.HITLD_TEST_SECRET;
       server.close();
+      // Give anything that got out time to arrive.
+      await new Promise((r) => setTimeout(r, 200));
+      udp.close();
+      uds.close();
+      assert.deepEqual(received, [], `reached a listener outside: ${received.join(', ')}`);
     }
     for (const name of ['fetch', 'http', 'socket', 'tls', 'udp']) {
       assert.equal(by[name].failure?.code, 'HITLD_NETWORK_DENIED', name);
@@ -261,6 +285,11 @@ test(
       'Resolver',
       'promises Resolver',
       'WebSocket',
+      'dgram socket',
+      'dgram class',
+      'raw pipe',
+      'raw pipe on stdout',
+      'raw tcp',
       'secret',
     ]) {
       assert.equal(by[name].passed, true, `${name}: ${JSON.stringify(by[name].failure)}`);
@@ -571,6 +600,14 @@ test("the plugin's guard keeps the reproducer agent to its sandbox", async () =>
     `hitld reproduce run ${f.repo} --test test/a.test.js`,
     'cat /etc/passwd',
     `hitld reproduce run ${box} --test test/a.test.js\nrm -rf /`,
+    `hitld reproduce run ${box} --test test/a.test.js\r`,
+    // Its own code under the name of hitld: only `hitld` itself is run, never a path.
+    `node ${box}/work/test/hitld.mjs reproduce run ${box} --test test/a.test.mjs`,
+    `node /anywhere/hitld.mjs reproduce run ${box} --test test/a.test.mjs`,
+    `hitld reproduce run ${box} --test test/{a,b}.test.mjs`,
+    `hitld reproduce run ${box} --test test/*`,
+    `hitld reproduce run ~/x --test test/a.test.mjs`,
+    `hitld  reproduce run ${box} --test test/a.test.mjs`,
   ]) {
     assert.notEqual(as('Bash', { command }), null, command);
   }
@@ -582,8 +619,26 @@ test("the plugin's guard keeps the reproducer agent to its sandbox", async () =>
     join(box, 'work/test/../../.hitld-reproduce-sandbox'),
     join(f.repo, 'test/x.test.js'),
     '/etc/passwd',
+    join(box, 'work/test/hitld.mjs'),
+    join(box, 'work/test/helper.js'),
+    join(box, 'work/tests/a.test.sh'),
   ]) {
     assert.notEqual(as('Write', { file_path }), null, file_path);
+  }
+  // Every tool outside the six it needs is refused.
+  for (const tool of [
+    'WebFetch',
+    'WebSearch',
+    'Agent',
+    'Task',
+    'Skill',
+    'MultiEdit',
+    'NotebookEdit',
+    'mcp__github__create_issue',
+    'TodoWrite',
+    '',
+  ]) {
+    assert.notEqual(as(tool, {}), null, tool || '(no name)');
   }
   assert.equal(as('Read', { file_path: join(box, 'brief.md') }), null);
   assert.equal(as('Grep', { pattern: 'mean', path: join(box, 'work') }), null);
@@ -591,12 +646,18 @@ test("the plugin's guard keeps the reproducer agent to its sandbox", async () =>
   assert.notEqual(as('Grep', { pattern: 'x' }), null);
   assert.notEqual(as('Glob', { pattern: '/etc/*', path: box }), null);
   assert.notEqual(as('Glob', { pattern: '../../*', path: box }), null);
-  assert.notEqual(as('WebFetch', { url: 'https://example.com' }), null);
 
-  // As a hook: the reproducer is refused, anyone else passes through.
-  const GUARD = fileURLToPath(
-    new URL('../harness/claude-code/hooks/reproducer-guard.mjs', import.meta.url),
+  // As a hook: the plugin's one guard, sent every tool. The reproducer is refused, anyone else
+  // passes through.
+  const hooks = JSON.parse(
+    readFileSync(new URL('../harness/claude-code/hooks/hooks.json', import.meta.url), 'utf8'),
+  ).hooks.PreToolUse;
+  assert.deepEqual(
+    hooks.map((/** @type {any} */ h) => [h.matcher, h.hooks.length]),
+    [['*', 1]],
   );
+  assert.match(hooks[0].hooks[0].command, /hooks\/guard\.mjs"$/);
+  const GUARD = fileURLToPath(new URL('../harness/claude-code/hooks/guard.mjs', import.meta.url));
   const hook = (/** @type {Record<string, unknown>} */ input) =>
     spawnSync(process.execPath, [GUARD], {
       input: JSON.stringify(input),
@@ -607,4 +668,24 @@ test("the plugin's guard keeps the reproducer agent to its sandbox", async () =>
   assert.match(hook({ ...call, agent_type: 'human-in-the-lead:reproducer' }), /"deny"/);
   assert.equal(hook(call), '');
   assert.equal(hook({ ...call, agent_type: 'human-in-the-lead:executor-tier2' }), '');
+  const fetchCall = { tool_name: 'WebFetch', tool_input: { url: 'https://example.com' } };
+  assert.match(hook({ ...fetchCall, agent_type: 'human-in-the-lead:reproducer' }), /"deny"/);
+  assert.equal(hook(fetchCall), '');
+});
+
+test('the built reproducer agent lists only the six tools it needs', () => {
+  const built = readFileSync(
+    new URL('../../plugins/human-in-the-lead/agents/reproducer.md', import.meta.url),
+    'utf8',
+  );
+  const head = built.slice(0, built.indexOf('\n---', 4));
+  assert.match(head, /^tools: Read, Glob, Grep, Write, Edit, Bash$/m);
+});
+
+test('CI runs the reproducer tests on the oldest Node the sandbox trusts', () => {
+  const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const job = ci.slice(ci.indexOf('\n  reproduce-floor:'));
+  assert.match(job, /node-version: 22\.22\.0\n/);
+  assert.match(job, /core\/test\/reproduce\.test\.mjs/);
+  assert.match(ci, /needs: \[[^\]]*\breproduce-floor\b[^\]]*\]/);
 });

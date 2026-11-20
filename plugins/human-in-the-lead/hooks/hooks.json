@@ -25,20 +25,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/core/harness/claude-code/hooks/guard.mjs\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/core/harness/claude-code/hooks/reproducer-guard.mjs\""
           }
         ]
       }

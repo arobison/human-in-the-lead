@@ -9,8 +9,9 @@
 //                   write is read back as a fact about the sandbox
 //   runSandboxed    runs one test file there: an isolated environment (no secrets), the permission
 //                   model (reads inside the directory only, writes only to its scratch, no child
-//                   processes, workers, addons or inspector), the network calls refused
-//                   (deny-network.mjs), and a canary run first that shows those limits hold
+//                   processes, workers, addons or inspector), a network namespace where the machine
+//                   allows one, the network calls refused in-process (deny-network.mjs: best
+//                   effort, not a boundary), and a canary run first that shows those limits hold
 //   checkReproduction  takes the reproducer's reply, which is untrusted, and decides by script:
 //                   the only change is one new test file under a test directory; that file, put
 //                   on a fresh export of the base, fails the same way in every run with the error
@@ -21,7 +22,9 @@
 //                   script and never by the reproducer
 //
 // The reproducer never commits: its sandbox has no repository. What the script cannot judge is
-// whether the test asserts the right thing; the person who commits the proposed item does.
+// whether the test asserts the right thing (a test can pretend to use the project and pass the
+// alone run); the person who commits the proposed item does. Nothing calls this automatically
+// yet: intake (HITLD-29) is not built, and the orchestrator runs it on a signal a person supplied.
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -207,8 +210,13 @@ function isLink(p) {
 
 /** Remove a directory only when it is a part of the sandbox. @param {string} path @param {string} within */
 function removeInside(path, within) {
-  if (!resolve(path).startsWith(resolve(within) + sep)) {
-    throw new ReproduceError('sandbox-unsafe', `${path} is not inside the sandbox ${within}`);
+  const box = realpathSync(within);
+  // By the real path of its parent, and never through a link: a part swapped for a link between
+  // the layout check and here is refused, not followed.
+  const parent = existsSync(dirname(path)) ? realpathSync(dirname(path)) : null;
+  const inside = parent !== null && (parent === box || parent.startsWith(box + sep));
+  if (!inside || !resolve(path).startsWith(resolve(within) + sep) || isLink(path)) {
+    throw new ReproduceError('sandbox-unsafe', `${path} is not a part of the sandbox ${within}`);
   }
   rmSync(path, { recursive: true, force: true });
 }
@@ -320,7 +328,7 @@ function briefText(signal, sandbox, work) {
     '',
     `The files of commit ${sandbox.base.slice(0, 12)} are in ${work}. Write one new test file under ${TEST_DIRS.map((d) => `${d}/`).join(' or ')}, named *.test.js, *.test.mjs or *.test.cjs, that fails because of the reported bug. Change nothing else.`,
     '',
-    `Run it with \`hitld reproduce run ${sandbox.dir} --test <path>\`. The run reads only inside the sandbox, writes only to its scratch directory, has no secrets in its environment, cannot start processes, and refuses network calls (net, tls, udp, dns, fetch, WebSocket, EventSource). The test must fail with the reported error, the same way every run, and must use the project's code to do it.`,
+    `Run it with \`hitld reproduce run ${sandbox.dir} --test <path>\`. The run reads only inside the sandbox, writes only to its scratch directory, has no secrets in its environment and cannot start processes. Network calls are refused in-process (net, tls, udp, dns, fetch, WebSocket, EventSource, raw handles): best effort, not a boundary, so a test must not try. The test must fail with the reported error, the same way every run, and must use the project's code to do it.`,
     '',
     'If you cannot reproduce the bug, write no test. Reply not-reproduced and say what the report would need.',
     '',
@@ -356,6 +364,27 @@ export function nodeIsTrusted(version = process.versions.node) {
   return a !== x ? a > x : b !== y ? b > y : c >= z;
 }
 
+/** @type {boolean | undefined} */
+let namespaceWorks;
+
+/**
+ * Whether this machine lets an unprivileged process into a network namespace of its own
+ * (`unshare --map-root-user --net`, Linux). Asked once per process; nothing requires it.
+ */
+export function networkNamespace() {
+  if (namespaceWorks === undefined) {
+    const r =
+      process.platform === 'linux'
+        ? spawnSync('unshare', ['--map-root-user', '--net', process.execPath, '-e', '0'], {
+            stdio: 'ignore',
+            timeout: 10_000,
+          })
+        : null;
+    namespaceWorks = r?.status === 0;
+  }
+  return namespaceWorks;
+}
+
 /**
  * Spawn the runner on one test file. Nothing is checked here: see runSandboxed.
  * @param {{ root: string, test: string, scratch: string, timeoutMs: number }} o
@@ -367,12 +396,14 @@ function spawnRunner({ root, test, scratch, timeoutMs }) {
   /** @type {Record<string, string>} */
   const env = { ...isolatedEnv(join(real, 'home')), TMPDIR: join(real, 'tmp') };
   for (const name of ['TMP', 'TEMP', 'NODE_V8_COVERAGE']) delete env[name];
+  const args = [
+    RUNNER,
+    JSON.stringify({ root: realpathSync(root), test, scratch: real, timeout_ms: timeoutMs }),
+  ];
+  const namespaced = networkNamespace();
   const r = spawnSync(
-    process.execPath,
-    [
-      RUNNER,
-      JSON.stringify({ root: realpathSync(root), test, scratch: real, timeout_ms: timeoutMs }),
-    ],
+    namespaced ? 'unshare' : process.execPath,
+    namespaced ? ['--map-root-user', '--net', process.execPath, ...args] : args,
     { cwd: root, env, encoding: 'utf8', timeout: timeoutMs + 15_000, maxBuffer: 16 * 1024 * 1024 },
   );
   const line = (r.stdout ?? '').trim().split('\n').pop() ?? '';
@@ -404,12 +435,23 @@ function spawnRunner({ root, test, scratch, timeoutMs }) {
           ? 'fail'
           : 'error'
         : 'pass';
-  return { outcome, failing, ...summary };
+  return {
+    outcome,
+    failing,
+    ...summary,
+    // The OS boundary, when there is one: a network namespace with no interface but a loopback
+    // that is down. Otherwise what the runner found in Node itself.
+    network_enforced: namespaced
+      ? 'network-namespace'
+      : summary.network_enforced
+        ? 'permission-model'
+        : false,
+  };
 }
 
 const CANARY_TEST = 'test/canary.test.mjs';
-/** @param {string} outside a file outside the canary's root */
-const canaryText = (outside) =>
+/** @param {string} outside a file outside the canary's root @param {string} socketPath a unix socket path outside it */
+const canaryText = (outside, socketPath) =>
   [
     "import { test } from 'node:test';",
     "import assert from 'node:assert/strict';",
@@ -417,10 +459,14 @@ const canaryText = (outside) =>
     "import { execFileSync } from 'node:child_process';",
     "import { lookup } from 'node:dns';",
     "import net from 'node:net';",
+    "import dgram from 'node:dgram';",
     `test('read outside', () => assert.throws(() => readFileSync(${JSON.stringify(outside)}), { code: 'ERR_ACCESS_DENIED' }));`,
     "test('socket', () => assert.throws(() => net.connect(9, '127.0.0.1'), { code: 'HITLD_NETWORK_DENIED' }));",
     "test('dns', () => assert.throws(() => lookup('localhost', () => {}), { code: 'HITLD_NETWORK_DENIED' }));",
     `test('process', () => assert.throws(() => execFileSync(${JSON.stringify(process.execPath)}, ['-v']), { code: 'ERR_ACCESS_DENIED' }));`,
+    "test('udp', () => assert.throws(() => dgram.createSocket('udp4'), { code: 'HITLD_NETWORK_DENIED' }));",
+    // A raw Pipe handle, made from stdio's handle class, connecting to a unix socket path.
+    `test('raw pipe', () => { const Pipe = process.stdout._handle.constructor; assert.throws(() => new Pipe(0).connect({}, ${JSON.stringify(socketPath)}), { code: 'HITLD_NETWORK_DENIED' }); });`,
     '',
   ].join('\n');
 
@@ -446,12 +492,15 @@ function checkSandboxHolds(layout) {
   mkdirSync(layout.scratch, { recursive: true });
   writeFileSync(outside, 'outside\n');
   mkdirSync(join(layout.canary, 'test'), { recursive: true });
-  writeFileSync(join(layout.canary, CANARY_TEST), canaryText(outside));
+  writeFileSync(
+    join(layout.canary, CANARY_TEST),
+    canaryText(outside, join(layout.scratch, 'canary.sock')),
+  );
   const scratch = join(layout.scratch, 'canary');
   removeInside(scratch, layout.dir);
   const r = spawnRunner({ root: layout.canary, test: CANARY_TEST, scratch, timeoutMs: TIMEOUT_MS });
   removeInside(layout.canary, layout.dir);
-  const held = r.outcome === 'pass' && r.tests.length === 4;
+  const held = r.outcome === 'pass' && r.tests.length === 6;
   if (!held) {
     throw new ReproduceError(
       'sandbox-unsafe',

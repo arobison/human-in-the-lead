@@ -1,11 +1,13 @@
-#!/usr/bin/env node
-// PreToolUse for the reproducer agent (HITLD-30, design parts 2.2 and 10.2): it reads untrusted
-// text and writes code, so it gets the narrowest reach the work allows.
+// The reproducer agent's rules, applied by the plugin's PreToolUse guard (guard.mjs) to every
+// tool call of that agent type (HITLD-30, design parts 2.2 and 10.2): it reads untrusted text and
+// writes code, so it gets the narrowest reach the work allows.
 //
 //   Bash              only `hitld reproduce run <sandbox> --test <path>`, as one plain command
-//   Write, Edit       only files under <sandbox>/work/test/ or <sandbox>/work/tests/
+//                     whose arguments hold only letters, digits and . _ / -
+//   Write, Edit       only a test file (*.test.js, *.test.mjs, *.test.cjs) under
+//                     <sandbox>/work/test/ or <sandbox>/work/tests/
 //   Read, Glob, Grep  only inside a sandbox directory
-//   anything else     refused
+//   anything else     refused (the agent definition lists only these six tools as well)
 //
 // A sandbox directory is one that holds the marker hitld reproduce open writes. Every other caller
 // passes through untouched. This reads paths and command text; `hitld reproduce check` is the
@@ -13,8 +15,6 @@
 
 import { existsSync, lstatSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { readHookInput } from './input.mjs';
 
 const MARKER = '.hitld-reproduce-sandbox';
 
@@ -44,8 +44,10 @@ function linkBelow(path, box) {
   return false;
 }
 
-const RUN =
-  /^\s*(?:hitld|node\s+[^\s;&|<>`$()]*hitld\.mjs)\s+reproduce\s+run\s+([^\s;&|<>`$()'"\\]+)\s+--test\s+([^\s;&|<>`$()'"\\]+)\s*$/;
+const SAFE = '[A-Za-z0-9._/-]+';
+const RUN = new RegExp(`^hitld reproduce run (${SAFE}) --test (${SAFE})$`);
+/** A test file name the reproducer may write. */
+const TEST_NAME = /^[A-Za-z0-9_-][A-Za-z0-9_.-]*\.test\.(js|mjs|cjs)$/;
 
 /**
  * Why the reproducer may not make this tool call, or null when it may.
@@ -59,19 +61,24 @@ export function reproducerRefusal(input) {
   if (tool === 'Bash') {
     const command = String(args.command ?? '');
     const m = RUN.exec(command);
-    if (!m || command.includes('\n')) {
+    if (!m) {
       return 'the reproducer runs only `hitld reproduce run <sandbox> --test <path>`, as one plain command';
     }
     const box = absolute(m[1], cwd);
     return box && sandboxOf(box) === box ? null : `${m[1]} is not a reproducer sandbox`;
   }
-  if (tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit' || tool === 'NotebookEdit') {
-    const path = absolute(args.file_path ?? args.notebook_path, cwd);
+  if (tool === 'Write' || tool === 'Edit') {
+    const path = absolute(args.file_path, cwd);
     const box = path && sandboxOf(dirname(path));
     if (!path || !box) return 'the reproducer writes only inside its sandbox';
     const rel = path.slice(box.length + 1).split(sep);
-    if (rel[0] !== 'work' || !['test', 'tests'].includes(rel[1]) || rel.length < 3) {
-      return 'the reproducer writes only its test, under work/test/ or work/tests/ in its sandbox';
+    if (
+      rel[0] !== 'work' ||
+      !['test', 'tests'].includes(rel[1]) ||
+      rel.length < 3 ||
+      !TEST_NAME.test(rel[rel.length - 1])
+    ) {
+      return 'the reproducer writes only its test file (*.test.js, *.test.mjs or *.test.cjs), under work/test/ or work/tests/ in its sandbox';
     }
     return linkBelow(path, box) ? 'the reproducer does not write through a link' : null;
   }
@@ -86,20 +93,4 @@ export function reproducerRefusal(input) {
     return linkBelow(path, box) ? 'the reproducer does not read through a link' : null;
   }
   return `the reproducer does not use ${tool || 'that tool'}`;
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const input = readHookInput();
-  const why = isReproducer(input) ? reproducerRefusal(input) : null;
-  if (why) {
-    process.stdout.write(
-      JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: `human-in-the-lead: ${why}`,
-        },
-      }) + '\n',
-    );
-  }
 }

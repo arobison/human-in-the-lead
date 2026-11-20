@@ -1,15 +1,19 @@
 // Loaded with --import into every sandboxed test run of the reproducer (design part 2.2, step 3,
-// and part 10.2). The run already has the permission model on (no child processes, no workers, no
-// native addons, no inspector, no process.binding, reads only inside the sandbox), so the network
-// calls below are what is left; each is replaced before the test loads, and the ESM named exports
-// are synced to the replacements, so `import { lookup } from 'node:dns'` gets the refusal too.
-// A refused call writes one marker line to stderr, which the runner counts, and throws.
+// and part 10.2). Best effort, not a boundary: the denial of network calls is done in-process, and
+// a determined test may find a way to a raw handle this misses. An OS-level boundary (a network
+// namespace, which runSandboxed uses where the machine allows one) is the real isolation for IP
+// traffic; nothing here is an OS boundary for unix sockets.
 //
-// What is refused: net (connect, createConnection, Socket#connect, Server#listen), tls.connect,
-// dgram sockets (send, connect, bind), every function of dns and dns.promises and every method of
-// their Resolver classes, and the fetch, WebSocket and EventSource globals. HTTP, HTTPS and HTTP/2
-// clients connect through net.Socket#connect. Node 22's permission model does not cover the
-// network; where a Node has --allow-net, the runner turns that on as well (runner.mjs).
+// The run already has the permission model on (no child processes, no workers, no native addons,
+// no inspector, no process.binding, reads only inside the sandbox). Before the test loads, this
+// replaces: net (connect, createConnection, _createServerHandle, Socket#connect, Server#listen),
+// tls.connect, dgram (createSocket, Socket and every method of a socket), every function of dns
+// and dns.promises and every method of their Resolver classes, the fetch, WebSocket and
+// EventSource globals, and the connect, bind, listen and open methods of the raw Pipe, TCP and UDP
+// handle classes (reached from stdio and from handles made here first), so a handle pulled out of
+// an object cannot be used to connect either. The ESM named exports are synced to the
+// replacements. A refused call writes one marker line to stderr, which the runner counts, and
+// throws.
 
 import dgram from 'node:dgram';
 import dns from 'node:dns';
@@ -26,7 +30,7 @@ function deny(what) {
   } catch {
     // The marker is best effort; the refusal below is what matters.
   }
-  const e = new Error(`the reproducer's sandbox has no network (${what})`);
+  const e = new Error(`the reproducer's sandbox refuses network calls (${what})`);
   Object.assign(e, { code: 'HITLD_NETWORK_DENIED' });
   throw e;
 }
@@ -75,15 +79,72 @@ function replaceMethods(cls, label) {
   }
 }
 
+// The raw handle classes, taken before anything is replaced: stdio's Pipe, and a UDP and a TCP
+// handle made here and closed at once (the TCP one is bound to a loopback port for a moment).
+void process.stdout;
+void process.stderr;
+/** @type {any[]} */
+const handleClasses = [];
+const stdioHandle = /** @type {any} */ (process.stdout)._handle;
+if (stdioHandle?.constructor) handleClasses.push(stdioHandle.constructor);
+const udp = dgram.createSocket('udp4');
+const state = Object.getOwnPropertySymbols(udp)
+  .map((k) => /** @type {any} */ (udp)[k])
+  .find((v) => v && typeof v === 'object' && v.handle);
+if (state?.handle?.constructor) handleClasses.push(state.handle.constructor);
+udp.close();
+try {
+  const tcp = /** @type {any} */ (net)._createServerHandle('127.0.0.1', 0, 4);
+  if (tcp && typeof tcp === 'object') {
+    handleClasses.push(tcp.constructor);
+    tcp.close();
+  }
+} catch {
+  // No TCP handle to learn the class from; net.Socket#connect is still refused below.
+}
+/** Methods of a raw handle that are not about the network. */
+const KEEP = new Set([
+  'constructor',
+  'owner',
+  'close',
+  'ref',
+  'unref',
+  'hasRef',
+  'getAsyncId',
+  'getProviderType',
+  'fchmod',
+  'getsockname',
+  'getpeername',
+  'fd',
+]);
+for (const cls of handleClasses) {
+  const proto = cls?.prototype;
+  if (!proto) continue;
+  for (const name of Object.getOwnPropertyNames(proto)) {
+    if (KEEP.has(name)) continue;
+    const d = Object.getOwnPropertyDescriptor(proto, name);
+    if (d && d.configurable && typeof d.value === 'function') {
+      replace(proto, name, `${cls.name}#${name}`);
+    }
+  }
+}
+
 // Every TCP, TLS, HTTP(S), HTTP/2 and fetch client connects through net.Socket#connect.
 replace(net.Socket.prototype, 'connect', 'socket connect');
 replace(net, 'connect', 'net.connect');
 replace(net, 'createConnection', 'net.createConnection');
+replace(net, '_createServerHandle', 'net._createServerHandle');
 replace(net.Server.prototype, 'listen', 'server listen');
 replace(tls, 'connect', 'tls.connect');
-for (const name of ['send', 'connect', 'bind']) {
-  replace(dgram.Socket.prototype, name, `udp ${name}`);
+// Its own methods only: the chain above it is EventEmitter's, which everything uses.
+for (const name of Object.getOwnPropertyNames(dgram.Socket.prototype)) {
+  const d = Object.getOwnPropertyDescriptor(dgram.Socket.prototype, name);
+  if (name !== 'constructor' && d?.configurable && typeof d.value === 'function') {
+    replace(dgram.Socket.prototype, name, `udp ${name}`);
+  }
 }
+replace(dgram, 'createSocket', 'dgram.createSocket');
+replace(dgram, 'Socket', 'dgram.Socket');
 // The resolver classes are c-ares, which goes past net and dgram: every method is refused.
 replaceMethods(dns.Resolver, 'dns.Resolver');
 replaceMethods(dns.promises.Resolver, 'dns.promises.Resolver');

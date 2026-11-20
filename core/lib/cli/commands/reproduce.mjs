@@ -1,5 +1,6 @@
 // The reproducer (HITLD-30, design part 2.2, step 3): a reported bug becomes a failing test in a
-// sandbox with no network and no secrets, and the item for it names that test as its "Done when".
+// sandbox with no secrets and network calls refused (best effort, not a boundary, but a network
+// namespace where the machine has one), and the item for it names that test as its "Done when".
 //
 //   reproduce open    the orchestrator opens a sandbox for one bug signal and gets the brief
 //   reproduce run     the reproducer runs its test there, under the sandbox's limits
@@ -8,7 +9,7 @@
 //   reproduce item    the orchestrator makes the proposed item whose "Done when" is that test
 //
 // Only `run` is the reproducer's. The plugin's guard lets the reproducer agent run nothing else
-// (core/harness/claude-code/hooks/reproducer-guard.mjs), and the other three refuse a caller that
+// (core/harness/claude-code/hooks/guard.mjs, with reproducer-rules.mjs), and the other three refuse a caller that
 // says it is the reproducer or runs inside a sandbox.
 //
 // Routing (auto-fix under a precedent, design part 2.2, step 4) is triage's (HITLD-29): the item is
@@ -180,7 +181,7 @@ export const commands = [
   {
     name: 'reproduce run',
     summary:
-      "Run one test file in the reproducer's sandbox: reads only inside it, writes only to its scratch, no secrets, no processes, network calls refused",
+      "Run one test file in the reproducer's sandbox: reads only inside it, writes only to its scratch, no secrets, no processes, network calls refused (best effort, or a network namespace where the machine has one)",
     built_by: 'signal',
     args: [
       SANDBOX,
