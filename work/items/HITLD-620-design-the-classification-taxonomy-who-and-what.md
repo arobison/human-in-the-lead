@@ -31,3 +31,8 @@ The design has four levels (public, internal, confidential, secret; design 3 and
 ## Notes
 
 Design-heavy: stays `proposed` and is walked through with the owner before any build. Related: HITLD-609 (the measurement-tool design that raised it), HITLD-617 and 619, HITLD-616 (executors on other providers and local models), HITLD-64 (safe to publish), HITLD-69 (injection contained), design parts 3, 10.3 and the guard's classification check. Placed under HITLD-567 clause c2 (rc.5) on the owner's decision HITLD-621, moved from HITLD-64 clause c2 (v0.1.0): it has to be settled before the measurement-tool design (HITLD-609) is built on, and HITLD-609 needs it.
+
+## Noted on 2026-11-20 (HITLD-623)
+
+Benchmark results will live in a bucket owned by dyno, not in the sealed private store, so the taxonomy has to say what a label means for each storage backend (the sealed store and a bucket with its own protection), not only which channels may carry the data.
+

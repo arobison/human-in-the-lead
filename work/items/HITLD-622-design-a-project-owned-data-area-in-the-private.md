@@ -44,3 +44,8 @@ The issue's evidence: about 5 MB of run summaries and reports per day of active 
 ## Notes
 
 Design-heavy: stays `proposed` and is walked through with the owner before any build. Raised by GitHub issue 363. Related: HITLD-609 (the measurement-tool design), HITLD-617 and 619, HITLD-620 (classification taxonomy), the private-store design (`docs/design/0003-private-store-remote.md`). Placed under HITLD-567 clause c2 (rc.5) beside the measurement-tool walk-through as a proposal for the owner to move; it needs HITLD-620 and HITLD-609 first.
+
+## Decided on 2026-11-20 (HITLD-623): staged, dyno first
+
+The owner decided to start with dyno-owned storage in a private bucket, reached only through dyno's commands (HITLD-609), and to revisit this data area only if sharing results across machines through dyno proves insufficient. This item stays `proposed` as the later option and moves out of release rc.5 to the after-v0.1.0 clause (HITLD-408 clause c2). It keeps its needs on the measurement-tool design (HITLD-609) and the classification taxonomy (HITLD-620); revisit it when dyno's chief of staff reports on sharing across machines.
+
