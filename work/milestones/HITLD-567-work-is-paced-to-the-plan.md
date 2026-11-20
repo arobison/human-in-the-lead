@@ -10,7 +10,7 @@ done_when:
   - "c1: Each project follows an even pace line on the account's total and its executor concurrency adapts to it, with no project reading another's data."
   - "c2: Heavy steps hold weighted machine capacity, and a performance run takes the machine."
   - "c3: An executor is stuck by progress and over by budget, and an item's execution profile (mode, model and effort, token budget) comes from measured history."
-constraints: [HITLD-558 c1, HITLD-559 c2, HITLD-560 c3, HITLD-561 c3, HITLD-287 c3, HITLD-500 c3, HITLD-509 c1, HITLD-355 c1, HITLD-609 c2, HITLD-611 c3, HITLD-616 c3, HITLD-620 c2]
+constraints: [HITLD-558 c1, HITLD-559 c2, HITLD-560 c3, HITLD-561 c3, HITLD-287 c3, HITLD-500 c3, HITLD-509 c1, HITLD-355 c1, HITLD-609 c2, HITLD-611 c3, HITLD-616 c3, HITLD-620 c2, HITLD-622 c2]
 check: demo a project's starts slowing when the account total passes the line and recovering below it, with no fixed cap binding, run by the owner
 ---
 
@@ -33,3 +33,5 @@ HITLD-616 (how a session calls out to executors on other harnesses and models) j
 ## Changed on 2026-11-20 (HITLD-621)
 
 HITLD-620 (the classification taxonomy) joined clause c2 on the owner's decision HITLD-621: it is settled before the measurement-tool design (HITLD-609) is built on, so HITLD-609 needs it.
+
+HITLD-622 (a project-owned data area in the private store, from GitHub issue 363) joined clause c2 as a proposal; it needs HITLD-620 and HITLD-609.

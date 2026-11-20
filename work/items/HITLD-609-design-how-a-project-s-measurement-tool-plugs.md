@@ -104,3 +104,7 @@ The question was whether HITLD still needs its own benchmark lock and quiet-mach
 - **HITLD reads dyno's busy state** the way its load check reads CPU use, so its own heavy steps (tests, builds) wait during a measurement even if a person started it by hand. The first version is a status call; whether dyno also writes its busy state into the lock directory is left open, and the status call needs no shared filesystem.
 - **What this changes in HITLD:** the lock and the quiet-machine hold (design 13.2 and 13.4, HITLD-559) keep guarding HITLD's own processes and the local case; they no longer try to represent a target machine or a farm.
 
+## Raised on 2026-11-20 (GitHub issue 363)
+
+The first outside consumer's own session filed GitHub issue 363 asking for the data area discussed above, synced across a person's machines (several laptops with different GPUs, later dedicated runners and phones). It is tracked as HITLD-622, which needs this item and the classification taxonomy (HITLD-620).
+
