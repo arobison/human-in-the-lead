@@ -27,3 +27,7 @@ Found by the chief of staff in the first self-hosted run, with the two stray ite
 ## Affected by a decision (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (472/507,333/409): rights record trust event. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); answers, proof and contributors (HITLD-515 to 517). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.
+
+## Plan audit on 2026-11-20 (still valid as written)
+
+Checked against the trust-engine decisions (HITLD-518 to HITLD-529, HITLD-547, HITLD-548) and the answer-proof decisions (HITLD-515 to HITLD-517). This item fixes the built behavior of `hitld rights record`, which writes the built per-area trust event. The derived trust record replaces that event only when the engine is built (HITLD-529; builds HITLD-552 to HITLD-556), and the trust calibration section of the loops design keeps the built record in force until then. The proof field on the answer record is a separate build (HITLD-564) and does not change this fix. No rewording.
