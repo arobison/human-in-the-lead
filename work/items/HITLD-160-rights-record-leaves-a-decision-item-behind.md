@@ -2,9 +2,11 @@
 id: HITLD-160
 title: rights record leaves a decision item behind when the trust event is invalid, and refuses a question with no structured attributes
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-44
+release_note: `hitld rights record` and `rights ask` record a question with no areas, paths, tags or triggers, and check its trust event before writing anything (new error `invalid-trust-event`). The files tracker refuses an `opened_from` link that `tracker.json` does not turn on instead of dropping it.
 ---
 
 ## Why
@@ -31,3 +33,10 @@ The audit of 2026-11-19 found that an open design touches this item (472/507,333
 ## Plan audit on 2026-11-20 (still valid as written)
 
 Checked against the trust-engine decisions (HITLD-518 to HITLD-529, HITLD-547, HITLD-548) and the answer-proof decisions (HITLD-515 to HITLD-517). This item fixes the built behavior of `hitld rights record`, which writes the built per-area trust event. The derived trust record replaces that event only when the engine is built (HITLD-529; builds HITLD-552 to HITLD-556), and the trust calibration section of the loops design keeps the built record in force until then. The proof field on the answer record is a separate build (HITLD-564) and does not change this fix. No rewording.
+
+## Built (D-44)
+
+- A question with no structured attributes is recorded as a choice: its trust event carries no `facts` instead of an empty set the schema refuses. The asked (and precedent application) trust event is checked before the decision item is created; a refusal is `invalid-trust-event` and writes nothing.
+- The question JSON already took `opened_from` and `blocks`, and `blocks` already gave the blocked item its `needs` link. `opened_from` was lost in the files tracker, whose `create` dropped it without a word when `tracker.json` did not turn it on, as this project's did. The files tracker now refuses it, before anything is written, naming the key to turn on; this project's `tracker.json` turns `opened_from` on.
+- Tests in `core/test/rights-record.test.mjs`: the bare question through the question tool and in chat; a refused trust event leaving no decision item, ask record, ledger event or trust event; the links through the command, with `opened_from` on and off.
+- The decision items HITLD-158 to HITLD-174 are not backfilled: what each was opened from is not recorded anywhere to backfill from.

@@ -135,6 +135,10 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `lock-held`: A named resource lock is held by someone else.
 - `lock-timeout`: A named resource lock was not free before the wait ended.
 
+**Quotas**
+
+- `invalid-snapshot`: The usage snapshot does not match its schema.
+
 **Ledger**
 
 - `invalid-event`: The ledger event does not match its schema or lacks a field its kind needs.
@@ -169,6 +173,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `incomplete-question`: The question does not stand alone; it lacks fields a decider needs.
 - `invalid-default`: The default if unanswered is not allowed here: not a two-way door, or not one of the options.
 - `invalid-decision`: The decision record or answer is not valid.
+- `invalid-trust-event`: The trust event the question would record does not match its schema; nothing was recorded.
 - `answer-matches-no-option`: The answer names none of the decision's options, or words that fit more than one; nothing was recorded.
 - `answer-question-changed`: The question the answer would apply to is not the one shown: its check code differs from the one given or last shown, the tracker item and the ask record disagree, or the device action it would apply is another; nothing was recorded.
 - `not-created`: The tracker refused to create the decision item.
