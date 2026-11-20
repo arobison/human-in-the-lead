@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -430,4 +431,111 @@ test('a lock held by a live process is waited for once, then noted, and the next
   const started = Date.now();
   assert.equal(moveOldEntry('p', o).quiet, true);
   assert.ok(Date.now() - started < 1_000);
+});
+
+/** A home whose store p has already moved, with a stray copy at the old place. */
+function strayHome() {
+  const h = oldHome();
+  assert.equal(moveOldEntry('p', h.o).state, 'moved');
+  mkdirSync(join(h.old, 'p'), { recursive: true });
+  return h;
+}
+
+test('absorb never overwrites a path that appears in the store meanwhile, on one volume or across', () => {
+  for (const crossing of [false, true]) {
+    const { old, now, o } = strayHome();
+    writeFileSync(join(old, 'p', 'late.jsonl'), 'OLD-STRAY\n');
+    const seam = {
+      link: (/** @type {string} */ src, /** @type {string} */ dest) => {
+        writeFileSync(dest, 'NEW-RELEASE-LINE\n'); // a new-release process wins the race
+        if (crossing) throw Object.assign(new Error('EXDEV'), { code: 'EXDEV' });
+        linkSync(src, dest);
+      },
+    };
+    const r = moveOldEntry('p', { ...o, seam });
+    assert.equal(r.state, 'both', String(crossing));
+    assert.equal(readFileSync(join(now, 'p', 'late.jsonl'), 'utf8'), 'NEW-RELEASE-LINE\n');
+    assert.equal(readFileSync(join(old, 'p', 'late.jsonl'), 'utf8'), 'OLD-STRAY\n');
+    assert.match(r.reason ?? '', /At both: late\.jsonl/);
+  }
+});
+
+test('absorb removes only empty directories: a file written into the stray meanwhile stays', () => {
+  const { old, now, o } = strayHome();
+  mkdirSync(join(old, 'p', 'usage'));
+  writeFileSync(join(old, 'p', 'usage', 'snap-1.jsonl'), '1\n');
+  writeFileSync(join(old, 'p', 'notes.md'), 'n\n');
+  let wrote = false;
+  const seam = {
+    link: (/** @type {string} */ src, /** @type {string} */ dest) => {
+      if (!wrote) {
+        wrote = true;
+        writeFileSync(join(old, 'p', 'usage', 'snap-late.jsonl'), 'late\n');
+      }
+      linkSync(src, dest);
+    },
+  };
+  const r = moveOldEntry('p', { ...o, seam });
+  assert.equal(r.state, 'both');
+  assert.match(r.reason ?? '', /written there meanwhile and left: usage\/snap-late\.jsonl/);
+  assert.equal(readFileSync(join(old, 'p', 'usage', 'snap-late.jsonl'), 'utf8'), 'late\n');
+  assert.equal(readFileSync(join(now, 'p', 'usage', 'snap-1.jsonl'), 'utf8'), '1\n');
+  const again = moveOldEntry('p', { ...o, now: () => Date.now() + 25 * 60 * 60_000 });
+  assert.equal(again.state, 'moved', again.reason);
+  assert.equal(readFileSync(join(now, 'p', 'usage', 'snap-late.jsonl'), 'utf8'), 'late\n');
+  assert.equal(existsSync(join(old, 'p')), false);
+});
+
+test('absorb never moves .git, and names it once', () => {
+  const { old, now, o } = strayHome();
+  mkdirSync(join(old, 'p', '.git', 'refs', 'heads'), { recursive: true });
+  writeFileSync(join(old, 'p', '.git', 'index.lock'), '');
+  writeFileSync(join(old, 'p', '.git', 'refs', 'heads', 'x'), 'abc');
+  const r = moveOldEntry('p', o);
+  assert.equal(r.state, 'both');
+  assert.match(r.reason ?? '', /Its \.git holds 2 file\(s\), never moved in/);
+  assert.doesNotMatch(r.reason ?? '', /At both/);
+  assert.equal(existsSync(join(now, 'p', '.git', 'index.lock')), false);
+});
+
+test('on Windows, paths that differ only in case are at both places', () => {
+  const { old, o } = strayHome();
+  writeFileSync(join(old, 'p', 'Ledger.jsonl'), 'x\n');
+  const r = moveOldEntry('p', o);
+  assert.equal(r.state, 'both');
+  assert.match(r.reason ?? '', /At both: Ledger\.jsonl/);
+});
+
+test('a file in one place and a directory in the other gets the steps, not a retry', () => {
+  const { old, now, o } = strayHome();
+  mkdirSync(join(now, 'p', 'notes'));
+  writeFileSync(join(now, 'p', 'notes', 'a.md'), 'a');
+  writeFileSync(join(old, 'p', 'notes'), 'a file');
+  const r = moveOldEntry('p', o);
+  assert.equal(r.state, 'both', r.reason);
+  assert.match(r.reason ?? '', /To merge by hand/);
+});
+
+test('a lone marker left after the aside copy went is cleaned up', () => {
+  const { old, now, o } = oldHome();
+  rmSync(join(old, 'q'), { recursive: true });
+  rmSync(join(old, '_machine'), { recursive: true });
+  mkdirSync(now, { recursive: true });
+  renameSync(join(old, 'p'), join(now, 'p'));
+  writeFileSync(join(now, 'p', '.hitld-moved.tmp'), '');
+  assert.equal(moveOldEntry('p', o).state, 'not-there');
+  assert.equal(existsSync(join(now, 'p', '.hitld-moved.tmp')), false);
+  assert.equal(existsSync(old), false);
+});
+
+test('an executor never gets a path while an aside copy exists, even with a stray source', () => {
+  const { old, now, o } = oldHome();
+  renameSync(join(old, 'p'), join(old, '.p.moved'));
+  mkdirSync(join(old, 'p'));
+  writeFileSync(join(old, 'p', 'ledger.jsonl'), 'stray\n');
+  assert.throws(
+    () => moveOldEntry('p', { ...o, env: { ...o.env, HITLD_ROLE: 'executor' } }),
+    /interrupted at .*\.p\.moved/,
+  );
+  assert.equal(existsSync(join(now, 'p')), false);
 });

@@ -39,8 +39,11 @@
 // files may both use it.
 
 import {
+  constants as fsConstants,
+  copyFileSync,
   cpSync,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -48,6 +51,7 @@ import {
   renameSync,
   rmdirSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -61,7 +65,8 @@ export const DIR_NAME = 'human-in-the-lead';
 
 /**
  * @typedef {{ rename?: (from: string, to: string) => void,
- *   rm?: (path: string, o: import('node:fs').RmOptions) => void }} MoveSeam
+ *   rm?: (path: string, o: import('node:fs').RmOptions) => void,
+ *   link?: (from: string, to: string) => void }} MoveSeam
  * @typedef {{ env?: NodeJS.ProcessEnv, home?: string, platform?: NodeJS.Platform, cwd?: string,
  *   report?: (message: string) => void, now?: () => number, seam?: MoveSeam }} DataHomeOptions
  *   env, home, platform, cwd, now and seam are for tests; report receives the move's messages
@@ -279,6 +284,31 @@ function files(dir) {
   return out;
 }
 
+/**
+ * Remove the empty directories under `dir`, deepest first, and `dir` itself if it ends empty.
+ * Never removes a file. Returns the files that remain, by relative path.
+ * @param {string} dir @returns {string[]}
+ */
+function removeEmptyDirs(dir) {
+  /** @type {string[]} */
+  const remain = [];
+  /** @param {string} d @param {string} rel */
+  const walk = (d, rel) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(join(d, e.name), r);
+      else remain.push(r);
+    }
+    try {
+      if (readdirSync(d).length === 0) rmdirSync(d);
+    } catch {
+      // held, or written to meanwhile
+    }
+  };
+  if (existsSync(dir)) walk(dir, '');
+  return remain;
+}
+
 /** At most `n` items, and how many more. @param {string[]} list @param {number} [n] */
 const some = (list, n = 10) =>
   list.slice(0, n).join(', ') + (list.length > n ? `, and ${list.length - n} more` : '');
@@ -309,12 +339,27 @@ export function moveOldEntry(name, options = {}) {
   if (!from) return { state: 'not-there', path: target };
   const source = join(from, name);
   const aside = join(from, `.${name}.moved`);
-  if (!existsSync(source) && !existsSync(aside)) return { state: 'not-there', path: target };
+  if (!existsSync(source) && !existsSync(aside)) {
+    // A marker left by a run that stopped after the aside copy was gone: nothing else remains.
+    if (existsSync(join(target, MOVED_MARKER))) {
+      try {
+        rmSync(join(target, MOVED_MARKER), { force: true });
+        rmdirSync(from);
+      } catch {
+        // the old directory still holds other entries
+      }
+    }
+    return { state: 'not-there', path: target };
+  }
   const now = (options.now ?? Date.now)();
   const seam = options.seam ?? {};
   const rm = seam.rm ?? rmSync;
-  /** A move interrupted after the source went aside, with no store at either path. */
-  const interrupted = () => existsSync(aside) && !existsSync(source) && !hasStore(target);
+  /**
+   * A move interrupted after the source went aside and before the copy was in place. A store at
+   * the source path then is a stray an older release made; no caller that cannot finish the move
+   * gets a path to write to.
+   */
+  const interrupted = () => existsSync(aside) && !hasStore(target);
   /** @param {string} why */
   const interruptedError = (why) =>
     new Error(`a move of ${label(name)} was interrupted at ${aside}; ${why}`);
@@ -323,6 +368,18 @@ export function moveOldEntry(name, options = {}) {
     if (interrupted()) throw interruptedError(reason);
     return { state: 'left', path: resolveNow(source, target), reason };
   };
+
+  // The notes first: while one holds, nothing below (a git spawn among them) runs again.
+  const note = readNotes(to)[name];
+  if (holds(note, now)) {
+    if (interrupted()) {
+      throw interruptedError(
+        `it could not be finished a few minutes ago; ${note?.why ?? ''}`.trim(),
+      );
+    }
+    const path = resolveNow(source, target);
+    return { state: path === source ? 'left' : 'both', path, quiet: true };
+  }
 
   const executor = executorSignal(env, options.cwd ?? process.cwd());
   if (executor) {
@@ -340,17 +397,6 @@ export function moveOldEntry(name, options = {}) {
   } catch (e) {
     return left(`${to} cannot be made (${messageOf(e)})`);
   }
-  const note = readNotes(to)[name];
-  if (holds(note, now)) {
-    if (interrupted()) {
-      throw interruptedError(
-        `it could not be finished a few minutes ago; ${note?.why ?? ''}`.trim(),
-      );
-    }
-    const path = resolveNow(source, target);
-    return { state: path === source ? 'left' : 'both', path, quiet: true };
-  }
-
   const lock = join(to, `.${name}.move-lock`);
   /** @returns {EntryMove} */
   const work = () => {
@@ -422,7 +468,15 @@ export function moveOldEntry(name, options = {}) {
         reason: `the copy left at ${rest} can be deleted (${messageOf(e)})`,
       };
     }
-    rm(join(done, MOVED_MARKER), { force: true });
+    try {
+      rm(join(done, MOVED_MARKER), { force: true });
+    } catch (e) {
+      return {
+        state: 'leftover',
+        path: done,
+        reason: `a stray marker at ${join(done, MOVED_MARKER)} can be deleted (${messageOf(e)})`,
+      };
+    }
     return { state: 'moved', path: done };
   };
   /**
@@ -435,33 +489,72 @@ export function moveOldEntry(name, options = {}) {
   const reconcile = (stray, store) => {
     const busy = inUse(name, stray, now);
     if (busy) return { state: 'both', path: store, reason: `${stray} is in use (${busy})` };
+    const fold = (/** @type {string} */ k) => (platform === 'win32' ? k.toLowerCase() : k);
     const theirs = files(stray);
-    const ours = files(store);
-    const both = [...theirs.keys()].filter((k) => ours.has(k));
+    const ours = new Set([...files(store).keys()].map(fold));
+    const sizes = files(store);
+    /** @type {string[]} */
+    const both = [];
+    /** @type {string[]} */
+    const git = [];
+    for (const k of theirs.keys()) {
+      if (k === '.git' || k.startsWith('.git/')) git.push(k);
+      else if (ours.has(fold(k))) both.push(k);
+    }
+    /** @type {string[]} */
+    const moved = [];
     if (both.length === 0) {
-      for (const [rel] of theirs) {
-        const dest = join(store, ...rel.split('/'));
-        mkdirSync(dirname(dest), { recursive: true });
+      // Never overwrite: a hard link (or, across volumes, an exclusive copy) fails when the path
+      // appeared in the store meanwhile, and the stray file then stays where it is.
+      for (const [rel, size] of theirs) {
+        if (rel === '.git' || rel.startsWith('.git/')) continue;
         const src = join(stray, ...rel.split('/'));
+        const dest = join(store, ...rel.split('/'));
         try {
-          rename(src, dest, seam, platform);
+          if (size < 0) throw Object.assign(new Error('not a regular file'), { code: 'EEXIST' });
+          mkdirSync(dirname(dest), { recursive: true });
+          try {
+            (seam.link ?? linkSync)(src, dest);
+          } catch (e) {
+            if (['EEXIST', 'ENOTDIR', 'EISDIR'].includes(codeOf(e))) throw e;
+            copyFileSync(src, dest, fsConstants.COPYFILE_EXCL);
+          }
+          unlinkSync(src);
+          moved.push(rel);
         } catch (e) {
-          if (codeOf(e) !== 'EXDEV') throw e;
-          cpSync(src, dest, { errorOnExist: true, force: false, verbatimSymlinks: true });
-          rm(src, { force: true, ...RM_RETRY });
+          if (!['EEXIST', 'ENOTDIR', 'EISDIR'].includes(codeOf(e))) throw e;
+          both.push(rel);
         }
       }
-      return finish(stray, store);
+      // Only empty directories go, deepest first: a file written into the stray copy meanwhile
+      // stays, and is named below.
+      const left = removeEmptyDirs(stray).filter((k) => k !== '.git' && !k.startsWith('.git/'));
+      if (left.length === 0 && both.length === 0 && git.length === 0) {
+        return { state: 'moved', path: store };
+      }
+      if (both.length === 0 && left.length) {
+        return {
+          state: 'both',
+          path: store,
+          reason: `${moved.length} path(s) moved in from ${stray}; written there meanwhile and left: ${some(left)}. The next run moves them.`,
+        };
+      }
     }
-    const only = [...theirs.keys()].filter((k) => !ours.has(k));
-    const differ = both.filter((k) => theirs.get(k) !== ours.get(k));
+    const only = [...theirs.keys()].filter(
+      (k) => !both.includes(k) && !git.includes(k) && !moved.includes(k),
+    );
+    const differ = both.filter((k) => theirs.get(k) !== sizes.get(k));
     return {
       state: 'both',
       path: store,
       reason: [
         `${stray} holds a second copy of it, and ${store} is the one in use.`,
+        moved.length ? `Moved in: ${some(moved)}.` : '',
         only.length ? `Only at ${stray}: ${some(only)}.` : '',
-        `At both: ${some(both)}${differ.length ? `; of these, of different size: ${some(differ)}` : ''}.`,
+        both.length
+          ? `At both: ${some(both)}${differ.length ? `; of these, of different size: ${some(differ)}` : ''}.`
+          : '',
+        git.length ? `Its .git holds ${git.length} file(s), never moved in.` : '',
         `To merge by hand: stop every session that uses this store; move each path that is only at ${stray} into ${store};`,
         `for a path at both, keep the one you want (for ledger.jsonl, add the old copy's lines the new one lacks, in order);`,
         `then delete ${stray}. This is said once a day until then.`,
