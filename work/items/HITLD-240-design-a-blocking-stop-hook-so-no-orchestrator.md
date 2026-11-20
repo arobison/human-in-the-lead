@@ -23,3 +23,7 @@ HITLD-144's executor (D-17) tested hooks in a real cloud session (Claude Code 2.
 ## Notes
 
 `proposed` because a hook changes what agents' sessions do. From D-17's digest on HITLD-144 (PR #182). The test results are in that item's notes.
+
+## Moved on 2026-11-20 (HITLD-607)
+
+On the owner's decision HITLD-607, this item moved from milestone HITLD-407 (c1) to milestone HITLD-404 (c4). It still needs a design walk-through (HITLD-135) before it is built, so it is not ready.

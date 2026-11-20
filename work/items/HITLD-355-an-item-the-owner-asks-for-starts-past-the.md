@@ -28,3 +28,7 @@ Code, skill and policy: needs the owner's own yes to merge. Related: HITLD-353 (
 ## Returned to proposed on 2026-11-20 (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (509): owner pull skips usage gate. The decisions since then are the pace decisions (HITLD-530, 549, 550). The owner decided (HITLD-578) that the items the decisions change most return to `proposed` until reshaped, so the planner does not offer them; the owner promotes the item again once it is reshaped.
+
+## Moved on 2026-11-20 (HITLD-602)
+
+On the owner's decision HITLD-602, this item moved from milestone HITLD-189 (c2) to milestone HITLD-567 (c1), where its build belongs with pacing work to the plan (release stage rc.5).

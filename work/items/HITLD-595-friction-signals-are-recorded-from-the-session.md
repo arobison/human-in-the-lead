@@ -30,3 +30,7 @@ The owner asked on 2026-11-20 how to start building the self-learning loop, for 
 ## Notes
 
 The owner asked to build the signals now. The weekly usage reading was 0.90 on 2026-11-20, above the 25 percent reserve, so autonomous work is stopped (HITLD-422): this item is first on the start list at the reset (19:00 UTC) and is promoted to `planned` on the owner's instruction. Code and schema: the owner's own yes to merge. Placed under HITLD-408 c4 (friction counts come from the ledger) by the chief of staff, a proposal for the owner to move earlier. Related: HITLD-48 and 154 (implicit friction signals), HITLD-139 and 585 (spend by role), HITLD-570 (the preference record), HITLD-596 (the controller that uses these signals), HITLD-589 (the first retrospective).
+
+## Moved on 2026-11-20 (HITLD-608)
+
+On the owner's decision HITLD-608, this item moved from milestone HITLD-408 (c4) to milestone HITLD-403 (c5), beside the fuller curator (HITLD-583 and HITLD-220), in release stage rc.4.

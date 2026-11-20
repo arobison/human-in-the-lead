@@ -21,3 +21,7 @@ In the first self-hosted run a denied action (a force-push, a tool install, a `-
 ## Notes
 
 Proposed: it is a design choice about faults and escalation, so the owner reviews it with the walk-through skill (HITLD-135). Raised under HITLD-181.
+
+## Moved on 2026-11-20 (HITLD-607)
+
+On the owner's decision HITLD-607, this item moved from milestone HITLD-407 (c2) to milestone HITLD-404 (c4). It still needs a design walk-through (HITLD-135) before it is built, so it is not ready.

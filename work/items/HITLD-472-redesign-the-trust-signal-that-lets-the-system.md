@@ -59,3 +59,7 @@ Nothing in the design is open here. `merge.owner_areas` fold into the path rules
 ## Note on 2026-11-19 (HITLD-527)
 
 Merging registers with the trust engine as a small chain of supervision modes (waits for the owner, eligible to self-merge). The engine's concept is supervision modes with an order, not only a ladder, so a kind may later register a mode such as an independent check.
+
+## Left the milestone on 2026-11-20 (HITLD-603)
+
+This item left milestone HITLD-191; it closes when the design-docs update (HITLD-572) merges.

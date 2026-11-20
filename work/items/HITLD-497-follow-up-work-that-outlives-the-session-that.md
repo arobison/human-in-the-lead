@@ -22,3 +22,7 @@ Reported in GitHub issue #209 and its comment. An orchestrator tried to send fol
 ## Notes
 
 Triaged 2026-11-18: proposed, one cause (work that outlives the session or run that dispatched it). The run-and-hand-over parts of the issue change with the owner's decision that there is no run object (HITLD-470, HITLD-492): executors are sessions the chief of staff starts and archives when their pull requests merge (HITLD-167), not subagents of an orchestrator. Related: HITLD-314 (follow-up for interactive dispatches), HITLD-495. Code and skill: the owner's own yes to merge.
+
+## Folded in on 2026-11-20 (HITLD-604)
+
+HITLD-314 (a follow-up refused for an interactive dispatch) is folded into this item. Its substance: `dispatch follow-up` must work for an interactive dispatch by recording the follow-up on the ledger (a new dispatch ID on the same agent) with no worktree or result file, or say plainly which dispatch kinds it supports; its headless-only check must come before any ledger event is written, so a refused follow-up leaves no phantom dispatch holding an executor slot; and a re-opened dispatch must be able to report again, not return the earlier report. A test covers an interactive dispatch.
