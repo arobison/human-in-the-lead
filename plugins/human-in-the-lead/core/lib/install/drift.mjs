@@ -20,7 +20,7 @@ import { NAME, VERSION } from '../version.mjs';
 import { findRepoRoot, loadPolicy } from '../policy/policy.mjs';
 import { compareVersions, parseVersion, TAG } from '../release/semver.mjs';
 import { schemas } from '../schema/registry.mjs';
-import { LEDGER_KEY } from '../ledger/ledger.mjs';
+import { ledgerKeys } from '../ledger/writer.mjs';
 import { STATE_KEY, CHECKPOINT_PREFIX } from '../run/checkpoint.mjs';
 import { openStore, privateStorePath } from '../store/store.mjs';
 import { declaredPin } from '../settings/pins.mjs';
@@ -132,8 +132,14 @@ export function writtenBy(store, known = {}) {
   if (!store) return { data, newer };
   const ledgerKnown = known.ledger ?? schemas().currentVersion('ledger-entry') ?? 1;
   const stateKnown = known.runState ?? schemas().currentVersion('run-state') ?? 1;
-  let newestLine = 0;
-  for (const raw of (store.read(LEDGER_KEY) ?? '').split('\n')) {
+  // Every ledger file (ledger/writer.mjs). The run start that counts is the latest by its time;
+  // on a tie, the one read last.
+  /** @type {Map<string, number>} */
+  const newestLine = new Map();
+  const lines = ledgerKeys(store).flatMap((key) =>
+    (store.read(key) ?? '').split('\n').map((raw) => ({ key, raw })),
+  );
+  for (const { key, raw } of lines) {
     if (raw.trim() === '') continue;
     let e;
     try {
@@ -142,18 +148,19 @@ export function writtenBy(store, known = {}) {
       continue; // a damaged line says nothing
     }
     if (Number.isInteger(e?.schema_version) && e.schema_version > ledgerKnown) {
-      newestLine = Math.max(newestLine, e.schema_version);
+      newestLine.set(key, Math.max(newestLine.get(key) ?? 0, e.schema_version));
     }
     const v = versionOf(e);
     if (v === null) continue;
-    if (e.event === 'run-started' || e.event === 'lease-taken') {
+    const at = typeof e.at === 'string' ? e.at : '';
+    if ((e.event === 'run-started' || e.event === 'lease-taken') && at >= (data.at ?? '')) {
       data.version = v;
       data.event = e.event;
       data.at = typeof e.at === 'string' ? e.at : null;
     }
     if (data.newest === null || compareVersions(v, data.newest) > 0) data.newest = v;
   }
-  if (newestLine) newer.push({ file: LEDGER_KEY, found: newestLine, known: ledgerKnown });
+  for (const [file, found] of newestLine) newer.push({ file, found, known: ledgerKnown });
   for (const key of [STATE_KEY, ...store.list(CHECKPOINT_PREFIX)]) {
     const found = readJsonText(store.read(key))?.schema_version;
     if (Number.isInteger(found) && found > stateKnown) {

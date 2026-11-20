@@ -209,7 +209,7 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 | **Dispatch** | One assignment of an item to an executor. An item may have several (retries, follow-ups). |
 | **State, result** | `state` is where a record is in its lifecycle (`proposed`, `planned`, `in-progress`, `done`, `dropped`; only work items are ever `in-progress`). `result` is how an attempt ended (a report's `done`, `partial` or `blocked`; a check's `pass`, `fail`, `error` or `not-applicable`). Every value is lowercase kebab-case. Ready, blocked, claimed and stage are derived, never stored. |
 | **Claim, unclaim** | A claim is the first commit of an executor's branch, setting a work item `in-progress` with `claimed_by`. Unclaiming gives up an abandoned claim with an `unclaim:` commit on main. Releasing is shipping: a release is what reached users. |
-| **Ledger** | The append-only record of dispatches and their results, per project in its private store, one file per writer with IDs unique by construction; only aggregates cross projects. Per-writer files and unique IDs are decided, not built. |
+| **Ledger** | The append-only record of dispatches and their results, per project in its private store, one file per writer with IDs unique by construction; only aggregates cross projects. The person-level layer of aggregates is decided, not built. |
 | **Brief** | The short instruction an executor receives. Points at the item file; does not restate it. |
 | **Report** | The fixed-shape message an executor returns; its `result` says how the attempt ended. The HTML page of measures is the dashboard (`hitld dashboard`). |
 | **Logged call** | A cheap-to-undo decision an executor makes itself and records in its report. |

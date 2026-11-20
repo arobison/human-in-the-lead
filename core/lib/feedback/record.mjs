@@ -20,7 +20,8 @@ import { realPath } from '../platform/fs.mjs';
 
 export const KINDS = Object.freeze(['bug', 'friction', 'idea', 'worked-well']);
 export const FEEDBACK_PREFIX = 'feedback/';
-const REF = /^[A-Z][A-Z0-9]*-[1-9][0-9]*$/;
+/** A global ID, or a dispatch or event ID unique by construction (ledger/ids.mjs). */
+const REF = /^(?:[A-Z][A-Z0-9]*-[1-9][0-9]*|[DE]-[0-9A-HJKMNP-TV-Z]{16})$/;
 const ID = /^FB-([1-9][0-9]*)$/;
 
 /** The store key of a record. @param {string} id */

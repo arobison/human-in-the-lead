@@ -30,7 +30,11 @@
     "signalId": { "type": "string", "pattern": "^SIG-[1-9][0-9]*$" },
     "precedentId": { "type": "string", "pattern": "^P-[1-9][0-9]*$" },
     "contributorId": { "type": "string", "pattern": "^C-[1-9][0-9]*$" },
-    "dispatchId": { "type": "string", "pattern": "^D-[1-9][0-9]*$" },
+    "dispatchId": {
+      "description": "D-<n>, numbered before HITLD-74, or D- and 16 characters of Crockford base32 (time, then random): unique by construction.",
+      "type": "string",
+      "pattern": "^D-(?:[1-9][0-9]*|[0-9ABCDEFGHJKMNPQRSTVWXYZ]{16})$"
+    },
     "person": {
       "description": "\"owner\", or a contributor ID.",
       "type": "string",

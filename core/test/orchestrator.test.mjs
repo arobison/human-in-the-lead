@@ -11,6 +11,7 @@ import { renderBrief } from '../lib/dispatch/brief.mjs';
 import { runDispatchLoop } from '../lib/dispatch/loop.mjs';
 import { startRun } from '../lib/run/run.mjs';
 import { readLedger } from '../lib/ledger/ledger.mjs';
+import { openStore } from '../lib/store/store.mjs';
 import { createFakeAdapter, FAKE_PROFILES } from '../harness/fake/fake.mjs';
 import { checkHarnessAdapter } from '../harness/interface.mjs';
 import { ContractCall, createClaudeCodeAdapter } from '../harness/claude-code/adapter.mjs';
@@ -635,11 +636,12 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
 
   const start = await c.hitld(['dispatch', 'start', 'W-1']);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
-  assert.equal(start.result.dispatch, 'D-1');
+  const d = start.result.dispatch;
+  assert.match(d, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
   assert.equal(start.result.instruction.tool, 'Agent');
-  assert.equal(start.result.instruction.input.name, 'D-1');
+  assert.equal(start.result.instruction.input.name, d);
   assert.equal(
-    (await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1'])).exit,
+    (await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1'])).exit,
     0,
   );
 
@@ -665,7 +667,7 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
     'dispatch',
     'complete',
     '--dispatch',
-    'D-1',
+    d,
     '--report-file',
     note,
     '--tokens',
@@ -688,21 +690,14 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
     'dispatch',
     'follow-up',
     '--dispatch',
-    'D-1',
+    d,
     '--message',
     'Also add mul.',
   ]);
   assert.equal(follow.exit, 0, JSON.stringify(follow.result));
   assert.equal(follow.result.instruction.tool, 'SendMessage');
   assert.equal(follow.result.instruction.input.to, 'agent-1');
-  const events = readLedger(
-    /** @type {any} */ ({
-      read: (/** @type {string} */ k) =>
-        k === 'ledger.jsonl'
-          ? readFileSync(join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl'), 'utf8')
-          : null,
-    }),
-  ).events;
+  const events = readLedger(openStore(join(c.data, 'human-in-the-lead/orch-fixture'))).events;
   const kinds = events.map((e) => e.event);
   for (const k of ['dispatched', 'started', 'reported', 'verified', 'merged'])
     assert.ok(kinds.includes(k), k);
@@ -738,26 +733,28 @@ test('dispatch start takes any ready item a free slot allows; finished work awai
   assert.ok(!proposed.includes('W-4') && !proposed.includes('W-5'));
 
   // Two items the plan did not propose start past the ones it ranks higher.
-  for (const [id, d] of [
-    ['W-4', 'D-1'],
-    ['W-5', 'D-2'],
-  ]) {
+  const ids = [];
+  for (const id of ['W-4', 'W-5']) {
     const s = await c.hitld(['dispatch', 'start', id]);
     assert.equal(s.exit, 0, JSON.stringify(s.result));
-    assert.equal(s.result.dispatch, d);
+    const d = s.result.dispatch;
+    assert.match(d, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
+    ids.push(d);
     await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', `agent-${d}`]);
   }
+  const [d1, d2] = ids;
   // No slot is free: the refusal names the slots, their holders and what frees one, as the plan does.
   const full = await c.hitld(['dispatch', 'start', 'W-1']);
   assert.equal(full.result.error, 'not-planned');
   const words =
-    'cap 2, 2 running (D-1 on W-4, D-2 on W-5), 0 free: a slot frees when one of them reports or is abandoned';
+    `cap 2, 2 running (${d1} on W-4, ${d2} on W-5), 0 free: ` +
+    'a slot frees when one of them reports or is abandoned';
   assert.equal(full.result.message, `W-1 is ready but no slot is free: ${words}`);
   assert.equal((await c.hitld(['dispatch', 'plan'])).result.slots, words);
   const hand = await c.hitld(['dispatch', 'start', 'W-1', '--by-hand']);
   assert.equal(hand.result.message, `W-1 is ready but no slot is free: ${words}`);
 
-  // D-1 finishes W-4 on its branch: the work awaits merge, takes no slot and is not planned again.
+  // The first dispatch finishes W-4 on its branch: the work awaits merge, takes no slot and is not planned again.
   const branch = 'hitld/W-4-four';
   git(c.root, 'switch', '-q', '-c', branch);
   put(c.root, {
@@ -776,20 +773,23 @@ test('dispatch start takes any ready item a free slot allows; finished work awai
   git(c.root, 'switch', '-q', 'main');
   const note = join(c.base, 'note-4.txt');
   writeFileSync(note, report({ item: 'W-4', sha, branch }));
-  const done = await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  const done = await c.hitld(['dispatch', 'complete', '--dispatch', d1, '--report-file', note]);
   assert.equal(done.exit, 0, JSON.stringify(done.result));
   const refill = done.result.refill;
   assert.equal(refill.free, 1);
   assert.ok(!refill.start.some((/** @type {any} */ s) => s.item === 'W-4'));
   assert.deepEqual(
     refill.awaiting_merge.map((/** @type {any} */ a) => [a.item, a.dispatch, a.branch]),
-    [['W-4', 'D-1', branch]],
+    [['W-4', d1, branch]],
   );
   const ready = await c.hitld(['ready']);
   assert.ok(!ready.result.queue.some((/** @type {any} */ q) => q.id === 'W-4'));
   const again = await c.hitld(['dispatch', 'start', 'W-4']);
   assert.equal(again.result.error, 'not-planned');
-  assert.match(again.result.message, /^W-4 awaits merge: D-1 reported it done on hitld\/W-4-four/);
+  assert.match(
+    again.result.message,
+    new RegExp(`^W-4 awaits merge: ${d1} reported it done on hitld/W-4-four`),
+  );
 
   // The branch merges: W-4 no longer awaits, and the tracker on main says it is done.
   const merged = await c.hitld(['merge']);
@@ -805,7 +805,8 @@ test('an item awaiting merge is planned again once its pass is corrected away (H
   assert.equal((await c.hitld(['run', 'start'])).exit, 0);
   const s = await c.hitld(['dispatch', 'start', 'W-2']);
   assert.equal(s.exit, 0, JSON.stringify(s.result));
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const d = s.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1']);
   const branch = s.result.branch;
   git(c.root, 'switch', '-q', '-c', branch);
   put(c.root, { 'src/other.js': 'export const one = 1;\nexport const two = 2;\n' });
@@ -814,7 +815,7 @@ test('an item awaiting merge is planned again once its pass is corrected away (H
   git(c.root, 'switch', '-q', 'main');
   const note = join(c.base, 'note-2.txt');
   writeFileSync(note, report({ item: 'W-2', sha, branch }));
-  const done = await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  const done = await c.hitld(['dispatch', 'complete', '--dispatch', d, '--report-file', note]);
   assert.deepEqual(
     done.result.refill.awaiting_merge.map((/** @type {any} */ a) => a.item),
     ['W-2'],
@@ -828,7 +829,7 @@ test('an item awaiting merge is planned again once its pass is corrected away (H
       event: 'verified',
       item: 'W-2',
       result: 'fail',
-      corrects: 'verified-D-1',
+      corrects: `verified-${d}`,
       notes: 'the owner dropped the branch',
     }),
   ]);
@@ -842,13 +843,14 @@ test('kill and resume: a dispatch recorded but never started is abandoned; a liv
   const c = makeConsumer();
   recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
   await c.hitld(['run', 'start']);
-  await c.hitld(['dispatch', 'start', 'W-1']); // killed before the Agent call
-  await c.hitld(['dispatch', 'start', 'W-2']); // killed after the call, before "started"
+  // The first is killed before the Agent call, the second after the call, before "started".
+  const d1 = (await c.hitld(['dispatch', 'start', 'W-1'])).result.dispatch;
+  const d2 = (await c.hitld(['dispatch', 'start', 'W-2'])).result.dispatch;
   const fresh = { env: { HITLD_SESSION: 'second-session' } };
-  const resumed = await c.hitld(['run', 'resume', '--live', 'D-2', '--force'], fresh);
+  const resumed = await c.hitld(['run', 'resume', '--live', d2, '--force'], fresh);
   assert.equal(resumed.exit, 0, JSON.stringify(resumed.result));
-  assert.deepEqual(resumed.result.abandoned, ['D-1']);
-  assert.deepEqual(resumed.result.adopted, ['D-2']);
+  assert.deepEqual(resumed.result.abandoned, [d1]);
+  assert.deepEqual(resumed.result.adopted, [d2]);
   const plan = await c.hitld(['dispatch', 'plan'], fresh);
   assert.ok(
     plan.result.start.some((/** @type {any} */ s) => s.item === 'W-1'),
@@ -924,11 +926,12 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
   assert.equal(start.result.instruction.tool, 'Bash');
   assert.ok(existsSync(start.result.worktree), 'the worktree exists');
   assert.equal(git(start.result.worktree, 'branch', '--show-current'), start.result.branch);
+  const d = start.result.dispatch;
   assert.match(
     start.result.instruction.input.command,
-    /HITLD_DISPATCH=D-1 HITLD_PROJECT_ID=orch-fixture HITLD_ROLE=executor claude -p/,
+    new RegExp(`HITLD_DISPATCH=${d} HITLD_PROJECT_ID=orch-fixture HITLD_ROLE=executor claude -p`),
   );
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'bash-7']);
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'bash-7']);
   const resultFile = start.result.on_complete.split('--result-file ')[1];
   writeFileSync(
     resultFile,
@@ -950,7 +953,7 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
     'dispatch',
     'complete',
     '--dispatch',
-    'D-1',
+    d,
     '--result-file',
     resultFile,
   ]);
@@ -963,7 +966,7 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
     'dispatch',
     'follow-up',
     '--dispatch',
-    'D-1',
+    d,
     '--message',
     'Keep the name.',
   ]);
@@ -977,16 +980,9 @@ test('a completion records its start estimate, refuses a figure far above it, an
   assert.equal((await c.hitld(['run', 'start'])).exit, 0);
   const s = await c.hitld(['dispatch', 'start', 'W-2']);
   assert.equal(s.exit, 0, JSON.stringify(s.result));
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
-  const ledger = () =>
-    readLedger(
-      /** @type {any} */ ({
-        read: (/** @type {string} */ k) =>
-          k === 'ledger.jsonl'
-            ? readFileSync(join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl'), 'utf8')
-            : null,
-      }),
-    ).events;
+  const d = s.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1']);
+  const ledger = () => readLedger(openStore(join(c.data, 'human-in-the-lead/orch-fixture'))).events;
   const estimate = ledger().find((e) => e.event === 'dispatched')?.estimate_tokens;
   assert.ok(typeof estimate === 'number' && estimate > 0, 'the dispatch started with an estimate');
   const note = join(c.base, 'note-436.txt');
@@ -995,7 +991,7 @@ test('a completion records its start estimate, refuses a figure far above it, an
   // A cache-read total, many times the estimate: refused, and nothing is recorded or released.
   const huge = estimate * 5;
   const complete = (/** @type {string[]} */ more) =>
-    c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note, ...more]);
+    c.hitld(['dispatch', 'complete', '--dispatch', d, '--report-file', note, ...more]);
   const refused = await complete(['--tokens', String(huge)]);
   assert.equal(refused.result.error, 'tokens-over-estimate', JSON.stringify(refused.result));
   assert.match(refused.result.message, /never cache reads/);
@@ -1039,7 +1035,7 @@ test('a completion records its start estimate, refuses a figure far above it, an
   const sum = await c.hitld(['ledger', 'summary']);
   assert.deepEqual(sum.result.estimate_vs_actual.by_dispatch, [
     {
-      dispatch: 'D-1',
+      dispatch: d,
       item: 'W-2',
       estimate_tokens: estimate,
       estimate_source: 'default',

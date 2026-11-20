@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { LEDGER_KEY, appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { ledgerKeys } from '../lib/ledger/writer.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { VERSION } from '../lib/version.mjs';
 import { bumpVersion } from '../lib/release/semver.mjs';
@@ -683,7 +684,10 @@ function snapshot(s) {
   };
   if (existsSync(s.data)) walk(s.data);
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: s.store.root, encoding: 'utf8' });
-  return { head: head.stdout.trim(), ledger: s.store.read(LEDGER_KEY), files };
+  const ledger = ledgerKeys(s.store)
+    .map((k) => s.store.read(k))
+    .join('');
+  return { head: head.stdout.trim(), ledger, files };
 }
 
 test('a release refused at run start or resume pulls nothing and records nothing (HITLD-110)', async () => {

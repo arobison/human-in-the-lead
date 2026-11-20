@@ -24,6 +24,7 @@ import { applyPatch } from './format.mjs';
 import { findEntry, writeStored } from './edit.mjs';
 import { git, idNumber, loadPlaces, refPlaces } from './tree.mjs';
 import { CodedError } from '../../cli/errors.mjs';
+import { DISPATCH_ID } from '../../ledger/ids.mjs';
 
 /**
  * @typedef {import('./config.mjs').Layout} Layout
@@ -216,7 +217,7 @@ export function findOrphans(claims, inflight) {
   for (const c of claims) {
     for (const cl of c.claims) {
       claimants.add(cl.claimant);
-      if (/^D-[1-9]\d*$/.test(cl.claimant) && !open.has(cl.claimant)) {
+      if (DISPATCH_ID.test(cl.claimant) && !open.has(cl.claimant)) {
         problems.push(
           `${c.id} is claimed by ${cl.claimant} on ${cl.branch}, but that dispatch is not in flight (an abandoned branch?)`,
         );
@@ -252,7 +253,7 @@ function commitOnly(root, files, message) {
 
 /** @param {string} id @param {string} claimant */
 const trailers = (id, claimant) =>
-  [`Work-Item: ${id}`, ...(/^D-[1-9]\d*$/.test(claimant) ? [`Dispatch: ${claimant}`] : [])].join(
+  [`Work-Item: ${id}`, ...(DISPATCH_ID.test(claimant) ? [`Dispatch: ${claimant}`] : [])].join(
     '\n',
   );
 
