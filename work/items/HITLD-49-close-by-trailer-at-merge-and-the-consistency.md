@@ -2,7 +2,7 @@
 id: HITLD-49
 title: Close by trailer at merge, and the consistency check on main
 kind: work
-state: in-progress
+state: done
 created: 2026-11-14
 project: HITLD-15
 claimed_by: D-48
