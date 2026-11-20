@@ -71,8 +71,23 @@ jobs:
         run: node scripts/ci-changes.mjs
       - run: npm ci
         if: steps.changes.outputs.code == 'true'
+      # The age program, so the store's encryption interoperability tests run here rather than skip
+      # (HITLD-185). From the runner's own package archive, which apt verifies.
+      - name: Install age
+        if: steps.changes.outputs.code == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends age
+          age --version
       - run: npm test
         if: steps.changes.outputs.code == 'true'
+        env:
+          HITLD_TEST_SKIPS_FILE: ${{ runner.temp }}/skips.jsonl
+      # Lists the skipped tests and why in the job summary, and fails on a skip that
+      # core/test/expected-skips.json does not expect on this platform (HITLD-185).
+      - name: Skipped tests
+        if: ${{ (success() || failure()) && steps.changes.outputs.code == 'true' }}
+        run: node scripts/test-skips.mjs "$RUNNER_TEMP/skips.jsonl"
 
   evals:
     # Fails when no baseline is committed in evals/baselines/ for these settings, or a scenario

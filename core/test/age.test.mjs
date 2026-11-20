@@ -219,6 +219,8 @@ test('a stanza of an unknown type is skipped; a malformed X25519 stanza is refus
 /** @param {string} cmd */
 const has = (cmd) => spawnSync(cmd, ['--version'], { encoding: 'utf8' }).status === 0;
 const AGE = has('age') && has('age-keygen');
+// Expected to skip on no platform CI runs: the tests job installs age, and a skip there fails the
+// job (core/test/expected-skips.json). A machine without age skips these two locally.
 const skip = AGE ? false : 'the age program (age, age-keygen) is not installed; interop not tested';
 
 /** @param {string[]} args @param {Buffer} [input] */
