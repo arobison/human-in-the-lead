@@ -11,7 +11,7 @@ import { effectiveEvents } from '../ledger/summary.mjs';
 import { readLedger } from '../ledger/ledger.mjs';
 import { waited } from '../merge/owner.mjs';
 import { revertCommand } from '../merge/pull-request.mjs';
-import { MODE_LABEL } from '../quota/report.mjs';
+import { MODE_LABEL, refreshLine } from '../quota/report.mjs';
 import { listApplications, listLoggedCalls, precedentHealth } from '../rights/flow.mjs';
 import { describeOption, optionIndex, optionLetter } from '../rights/format.mjs';
 import { askedRecord, listDefaults } from '../rights/pending.mjs';
@@ -34,7 +34,7 @@ import { clip, wrap } from './render.mjs';
  * @property {Record<string, any> | null} report the quota report, when the caller has one
  * @property {import('../machine/disk.mjs').DiskState | null} [disk] free disk against the floor
  * @property {string | null} root the owner's checkout, where the quarantine file is
- * @property {{ through: string | null, quota: { mode: string, thresholds: string[] } | null,
+ * @property {{ through: string | null, quota: { mode: string, thresholds: string[], refresh?: string[] } | null,
  *   disk?: string | null }} last what the last marked digest recorded
  *
  * @typedef {object} Part
@@ -456,11 +456,17 @@ const quota = {
       entries.push([clip(`Threshold: ${t}.`)]);
     if (g.ask_owner)
       entries.push(wrap('The owner is asked before this hard limit is passed.', '', '  ', 2));
+    // The ask for a fresh usage figure the owner declared (HITLD-164).
+    const refresh = /** @type {{ limit: string, why: string }[]} */ (g.refresh ?? []);
+    for (const f of refresh) entries.push(wrap(refreshLine(f), '', '  ', 3));
     // News when it differs from what the last digest showed; a quota that stays as it was is state.
     const thresholds = /** @type {string[]} */ (report.thresholds);
+    const asked = refresh.map((f) => f.limit);
     const changed = last.quota
-      ? last.quota.mode !== g.mode || last.quota.thresholds.join('|') !== thresholds.join('|')
-      : g.mode !== 'normal' || thresholds.length > 0;
+      ? last.quota.mode !== g.mode ||
+        last.quota.thresholds.join('|') !== thresholds.join('|') ||
+        (last.quota.refresh ?? []).join('|') !== asked.join('|')
+      : g.mode !== 'normal' || thresholds.length > 0 || asked.length > 0;
     return {
       section: {
         id: 'quota',
@@ -475,6 +481,7 @@ const quota = {
           reason: g.reason,
           forecast: g.forecast,
           thresholds: report.thresholds,
+          refresh: asked,
         },
       },
     };
