@@ -40,7 +40,8 @@ import {
   readApprovals,
   requestsOnBranch,
 } from './devices.mjs';
-import { syncCauses } from './reach.mjs';
+import { UNREACHABLE_CODES, syncCauses } from './reach.mjs';
+import { recordPull } from './last-pull.mjs';
 import { NO_ADDRESS, chooseRemote, clearRemote, readRemoteConfig, setRemote } from './address.mjs';
 
 export { chooseRemote, clearRemote, readRemoteConfig, setRemote };
@@ -219,10 +220,39 @@ async function mergeVersion(o, version) {
 
 /**
  * Bring the remote's head into the store. An empty remote, or a head this store already merged,
- * changes nothing. A conflict stops the pull with nothing merged.
+ * changes nothing. A conflict stops the pull with nothing merged. Each outcome is recorded on this
+ * machine (last-pull.mjs), so the settings that travel in the store are read only after a pull
+ * that reached the remote.
  * @param {PushPullOptions} o
  */
 export async function pullStore(o) {
+  try {
+    const result = await pullOnce(o);
+    const r = /** @type {Record<string, unknown>} */ (result);
+    recordPull(
+      o.root,
+      result.ok
+        ? { status: 'done' }
+        : { status: 'failed', code: String(r.error), message: String(r.message) },
+    );
+    return result;
+  } catch (e) {
+    const code =
+      typeof (/** @type {any} */ (e)?.code) === 'string'
+        ? String(/** @type {any} */ (e).code)
+        : 'failed';
+    const message = e instanceof Error ? e.message : String(e);
+    recordPull(o.root, {
+      status: UNREACHABLE_CODES.has(code) ? 'unreachable' : 'failed',
+      code,
+      message,
+    });
+    throw e;
+  }
+}
+
+/** One pull, unrecorded: what pullStore does. @param {PushPullOptions} o */
+async function pullOnce(o) {
   const version = await o.remote.head();
   if (version === null) {
     return { ok: true, result: 'empty', project: o.projectId, remote_version: null };

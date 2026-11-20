@@ -24,6 +24,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { loadPolicy, policyDefaults } from '../policy/policy.mjs';
 import { effectiveAttention } from './attention.mjs';
 import { loadSettingsFile } from './files.mjs';
+import { personLayer, projectStore, readStoreSettings } from './store-copy.mjs';
 
 /**
  * @typedef {import('../schema/validate.mjs').ValidationError} ValidationError
@@ -489,22 +490,45 @@ export function effectiveSettings(l) {
 }
 
 /**
- * Whether the first-run setup is done (design part 13.4): both the person file and the machine file
- * exist. Until then, conservative defaults apply and autonomous dispatch waits.
- * @param {{ person: { present: boolean }, machine: { present: boolean } }} files
+ * Whether the first-run setup is done (design part 13.4): both the person settings and the machine
+ * file exist. Until then, conservative defaults apply and autonomous dispatch waits.
+ *
+ * The person settings may come from the project's store (HITLD-148): then they are not missing,
+ * and `from_store` says so. When the store was expected and could not be read, nothing is asked
+ * that the store would answer: the person settings are not missing, the session runs on the
+ * conservative defaults (one executor, the default reserve, no declared limits), and
+ * `conservative` says what could not be read and why (HITLD-163).
+ * @param {{ person: { present: boolean, store?: { state: string, reason?: string, machine?: boolean } | null, source?: string }, machine: { present: boolean } }} files
  *   the `files` that loadEffectivePolicy reports
- * @returns {{ done: boolean, missing: string[], reason: string | null }}
+ * @returns {{ done: boolean, missing: string[], reason: string | null, from_store: string[], conservative: string | null }}
  */
 export function setupState(files) {
-  const missing = ['person', 'machine'].filter(
-    (k) => !(/** @type {Record<string, { present: boolean }>} */ (files)[k]?.present),
-  );
+  const person = files.person ?? { present: false };
+  const store = person.store ?? null;
+  const fromStore = [
+    ...(person.source === 'store' || person.source === 'store-and-file' ? ['person'] : []),
+    ...(store?.state === 'read' && store.machine ? ['machine answers'] : []),
+  ];
+  const conservative =
+    store?.state === 'unreadable' && person.source === 'none'
+      ? `the person settings were not read from the project's store (${store.reason ?? 'no reason given'}); conservative defaults apply: one executor, the default reserve, no declared limits`
+      : null;
+  const has = {
+    person:
+      person.present ||
+      (person.source !== undefined && person.source !== 'none') ||
+      conservative !== null,
+    machine: files.machine?.present === true,
+  };
+  const missing = /** @type {const} */ (['person', 'machine']).filter((k) => !has[k]);
   return {
     done: missing.length === 0,
     missing,
     reason: missing.length
       ? `setup not done: run the first-run setup (missing the ${missing.join(' and ')} file)`
       : null,
+    from_store: fromStore,
+    conservative,
   };
 }
 
@@ -512,17 +536,34 @@ export function setupState(files) {
  * Load policy.json and the person and machine files, and layer them.
  * @param {{ cwd?: string, path?: string, env?: NodeJS.ProcessEnv, home?: string, run?: Record<string, any> | null,
  *   running?: { person?: number, machine?: number }, uid?: number,
- *   policyResult?: import('../policy/policy.mjs').PolicyResult }} [options]
- *   policyResult: an already loaded policy, so it is not read twice
+ *   policyResult?: import('../policy/policy.mjs').PolicyResult, store?: string | null }} [options]
+ *   policyResult: an already loaded policy, so it is not read twice; store: the project's private
+ *   store, where the settings that travel are read (default: the project's own, from its ID)
  */
 export function loadEffectivePolicy(options = {}) {
   const loaded = options.policyResult ?? loadPolicy({ cwd: options.cwd, path: options.path });
   const fileOptions = { env: options.env, home: options.home, uid: options.uid };
   const person = loadSettingsFile('person', fileOptions);
   const machine = loadSettingsFile('machine', fileOptions);
+  // The settings that travel in the project's own store (HITLD-148), for a project read from a file.
+  const env = options.env ?? process.env;
+  const projectId = loaded.path !== null ? loaded.policy?.project?.id : null;
+  const storeRoot =
+    options.store !== undefined
+      ? options.store
+      : projectStore(projectId, { env, ...(options.home ? { home: options.home } : {}) });
+  const fromStore = projectId
+    ? readStoreSettings(storeRoot, { projectId, env })
+    : readStoreSettings(null, { projectId: '', env });
+  const layer = personLayer(person.errors.length ? null : person.data, fromStore, env);
   const files = {
     policy: { path: loaded.path, present: loaded.path !== null },
-    person: { path: person.path, present: person.present },
+    person: {
+      path: person.path,
+      present: person.present,
+      source: layer.source,
+      store: storeSummary(fromStore, layer),
+    },
     machine: { path: machine.path, present: machine.present },
   };
   if (!loaded.policy) {
@@ -531,7 +572,7 @@ export function loadEffectivePolicy(options = {}) {
   const layers = {
     project: loaded.policy,
     raw: loaded.raw ?? {},
-    person: person.data,
+    person: layer.person,
     machine: machine.data,
     run: options.run ?? null,
     running: options.running,
@@ -548,11 +589,64 @@ export function loadEffectivePolicy(options = {}) {
     warnings: [
       ...movedKeyWarnings(layers, { person: person.path, machine: machine.path }),
       ...renamedWarnings(loaded.renamed, person.renamed, machine.renamed),
+      ...storeWarnings(person.path, layer, fromStore),
     ],
     settings: { cap: eff.cap, attention: eff.attention, values: eff.values },
-    layers: { person: person.data, machine: machine.data },
+    layers: { person: layer.person, machine: machine.data },
+    store_settings: fromStore,
     files,
   };
+}
+
+/**
+ * What files.person says about the store's copy: its state, and why it was not read.
+ * @param {import('./store-copy.mjs').StoreSettings} s
+ * @param {ReturnType<typeof personLayer>} layer
+ */
+const storeSummary = (s, layer) =>
+  s.state === 'none' && !s.pulled_at
+    ? null
+    : {
+        state: s.state,
+        ...(s.pulled_at ? { pulled_at: s.pulled_at } : {}),
+        ...(s.reason ? { reason: s.reason } : {}),
+        ...(s.machine ? { machine: true } : {}),
+        ...(layer.differs.length ? { replaced: layer.differs } : {}),
+        ...(layer.ignored ? { local_file_ignored: true } : {}),
+      };
+
+/**
+ * The warnings about the store's copy: a local value it replaced, a local file set aside, or a
+ * copy that could not be read while the local file stands.
+ * @param {string} path the person file
+ * @param {ReturnType<typeof personLayer>} layer
+ * @param {import('./store-copy.mjs').StoreSettings} s
+ * @returns {MovedWarning[]}
+ */
+function storeWarnings(path, layer, s) {
+  /** @type {MovedWarning[]} */
+  const out = [];
+  if (layer.differs.length) {
+    out.push({
+      path,
+      home: 'person',
+      message: `${layer.differs.join(', ')} in ${path} differ from the project's store, whose values apply: the store is where these settings live (change them with hitld config write person, then hitld store push)`,
+    });
+  }
+  if (layer.ignored) {
+    out.push({
+      path,
+      home: 'person',
+      message: `${path} is not used for the settings that travel in the store: in a cloud session a copy left in the container may be stale, and ${s.reason}`,
+    });
+  } else if (s.state === 'unreadable' && layer.source === 'file') {
+    out.push({
+      path,
+      home: 'person',
+      message: `the project's store was not read (${s.reason}); ${path} applies`,
+    });
+  }
+  return out;
 }
 
 /**

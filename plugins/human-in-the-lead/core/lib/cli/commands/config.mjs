@@ -3,7 +3,7 @@
 
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { findRepoRoot, loadPolicy, policyDefaults } from '../../policy/policy.mjs';
+import { findRepoRoot, loadPolicy, mergePolicy, policyDefaults } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import {
@@ -16,6 +16,12 @@ import {
 } from '../../settings/files.mjs';
 import { explainText, loadEffectivePolicy, setupState } from '../../settings/layers.mjs';
 import { proposeMigration } from '../../settings/migrate.mjs';
+import {
+  personLayer,
+  projectStore,
+  readStoreSettings,
+  writeStoreSettings,
+} from '../../settings/store-copy.mjs';
 import { pinnedProjects } from '../../settings/pins.mjs';
 import { pinWarnings } from '../../settings/versions.mjs';
 import { readLedger } from '../../ledger/ledger.mjs';
@@ -86,6 +92,20 @@ function replanAfterWrite(ctx) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The project here and its private store, or null outside a project.
+ * @param {import('../table.mjs').CommandContext} ctx
+ * @returns {{ projectId: string, store: string } | null}
+ */
+function projectHere(ctx) {
+  const loaded = loadPolicy({ cwd: ctx.cwd });
+  if (!loaded.policy || !loaded.path) return null;
+  const projectId = loaded.policy.project.id;
+  const repoRoot = findRepoRoot(ctx.cwd) ?? undefined;
+  const store = projectStore(projectId, { env: ctx.env, repoRoot });
+  return store ? { projectId, store } : null;
 }
 
 /**
@@ -197,7 +217,13 @@ export const commands = [
       }
       return {
         ok,
-        text: explainText(r.settings.values) + (setup.reason ? `\n\n${setup.reason}` : ''),
+        text:
+          explainText(r.settings.values) +
+          (setup.from_store.length
+            ? `\n\nfrom the project's store: ${setup.from_store.join(' and ')}`
+            : '') +
+          (setup.conservative ? `\n\n${setup.conservative}` : '') +
+          (setup.reason ? `\n\n${setup.reason}` : ''),
         files,
         setup,
         warnings: warnings.map((w) => w.message),
@@ -208,7 +234,7 @@ export const commands = [
   {
     name: 'config write',
     summary:
-      'Validate and write the person or machine settings file; refused for executors (HITLD_ROLE=executor or HITLD_DISPATCH set)',
+      "Validate and write the person or machine settings file, and in a project put what travels (the person settings; the owner's answers about this kind of machine) in the project's private store for the next store push; refused for executors (HITLD_ROLE=executor or HITLD_DISPATCH set)",
     built_by: 'settings-hold',
     args: [
       {
@@ -255,13 +281,40 @@ export const commands = [
           errors,
         };
       }
-      const written = writeSettingsFile(kind, data, {
-        env: ctx.env,
-        cwd: ctx.cwd,
-        merge: input.merge === true,
-      });
+      // The project's store holds the settings that travel (HITLD-148): a merge starts from the
+      // person settings this session uses, which may have come from there.
+      const here = projectHere(ctx);
+      let next = data;
+      let merge = input.merge === true;
+      if (merge && kind === 'person' && here) {
+        const local = loadSettingsFile('person', { env: ctx.env });
+        const layer = personLayer(
+          local.data,
+          readStoreSettings(here.store, { projectId: here.projectId, env: ctx.env }),
+          ctx.env,
+        );
+        if (layer.source === 'store' || layer.source === 'store-and-file') {
+          next = mergePolicy(layer.person ?? {}, /** @type {Record<string, any>} */ (data));
+          merge = false;
+        }
+      }
+      const written = writeSettingsFile(kind, next, { env: ctx.env, cwd: ctx.cwd, merge });
+      // Written in the owner's own turn (writeSettingsFile refuses executors); the next
+      // hitld store push carries it to the remote.
+      const store = here
+        ? {
+            ...writeStoreSettings(kind, written.data, here.store),
+            next: 'hitld store push carries it to the store remote, so a new session reads it',
+          }
+        : null;
       const replan = replanAfterWrite(ctx);
-      return { ok: true, written: true, ...written, ...(replan ? { replan } : {}) };
+      return {
+        ok: true,
+        written: true,
+        ...written,
+        ...(store ? { store } : {}),
+        ...(replan ? { replan } : {}),
+      };
     },
   },
   {
