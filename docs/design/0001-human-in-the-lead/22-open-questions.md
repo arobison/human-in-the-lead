@@ -92,7 +92,7 @@ Live scenarios cost tokens on every run, and each runs `k` times ([part 17](17-e
 
 ### Q10. May the system start a fresh orchestrator session on its own when the current one's context is filling?
 
-*Decided: yes, as a standing permission, as recommended.* The system sends the owner a message and links the hand-over note.
+*Decided: yes, as a standing permission, as recommended.* The system sends the owner a message and links the hand-over note. Since HITLD-484 there is no hand-over note: an orchestrator is replaced on measured context pressure only (HITLD-488) and its successor rebuilds from the ledger and the tracker; the standing permission and the message stand.
 
 The orchestrator is restartable from files ([part 5](05-execution.md#54-the-ledger)).
 
@@ -169,6 +169,8 @@ Prioritization divides cost of delay by size, so value needs a unit ([part 1](..
 ### Q29. How is headroom shared when several projects compete near the reserve? (affects the budget controller across projects)
 
 *Decided: equal shares by default, as recommended.*
+
+*Revised: HITLD-549 replaced HITLD-531 and its shares. Projects are now blind to each other: each follows the even pace line on the account's total ([12.5](12-reporting-and-limits.md#pace)), and no share is set between projects. The recommendation below records the original call and no longer holds.*
 
 - **Recommend: equal shares by default, which the person changes in the person file; inside its share each project applies its own ladder.** No project's routine work can starve another's critical path.
 - **Alternative: critical-path work from any project first, then routine work by share.** Better for the most urgent work overall, but it compares priorities across projects that were set separately.
@@ -274,7 +276,7 @@ Agents draft every reply; sensitive replies always go through a human ([part 9](
 
 ### Q21. How is a decider's identity established? (blocks any second human, and any channel other than the local session)
 
-*Decided: answers come only from the owner's own turns in the main session* (typed, or sent through Remote Control). Executors cannot record, overrule, reverse, rate or trust a decision: the plugin's Bash guard denies it for the attested executor agent types, and the command line refuses it when `HITLD_ROLE=executor` or `HITLD_DISPATCH` is set. The orchestrator skill records an answer only from the owner's message, never from a tool result, report, file, page or notification. Signed answers follow when a second human joins; answers by GitHub identity are an option for remote channels.
+*Decided: answers come only from the owner's own turns in the main session* (typed, or sent through Remote Control). *Revised by HITLD-515:* an answer counts by a checkable proof, not by its channel; the owner's harness-attested turn is today's proof, and which key signs answers later is open until the store's device-approval migration is designed (HITLD-516, HITLD-333). Contributor input counts through a tracker platform's authenticated identity, as input only (HITLD-517). Executors cannot record, overrule, reverse, rate or trust a decision: the plugin's Bash guard denies it for the attested executor agent types, and the command line refuses it when `HITLD_ROLE=executor` or `HITLD_DISPATCH` is set. The orchestrator skill records an answer only from the owner's message, never from a tool result, report, file, page or notification. Signed answers follow when a second human joins; answers by GitHub identity are an option for remote channels.
 
 `hitld rights answer --by` is supplied by the caller, and nothing authenticates it ([part 4.5](04-decision-rights.md#45-several-humans-in-the-lead)). In the built slice the caller is trusted as the local user, who is the owner, so the claim "an area owner answered this" is not checked.
 
@@ -338,13 +340,13 @@ These are calls the design makes without asking. Each can be reversed cheaply no
 - The checks of "One signal end to end" run on synthetic fixture repositories; an existing project's tracker is touched read-only there ([part 21](21-scope.md#done-when)).
 - The Copilot adapter comes right after "One signal end to end" and before Codex; that milestone's eval suite already checks the core against the Copilot cloud agent's constraints ([part 17](17-evals.md#177-portability)).
 - Session transcript files are never parsed for usage, because their format is not a documented interface; usage comes from documented sources ([part 12](12-reporting-and-limits.md#what-can-be-measured-by-harness)).
-- The status-line usage capture is opt-in: the first-run setup offers it, and it installs a status line command (wrapping the person's existing one, if any) only on a yes ([part 12](12-reporting-and-limits.md#what-can-be-measured-by-harness)).
-- The run-state file is derived; the ledger is the truth, written before each checkpoint ([part 13](13-operations.md#131-orchestrator-continuity)).
+- The status-line usage capture is opt-in: the first-run setup offers it, and it installs a status line command (wrapping the person's existing one, if any) only on a yes ([part 12](12-reporting-and-limits.md#what-can-be-measured-by-harness)). It is retired once the quota probe is built (HITLD-165).
+- There is no run object: the ledger, the tracker and GitHub carry continuity between orchestrator sessions (HITLD-484; [part 13](13-operations.md#131-orchestrator-continuity)). The run-state file of the built code is derived, and the ledger stays the truth until HITLD-492 removes it.
 - UX design and review is its own loop and part, beside verification ([part 7](07-ux.md)).
 - The audit trail is its own hash-chained file, separate from the ledger ([part 3](03-data-model.md#audit-record)).
 - Loops are nested by speed, with stability rules strictest on the slow loops ([part 2](02-loops.md#loops-nested-by-speed)).
 - Judgments are calibrated priors: the owner's gut checks start with a high weight, set in the owner's person layer; weights tune themselves by shrinkage under two fixed rules; evidence that contradicts a judgment is put to its person, never silently applied ([part 3](03-data-model.md#judgment), [part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)).
-- Trust-calibration data is collected from the start; autonomy changes are always owner decisions ([part 2](02-loops.md#215-trust-calibration)).
+- Trust-calibration data is collected from the start; autonomy changes are always owner decisions, through one trust engine that earns trust per kind of decision from evidence, never from a count of approvals ([part 2](02-loops.md#215-trust-calibration)).
 - This repository keeps its public signals in `signals/`; the first 18 are the owner's untriaged ideas ([part 3](03-data-model.md#layout)).
 - Markdown stays the knowledge base's source of truth; any search index is a rebuildable cache ([part 8](08-knowledge-base.md#82-markdown-in-git-is-the-source-of-truth)).
 - Speculation cost is reported separately from waste ([part 5](05-execution.md#speculative-execution-later)).

@@ -4,7 +4,7 @@
 
 ## 8.1 Why it exists
 
-Every fresh agent pays to learn the codebase. With many agents per run, that **onboarding cost** recurs on every dispatch. The knowledge base exists to cut it: an executor that can read one short, current note instead of exploring twenty files starts editing sooner and makes fewer wrong assumptions.
+Every fresh agent pays to learn the codebase. With many agents working at once, that **onboarding cost** recurs on every dispatch. The knowledge base exists to cut it: an executor that can read one short, current note instead of exploring twenty files starts editing sooner and makes fewer wrong assumptions.
 
 So the knowledge base is measured like a cost lever ([8.6](#86-measures)): **onboarding tokens before the first edit** is its primary measure, and **knowledge that existed but was not found** is its main failure signal.
 
@@ -100,7 +100,7 @@ Part of the `hitld` command line ([part 15](15-architecture.md)). `search`, `ind
 
 **Freshness is computed, not guessed.** A note is stale when any file matching its `sources` has changed since `checked_at` (`git diff --quiet <checked_at> HEAD -- <sources>`). The `checked` date is for people. A note with no `sources` falls back to an age limit (`kb.max_age_unsourced`).
 
-**Curation.** After each merge batch, a tier-1 curator agent re-verifies the most-cited stale notes against their sources, updates them, and resets `checked` and `checked_at`. Its edits go through items and the merge like any other change; it makes no automatic edits outside that path. A note whose meaning changed is flagged to its owner. Notes uncited for `kb.prune_after_dispatches` dispatches are proposed for removal. The same curator reads the work items after merge batches ([13.3](13-operations.md#the-stale-item-sweep-and-the-curators-pass)).
+**Curation.** After each merge batch, a curator dispatch (its model and effort from the cascade, [5.1](05-execution.md#51-execution-profiles)) re-verifies the most-cited stale notes against their sources, updates them, and resets `checked` and `checked_at`. Its edits go through items and the merge like any other change; it makes no automatic edits outside that path. A note whose meaning changed is flagged to its owner. Notes uncited for `kb.prune_after_dispatches` dispatches are proposed for removal. The same curator reads the work items after merge batches ([13.3](13-operations.md#the-stale-item-sweep-and-the-curators-pass)). This upkeep is the first of the curator's three jobs; applying changes the owner has decided (design and docs updates among them) and plan audits are the other two, decided and not yet built (HITLD-587, HITLD-583, [13.3](13-operations.md#the-stale-item-sweep-and-the-curators-pass)).
 
 **Contradiction pass.** Periodically (`kb.contradiction_every` merge batches), an agent reads notes that share an area or tag and flags pairs that contradict each other, or contradict their sources. Each flag becomes an item for the note owner: merge, supersede, or correct.
 

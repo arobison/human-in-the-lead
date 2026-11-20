@@ -54,10 +54,10 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld work check` | Schema, references, cycles, classification, orphaned claims; view freshness on `main` |
 | `hitld work sweep` | The stale-item sweep: orphaned claims, old `proposed` items, blocked items whose blockers are resolved, items merged but still open, release items whose needs overlap, items that changed public surface without a `release_note`; reads only ([13.3](13-operations.md#the-stale-item-sweep-and-the-curators-pass)) |
 | `hitld work views` | Regenerate views (ready, blocked, claims, decisions, projects, critical path, milestones, unreleased, lists, dependency diagrams) |
-| `hitld ready` | The ready queue in priority order, with tiers and estimates |
+| `hitld ready` | The ready queue in priority order, with tiers (execution profiles once HITLD-561 lands) and estimates |
 | `hitld dispatch plan / start` | Choose items for free slots and serial resources; start them through the harness adapter |
 | `hitld merge` | Run the merge queue: rebase, fast checks, batch suite, bisection; with `merge.via: pull-request`, one pass over GitHub pull requests instead: open or update, wait for the named checks, bring up to date by merging `main`, squash-merge through `gh api` ([14.2](14-integration.md#142-the-queue)). Its tests run against a fake GitHub API |
-| `hitld run status / retire` and `hitld handover` | Read who holds the run lease and where wakes go; release the lease of a session that ended; write the hand-over and give up the lease ([part 13](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)) |
+| `hitld run status / retire` and `hitld handover` | Read who holds the run lease and where wakes go; release the lease of a session that ended; write the hand-over and give up the lease ([part 13](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)). Decided to go with the run object (HITLD-484); HITLD-492 replaces the run commands with one command that rebuilds an orchestrator's view from the ledger and the tracker |
 | `hitld ledger append / tail / in-flight / summary` | Ledger operations; `in-flight` for restart; `summary` for the run report |
 | `hitld rights who --file <question.json>` | Which decider, by which rule |
 | `hitld precedent match <question.json>` | Candidate precedents |
@@ -125,6 +125,8 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 
 **The run lease and locks**
 
+The run-lease codes, `no-run` and `handover-due` go with the run object when HITLD-492 removes it (HITLD-484).
+
 - `lease-held`: Another session holds the run lease.
 - `lease-lost`: This session no longer holds the run lease: another session holds it.
 - `lease-host-mismatch`: This session holds the run lease, but on another host than the call gives; the lease is not lost.
@@ -143,7 +145,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 
 **Dispatch, handover and the merge queue**
 
-- `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready).
+- `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready). As built; tiers are being replaced by execution profiles (HITLD-581).
 - `disk-floor`: Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.
 - `not-in-flight`: The dispatch is not in flight.
 - `tokens-over-estimate`: The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.
@@ -456,7 +458,7 @@ A project runs the release its pin names, and only a commit the owner merges mov
 
 A migration is listed when a release on the way names it or makes a breaking change (`data migrate` for a breaking schema change). The plan changes nothing.
 
-**The chief of staff upgrades only at a hand-over** ([13.1](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)). No orchestrator changes release mid-run: it drains, hands over, and its successor starts on the new release.
+**The chief of staff upgrades only when an orchestrator is replaced** ([13.1](13-operations.md#the-chief-of-staff-and-disposable-orchestrators)). No orchestrator changes release mid-work: it drains and ends, and its successor starts on the new release. As built, the plan's steps 2 and 3 say "hand over", the drift check reads the release from the ledger's `run-started` and `lease-taken` events, and it runs at `hitld run start` and `run resume`; HITLD-492 changes these with the run object.
 
 **Executors on the old release.** A dispatch records the release it started on. An executor still running when its orchestrator is replaced finishes on that release, and `hitld dispatch complete` accepts its report when the two releases share a minor (`executor_version` in the output). A report from another minor is read with the new release's rules and warned about, so an upgrade across minors waits until `hitld ledger in-flight` lists nothing.
 

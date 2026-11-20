@@ -53,7 +53,7 @@ The skills include templates for each kind, and the knowledge base records, per 
 
 ### Review
 
-One **diverse review pass**, only where it pays: the review-allocation controller sets a review probability per area and tier from the yield of past reviews (confirmed findings per review token), with a floor for exploration. A reviewer's findings go to the orchestrator, which sends confirmed ones back to the executor as a follow-up. Reviews never block alone; a disputed finding goes to the area owner (the owner, until area owners can answer; [Q21](22-open-questions.md)).
+One **diverse review pass**, only where it pays: the review-allocation controller sets a review probability per area and execution profile from the yield of past reviews (confirmed findings per review token), with a floor for exploration. A reviewer's findings go to the orchestrator, which sends confirmed ones back to the executor as a follow-up. Reviews never block alone; a disputed finding goes to the area owner (the owner, until area owners can answer; [Q21](22-open-questions.md)).
 
 ## 6.4 Provenance
 
@@ -78,7 +78,7 @@ The built trailers are the first five. `Brief`, `Plugin-Version` and `Evidence` 
 
 ## 6.5 Reliability over time
 
-- **Escaped defects** are defects found after merge: by users, by later tests, by adversaries probing old code, or by incidents. Each is linked to the commit that introduced it (by bisection or blame) and therefore, through provenance, to its item, tier, model and skill versions.
+- **Escaped defects** are defects found after merge: by users, by later tests, by adversaries probing old code, or by incidents. Each is linked to the commit that introduced it (by bisection or blame) and therefore, through provenance, to its item, execution profile, model and skill versions.
 - **Change failure rate** is the share of merged items that later needed a revert or a fix that cites them.
 - **Reliability growth per area.** For each area, the system tracks cumulative escaped defects against cumulative changes. When the defect discovery rate falls as changes accumulate (in the Crow-AMSAA model, a growth parameter below 1; see MIL-HDBK-189C, *Reliability Growth Management*), the area's reliability is growing. An area's reliability sets its human-read sampling rate, its adversarial floor and its auto-fix eligibility.
 - **Re-earning trust.** A major change resets the affected areas' sampling rates to the defaults until enough new samples accumulate (`verification.recalibration_samples`). A change is major when it is a new model, or a skill change that the eval gate ([part 17](17-evals.md)) flags as changing behavior.

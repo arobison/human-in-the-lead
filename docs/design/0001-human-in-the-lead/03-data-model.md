@@ -69,7 +69,7 @@ A body of work toward an outcome, with its items, its milestones and its appetit
 | `options` | stored | Each with its trade-offs; always includes "do nothing" with its cost of delay |
 | `value`, `confidence` | stored | Value in the project's value units; confidence as a probability |
 | `cost_of_delay` | stored | Profile (`standard`, `urgent`, `fixed-date`, `intangible`) and rate; date for `fixed-date` |
-| `appetite_tokens` | stored | What the project is worth, in tokens. Its milestones hold shares of it |
+| `appetite_tokens` | stored | How big the project is estimated to be, in tokens, from its item estimates (appetite, HITLD-577). Its milestones hold shares of it. What a commitment may spend is a budget, in a signed commitment decision, not this field |
 | `out_of_scope` | stored | What is explicitly out |
 | `risks` | stored | Known holes the work could fall into |
 | `plan` | stored | The plan, or a pointer to a section of a design document |
@@ -121,7 +121,7 @@ The work tree. Projects group items toward an outcome; items are the unit of dis
 | `touches` | Path globs the item is expected to change. Used to predict merge conflicts and serial-file contention |
 | `serial` | Serial resources the item needs (`gpu`, a named fixture) |
 | `estimate_tokens` | Set at sizing |
-| `tier_override` | Optional override from the owner or the shaper |
+| `tier_override` | Optional override from the owner or the shaper. It becomes a profile override (a mode, a starting rung of the cascade or a budget) when tiers give way to execution profiles ([5.1](05-execution.md#51-execution-profiles), HITLD-581, not built) |
 | `release_note` | One line for release notes, if the item changes public surface |
 | `credit` | Contributor IDs to credit |
 | `release` | On a release item only: the version it makes, such as `0.1.0-rc.1` ([Release](#release)) |
@@ -182,7 +182,7 @@ An item of kind `decision`. It sits in the same tracker, uses the same lifecycle
 | `blocks` | Derived: items that `need` it |
 | `cost_of_delay_rate` | Derived from what it blocks |
 | `default_if_unanswered` | Only for two-way doors: the option taken, and logged, if the owner sets a deadline and it passes |
-| `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by` | Filled on answering. Answers come only from the owner's own turns in the main session, so `answered_via` records that channel and `answered_by` is `owner` ([Q21](22-open-questions.md)). A decision a precedent resolved has `answered_via: precedent` and no `answered_by` |
+| `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by` | Filled on answering. An answer counts by a checkable proof, not by its channel (HITLD-515): the answer record gains a proof field, today the harness-attested turn of the owner in their own session, later the person's signature ([4.5](04-decision-rights.md#45-several-humans-in-the-lead); not built, HITLD-564). Until then answers come only from the owner's own turns in the main session, so `answered_via` records that channel and `answered_by` is `owner` ([Q21](22-open-questions.md)). A decision a precedent resolved has `answered_via: precedent` and no `answered_by` |
 | `precedent_offer` | The generalization offered with the question, for the decider to confirm or decline ([Q3](22-open-questions.md)) |
 | `precedent` | The precedent created from it, if any |
 | `resolved_by_precedent` | If it was resolved automatically, which precedent |
@@ -207,17 +207,17 @@ A checkable future state with its own "done when" (principle 2 in [3.0](#30-prin
 | `done_when` | stored | Clauses, each with a short ID (`c1`, `c2`). Outcome predicates for users where possible ("a new user installs the plugin and dispatches a first item without help"), not lists of outputs. A learning milestone's clause names the study whose verdict settles it |
 | `constraints` | stored | **Constraints** (stored as `needs` before HITLD-82): items, or other milestones, without which a clause cannot be true, each linked to that clause. Logical necessity derived from the outcome, not a priority label |
 | `contributions` | stored | **Contributions**: items that add to the outcome, each with a `value` and a `confidence`. The value is a positive number in the project's value units ([2.3](02-loops.md#23-shaping), [Q18](22-open-questions.md#q18-what-unit-is-value-measured-in-blocks-shaping-and-prioritization)), the same unit as a project's value, so the milestone's scope can rank contributions by value per token. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering it, not the only values. A learning item's value is the value of information |
-| `appetite_tokens` | stored | The milestone's share of its project's appetite. The shares of a project's milestones must fit the project's appetite, and `hitld work check` verifies it; an item counted in several milestones counts once |
+| `appetite_tokens` | stored | The milestone's share of its project's appetite: how big it is estimated to be, from its item estimates (HITLD-412, HITLD-577). The shares of a project's milestones must fit the project's appetite, and `hitld work check` verifies it; an item counted in several milestones counts once |
 | `deadline` | stored, optional | An external date (an event, a dependency's end of support) with its source, held as a fixed-date cost-of-delay profile. Never an internal estimate ([1.5](../0001-human-in-the-lead.md#15-durations)) |
 | `check` | stored | The independent check that the outcome holds: `demo` (a script run by someone other than the items' authors), `integration-test` (a test path) or `study` (a study ID). Each result is recorded with its evidence |
 | `unmet_clauses` | derived | The unmet clauses (named `error` before HITLD-82): those with a constraint not `done`, and those the check has not passed. What the system works down |
 | `check_due` | derived | Every constraint is `done` and the check has not yet passed |
-| `scope` | derived | The contributions that fit the appetite, by value per token (below) |
+| `scope` | derived | The contributions kept in scope, by value per token (below). Appetite is now an estimated size (HITLD-577), so how scope relates to a budget is not decided |
 | `tokens_spent` | derived | From the ledger, over its constraints and contributions |
 | `cost_of_delay_rate` | derived | From the value of its outcome and its deadline profile; passed to every constraint |
 | `to_shape` | derived | What shaping still owes it: an outcome, clauses, a check, constraints not yet linked to a clause |
 
-**Constraints and contributions.** The split follows Kano ([20.4](20-prior-art.md#204-management)): must-be qualities are constraints; performance and delight qualities are contributions. There are no priority labels. A MoSCoW-style list becomes constraints (necessity) and contributions (scored value). Scoping is a knapsack, not a negotiation: the constraints' estimates come first, and the rest of the appetite fills with contributions in order of value × confidence per estimate token. If the constraints alone exceed the appetite, the milestone is too big: shaping splits it, or the owner raises the appetite.
+**Constraints and contributions.** The split follows Kano ([20.4](20-prior-art.md#204-management)): must-be qualities are constraints; performance and delight qualities are contributions. There are no priority labels. A MoSCoW-style list becomes constraints (necessity) and contributions (scored value). Scoping is a knapsack, not a negotiation: the constraints' estimates come first, and the rest of the appetite fills with contributions in order of value × confidence per estimate token. If the constraints alone exceed the appetite, the milestone is too big: shaping splits it, or the owner raises the appetite. *Not decided:* appetite now means estimated size, not a limit on spending (HITLD-577), so how scoping and shaping relate to a budget is open. HITLD-577 defines the terms only, and no rule is recorded here; the wording above is from before that change.
 
 **Who changes what** (principle 9):
 
@@ -303,7 +303,7 @@ A part of the project with an owner: `name`, `paths` (globs), `topics`, `owners`
 
 ### Ledger entry
 
-Defined in [part 5](05-execution.md#54-the-ledger). Not a tracker entity: it lives in the private store, append-only.
+Defined in [part 5](05-execution.md#54-the-ledger). Not a tracker entity: it lives in the project's private store, append-only, one file per writer (decided, not built).
 
 ### Audit record
 
