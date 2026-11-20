@@ -2,7 +2,7 @@
 id: HITLD-493
 title: Audit every numeric default and rule against what it stands in for, and decide keep, replace or drop for each
 kind: work
-state: proposed
+state: done
 created: 2026-11-18
 project: HITLD-15
 ---
@@ -42,3 +42,7 @@ Design-heavy: stays proposed and is walked through with the owner. Related: HITL
 ## What is left
 
 Nothing in the audit's groups is open. Each decision above files its own build items; HITLD-89 (event-driven cadences) and HITLD-464 (the scrubbed environment) are the existing ones.
+
+## Closed on 2026-11-20 (HITLD-614)
+
+The owner asked whether there was any reason not to close this item, and there was none: every decision of the audit has its build item (HITLD-532 in HITLD-560, HITLD-533 in HITLD-561, HITLD-534 in HITLD-559, HITLD-535 in HITLD-557, HITLD-536 in HITLD-89 (done), HITLD-537 in HITLD-464, 562 and 559, HITLD-538 in HITLD-563), and the design-docs update (HITLD-572) merged.
