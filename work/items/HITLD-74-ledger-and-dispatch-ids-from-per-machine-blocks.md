@@ -6,7 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-15
 claimed_by: D-40
-release_note: Ledger event and dispatch IDs are unique by construction (`D-` or `E-` and 16 characters of Crockford base32, time then random), and each writer appends to its own `ledger/<writer>.jsonl` in the private store, so two stores that both appended sync with no conflict. The single `ledger.jsonl` of before is still read, first, and never appended to; numbered IDs such as `D-1` to `D-38` keep their meaning. Ledger lines are schema version 3 and the ledger index layout version 2; `hitld ledger tail` reads through the index and adds `dispatch_numbers`, this machine's display numbers. Eval scenarios can pass on what an earlier step returned as `{{steps.<id>.<path>}}`.
+release_note: Ledger event and dispatch IDs are unique by construction (`D-` or `E-` and 16 characters of Crockford base32, time then random), and each writer appends to its own `ledger/<writer>.jsonl` in the private store, so two stores that both appended sync with no conflict. The single `ledger.jsonl` of before is still read, first, and never appended to; numbered IDs such as `D-1` to `D-38` keep their meaning. Ledger lines are schema version 3 and the ledger index layout version 2; `hitld ledger tail` reads through the index and adds `dispatch_numbers`, this machine's display numbers. Eval scenarios can pass on what an earlier step returned as `{{steps.<id>.<path>}}`. Until every machine runs this release, an older one can still append version-2 lines to `ledger.jsonl`, which sort first in the ledger.
 ---
 
 ## Done when

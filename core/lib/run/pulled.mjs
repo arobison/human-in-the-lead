@@ -43,7 +43,7 @@ export function catchUp(store, kept) {
   if (!state) return false;
   try {
     const next = structuredClone(state);
-    if (!absorb(next, readLedger(store).events).applied.length) return false;
+    if (!absorb(next, readLedger(store).events).changed) return false;
     saveCheckpoint(store, state, next, { kept: kept ?? 5 });
     return true;
   } catch {

@@ -155,6 +155,19 @@ test('progress: the hook records an executor tool call, the watch samples its br
   const again = await c.hitld(['dispatch', 'watch']);
   assert.equal(again.result.dispatches[0].quiet_seconds, 600);
   assert.equal(c.store.read(`dispatch/progress/${d}.jsonl`)?.trim().split('\n').length, 1);
+  // A headless executor has no agent type, only its dispatch, which is unique by construction
+  // (HITLD-74): the hook still knows it for an executor and records under it.
+  assert.match(d, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
+  const headless = spawnSync(process.execPath, [join(HOOKS, 'progress.mjs')], {
+    input: JSON.stringify({ tool_name: 'Bash', cwd: c.root }),
+    encoding: 'utf8',
+    env: { ...env, HITLD_DISPATCH: d },
+  });
+  assert.equal(headless.status, 0);
+  assert.ok(
+    c.store.list('dispatch/progress/').some((k) => k.includes(d)),
+    'a headless executor with a unique dispatch ID is recorded',
+  );
 });
 
 test('progress: a sampled source counts when it changes; liveness alone is not progress', () => {

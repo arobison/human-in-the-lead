@@ -25,6 +25,9 @@ import {
   writerOfSession,
 } from '../lib/ledger/writer.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
+import { recordSession } from '../lib/run/identity.mjs';
+import { absorb, foldLedger } from '../lib/run/state.mjs';
+import { eventsSince } from '../lib/cadence/due.mjs';
 import { parseRefs } from '../lib/feedback/record.mjs';
 import { isMachineLocal } from '../lib/store/git.mjs';
 import { readIndex, readThroughIndex, rebuildIndex } from '../lib/store/index-db.mjs';
@@ -217,6 +220,16 @@ test('the writer: the session when one is known, never the harness session for a
   const executor = resolveWriter(store, { env: { ...harness, HITLD_DISPATCH: 'D-40' } });
   assert.notEqual(executor, writerOfSession('abc-123'));
   assert.equal(resolveWriter(store, { env: {} }), executor, 'the store’s own writer, kept');
+  // Nor as an inherited $HITLD_SESSION: the orchestrator's session is not the executor's.
+  assert.equal(
+    resolveWriter(store, { env: { HITLD_SESSION: 'orch-1', HITLD_ROLE: 'executor' } }),
+    executor,
+  );
+  // A session recorded for the worktree (run start, run resume) is the writer too, as it is for
+  // every other command, so an orchestrator without the variables still writes its own file.
+  const worktree = tempDir('hitld-ledger-writers-');
+  recordSession(store, worktree, { session: 'orch-7', host: 'box' });
+  assert.equal(resolveWriter(store, { env: {}, cwd: worktree }), writerOfSession('orch-7'));
   assert.equal(JSON.parse(String(store.read(WRITER_KEY))).writer, executor);
   assert.ok(
     isMachineLocal(WRITER_KEY),
@@ -342,4 +355,113 @@ test('two stores that both appended events and dispatches sync with no conflict,
     assert.deepEqual(await readIndex(s), { events: 6, dispatches: 3, index_version: 2 });
   }
   assert.deepEqual(readLedger(a).events, readLedger(b).events, 'the same union, in the same order');
+});
+
+test('the union follows the writers’ clocks: a tie goes to the file that sorts first, and a writer whose clock is behind sorts earlier', () => {
+  const store = memoryStore();
+  const lease = { run: 'R-1', host: 'box' };
+  // A tie: the same time in two files.
+  appendEvent(
+    store,
+    { event: 'logged', text: 'from b, at the same time', at: at(1) },
+    { writer: WRITER_B },
+  );
+  appendEvent(store, { event: 'logged', text: 'a wins the tie', at: at(1) }, { writer: WRITER_A });
+  // Skew: B's clock is four minutes behind. It releases the lease after A took it, by the wall
+  // clock, but its stamp is earlier, so its event sorts before A's: the stated limit.
+  appendEvent(
+    store,
+    { event: 'lease-taken', ...lease, session: 's-a', at: at(5) },
+    { writer: WRITER_A },
+  );
+  appendEvent(
+    store,
+    { event: 'lease-released', ...lease, session: 's-b', reason: 'ended', by: 's-b', at: at(2) },
+    { writer: WRITER_B },
+  );
+  appendEvent(store, { event: 'paused', limit: 'five_hour', at: at(7) }, { writer: WRITER_A });
+  appendEvent(store, { event: 'resumed', reason: 'reset', at: at(6) }, { writer: WRITER_B });
+  assert.deepEqual(
+    readLedger(store).events.map((e) => e.event),
+    ['logged', 'logged', 'lease-released', 'lease-taken', 'resumed', 'paused'],
+  );
+  assert.equal(readLedger(store).events[0].text, 'a wins the tie');
+});
+
+test('a torn last line in one writer’s file leaves the union whole, and that writer’s next append cuts it off', () => {
+  const files = new Map();
+  const store = memoryStore(files);
+  appendEvent(store, { event: 'merged', item: 'W-1', at: at(1) }, { writer: WRITER_A });
+  const { file } = appendEvent(
+    store,
+    { event: 'merged', item: 'W-2', at: at(2) },
+    { writer: WRITER_B },
+  );
+  const key = String(file);
+  files.set(key, `${files.get(key)}{"schema_version":3,"id":"E-x","eve`);
+  const read = readLedger(store);
+  assert.equal(read.torn, true);
+  assert.deepEqual(read.problems, []);
+  assert.deepEqual(
+    read.events.map((e) => e.item),
+    ['W-1', 'W-2'],
+  );
+  appendEvent(store, { event: 'merged', item: 'W-3', at: at(3) }, { writer: WRITER_B });
+  const after = readLedger(store);
+  assert.equal(after.torn, false);
+  assert.deepEqual(
+    after.events.map((e) => e.item),
+    ['W-1', 'W-2', 'W-3'],
+  );
+});
+
+test('a pulled event stamped before the run state’s position is absorbed, and the state equals a rebuild', () => {
+  const store = memoryStore();
+  const started = { event: 'run-started', run: 'R-1', session: 's-a', host: 'box', scope: {} };
+  appendEvent(store, { ...started, at: at(0) }, { writer: WRITER_A });
+  appendEvent(store, { event: 'asked', decision: 'W-1', at: at(10) }, { writer: WRITER_A });
+  const state = foldLedger(readLedger(store).events);
+  state.controllers = { kept: true }; // what the ledger cannot give stays
+  assert.equal(state.ledger_position, readLedger(store).events.at(-1)?.id);
+
+  // Another writer's question, stamped before the position, arrives with a pull.
+  appendEvent(store, { event: 'asked', decision: 'W-2', at: at(5) }, { writer: WRITER_B });
+  const events = readLedger(store).events;
+  assert.deepEqual(
+    events.map((e) => e.decision ?? e.event),
+    ['run-started', 'W-2', 'W-1'],
+  );
+  const r = absorb(state, events);
+  assert.equal(r.changed, true, 'nothing after the position, but the state changed');
+  assert.deepEqual(r.state.decisions_open.map((/** @type {any} */ q) => q.decision).sort(), [
+    'W-1',
+    'W-2',
+  ]);
+  const rebuilt = foldLedger(events);
+  for (const key of ['in_flight', 'decisions_open', 'decisions_answered', 'merge_queue', 'run']) {
+    assert.deepEqual(r.state[key], rebuilt[key], key);
+  }
+  assert.deepEqual(r.state.controllers, { kept: true });
+  assert.equal(
+    absorb(r.state, events).changed,
+    false,
+    'absorbing the same ledger again changes nothing',
+  );
+});
+
+test('cadence: a mark counts per file, so an earlier-stamped event a pull brings in is still new', () => {
+  const store = memoryStore();
+  appendEvent(store, { event: 'merged', item: 'W-1', at: at(0) }, { writer: WRITER_A });
+  appendEvent(store, { event: 'merged', item: 'W-2', at: at(10) }, { writer: WRITER_A });
+  const before = readLedger(store);
+  const mark = { at: at(11), through: String(before.events.at(-1)?.id), files: before.counts };
+  appendEvent(store, { event: 'merged', item: 'W-3', at: at(5) }, { writer: WRITER_B });
+  const after = readLedger(store);
+  assert.deepEqual(
+    eventsSince(after.events, mark, after.origins).map((e) => e.item),
+    ['W-3'],
+  );
+  // A mark from before HITLD-74 has no counts: it sees only what sorts after its event.
+  const { files: _files, ...old } = mark;
+  assert.deepEqual(eventsSince(after.events, old, after.origins), []);
 });

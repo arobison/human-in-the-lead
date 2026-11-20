@@ -30,8 +30,10 @@ import { LEGACY_LEDGER_KEY, ledgerKeyOf, ledgerKeys, resolveWriter } from './wri
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
  * @typedef {Record<string, any>} LedgerEntry a validated line; see schemas/ledger-entry.schema.json
  * @typedef {{ file: string, line: number, message: string }} LedgerProblem
- * @typedef {{ events: LedgerEntry[], problems: LedgerProblem[], torn: boolean, files: string[] }} LedgerRead
- *   torn: some file ends in an unfinished line; files: the ledger files read, in order
+ * @typedef {{ events: LedgerEntry[], problems: LedgerProblem[], torn: boolean, files: string[], counts: Record<string, number>, origins: Map<string, { file: string, index: number }> }} LedgerRead
+ *   torn: some file ends in an unfinished line; files: the ledger files read, in order; counts: how
+ *   many valid events each file holds; origins: for each event read, its file and its place among
+ *   that file's valid events, so a reader can say what is new in each file (each is append-only)
  */
 
 /** The ledger every writer shared before HITLD-74: read, never appended to. */
@@ -233,7 +235,12 @@ function readFile(store, key) {
   return { events, problems, torn };
 }
 
-/** The same event written twice: the same apart from when and by which session. @param {LedgerEntry} a @param {LedgerEntry} b */
+/**
+ * The same event written twice: the same apart from when and by which session. Both the reader
+ * (two writers recorded one fact before they synced) and the appender (a retry, or a fact another
+ * session recorded) use it, so the two agree on what a duplicate is.
+ * @param {LedgerEntry} a @param {LedgerEntry} b
+ */
 const sameFact = (a, b) => {
   const strip = (/** @type {LedgerEntry} */ e) =>
     JSON.stringify({ ...e, at: undefined, session: undefined, host: undefined });
@@ -280,6 +287,11 @@ export function readLedger(store) {
   }
   /** @type {Map<string, { key: string, event: LedgerEntry }>} */
   const seen = new Map();
+  /** @type {Map<string, { file: string, index: number }>} */
+  const origins = new Map();
+  /** @type {Map<LedgerEntry, number>} */
+  const indexOf = new Map();
+  for (const f of files) f.events.forEach((e, i) => indexOf.set(e.event, i));
   /** @type {LedgerEntry[]} */
   const events = [];
   for (const o of ordered) {
@@ -295,9 +307,17 @@ export function readLedger(store) {
       continue;
     }
     seen.set(o.event.id, o);
+    origins.set(o.event.id, { file: o.key, index: /** @type {number} */ (indexOf.get(o.event)) });
     events.push(o.event);
   }
-  return { events, problems, torn: files.some((f) => f.torn), files: files.map((f) => f.key) };
+  return {
+    events,
+    problems,
+    torn: files.some((f) => f.torn),
+    files: files.map((f) => f.key),
+    counts: Object.fromEntries(files.map((f) => [f.key, f.events.length])),
+    origins,
+  };
 }
 
 /** @param {string} text */
@@ -491,12 +511,6 @@ export function startEstimate(events, dispatch, item, d) {
   return startEstimateOf(events, dispatch, item, d)?.tokens;
 }
 
-/** Two events are the same event if they differ only in when they were written. @param {LedgerEntry} a @param {LedgerEntry} b */
-const sameEvent = (a, b) => {
-  const strip = (/** @type {LedgerEntry} */ e) => JSON.stringify({ ...e, at: undefined });
-  return strip(a) === strip(b);
-};
-
 /**
  * Append one event: fill in schema_version, id and time; validate against the whole ledger (the
  * union of its files); then write one line to this writer's own file (writer.mjs).
@@ -506,8 +520,9 @@ const sameEvent = (a, b) => {
  *   else after it, so a stale session cannot revive or double-finish a dispatch.
  * @param {PrivateStore} store
  * @param {LedgerEntry} event
- * @param {{ now?: () => Date, writer?: string, env?: NodeJS.ProcessEnv }} [options] writer and
- *   env choose the file (resolveWriter); by default this process's session or the store's own
+ * @param {{ now?: () => Date, writer?: string, env?: NodeJS.ProcessEnv, cwd?: string }} [options]
+ *   writer, env and cwd choose the file (resolveWriter); by default this process's session or the
+ *   store's own
  * @returns {{ event: LedgerEntry, appended: boolean, events: LedgerEntry[], file?: string }}
  *   events: the whole ledger after the call; file: the file the line went to
  */
@@ -533,7 +548,9 @@ export function appendEvent(store, event, options = {}) {
 
   const same = events.find((e) => e.id === entry.id);
   if (same) {
-    if (!sameEvent(same, entry)) {
+    // The reader's rule (sameFact): a retry, or the same fact another session already recorded,
+    // is not appended again; one ID with other content is an error.
+    if (!sameFact(same, entry)) {
       throw new LedgerError(`ledger event ${entry.id} already exists with different content`);
     }
     return { event: same, appended: false, events };

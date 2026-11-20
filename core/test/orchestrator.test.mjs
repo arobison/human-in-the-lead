@@ -493,6 +493,19 @@ test('hooks: the report check blocks an executor without a report, once; the gua
     { HITLD_DISPATCH: 'D-4' },
   );
   assert.equal(JSON.parse(headless.stdout).decision, 'block');
+  // The same for a dispatch ID unique by construction (HITLD-74): still an executor.
+  const unique = { HITLD_DISPATCH: 'D-01KAH2Q7RS4XV9TB' };
+  assert.equal(
+    JSON.parse(hook('report-check.mjs', { last_assistant_message: 'hello' }, unique).stdout)
+      .decision,
+    'block',
+  );
+  const uniquePush = hook(
+    'guard.mjs',
+    { tool_name: 'Bash', tool_input: { command: 'git push origin HEAD' } },
+    unique,
+  );
+  assert.equal(JSON.parse(uniquePush.stdout).hookSpecificOutput.permissionDecision, 'deny');
 
   const push = hook('guard.mjs', {
     agent_type: 'human-in-the-lead:executor-tier1',

@@ -18,6 +18,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -98,9 +99,13 @@ export function openStore(root) {
       appendFileSync(p, text);
     },
     list(prefix = '') {
-      if (!existsSync(base)) return [];
+      // Walk only the directory the prefix names (ledger/ for the ledger's files), not the whole
+      // store and its git repository on every read.
+      const dir = prefix.includes('/') ? prefix.slice(0, prefix.lastIndexOf('/')) : '';
+      const from = dir === '' ? base : pathOf(dir);
+      if (!existsSync(from) || !statSync(from).isDirectory()) return [];
       // Dot paths at the top are the store's git repository and its .gitignore, not keys.
-      return readdirSync(base, { recursive: true, withFileTypes: true })
+      return readdirSync(from, { recursive: true, withFileTypes: true })
         .filter((d) => d.isFile() && !d.name.endsWith('.tmp'))
         .map((d) => relative(base, join(d.parentPath, d.name)).split(sep).join('/'))
         .filter((k) => k.startsWith(prefix) && !k.startsWith('.'))
