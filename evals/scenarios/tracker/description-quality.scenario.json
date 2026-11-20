@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "tracker/description-quality",
+  "suite": "tracker",
+  "category": "description-quality",
+  "description": "Entities drafted from fixture signals (work items, a milestone, a project) are graded against the describe skill's rubric by a model other than the writer, majority of three votes, recorded and replayed offline, and checked by the deterministic description check (HITLD-75). Every seeded poor description is caught, on the criteria it was seeded to fail; the deterministic check alone catches all but the one whose only fault is an unbounded scope; no good control is flagged.",
+  "mode": "offline",
+  "steps": [{ "id": "grade", "action": "tracker.description-grade", "with": {} }],
+  "graders": [
+    {
+      "id": "four-seeded-poor",
+      "grader": "equals",
+      "with": { "path": "steps.grade.seeded_poor", "value": 4 }
+    },
+    {
+      "id": "all-poor-caught",
+      "grader": "equals",
+      "with": { "path": "steps.grade.caught", "value": 4 }
+    },
+    {
+      "id": "check-catches-three",
+      "grader": "equals",
+      "with": { "path": "steps.grade.by_check", "value": 3 }
+    },
+    {
+      "id": "no-false-flags",
+      "grader": "equals",
+      "with": { "path": "steps.grade.false_flags", "value": 0 }
+    },
+    {
+      "id": "seeded-criteria-found",
+      "grader": "equals",
+      "with": { "path": "steps.grade.seeded_criteria_found", "value": true }
+    },
+    {
+      "id": "judge-is-not-the-writer",
+      "grader": "equals",
+      "with": { "path": "steps.grade.judges_independent", "value": true }
+    }
+  ]
+}

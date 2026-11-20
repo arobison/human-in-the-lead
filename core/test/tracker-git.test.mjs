@@ -799,6 +799,16 @@ test('hitld work check, query, show and views run from the repository', async ()
     warnings: [
       'work/items/W-4-second-step.md: W-4 is open and under no milestone; make it a constraint of the milestone clause it serves',
       'work/items/W-5-third-step.md: W-5 is open and under no milestone; make it a constraint of the milestone clause it serves',
+      // The fixture's bodies are stubs, so the description check (HITLD-75) warns on each open
+      // entity, and the check still passes.
+      'work/projects/W-2-the-project.md: W-2 description (missing-summary): no Summary: say the problem, in the user’s terms, and the outcome',
+      'work/items/W-4-second-step.md: W-4 description (missing-why): no Why: say what the outcome is and who it serves',
+      'work/items/W-4-second-step.md: W-4 description (missing-done-when): no Done when: write the exit condition as checks a reader can run',
+      'work/items/W-5-third-step.md: W-5 description (missing-why): no Why: say what the outcome is and who it serves',
+      'work/items/W-5-third-step.md: W-5 description (missing-done-when): no Done when: write the exit condition as checks a reader can run',
+      'work/milestones/W-1-goal.md: W-1 description (missing-outcome): no outcome: one sentence, the state for users',
+      'work/milestones/W-1-goal.md: W-1 description (missing-clauses): no done-when clauses',
+      'work/milestones/W-1-goal.md: W-1 description (missing-check): no check: demo, integration-test or study, and what it runs',
     ],
     summary: '6 files, no problems',
   });

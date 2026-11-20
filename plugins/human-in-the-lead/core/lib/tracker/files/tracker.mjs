@@ -21,6 +21,7 @@ import {
   unclaimItem,
 } from './claims.mjs';
 import { checkItems, findCollisions, unplacedWork } from './check.mjs';
+import { descriptionWarnings } from './descriptions.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { LEVELS, checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
@@ -824,7 +825,11 @@ export function openTracker({
         }
         if (inflight) problems.push(...findOrphans(found, inflight));
       }
-      return { problems, files: items.length, warnings: unplacedWork(items) };
+      return {
+        problems,
+        files: items.length,
+        warnings: [...unplacedWork(items), ...descriptionWarnings(items)],
+      };
     },
 
     releases,
