@@ -108,3 +108,13 @@ The question was whether HITLD still needs its own benchmark lock and quiet-mach
 
 The first outside consumer's own session filed GitHub issue 363 asking for the data area discussed above, synced across a person's machines (several laptops with different GPUs, later dedicated runners and phones). It is tracked as HITLD-622, which needs this item and the classification taxonomy (HITLD-620).
 
+## Decided on 2026-11-20 (HITLD-623): dyno owns benchmark storage first
+
+The owner decided, in stages: start with dyno owning storage (a private S3-compatible bucket, or whatever dyno chooses), and revisit a HITLD data area in the private store (HITLD-622, GitHub issue 363) only if sharing results across machines through dyno proves insufficient. The private store is not changed for this. What that means for HITLD's side:
+
+- **Dyno is the only access path.** Bucket details, credentials, encryption and retention live in dyno's configuration. They never enter HITLD's repository, briefs, public tracker or reports. Dyno exposes commands to show a result, fetch a file and give a summary without raw values, and enforces the classification label.
+- **HITLD keeps references** in its store: a result ID, which dyno instance holds it, the label and, where allowed, a headline. Decisions and studies that cite a result carry the reference.
+- **A pin call.** Dyno owns lifecycle and deletion, but only HITLD knows which results a study or decision cites. HITLD tells dyno to pin a result with the citing reference, so retention keeps what is cited (the issue's fourth ask, as a call, not a store feature).
+- **The store's sealing does not carry over to a bucket.** The bucket needs its own protection (an access policy, and client-side encryption by dyno where the label requires it), so the classification taxonomy (HITLD-620) needs a notion of the storage backend: what a label means in the sealed store and what it means in a bucket.
+- **Reading from a cloud session** needs dyno's command line and bucket credentials in that session, which is a setup step for the consumer, and a way to receive the credentials without them entering the repository.
+
