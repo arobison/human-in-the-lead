@@ -10,8 +10,9 @@
 //      classification ceiling, the store's address and device list, the private term list),
 //      since a commit built this way runs no commit hook;
 //   6. push it to a new branch (never main, never forced) and print the pull request to open;
-//   7. on the main branch, take the published copies out of the working tree (HITLD-202), so it
-//      is clean and pulling main after the merge fast-forwards; say so in working_tree.
+//   7. on the main branch, stage the published files (HITLD-202), so pulling main after the merge
+//      absorbs them instead of stopping on untracked files; the working tree is never touched.
+//      working_tree says which, and a failure there does not undo the push or hide the pull request.
 //
 // hitld does not open the pull request itself: pull requests are not yet published through the
 // send gate (design 9.3, 10.3), so the session opens it with the forge's own tool, with the title
@@ -30,6 +31,7 @@ import {
 } from '../../guard/classification.mjs';
 import { termsForProject } from '../../store/private-terms.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
+import { git } from '../../tracker/files/tree.mjs';
 import {
   PUBLISH_ROLES,
   branchFor,
@@ -41,7 +43,7 @@ import {
   itemIds,
   publishedAs,
   pushBranch,
-  tidyWorkingTree,
+  stagePublished,
 } from '../../tracker/files/publish.mjs';
 import { CodedError } from '../errors.mjs';
 import { executorSignal } from '../executor.mjs';
@@ -218,7 +220,7 @@ export const commands = [
           ...common,
           files: [],
           message: gathered.skipped.length
-            ? `nothing to publish: ${layout.mainBranch} already has every tracker change this session made`
+            ? `nothing to publish: ${layout.mainBranch} already has every tracker change this session made${behind(root, layout, remote, gathered.skipped)}`
             : 'nothing to publish: this session changed no tracker file',
         };
       }
@@ -287,25 +289,14 @@ export const commands = [
         }
 
         const earlier = publishedAs(root, commit);
-        if (earlier) {
-          // Already on a pushed branch: the copies can come out of main's working tree as well.
-          const tidy = tidied(root, layout, gathered.files);
-          return {
-            ok: true,
-            published: false,
-            ...common,
-            branch: earlier,
-            ...shown,
-            working_tree: tidy.working_tree,
-            message: `nothing new to publish: this checkout already pushed these tracker changes to ${earlier}, which ${layout.mainBranch} does not have yet; open or merge its pull request${tidy.said}`,
-          };
-        }
-        const branch = branchFor(
-          layout,
-          typeof input.branch === 'string' ? input.branch : undefined,
-          ids,
-          commit,
-        );
+        const branch =
+          earlier ??
+          branchFor(
+            layout,
+            typeof input.branch === 'string' ? input.branch : undefined,
+            ids,
+            commit,
+          );
         const checks = {
           commit_message: messageCheck.message,
           publish: textCheck.message,
@@ -317,6 +308,23 @@ export const commands = [
           head: branch,
           ...text.pull_request,
         };
+        if (earlier) {
+          // Already on a pushed branch: stage it as a fresh publish would, and print its pull
+          // request again, for a run that stopped before it was opened.
+          const staged = dryRun ? null : staging(root, layout, gathered.files);
+          return {
+            ok: true,
+            published: false,
+            ...common,
+            branch,
+            ...shown,
+            pull_request: pullRequest,
+            opened: false,
+            ...(staged ? { working_tree: staged.working_tree } : {}),
+            next: OPEN_IT,
+            message: `nothing new to publish: this checkout already pushed these tracker changes to ${earlier}, which ${layout.mainBranch} does not have yet; open or merge its pull request${staged?.said ?? ''}`,
+          };
+        }
         if (dryRun) {
           return {
             ok: true,
@@ -332,7 +340,7 @@ export const commands = [
           };
         }
         pushBranch(root, remote, commit, branch);
-        const tidy = tidied(root, layout, gathered.files);
+        const staged = staging(root, layout, gathered.files);
         return {
           ok: true,
           published: true,
@@ -343,9 +351,9 @@ export const commands = [
           checks,
           pull_request: pullRequest,
           opened: false,
-          working_tree: tidy.working_tree,
+          working_tree: staged.working_tree,
           next: OPEN_IT,
-          message: `${gathered.files.length} tracker file(s) pushed to ${branch}, one commit on ${base.ref}; open the pull request${tidy.said}`,
+          message: `${gathered.files.length} tracker file(s) pushed to ${branch}, one commit on ${base.ref}; open the pull request${staged.said}`,
         };
       } finally {
         rmSync(dir, { recursive: true, force: true });
@@ -355,27 +363,46 @@ export const commands = [
 ];
 
 /**
- * Take the published copies out of the working tree when the checkout is on main, and what the
- * result and its message say about it.
+ * Stage the published files when the checkout is on main, and what the result and its message say
+ * about it. A failure is reported, not thrown: the branch is already pushed, and the pull request
+ * to open must still be printed.
  * @param {string} root @param {import('../../tracker/files/config.mjs').Layout} layout
  * @param {import('../../tracker/files/publish.mjs').PublishedFile[]} files
  */
-function tidied(root, layout, files) {
-  const t = tidyWorkingTree(root, layout, files);
+function staging(root, layout, files) {
   const main = layout.mainBranch;
-  if (t.branch !== main) {
+  try {
+    const t = stagePublished(root, layout, files);
+    if (t.branch !== main) {
+      return {
+        working_tree: { branch: t.branch, action: 'left', staged: [] },
+        said: `. This checkout is on ${t.branch ?? 'a detached HEAD'}, not ${main}, so its working tree and index were left as they are`,
+      };
+    }
     return {
-      working_tree: { branch: t.branch, action: 'left', tidied: [], kept: [] },
-      said: `. This checkout is on ${t.branch ?? 'a detached HEAD'}, not ${main}, so its copies were left as they are`,
+      working_tree: { branch: t.branch, action: 'staged', staged: t.staged },
+      said: `. On ${main}, the ${t.staged.length} published file(s) are staged as tracked changes (the working copies are untouched and still readable); pulling ${main} once the pull request merges absorbs them. A further change staged to one of them before then stops that pull, and nothing is lost: publish the change too, or set it aside with git stash, and pull again`,
+    };
+  } catch (e) {
+    const error = /** @type {Error} */ (e).message;
+    return {
+      working_tree: { branch: main, action: 'failed', staged: [], error },
+      said: `. Staging the published files on ${main} failed (${error}); the push stands. Before pulling ${main} after the merge, stage the files listed yourself (git add -- <file>...)`,
     };
   }
-  const kept = t.kept.length
-    ? `; ${t.kept.length} file(s) changed after publishing were kept: ${t.kept.join(', ')}`
-    : '';
-  return {
-    working_tree: { branch: t.branch, action: 'removed', tidied: t.tidied, kept: t.kept },
-    said: `. The ${t.tidied.length} published file(s) were taken out of ${main}'s working tree (new files removed, changed ones restored to ${main}'s version); they come back when the pull request merges and ${main} is pulled${kept}`,
-  };
+}
+
+/**
+ * On main, what to say about copies main's remote already has: nothing is staged, but they stop a
+ * pull of main until they are staged or removed.
+ * @param {string} root @param {import('../../tracker/files/config.mjs').Layout} layout
+ * @param {string} remote @param {string[]} skipped
+ */
+function behind(root, layout, remote, skipped) {
+  const branch = git(root, ['symbolic-ref', '-q', '--short', 'HEAD'], { allowFail: true }).trim();
+  if (branch !== layout.mainBranch) return '';
+  const main = layout.mainBranch;
+  return `. This checkout's ${main} has ${skipped.length} file(s) that ${remote}/${main} already holds, uncommitted here; nothing was staged. To update, stage the files listed under skipped (git add -- <file>...) and pull (git pull --ff-only ${remote} ${main}): the pull absorbs them`;
 }
 
 /**
