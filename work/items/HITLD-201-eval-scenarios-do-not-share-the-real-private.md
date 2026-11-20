@@ -23,3 +23,7 @@ The merged HITLD-131 added an isolated home for each eval case, which may alread
 ## Notes
 
 Found by the executor of HITLD-135 (dispatch D-12) and relayed by orch-1; filed under HITLD-181.
+
+## Sighting on 2026-11-20 (pull request for the design-docs update, HITLD-572)
+
+CI's tests job failed once on a docs-only pull request: the eval test "the shipped scenarios all load and every one passes" reported the scenario `store/unreleased-lease-refused` failing its grader `released-lease-taken-without-force` with "steps.cloud_resume_after.result.took_over.reason was not produced by any step". The same test passed four times in a row locally and passed on the one allowed re-run in CI, so the failure is intermittent and the diff (docs only) cannot have caused it. The cause is not verified. It may be this item's cause (a store shared by scenarios or by tests running in parallel, so one run's lease state reaches another), which this item's first done-when line checks; if the isolated eval home of HITLD-131 does not explain it, file a separate item with the scenario's transcript.
