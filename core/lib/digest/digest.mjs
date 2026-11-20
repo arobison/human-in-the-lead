@@ -56,7 +56,7 @@ export const DIGEST_KEY = 'rights/digest.json';
  * What the last marked digest recorded: the time it went through, and the quota state it showed,
  * so a quota that stays as it was is not news again.
  * @param {Deps} deps
- * @returns {{ through: string | null, quota: { mode: string, thresholds: string[] } | null,
+ * @returns {{ through: string | null, quota: { mode: string, thresholds: string[], refresh?: string[] } | null,
  *   disk: string | null }}
  */
 export function readCursorRecord(deps) {
@@ -217,7 +217,11 @@ export function markDigest(deps, digest) {
   }
   const through = [now, ...newsTimes(digest)].sort().at(-1) ?? now;
   const quota = digest.quota
-    ? { mode: digest.quota.mode, thresholds: digest.quota.thresholds }
+    ? {
+        mode: digest.quota.mode,
+        thresholds: digest.quota.thresholds,
+        refresh: digest.quota.refresh ?? [],
+      }
     : undefined;
   const disk = digest.disk ? digest.disk.state : undefined;
   deps.store.write(DIGEST_KEY, JSON.stringify({ through, marked_at: now, quota, disk }) + '\n');

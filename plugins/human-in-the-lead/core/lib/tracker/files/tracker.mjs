@@ -668,6 +668,13 @@ export function openTracker({
           `this tracker's files are all ${layout.defaultClassification} (tracker.json has no classification in optional_keys), so an item classified ${String(draft.classification)} cannot be written here`,
         );
       }
+      // A link the files cannot hold is refused, not dropped: dropped, the item would lose the
+      // trace to what it came from without anyone being told (HITLD-160).
+      if (list(draft.opened_from).length && !layout.optionalKeys.includes('opened_from')) {
+        throw new Error(
+          `this tracker's file format has no "opened_from" link (turn on opened_from in tracker.json optional_keys), so an item opened from ${list(draft.opened_from).join(', ')} cannot be written here`,
+        );
+      }
       /** @type {Record<string, unknown>} */
       const fields = {
         title: String(draft.title).trim(),
