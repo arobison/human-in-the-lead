@@ -40,3 +40,14 @@ The warning starts "the private term list was not checked:", says whether there 
 Warn, not refuse: a project with no list is a real state (design part 10.3, limits), and a refusal would stop every commit in a cloud executor session and every pull request a cloud chief of staff posts. Whether the merge or `publish check` should refuse when a store address is set but no list is present is left to the owner.
 
 Tests: `core/test/private-terms-missing.test.mjs` (fails 4 of 4 on the code before this change, passes 4 of 4 after). `loadTerms` reports `list_found`, and `hitld merge` adds the warnings it notes to its result.
+
+## Review fixes (D-52)
+
+An independent review found further silent passes, and the skills told agents to post on `ok` alone. Fixed:
+
+- `publish check` reports `list_found`. The orchestrate, chief-of-staff and adopt skills post only when the check is `ok` and `list_found` is true, and otherwise report it to the owner. The execute skill, whose executors never post, says so in the report.
+- `hitld work publish` and `hitld feedback publish` carry `list_found` and the warning in their results. For `feedback publish` the warning comes with the result, after the approved issue is sent.
+- With no `policy.json`, the commit hooks still check the store address in `HITLD_STORE_REMOTE` and warn that the list was not checked. `hitld work check` refuses without a policy, as before.
+- A list file with no lines (empty, or blank lines only) counts as no list. A file whose terms were all removed still has its lines and counts as read.
+- `private-list-invalid` names the list by its key in the store, never the store's path. A directory where the list goes, or a list that cannot be read, is refused with that code.
+- Design part 10.3: the merge row says it checks only the implied terms when there is no list. The reason for warning instead of refusing now cites design 0003, section 8: a session with an address and no key, or with an unreachable remote, runs on a local store it never pulled.

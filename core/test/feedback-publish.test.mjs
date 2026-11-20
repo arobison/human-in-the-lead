@@ -268,6 +268,9 @@ test('publish: an approved draft is filed with the form headings, labels and foo
   await draft(id, { ...clean, title: 'The digest was long for a single merge' });
   const r = await run(['feedback', 'publish', id, '--answer', 'approve', '--store', store]);
   assert.deepEqual([r.ok, r.state, r.filed], [true, 'filed', true], JSON.stringify(r));
+  // This store holds no private term list yet: the result says it was not checked (HITLD-187).
+  assert.equal(r.list_found, false);
+  assert.match(r.warnings[0], /^the private term list was not checked: /);
   const sent = filer.sent.at(-1);
   assert.ok(sent);
   assert.equal(sent.repo, FEEDBACK_REPO);
@@ -334,6 +337,8 @@ test('publish: a draft holding a private term is refused before anything is sent
       store,
     ]);
     assert.deepEqual([edited.ok, edited.filed], [true, true], JSON.stringify(edited));
+    assert.equal(edited.list_found, true);
+    assert.equal(edited.warnings, undefined);
 
     // A term in the title is refused too, by its own place.
     const second = await record('The digest title named a machine, honestly again.');

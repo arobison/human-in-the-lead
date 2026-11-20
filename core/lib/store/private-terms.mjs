@@ -18,10 +18,10 @@
 
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { openStore, privateStorePath } from './store.mjs';
 import { readApprovals } from './devices.mjs';
-import { chooseRemote } from './address.mjs';
+import { REMOTE_ENV, chooseRemote } from './address.mjs';
+import { checkRemoteUrl } from './remote-git.mjs';
 import {
   KINDS,
   addressTerms,
@@ -59,16 +59,25 @@ export class PrivateTermsError extends Error {
  * @typedef {import('../guard/private-terms.mjs').Term} Term
  */
 
-/** @param {import('./store.mjs').PrivateStore} store */
-const fileOf = (store) => join(store.root, ...TERMS_KEY.split('/'));
-
 /**
  * Every line of the list, oldest first.
  * @param {import('./store.mjs').PrivateStore} store
  * @returns {TermRecord[]}
  */
 export function readTermRecords(store) {
-  const text = store.read(TERMS_KEY) ?? '';
+  /** @type {string} */
+  let text;
+  try {
+    text = store.read(TERMS_KEY) ?? '';
+  } catch (e) {
+    // A directory where the list goes, or a file this user cannot read: refused by its code alone,
+    // since the system's message names the path.
+    const code = /** @type {{ code?: unknown }} */ (e).code;
+    throw new PrivateTermsError(
+      'private-list-invalid',
+      `the private term list (${TERMS_KEY} in the private store) cannot be read${typeof code === 'string' ? ` (${code})` : ''}; nothing is checked against a list that cannot be read, so fix it`,
+    );
+  }
   /** @type {TermRecord[]} */
   const out = [];
   const lines = text.split('\n');
@@ -92,7 +101,7 @@ export function readTermRecords(store) {
     if (!ok) {
       throw new PrivateTermsError(
         'private-list-invalid',
-        `line ${i + 1} of the private term list (${fileOf(store)}) does not read; nothing is checked against a list with a line missing, so fix or remove that line`,
+        `line ${i + 1} of the private term list (${TERMS_KEY} in the private store) does not read; nothing is checked against a list with a line missing, so fix or remove that line`,
       );
     }
     out.push(r);
@@ -245,16 +254,21 @@ export function impliedTerms(o) {
 /**
  * The warning for a list that is not there to read (HITLD-187): a cloud session that has not
  * pulled the store, for want of the store repository or this device's key, has no list, and a
- * check that passes then must say the list was not checked. A list with every term removed is
- * there, and gives none.
- * @param {import('./store.mjs').PrivateStore} store @param {number} implied
+ * check that passes then must say the list was not checked. A file with no lines at all counts as
+ * no list: it cannot be told from a copy cut short. A list with every term removed still has its
+ * lines, and gives no warning.
+ * @param {import('./store.mjs').PrivateStore} store @param {number} records the lines it holds
+ * @param {number} implied
  * @returns {string | null}
  */
-function missingListWarning(store, implied) {
-  if (store.read(TERMS_KEY) !== null) return null;
-  const why = existsSync(store.root)
-    ? 'the private store here holds no term list'
-    : 'there is no private store here';
+function missingListWarning(store, records, implied) {
+  if (records > 0) return null;
+  const why =
+    store.read(TERMS_KEY) !== null
+      ? 'the private term list here is empty (no lines at all, as a copy cut short would be)'
+      : existsSync(store.root)
+        ? 'the private store here holds no term list'
+        : 'there is no private store here';
   const checked = implied
     ? `only the ${implied} term(s) implied here (the store address in use, device names) were checked`
     : 'no term was checked';
@@ -267,9 +281,10 @@ function missingListWarning(store, implied) {
  * @param {{ store: import('./store.mjs').PrivateStore, projectId: string, env: NodeJS.ProcessEnv }} o
  */
 export function loadTerms(o) {
-  const listed = activeTerms(readTermRecords(o.store));
+  const records = readTermRecords(o.store);
+  const listed = activeTerms(records);
   const implied = impliedTerms(o);
-  const missing = missingListWarning(o.store, implied.terms.length);
+  const missing = missingListWarning(o.store, records.length, implied.terms.length);
   /** @type {Term[]} */
   const terms = [
     ...listed.map((t) => ({
@@ -293,19 +308,39 @@ export function loadTerms(o) {
 
 /**
  * The terms for a project, from its policy's project ID: the store at its default place, or at
- * `storeRoot` when given. No project ID, no store and so no terms, with a warning.
+ * `storeRoot` when given. No project ID (no policy.json) means no store and so no list: the store
+ * address in HITLD_STORE_REMOTE is still checked, and the warning says the list was not.
  * @param {{ policy: Record<string, any> | null, env: NodeJS.ProcessEnv, repoRoot?: string, storeRoot?: string }} o
  */
 export function termsForProject(o) {
   const projectId = o.policy?.project?.id;
   if (typeof projectId !== 'string' && !o.storeRoot) {
+    /** @type {Term[]} */
+    const terms = [];
+    /** @type {string[]} */
+    const warnings = [];
+    const fromEnv = o.env[REMOTE_ENV]?.trim();
+    if (fromEnv) {
+      try {
+        for (const t of addressTerms(checkRemoteUrl(fromEnv), { pathOnly: true })) {
+          terms.push({ ...t, source: 'address' });
+        }
+      } catch (e) {
+        warnings.push(
+          `the store address could not be read, so it is not checked for: ${/** @type {Error} */ (e).message}`,
+        );
+      }
+    }
+    warnings.unshift(
+      `the private term list was not checked: there is no project ID (policy.json), so no private store to read it from, and ${terms.length ? `only the ${terms.length} term(s) of the store address in use were checked` : 'no term was checked'}`,
+    );
     return {
-      terms: [],
-      matchers: [],
+      terms,
+      matchers: compileTerms(terms),
       listed: 0,
-      implied: 0,
+      implied: terms.length,
       list_found: false,
-      warnings: ['no project ID, so no private store and no private term list to check against'],
+      warnings,
     };
   }
   const root =

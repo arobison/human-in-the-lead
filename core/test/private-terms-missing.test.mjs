@@ -6,11 +6,17 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TERMS_KEY, addTerm, loadTerms, removeTerm } from '../lib/store/private-terms.mjs';
+import {
+  TERMS_KEY,
+  addTerm,
+  loadTerms,
+  readTermRecords,
+  removeTerm,
+} from '../lib/store/private-terms.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { STATUS_INPUT, git, makeConsumer, put, report } from './orchestrator-fixture.mjs';
@@ -97,6 +103,7 @@ test('no store, no key, no list: work check and publish check say the list was n
     assert.equal(r.exit, 0);
     assert.equal(warned(r.result).length, 1);
     assert.match(r.result.message, /the private term list was not checked/);
+    assert.equal(r.result.list_found, false);
     assert.doesNotMatch(r.result.message, /it may be posted|the list is empty/);
     assert.ok(!JSON.stringify(r.result).includes('sample-store'));
   }
@@ -111,6 +118,7 @@ test('no store, no key, no list: work check and publish check say the list was n
   writeFileSync(body, 'Pushed to the store repository.\n');
   const listed = await c.hitld(['publish', 'check', '--file', body], { env: CLOUD });
   assert.equal(listed.result.message, 'no private term found: it may be posted');
+  assert.equal(listed.result.list_found, true);
   assert.deepEqual(warned(listed.result), []);
 });
 
@@ -151,4 +159,60 @@ test('no key, no list: the merge checks what it can and says the list was not ch
   assert.match(warned(merged.result)[0], /the private store here holds no term list/);
   assert.ok(!JSON.stringify(merged.result).includes('sample-store'));
   assert.ok(readFileSync(join(c.root, 'src', 'sub.js'), 'utf8').length > 0);
+});
+
+test('an empty list file counts as no list; a list that cannot be read refuses by its code, never its path', () => {
+  const c = makeConsumer();
+  const root = privateStorePath('orch-fixture', { env: c.env });
+  const store = openStore(root);
+  const file = join(root, ...TERMS_KEY.split('/'));
+  for (const text of ['', '\n\n', '  \n']) {
+    store.write(TERMS_KEY, text);
+    const t = loadTerms({ store, projectId: 'orch-fixture', env: c.env });
+    assert.equal(t.list_found, false, JSON.stringify(text));
+    assert.match(warned(t)[0], /the private term list here is empty/);
+  }
+  // A line that does not read: refused, naming the key in the store, not the store's path.
+  store.write(TERMS_KEY, 'not json\n');
+  assert.throws(
+    () => readTermRecords(store),
+    (/** @type {any} */ e) =>
+      e.code === 'private-list-invalid' &&
+      !e.message.includes(root) &&
+      e.message.includes(TERMS_KEY),
+  );
+  // A directory where the list goes: a coded refusal, not the system's error with its path.
+  rmSync(file);
+  mkdirSync(file);
+  assert.throws(
+    () => loadTerms({ store, projectId: 'orch-fixture', env: c.env }),
+    (/** @type {any} */ e) =>
+      e.code === 'private-list-invalid' &&
+      /\(EISDIR\)/.test(e.message) &&
+      !e.message.includes(root),
+  );
+});
+
+test('no policy.json: the hooks still check the address in use and say the list was not checked', async () => {
+  const c = makeConsumer();
+  rmSync(join(c.root, '.human-in-the-lead', 'policy.json'));
+  const staged = await c.hitld(['check', 'classification', '--staged'], { env: CLOUD });
+  assert.equal(staged.result.ok, true, JSON.stringify(staged.result));
+  assert.match(warned(staged.result)[0], /there is no project ID \(policy\.json\)/);
+  assert.match(warned(staged.result)[0], /only the 2 term\(s\) of the store address in use/);
+  const msg = join(c.base, 'msg');
+  writeFileSync(msg, 'subject\n');
+  const clean = await c.hitld(['check', 'commit-message', msg], { env: CLOUD });
+  assert.equal(clean.result.ok, true);
+  assert.equal(warned(clean.result).length, 1);
+  // The address is found without a policy, from the variable alone.
+  writeFileSync(msg, `pushed to ${ADDRESS}\n`);
+  const found = await c.hitld(['check', 'commit-message', msg], { env: CLOUD });
+  assert.equal(found.result.error, 'private-term');
+  assert.ok(!JSON.stringify(found.result).includes('sample-store'));
+  const none = await c.hitld(['check', 'commit-message', msg]);
+  assert.match(warned(none.result)[0], /and no term was checked/);
+  // work check refuses without a policy at all, so it never reports clean here.
+  const work = await c.hitld(['work', 'check'], { env: CLOUD });
+  assert.equal(work.result.error, 'policy', JSON.stringify(work.result));
 });

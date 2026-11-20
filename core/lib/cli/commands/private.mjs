@@ -325,6 +325,9 @@ export const commands = [
         ok: refused.length === 0,
         checked: texts.map((x) => ({ where: x.where, lines: x.text.split('\n').length })),
         private_terms: t.matchers.length,
+        // Whether the private term list was there to check against: when false, only the implied
+        // terms (or none) were checked, and the text is not to be posted on ok alone (HITLD-187).
+        list_found: t.list_found,
         refused,
         problems: refused.map((r) => matchMessage(r, r.where)),
         ...(refused.length
