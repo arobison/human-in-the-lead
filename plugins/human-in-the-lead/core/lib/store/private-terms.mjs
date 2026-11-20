@@ -17,6 +17,7 @@
 // the file is fixed, because a skipped line would let its term through.
 
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { openStore, privateStorePath } from './store.mjs';
 import { readApprovals } from './devices.mjs';
@@ -242,13 +243,33 @@ export function impliedTerms(o) {
 }
 
 /**
+ * The warning for a list that is not there to read (HITLD-187): a cloud session that has not
+ * pulled the store, for want of the store repository or this device's key, has no list, and a
+ * check that passes then must say the list was not checked. A list with every term removed is
+ * there, and gives none.
+ * @param {import('./store.mjs').PrivateStore} store @param {number} implied
+ * @returns {string | null}
+ */
+function missingListWarning(store, implied) {
+  if (store.read(TERMS_KEY) !== null) return null;
+  const why = existsSync(store.root)
+    ? 'the private store here holds no term list'
+    : 'there is no private store here';
+  const checked = implied
+    ? `only the ${implied} term(s) implied here (the store address in use, device names) were checked`
+    : 'no term was checked';
+  return `the private term list was not checked: ${why}, so ${checked}. A store not yet pulled (no store repository or no device key in this session) looks like this; hitld store status says which. Check again where the store is before anything is published`;
+}
+
+/**
  * Every term to check text against: the list, and what is implied. Throws PrivateTermsError when
- * the list does not read.
+ * the list does not read; warns, by name, when there is no list to read.
  * @param {{ store: import('./store.mjs').PrivateStore, projectId: string, env: NodeJS.ProcessEnv }} o
  */
 export function loadTerms(o) {
   const listed = activeTerms(readTermRecords(o.store));
   const implied = impliedTerms(o);
+  const missing = missingListWarning(o.store, implied.terms.length);
   /** @type {Term[]} */
   const terms = [
     ...listed.map((t) => ({
@@ -264,7 +285,9 @@ export function loadTerms(o) {
     matchers: compileTerms(terms),
     listed: listed.length,
     implied: implied.terms.length,
-    warnings: implied.warnings,
+    /** Whether the list was there to read: false when only implied terms, or none, were checked. */
+    list_found: missing === null,
+    warnings: [...(missing ? [missing] : []), ...implied.warnings],
   };
 }
 
@@ -281,6 +304,7 @@ export function termsForProject(o) {
       matchers: [],
       listed: 0,
       implied: 0,
+      list_found: false,
       warnings: ['no project ID, so no private store and no private term list to check against'],
     };
   }

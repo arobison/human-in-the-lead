@@ -333,9 +333,11 @@ export const commands = [
               message: `refused: the text holds ${refused.length} private term(s) from the private term list (design part 10.3, rule 7). Write it again, referring to each by its role (for example "the store repository"), and check it again before posting`,
             }
           : {
-              message: t.matchers.length
-                ? 'no private term found: it may be posted'
-                : 'no private term to check against: the list is empty and no store address is set here',
+              message: !t.list_found
+                ? 'no private term found, but the private term list was not checked (see warnings): post it only once it is checked where the store is'
+                : t.matchers.length
+                  ? 'no private term found: it may be posted'
+                  : 'no private term to check against: the list is empty and no store address is set here',
             }),
         ...(t.warnings.length ? { warnings: t.warnings } : {}),
       };

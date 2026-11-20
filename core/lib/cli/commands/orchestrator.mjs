@@ -176,13 +176,16 @@ const dueFor = (run, policy, input) =>
 
 /**
  * The private terms the merge checks every commit against. A list that does not read stops the
- * merge: nothing goes to main unchecked.
+ * merge: nothing goes to main unchecked. One that is not there (a store not pulled) adds its
+ * warning to `notes`, which the merge's result carries (HITLD-187).
  * @param {import('../../store/store.mjs').PrivateStore} store @param {string} projectId
- * @param {NodeJS.ProcessEnv} env
+ * @param {NodeJS.ProcessEnv} env @param {string[]} notes
  */
-function mergeTerms(store, projectId, env) {
+function mergeTerms(store, projectId, env, notes) {
   try {
-    return loadTerms({ store, projectId, env }).matchers;
+    const t = loadTerms({ store, projectId, env });
+    notes.push(...t.warnings);
+    return t.matchers;
   } catch (e) {
     const err = /** @type {{ code?: unknown, message: string }} */ (e);
     if (err.code === 'private-list-invalid') {
@@ -257,6 +260,19 @@ export async function guarded(fn) {
     }
     throw e;
   }
+}
+
+/**
+ * guarded, with warnings the command notes along the way added to its result, refusal or not.
+ * @param {(notes: string[]) => Result | Promise<Result>} fn @returns {Promise<Result>}
+ */
+async function guardedNoting(fn) {
+  /** @type {string[]} */
+  const notes = [];
+  const r = await guarded(() => fn(notes));
+  if (!notes.length) return r;
+  const had = Array.isArray(r.warnings) ? /** @type {string[]} */ (r.warnings) : [];
+  return { ...r, warnings: [...had, ...notes] };
 }
 
 /**
@@ -1800,7 +1816,7 @@ const table = [
       HOST,
     ],
     run: (input, ctx) =>
-      guarded(async () => {
+      guardedNoting(async (notes) => {
         const p = project(ctx);
         const run = runOf(p, input, ctx);
         const owner = p.policy.merge.mode === 'owner';
@@ -1956,7 +1972,7 @@ const table = [
             ceiling: layout.classificationCeiling,
             defaultClassification: layout.defaultClassification,
             privatePaths: layout.privatePaths,
-            terms: mergeTerms(p.store, p.policy.project.id, ctx.env),
+            terms: mergeTerms(p.store, p.policy.project.id, ctx.env, notes),
           },
         };
         /** @param {string} dir */
