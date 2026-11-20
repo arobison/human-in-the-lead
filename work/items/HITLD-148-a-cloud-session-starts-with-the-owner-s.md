@@ -2,10 +2,11 @@
 id: HITLD-148
 title: A cloud session starts with the owner's settings and the machine's profile, with nothing carried between sessions by hand
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-142]
+claimed_by: D-42
 ---
 
 ## Why
