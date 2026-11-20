@@ -67,6 +67,13 @@ const examples = {
     jobs: {
       digest: { at: '2026-11-14T12:00:00Z', through: 'E-41', trust_through: 7 },
       'review:owner': { at: '2026-11-14T12:00:00Z', trust_through: 9 },
+      // HITLD-74: how many events of each ledger file the job had read.
+      report: {
+        at: '2026-11-14T12:00:00Z',
+        through: 'E-01KAH2Q7RS4XV9TB',
+        trust_through: 9,
+        files: { 'ledger.jsonl': 41, 'ledger/w-0123456789abcdef.jsonl': 3 },
+      },
     },
   },
   // Part 13.4: the person file, with a declared limit and a share between projects.

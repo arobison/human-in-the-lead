@@ -33,6 +33,19 @@ const A = { session: 'orch-1', host: 'example-laptop' };
 const B = { session: 'orch-2', host: 'example-laptop' };
 const COS = { session: 'cos', host: 'phone-relay' };
 
+test('releasing a lease right after a renewal keeps the renewal time', () => {
+  const store = memoryStore();
+  const run = startRun(store, { ...A, now: clock(600) });
+  const taken = run.state.lease.renewed_at;
+  const renewed = run.checkpoint().lease.renewed_at;
+  assert.ok(renewed > taken, 'the checkpoint renewed the lease');
+  const r = releaseLease(store, { ...A, now: clock(900), reason: 'handover' });
+  assert.equal(r.appended, true);
+  assert.equal(r.released.reason, 'handover');
+  assert.equal(r.state.lease.renewed_at, renewed, 'not reset to when the lease was taken');
+  assert.equal(loadState(store).state?.lease.renewed_at, renewed);
+});
+
 test('a hand-over releases the lease: the holder can no longer record, a successor takes it at once', () => {
   const store = memoryStore();
   const first = startRun(store, { ...A, now: clock(), harnessRef: 'example-host-1' });

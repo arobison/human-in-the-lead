@@ -145,11 +145,11 @@ export function absorb(state, events) {
   const before = canonicalJson(ledgerPart(state));
   const folded = foldLedger(events);
   const renewed = state.lease?.renewed_at;
-  const sameLease =
-    state.lease &&
-    folded.lease &&
-    canonicalJson({ ...state.lease, renewed_at: null }) ===
-      canonicalJson({ ...folded.lease, renewed_at: null });
+  // The same lease: the same taking of it, released since or not. Its last renewal is a
+  // checkpoint's time, which the ledger does not hold, so it is kept (run.mjs releaseLease).
+  const holder = (/** @type {Record<string, any>} */ l) =>
+    canonicalJson({ ...l, renewed_at: null, released: null });
+  const sameLease = state.lease && folded.lease && holder(state.lease) === holder(folded.lease);
   for (const key of Object.keys(folded)) {
     if (['controllers', 'quotas', 'checkpoint', 'schema_version'].includes(key)) continue;
     state[key] = folded[key];
