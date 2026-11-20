@@ -2,9 +2,10 @@
 id: HITLD-595
 title: Friction signals are recorded from the session record, as events with a class, a source and an evidence reference
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-20
 project: HITLD-15
+claimed_by: D-39
 ---
 
 ## Why
