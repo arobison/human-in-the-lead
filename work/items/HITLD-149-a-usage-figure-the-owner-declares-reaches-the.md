@@ -2,7 +2,7 @@
 id: HITLD-149
 title: A usage figure the owner declares reaches the quota gate in a cloud session
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-151]
