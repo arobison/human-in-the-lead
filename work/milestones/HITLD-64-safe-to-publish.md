@@ -10,7 +10,7 @@ done_when:
   - "c1: The confidentiality pass and the guided design review are finished."
   - "c2: Confidential decisions and feedback drafts never reach the public tracker or an issue unseen."
   - "c3: The public-text checks fail closed when the private term list cannot be read."
-constraints: [HITLD-22 c1, HITLD-23 c1, HITLD-77 c2, HITLD-282 c2, HITLD-274 c2, HITLD-187 c3, HITLD-620 c2]
+constraints: [HITLD-22 c1, HITLD-23 c1, HITLD-77 c2, HITLD-282 c2, HITLD-274 c2, HITLD-187 c3]
 check: demo an independent scan of the repository and its history, and a run with no private store showing the commit hook refuses or warns, run by someone other than the authors
 ---
 
@@ -27,3 +27,5 @@ Shaped by the planning pass HITLD-343 (2026-11-16). c1 is met (HITLD-22 and 23 a
 ## Changed on 2026-11-20
 
 HITLD-620 (the classification taxonomy: who and what may read data, and where it may go) joined clause c2 as a proposal.
+
+HITLD-620 left clause c2 on the owner's decision HITLD-621: it moved to milestone HITLD-567 in rc.5.

@@ -5,6 +5,7 @@ kind: work
 state: proposed
 created: 2026-11-20
 project: HITLD-15
+needs: [HITLD-620]
 ---
 
 ## Done when
@@ -93,4 +94,13 @@ The owner added that HITLD is able to read the results and reason about them, an
 - **Where the reading happens.** Results are stored on the machine that holds them, so a session elsewhere (a cloud session) cannot read them directly. Prefer that dyno does the heavy reasoning it already does (comparing two commits, a trend, finding the commit a regression came in) and returns a verdict and the small summary the owner allows; HITLD reasons over that. Raw data is returned only when the classification and the channel allow it.
 - **Starting a measurement is a decision with a cost.** It costs farm and machine time, not tokens, and can delay other work or disturb a measurement in progress. It needs a rule by kind of decision on the trust engine (HITLD-552): which kinds of measurement the system may start without asking, a limit on how many it may queue, and who is told when one is refused or queued. A loop that starts measurements (to bisect a regression, for example) needs a bound on how many it may start before it asks.
 - **What reasoning may do with a result.** Opening an item from a regression, with references and no values in a public tracker (HITLD-617), is allowed by design 2.17; changing a budget or accepting a regression stays the owner's.
+
+## Answer on the benchmark lock, confirmed by the owner on 2026-11-20
+
+The question was whether HITLD still needs its own benchmark lock and quiet-machine hold, given that some measurements start outside HITLD (dyno's command line or web interface). The owner confirmed this direction:
+
+- **Dyno is the authority for reservation, for every entry point.** Whoever starts a measurement, dyno enforces the reservation, including for a remote target or a farm. HITLD never locks a farm machine; it asks dyno.
+- **The two meet in one place:** a local measurement on a machine that HITLD executors also use. There, dyno takes HITLD's existing machine-wide lock for the duration (one command, run by a hook that dyno's own configuration names, so dyno is not coupled to HITLD), and HITLD executors drain first. Dyno is the only caller because every entry point goes through dyno.
+- **HITLD reads dyno's busy state** the way its load check reads CPU use, so its own heavy steps (tests, builds) wait during a measurement even if a person started it by hand. The first version is a status call; whether dyno also writes its busy state into the lock directory is left open, and the status call needs no shared filesystem.
+- **What this changes in HITLD:** the lock and the quiet-machine hold (design 13.2 and 13.4, HITLD-559) keep guarding HITLD's own processes and the local case; they no longer try to represent a target machine or a farm.
 
