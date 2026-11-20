@@ -12,8 +12,8 @@
 | **Supply chain** | A new or updated dependency | Human gate on new dependencies; lockfiles; dependency changes are human-read triggers |
 | **Executable data** | A tracker or config file field that a tool executes | Data files are schema-checked data only; unknown keys are rejected; no field is ever executed |
 | **Over-privileged agents** | An executor with network, secrets or write access it does not need | Least privilege per role, enforced by agent definitions and hooks (10.2) |
-| **Secret leakage** | Keys in prompts, logs, commits, or the ledger | Secrets never enter any agent's context; scanners on commit; `secret` class may live only in a secret manager |
-| **Classification leak** | Confidential text reaching the public repo or a third-party service | High-water-mark rule; a commit hook that blocks non-public artifacts in a public repo (10.3) |
+| **Secret leakage** | Keys in prompts, logs, commits, or the ledger | Secrets never enter any agent's context; scanners on commit. *As built:* the `secret` level may live only in a secret manager. *Decided, not built (HITLD-634):* secret is not a label; secrets are never stored in HITLD's data and the guard refuses them |
+| **Classification leak** | Confidential text reaching the public repo or a third-party service | High-water-mark rule; a commit hook that blocks non-public artifacts in a public repo (10.3). *Decided, not built (HITLD-629):* a check at the commands that return data, against the session's clearance (see the classification section below) |
 | **Private names in public text** | A private store's address, a device's name or a partner's name written into an ordinary file, a commit message, a pull request or a comment | The private term list, checked at commit, at merge and before anything is posted (10.3, [private names](#private-names)) |
 | **Tool defaults that reach the network** | Third-party tools that fetch, report telemetry, or contact remotes by default | Executors run with network denied except an allowlist; tools are vetted before adoption |
 
@@ -50,6 +50,7 @@ Still to come:
 
 - a `PreToolUse` guard for write paths outside the role's paths, edits to dependency manifests and lockfiles unless the item cites an answered dependency decision, reads of configured secret paths, and network commands outside the allowlist;
 - the commit guard's secret scanner. Its classification check is built (HITLD-51): `hitld install` writes a pre-commit hook, shared by every worktree, that runs `hitld check classification --staged`, and a commit-msg hook that runs `hitld check commit-message` on the message ([private names](#private-names)). The hooks can be skipped with `git commit --no-verify`, and hitld's own commits skip them, so the merge runs the same rules on every commit a branch brings, its files and its message, and on the queue's own commit, in either merge mode. That check is the one that enforces;
+- *Decided, not built (HITLD-629, HITLD-638):* a hook on file reads that checks a file's label against the session's effective clearance before the content is returned, beside the check in every `hitld` command that returns data ([information classification](#103-information-classification));
 - `SessionStart`: loads the role's contract and the policy, and refuses to start an executor outside a worktree.
 
 **Sandboxing.** Executors run with the harness's own sandbox enabled where one exists. Any tool run on untrusted input (tests of external PRs, fuzzers) must run with no network, no secrets, and no write outside its scratch area. The mechanism is each harness adapter's job, not this design's.
@@ -58,7 +59,11 @@ Still to come:
 
 ## 10.3 Information classification
 
-Four levels ([part 3](03-data-model.md#classification-levels)): `public`, `internal`, `confidential`, `secret`.
+Classification is changing, and the change is **decided, not built**. The owner decided its shape on 2026-11-20 in a walk-through (HITLD-625 to HITLD-635; the taxonomy item is HITLD-620); the builds are HITLD-636 (labels and the migration), HITLD-637 (clearances and the check), HITLD-638 (enforcement at the commands that return data) and HITLD-639 (places, derived data and loosening). Each passage below says whether it is *as built* or *decided, not built*.
+
+*As built:* four levels ([the data model](03-data-model.md#classification-levels)): `public`, `internal`, `confidential`, `secret`. They decide where an artifact may be stored, and nothing says which models may read it. They are today's levels, retired after a one-time migration.
+
+*Decided, not built:* a **label** on data with two dimensions, who or what may read it (`readers`) and where it may go (`reach`), and a **clearance** on each channel. The vocabulary, the written form and the migration from the four levels are in [the data model](03-data-model.md#classification-levels). Until the migration has run, the level names in the rest of the design (`internal`, `confidential`, `secret`) are today's levels, to be read through its mapping.
 
 ### Where each artifact lives
 
@@ -77,16 +82,44 @@ Four levels ([part 3](03-data-model.md#classification-levels)): `public`, `inter
 | Vulnerability reports and their fixes before disclosure | confidential | Private store and a private fork; never the public queue |
 | Strategy (north star, principles, non-goals) | owner's choice; public by default for an open project | Repository or private store |
 | Unreleased plans with commercial or partner sensitivity | confidential | Private store |
-| Credentials, keys, tokens | secret | Secret manager only |
+| Credentials, keys, tokens | secret | Secret manager only. *Decided, not built (HITLD-634):* not a label; secrets are never stored in HITLD's data, and the guard refuses them |
+
+The column names today's levels. After the migration a level reads as a label: `public` as readers `public` and reach `anywhere`; `internal` as readers `any-model` and reach `synced-store`; `confidential` as readers `approved-models` and reach `synced-store` (HITLD-634). An artifact with no label of its own takes its container's label, and with no container the strictest, readers `owner-only` and reach `this-machine` (HITLD-626).
+
+### Labels, clearances and the check (decided, not built)
+
+None of this is built. It follows the owner's decisions of 2026-11-20 (HITLD-625 to HITLD-635).
+
+**The structure** (HITLD-625). Data carries a label; each channel has a clearance. Data flows to a channel only when the channel's clearance covers the label on both dimensions, `readers` and `reach`. The check denies by default, an explicit deny wins, and owner-level guardrails can only narrow. Two ideas are borrowed: lattice labels (data has a label, a channel has a clearance, and a flow needs the clearance to cover the label), and from cloud permission systems, tags on resources matched by conditions, organization policies that cap what any grant can give, and perimeters that stop data leaving. Their policy languages are not borrowed.
+
+**Default clearances** (HITLD-630, with the sixth reader of HITLD-634):
+
+| Channel | Cleared for |
+|---|---|
+| The remote model on the owner's own provider account | Down to `approved-models`: not for `local-model-only`, `tools-only` or `owner-only` data. Secrets are not a label and are never in HITLD's data |
+| A local model | Down to `local-model-only`: not for `tools-only` data, which by its definition no model sees, and not for `owner-only` data. (The decision HITLD-630 words this as "anything except owner only"; read with the definition of `tools-only` and with the build item HITLD-637, the clearance stops at `local-model-only`.) |
+| Any other provider | Nothing until the owner decides |
+
+How a model channel's clearance is written on the `reach` dimension is not decided (nearest HITLD-637), and neither is whether a provider with no clearance may receive `public` data (see HITLD-630 and HITLD-637).
+
+**A role only narrows** (HITLD-632). A session's effective clearance is the narrower of its model's clearance and its role's; a role never exceeds its model's. The roles are those of the least-privilege table above. Widening for one task is the owner's recorded decision, never a standing grant to the system.
+
+**Where clearances live** (HITLD-635). In the owner's person-level settings, outside every repository, as one list naming each channel and its clearance ([settings in layers](13-operations.md#134-settings-in-four-layers)). A project's committed policy may add a narrower limit, never a wider one, and the strictest layer wins. Changing a clearance is the owner's recorded decision.
+
+**Who may change a label** (HITLD-627). Any agent or the system may tighten a label. Only the owner may loosen one, by a signed, recorded decision with a reason.
+
+**Where it is enforced** (HITLD-629). At the commands and tools that return data: the `hitld` commands, a tool's own result commands (a measurement tool's, for example) and a hook on file reads. Each checks the label against the effective clearance of the session's model and role before it returns labeled data, and fails closed. A refusal names no value, and it is recorded in the ledger without the value so the owner can see it (HITLD-638). The check that keeps non-public text out of a public repository stays ([the rule on public repositories](#rules) and the private names below). The limits are stated: it cannot stop a person pasting data into a prompt, and it cannot stop a tool that bypasses these commands. HITLD controls what tools and commands return to a session, not what a harness sends to its model.
+
+**Not decided.** How the limit of a hosted tracker, a notification channel, a hosted runner or a report audience becomes a clearance, since the decisions name models, tools, the synced store and registered buckets only (nearest HITLD-637). Which clearance each role holds: the build item HITLD-637 says it comes from the least-privilege role definitions, and no decision gives the values (nearest HITLD-632).
 
 ### Rules
 
-1. **High-water mark.** An artifact derived from others is classified at least as high as the highest of its inputs. A summary of a confidential research note is confidential.
-2. **Declassification is a decision.** Lowering an artifact's level (for example, publishing a research finding) is the owner's call, recorded as a decision.
-3. **Public repositories hold public artifacts only.** The commit guard and the tracker check script block any file whose front matter is above `public`, and any file whose path is listed as private in `policy.json`. As built, the ceiling is `project.classification_ceiling` and the private paths are `project.private_paths` (globs); a file whose front matter has no `classification` takes `default_classification` from `tracker.json`. The refusal names the file and the rule.
+1. **High-water mark.** An artifact derived from others is classified at least as high as the highest of its inputs. A summary of a confidential research note is confidential. *Decided, not built (HITLD-628):* derived data (a verdict, a summary, a headline, a result ID) takes the strictest label of its inputs, unless the owner lowers a named kind of derived data by a signed decision. Nothing is lowered by default.
+2. **Declassification is a decision.** Lowering an artifact's level (for example, publishing a research finding) is the owner's call, recorded as a decision. *Decided, not built (HITLD-627):* the decision is signed and carries a reason; tightening a label needs none.
+3. **Public repositories hold public artifacts only.** The commit guard and the tracker check script block any file whose front matter is above `public`, and any file whose path is listed as private in `policy.json`. As built, the ceiling is `project.classification_ceiling` and the private paths are `project.private_paths` (globs); a file whose front matter has no `classification` takes `default_classification` from `tracker.json`. The refusal names the file and the rule. *Decided, not built (HITLD-638):* this check stays and uses the same check function for the public place.
 4. **Stubs for confidential tracker entities.** When a public item needs a confidential decision, the public repository holds at most a stub (ID, title "confidential decision", state), so `needs` still resolves; the content lives in the private store. Decided: a stub ([Q6](22-open-questions.md)).
-5. **Third-party services by level.** A notification channel or tracker backend declares the highest level it may carry. Above that, only a pointer is sent.
-6. **Agents carry the level.** An agent given a confidential input is marked as holding confidential data for the rest of its life: its writes are classified at that level, and it may not write to the public repository. (This is enforced by the orchestrator at dispatch: briefs that cite confidential material go to agents whose write path is the private store.)
+5. **Third-party services by level.** A notification channel or tracker backend declares the highest level it may carry. Above that, only a pointer is sent. *Decided, not built (HITLD-635, HITLD-637):* each channel's clearance is in the owner's person-level settings. How a tracker's or a notification channel's limit is written there is not decided (nearest HITLD-637).
+6. **Agents carry the level.** An agent given a confidential input is marked as holding confidential data for the rest of its life: its writes are classified at that level, and it may not write to the public repository. (This is enforced by the orchestrator at dispatch: briefs that cite confidential material go to agents whose write path is the private store.) *Decided, not built (HITLD-632, HITLD-638):* a session's effective clearance, the narrower of its model's and its role's, is checked where data is returned to it. Whether this carrying rule stays beside that check is not decided (nearest HITLD-638).
 7. **Private names never reach a public repository.** Rules 3 and 6 work on whole files. A private name can still sit inside an ordinary public file, or in the text written around one: a commit message, a pull request, a comment, release notes. The private term list closes that gap, below.
 
 ### Private names

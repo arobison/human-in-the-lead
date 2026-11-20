@@ -418,6 +418,7 @@ Changes to the tracker interface ([3.3](0001-human-in-the-lead/03-data-model.md#
 - A hosted backend declares `max_classification` in `tracker.json`: `public` for a public GitHub repository, `internal` by default for a third-party service, never `confidential` ([10.3](0001-human-in-the-lead/10-security.md#103-information-classification)). Raising it is a decision.
 - A backend with `classificationEnforced: false` accepts only items at or below its level. An item above it stays in the private store, with a stub in the tracker if public work needs it ([Q6](0001-human-in-the-lead/22-open-questions.md#q6-what-does-the-public-repository-show-for-a-confidential-decision-that-public-work-depends-on)).
 - The snapshot holds the tracker's text, so it is classified at the backend's level and lives in the private store, never in a worktree.
+- *Decided, not built (HITLD-625, HITLD-637):* the levels above are today's levels. A tracker backend is a channel with a clearance on two dimensions, kept in the owner's person-level settings, and the one-time migration retires the four level names ([Classification levels](0001-human-in-the-lead/03-data-model.md#classification-levels)). Whether `max_classification` in `tracker.json` becomes a clearance, and how a hosted tracker's limit is written, is not decided (nearest HITLD-637).
 
 ## 16. The milestone and its build items
 
