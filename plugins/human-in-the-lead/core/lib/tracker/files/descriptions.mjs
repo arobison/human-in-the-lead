@@ -68,6 +68,33 @@ export function prose(text) {
     .replace(/`[^`\n]*`/g, (m) => ' '.repeat(m.length));
 }
 
+/**
+ * The text with its HTML comments removed: each span from an opening marker to the next closing
+ * one (or to the end), repeated until nothing changes, so a comment that removal leaves behind
+ * ("<!<!-- x -->-- y -->") is removed too. Used only to tell an empty section from a filled one.
+ * @param {string} text @returns {string}
+ */
+export function withoutComments(text) {
+  let out = text;
+  for (;;) {
+    let next = '';
+    let at = 0;
+    for (;;) {
+      const open = out.indexOf('<!--', at);
+      if (open < 0) {
+        next += out.slice(at);
+        break;
+      }
+      next += out.slice(at, open);
+      const close = out.indexOf('-->', open + 4);
+      if (close < 0) break;
+      at = close + 3;
+    }
+    if (next === out) return out;
+    out = next;
+  }
+}
+
 const DURATION = '(?:minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?|sprints?)';
 const AMOUNT =
   '(?:an?|one|two|three|four|five|six|a few|a couple of|half an?|\\d+(?:\\.\\d+)?(?:\\s*(?:-|to)\\s*\\d+(?:\\.\\d+)?)?)';
@@ -147,7 +174,7 @@ export function lintEntity({ data, body }, o = {}) {
   const parts = sections(body);
   const filled = (/** @type {string} */ name) => {
     const s = parts.get(name);
-    return Boolean(s && s.text.replace(/<!--[\s\S]*?-->/g, '').trim());
+    return Boolean(s && withoutComments(s.text).trim());
   };
   /** @param {keyof typeof RULES} rule @param {string} message @param {number} [line] */
   const say = (rule, message, line) =>

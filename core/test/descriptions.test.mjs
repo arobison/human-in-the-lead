@@ -7,6 +7,7 @@ import {
   descriptionWarnings,
   lintEntity,
   observable,
+  withoutComments,
 } from '../lib/tracker/files/descriptions.mjs';
 import { compileTerms } from '../lib/guard/private-terms.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
@@ -239,4 +240,25 @@ test('a judge that is the writer grades nothing, and the majority needs two of t
   assert.deepEqual(majorityFails([{ ...yes, clean: false }, { ...yes, clean: false }, yes]), [
     'clean',
   ]);
+});
+
+test('HTML comments are removed until none is left, nested or overlapping forms included', () => {
+  assert.equal(withoutComments('<!<!-- x -->-- y -->'), '');
+  assert.equal(withoutComments('a <!-- b --> c <!-- d'), 'a  c ');
+  assert.equal(withoutComments('<!-<!-- x -->- y -->z'), 'z');
+  assert.equal(withoutComments('no comment'), 'no comment');
+  assert.deepEqual(
+    rules(
+      { kind: 'work', title: 'T' },
+      '\n## Why\n\n<!<!-- x -->-- y -->\n\n## Done when\n\n- `npm test` passes.\n',
+    ),
+    ['missing-why'],
+  );
+  assert.deepEqual(
+    rules(
+      { kind: 'work', title: 'T' },
+      '\n## Why\n\n<!-- note --> Readers need it.\n\n## Done when\n\n- `npm test` passes.\n',
+    ),
+    [],
+  );
 });
