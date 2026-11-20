@@ -9,9 +9,11 @@
 //                   write is read back as a fact about the sandbox
 //   runSandboxed    runs one test file there: an isolated environment (no secrets), the permission
 //                   model (reads inside the directory only, writes only to its scratch, no child
-//                   processes, workers, addons or inspector), a network namespace where the machine
-//                   allows one, the network calls refused in-process (deny-network.mjs: best
-//                   effort, not a boundary), and a canary run first that shows those limits hold
+//                   processes, workers, addons or inspector), network and PID namespaces where the
+//                   machine allows them, the network calls and signals refused in-process
+//                   (deny-network.mjs: best effort, not a boundary), and a canary run first that
+//                   shows those limits hold. The count of network attempts is the test's own
+//                   report on stderr, so the refusal of a test that "tried the network" is advisory
 //   checkReproduction  takes the reproducer's reply, which is untrusted, and decides by script:
 //                   the only change is one new test file under a test directory; that file, put
 //                   on a fresh export of the base, fails the same way in every run with the error
@@ -365,18 +367,34 @@ export function nodeIsTrusted(version = process.versions.node) {
   return a !== x ? a > x : b !== y ? b > y : c >= z;
 }
 
+/**
+ * The namespaces a run goes in where the machine allows them: its own network (no interface but
+ * a loopback that is down) and its own process IDs, so it sees and can signal only its own
+ * processes. Not a mount namespace beyond /proc: pathname unix sockets stay reachable.
+ */
+const UNSHARE = Object.freeze(['--map-root-user', '--net', '--pid', '--fork', '--mount-proc']);
+
 /** @type {boolean | undefined} */
 let namespaceWorks;
 
 /**
- * Whether this machine lets an unprivileged process into a network namespace of its own
- * (`unshare --map-root-user --net`, Linux). Asked once per process; nothing requires it.
+ * For tests: true or false fixes whether runs use the namespaces (false runs the in-process
+ * layer alone), undefined asks the machine again.
+ * @param {boolean | undefined} value
+ */
+export function forceNetworkNamespace(value) {
+  namespaceWorks = value;
+}
+
+/**
+ * Whether this machine lets an unprivileged process into network and PID namespaces of its own
+ * (`unshare --map-root-user --net --pid`, Linux). Asked once per process; nothing requires it.
  */
 export function networkNamespace() {
   if (namespaceWorks === undefined) {
     const r =
       process.platform === 'linux'
-        ? spawnSync('unshare', ['--map-root-user', '--net', process.execPath, '-e', '0'], {
+        ? spawnSync('unshare', [...UNSHARE, process.execPath, '-e', '0'], {
             stdio: 'ignore',
             timeout: 10_000,
           })
@@ -404,7 +422,7 @@ function spawnRunner({ root, test, scratch, timeoutMs }) {
   const namespaced = networkNamespace();
   const r = spawnSync(
     namespaced ? 'unshare' : process.execPath,
-    namespaced ? ['--map-root-user', '--net', process.execPath, ...args] : args,
+    namespaced ? [...UNSHARE, process.execPath, ...args] : args,
     { cwd: root, env, encoding: 'utf8', timeout: timeoutMs + 15_000, maxBuffer: 16 * 1024 * 1024 },
   );
   const line = (r.stdout ?? '').trim().split('\n').pop() ?? '';
@@ -485,7 +503,7 @@ function checkSandboxHolds(layout) {
   removeInside(scratch, layout.dir);
   const r = spawnRunner({ root: layout.canary, test: CANARY_TEST, scratch, timeoutMs: TIMEOUT_MS });
   removeInside(layout.canary, layout.dir);
-  const held = r.outcome === 'pass' && r.tests.length === 6;
+  const held = r.outcome === 'pass' && r.tests.length === 8;
   if (!held) {
     throw new ReproduceError(
       'sandbox-unsafe',

@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { createSocket } from 'node:dgram';
@@ -21,6 +21,8 @@ import { buildConsumer, commitAll, fixtureGit } from '../lib/eval/orchestrator-f
 import { main } from '../lib/cli/main.mjs';
 import {
   fenceFor,
+  forceNetworkNamespace,
+  networkNamespace,
   nodeIsTrusted,
   readReproduction,
   validateReply,
@@ -124,14 +126,6 @@ async function check(f, reply, env = {}) {
   return cli(f.repo, ['reproduce', 'check', f.sandbox, '--reply', join(f.base, 'reply.json')], env);
 }
 
-/** @param {{ sandbox: string, repo: string }} f @param {string} path @param {string} text */
-async function run(f, path, text) {
-  put(join(f.sandbox, 'work'), path, text);
-  const r = await cli(f.repo, ['reproduce', 'run', f.sandbox, '--test', path]);
-  assert.equal(r.exit, 0, JSON.stringify(r.result));
-  return Object.fromEntries(r.result.tests.map((/** @type {any} */ t) => [t.name, t]));
-}
-
 const HEAD = ["import { test } from 'node:test';", "import assert from 'node:assert/strict';"].join(
   '\n',
 );
@@ -145,6 +139,7 @@ const ESCAPE_PROBE = [
   "import tls from 'node:tls';",
   "import dgram from 'node:dgram';",
   "import dns from 'node:dns';",
+  "import v8 from 'node:v8';",
   "import { lookup } from 'node:dns';",
   "import { lookup as lookupP, Resolver as ResolverP } from 'node:dns/promises';",
   "const config = JSON.parse(readFileSync(new URL('./escape.json', import.meta.url), 'utf8'));",
@@ -174,6 +169,9 @@ const ESCAPE_PROBE = [
   "test('raw pipe', () => { const Pipe = process.stdout._handle.constructor; const p = new Pipe(0); assert.throws(() => p.connect({ oncomplete() {} }, config.socket), denied); });",
   "test('raw pipe on stdout', () => assert.throws(() => process.stdout._handle.connect({ oncomplete() {} }, config.socket), denied));",
   "test('raw tcp', () => assert.throws(() => net._createServerHandle('127.0.0.1', 0, 4), denied));",
+  "test('raw dns channel', () => { const c = new dns.Resolver()._handle; assert.throws(() => c.setServers([[4, '127.0.0.1', config.udpPort]]), denied); assert.throws(() => c.queryA({}, 'exfil.example', false), denied); });",
+  "test('signal', () => assert.throws(() => process.kill(config.sleeper), { code: 'HITLD_SIGNAL_DENIED' }));",
+  "test('v8 flags', () => assert.throws(() => v8.setFlagsFromString('--allow-natives-syntax'), denied));",
   '',
 ].join('\n');
 
@@ -261,6 +259,10 @@ test(
       c.on('data', (d) => received.push(`uds:${d}`));
     }).listen(sock);
     await new Promise((r) => uds.once('listening', r));
+    // A process outside the sandbox, owned by the same user, that the test must not signal.
+    const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+      stdio: 'ignore',
+    });
     // The same request from outside the sandbox works.
     assert.equal(await (await fetch(`http://127.0.0.1:${port}/`)).text(), 'reached');
     // The probe is fixed text; what it needs to know is in test/escape.json beside it.
@@ -272,13 +274,29 @@ test(
         outside: join(f.repo, 'package.json'),
         link: join(f.sandbox, 'scratch', 'run', 'tmp', 'l'),
         socket: sock,
+        udpPort: udp.address().port,
+        sleeper: sleeper.pid,
       }),
     );
     process.env.HITLD_TEST_SECRET = 'not-for-the-sandbox';
+    // The in-process layer alone: no namespace, as on a machine that has none.
+    forceNetworkNamespace(false);
     let by;
+    let enforced;
     try {
-      by = await run(f, 'test/escape.test.mjs', ESCAPE_PROBE);
+      put(f.work, 'test/escape.test.mjs', ESCAPE_PROBE);
+      const r = await cli(f.repo, [
+        'reproduce',
+        'run',
+        f.sandbox,
+        '--test',
+        'test/escape.test.mjs',
+      ]);
+      assert.equal(r.exit, 0, JSON.stringify(r.result));
+      enforced = r.result.network_enforced;
+      by = Object.fromEntries(r.result.tests.map((/** @type {any} */ t) => [t.name, t]));
     } finally {
+      forceNetworkNamespace(undefined);
       delete process.env.HITLD_TEST_SECRET;
       server.close();
       // Give anything that got out time to arrive.
@@ -286,7 +304,12 @@ test(
       udp.close();
       uds.close();
       assert.deepEqual(received, [], `reached a listener outside: ${received.join(', ')}`);
+      // The process outside the sandbox lives on.
+      const alive = sleeper.exitCode === null && sleeper.signalCode === null;
+      sleeper.kill();
+      assert.equal(alive, true, 'the sandboxed test killed a process outside it');
     }
+    assert.equal(enforced, false);
     for (const name of ['fetch', 'http', 'socket', 'tls', 'udp']) {
       assert.equal(by[name].failure?.code, 'HITLD_NETWORK_DENIED', name);
     }
@@ -304,12 +327,46 @@ test(
       'raw pipe',
       'raw pipe on stdout',
       'raw tcp',
+      'raw dns channel',
+      'signal',
+      'v8 flags',
       'secret',
     ]) {
       assert.equal(by[name].passed, true, `${name}: ${JSON.stringify(by[name].failure)}`);
     }
     for (const name of ['outside', 'passwd', 'make a link', 'child', 'binding']) {
       assert.equal(by[name].failure?.code, 'ERR_ACCESS_DENIED', name);
+    }
+  },
+);
+
+test(
+  'where the machine allows namespaces, a run goes in them and says so',
+  RUNS_CODE,
+  async (t) => {
+    forceNetworkNamespace(undefined);
+    if (!networkNamespace()) {
+      t.skip('this machine gives no unprivileged network and PID namespaces');
+      return;
+    }
+    const f = await fixture();
+    put(f.work, 'test/plain.test.mjs', `${HEAD}\ntest('plain', () => assert.ok(true));\n`);
+    const r = await cli(f.repo, ['reproduce', 'run', f.sandbox, '--test', 'test/plain.test.mjs']);
+    assert.equal(r.result.outcome, 'pass', JSON.stringify(r.result));
+    assert.equal(r.result.network_enforced, 'network-namespace');
+    forceNetworkNamespace(false);
+    try {
+      const alone = await cli(f.repo, [
+        'reproduce',
+        'run',
+        f.sandbox,
+        '--test',
+        'test/plain.test.mjs',
+      ]);
+      assert.equal(alone.result.outcome, 'pass');
+      assert.equal(alone.result.network_enforced, false);
+    } finally {
+      forceNetworkNamespace(undefined);
     }
   },
 );

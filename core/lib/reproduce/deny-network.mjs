@@ -12,14 +12,18 @@
 // EventSource globals, and the connect, bind, listen and open methods of the raw Pipe, TCP and UDP
 // handle classes (reached from stdio and from handles made here first), so a handle pulled out of
 // an object cannot be used to connect either. The ESM named exports are synced to the
-// replacements. A refused call writes one marker line to stderr, which the runner counts, and
-// throws.
+// replacements; the raw c-ares channel behind every Resolver is refused too. Also refused:
+// process.kill and process._kill (signals to other processes of the same user; best effort without
+// a PID namespace) and v8.setFlagsFromString. A refused network call writes one marker line to
+// stderr, which the runner counts, and throws. The count is the test's own report: a test can
+// replace process.stderr.write and keep it at 0, so it is advisory; the refusal itself is not.
 
 import dgram from 'node:dgram';
 import dns from 'node:dns';
 import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
 import tls from 'node:tls';
+import v8 from 'node:v8';
 
 const MARKER = 'hitld-reproduce: network denied';
 
@@ -40,6 +44,20 @@ const refusal = (what) =>
   function denied() {
     return deny(what);
   };
+
+/** Refuse a process-wide function, counted as reach rather than network. @param {any} target @param {string} name */
+function replaceSignal(target, name) {
+  if (typeof target[name] !== 'function') return;
+  Object.defineProperty(target, name, {
+    value: function denied() {
+      const e = new Error(`the reproducer's sandbox refuses process.${name}`);
+      Object.assign(e, { code: 'HITLD_SIGNAL_DENIED' });
+      throw e;
+    },
+    writable: false,
+    configurable: false,
+  });
+}
 
 /** @param {object} target @param {string} name @param {string} what */
 function replace(target, name, what) {
@@ -146,6 +164,15 @@ for (const name of Object.getOwnPropertyNames(dgram.Socket.prototype)) {
 replace(dgram, 'createSocket', 'dgram.createSocket');
 replace(dgram, 'Socket', 'dgram.Socket');
 // The resolver classes are c-ares, which goes past net and dgram: every method is refused.
+// The raw c-ares channel behind every Resolver: its queries and server settings are refused too,
+// so a channel pulled out of a Resolver (its _handle) cannot send a query of its own.
+const channel = Object.getPrototypeOf(/** @type {any} */ (new dns.Resolver())._handle);
+for (const name of Object.getOwnPropertyNames(channel ?? {})) {
+  const d = Object.getOwnPropertyDescriptor(channel, name);
+  if (name !== 'constructor' && d?.configurable && typeof d.value === 'function') {
+    replace(channel, name, `cares#${name}`);
+  }
+}
 replaceMethods(dns.Resolver, 'dns.Resolver');
 replaceMethods(dns.promises.Resolver, 'dns.promises.Resolver');
 replaceAll(dns.promises, 'dns.promises');
@@ -154,4 +181,9 @@ for (const name of ['fetch', 'WebSocket', 'EventSource']) {
   if (name in globalThis) replace(globalThis, name, name);
 }
 // The named exports of node:dns, node:net and the rest were bound when the builtins loaded.
+// Not the network, but reach outside all the same: signals to other processes of the same user
+// (best effort; a PID namespace, where runSandboxed has one, is the boundary) and V8 flags.
+replaceSignal(process, 'kill');
+replaceSignal(process, '_kill');
+replace(v8, 'setFlagsFromString', 'v8.setFlagsFromString');
 syncBuiltinESMExports();
