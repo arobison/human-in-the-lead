@@ -96,6 +96,8 @@ interface HarnessCapabilities {
 }
 ```
 
+*Decided, not built (HITLD-625, HITLD-630, HITLD-637):* a model channel has a clearance in the owner's person-level settings, and the check compares a label with it on both dimensions, so `max_classification` as one level is replaced. By default the remote model on the owner's own account is cleared down to `approved-models`, a local model down to `local-model-only`, and any other provider for nothing until the owner decides ([information classification](10-security.md#labels-clearances-and-the-check-decided-not-built)). How a hosted runner's limit is written as a clearance is not decided (nearest HITLD-637).
+
 ### Degrading gracefully
 
 The orchestrator reads the capability set and adapts. Nothing in the core assumes a capability is present.

@@ -183,6 +183,8 @@ Different people need different views of the same progress:
 | **Contributors and users** | Release notes, changelog with credit, roadmap status | `public` |
 | **A team or leadership** | Status per long outcome and project: outcomes, risks, what is next | Set per audience in `policy.json` |
 
+*Decided, not built (HITLD-625, HITLD-637):* the ceilings above are today's levels, and a label has two dimensions. How an audience's ceiling becomes a clearance is not decided; the decisions name models, tools, the synced store and registered buckets, not people (nearest HITLD-637).
+
 Each audience has a template and a classification ceiling, and reports are generated from the same data with everything above the ceiling removed. Sending to anyone outside the project goes through the send gate ([part 9](09-contributors.md#93-replies)) and is the owner's decision until a precedent allows a routine report.
 
 <a id="127-in-v0"></a>

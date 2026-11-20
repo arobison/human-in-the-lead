@@ -18,6 +18,8 @@ The owner works on more than one machine. Some work runs locally, some on a mach
 - **Moving a store needs a person.** `hitld store sync <file>` merges and exports one encrypted file, but someone has to carry that file between machines ([13.1](0001-human-in-the-lead/13-operations.md#resuming-on-any-machine)).
 - **One passphrase guards every copy.** Every machine that can open the file holds the same secret. Removing one machine means changing it on all of them.
 
+*Classification (decided, not built; HITLD-631, HITLD-634).* In the owner's classification decisions, this store is the place class the owner's synced private store: a label whose reach is `synced-store` or wider may be held in it, and data whose reach is `this-machine` never enters it ([Classification levels](0001-human-in-the-lead/03-data-model.md#classification-levels)). Whether a store pushed to an S3-compatible transport later (the transports section) is still that class, or counts as a bucket class, is not decided (nearest HITLD-639).
+
 This design adds a **store remote**: storage that holds the project's store, which `hitld` pulls from and pushes to on its own. One requirement shapes everything below: **every move and all key handling is deterministic `hitld` code.** No skill, prompt or agent moves the store, holds a key, or decides when to sync. An agent that forgets a step, or is talked into a different one, cannot leak or lose the store.
 
 It proposes six decisions:

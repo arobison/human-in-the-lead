@@ -69,6 +69,8 @@ classification: public
 ---
 ```
 
+*Decided, not built (HITLD-626, HITLD-633):* a note is a file, so it carries a label, written as the object `classification: { readers: public, reach: anywhere }` in place of `public`. A note with no label takes its container's: a public repository's notes are public, and a note in the private store takes its store area's label.
+
 `supersedes` lets a replacement note retire an old one explicitly: the tool flags any remaining links to a superseded note, and the index omits it.
 
 ### The glossary handles vocabulary mismatch
@@ -116,7 +118,7 @@ Retrieval is **pluggable**, selected in `policy.json` (`kb.retriever`):
 Rules for the hybrid index:
 
 - **It is a cache, never the source of truth.** It lives outside the tracked tree (in the private store or a cache directory), can be deleted at any time, and is rebuilt from markdown.
-- **Classification applies to embeddings.** Embedding a note sends its text to whatever computes the embedding. Notes above `public` are embedded only by a local model or a service cleared for their level ([part 10](10-security.md#103-information-classification)).
+- **Classification applies to embeddings.** Embedding a note sends its text to whatever computes the embedding. Notes above `public` are embedded only by a local model or a service cleared for their level ([part 10](10-security.md#103-information-classification)). *Decided, not built (HITLD-625):* the embedder is a channel like any other, and it receives a note only when its clearance covers the note's label on both dimensions.
 - **The same retriever interface serves intake deduplication** ([part 2](02-loops.md#22-triage)), which compares stranger-written signals with each other and with existing items.
 
 **When to add the hybrid index.** It is added for a project when measurements say so, not by default:

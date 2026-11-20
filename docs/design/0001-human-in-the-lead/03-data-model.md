@@ -27,7 +27,7 @@ These rules decide what the model holds and how. Each rests on an idea in [part 
 
 - **IDs.** Every tracked entity has a global ID of the form `<KEY>-<n>`, where the key is set per project in `policy.json` (example in this document: `W`, giving `W-214`). Projects, milestones, items and decisions share one number space, so a reference never needs its kind to resolve. Releases are named by their tag (`v0.4.0`). Signals, precedents, studies, runs and ledger entries have their own prefixes (`SIG-`, `P-`, `FB-` for feedback records ([18.4](18-self-improvement.md#184-giving-feedback)), and the evidence source's own IDs) because they live in different stores. ID allocation rules for parallel worktrees are in [3.4](#id-allocation).
 - **Stored versus derived.** A field is either *stored* (written by someone, versioned in the backend) or *derived* (computed by scripts from stored fields, the ledger or git history). Derived fields are never written by hand, so they cannot go stale.
-- **Classification on everything.** Every entity has a `classification` field: `public`, `internal`, `confidential` or `secret` ([part 10](10-security.md)). It decides where the entity may be stored.
+- **Classification on everything.** Every entity has a `classification` field ([the security part](10-security.md#103-information-classification)). *As built:* its value is one of four levels, `public`, `internal`, `confidential` or `secret`, and it decides where the entity may be stored. *Decided, not built (HITLD-633, HITLD-636):* the field stays and holds a label, an object with two keys, `readers` (who or what may read the entity) and `reach` (the widest place it may go). The four levels are today's levels, retired after a one-time migration ([Classification levels](#classification-levels)).
 - **Untrusted text is marked.** Fields that hold text from outside the project's trust boundary (a reporter's issue body, a contributor's PR description) are typed `untrusted_text`. Agents read them as quoted data only.
 - **Times** are ISO 8601 with time zone. They are measurements, never plans.
 
@@ -55,7 +55,7 @@ Anything that arrived. Created by intake, updated by triage.
 | `judgments` | stored | Owner or area-owner judgments on it ([Judgment](#judgment)) |
 | `design_refs` | stored | Design sections that already cover the signal (`covers`) or relate to it (`related`), so triage does not file work the design already holds |
 | `state` | stored | `new`, `triaged`, `closed` |
-| `classification` | stored | From the source's default; raised by triage if needed |
+| `classification` | stored | From the source's default; raised by triage if needed. *Decided, not built (HITLD-633):* a label with `readers` and `reach`; an unlabeled signal takes its source's label (HITLD-626) |
 
 ### Project
 
@@ -244,7 +244,7 @@ The record of what reached users, written when the release is made, as one file 
 | `items` | derived | Items whose closing commits lie between `previous` and this tag, from `Work-Item` trailers. Written into the record when it is made, so readers need no git |
 | `notes` | derived | Generated from those items' `release_note` lines, with credit. Written into the record when it is made |
 | `milestones` | derived | Milestones whose check passed on the released code |
-| `classification` | stored | `public` for a public project |
+| `classification` | stored | `public` for a public project. After the migration, a label with readers `public` and reach `anywhere` (HITLD-634) |
 
 A **release item** (the work item that makes a release) carries the version it makes in a `release` key (`release: 0.1.0-rc.1`). Milestones are never named by version; the version lives on the release item, which `need`s what must be finished first: milestones and items. Everything it needs that is not done or dropped is a **gate**: the release waits for it. A milestone is met by its passing check; an item by its state. `hitld work check` refuses a `release` value that is not a version and two release items for one version. `hitld release propose` and `release make` find the release item whose `release` is the version they propose or make, and use it as if `--item` named it; `--item` still overrides, and an item whose `release` is another version is refused. Each gate is listed with its ID, title and state, `release make` refuses while one is open, and the release workflow's record check applies the same rule ([16.5](16-packaging.md#release-mechanics)). With no release item for the version and no `--item`, no gate is enforced.
 
@@ -271,7 +271,7 @@ A rule generalized from one or more answered decisions ([part 4](04-decision-rig
 | `applications` | Derived from decisions that cite it |
 | `overrules` | Derived: applications the owner later reversed |
 | `checked` | Date and policy version when last confirmed still valid |
-| `classification` | A precedent drawn from a confidential decision is itself confidential |
+| `classification` | A precedent drawn from a confidential decision is itself confidential. *Decided, not built (HITLD-628):* it takes the strictest label of its inputs, unless the owner lowers that kind by a signed decision |
 
 ### Study, run, verdict
 
@@ -295,7 +295,7 @@ A person who interacts with the project. Detail in [part 9](09-contributors.md).
 | `areas` | Areas they own or regularly contribute to |
 | `legal` | DCO sign-off seen; CLA if the project uses one |
 | `credit` | Derived: items, signals and reviews credited to them |
-| `notes` | Relationship notes. `confidential`; private store only |
+| `notes` | Relationship notes. `confidential`; private store only. After the migration, a label with readers `approved-models` and reach `synced-store` (HITLD-634) |
 
 ### Area
 
@@ -318,9 +318,13 @@ Who or what decided each thing, on what evidence, under which rules. One append-
 | `at` | Time |
 | `prev_hash` | Hash of the previous line, so any edit to the history is detectable (the chain is hash-linked, not tamper-proof) |
 
-The audit trail links to provenance ([part 6](06-verification.md#64-provenance)): a commit's trailers name its dispatch, and the audit trail names the decisions that dispatch acted under. Public decisions are also visible in the tracker; the audit trail adds the agent-side record and the rule versions, and it is `internal`.
+The audit trail links to provenance ([part 6](06-verification.md#64-provenance)): a commit's trailers name its dispatch, and the audit trail names the decisions that dispatch acted under. Public decisions are also visible in the tracker; the audit trail adds the agent-side record and the rule versions, and it is `internal`. *Decided, not built (HITLD-627):* a `classification-change` event records every change of a label; a loosening needs the owner's signed decision with its reason, and a tightening needs none and is recorded all the same.
 
 ### Classification levels
+
+Classification is being redesigned. The owner decided its shape on 2026-11-20, in a walk-through recorded as HITLD-625 to HITLD-635 (the taxonomy item is HITLD-620). **None of it is built.** This section gives both: the four levels the code uses today, and the labels that replace them. The four builds are HITLD-636 (labels and the migration), HITLD-637 (clearances and the check), HITLD-638 (enforcement at the commands that return data) and HITLD-639 (places, derived data and loosening). Until the migration has run, every `internal`, `confidential` and `secret` elsewhere in the design names a level of the first table, read through the mapping in [The one-time migration](#the-one-time-migration).
+
+#### Today's levels (as built)
 
 | Level | Meaning | May live in |
 |---|---|---|
@@ -329,7 +333,71 @@ The audit trail links to provenance ([part 6](06-verification.md#64-provenance))
 | `confidential` | Harm if leaked: research outputs, relationship notes, unreleased plans, private signals (email, private chat) | The private store only, never sent to a third-party service without the owner's decision |
 | `secret` | Credentials and keys | A secret manager only. Never in any artifact, any agent context, or any log |
 
-Rules for combining them are in [part 10](10-security.md#103-information-classification).
+The four levels sit on one ladder and answer one question: where may an artifact be stored. They do not say which models may read it, which is what the owner needed for a project's measurement results: may it go to a remote model, only to a local one, to no agent at all, and may it leave the machine it was produced on (HITLD-620). They are today's levels, retired after the migration.
+
+Rules for combining them are in [the security part](10-security.md#103-information-classification).
+
+#### Labels and clearances (decided, not built)
+
+**The structure (HITLD-625).** Data carries a **label**; each channel it could flow through (a model, a tool, a storage place) has a **clearance**. A label has two dimensions: who or what may read the data, and where it may go. Data flows only to a channel whose clearance covers the label in each dimension. The rules of the check, and where clearances live, are in [the security part](10-security.md#labels-clearances-and-the-check-decided-not-built).
+
+**Who or what may read it: `readers`** (HITLD-631, amended by HITLD-634 with a sixth value). Written explicitly, with no shorthand, because agents mostly use labels. Widest to narrowest:
+
+| Value | Who or what may read the data |
+|---|---|
+| `public` | Anyone |
+| `any-model` | Any model, from any provider or account (a channel's own clearance still applies) |
+| `approved-models` | The models the owner has approved: the owner's own provider account by default, plus any channel the owner has granted |
+| `local-model-only` | A local model, and no other model |
+| `tools-only` | Tools only; no model sees it |
+| `owner-only` | Nobody but the owner |
+
+**Where it may go: `reach`** (HITLD-631). The widest place the data may reach. The classes, tightest first:
+
+| Value | The widest place the data may go |
+|---|---|
+| `this-machine` | This machine only |
+| `synced-store` | The owner's synced private store ([design 0003](../0003-private-store-remote.md)) |
+| `bucket-client-encrypted` | A private bucket with client-side encryption |
+| `bucket-provider-managed` | A private bucket with provider-managed encryption |
+| `anywhere` | Anywhere |
+
+The values are spelled as the build item HITLD-636 proposes them; the owner's decisions give the vocabulary in words (HITLD-631, HITLD-634) and use `readers: approved-models` and `reach: synced-store` as the example of the written form (HITLD-633). The **owner registers concrete places** under a class: this machine, the store, a named bucket. A registration is a recorded decision (HITLD-631, HITLD-639).
+
+**What a label means for each storage backend** (HITLD-623). A measurement tool may own its storage, in a private bucket, instead of using the private store; a label therefore has to say what it means for each backend, not only which channels may carry the data. By the decisions, a label's `reach` is the widest place its data may go, so data may be held in a place of its own class or a tighter one:
+
+| Backend | Its class | Data held there |
+|---|---|---|
+| This machine's disk | `this-machine` | Data of any `reach`, since this is the tightest place |
+| The private store, synced between the owner's machines and encrypted to the devices the owner enrolled ([design 0003](../0003-private-store-remote.md)) | `synced-store` | Data whose `reach` is `synced-store` or wider; data whose `reach` is `this-machine` never enters it |
+| A private bucket a tool owns, where the tool encrypts before it uploads | `bucket-client-encrypted` | Data whose `reach` is this class or wider, once the owner has registered the bucket under it |
+| A private bucket a tool owns, protected by the provider's own encryption | `bucket-provider-managed` | Data whose `reach` is this class or wider, once the owner has registered the bucket under it |
+| A public repository, a public tracker, any public channel | `anywhere` | Only data whose `reach` is `anywhere` and whose `readers` is `public` |
+
+Not decided: the class of a hosted tracker or a third-party chat service, and whether a store pushed to an S3-compatible transport ([design 0003](../0003-private-store-remote.md)) stays the `synced-store` class or counts as a bucket. The nearest items are HITLD-637 (clearances) and HITLD-639 (registered places).
+
+**What carries a label, and the default (HITLD-626).** Entities, files, data areas, tool outputs and ledger events can carry a label. Unlabeled data takes its container's label: a public repository's files are public, a bucket or a store area has its own, and a tool's output takes the tool's setting. With no container, the label is the strictest: readers `owner-only`, reach `this-machine`. (*As built,* an item with no `classification` takes `default_classification` from `tracker.json`, as described under [the file format](#file-format); how that becomes the container's label is not decided in detail, nearest HITLD-636.)
+
+**The written form (HITLD-633).** The `classification` field stays, so that tooling that reads it still finds it, and its value is an object with two keys. The same form is used in front matter, in every command's JSON and in a tool's results:
+
+```yaml
+classification: { readers: approved-models, reach: synced-store }
+```
+
+The files backend's front matter holds strings and lists of strings only ([the file format](#file-format)); a label is the one object it will hold. How its reader parses that, and what the read API's `api_version` does about it, are left to the build item (HITLD-636).
+
+**Today's levels as a mapping.** The names above replace the four levels in a one-time migration, after which the old names are retired.
+
+##### The one-time migration
+
+| Today's level | Becomes (HITLD-634) |
+|---|---|
+| `public` | Readers `public`, reach `anywhere` |
+| `internal` | Readers `any-model`, reach `synced-store` |
+| `confidential` | Readers `approved-models`, reach `synced-store` |
+| `secret` | Not a label. Secrets are never stored in HITLD's data, and the guard refuses them |
+
+The sixth reader, `approved-models`, is what keeps `internal` and `confidential` distinct (HITLD-634, amending the five readers of HITLD-631). The migration is a registered step, idempotent, and retires the old names; no entity carries `secret` afterward (HITLD-636).
 
 ## 3.3 Adapter interfaces
 
@@ -364,7 +432,7 @@ interface TrackerCapabilities {
 ```
 
 - **Hosted backends (Linear, Jira, GitHub Issues)** can close an issue on merge (for example through closing keywords), but not in this model's states and trailers, and they have no `claimInBranch`. The adapter emulates both: a merge-queue step transitions items named in merged commits' trailers, and a claim writes a comment and an assignee. Fields the backend cannot hold natively go into a fenced metadata block in the description.
-- **Classification.** A backend that cannot restrict visibility per entity (`classificationEnforced: false`) accepts only entities at or below its own level. A public GitHub Issues backend accepts only `public` entities; `internal` and above go to the private store with a stub, or nowhere, per [part 22](22-open-questions.md).
+- **Classification.** A backend that cannot restrict visibility per entity (`classificationEnforced: false`) accepts only entities at or below its own level. A public GitHub Issues backend accepts only `public` entities; `internal` and above go to the private store with a stub, or nowhere, per [part 22](22-open-questions.md). *Decided, not built (HITLD-625, HITLD-637):* a tracker backend is a channel with a clearance, and the check compares an entity's label with it on both dimensions, so a public GitHub Issues backend accepts only an entity labeled readers `public` and reach `anywhere`. Whether `classificationEnforced` stays as a capability, and how a hosted tracker's clearance is written, is not decided (nearest HITLD-637).
 - **History** feeds flow metrics. With the files backend, history is git history of the item file, which is complete and hash-linked.
 
 ### Intake source adapter
@@ -387,6 +455,7 @@ interface RawSignal {
 }
 ```
 
+- `defaultClassification` is a level today. *Decided, not built (HITLD-626, HITLD-636):* it becomes the label a signal from this source gets when nothing else labels it, with the one-time migration mapping `public` and `confidential` as in [Classification levels](#classification-levels).
 - `pull` is run by the orchestrator at defined points (start of a run, after a merge batch, on the owner's request), never by a polling loop.
 - `reply` takes an `ApprovedReply`, a type that can only be constructed by the send gate ([part 9](09-contributors.md#93-replies)), so an adapter cannot send an unapproved draft by accident.
 
@@ -403,6 +472,7 @@ interface NotificationChannel {
 
 - **Remote Control** is the first channel: the main session is the channel. A question is a message in that session; the owner's answer is the next user turn.
 - `max_classification` caps what a channel may carry. A third-party chat service defaults to `internal`; a `confidential` question goes out as a pointer ("a confidential decision is waiting: W-412") rather than its content.
+- *Decided, not built (HITLD-635, HITLD-637):* channel clearances live in the owner's person-level settings ([the settings layers](13-operations.md#134-settings-in-four-layers)), and a channel's `max_classification` becomes its clearance there. How a notification channel's clearance is written, and whether a third-party chat service keeps a default (it is `internal` today), is not decided (nearest HITLD-637).
 - Quiet hours are enforced by the caller (the question-timing controller), not by each channel.
 
 ### Evidence source
@@ -505,7 +575,7 @@ The stored keys take the model's names (HITLD-82), except the parent: the files 
 | milestone | the common keys plus `project` (none for a long outcome), `owner`, `outcome`, `done_when`, `constraints`, `contributions`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
 | release record (`releases/<tag>.md`) | `id`, `version`, `previous`, `bump`, `interface_delta`, `decision`, `items`, `milestones`, `classification`; the body holds the notes |
 
-The front matter holds strings and lists of strings only, so each structured milestone entry is one line of text in a fixed form, and the read API returns it typed:
+The front matter holds strings and lists of strings only (*decided, not built (HITLD-633):* with one exception, the `classification` label, an object with two keys), so each structured milestone entry is one line of text in a fixed form, and the read API returns it typed:
 
 | Key | One entry |
 |---|---|
@@ -523,7 +593,7 @@ A decision's question, context, options, recommendation, precedent offer, rule b
 
 A milestone is `done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone (its check is a study), when `answered` is recorded by such a role. The check and the tracker refuse anything else.
 
-Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#project-and-item) (`area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_override`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them. `owner` is always allowed: a record without it is the owner's. An item with no `classification` key takes `default_classification`.
+Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#project-and-item) (`area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_override`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them. `owner` is always allowed: a record without it is the owner's. An item with no `classification` key takes `default_classification`. *Decided, not built (HITLD-626):* unlabeled data takes its container's label, and with no container the strictest.
 
 ```markdown
 ---

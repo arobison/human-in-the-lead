@@ -213,7 +213,9 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 | **Brief** | The short instruction an executor receives. Points at the item file; does not restate it. |
 | **Report** | The fixed-shape message an executor returns; its `result` says how the attempt ended. The HTML page of measures is the dashboard (`hitld dashboard`). |
 | **Logged call** | A cheap-to-undo decision an executor makes itself and records in its report. |
-| **Classification** | `public`, `internal`, `confidential`, `secret`. Sets where an artifact may live. |
+| **Classification** | As built: `public`, `internal`, `confidential`, `secret`, which set where an artifact may live; today's levels, retired after a one-time migration. Decided, not built (HITLD-625 to HITLD-635): the `classification` field holds a label, and a label is checked against a channel's clearance. |
+| **Label** | Decided, not built (HITLD-633): the value of the `classification` field, an object with two keys: `readers` (who or what may read the data: `public`, `any-model`, `approved-models`, `local-model-only`, `tools-only`, `owner-only`) and `reach` (the widest place it may go: `this-machine`, `synced-store`, `bucket-client-encrypted`, `bucket-provider-managed`, `anywhere`). Data with no label takes its container's label, and with none the strictest. |
+| **Clearance** | Decided, not built (HITLD-625, HITLD-635): what a channel (a model, a tool, a storage place) may receive, in the same two dimensions, kept in the owner's person-level settings. A session's effective clearance is the narrower of its model's and its role's. |
 | **Private store** | Where non-public artifacts live: the ledger, confidential research, relationship notes. Outside the public repo. |
 | **policy.json** | The data file holding every tunable setting and the owner's bounds on it. |
 | **Serial resource** | A resource only one executor may use at a time (a GPU, the merge queue). |
