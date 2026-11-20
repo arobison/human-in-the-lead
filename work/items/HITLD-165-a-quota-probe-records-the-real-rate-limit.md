@@ -31,9 +31,18 @@ On 2026-11-16, in the chief of staff session, the owner decided these in a desig
 - The gate probes when the last reading is older than a setting (30 minutes by default) and as the used share nears the reserve, and uses a fresh reading before the declared estimate.
 - The probe's cost is written to the ledger as probe spend and counted against no item.
 - A probe that is denied, fails or meets an unrecognized format is recorded with its reason, the gate falls back to the declared estimate, and the failure is raised through the escalation path: in the orchestrator's message, then relayed by the chief of staff to the owner. An eval scenario covers a denied probe, a failed one and a format change, and checks each reaches the owner.
-- The status-line usage capture (`hitld install --statusline` and the `hitld-statusline` command) is retired, with its tests, guide text and first-run offer, and the usage snapshot schema no longer has the `five_hour` field (see HITLD-151).
+- The status-line usage capture (`hitld install --statusline` and the `hitld-statusline` command) is retired, with its tests, guide text and first-run offer, and the usage snapshot's windows come from the probe's event instead (the owner's decision HITLD-416 keeps `rolling_5h` and a `five_hour` window for plans that have one, so the snapshot keeps whichever windows the event lists; the schema no longer carries the status-line's `rate_limits` shape).
+- The gate's five-hour rule that HITLD-151 added (`shownLimits()` in `core/lib/quota/quota.mjs`, which adds `claude-five-hour` only while the account's latest snapshot shows that window) reads the probe's windows, and the public text HITLD-151 wrote (README, design part 12, the new-project guide, `docs/reference/harness-usage-sources.md`, schema descriptions, comments) says "the plan's usage reading" where it now says "the status line".
 - Tests run against a recorded `rate_limit_event`. `npm run check`, the offline eval gate and `hitld work check` pass.
 
 ## Notes
 
 State stays `proposed` until the owner moves it to `planned`. The status-line readout of HITLD-56 was dropped by the owner (HITLD-175), so only the capture's retirement concerns the status line here. The granularity of `utilization` is not known: the one sample was a round 0.5. Related: HITLD-149 (a declared figure, settled by HITLD-164), HITLD-151.
+
+## Note on 2026-11-19
+
+The owner decided (HITLD-549, 550) that the pace controller reads the account's total utilization from this probe, so the probe is a prerequisite for HITLD-558.
+
+## Evidence on 2026-11-20
+
+The manual technique works from a cloud container today: `claude -p "reply with the single word ok" --model <smallest model> --output-format stream-json --verbose` prints a `rate_limit_event` whose `utilization` (0.90 at the reading) and `resetsAt` give the weekly figure with a resolution of 0.01, and `surpassedThreshold` names the last crossed threshold. It needed no owner input. The reset task now takes its reading this way.

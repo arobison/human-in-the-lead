@@ -703,7 +703,8 @@ test('device init: a name another key uses is refused before any key is made; no
   const kc = fakeKeychainTools(p.base);
   const env = p.envOf('desk', { PATH: kc.PATH });
   const taken = await hitld(['store', 'device', 'init', '--name', 'example-laptop'], p.root, env);
-  assert.equal(taken.json.error, 'device-name-taken');
+  // Where hitld has no keychain tool (Windows), a local key is refused for that first, as below.
+  assert.equal(taken.json.error, keychainTests ? 'device-name-taken' : 'device-no-keychain');
   assert.deepEqual(readdirSync(kc.vault), [], 'no orphan key');
 
   const empty = join(p.base, 'empty-bin');

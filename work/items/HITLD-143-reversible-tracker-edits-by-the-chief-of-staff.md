@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-16
 project: HITLD-15
-needs: [HITLD-150, HITLD-131]
+needs: [HITLD-150, HITLD-131, HITLD-288]
 ---
 
 ## Why
@@ -18,9 +18,14 @@ Tracker items are text files in git, so a change to one is easy to review and ea
 - A change in that class is made, logged with `hitld rights log` naming the item and the change, and listed in the digest with the command that reverses it. `hitld rights reverse` undoes it by a revert pull request that also lands without a further approval.
 - Merging such a pull request is the path HITLD-150 builds (the paths that wait, the delegated sign-off, the check on the diff). This item adds no merge authority of its own; it supplies the class of edits and the logging and reversal.
 - The delegation can be turned off in one setting, and an executor's session cannot use it.
+- **Decided by the owner (HITLD-424, HITLD-425):** the default list is the four edits above (create an item, fix wording inside an item's facts, add or correct a `needs` link, correct a duplicate), plus recording the owner's own answers as decisions. The delegation is **off by default**; the owner turns it on in the person file, per project, and asked for it to be turned on for this project: once the setting exists, the person file for this project is written with the list and the delegation on (the owner's own settings write, or the chief of staff's with their yes in the same turn).
 - The decision to delegate is recorded as the owner's own answer, and the orchestrate and chief-of-staff skills say when to use this path and when to ask.
 - Tests cover a change in the class, a change outside it, a diff that touches a file outside `work/`, a revert, and the setting turned off. `npm run check`, the offline eval gate and `hitld work check` pass.
 
 ## Notes
 
 Raised by the owner in the chief of staff session. It builds on HITLD-125 (one command to publish tracker changes), HITLD-133 (merging through pull requests) and HITLD-131 (tracker-only pull requests skip the code checks), and on the decision-rights design for two-way doors (part 4). HITLD-132's curator findings stay routed as that item says. The owner decides the class and the delegated sign-off, so the first step of whoever builds this is a decision for the owner, not a default.
+
+## Rewritten on 2026-11-20 (reconciliation, HITLD-576)
+
+Under the one trust engine (HITLD-507, 552) this item is the registration of a kind that the owner has already unlocked by standing rule: today's delegation is recorded as the owner's initial grant, a decision the owner signs dated at migration and citing the standing rule, with the same evidence and re-lock as any kind. It is not a separate rights mechanism.

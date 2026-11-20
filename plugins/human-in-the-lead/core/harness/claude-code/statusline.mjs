@@ -1,8 +1,9 @@
 // The usage capture (design part 12.5): Claude Code runs the project's status-line command with a
 // JSON description of the session on standard input, which includes the subscription's
-// rate_limits (the five-hour and weekly windows). This records them as a usage snapshot in the
-// project's private store, so the quota gate (piece (f)) has readings; the default quotas are
-// those two windows, and a declared quota with no reading stops dispatch.
+// rate_limits: the weekly window, and the five-hour window when it reports one (some plans have
+// it; Ultra and usage-based plans do not). This records them as a usage snapshot in the project's private
+// store, so the quota gate (piece (f)) has readings. The default quota is the weekly window; the
+// gate adds the five-hour one while a snapshot shows it, and a quota with no reading stops dispatch.
 //
 // It never fails the status line: a problem prints a short line and records nothing.
 
@@ -52,7 +53,7 @@ export function recordStatusLine(text, ctx) {
   const seven = windowOf(input?.rate_limits?.seven_day);
   const pct = (/** @type {{ used_percentage: number } | undefined} */ w) =>
     w ? `${Math.round(w.used_percentage)}%` : '?';
-  const line = `hitld: 5h ${pct(five)} · 7d ${pct(seven)}`;
+  const line = `hitld: ${five ? `5h ${pct(five)} · ` : ''}7d ${pct(seven)}`;
   if (!five && !seven)
     return {
       line,

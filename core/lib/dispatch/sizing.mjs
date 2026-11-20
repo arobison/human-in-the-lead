@@ -21,6 +21,11 @@ import {
   planRef,
   planSpecific,
 } from './item.mjs';
+import { effectiveEvents, sourceKind } from '../ledger/summary.mjs';
+import { ESTIMATE_SETTINGS, estimateSettings } from '../ledger/ledger.mjs';
+
+// The estimator's settings live beside the start estimate, which reads them too (HITLD-450).
+export { ESTIMATE_SETTINGS, estimateSettings };
 
 /**
  * @typedef {import('./item.mjs').Item} Item
@@ -30,6 +35,7 @@ import {
  * @property {string | null} kind
  * @property {number} tier
  * @property {number | null} tokens actual tokens, from the completion notice
+ * @property {boolean} [measured] the figure was measured by the harness, not typed by hand
  * @property {boolean | null} firstPass whether its first verification passed; false for a
  *   dispatch the watchdog found stalled, which was not a clean first pass whatever followed
  * @property {boolean} [stalled] the watchdog found it stalled (not cut off by a usage limit)
@@ -42,7 +48,14 @@ import {
  * @property {string} model the model class from policy.tiers: own, small or large
  * @property {string} effort
  * @property {number} estimate_tokens
- * @property {'hint' | 'item' | 'history' | 'default'} estimate_source
+ * @property {'item' | 'history' | 'default'} estimate_source
+ * @property {number} [estimate_samples] how many similar past completions with a token count there
+ *   were; their median sets the estimate only from dispatch.estimate_min_samples of them, and only
+ *   when it is within dispatch.estimate_max_multiple of the tier's default
+ * @property {string} [estimate_basis] where the estimate came from and how many completions it rests
+ *   on, in words: what the plan, `ready`, the brief and the quota gate say beside the figure
+ * @property {string} [estimate_note] set when the estimate fell back to the default although there
+ *   were similar completions, or kept a figure far above the default: the plan says it
  * @property {string[]} areas
  * @property {string | null} owner_review the area whose output the owner reviews in person, when
  *   there is one: the brief asks for a review pack
@@ -139,6 +152,7 @@ export function sizeItem(item, policy, history = []) {
     effort: 'medium',
   };
   const estimate = estimateTokens(item, t, areas, history, d);
+  if (estimate.note) reasons.push(estimate.note);
   const reviewed = areas.find((a) => (d.owner_review_areas ?? []).includes(a)) ?? null;
   if (reviewed) {
     reasons.push(`area ${reviewed} is reviewed in person: the brief asks for a review pack`);
@@ -152,47 +166,127 @@ export function sizeItem(item, policy, history = []) {
     effort: config.effort,
     estimate_tokens: estimate.tokens,
     estimate_source: estimate.source,
+    estimate_samples: estimate.samples,
+    estimate_basis: estimate.basis,
+    ...(estimate.note ? { estimate_note: estimate.note } : {}),
     areas,
     owner_review: reviewed,
   };
 }
 
+/** @param {number} n */
+const completions = (n) => `${n} similar past ${n === 1 ? 'completion' : 'completions'}`;
+/** @param {number} n */
+const thousands = (n) => n.toLocaleString('en-US');
+
 /**
  * The token estimate (design part 5.1): the median actual tokens of similar past items (same area,
- * kind and tier), scaled by the item's touches breadth; the policy default for the tier when there
- * are none. An estimate already on the item is kept.
+ * kind and tier), scaled by the item's touches breadth. The policy default for the tier stands
+ * instead when there are fewer than dispatch.estimate_min_samples of them, or when their median is
+ * more than dispatch.estimate_max_multiple times that default, so one odd record cannot set every
+ * estimate (HITLD-436, HITLD-439); a note says which. An estimate already on the item is kept, with
+ * a note when it is far above the default. `basis` says where the figure came from and how many
+ * completions it rests on, in words.
  * @param {Item} item @param {number} tier @param {string[]} areas @param {HistoryEntry[]} history
  * @param {Record<string, any>} d policy.dispatch
- * @returns {{ tokens: number, source: 'item' | 'history' | 'default' }}
+ * @returns {{ tokens: number, source: 'item' | 'history' | 'default', samples: number,
+ *   basis: string, note?: string }}
  */
 export function estimateTokens(item, tier, areas, history, d) {
-  if (Number.isInteger(item.estimate_tokens))
-    return { tokens: item.estimate_tokens, source: 'item' };
-  if (tier === 0) return { tokens: 0, source: 'default' };
+  const { min_samples: min, max_multiple: multiple } = estimateSettings(d);
+  const minKey = ESTIMATE_SETTINGS.min_samples.key;
+  const multipleKey = ESTIMATE_SETTINGS.max_multiple.key;
+  const base = Number(d.default_estimates?.[String(tier)] ?? 150000);
+  if (Number.isInteger(item.estimate_tokens)) {
+    const tokens = /** @type {number} */ (item.estimate_tokens);
+    const far = tier > 0 && base > 0 && tokens > base * multiple;
+    return {
+      tokens,
+      source: 'item',
+      samples: 0,
+      basis: "the item's own estimate_tokens (no completions behind it)",
+      ...(far
+        ? {
+            note: `estimate from the item's own estimate_tokens (${thousands(tokens)}), more than ${multiple} times the tier ${tier} default of ${thousands(base)} (${multipleKey}): kept, as the item sets it`,
+          }
+        : {}),
+    };
+  }
+  if (tier === 0)
+    return {
+      tokens: 0,
+      source: 'default',
+      samples: 0,
+      basis: 'tier 0: the orchestrator does it inline, no executor to budget',
+    };
   const breadth = Math.max(1, (item.touches ?? []).length);
   const scale = 1 + 0.25 * (breadth - 1);
-  const similar = history
-    .filter(
-      (h) => h.tier === tier && h.area === (areas[0] ?? null) && h.kind === (item.kind ?? null),
+  const scaled = breadth > 1 ? `, scaled by ${scale} for ${breadth} touches globs` : '';
+  const similar = /** @type {number[]} */ (
+    measuredFirst(
+      history.filter(
+        (h) => h.tier === tier && h.area === (areas[0] ?? null) && h.kind === (item.kind ?? null),
+      ),
+      min,
     )
-    .map((h) => h.tokens)
-    .filter((x) => typeof x === 'number');
-  if (similar.length)
+      .map((h) => h.tokens)
+      .filter((x) => typeof x === 'number')
+  );
+  const n = similar.length;
+  const mid = n ? median(similar) : 0;
+  if (n >= min && mid <= base * multiple)
     return {
-      tokens: Math.round(median(/** @type {number[]} */ (similar)) * scale),
+      tokens: Math.round(mid * scale),
       source: 'history',
+      samples: n,
+      basis: `the median of ${completions(n)} at tier ${tier}${scaled}`,
     };
-  const base = d.default_estimates?.[String(tier)] ?? 150000;
-  return { tokens: Math.round(base * scale), source: 'default' };
+  const fallback = `the tier ${tier} default (dispatch.default_estimates)${scaled}`;
+  /** @type {string | undefined} */
+  let note;
+  /** @type {string} */
+  let basis;
+  if (n === 0) {
+    basis = `${fallback}: no similar past completion yet`;
+  } else if (n < min) {
+    basis = `${fallback}: ${completions(n)} ${n === 1 ? 'is' : 'are'} fewer than the ${min} needed (${minKey})`;
+    note = `estimate from the tier ${tier} default: ${completions(n)} ${n === 1 ? 'is' : 'are'} too few to set it (${min} needed, ${minKey})`;
+  } else {
+    basis = `${fallback}: the median of ${completions(n)}, ${thousands(mid)}, is more than ${multiple} times the default (${multipleKey})`;
+    note = `estimate from the tier ${tier} default: the median of ${completions(n)}, ${thousands(mid)}, is more than ${multiple} times the default of ${thousands(base)}, so it is not used (${multipleKey})`;
+  }
+  return {
+    tokens: Math.round(base * scale),
+    source: 'default',
+    samples: n,
+    basis,
+    ...(note ? { note } : {}),
+  };
 }
 
 /**
- * History for sizing, from ledger events and the items they were about.
- * @param {Record<string, any>[]} events the ledger
+ * A measured figure weighs over a typed one (HITLD-438): when similar completions hold at least
+ * `min` figures the harness measured, the typed ones and those whose source the ledger does not
+ * state are set aside. Below that, every figure counts, as before the ledger said where they came
+ * from.
+ * @param {HistoryEntry[]} entries similar completions
+ * @param {number} min the sample the estimate needs
+ * @returns {HistoryEntry[]}
+ */
+export function measuredFirst(entries, min) {
+  const measured = entries.filter((h) => h.measured === true && typeof h.tokens === 'number');
+  return measured.length >= min ? measured : entries;
+}
+
+/**
+ * History for sizing, from ledger events and the items they were about. Events are read as they
+ * stand after corrections, so a corrected completion counts with its corrected token figure.
+ * @param {Record<string, any>[]} ledger the ledger
  * @param {(id: string) => Item | undefined} itemOf
  * @returns {HistoryEntry[]}
  */
-export function historyFromLedger(events, itemOf) {
+export function historyFromLedger(ledger, itemOf) {
+  const events = effectiveEvents(ledger);
   /** @type {Map<string, Record<string, any>>} */
   const dispatched = new Map();
   /** @type {Map<string, boolean>} first verification per item */
@@ -225,6 +319,9 @@ export function historyFromLedger(events, itemOf) {
       kind: item?.kind ?? null,
       tier: d.tier,
       tokens: e.event === 'reported' && typeof e.tokens === 'number' ? e.tokens : null,
+      ...(e.event === 'reported' && sourceKind(e.tokens_source) === 'measured'
+        ? { measured: true }
+        : {}),
       // A stall counts against familiar ground: the calibration sees it as a miss at its tier.
       firstPass: stall
         ? false

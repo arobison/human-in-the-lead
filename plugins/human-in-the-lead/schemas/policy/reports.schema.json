@@ -43,6 +43,20 @@
       "type": "integer",
       "minimum": 1,
       "default": 168
+    },
+    "dashboard_plan_states": {
+      "description": "The item states the dashboard's plan graph draws by default (design part 12.1.3). Proposed items have their own view, Proposals; the full graph stays in work/views/items-graph.md.",
+      "type": "array",
+      "items": { "enum": ["proposed", "planned", "in-progress", "done", "dropped"] },
+      "uniqueItems": true,
+      "minItems": 1,
+      "default": ["planned", "in-progress"]
+    },
+    "dashboard_plan_max_items": {
+      "description": "The most items the dashboard's plan graph draws. Past it, the graph is cut by project: whole projects in ID order until the next would pass the limit, and the rest are named under it.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 150
     }
   },
   "additionalProperties": false

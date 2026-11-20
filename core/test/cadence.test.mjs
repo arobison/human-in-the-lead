@@ -4,6 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
@@ -13,7 +14,7 @@ import { EXIT, main } from '../lib/cli/main.mjs';
 import { COMMANDS, findCommand } from '../lib/cli/table.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
 import { countChanges, dueJobs, eventsSince, outcomesByPerson } from '../lib/cadence/due.mjs';
-import { idleThreshold, readIdle } from '../lib/cadence/idle.mjs';
+import { idleThreshold, machineLoadPerCore, readIdle } from '../lib/cadence/idle.mjs';
 import { markJobDone, readCadenceState } from '../lib/cadence/state.mjs';
 import { makeProject } from './helpers/project.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -22,11 +23,16 @@ const T0 = Date.parse('2026-11-14T12:00:00Z');
 const HOUR = 3_600_000;
 const iso = (/** @type {number} */ ms) => new Date(ms).toISOString();
 
-/** @param {Record<string, any>} [over] the policy sections to change */
+/**
+ * The policy, with the stale-item sweep off unless `over` sets it, so the tests of the other jobs
+ * see only those; the sweep's own test turns it on.
+ * @param {Record<string, any>} [over] the policy sections to change
+ */
 const policyWith = (over = {}) => {
   const { policy, errors } = resolvePolicy({
     schema_version: 1,
     project: { id: 'cadence-test', key: 'W' },
+    sweep: { every_merges: 0 },
     ...over,
   });
   assert.deepEqual(errors, []);
@@ -85,7 +91,10 @@ test('the policy keys say what they measure, with defaults and descriptions', ()
   assert.equal(p.baselines.every_merges, 1);
   assert.equal(p.eval.every_merges, 1);
   assert.equal(p.review.every_outcomes, 10);
-  for (const section of ['reports', 'digests', 'baselines', 'review']) {
+  const defaults = resolvePolicy({ schema_version: 1, project: { id: 'cadence-test', key: 'W' } });
+  assert.equal(defaults.policy?.sweep.every_merges, 1);
+  assert.equal(defaults.policy?.sweep.proposed_max_age, 0);
+  for (const section of ['reports', 'digests', 'baselines', 'review', 'sweep']) {
     const s = schemas().get(`policy/${section}`);
     for (const [key, sub] of Object.entries(/** @type {Record<string, any>} */ (s.properties))) {
       assert.ok(sub.description, `${section}.${key} has a description`);
@@ -327,6 +336,12 @@ test('a review is held in quiet hours: it is a read against the attention budget
   assert.equal(r.held[0]?.job, 'review');
 });
 
+test('Windows has no load average: the load per core is the busy share of a CPU sample', () => {
+  // os.loadavg() is always zero on Windows; the sample reads on the same scale, 0 to 1 per core.
+  const load = machineLoadPerCore('win32');
+  assert.ok(load >= 0 && load <= 1, String(load));
+});
+
 test('the machine is idle only with no executor running and low load', () => {
   assert.equal(readIdle({ machineRoot: '/none', loadPerCore: 0.1, liveCount: 0 }).idle, true);
   const loaded = readIdle({ machineRoot: '/none', loadPerCore: 0.6, liveCount: 0 });
@@ -368,6 +383,14 @@ test('the cadence state round-trips through the private store and refuses a dama
 function cli() {
   const project = makeProject();
   const config = tempDir('hitld-cadence-config-');
+  // Quiet hours are read in the person's time zone, which defaults to the machine's: fix it, so
+  // what is due at 10:00 UTC does not depend on where the tests run.
+  mkdirSync(join(config, 'human-in-the-lead'));
+  writeFileSync(
+    join(config, 'human-in-the-lead', 'person.json'),
+    JSON.stringify({ schema_version: 2, attention: { timezone: 'UTC' } }),
+    { mode: 0o600 },
+  );
   const env = { ...project.env, XDG_CONFIG_HOME: config };
   /** @param {string[]} argv @param {NodeJS.ProcessEnv} [over] */
   const hitld = async (argv, over = env) => {
@@ -382,6 +405,38 @@ function cli() {
   };
   return { project, hitld, env };
 }
+
+test('the stale-item sweep is due after merges, on a busy machine and in quiet hours, and says what it runs', () => {
+  const on = policyWith({ sweep: { every_merges: 2 } });
+  const one = dueJobs(context({ events: merges(1), policy: on }));
+  assert.equal(entryOf(one, 'sweep'), undefined);
+  assert.match(one.waiting.find((w) => w.job === 'sweep')?.waiting_for ?? '', /1 more merge/);
+  const quiet = { active: true, until: iso(T0 + 8 * HOUR) };
+  const two = dueJobs(context({ events: merges(2), policy: on, idle: busy, quiet }));
+  const entry = entryOf(two, 'sweep');
+  assert.equal(entry?.trigger, 'threshold');
+  assert.deepEqual(entry?.why, ['2 merges since the last sweep (threshold 2)']);
+  assert.deepEqual(entry?.run, ['hitld work sweep']);
+  assert.match(entry?.then[0] ?? '', /orchestrator.*curator/);
+  assert.equal(
+    entry?.then.at(-1),
+    'hitld cadence done sweep --through E-' + n + ' --trust-through 0',
+  );
+  // Marked done through the last merge: nothing new to sweep.
+  const events = merges(2);
+  const marked = dueJobs(
+    context({
+      events,
+      policy: on,
+      state: { schema_version: 1, jobs: { sweep: { at: iso(T0), through: events[1].id } } },
+    }),
+  );
+  assert.equal(entryOf(marked, 'sweep'), undefined);
+  // 0 is off.
+  const off = dueJobs(context({ events: merges(5) }));
+  assert.equal(entryOf(off, 'sweep'), undefined);
+  assert.match(off.waiting.find((w) => w.job === 'sweep')?.waiting_for ?? '', /0 \(off\)/);
+});
 
 test('hitld cadence is in the command table, built, with MCP input schemas', () => {
   for (const name of ['cadence due', 'cadence done']) {
@@ -406,7 +461,7 @@ test('hitld cadence due reads the ledger and says what is due; cadence done clea
   const due = await hitld(['cadence', 'due', '--now', now, '--load', '2']);
   assert.deepEqual(
     due.result.due.map((/** @type {any} */ d) => d.job),
-    ['digest'],
+    ['digest', 'sweep'],
   );
   assert.equal(due.result.due[0].trigger, 'threshold');
   assert.equal(due.result.idle.idle, false);
@@ -424,6 +479,8 @@ test('hitld cadence due reads the ledger and says what is due; cadence done clea
   const done = await hitld(['cadence', 'done', 'digest', '--through', 'merged-W-5', '--now', now]);
   assert.equal(done.code, EXIT.ok);
   assert.equal(done.result.mark.through, 'merged-W-5');
+  const swept = await hitld(['cadence', 'done', 'sweep', '--through', 'merged-W-5', '--now', now]);
+  assert.equal(swept.code, EXIT.ok);
   const after = await hitld(['cadence', 'due', '--now', now, '--load', '2']);
   assert.deepEqual(after.result.due, []);
   // Idle and a moved branch: baselines and evals run, and the owner's presence brings the report.

@@ -47,7 +47,7 @@
       "default": 5
     },
     "default_estimates": {
-      "description": "The token estimate per tier when no similar item has been done before. Replaced by the median of similar past items once there are some.",
+      "description": "The token estimate per tier until there are enough similar past items. Replaced by the median of similar past items once there are estimate_min_samples of them and the median is within estimate_max_multiple of the default (one wrong figure cannot set the estimate).",
       "type": "object",
       "properties": {
         "1": { "$ref": "common#/$defs/tokens" },
@@ -56,6 +56,18 @@
       },
       "additionalProperties": false,
       "default": { "1": 60000, "2": 150000, "3": 400000 }
+    },
+    "estimate_min_samples": {
+      "description": "How many similar past completions (same area, kind and tier, with a token count) the estimate needs before their median replaces the tier's default. Below it the plan uses the default and says the sample is too small.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 3
+    },
+    "estimate_max_multiple": {
+      "description": "A median of similar past completions more than this many times the tier's default is not used: the plan uses the default and says why. An estimate set on the item itself is kept, with a note. A start estimate the ledger records is read capped at this many times its tier's default, unless the item set it: the --tokens-over-estimate refusal, the watchdog's limits and estimate against actual rest on the capped figure.",
+      "type": "number",
+      "minimum": 1,
+      "default": 3
     },
     "report_at_budget_multiple": {
       "description": "The brief asks the executor to report at this multiple of its token budget, even if unfinished.",

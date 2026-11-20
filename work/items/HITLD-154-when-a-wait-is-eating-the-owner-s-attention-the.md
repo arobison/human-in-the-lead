@@ -2,7 +2,7 @@
 id: HITLD-154
 title: When a wait is eating the owner's attention, the system says it is real friction, records it, and changes the plan
 kind: work
-state: planned
+state: proposed
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ Design part 2 says the constraint of the system is usually the owner's attention
 ## Notes
 
 Raised by the owner in the chief of staff session. It needs HITLD-134 (`rights record`, merged) and relates to HITLD-153 (a start refused with nothing running), HITLD-143 and HITLD-150 (merging without a per-change owner approval), and HITLD-48 (friction signals for maintainers, which counts events per HITLd version and is a different purpose). The attention budget is HITLD-84 (done).
+
+## Returned to proposed on 2026-11-20 (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (493,509,508): friction sensor, attention budget, owner waiting. The decisions since then are stay in the harness and answers by proof (HITLD-540, 515); the pace decisions (HITLD-530, 549, 550); the audit of defaults (HITLD-532 to 538). The owner decided (HITLD-578) that the items the decisions change most return to `proposed` until reshaped, so the planner does not offer them; the owner promotes the item again once it is reshaped.

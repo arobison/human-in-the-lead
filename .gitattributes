@@ -1,2 +1,3 @@
+* text=auto eol=lf
 core/test/fixtures/age/testdata/** binary
 core/test/fixtures/store/*.hitld binary

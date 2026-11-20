@@ -144,7 +144,10 @@
     {
       "id": "chief-of-staff-has-the-file",
       "grader": "matches",
-      "with": { "path": "steps.status.result.handover_file", "pattern": "orchestrator/handover-" }
+      "with": {
+        "path": "steps.status.result.handover_file",
+        "pattern": "orchestrator[\\\\/]handover-"
+      }
     },
     {
       "id": "successor-without-force",

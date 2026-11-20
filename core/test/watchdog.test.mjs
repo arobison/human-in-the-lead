@@ -17,6 +17,7 @@ import { historyFromLedger } from '../lib/dispatch/sizing.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { progressTimes } from '../lib/dispatch/progress.mjs';
 import { stallLimits, watchDispatches } from '../lib/dispatch/watch.mjs';
+import { silentOrchestrator } from '../lib/run/messages.mjs';
 import { pauseTransition } from '../lib/quota/pause.mjs';
 import { evaluateQuotas } from '../lib/quota/quota.mjs';
 import { declaredReset } from '../lib/quota/window.mjs';
@@ -661,4 +662,155 @@ test('an interactive session cut off by a limit is poked through the chief of st
   ];
   assert.equal(judge(after, 3800).state, 'progressing', 'its clock starts again from the poke');
   assert.equal(judge(after, 3700 + 5400).step, 'poke', 'then the ordinary ladder');
+});
+
+// --- A silent orchestrator (HITLD-144) -----------------------------------------------------------
+
+test('silentOrchestrator: woken or working after the last message heard, and quiet past the limit', () => {
+  const lease = {
+    session: 's-1',
+    harness_ref: 'session_orch',
+    renewed_at: '2026-11-16T10:00:00.000Z',
+  };
+  const now = Date.parse('2026-11-16T11:00:00.000Z');
+  // No record: no chief of staff records messages here, so nothing is judged.
+  assert.equal(silentOrchestrator({ record: null, lease, now }), null);
+  // A released lease is the successor path, not this one.
+  assert.equal(
+    silentOrchestrator({
+      record: { schema_version: 1, woke_at: '2026-11-16T10:10:00.000Z' },
+      lease: { ...lease, released: { reason: 'handover' } },
+      now,
+    }),
+    null,
+  );
+  // Woken at 10:10 and nothing heard: silent after the default 900 seconds.
+  const s = silentOrchestrator({
+    record: { schema_version: 1, woke_at: '2026-11-16T10:10:00.000Z' },
+    lease,
+    now,
+  });
+  assert.equal(s?.session, 'session_orch');
+  assert.equal(s?.since, '2026-11-16T10:10:00.000Z');
+  assert.equal(s?.quiet_seconds, 3000);
+  assert.match(String(s?.why), /was woken .* its turn ended without one/);
+  // Heard after the wake: all is well.
+  assert.equal(
+    silentOrchestrator({
+      record: {
+        schema_version: 1,
+        woke_at: '2026-11-16T10:10:00.000Z',
+        heard_at: '2026-11-16T10:12:00.000Z',
+      },
+      lease,
+      now,
+    }),
+    null,
+  );
+  // Within the limit: the turn may still be running.
+  assert.equal(
+    silentOrchestrator({
+      record: { schema_version: 1, woke_at: '2026-11-16T10:10:00.000Z' },
+      lease,
+      now,
+      afterSeconds: 3600,
+    }),
+    null,
+  );
+  // The lease renewed after the last message: work recorded, then no message.
+  const w = silentOrchestrator({
+    record: { schema_version: 1, heard_at: '2026-11-16T09:00:00.000Z' },
+    lease,
+    now,
+  });
+  assert.match(
+    String(w?.why),
+    /recorded work at 2026-11-16T10:00:00.000Z .*last heard 2026-11-16T09:00:00.000Z/,
+  );
+});
+
+test('the watch reports an orchestrator whose turn ended with no message to the chief of staff', async () => {
+  const c = clocked();
+  c.status(10, 72000);
+  await c.hitld(['run', 'start', '--harness-ref', 'session_orch']);
+  const cos = { HITLD_SESSION: 'cos' };
+
+  // Without the chief of staff's record, nothing is judged.
+  c.at(5000);
+  assert.equal((await c.hitld(['dispatch', 'watch'], cos)).result.orchestrator_silent, undefined);
+
+  // The chief of staff wakes the orchestrator and records it.
+  c.at(5010);
+  const woke = await c.hitld(['run', 'woke', '--to', 'session_orch'], cos);
+  assert.equal(woke.exit, 0, JSON.stringify(woke.result));
+  assert.equal(woke.result.messages.woke_to, 'session_orch');
+
+  // Its turn may still run: within the limit, no flag.
+  c.at(5500);
+  const early = await c.hitld(['dispatch', 'watch'], cos);
+  assert.equal(early.result.orchestrator_silent, undefined);
+  assert.equal(early.result.wake, false);
+
+  // Past the limit with no message heard: the turn ended without one, and the check-in says so.
+  c.at(6000);
+  const late = await c.hitld(['dispatch', 'watch'], cos);
+  assert.equal(late.result.orchestrator_silent.session, 'session_orch');
+  assert.equal(late.result.wake, true);
+  assert.match(
+    late.result.wake_message,
+    /^watch: no message from you since .*: send your end-of-turn message to the chief of staff$/,
+  );
+
+  // Its message arrives and the chief of staff records it: no flag.
+  c.at(6100);
+  assert.equal((await c.hitld(['run', 'heard', '--from', 'session_orch'], cos)).exit, 0);
+  c.at(8000);
+  assert.equal((await c.hitld(['dispatch', 'watch'], cos)).result.orchestrator_silent, undefined);
+
+  // It records work afterwards (a checkpoint renews the lease) and sends nothing: flagged again.
+  c.at(8100);
+  assert.equal((await c.hitld(['run', 'checkpoint'])).exit, 0);
+  c.at(9100);
+  const worked = await c.hitld(['dispatch', 'watch'], cos);
+  assert.match(worked.result.orchestrator_silent.why, /recorded work/);
+
+  // The record is the chief of staff's: an executor is refused.
+  const refused = await c.hitld(['run', 'heard'], {
+    HITLD_ROLE: 'executor',
+    HITLD_DISPATCH: 'D-9',
+  });
+  assert.equal(refused.result.error, 'not-permitted');
+});
+
+test('repeated silence goes to the owner: the third unanswered wake sets escalate_to_owner, a message heard resets it', async () => {
+  const c = clocked();
+  c.status(10, 72000);
+  await c.hitld(['run', 'start', '--harness-ref', 'session_orch']);
+  const cos = { HITLD_SESSION: 'cos' };
+  /** Wake at `t`, and read the watch past the quiet limit. @param {number} t */
+  const wakeThenWatch = async (t) => {
+    c.at(t);
+    assert.equal((await c.hitld(['run', 'woke', '--to', 'session_orch'], cos)).exit, 0);
+    c.at(t + 1000);
+    return (await c.hitld(['dispatch', 'watch'], cos)).result.orchestrator_silent;
+  };
+
+  const first = await wakeThenWatch(1000);
+  assert.equal(first.wakes_since_heard, 1);
+  assert.equal(first.escalate_to_owner, false);
+  const second = await wakeThenWatch(3000);
+  assert.equal(second.wakes_since_heard, 2);
+  assert.equal(second.escalate_to_owner, false, 'two wakes: not yet');
+  const third = await wakeThenWatch(5000);
+  assert.equal(third.wakes_since_heard, 3);
+  assert.equal(third.escalate_after_wakes, 3);
+  assert.equal(third.escalate_to_owner, true, 'three wakes: the owner is told');
+
+  // A message heard resets the count; the next silence starts again from one wake.
+  c.at(6100);
+  const heard = await c.hitld(['run', 'heard', '--from', 'session_orch'], cos);
+  assert.equal(heard.result.messages.wakes_since_heard, 0);
+  const again = await wakeThenWatch(7000);
+  assert.equal(again.wakes_since_heard, 1);
+  assert.equal(again.escalate_to_owner, false);
 });

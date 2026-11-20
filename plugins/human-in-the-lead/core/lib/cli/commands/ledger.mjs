@@ -2,9 +2,17 @@
 // chief of staff reads and records about the run: who holds the lease, and retiring a session that
 // ended without a hand-over.
 
+import { join } from 'node:path';
 import { findRepoRoot, loadPolicy, policyDefaults } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
-import { LedgerError, appendEvent, correctsValidly, readLedger } from '../../ledger/ledger.mjs';
+import {
+  LedgerError,
+  appendEvent,
+  correctsValidly,
+  readLedger,
+  startEstimateOf,
+} from '../../ledger/ledger.mjs';
+import { TOKENS_FAR_ABOVE_ESTIMATE } from '../../run/protocol.mjs';
 import { inflight } from '../../ledger/inflight.mjs';
 import { summary } from '../../ledger/summary.mjs';
 import { LeaseError } from '../../run/lease.mjs';
@@ -24,6 +32,7 @@ import {
 import { absorb } from '../../run/state.mjs';
 import { gitReality } from '../../run/reality.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
+import { recordMessage } from '../../run/messages.mjs';
 import { refuseHeldElsewhere, restoreState } from '../../run/pulled.mjs';
 import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
@@ -217,6 +226,37 @@ const RAW_APPEND_FIELDS = {
   reverted: ['item', 'dispatch', 'commit', 'notes', 'corrects'],
 };
 const RAW_APPEND_EVENTS = Object.keys(RAW_APPEND_FIELDS);
+/**
+ * What a correction of a completion does not copy from it: its own, or set afresh. A corrected
+ * figure is typed by hand, so the harness's counts the original carried do not stand beside it
+ * (HITLD-438); what the executor said it cost does.
+ */
+const OWN_FIELDS = [
+  'id',
+  'at',
+  'schema_version',
+  'run',
+  'corrects',
+  'notes',
+  'tokens',
+  'tokens_source',
+  'usage',
+];
+/**
+ * What a correction of a dispatch's start estimate does not copy from it: its own, or set afresh.
+ * A corrected estimate is typed by hand and rests on no completion (HITLD-450).
+ */
+const OWN_ESTIMATE_FIELDS = [
+  'id',
+  'at',
+  'schema_version',
+  'run',
+  'corrects',
+  'notes',
+  'estimate_tokens',
+  'estimate_source',
+  'estimate_samples',
+];
 /** Fields the system sets: a caller's are dropped, not refused. */
 const SYSTEM_FIELDS = ['id', 'run', 'at', 'schema_version'];
 
@@ -322,6 +362,246 @@ const table = [
       }),
   },
   {
+    name: 'ledger correct-tokens',
+    summary:
+      "Correct a completion's recorded token count: a reported event that corrects the named one, as the session holding the lease",
+    built_by: 'b',
+    args: [
+      {
+        name: 'event',
+        type: 'string',
+        positional: true,
+        required: true,
+        description:
+          "The ID of the reported event whose tokens are wrong (reported-D-<n> for a dispatch's completion), or of the correction that now stands for it",
+      },
+      {
+        name: 'tokens',
+        type: 'integer',
+        required: true,
+        description:
+          'What the dispatch cost: output tokens plus fresh input (uncached input and cache writes), never cache reads',
+      },
+      {
+        name: 'why',
+        type: 'string',
+        required: true,
+        description:
+          'Why the recorded figure is wrong, in a sentence: recorded with the correction',
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const tokens = /** @type {number} */ (input.tokens);
+        const why = String(input.why ?? '').trim();
+        if (!Number.isInteger(tokens) || tokens < 0) {
+          return {
+            ok: false,
+            error: 'usage',
+            message: '--tokens must be a whole number, 0 or more',
+          };
+        }
+        if (!why)
+          return { ok: false, error: 'usage', message: '--why must say why, in a sentence' };
+        const s = setup(input, ctx);
+        const loaded = loadState(s.store);
+        if (!loaded.state) {
+          throw new CodedError(
+            'no-run',
+            `no run state (${loaded.problems.join('; ')}); start a run with hitld run start`,
+          );
+        }
+        const by = who(input, ctx, s.store);
+        const run = new Run(
+          s.store,
+          { ...by, kept: s.kept, expirySeconds: s.expirySeconds },
+          loaded.state,
+        );
+        const id = String(input.event);
+        const events = readLedger(s.store).events;
+        const target = events.find((e) => e.id === id);
+        if (!target || target.event !== 'reported') {
+          return {
+            ok: false,
+            error: 'forbidden-correction',
+            message: `${id} is ${target ? `a ${target.event} event` : 'not in the ledger'}; only a completion (a reported event) has a token count to correct`,
+          };
+        }
+        // One correction stands for an event at a time: a second one corrects the first, so the
+        // ledger never holds two figures for the same completion.
+        const standing = events.find((e) => e.corrects === id && correctsValidly(target, e));
+        if (standing) {
+          return {
+            ok: false,
+            error: 'already-corrected',
+            message: `${id} was already corrected by ${standing.id} (tokens ${standing.tokens}); correct ${standing.id} instead`,
+            corrected_by: standing.id,
+          };
+        }
+        if (target.tokens === tokens) {
+          return {
+            ok: true,
+            appended: false,
+            event: target,
+            message: `${id} already records ${tokens} tokens`,
+          };
+        }
+        // The correction is the completion again, with the right figure: every other field stands,
+        // so the correction changes nothing but the tokens wherever the ledger is read.
+        const kept = Object.fromEntries(
+          Object.entries(target).filter(([k]) => !OWN_FIELDS.includes(k)),
+        );
+        const before = target.tokens ?? null;
+        const { event: written, appended } = run.record({
+          ...kept,
+          tokens,
+          tokens_source: 'typed',
+          corrects: id,
+          notes: `${target.notes ? `${target.notes}; ` : ''}tokens corrected from ${before ?? 'none'} to ${tokens} by ${by.session}: ${why}`,
+        });
+        return { ok: true, appended, event: written, tokens: { before, after: tokens } };
+      }),
+  },
+  {
+    name: 'ledger correct-estimate',
+    summary:
+      "Correct a dispatch's recorded start estimate: a dispatched event that corrects the named one, as the session holding the lease",
+    built_by: 'b',
+    args: [
+      {
+        name: 'event',
+        type: 'string',
+        positional: true,
+        required: true,
+        description:
+          'The ID of the dispatched event whose estimate is wrong (dispatched-D-<n>), or of the correction that now stands for it',
+      },
+      {
+        name: 'tokens',
+        type: 'integer',
+        required: true,
+        description:
+          "What the estimate should have been: most often the tier's default (dispatch.default_estimates)",
+      },
+      {
+        name: 'why',
+        type: 'string',
+        required: true,
+        description:
+          'Why the recorded estimate is wrong, in a sentence: recorded with the correction',
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const tokens = /** @type {number} */ (input.tokens);
+        const why = String(input.why ?? '').trim();
+        if (!Number.isInteger(tokens) || tokens < 0) {
+          return {
+            ok: false,
+            error: 'usage',
+            message: '--tokens must be a whole number, 0 or more',
+          };
+        }
+        if (!why)
+          return { ok: false, error: 'usage', message: '--why must say why, in a sentence' };
+        const s = setup(input, ctx);
+        const d = s.policy.dispatch;
+        const loaded = loadState(s.store);
+        if (!loaded.state) {
+          throw new CodedError(
+            'no-run',
+            `no run state (${loaded.problems.join('; ')}); start a run with hitld run start`,
+          );
+        }
+        const by = who(input, ctx, s.store);
+        const run = new Run(
+          s.store,
+          { ...by, kept: s.kept, expirySeconds: s.expirySeconds },
+          loaded.state,
+        );
+        const id = String(input.event);
+        const events = readLedger(s.store).events;
+        const target = events.find((e) => e.id === id);
+        if (!target || target.event !== 'dispatched') {
+          return {
+            ok: false,
+            error: 'forbidden-correction',
+            message: `${id} is ${target ? `a ${target.event} event` : 'not in the ledger'}; only a dispatch (a dispatched event) has a start estimate to correct`,
+          };
+        }
+        if (typeof target.estimate_tokens !== 'number') {
+          // A follow-up carries no estimate of its own: the item's earlier one stands for it.
+          const from = startEstimateOf(events, target.dispatch, target.item, d);
+          return {
+            ok: false,
+            error: 'no-estimate',
+            message: `${id} carries no estimate of its own${from ? `: ${target.dispatch} reads the one on ${from.event} (${from.dispatch}); correct that one` : ''}`,
+            ...(from ? { reads_from: from.event } : {}),
+          };
+        }
+        // One correction stands for an event at a time: a second one corrects the first, so the
+        // ledger never holds two estimates for the same dispatch.
+        const standing = events.find((e) => e.corrects === id && correctsValidly(target, e));
+        if (standing) {
+          return {
+            ok: false,
+            error: 'already-corrected',
+            message: `${id} was already corrected by ${standing.id} (estimate ${standing.estimate_tokens}); correct ${standing.id} instead`,
+            corrected_by: standing.id,
+          };
+        }
+        const before = startEstimateOf(events, target.dispatch, target.item, d);
+        if (target.estimate_tokens === tokens) {
+          return {
+            ok: true,
+            appended: false,
+            event: target,
+            message: `${id} already records an estimate of ${tokens}`,
+          };
+        }
+        // The correction is the dispatch again, with the right estimate: every other field stands,
+        // so it changes nothing but the estimate wherever the ledger is read. It is typed by hand
+        // and rests on no completion.
+        const kept = Object.fromEntries(
+          Object.entries(target).filter(([k]) => !OWN_ESTIMATE_FIELDS.includes(k)),
+        );
+        const { event: written, appended } = run.record({
+          ...kept,
+          estimate_tokens: tokens,
+          estimate_source: 'typed',
+          estimate_samples: 0,
+          corrects: id,
+          notes: `${target.notes ? `${target.notes}; ` : ''}estimate corrected from ${target.estimate_tokens} to ${tokens} by ${by.session}: ${why}`,
+        });
+        const after = startEstimateOf(readLedger(s.store).events, target.dispatch, target.item, d);
+        /** @param {ReturnType<typeof startEstimateOf>} e */
+        const reading = (e) =>
+          e
+            ? {
+                recorded: e.recorded,
+                reads_as: e.tokens,
+                source: e.source,
+                ...(e.capped ? { capped_at: e.cap } : {}),
+                // A completion that would record more than this is refused without
+                // --tokens-over-estimate, unless its figure is measured.
+                refused_above: e.tokens * TOKENS_FAR_ABOVE_ESTIMATE,
+              }
+            : null;
+        return {
+          ok: true,
+          appended,
+          event: written,
+          estimate: { before: reading(before), after: reading(after) },
+        };
+      }),
+  },
+  {
     name: 'ledger tail',
     summary: 'Show the latest ledger events',
     built_by: 'b',
@@ -354,7 +634,10 @@ const table = [
     summary: 'The run report: tokens per accepted item, first-pass yield, waste, decision latency',
     built_by: 'b',
     args: [STORE],
-    run: (input, ctx) => ({ ok: true, ...summary(setup(input, ctx).store) }),
+    run: (input, ctx) => {
+      const s = setup(input, ctx);
+      return { ok: true, ...summary(s.store, s.policy.dispatch) };
+    },
   },
   {
     name: 'run start',
@@ -623,11 +906,11 @@ const table = [
           paused,
           wake_at: paused?.resets_at ?? null,
           handover,
-          handover_file: file ? `${s.store.root}/${file}` : null,
+          handover_file: file ? join(s.store.root, file) : null,
           ...(disk ? { disk } : {}),
           next: `${
             lease.free
-              ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${s.store.root}/${file}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
+              ? `the lease is free (${lease.released ? `released: ${lease.released.reason}` : 'expired'}): start a successor orchestrator session${file ? ` with the hand-over ${join(s.store.root, file)}` : ''}; it runs hitld run resume --live <of ${live}, the ones still running>`
               : `send wakes for this run to ${lease.harness_ref ?? `session ${lease.session}`}${handover.due ? `; its hand-over is due (${handover.reasons.join('; ')})` : ''}${paused ? `; dispatch is paused at ${paused.limit}${paused.resets_at ? `: schedule one wake for ${paused.resets_at}, the reset` : ', reset time unknown: the check-in looks again'}` : ''}`
           }${disk ? `; tell the owner: ${disk.reason}` : ''}`,
         };
@@ -690,6 +973,48 @@ const table = [
         };
       }),
   },
+  ...[
+    /** @type {const} */ ({
+      what: 'heard',
+      flag: 'from',
+      summary:
+        "Record that a message from the orchestrator reached the chief of staff, for the watchdog's silent-orchestrator check. The chief of staff's, on each message an orchestrator sends it",
+      about: 'The orchestrator session the message came from',
+    }),
+    /** @type {const} */ ({
+      what: 'woke',
+      flag: 'to',
+      summary:
+        "Record that the chief of staff sent the orchestrator a wake (a start prompt, an event, an answer, a relay), for the watchdog's silent-orchestrator check. The chief of staff's, after each message it sends to wake_to",
+      about: 'The orchestrator session the wake went to',
+    }),
+  ].map(
+    (c) =>
+      /** @type {import('../table.mjs').Command} */ ({
+        name: `run ${c.what}`,
+        summary: c.summary,
+        built_by: 'h',
+        args: [{ name: c.flag, type: 'string', description: c.about }, STORE],
+        run: (input, ctx) =>
+          guarded(() => {
+            const why = executorSignal(ctx.env, ctx.cwd);
+            if (why) {
+              return {
+                ok: false,
+                error: 'not-permitted',
+                message: `hitld run ${c.what} is the chief of staff's (${why}); an executor reports in its final message`,
+              };
+            }
+            const s = setup(input, ctx);
+            const from = input[c.flag];
+            const record = recordMessage(s.store, c.what, {
+              ...(typeof from === 'string' && from ? { session: from } : {}),
+              now: ctx.now ? ctx.now() : new Date(),
+            });
+            return { ok: true, recorded: c.what, messages: record };
+          }),
+      }),
+  ),
   {
     name: 'run rebuild',
     summary: 'Rebuild the run-state file from the ledger, claim branches and the tracker',

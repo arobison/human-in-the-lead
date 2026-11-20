@@ -4,7 +4,7 @@
 Managed by human-in-the-lead. Edit outside these markers only; `hitld install` rewrites what is between them.
 
 1. **Claim.** Your branch's first commit changes only the item file: `state: in-progress` and `claimed_by: <your dispatch ID>` (`hitld work claim <ID> --dispatch <your dispatch ID>` writes it). A claim shows in every worktree of this repository at once, and on another machine only after its bundle is fetched.
-2. **Close in the same change.** Set `state: done` in the branch that does the work (`hitld work close <ID>`). Merging closes the item.
+2. **Close in the same change.** Set `state: done` in the branch that does the work (`hitld work close <ID>`). Merging closes the item. When the change touches the public interface (`merge.public_globs` in `policy.json`), add a one-line `release_note` to the item in the same change.
 3. **Scope.** Change what the item's `touches` lists. If you must go outside it, say why under `deviations`.
 4. **Measure** with the project's benchmark tool and cite run IDs under `bench_runs`. No ad-hoc timing. No tool: `bench_runs: none`.
 5. **Calls and questions.** Make cheap-to-undo calls yourself and list each under `calls`, marked `(reversible)`. Check rights and precedent before you ask (below). If a call is not yours, do not block: do the parts that do not depend on it, and send it back under `questions` as a decision item.

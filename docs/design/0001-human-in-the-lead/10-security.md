@@ -32,7 +32,7 @@ Each role's tools, write paths, network and secrets are set in its agent definit
 | **Reproducer** (sandboxed) | **Yes** (a bug's steps and error text) | Test directories in a scratch worktree; output checked by script before use | **Denied** | None | Never |
 | Researcher | Yes (web pages) | Research notes in the private store | Web read only | None | Never |
 | Liaison | Yes (the thread it drafts for) | Drafts only | Denied | None | Never; the send gate sends |
-| Gardener, scribe | No | `kb/`, drafts | Denied | None | Never |
+| Curator, scribe | No | `kb/`, work items (wording within their facts), drafts | Denied | None | Never |
 
 **The quarantine pattern.** The triager is the agent most exposed to injection, so it has the least power: it reads untrusted text and outputs only fields in a fixed schema (kind, area, severity, a short summary, a duplicate candidate, a route), validated by a script. A successful injection can at worst produce a wrong classification, which downstream checks (routing accuracy, human review of sensitive routes) catch. The privileged orchestrator sees the triager's structured output and its quoted summary, never raw text presented as anything but data.
 

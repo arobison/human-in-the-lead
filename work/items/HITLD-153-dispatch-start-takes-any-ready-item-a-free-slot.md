@@ -2,10 +2,12 @@
 id: HITLD-153
 title: dispatch start takes any ready item a free slot allows, and an item whose work awaits merge is not planned again
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-130]
+claimed_by: D-25
+release_note: "`hitld dispatch start <ID>` starts any ready item that is not held while a slot is free, whatever its place in the plan; the plan's `free` counts only running dispatches and its new `slots` names the cap, the holders and what frees one. Work reported done on a branch that has not merged is listed under `awaiting_merge` (in `dispatch plan` and `ready`) with its branch and pull request, and is not planned again until it merges or is dropped."
 ---
 
 ## Why
@@ -26,3 +28,12 @@ In the first self-hosted run, with nothing running and a cap of 2, `hitld dispat
 ## Notes
 
 Found by the orchestrator in the chief of staff's run and verified in the code. HITLD-130 changes dispatch plan and start for the disk floor, and HITLD-136 changes the brief and the overlap rule, so build this after them or in one wave with care. It does not block HITLD-109 as written; it joined the milestone Consumer live (HITLD-67) and the first step toward rc.2 (HITLD-189).
+
+Also reported as GitHub issue #151 (bug): The refill after dispatch complete offers the same item again while its finished branch waits to merge, inviting duplicate work.
+
+And as GitHub issue #159 (bug): dispatch start --by-hand is refused as not-planned after setup with both slots free, because the planner filled the slots with its own top picks.
+
+Triage 2026-11-16: both duplicate this item, which covers them; the issues are untouched on GitHub, and the two reports raise this item's reach.
+
+Second finding, from orch-1 (2026-11-16): the overlap rule counts the plan's own proposals as running work. With nothing in flight (`ledger in-flight` empty), `dispatch start HITLD-150` was refused with "HITLD-150 is held: 100% of its touches overlap running work", because the proposed HITLD-109's derived touches (`.human-in-the-lead/policy.json`, `plugins/**`, `templates/policy.json`) are the paths HITLD-150 touches, and 109 sat on the start list although it would not be started. So a proposal that is not started holds other items, and the plan's start list and `dispatch start` disagree. The fix belongs here: overlap is judged against dispatches that are running, not against what the plan proposes, and a proposal that is not started frees what it held. The same behavior held back 62, 152, 227 and 228 behind HITLD-57 earlier.
+

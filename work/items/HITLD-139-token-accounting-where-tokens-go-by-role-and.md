@@ -24,3 +24,7 @@ The ledger records tokens per completed dispatch (`tokens`, `tokens_before_first
 ## Notes
 
 Not a need of v0.1.0. What the harness reports limits the split: a completion notice gives one total per subagent, so the activity is known from the dispatch, not from inside a session. Shares within a session (reading, editing, talking) need the harness to report usage by turn, and are out of scope until it does.
+
+## Note on 2026-11-20 (HITLD-584)
+
+The note above that per-turn usage is not reported is stale: the session record reports usage and cost per session and per turn through its result events, as for executor tokens (HITLD-438). A first slice, spend by role per session on the dashboard, is HITLD-585 in rc.3. This item keeps the fuller split by activity, area and model, the rework and overhead shares and the trends.

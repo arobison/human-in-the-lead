@@ -1,6 +1,9 @@
 // Machine detection (design part 13.4): what this machine has, what role it plays, and a proposed
 // profile with conservative shares.
 //
+// Paths are built for the platform probed (Sources.platform), not the one running, so a fake
+// Linux or macOS machine probes the same on any host.
+//
 // Local only. The probes read the os module, /proc, /sys and the file system, and run `nvidia-smi`
 // and `system_profiler` when they exist, as a program with an argument list and a timeout, never
 // through a shell. Nothing here touches the network. All of it goes through `Sources`, a small
@@ -9,7 +12,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statfsSync } from 'node:fs';
 import { arch, cpus, release, totalmem } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { dirname, posix, win32 } from 'node:path';
 
 /**
  * @typedef {'dedicated' | 'workstation' | 'cloud-vm' | 'ci'} Role
@@ -169,6 +172,13 @@ const LINUX_BROWSERS = /** @type {const} */ ([
   ['firefox', ['firefox']],
   ['edge', ['microsoft-edge', 'microsoft-edge-stable']],
 ]);
+/** Under Program Files, Program Files (x86) or the user's local application data. */
+const WINDOWS_BROWSERS = /** @type {const} */ ([
+  ['chrome', 'Google/Chrome/Application/chrome.exe'],
+  ['chromium', 'Chromium/Application/chrome.exe'],
+  ['firefox', 'Mozilla Firefox/firefox.exe'],
+  ['edge', 'Microsoft/Edge/Application/msedge.exe'],
+]);
 const MAC_BROWSERS = /** @type {const} */ ([
   ['chrome', 'Google Chrome.app'],
   ['chromium', 'Chromium.app'],
@@ -178,8 +188,8 @@ const MAC_BROWSERS = /** @type {const} */ ([
 ]);
 
 /**
- * Installed browsers, from file names only: programs on PATH (Linux) or app bundles (macOS).
- * Nothing is started.
+ * Installed browsers, from file names only: programs on PATH (Linux), app bundles (macOS) or the
+ * usual install directories (Windows). Nothing is started.
  * @param {Sources} s @returns {string[]}
  */
 function probeBrowsers(s) {
@@ -189,16 +199,26 @@ function probeBrowsers(s) {
     const roots = [
       '/Applications',
       '/System/Applications',
-      join(s.env.HOME ?? '/nonexistent', 'Applications'),
+      posix.join(s.env.HOME ?? '/nonexistent', 'Applications'),
     ];
     for (const [name, bundle] of MAC_BROWSERS) {
-      if (roots.some((r) => s.exists(join(r, bundle)))) found.push(name);
+      if (roots.some((r) => s.exists(posix.join(r, bundle)))) found.push(name);
     }
     return found;
   }
-  const dirs = (s.env.PATH ?? '').split(delimiter).filter((d) => d.startsWith('/'));
+  if (s.platform === 'win32') {
+    const env = Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k.toUpperCase(), v]));
+    const roots = [env.PROGRAMFILES, env['PROGRAMFILES(X86)'], env.LOCALAPPDATA].filter(
+      (r) => typeof r === 'string' && win32.isAbsolute(r),
+    );
+    for (const [name, exe] of WINDOWS_BROWSERS) {
+      if (roots.some((r) => s.exists(win32.join(/** @type {string} */ (r), exe)))) found.push(name);
+    }
+    return found;
+  }
+  const dirs = (s.env.PATH ?? '').split(posix.delimiter).filter((d) => d.startsWith('/'));
   for (const [name, bins] of LINUX_BROWSERS) {
-    if (bins.some((b) => dirs.some((d) => s.exists(join(d, b))))) found.push(name);
+    if (bins.some((b) => dirs.some((d) => s.exists(posix.join(d, b))))) found.push(name);
   }
   return found;
 }
@@ -241,7 +261,11 @@ export function detectRole(s) {
   }
   if (cloud.length) return { role: 'cloud-vm', hints: cloud };
 
-  const linux = s.platform !== 'darwin';
+  // Windows, like macOS, always has a desktop session at the console; a session reached only over
+  // SSH is the headless case. It has no DISPLAY, so the Linux test would call every Windows
+  // desktop dedicated.
+  const linux = s.platform !== 'darwin' && s.platform !== 'win32';
+  const desktop = s.platform === 'win32' ? 'a Windows desktop' : 'a macOS desktop';
   const remote = Boolean(s.env.SSH_CONNECTION || s.env.SSH_TTY);
   const display = linux ? Boolean(s.env.DISPLAY || s.env.WAYLAND_DISPLAY) : !remote;
   const sessionType = s.env.XDG_SESSION_TYPE;
@@ -258,9 +282,9 @@ export function detectRole(s) {
   }
   return {
     role: 'workstation',
-    hints: [
-      display ? (linux ? 'a display is set' : 'a macOS desktop') : 'a desktop session',
-    ].concat(session && display ? ['a logged-in session'] : []),
+    hints: [display ? (linux ? 'a display is set' : desktop) : 'a desktop session'].concat(
+      session && display ? ['a logged-in session'] : [],
+    ),
   };
 }
 
@@ -274,7 +298,11 @@ export function probeMachine(sources = localSources(), now = new Date()) {
   const s = sources;
   /** @type {string[]} */
   const notes = [];
-  if (s.platform !== 'darwin' && s.platform !== 'linux') {
+  if (s.platform === 'win32') {
+    notes.push(
+      'Windows: cores and memory from the os module, GPUs only through nvidia-smi, browsers from their usual install directories',
+    );
+  } else if (s.platform !== 'darwin' && s.platform !== 'linux') {
     notes.push(
       `${s.platform} is not probed (macOS and Linux only): cores and memory from the os module`,
     );

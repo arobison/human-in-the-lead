@@ -14,13 +14,13 @@ import {
   lstatSync,
   openSync,
   readFileSync,
-  realpathSync,
   statSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { schemas } from '../schema/registry.mjs';
 import { renameSettings } from '../settings/renamed.mjs';
 import { ADDRESS_MOVED } from '../store/placement.mjs';
+import { realPath } from '../platform/fs.mjs';
 
 /**
  * @typedef {import('../schema/validate.mjs').ValidationError} ValidationError
@@ -233,8 +233,8 @@ export function readTrustedFile(path, root, options) {
       const problem = ownershipProblem(st, uid);
       if (problem) return refuse(`is ${problem}`);
     }
-    const real = realpathSync(path);
-    const realRoot = realpathSync(root);
+    const real = realPath(path);
+    const realRoot = realPath(root);
     const rel = relative(realRoot, real);
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
       const where = options.rootName ? `${options.rootName} ${realRoot}` : realRoot;

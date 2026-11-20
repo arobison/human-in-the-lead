@@ -2,10 +2,12 @@
 id: HITLD-135
 title: "Design walk-throughs as a skill: one question at a time, each answer recorded"
 kind: work
-state: planned
+state: done
 created: 2026-11-15
 project: HITLD-15
 needs: [HITLD-134]
+claimed_by: D-12
+release_note: "`hitld design questions`, `answer` and `decide`, and the `design` skill, walk the owner through a design's open questions one at a time, each answer recorded."
 ---
 
 ## Why

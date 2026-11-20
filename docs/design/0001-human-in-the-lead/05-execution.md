@@ -22,7 +22,7 @@ The orchestrator manages execution: the session that holds the run lease, starte
 
 **Sizing inputs**, all from the item file and the ledger: item kind; whether "done when" is executable; whether the plan is specific to files and functions; area and its reliability; `touches` breadth; novelty (no similar item done before); the token estimate.
 
-**Token estimates.** Every item gets `estimate_tokens` at sizing, from a simple model: the median actual tokens of similar past items (same area, kind and tier), scaled by the item's `touches` breadth. Actuals come from completion notices. Each item type's estimator is tracked for accuracy (the mean of log(actual / estimate), its bias) and precision (the standard deviation of that log ratio, its spread). A bias is corrected by a scale factor; a large spread means the estimator needs better inputs.
+**Token estimates.** Every item gets `estimate_tokens` at sizing, from a simple model: the median actual tokens of similar past items (same area, kind and tier), scaled by the item's `touches` breadth. It needs at least 3 such completions, otherwise the tier's default. Actuals come from completion notices. Each item type's estimator is tracked for accuracy (the mean of log(actual / estimate), its bias) and precision (the standard deviation of that log ratio, its spread). A bias is corrected by a scale factor; a large spread means the estimator needs better inputs.
 
 ## 5.2 Dispatch
 
@@ -141,9 +141,13 @@ The orchestrator appends one line per event to `ledger.jsonl` in the private sto
 | `skill_versions` | Plugin version and the versions of the skills involved |
 | `at` | Event time |
 | `result` | How the attempt ended. For `reported`: `done`, `partial`, `blocked`; for `verified`: `pass`, `fail` with defect count. Written as `outcome` before HITLD-82, and read as `result` |
-| `tokens`, `tool_calls`, `duration_ms` | From the completion notice |
+| `tokens`, `tool_calls`, `duration_ms` | From the completion notice. `tokens` is output plus fresh input, never cache reads |
+| `tokens_source` | Where `tokens` came from: measured from the harness's record of the session (`session-record`), a headless run's result (`result-file`) or the notification's usage block (`notification`), or typed by hand when there is no record (`typed`). The estimator weighs measured figures over typed ones: when similar completions hold enough measured figures, the others are set aside |
+| `usage` | The harness's counts kept apart (uncached input, output, cache writes, cache reads) and the cost it reports, where its record or result gives them |
+| `self_reported_tokens` | What the executor's report says its own run cost: a guess, kept for comparison and never read as the cost |
 | `tokens_before_first_edit` | Onboarding cost, from the harness's telemetry where it provides it; empty for now, because Claude Code provides it only through OpenTelemetry ([part 11](11-metrics-and-control.md#111-measures)) |
-| `estimate_tokens` | Copied from the item at dispatch |
+| `estimate_tokens` | The estimate the dispatch started with, set at sizing; a follow-up carries none and reads the item's earlier one. It is read capped at `dispatch.estimate_max_multiple` times the tier's default, unless the item set it, so a wrong figure cannot raise the `--tokens-over-estimate` threshold, lengthen the watchdog's limits or make estimate against actual read low. `hitld ledger correct-estimate` corrects it with a `dispatched` event that is read in place of the original |
+| `estimate_source`, `estimate_samples` | On `dispatched`: where the estimate came from (`item`, `history`, `default`, or `typed` for a correction) and how many similar past completions there were, so an estimate that rested on one record shows in the ledger. A line written before them reads as source unknown |
 | `commit` | Final commit of the branch |
 | `decision` | On `asked`, `sent` and `answered`: the decision item. Each is written once per decision. A decision a precedent resolves has none of them: no one was asked |
 | `delivery`, `via` | On `sent`: `interrupt` when the question was sent at once, which uses one of the person's `interrupts_per_day`, or `digest`. On `answered`: `default` when no one answered and the decision took its default; it is then left out of decision latency |

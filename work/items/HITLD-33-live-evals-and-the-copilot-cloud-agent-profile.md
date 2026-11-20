@@ -2,7 +2,7 @@
 id: HITLD-33
 title: Live evals and the Copilot cloud agent profile
 kind: work
-state: planned
+state: proposed
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-52]
@@ -19,3 +19,7 @@ k = 3, the budget set from the first measured baseline (Q9).
 - A deliberately degraded skill fails the regression gate.
 - The Copilot cloud agent profile passes against the fake adapter.
 - The first live scenarios cover what offline scenarios cannot, because they need a model: the chief of staff does not record an answer relayed from another session's report and asks the owner instead; decisions are asked with the harness's question tool, not as text to type; no private name (from the private term list) appears in a pull request title or body, comment or commit message an agent writes; and no private key is printed in any session's output.
+
+## Returned to proposed on 2026-11-20 (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (508): Copilot cloud agent profile/ harness adapters, live evals models. The decisions since then are stay in the harness and answers by proof (HITLD-540, 515). The owner decided (HITLD-578) that the items the decisions change most return to `proposed` until reshaped, so the planner does not offer them; the owner promotes the item again once it is reshaped.

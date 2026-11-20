@@ -6,7 +6,7 @@ import { schemas } from '../lib/schema/registry.mjs';
 import { parseItem, renderItem, slugify } from '../lib/tracker/files/frontmatter.mjs';
 import { checkBlocks, loadTrackerConfig, resolveLayout } from '../lib/tracker/files/config.mjs';
 import { keyOrder } from '../lib/tracker/files/format.mjs';
-import { checkItems } from '../lib/tracker/files/check.mjs';
+import { checkItems, unplacedWork } from '../lib/tracker/files/check.mjs';
 import { buildGraph } from '../lib/tracker/files/graph.mjs';
 import { loadWorkTree } from '../lib/tracker/files/tree.mjs';
 import {
@@ -236,6 +236,67 @@ test('the check passes the fixture tracker', () => {
   const root = makeRepo({ commit: false });
   const layout = layoutOf(root);
   assert.deepEqual(checkItems(loadWorkTree(root, layout), layout, { root }), []);
+});
+
+test('an open work item under no milestone is a warning, not a problem', () => {
+  const root = makeRepo({
+    commit: false,
+    files: {
+      'work/milestones/W-20-held.md': itemText({
+        id: 'W-20',
+        title: 'Held',
+        kind: 'milestone',
+        state: 'proposed',
+        project: 'W-2',
+        done_when: ['"c1: Held."'],
+        constraints: ['W-4 c1'],
+        contributions: ['W-21 value=3 confidence=0.5'],
+      }),
+      'work/milestones/W-24-gone.md': itemText({
+        id: 'W-24',
+        title: 'Gone',
+        kind: 'milestone',
+        state: 'dropped',
+        reason: 'folded into another',
+        project: 'W-2',
+        done_when: ['"c1: Gone."'],
+        constraints: ['W-23 c1'],
+      }),
+      'work/items/W-21-contributes.md': itemText({
+        id: 'W-21',
+        title: 'Contributes',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+      }),
+      'work/items/W-22-the-release.md': itemText({
+        id: 'W-22',
+        title: 'The release',
+        kind: 'work',
+        state: 'proposed',
+        project: 'W-2',
+        release: '0.2.0',
+        needs: ['W-20'],
+      }),
+      'work/items/W-23-under-a-dropped-one.md': itemText({
+        id: 'W-23',
+        title: 'Under a dropped one',
+        kind: 'work',
+        state: 'proposed',
+        project: 'W-2',
+      }),
+    },
+  });
+  const layout = layoutOf(root);
+  const items = loadWorkTree(root, layout);
+  // Nothing here is an error: the warning never fails the check.
+  assert.deepEqual(checkItems(items, layout, { root }), []);
+  // W-4 is a constraint and W-21 a contribution; W-22 is a release item; W-3 is done and W-6 a
+  // decision. W-5 is under no milestone, and W-23 only under a dropped one.
+  assert.deepEqual(unplacedWork(items).sort(), [
+    'work/items/W-23-under-a-dropped-one.md: W-23 is open and under no milestone; make it a constraint of the milestone clause it serves',
+    'work/items/W-5-third-step.md: W-5 is open and under no milestone; make it a constraint of the milestone clause it serves',
+  ]);
 });
 
 /** @param {Record<string, string>} files @param {Record<string, unknown>} [config] */

@@ -15,7 +15,15 @@ import { loadSettingsFile } from '../../settings/files.mjs';
 import { localSources, machineResources, probeMachine } from '../../machine/detect.mjs';
 import { diskCheck, diskWarning } from '../../machine/disk.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
-import { appendEvent, readLedger, nextDispatchId, lifecycleId } from '../../ledger/ledger.mjs';
+import {
+  appendEvent,
+  readLedger,
+  nextDispatchId,
+  lifecycleId,
+  startEstimate,
+} from '../../ledger/ledger.mjs';
+import { effectiveEvents } from '../../ledger/summary.mjs';
+import { recordedAnswers } from '../../merge/answers.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
 import { LeaseError } from '../../run/lease.mjs';
 import { NO_SESSION, resolveIdentity } from '../../run/identity.mjs';
@@ -28,7 +36,7 @@ import {
   reportingHere,
 } from '../../run/run.mjs';
 import { absorb } from '../../run/state.mjs';
-import { reportedEvent } from '../../run/protocol.mjs';
+import { TOKENS_FAR_ABOVE_ESTIMATE, farAboveEstimate, reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
 import { tearDown } from '../../env/teardown.mjs';
@@ -46,22 +54,44 @@ import { activePause, pauseGate, pauseTransition } from '../../quota/pause.mjs';
 import { readLedgerEntries, readSnapshots } from '../../quota/usage.mjs';
 import { parseReport } from '../../contract/report.mjs';
 import { readWorkItems } from '../../dispatch/items.mjs';
-import { historyFromLedger, sizeItem } from '../../dispatch/sizing.mjs';
+import {
+  ESTIMATE_SETTINGS,
+  estimateSettings,
+  historyFromLedger,
+  sizeItem,
+} from '../../dispatch/sizing.mjs';
 import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mjs';
-import { planDispatch } from '../../dispatch/plan.mjs';
+import { awaitingMerge, planDispatch } from '../../dispatch/plan.mjs';
+import {
+  PERMISSIONS_REASON,
+  mentionedRefusals,
+  refusalsInRun,
+  refusedCommands,
+  refusedNote,
+} from '../../dispatch/permissions.mjs';
 import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
+import {
+  mergedSincePlanned,
+  overlapsInFlight,
+  touchesOf,
+  trackedFiles,
+} from '../../dispatch/touches.mjs';
+import { mainRefOf, missingReleaseNote } from '../../dispatch/release-note.mjs';
 import { runMergeQueue } from '../../merge/queue.mjs';
 import { ghGitHub, remoteUrl, repoFromRemote } from '../../merge/github.mjs';
 import {
   PULL_STATE_KEY,
   approvePulls,
+  pullTrustEvents,
   readPullState,
+  revertCommand,
   runPullRequestQueue,
   validSignoff,
 } from '../../merge/pull-request.mjs';
 import { duplicateIds } from '../../tracker/files/check.mjs';
 import { loadWorkTree } from '../../tracker/files/tree.mjs';
+import { openTracker } from '../../tracker/files/tracker.mjs';
 import {
   PRESENTED_KEY,
   PROPOSED_KEY,
@@ -322,20 +352,74 @@ export function readyQueue(p, ctx) {
   const byId = new Map(work.items.map((i) => [String(i.id), i]));
   const events = readLedger(p.store).events;
   const history = historyFromLedger(events, (id) => byId.get(id));
-  const ready = work.items.filter((i) => work.ready.has(String(i.id)));
+  // Work finished on a branch that has not merged is not ready: the tracker on main shows it done
+  // only once it merges, and planning it again would do the work twice (HITLD-153).
+  const awaiting = awaitingOf(p, events);
+  const waitingIds = new Set(awaiting.map((a) => a.item));
+  const ready = work.items.filter(
+    (i) => work.ready.has(String(i.id)) && !waitingIds.has(String(i.id)),
+  );
   const sizes = new Map(ready.map((i) => [String(i.id), sizeItem(i, p.policy, history)]));
   const unblocks = unblockCounts(work.items);
   const queue = orderQueue(ready, sizes, unblocks);
   const critical = criticalPath(ready, unblocks);
-  return { work, byId, queue, sizes, unblocks, critical, inFlight };
+  // Only the awaiting items the tracker would otherwise call ready are shown: one that merged
+  // without a merged event recorded is done on main and needs no mention.
+  const awaitingReady = awaiting.filter((a) => work.ready.has(a.item));
+  return { work, byId, queue, sizes, unblocks, critical, inFlight, awaiting: awaitingReady };
+}
+
+/**
+ * The items awaiting merge, each with its pull request when the pull-request queue knows it.
+ * @param {ReturnType<typeof project>} p @param {import('../../ledger/ledger.mjs').LedgerEntry[]} events
+ */
+function awaitingOf(p, events) {
+  const pulls = readPullState(p.store).branches;
+  return awaitingMerge(events).map((a) => {
+    const pr = pulls[a.branch];
+    return {
+      item: a.item,
+      dispatch: a.dispatch,
+      branch: a.branch,
+      pull_request: pr ? { number: pr.number, url: pr.url } : null,
+      since: a.since,
+      verified: a.verified,
+      ...(a.sent_back ? { sent_back: true } : {}),
+    };
+  });
+}
+
+/**
+ * Why an item is not started because it awaits merge, in the plan's words.
+ * @param {{ item: string, dispatch: string | null, branch: string, pull_request: { number: number, url: string } | null, sent_back?: boolean }} a
+ */
+export const awaitingText = (a) =>
+  `${a.item} awaits merge: ${a.dispatch ?? 'its dispatch'} reported it done on ${a.branch}${a.pull_request ? ` (pull request #${a.pull_request.number}, ${a.pull_request.url})` : ''}${a.sent_back ? ', which the merge queue sent back for a follow-up' : ''}. It is planned again when that branch merges or is reverted, or its dispatch is abandoned`;
+
+/**
+ * An item's file, repository-relative, from the files tracker on this checkout; undefined when
+ * the tracker has no such item.
+ * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} id
+ * @returns {string | undefined}
+ */
+function itemPathOf(p, ctx, id) {
+  try {
+    const { tracker } = readWorkItems({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
+    const path = /** @type {Item | null} */ (tracker.get(id))?.path;
+    return typeof path === 'string' ? path : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
  * The dispatch plan for the free slots.
  * `byHand`: the item the person started by hand; it is the only one that runs before setup is done.
- * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand]
+ * `only`: plan this one item alone, against running work and nothing the plan would propose
+ * before it, which is how `dispatch start` decides whether it may start (HITLD-153).
+ * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand] @param {string} [only]
  */
-export function plan(p, ctx, byHand) {
+export function plan(p, ctx, byHand, only) {
   const q = readyQueue(p, ctx);
   // Snapshots: this project's own, and every account's from the machine registry, so all projects
   // on the machine see the same use.
@@ -348,11 +432,43 @@ export function plan(p, ctx, byHand) {
   const locks = new Map(
     env.lockStatus().map((l) => [l.resource, l.held_by && !l.stale ? l.held_by : null]),
   );
+  // Touches for the overlap rule and the brief: an item's own, else derived from its text and the
+  // repository (dispatch/touches.mjs); a dispatch in flight keeps those its dispatched event
+  // recorded. The repository is listed only when some item has no touches of its own.
+  /** @type {Map<string, string[]>} */
+  const recorded = new Map();
+  const events = readLedger(p.store).events;
+  for (const e of events) {
+    if (e.event === 'dispatched' && Array.isArray(e.touches)) recorded.set(e.dispatch, e.touches);
+  }
+  // The ways of running an executor that a report in this run showed refused the contract's
+  // commands on this harness: no item is dispatched into the same refusal again (HITLD-141).
+  const refusals = Object.fromEntries(
+    Object.entries(refusalsInRun(events, p.state?.run?.id)).map(([mode, why]) => [
+      mode,
+      { able: false, why },
+    ]),
+  );
+  /** @type {string[] | null} */
+  let files = null;
+  const inline = /** @type {string[]} */ (p.policy.dispatch?.inline_globs ?? []);
+  /** @param {Item | undefined} item @param {string} [dispatch] */
+  const touchesFor = (item, dispatch) => {
+    if (!item) return { touches: [], source: /** @type {const} */ ('none') };
+    if (!(item.touches ?? []).length && !(dispatch && recorded.has(dispatch)) && files === null) {
+      files = trackedFiles(p.repoRoot);
+    }
+    return touchesOf(item, {
+      files,
+      inline,
+      recorded: dispatch ? (recorded.get(dispatch) ?? null) : null,
+    });
+  };
   const running = q.inFlight.map((d) => ({
     dispatch: d.dispatch,
     item: d.item,
     serial_resources: d.serial_resources ?? [],
-    touches: /** @type {string[]} */ (q.byId.get(d.item)?.touches ?? []),
+    touches: touchesFor(q.byId.get(d.item), d.dispatch).touches,
   }));
   const ours = new Set(running.map((d) => d.dispatch));
   // What this machine has, from a fresh local probe and the machine file's record: the smaller wins.
@@ -369,7 +485,7 @@ export function plan(p, ctx, byHand) {
   const result = planDispatch({
     machine,
     disk,
-    queue: q.queue,
+    queue: only === undefined ? q.queue : q.queue.filter((i) => String(i.id) === only),
     sizes: q.sizes,
     running,
     cap: p.cap,
@@ -382,6 +498,7 @@ export function plan(p, ctx, byHand) {
           id: String(item.id),
           critical_path: q.critical.has(String(item.id)),
           estimate_tokens: q.sizes.get(String(item.id))?.estimate_tokens,
+          estimate_basis: q.sizes.get(String(item.id))?.estimate_basis,
         },
         { ledger, runStartedAt: runStarted, share, ...(ctx.now ? { now: nowOf(ctx) } : {}) },
       ),
@@ -392,8 +509,34 @@ export function plan(p, ctx, byHand) {
     overlapSerialize: p.policy.dispatch.serialize_overlap_share,
     critical: q.critical,
     setup: { ...p.setup, byHand },
+    touches: (item) => touchesFor(item),
+    executorModes: () => refusals,
   });
-  return { q, result: { ...result, disk: diskWarning(disk) }, setup: p.setup };
+  return {
+    q,
+    result: {
+      ...result,
+      disk: diskWarning(disk),
+      awaiting_merge: q.awaiting,
+      estimates: estimatesText(p.policy),
+    },
+    setup: p.setup,
+    running,
+  };
+}
+
+/**
+ * The settings the estimates rest on, in one line the plan prints (HITLD-439): the tier defaults,
+ * the minimum sample and the multiple of the default past which a median is not used.
+ * @param {Record<string, any>} policy
+ */
+export function estimatesText(policy) {
+  const d = policy.dispatch ?? {};
+  const { min_samples, max_multiple } = estimateSettings(d);
+  const defaults = Object.entries(d.default_estimates ?? {})
+    .map(([t, n]) => `tier ${t} ${Math.round(Number(n) / 1000)}k`)
+    .join(', ');
+  return `an estimate is the item's own estimate_tokens, else the median of similar past completions once there are ${ESTIMATE_SETTINGS.min_samples.key} (${min_samples}) of them and it is at most ${ESTIMATE_SETTINGS.max_multiple.key} (${max_multiple}) times the tier's default, else that default (dispatch.default_estimates: ${defaults || 'not set'})`;
 }
 
 /**
@@ -405,6 +548,7 @@ export const planJson = (r, setup) => ({
   cap: r.cap,
   running: r.running,
   free: r.free,
+  slots: r.slots,
   gate: r.gate,
   start: r.start.map((s) => ({
     item: s.item,
@@ -412,14 +556,22 @@ export const planJson = (r, setup) => ({
     model: s.sizing.model,
     effort: s.sizing.effort,
     estimate_tokens: s.sizing.estimate_tokens,
+    estimate_source: s.sizing.estimate_source,
+    estimate_samples: s.sizing.estimate_samples,
+    estimate_basis: s.sizing.estimate_basis,
     ...(s.sizing.owner_review ? { owner_review: s.sizing.owner_review } : {}),
     serial: s.serial,
+    touches: s.touches.touches,
+    touches_source: s.touches.source,
+    ...(s.modes ? { mode: s.mode ?? null, modes: s.modes } : {}),
     notes: s.notes,
   })),
   inline: r.inline.map((s) => s.item),
   held: r.held,
   waiting: r.waiting,
+  awaiting_merge: r.awaiting_merge,
   notes: r.notes,
+  ...(r.estimates ? { estimates: r.estimates } : {}),
   ...(r.disk ? { disk: r.disk } : {}),
   next: !setup.done
     ? 'setup is not done: run the first-run setup with the owner (orchestrate skill, first run); a hand-started item runs with hitld dispatch start <ID> --by-hand when the owner asks for it'
@@ -593,6 +745,37 @@ function securitySentBack(x, main) {
   return `Your branch, rebased onto ${main}, adds security findings that are in neither the baseline nor the recorded verdicts:\n${list}\nFor each: fix it with a test that would have caught it, or propose a verdict in your report under calls, with the finding's key: by design (name the trust boundary at the sink) or false positive (a one-line reason). Accepting a real finding as a risk is the owner's decision.`;
 }
 
+/** The token sources that are measured by the harness, not typed by hand (HITLD-438). */
+const MEASURED_SOURCES = ['session-record', 'result-file', 'notification'];
+
+/**
+ * What `dispatch complete` says about a completion's tokens: the figure recorded and where it came
+ * from, the harness's counts and cost, and the executor's own figure beside it as a guess. An
+ * interactive dispatch completed without the harness's record says how to give it.
+ * @param {ReturnType<typeof completionOf>} c
+ * @param {Record<string, any> | undefined} dispatched the dispatch's `dispatched` event
+ */
+function tokensOut(c, dispatched) {
+  const recorded = c.usage?.tokens ?? null;
+  /** @type {Record<string, any>} */
+  const out = { recorded, source: recorded === null ? null : (c.tokensSource ?? null) };
+  if (c.parts) out.usage = c.parts;
+  if (typeof c.turns === 'number') out.turns = c.turns;
+  if (typeof c.selfReported === 'number') {
+    out.self_reported = {
+      tokens: c.selfReported,
+      note: "the executor's own figure: a guess, kept apart and never the recorded cost",
+      ...(recorded !== null && recorded > 0 && MEASURED_SOURCES.includes(out.source)
+        ? { ratio_to_measured: Math.round((c.selfReported / recorded) * 100) / 100 }
+        : {}),
+    };
+  }
+  if (dispatched?.mode === 'interactive' && c.tokensSource !== 'session-record') {
+    out.warning = `an interactive dispatch's tokens are measured from the harness's record of the executor's session, and none was given: ${recorded === null ? 'no figure is recorded' : 'the figure is recorded as typed by hand'}. Save the session's result events (the event list of kind result) to a file and give it with --session-record; ${recorded === null ? '' : 'once this is recorded, '}hitld ledger correct-tokens can only type a figure`;
+  }
+  return out;
+}
+
 /** The private store key of the evidence a verified report gave, for its pull request's body. @param {string} item */
 const reportEvidenceKey = (item) => `merge/reports/${item}.json`;
 
@@ -695,7 +878,8 @@ function approvePullRequests(o) {
  * @param {{ p: any, run: any, ctx: Ctx, input: Record<string, unknown>, owner: boolean,
  *   approve: { all: boolean, names: string[] | null } | null,
  *   entries: import('../../merge/queue.mjs').Entry[],
- *   settings: import('../../merge/queue.mjs').Settings, env: any }} o
+ *   settings: import('../../merge/queue.mjs').Settings,
+ *   layout: ReturnType<ReturnType<typeof openTracker>['layout']>, env: any }} o
  */
 async function pullRequestMerge(o) {
   const { p, run, ctx } = o;
@@ -715,11 +899,7 @@ async function pullRequestMerge(o) {
       github,
     });
   }
-  const layout = readWorkItems({
-    repoRoot: p.repoRoot,
-    policy: p.policy,
-    env: ctx.env,
-  }).tracker.layout();
+  const layout = o.layout;
   const result = await runPullRequestQueue({
     repoRoot: p.repoRoot,
     entries: o.entries,
@@ -728,6 +908,13 @@ async function pullRequestMerge(o) {
       remote: pr.remote,
       checks: pr.checks,
       checkTimeoutMinutes: pr.check_timeout_minutes,
+      conditionalChecks: pr.conditional_checks ?? [],
+      // What rights answer recorded: a changed decision answer is checked against it.
+      answers: recordedAnswers(
+        effectiveEvents(readLedger(p.store).events),
+        readTrustEvents(p.store),
+      ),
+      delegatedBy: o.owner ? (pr.delegated_by ?? null) : null,
       generated: p.policy.merge.generated,
       setup: o.settings.setup,
       classification: o.settings.classification,
@@ -766,7 +953,11 @@ async function pullRequestMerge(o) {
       item: m.item,
       commit: m.commit,
       branch: m.branch,
-      notes: `squash-merged as pull request #${m.number}${m.signed_off ? ", with the owner's sign-off" : ''}`,
+      notes: m.delegated_by
+        ? `squash-merged as pull request #${m.number} without asking, under ${m.delegated_by}, with the owner's delegated sign-off`
+        : `squash-merged as pull request #${m.number}${m.signed_off ? ", with the owner's sign-off" : ''}`,
+      // The decision a merge without asking was made under: the digest lists it with its reversal.
+      ...(m.delegated_by ? { decision: m.delegated_by } : {}),
       ...(m.dispatch ? { dispatch: m.dispatch } : {}),
     });
     // The worktrees hitld env made for this branch (tier 3) go; adopted ones are the harness's.
@@ -777,6 +968,11 @@ async function pullRequestMerge(o) {
       }
     }
   }
+  // Approvals and delegated merges are trust evidence (design 14.2); after a clean run in an area
+  // the queue is proposed there, and the owner decides.
+  const trustAt = new Date().toISOString();
+  for (const ev of pullTrustEvents(result.merged, p.policy)) recordTrustEvent(p.store, ev, trustAt);
+  const proposals = o.owner && result.merged.some((m) => m.approval) ? proposalsNow(p) : [];
   // Then every other finished worktree (env/teardown.mjs): adopted ones of merged branches too.
   const torn = result.merged.length
     ? await tearDown(o.env, { events: readLedger(p.store).events, primary: p.repoRoot })
@@ -800,6 +996,17 @@ async function pullRequestMerge(o) {
     ...(o.approve ? { approved: approved.map((b) => b.branch) } : {}),
     merged: result.merged.map((m) => m.item),
     pull_requests: result.merged,
+    // Merged without asking under the owner's delegation, each with the command that reverses it.
+    delegated: result.merged
+      .filter((m) => m.delegated_by)
+      .map((m) => ({
+        item: m.item,
+        pull_request: m.url,
+        commit: m.commit,
+        decision: m.delegated_by,
+        reverse: revertCommand(m),
+      })),
+    ...(o.owner ? { proposals } : {}),
     ...(torn?.removed.length ? { worktrees_removed: torn.removed.map((x) => x.path) } : {}),
     rejected: result.rejected.map((x) => ({
       ...rejectedJson(/** @type {any} */ (x), main),
@@ -824,6 +1031,12 @@ async function pullRequestMerge(o) {
             : '',
           waiting.length
             ? 'put the question to the owner in one message, one line per pull request (item, link, the checks passed, the files changed); merge only on the owner\'s own message: hitld merge --all or --only <branch> with --signoff "<the owner\'s sign-off>" (or the chief of staff records it with hitld merge approve)'
+            : '',
+          waiting.some((w) => w.no_signoff)
+            ? `the ones marked no_signoff would merge without asking under ${pr.delegated_by}, but no sign-off of the owner's is recorded yet: their approval records it, and later ones merge with it`
+            : '',
+          proposals.length
+            ? 'put each proposal to the owner with hitld rights ask --question <its question>; only the owner changes policy.json'
             : '',
           result.pending.length || result.updated.length
             ? 'run hitld merge again when the named checks finish (watch the pull requests rather than poll)'
@@ -863,12 +1076,15 @@ const table = [
               effort: s.effort,
               estimate_tokens: s.estimate_tokens,
               estimate_source: s.estimate_source,
+              estimate_samples: s.estimate_samples,
+              estimate_basis: s.estimate_basis,
               unblocks: q.unblocks.get(String(i.id)) ?? 0,
               critical_path: q.critical.has(String(i.id)),
               reasons: s.reasons,
             };
           }),
           in_flight: q.inFlight.map((d) => ({ dispatch: d.dispatch, item: d.item })),
+          awaiting_merge: q.awaiting,
         };
       }),
   },
@@ -925,7 +1141,10 @@ const table = [
             { handover: due },
           );
         }
-        const { q, result, setup } = plan(p, ctx, input['by-hand'] === true ? id : undefined);
+        const byHand = input['by-hand'] === true ? id : undefined;
+        // The item is planned alone, against what runs: its place in the plan's start list does
+        // not matter, and the plan's other proposals hold nothing (HITLD-153).
+        const { q, result, setup, running } = plan(p, ctx, byHand, id);
         const planned = result.start.find((s) => s.item === id);
         if (!planned && result.disk?.state === 'below') {
           throw new Refusal('disk-floor', `${id} waits: ${result.disk.reason}`, {
@@ -934,33 +1153,65 @@ const table = [
         }
         if (!planned) {
           const held = result.held.find((h) => h.item === id);
+          const awaiting = result.awaiting_merge.find((a) => a.item === id);
           const why = held
             ? `${id} is held: ${held.why}`
             : result.inline.some((s) => s.item === id)
               ? `${id} is tier 0: the orchestrator does it itself`
               : q.queue.some((i) => String(i.id) === id)
-                ? `${id} is ready but no slot is free (${result.running} running, cap ${result.cap})`
-                : `${id} is not ready (or is already in flight)`;
-          throw new Refusal('not-planned', why, { plan: planJson(result, setup) });
+                ? `${id} is ready but no slot is free: ${result.slots}`
+                : awaiting
+                  ? awaitingText(awaiting)
+                  : `${id} is not ready (or is already in flight)`;
+          const whole = plan(p, ctx, byHand).result;
+          throw new Refusal('not-planned', why, { plan: planJson(whole, setup) });
         }
         const item = /** @type {Item} */ (q.byId.get(id));
         const dispatch = nextDispatchId(readLedger(p.store).events);
         const branch = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
         const tier = planned.tier;
         const mode = /** @type {'headless' | 'interactive'} */ (
-          String(input.mode ?? p.policy.dispatch.tier3_mode)
+          String(input.mode ?? planned.mode ?? p.policy.dispatch.tier3_mode)
         );
         if (tier === 3 && !['headless', 'interactive'].includes(mode)) {
           throw new Refusal('usage', '--mode is headless or interactive');
+        }
+        if (tier === 3 && planned.modes?.[mode] === 'unable') {
+          throw new Refusal(
+            PERMISSIONS_REASON,
+            `${id} does not run ${mode}: ${mode === 'headless' ? 'headless runs' : 'interactive sessions'} here cannot run the contract's commands (${planned.notes.join('; ')}); start it without --mode`,
+            { plan: planJson(result, setup) },
+          );
         }
         const xenv = executorEnv(dispatch, p.policy.project.id);
         const briefPath = join(p.store.root, briefKey(dispatch));
         const resultPath = join(p.store.root, resultKey(dispatch));
         const isolation = tier <= 2 ? 'worktree' : 'none';
         const sizing = planned.sizing;
+        const touches = planned.touches;
+        // What the brief says about overlapping work: the dispatches in flight on the same paths,
+        // and what merged on them since the item was planned.
+        const overlaps = overlapsInFlight(touches.touches, running);
+        const merged = mergedSincePlanned({
+          repoRoot: p.repoRoot,
+          main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
+          path: typeof item.path === 'string' ? item.path : undefined,
+          touches: touches.touches,
+        });
         /** @param {string | null} worktree */
         const briefFor = (worktree) =>
-          renderBrief({ item, sizing, dispatch, branch, policy: p.policy, isolation, worktree });
+          renderBrief({
+            item,
+            sizing,
+            dispatch,
+            branch,
+            policy: p.policy,
+            isolation,
+            worktree,
+            touches,
+            overlaps,
+            merged,
+          });
 
         // Write ahead: the dispatch is in the ledger before anything starts.
         run.record({
@@ -976,6 +1227,14 @@ const table = [
           brief_hash: createHash('sha256').update(briefFor(null)).digest('hex'),
           skill_versions: { hitld_version: VERSION },
           estimate_tokens: sizing.estimate_tokens,
+          // Where the estimate came from and how many completions it rests on (HITLD-450).
+          estimate_source: sizing.estimate_source,
+          ...(sizing.estimate_samples !== undefined
+            ? { estimate_samples: sizing.estimate_samples }
+            : {}),
+          ...(touches.source !== 'none'
+            ? { touches: touches.touches, touches_source: touches.source }
+            : {}),
           ...(sizing.areas[0] ? { area: sizing.areas[0] } : {}),
           host: run.host,
           ...(tier === 3 ? { mode } : {}),
@@ -1088,7 +1347,9 @@ const table = [
           on_complete:
             call.tool === 'Bash'
               ? `hitld dispatch complete --dispatch ${dispatch} --result-file ${resultPath}`
-              : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-calls N --duration-ms N]`,
+              : call.tool === 'session'
+                ? `save the session's record, its result events (the event list of kind result), to a file; hitld dispatch complete --dispatch ${dispatch} --session-record <file> [--report-file <the report, when it came apart>]. Only when the record is not available: --report-file <file> --tokens N, which the ledger records as typed`
+                : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-calls N --duration-ms N], --tokens only when the notification shows no usage block`,
         };
       }),
   },
@@ -1147,9 +1408,22 @@ const table = [
       },
       { name: 'result-file', type: 'string', description: "A headless run's JSON result" },
       {
+        name: 'session-record',
+        type: 'string',
+        description:
+          "An interactive dispatch's record, as the harness keeps it: the result messages of the executor's session (a cloud session's event list of kind result, or claude -p stream JSON), saved to a file. Its tokens, cache reads and cost are read from it, from the turns since the dispatch started; without --report-file, its last turn is the report",
+      },
+      {
         name: 'tokens',
         type: 'integer',
-        description: 'Tokens from the notification, where it shows them (undocumented)',
+        description:
+          "What the dispatch cost, typed by hand when the harness record is not available: output tokens plus fresh input (uncached input and cache writes), never cache reads, and never the executor's own figure, which is a guess. The ledger records it as typed. Refused with --result-file or --session-record, which are measured. A figure three times the dispatch's estimate or more is refused without --tokens-over-estimate",
+      },
+      {
+        name: 'tokens-over-estimate',
+        type: 'boolean',
+        description:
+          "Record a token count three times the dispatch's estimate or more: the run really cost that much (the figure is not a cache-read total)",
       },
       { name: 'tool-calls', type: 'integer', description: 'Tool calls from the notification' },
       { name: 'duration-ms', type: 'integer', description: 'Duration from the notification' },
@@ -1170,43 +1444,146 @@ const table = [
           if (done) return { ok: true, dispatch: d, already: true, event: done };
           throw new Refusal('not-in-flight', `${d} is not in flight`);
         }
+        const typedTokens = /** @type {number | undefined} */ (input.tokens);
+        const measuredFrom = ['result-file', 'session-record'].find(
+          (k) => typeof input[k] === 'string',
+        );
+        if (typedTokens !== undefined && measuredFrom) {
+          throw new Refusal(
+            'usage',
+            `--tokens is for a figure typed by hand when the harness record is not available; --${measuredFrom} is measured, and its figure is recorded`,
+          );
+        }
+        const dispatchedEvent = readLedger(p.store).events.find(
+          (e) => e.event === 'dispatched' && e.dispatch === d,
+        );
         /** @type {import('../../../harness/claude-code/adapter.mjs').Notification} */
         let n;
-        if (typeof input['result-file'] === 'string') {
+        if (typeof input['session-record'] === 'string') {
+          n = {
+            kind: 'session',
+            record: readInput(input['session-record'], ctx),
+            ...(typeof input['report-file'] === 'string'
+              ? { text: readInput(input['report-file'], ctx) }
+              : {}),
+            since: dispatchedEvent?.at ?? null,
+          };
+        } else if (typeof input['result-file'] === 'string') {
           n = { kind: 'headless', json: readInput(input['result-file'], ctx) };
         } else if (typeof input['report-file'] === 'string') {
           n = {
             kind: 'subagent',
             text: readInput(input['report-file'], ctx),
             usage: {
-              tokens: /** @type {number | undefined} */ (input.tokens) ?? null,
+              tokens: typedTokens ?? null,
               toolCalls: /** @type {number | undefined} */ (input['tool-calls']) ?? null,
               durationMs: /** @type {number | undefined} */ (input['duration-ms']) ?? null,
             },
           };
         } else {
           const stored = p.store.read(resultKey(d));
-          if (stored === null) throw new Refusal('usage', 'give --report-file or --result-file');
+          if (stored === null)
+            throw new Refusal('usage', 'give --session-record, --result-file or --report-file');
           n = { kind: 'headless', json: stored };
         }
-        const completion = completionOf(d, n);
+        /** @type {ReturnType<typeof completionOf>} */
+        let completion;
+        try {
+          completion = completionOf(d, n);
+        } catch (e) {
+          if (n.kind === 'subagent') throw e;
+          throw new Refusal(
+            'usage',
+            `${n.kind === 'session' ? '--session-record' : 'the headless result'}: ${/** @type {Error} */ (e).message}`,
+          );
+        }
+        // A figure far above the estimate is most often a cache-read total, which would stand as the
+        // item's cost and set the estimate of the next items (HITLD-436): refused before anything
+        // is recorded or released, so the same command can run again with the right figure. A
+        // measured figure (HITLD-438) leaves cache reads out by construction, so it is recorded
+        // whatever its size, with a note.
+        // Read capped and corrected (HITLD-450): a poisoned start estimate cannot raise the bar.
+        const estimate = startEstimate(
+          readLedger(p.store).events,
+          d,
+          entry.item,
+          p.policy.dispatch,
+        );
+        const tokens = completion.usage?.tokens;
+        const measured = MEASURED_SOURCES.includes(completion.tokensSource ?? '');
+        if (
+          !measured &&
+          farAboveEstimate(tokens, estimate) &&
+          input['tokens-over-estimate'] !== true
+        ) {
+          throw new Refusal(
+            'tokens-over-estimate',
+            `${d} would record ${tokens} tokens, ${Math.floor(/** @type {number} */ (tokens) / /** @type {number} */ (estimate))} times its estimate of ${estimate} (refused at ${TOKENS_FAR_ABOVE_ESTIMATE} times). A completion's tokens are output plus fresh input (uncached input and cache writes), never cache reads: run this again with that figure, or add --tokens-over-estimate if the run really cost ${tokens}`,
+          );
+        }
         releaseExecutor(p.machineRoot, p.policy.project.id, d);
         const parsed = parseReport(completion.report);
         const commit = parsed.report?.commit?.sha;
-        run.record({
-          ...reportedEvent(entry, { ...completion, ...(commit ? { commit } : {}) }),
+        // A completion whose permission_denials show the contract's commands refused is blocked
+        // by permissions, never a missing report shape: a follow-up would meet the same refusal
+        // (HITLD-141). A report that only mentions a refusal is a warning, never a hold.
+        const refused = refusedCommands(completion.permissionDenials);
+        const mentioned = refused.length
+          ? []
+          : mentionedRefusals({
+              report: completion.report,
+              done: parsed.report?.result === 'done',
+            });
+        const notes = [
+          ...(refused.length ? [refusedNote(refused)] : []),
           ...(completion.usageSource === 'observed'
-            ? { notes: 'usage from the completion notification (observed; undocumented)' }
-            : {}),
+            ? ['usage from the completion notification (observed; undocumented)']
+            : []),
+          ...(farAboveEstimate(tokens, estimate)
+            ? [
+                measured
+                  ? `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, measured`
+                  : `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, confirmed with --tokens-over-estimate`,
+              ]
+            : []),
+          ...(completion.tokensSource === 'typed'
+            ? ['tokens typed by hand: the harness record was not given']
+            : []),
+        ];
+        run.record({
+          ...reportedEvent(
+            entry,
+            { ...completion, ...(commit ? { commit } : {}) },
+            readLedger(p.store).events,
+            p.policy.dispatch,
+          ),
+          ...(notes.length ? { notes: notes.join('; ') } : {}),
+          ...(refused.length ? { result: 'blocked', reason: PERMISSIONS_REASON } : {}),
         });
 
         /** @type {Result} */
-        const out = { ok: true, dispatch: d, item: entry.item };
+        const out = {
+          ok: true,
+          dispatch: d,
+          item: entry.item,
+          tokens: tokensOut(completion, dispatchedEvent),
+        };
         // An executor dispatched on an earlier release reports to a successor on the new one: its
         // report is accepted within the same minor (design part 16.5, Upgrades).
         const executor = reportVersion(dispatchedOn(readLedger(p.store).events, d));
         if (executor) out.executor_version = executor;
-        if (!parsed.report) {
+        if (mentioned.length) {
+          out.permission_warning = {
+            commands: mentioned,
+            note: `the report mentions ${mentioned.join(', ')} next to a refusal. Only a harness's recorded permission denials hold dispatch, so nothing is held: read the report, and if the executor was refused the contract's commands, tell the owner rather than following up into the same refusal`,
+          };
+        }
+        if (refused.length) {
+          out.result = 'blocked';
+          out.blocked_by = PERMISSIONS_REASON;
+          out.refused_commands = refused;
+          out.next = `the executor's permission mode ${refusedNote(refused)}, which the contract requires: recorded as blocked by permissions. Send no follow-up, which would meet the same refusal. For the rest of this run, the plan dispatches no item this way on this harness: it uses the other tier-3 mode, or holds the item (reason ${PERMISSIONS_REASON}); tell the owner`;
+        } else if (!parsed.report) {
           out.report_errors = parsed.errors;
           out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;
         } else {
@@ -1230,6 +1607,21 @@ const table = [
               notes: 'report shape and branch checked; acceptance checks run as merge fast checks',
             });
             out.queued_to_merge = branch;
+            // The release-note rule: a change to the public interface needs the item's
+            // release_note. Flagged for a follow-up; the branch is still queued.
+            const missing = missingReleaseNote({
+              repoRoot: p.repoRoot,
+              main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
+              commit: r.commit.sha,
+              itemPath: itemPathOf(p, ctx, entry.item),
+              publicGlobs: p.policy.merge?.public_globs ?? [],
+            });
+            if (missing) {
+              out.release_note_missing = {
+                files: missing.files,
+                next: `the change touches the public interface but ${entry.item} has no release_note: hitld dispatch follow-up --dispatch ${d} --message "<ask for a one-line release_note on the item>"`,
+              };
+            }
             // The evidence goes in the body of the branch's pull request (merge.via pull-request).
             p.store.write(
               reportEvidenceKey(entry.item),
@@ -1318,6 +1710,9 @@ const table = [
           skill_versions: { hitld_version: VERSION },
           host: run.host,
           ...(first.serial_resources ? { serial_resources: first.serial_resources } : {}),
+          ...(first.touches
+            ? { touches: first.touches, touches_source: first.touches_source }
+            : {}),
           notes: `follow-up of ${from}`,
         });
         run.record({
@@ -1507,8 +1902,11 @@ const table = [
             message: 'nothing is waiting to merge',
           };
         }
-        const work = readWorkItems({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
-        const byId = new Map(work.items.map((i) => [String(i.id), i]));
+        // The tracker, not readWorkItems: the merge needs no ready set, so it reads no branch's
+        // claims (a scan of every ref).
+        const tracker = openTracker({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
+        const items = /** @type {import('../../dispatch/item.mjs').Item[]} */ (tracker.query({}));
+        const byId = new Map(items.map((i) => [String(i.id), i]));
         const events = readLedger(p.store).events;
         /** @param {string} item */
         const lastDispatch = (item) =>
@@ -1521,7 +1919,7 @@ const table = [
           touches: /** @type {string[]} */ (byId.get(w.item)?.touches ?? []),
           dispatch: lastDispatch(w.item),
         });
-        const layout = work.tracker.layout();
+        const layout = tracker.layout();
         const main = p.policy.merge.main_branch;
         /** @type {import('../../merge/queue.mjs').Settings} */
         const settings = {
@@ -1563,12 +1961,9 @@ const table = [
         };
         /** @param {string} dir */
         const regenerateViews = (dir) => {
+          // The views need no claims: the tracker alone, not readWorkItems, once per batch.
           if (existsSync(join(dir, layout.workDir))) {
-            readWorkItems({
-              repoRoot: dir,
-              policy: p.policy,
-              env: ctx.env,
-            }).tracker.writeViews();
+            openTracker({ repoRoot: dir, policy: p.policy, env: ctx.env }).writeViews();
           }
         };
         const env = openEnv({
@@ -1577,12 +1972,21 @@ const table = [
           policy: p.policy,
           env: ctx.env,
         });
+        // Each waiting branch's files, read once: the listing below and presentToOwner both route
+        // by them.
+        /** @type {Map<string, string[]>} */
+        const changed = new Map();
         // An owner-mode listing that changes nothing needs no lock: the stored presentation is
         // still what checking again would give.
         if (!approving && owner && !viaPR) {
           const entries = waiting.map(entryOf);
+          for (const e of entries) {
+            if (!changed.has(e.branch)) {
+              changed.set(e.branch, changedOnBranch(p.repoRoot, main, e.branch));
+            }
+          }
           const toOwner = entries.filter((e) =>
-            waitsForOwner(changedOnBranch(p.repoRoot, main, e.branch), p.policy),
+            waitsForOwner(/** @type {string[]} */ (changed.get(e.branch)), p.policy),
           );
           if (
             toOwner.length === entries.length &&
@@ -1685,6 +2089,7 @@ const table = [
               approve: approving ? { all, names } : null,
               entries: waiting.map(entryOf),
               settings,
+              layout,
               env,
             });
           }
@@ -1762,6 +2167,7 @@ const table = [
               scanners: scanners.map((s) => s.name),
               regenerateViews,
               events,
+              changed,
             });
             if (shown.queued) await record(shown.queued);
             if (shown.checked) await record(shown.checked);

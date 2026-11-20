@@ -1,11 +1,13 @@
 ---
 id: HITLD-62
-title: "Milestone graph in the views and the report"
+title: Milestone graph in the views and the report
 kind: work
-state: planned
+state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-45]
+claimed_by: D-20
+release_note: `hitld work views` writes milestones.md as a milestone graph (mermaid) with a table, and `hitld dashboard` shows the milestones as a board in inline SVG (lanes by project, steps across), each milestone opening to its items.
 ---
 
 ## Why
@@ -24,3 +26,7 @@ Design 12.1.2 and 3.4, "Generated views": once milestones are entities (HITLD-45
 ## Plan
 
 docs/design/0001-human-in-the-lead/12-reporting-and-limits.md#1212-the-milestone-graph-planned; docs/design/0001-human-in-the-lead/03-data-model.md#generated-views.
+
+## Follow-up
+
+The dashboard's board follows the owner's choice of layout (the Work board of another project the owner runs: lanes by project, steps across, stage colors). Left for later: a layout that places nodes for the fewest edge crossings, highlighting a node's waits on hover, and a picker for which projects the board shows.

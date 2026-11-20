@@ -51,7 +51,7 @@ function sourceOf(layout, ref) {
 }
 
 /** The main branch's ref, or null when it does not exist yet. @param {string} root @param {Layout} layout */
-function mainRef(root, layout) {
+export function mainRef(root, layout) {
   const ref = `refs/heads/${layout.mainBranch}`;
   return git(root, ['rev-parse', '--verify', '-q', ref], { allowFail: true }).trim() ? ref : null;
 }
@@ -72,26 +72,57 @@ export function unclaimedClaims(root, layout) {
 }
 
 /**
- * The claim commit on a ref for an item: the first commit since the main branch that sets the
- * item in-progress (message `claim: <ID>`), or failing that the oldest commit touching its file.
- * @param {string} root @param {Layout} layout @param {string} ref @param {string} id @param {string} path
- * @returns {{ commit: string, at: string } | null}
+ * The claim commit on a ref for each item asked about: the first commit since the main branch
+ * that touches the item's file with a message line `claim: <ID>`, or failing that the oldest
+ * commit touching its file. One `git log` per ref, however many items it claims, since starting a
+ * process is slow on some machines.
+ * @param {string} root @param {string | null} main the main branch's ref
+ * @param {{ ref: string, id: string, path: string }[]} wanted
+ * @returns {Map<string, { commit: string, at: string }>} keyed by `${ref}\0${id}`
  */
-function claimCommit(root, layout, ref, id, path) {
-  const main = mainRef(root, layout);
-  const range = main ? [`${main}..${ref}`] : [ref];
-  /** @param {string[]} extra */
-  const first = (extra) => {
-    const out = git(root, ['log', ...range, '--reverse', '--format=%H %cI', ...extra, '--', path], {
-      allowFail: true,
-    })
-      .split('\n')
-      .find(Boolean);
-    if (!out) return null;
-    const [commit, at] = out.split(' ');
-    return { commit, at };
-  };
-  return first(['-E', `--grep=^claim: ${id}$`]) ?? first([]);
+function claimCommits(root, main, wanted) {
+  /** @type {Map<string, { commit: string, at: string }>} */
+  const found = new Map();
+  /** @type {Map<string, { id: string, path: string }[]>} */
+  const byRef = new Map();
+  for (const w of wanted) byRef.set(w.ref, [...(byRef.get(w.ref) ?? []), w]);
+  for (const [ref, items] of byRef) {
+    const range = main ? [`${main}..${ref}`] : [ref];
+    const paths = [...new Set(items.map((w) => w.path))];
+    const log = git(
+      root,
+      [
+        'log',
+        ...range,
+        '--reverse',
+        '--format=%x1e%H %cI%x1f%B%x1f',
+        '--name-only',
+        '--',
+        ...paths,
+      ],
+      { allowFail: true },
+    );
+    // Oldest first: "\x1e<commit> <date>\x1f<message>\x1f" and the paths it touched, one a line.
+    const commits = log
+      .split('\x1e')
+      .slice(1)
+      .map((chunk) => {
+        const [head = '', message = '', names = ''] = chunk.split('\x1f');
+        const [commit, at] = head.trim().split(' ');
+        return {
+          commit,
+          at,
+          lines: message.split('\n').map((l) => l.trimEnd()),
+          paths: new Set(names.split('\n').map((p) => p.trim())),
+        };
+      });
+    for (const { id, path } of items) {
+      const touching = commits.filter((c) => c.paths.has(path));
+      const c = touching.find((t) => t.lines.includes(`claim: ${id}`)) ?? touching[0];
+      if (c) found.set(`${ref}\0${id}`, { commit: c.commit, at: c.at });
+    }
+  }
+  return found;
 }
 
 /**
@@ -99,51 +130,67 @@ function claimCommit(root, layout, ref, id, path) {
  * where the main branch's copy differs (it shows it planned). Claims an unclaim commit has retired
  * do not count.
  * @param {string} root @param {Layout} layout
+ * @param {{ cache?: Map<string, import('./tree.mjs').Entry[]> }} [options] cache: refs already
+ *   read by the same command (see loadPlaces)
  * @returns {ClaimedItem[]}
  */
-export function findClaims(root, layout) {
+export function findClaims(root, layout, { cache } = {}) {
   const main = mainRef(root, layout);
   const refs = refPlaces(root, layout).filter(
     (p) => p.ref !== main && !(p.ref ?? '').endsWith(`/${layout.mainBranch}`),
   );
+  // The main branch and every other ref, read together.
+  const placed = loadPlaces(
+    root,
+    layout,
+    [...(main ? [{ where: layout.mainBranch, ref: main }] : []), ...refs],
+    { cache },
+  );
   const mainItems = main
-    ? new Map(
-        (loadPlaces(root, layout, [{ where: layout.mainBranch, ref: main }])[0]?.items ?? []).map(
-          (e) => [String(e.data?.id), e.data],
-        ),
-      )
+    ? new Map((placed.shift()?.items ?? []).map((e) => [String(e.data?.id), e.data]))
     : new Map();
   const unclaimed = unclaimedClaims(root, layout);
+  // Items in-progress on a ref where the main branch's copy differs.
+  const candidates = placed.flatMap(({ ref, items }) =>
+    items
+      .filter((it) => {
+        const d = it.data;
+        if (!d?.id || d.state !== 'in-progress' || d.kind === 'project' || d.kind === 'milestone') {
+          return false;
+        }
+        const here = mainItems.get(String(d.id));
+        return !(here && here.state === d.state && here.claimed_by === d.claimed_by); // not news
+      })
+      .map((it) => ({ ref: String(ref), it })),
+  );
+  const commits = claimCommits(
+    root,
+    main,
+    candidates.map(({ ref, it }) => ({ ref, id: String(it.data?.id), path: it.path })),
+  );
   /** @type {Map<string, ClaimedItem>} */
   const claimed = new Map();
-  for (const { ref, items } of loadPlaces(root, layout, refs)) {
-    for (const it of items) {
-      const d = it.data;
-      if (!d?.id || d.state !== 'in-progress' || d.kind === 'project' || d.kind === 'milestone') {
-        continue;
-      }
-      const here = mainItems.get(String(d.id));
-      if (here && here.state === d.state && here.claimed_by === d.claimed_by) continue; // not news
-      const id = String(d.id);
-      const found = claimCommit(root, layout, String(ref), id, it.path);
-      if (
-        found &&
-        [...unclaimed].some((r) => found.commit.startsWith(r) || r.startsWith(found.commit))
-      ) {
-        continue;
-      }
-      if (!claimed.has(id)) {
-        claimed.set(id, { id, title: String(d.title), claims: [], double: false });
-      }
-      /** @type {ClaimedItem} */ (claimed.get(id)).claims.push({
-        claimant: String(d.claimed_by ?? '?'),
-        branch: String(ref).replace(/^refs\/(heads|remotes)\//, ''),
-        ref: String(ref),
-        commit: found?.commit ?? null,
-        at: found?.at ?? null,
-        source: sourceOf(layout, String(ref)),
-      });
+  for (const { ref, it } of candidates) {
+    const d = /** @type {NonNullable<typeof it.data>} */ (it.data);
+    const id = String(d.id);
+    const found = commits.get(`${ref}\0${id}`);
+    if (
+      found &&
+      [...unclaimed].some((r) => found.commit.startsWith(r) || r.startsWith(found.commit))
+    ) {
+      continue;
     }
+    if (!claimed.has(id)) {
+      claimed.set(id, { id, title: String(d.title), claims: [], double: false });
+    }
+    /** @type {ClaimedItem} */ (claimed.get(id)).claims.push({
+      claimant: String(d.claimed_by ?? '?'),
+      branch: ref.replace(/^refs\/(heads|remotes)\//, ''),
+      ref,
+      commit: found?.commit ?? null,
+      at: found?.at ?? null,
+      source: sourceOf(layout, ref),
+    });
   }
   const rank = { local: 0, remote: 1, bundle: 2 };
   for (const c of claimed.values()) {

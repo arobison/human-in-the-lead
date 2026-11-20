@@ -21,8 +21,9 @@
 // prunes the remote's older files (completeRotation). No passphrase is used: nothing writes
 // format 1 to a remote.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { replaceFile } from './host.mjs';
 import { formatOf, checkRecipients, open as openSealed } from './sealed.mjs';
 import { AgeError, parseIdentities } from './age.mjs';
 import { StoreRemoteError, pushWithRetry } from './remote.mjs';
@@ -94,7 +95,7 @@ function writeJson(root, name, value) {
   writeFileSync(tmp, JSON.stringify({ schema_version: 1, ...value }, null, 2) + '\n', {
     mode: 0o600,
   });
-  renameSync(tmp, path);
+  replaceFile(tmp, path);
 }
 
 /**

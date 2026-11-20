@@ -25,12 +25,28 @@ import {
   ledgerUsage,
   readLedgerEntries,
 } from '../lib/quota/usage.mjs';
-import { evaluateQuotas } from '../lib/quota/quota.mjs';
+import { FIVE_HOUR_LIMIT, evaluateQuotas, shownLimits } from '../lib/quota/quota.mjs';
 import { dispatchGate } from '../lib/quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml } from '../lib/quota/report.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
-const tmp = realpathSync(tempDir('hitld-quota-'));
+const tmp = realpathSync.native(tempDir('hitld-quota-'));
+
+/**
+ * Whether this machine lets the tests make a symbolic link to a file. Windows refuses one without
+ * Developer Mode or elevation (a directory link is made as a junction there, which needs neither).
+ */
+const canLinkFiles = (() => {
+  const target = join(tmp, 'link-probe-target');
+  writeFileSync(target, '');
+  try {
+    symlinkSync(target, join(tmp, 'link-probe'));
+    rmSync(join(tmp, 'link-probe'));
+    return true;
+  } catch {
+    return false;
+  }
+})();
 after(() => rmSync(tmp, { recursive: true, force: true }));
 
 const T0 = Date.parse('2026-11-14T12:00:00Z');
@@ -160,11 +176,11 @@ test('snapshot lines: valid ones are read in time order, others are counted and 
 });
 
 test('a reading comes from a named limit, or from the status-line window that matches', () => {
-  const limits = policyWith().quota.limits;
-  const five = readingFor(snap(T0, 42), limits[0]);
+  const [weekly] = policyWith().quota.limits;
+  const five = readingFor(snap(T0, 42), FIVE_HOUR_LIMIT);
   assert.equal(five?.used, 42);
   assert.equal(five?.resetsAt, T0 + 3 * HOUR);
-  assert.equal(readingFor(snap(T0, 42, 77), limits[1])?.used, 77);
+  assert.equal(readingFor(snap(T0, 42, 77), weekly)?.used, 77);
   assert.equal(readingFor(snap(T0, 42), tokenLimit()), null);
   assert.equal(
     readingFor({ ...snap(T0, 1), readings: [{ limit: 'tok', used: 300 }] }, tokenLimit())?.used,
@@ -243,11 +259,18 @@ test('a correction counts only when it names an earlier entry of the same item o
   assert.equal(ledgerUsage(ok, tokenLimit(), { start, now: T0 })?.used, 40);
 });
 
+/** The five-hour limit's state among evaluated quotas. @param {any[]} states */
+const fiveOf = (states) => {
+  const s = states.find((q) => q.id === 'claude-five-hour');
+  assert.ok(s, 'the five-hour limit is evaluated');
+  return s;
+};
+
 test('headroom and forecast from snapshots: burn, band, and reserve time', () => {
   // 20% -> 40% over the last hour of a five-hour window that began 2 h ago at 0%: recent 20%/h,
   // window average 40% over 2 h = 20%/h. Add a slower start so the two disagree.
   const snaps = [snap(T0 - 2 * HOUR, 0), snap(T0 - HOUR, 36), snap(T0, 40)];
-  const [five] = evaluateQuotas({ policy: policyWith(), snapshots: snaps, now: T0 });
+  const five = fiveOf(evaluateQuotas({ policy: policyWith(), snapshots: snaps, now: T0 }));
   assert.equal(five.used, 40);
   assert.equal(five.used_from, 'snapshot');
   assert.equal(five.confidence, 'high');
@@ -265,11 +288,13 @@ test('headroom and forecast from snapshots: burn, band, and reserve time', () =>
 
 test('the forecast band spans the recent rate and the window average', () => {
   const snaps = [snap(T0 - 2 * HOUR, 5), snap(T0, 40)];
-  const [five] = evaluateQuotas({
-    policy: policyWith({ forecast_hours: 1 }),
-    snapshots: [snap(T0 - 0.5 * HOUR, 10), snap(T0, 40)],
-    now: T0,
-  });
+  const five = fiveOf(
+    evaluateQuotas({
+      policy: policyWith({ forecast_hours: 1 }),
+      snapshots: [snap(T0 - 0.5 * HOUR, 10), snap(T0, 40)],
+      now: T0,
+    }),
+  );
   assert.equal(five.forecast.burn_basis, 'recent');
   assert.equal(five.forecast.burn_per_hour, 60);
   const [lo, hi] = /** @type {[number, number]} */ (five.forecast.burn_band);
@@ -286,15 +311,96 @@ test('a snapshot from a window that has reset is not used, and says so', () => {
     ...snap(T0 - 6 * HOUR, 90),
     rate_limits: { five_hour: { used_percentage: 90, resets_at: Math.floor((T0 - HOUR) / 1000) } },
   };
-  const [five] = evaluateQuotas({ policy: policyWith(), snapshots: [old], now: T0 });
+  // A declared five-hour limit keeps its stale reading out.
+  const policy = policyWith({ limits: [FIVE_HOUR_LIMIT] });
+  const [five] = evaluateQuotas({ policy, snapshots: [old], now: T0 });
   assert.equal(five.used, null);
   assert.equal(five.headroom, null);
   assert.ok(five.notes.some((n) => n.includes('since reset')));
+  // By default the window has reset, so the account no longer shows it and nothing is added.
+  assert.deepEqual(
+    evaluateQuotas({ policy: policyWith(), snapshots: [old], now: T0 }).map((q) => q.id),
+    ['claude-weekly'],
+  );
+});
+
+test('the five-hour limit is added only while the account shows that window', () => {
+  const declared = policyWith().quota.limits;
+  const ids = (/** @type {Record<string, any>[]} */ snaps, limits = declared) =>
+    shownLimits(limits, snaps, T0).map((l) => l.id);
+  // A plan with a five-hour window: the latest status-line snapshot reports one that has not reset.
+  assert.deepEqual(ids([snap(T0 - 60_000, 30)]), ['claude-weekly', 'claude-five-hour']);
+  // A plan with only a weekly window: nothing is added.
+  const weeklyOnly = (/** @type {number} */ at) => {
+    const s = snap(at, 0, 30);
+    return { ...s, rate_limits: { seven_day: s.rate_limits.seven_day } };
+  };
+  assert.deepEqual(ids([weeklyOnly(T0 - 60_000)]), ['claude-weekly']);
+  // Only the latest status-line snapshot counts: Claude Code drops a window once it resets.
+  assert.deepEqual(ids([snap(T0 - HOUR, 30), weeklyOnly(T0 - 60_000)]), ['claude-weekly']);
+  assert.deepEqual(ids([weeklyOnly(T0 - HOUR), snap(T0 - 60_000, 30)]), [
+    'claude-weekly',
+    'claude-five-hour',
+  ]);
+  // A snapshot from the future, another account's, or one with readings only does not count.
+  assert.deepEqual(ids([snap(T0 + HOUR, 30)]), ['claude-weekly']);
+  assert.deepEqual(ids([{ ...snap(T0 - 60_000, 30), account: 'work' }]), ['claude-weekly']);
+  assert.deepEqual(
+    ids([
+      snap(T0 - HOUR, 30),
+      { schema_version: 1, at: iso(T0), source: 'copilot-daily', readings: [] },
+    ]),
+    ['claude-weekly', 'claude-five-hour'],
+  );
+  // No snapshot at all: nothing is added.
+  assert.deepEqual(ids([]), ['claude-weekly']);
+  // A declared limit on the rolling_5h window wins, under any id.
+  const own = { ...FIVE_HOUR_LIMIT, id: 'my-session', limit: 80 };
+  assert.deepEqual(ids([snap(T0 - 60_000, 30)], [...declared, own]), [
+    'claude-weekly',
+    'my-session',
+  ]);
+  // The added limit says why it is there.
+  const states = evaluateQuotas({
+    policy: policyWith(),
+    snapshots: [snap(T0 - 60_000, 30)],
+    now: T0,
+  });
+  assert.ok(
+    fiveOf(states).notes.some((/** @type {string} */ n) =>
+      n.includes('reports a five-hour window'),
+    ),
+  );
+});
+
+test('a subscription with only a weekly window gates dispatch on it', () => {
+  const weekly = (/** @type {number} */ used) => {
+    const s = snap(T0 - 60_000, 0, used);
+    return { ...s, rate_limits: { seven_day: s.rate_limits.seven_day } };
+  };
+  const ok = dispatchGate(policyWith(), [weekly(30)], {}, { now: T0 });
+  assert.equal(ok.mode, 'normal');
+  assert.deepEqual(ok.unread, []);
+  assert.deepEqual(
+    ok.quotas.map((q) => q.id),
+    ['claude-weekly'],
+  );
+  const stop = dispatchGate(policyWith(), [weekly(80)], {}, { now: T0 });
+  assert.equal(stop.mode, 'stop');
+  assert.equal(stop.binding, 'claude-weekly');
+  assert.equal(stop.resets_at, iso(T0 + 3 * 24 * HOUR));
+  // With no reading at all the weekly limit stops dispatch, and no five-hour limit is asked for.
+  const none = dispatchGate(policyWith(), [], {}, { now: T0 });
+  assert.equal(none.mode, 'stop');
+  assert.deepEqual(
+    none.quotas.map((q) => q.id),
+    ['claude-weekly'],
+  );
 });
 
 test('confidence falls with a reading’s age, and a stated confidence is a ceiling', () => {
   const at = (/** @type {number} */ ageMs) =>
-    evaluateQuotas({ policy: policyWith(), snapshots: [snap(T0 - ageMs, 10)], now: T0 })[0];
+    fiveOf(evaluateQuotas({ policy: policyWith(), snapshots: [snap(T0 - ageMs, 10)], now: T0 }));
   assert.equal(at(10 * 60_000).confidence, 'high');
   assert.equal(at(2 * HOUR).confidence, 'medium');
   assert.equal(at(2.9 * HOUR).confidence, 'medium');
@@ -545,7 +651,7 @@ test('hitld dashboard --out stays inside the repository or the private store, an
   assert.equal((await hitld(args('../escape'), p)).json.error, 'output-path');
   // A symlink out of the repository does not smuggle the write out.
   mkdirSync(outside, { recursive: true });
-  symlinkSync(outside, join(p.repo, 'link'));
+  symlinkSync(outside, join(p.repo, 'link'), 'junction'); // a plain directory link off Windows
   assert.equal((await hitld(args('link/sub'), p)).json.error, 'output-path');
   assert.equal(existsSync(join(outside, 'sub')), false);
   // Inside the repository is fine, repeatedly (the report made its own files).
@@ -557,12 +663,14 @@ test('hitld dashboard --out stays inside the repository or the private store, an
   const clash = await hitld(args('docs'), p);
   assert.equal(clash.json.error, 'output-path');
   assert.equal(readFileSync(join(p.repo, 'docs', 'dashboard.html'), 'utf8'), 'mine');
-  // Nor one reached through a symlink.
-  mkdirSync(join(p.repo, 'tricky'));
-  writeFileSync(join(outside, 'target'), 'keep');
-  symlinkSync(join(outside, 'target'), join(p.repo, 'tricky', 'dashboard.html'));
-  assert.equal((await hitld(args('tricky'), p)).json.error, 'output-path');
-  assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
+  // Nor one reached through a symlink (where this machine lets the test make a file link).
+  if (canLinkFiles) {
+    mkdirSync(join(p.repo, 'tricky'));
+    writeFileSync(join(outside, 'target'), 'keep');
+    symlinkSync(join(outside, 'target'), join(p.repo, 'tricky', 'dashboard.html'));
+    assert.equal((await hitld(args('tricky'), p)).json.error, 'output-path');
+    assert.equal(readFileSync(join(outside, 'target'), 'utf8'), 'keep');
+  }
   // The private store is allowed.
   assert.equal((await hitld(args(join(p.store.root, 'mine')), p)).code, 0);
 });
@@ -579,7 +687,7 @@ test('a directory written under report.html is accepted, and the old page is rep
   );
   const r = await hitld(['dashboard', '--out', 'old', '--now', iso(T0)], p);
   assert.equal(r.code, 0);
-  assert.equal(r.json.html, join(realpathSync(dir), 'dashboard.html'));
+  assert.equal(r.json.html, join(realpathSync.native(dir), 'dashboard.html'));
   assert.ok(existsSync(join(dir, 'dashboard.html')));
   assert.match(readFileSync(join(dir, 'digest.txt'), 'utf8'), /Dispatch: Stopped at the reserve\./);
   // The old page is removed, and the marker lists the new names only.

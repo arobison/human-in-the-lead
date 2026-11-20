@@ -24,3 +24,7 @@ The chief of staff answers the owner's questions about how HITLd works, and the 
 ## Notes
 
 Raised by the owner in the chief of staff session. The rule is an instruction, so it helps only as far as it is followed; the eval is what measures that. It complements HITLD-55, which makes citing the design a single command, and HITLD-75, which grades what agents write into the tracker. It does not block HITLD-109.
+
+## Moved on 2026-11-20 (HITLD-592)
+
+On the owner's approval of the nine roadmap moves (HITLD-592), this item left milestone HITLD-405 (it was `HITLD-146 c1`), so the end-to-end eval runner HITLD-57, which it still needs, no longer holds up the stages before v0.1.0. It and HITLD-57 are now direct needs of v0.1.0 (HITLD-24).

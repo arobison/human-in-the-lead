@@ -2,7 +2,7 @@
 id: HITLD-167
 title: Finished executor sessions are ended by the chief of staff when their work is merged, and the skills say how the orchestrator asks
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-135]
@@ -14,16 +14,19 @@ A tier-3 executor in a cloud harness is a session the chief of staff started, in
 
 ## Done when
 
-- The owner decides, in a design walk-through (HITLD-135), one question at a time, and the answers are recorded as decisions before anything is built:
-  - When a finished executor session is ended: when its report arrives, or when its pull request has merged or been dropped. Design 5.2 says follow-ups go to the same agent with its context intact, so ending it at the report loses the context a rebuild or a review fix needs.
-  - Who ends it: the chief of staff, as the skill's table says, or the orchestrator.
-  - How the orchestrator asks: the existing `stop` verb, or a new one, and what the chief of staff does when a session is already ended.
-  - Whether anything ends sessions the orchestrator forgot, such as a sweep of sessions the chief of staff started whose items are done on `main`.
+- The skills, the message shape and design 13 say what the owner decided in a walk-through (HITLD-205 to 209):
+  - A finished executor's session is ended when its pull request has merged or been dropped, not when its report arrives, so follow-ups keep the agent's context (HITLD-205).
+  - The orchestrator owns spawning and ending executor sessions. Until it has the harness tools, the chief of staff makes the call as its proxy, and the orchestrator stays within the executor cap and the quota gate (HITLD-206).
+  - The orchestrator asks with a separate relay verb, `end` (`relay N: end <dispatch>`), distinct from `stop`, which interrupts a running session (HITLD-207, 208). Ending a session that is already ended is a no-op and the confirmation says so.
+  - The chief of staff's hourly check-in lists the sessions it started whose items are done on `main`, ends them, and says so in the digest (HITLD-209).
 - The chief-of-staff and orchestrate skills, the message shape and design 13 say the chosen answer, in one change the owner approves, and the plugin copies match.
 - A test or eval scenario shows an orchestrator reporting a merged item and the chief of staff ending its session once, and not ending one whose pull request is open.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
 
 ## Notes
 
-Raised by the owner in the chief of staff session. State is `proposed` on the owner's instruction, so the design is reviewed with them first. Until then the working rule is `relay: stop <dispatch>` when an executor's work is merged or dropped. HITLD-130 removes worktrees of merged branches, which is a different resource.
+Raised by the owner in the chief of staff session. Settled by the owner in a walk-through on 2026-11-16 (HITLD-205 to 209); state moved from `proposed` to `planned`. Until it is built the working rule is `relay N: stop <dispatch>` when an executor's work is merged or dropped. HITLD-130 removes worktrees of merged branches, which is a different resource.
 
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (508,492): session ending, relay verbs. The decisions since then are the ledger and no-run decisions (HITLD-484 to 490); stay in the harness and answers by proof (HITLD-540, 515). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

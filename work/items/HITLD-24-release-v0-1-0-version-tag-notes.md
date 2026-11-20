@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-14
 project: HITLD-15
 release: 0.1.0
-needs: [HITLD-22, HITLD-23, HITLD-16, HITLD-39, HITLD-40, HITLD-45, HITLD-51, HITLD-58, HITLD-59, HITLD-61, HITLD-63, HITLD-72, HITLD-73, HITLD-79, HITLD-80, HITLD-82, HITLD-83, HITLD-84, HITLD-85, HITLD-86, HITLD-87, HITLD-88, HITLD-89, HITLD-21, HITLD-35, HITLD-90, HITLD-91, HITLD-92, HITLD-93, HITLD-101, HITLD-102, HITLD-103, HITLD-104, HITLD-105, HITLD-106, HITLD-107, HITLD-100, HITLD-109, HITLD-110, HITLD-113, HITLD-114, HITLD-119, HITLD-121, HITLD-123, HITLD-128, HITLD-137, HITLD-25, HITLD-143, HITLD-145, HITLD-146]
+needs: [HITLD-22, HITLD-23, HITLD-16, HITLD-39, HITLD-40, HITLD-45, HITLD-51, HITLD-58, HITLD-59, HITLD-61, HITLD-63, HITLD-72, HITLD-73, HITLD-79, HITLD-80, HITLD-82, HITLD-83, HITLD-84, HITLD-85, HITLD-86, HITLD-87, HITLD-88, HITLD-89, HITLD-21, HITLD-35, HITLD-90, HITLD-91, HITLD-92, HITLD-93, HITLD-101, HITLD-102, HITLD-103, HITLD-104, HITLD-105, HITLD-106, HITLD-107, HITLD-110, HITLD-113, HITLD-114, HITLD-119, HITLD-128, HITLD-568, HITLD-64, HITLD-66, HITLD-333, HITLD-57, HITLD-146]
 ---
 
 ## Why
@@ -25,3 +25,7 @@ On GitHub (done before the first push): the issue labels `feedback`, `bug`, `fri
 - Every item this one needs is Done, and the first-release milestone's check has passed.
 - The first commit is signed off by the owner (DCO).
 - The issue labels exist and private vulnerability reporting is on.
+
+## Notes
+
+On the owner's decisions of 2026-11-16, applied by the planning pass HITLD-343: its six open direct needs (HITLD-109, 137, 25, 143, 145 and 146) are replaced by the release item for v0.1.0-rc.4 (HITLD-401), the milestones safe to publish (HITLD-64) and first release (HITLD-66), and signed device approvals (HITLD-333) (HITLD-358, 360 and 365). It reaches the six through the stage chain: rc.4 needs rc.3 (HITLD-400), which needs rc.2 (HITLD-137) and the milestones that hold them. It needs HITLD-66, which no longer lists it as a constraint (HITLD-360). HITLD-146 keeps its need on the end-to-end eval runner HITLD-57 (HITLD-361). Its done needs stay as history.

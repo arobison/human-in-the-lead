@@ -58,6 +58,10 @@ export const ERROR_CODES = Object.freeze({
   'forbidden-event': 'The event kind is written only by the orchestrator, not by this caller.',
   'forbidden-field': 'The event carries a field this caller may not set.',
   'forbidden-correction': 'The correction would change an entry this caller may not correct.',
+  'already-corrected':
+    'The ledger event was already corrected; correct the event that corrected it, which now stands.',
+  'no-estimate':
+    'The dispatch carries no start estimate of its own (a follow-up): correct the earlier dispatch it reads its estimate from.',
 
   // Dispatch, handover and the merge queue
   'not-planned':
@@ -65,6 +69,8 @@ export const ERROR_CODES = Object.freeze({
   'disk-floor':
     "Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.",
   'not-in-flight': 'The dispatch is not in flight.',
+  'tokens-over-estimate':
+    "The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.",
   'unknown-dispatch': 'The dispatch has no recorded harness reference, so it cannot be continued.',
   'still-running': 'The dispatch is still running; its completion notice comes first.',
   'handover-due': "This session's hand-over is due, so nothing new starts.",
@@ -106,6 +112,17 @@ export const ERROR_CODES = Object.freeze({
   'invalid-call': 'The logged call is empty or not valid.',
   'nothing-to-rate': 'No decision has been answered yet.',
   'not-found': 'The ID is not in the tracker or the store.',
+
+  // Design walk-throughs
+  'not-a-design':
+    'The design has no questions section with Q<n> questions, or an open question lacks two options or a recommendation, or lists its recommendation after another option.',
+  'already-decided': 'The design question is decided already; nothing was written.',
+  'decision-not-for-question':
+    "The decision is not the one filed for that design question: its title is not the question's; nothing was written.",
+  'not-answered': 'The decision has no answer from the owner, so the question stays open.',
+  'options-differ':
+    "The decision offered a different number of options than the design question has, so the option picked cannot be named in the design's words.",
+  'questions-open': 'Questions in the design wait for the owner, so it is not marked decided.',
 
   // Publishing tracker changes
   'main-changed':

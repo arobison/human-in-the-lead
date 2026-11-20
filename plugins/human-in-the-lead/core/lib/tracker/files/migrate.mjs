@@ -205,6 +205,13 @@ function checkRegistry(migrations) {
 }
 
 /**
+ * An item file's text with LF line endings, as the migrations match it. A Windows checkout with
+ * `core.autocrlf` has CRLF; without this, no front matter is found and every file is skipped.
+ * @param {string} root @param {string} path
+ */
+const readText = (root, path) => readNoFollow(insidePath(root, path)).replace(/\r\n/g, '\n');
+
+/**
  * Plan migrations in memory. Nothing is written.
  * @param {string} root @param {Layout} layout
  * @param {{ migrations?: readonly Migration[], only?: string }} [options]
@@ -219,7 +226,7 @@ export function planMigrations(root, layout, { migrations = MIGRATIONS, only } =
   }
   const loaded = loadWorkTree(root, layout);
   /** @type {Map<string, string>} */
-  const original = new Map(loaded.map((e) => [e.path, readNoFollow(insidePath(root, e.path))]));
+  const original = new Map(loaded.map((e) => [e.path, readText(root, e.path)]));
   const files = new Map(original);
   const before = checkItems(loaded, layout, { root });
   const taken = takenNumbers(root, layout, blockRange(layout, undefined));
@@ -304,7 +311,7 @@ export function pendingMigrationProblems(root, layout, { migrations = MIGRATIONS
   const files = new Map(
     loadWorkTree(root, layout)
       .filter((e) => e.version !== undefined)
-      .map((e) => [e.path, readNoFollow(insidePath(root, e.path))]),
+      .map((e) => [e.path, readText(root, e.path)]),
   );
   /** @type {string[]} */
   const out = [];

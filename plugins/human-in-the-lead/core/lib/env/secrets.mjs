@@ -8,6 +8,8 @@ import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { keychain } from './keychain.mjs';
 import { logEvent } from './registry.mjs';
+import { killTree } from './proc.mjs';
+import { programSpec, spawnOptions } from './shell.mjs';
 
 /**
  * @typedef {(name: string) => string | null} SecretReader
@@ -171,7 +173,7 @@ const REPORT_MAX = 64 * 1024;
  */
 export async function runWithSecrets(ctx, request) {
   const { argv, names } = request;
-  const [file, ...args] = argv;
+  const file = argv[0];
   if (!file) throw new Error('there is no command to run');
   for (const n of names) {
     if (!SECRET_NAME.test(n)) throw new Error(`"${n}" is not a secret name (A-Z, 0-9, _)`);
@@ -197,6 +199,15 @@ export async function runWithSecrets(ctx, request) {
   logEvent(ctx.store, 'secret_exec', { ...request.audit, names, command: file });
 
   const childEnv = { ...withoutSecrets(request.env), ...values };
+  // On Windows a .cmd or .bat program (npm, npx) runs through cmd.exe with each argument quoted,
+  // and a script with a #! line through node or Git's bash; elsewhere argv runs as it is.
+  let spec;
+  try {
+    spec = programSpec(argv, childEnv);
+  } catch (e) {
+    return { ok: false, error: 'spawn-failed', message: /** @type {Error} */ (e).message };
+  }
+  const program = spec;
 
   /** @param {Buffer[]} chunks */
   const finish = (chunks) => {
@@ -214,9 +225,9 @@ export async function runWithSecrets(ctx, request) {
     let timedOut = false;
     /** @type {Error | null} */
     let spawnError = null;
-    const child = spawn(file, args, {
+    const child = spawn(program.file, program.args, {
       cwd: request.cwd,
-      env: childEnv,
+      ...spawnOptions(program, childEnv),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     /** @param {Buffer[]} into @param {'out' | 'err'} which @param {Buffer} d */
@@ -232,7 +243,9 @@ export async function runWithSecrets(ctx, request) {
     child.stderr.on('data', (d) => take(err, 'err', d));
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
+      // On Windows stopping cmd.exe or bash would leave the program it started running.
+      if (process.platform === 'win32' && child.pid) killTree(child.pid);
+      else child.kill('SIGTERM');
     }, request.timeoutMs ?? 600_000);
     child.on('error', (e) => {
       spawnError = e;

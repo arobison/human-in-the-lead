@@ -21,6 +21,50 @@ const RANK = { low: 0, medium: 1, high: 2 };
 const iso = (ms) => new Date(ms).toISOString();
 
 /**
+ * The five-hour window some Claude plans have. It is not a default limit: Ultra and usage-based
+ * plans have no such window, and a limit with no reading stops dispatch. The gate adds it while
+ * the account's status line reports one (see shownLimits); otherwise the person file declares it.
+ */
+export const FIVE_HOUR_LIMIT = Object.freeze({
+  id: 'claude-five-hour',
+  unit: 'plan-percent',
+  window: 'rolling_5h',
+  limit: 100,
+  scope: Object.freeze({ harness: 'claude-code' }),
+  source: 'measured',
+  hard: false,
+});
+
+/**
+ * The limits to evaluate: the declared ones, plus the five-hour limit while the default account
+ * shows that window. It shows it when its latest status-line snapshot (one with rate_limits)
+ * carries five_hour and that window has not reset; Claude Code drops a window once it resets, and
+ * an account without one never sends it. A declared limit on the rolling_5h window wins: nothing
+ * is added then.
+ * @param {Record<string, any>[]} limits @param {Record<string, any>[]} snapshots @param {number} now
+ * @returns {Record<string, any>[]}
+ */
+export function shownLimits(limits, snapshots, now) {
+  if (limits.some((l) => l.window === FIVE_HOUR_LIMIT.window || l.id === FIVE_HOUR_LIMIT.id))
+    return limits;
+  let latest = null;
+  let latestAt = -Infinity;
+  for (const s of snapshots) {
+    if (s.account !== undefined && s.account !== 'default') continue;
+    if (!s.rate_limits || typeof s.rate_limits !== 'object') continue;
+    const at = Date.parse(s.at);
+    if (!(at <= now) || at < latestAt) continue;
+    latest = s;
+    latestAt = at;
+  }
+  const w = latest?.rate_limits?.five_hour;
+  if (!w) return limits;
+  const resets = resetsAtMs(w.resets_at);
+  if (resets != null && resets <= now) return limits;
+  return [...limits, FIVE_HOUR_LIMIT];
+}
+
+/**
  * @typedef {object} Forecast
  * @property {number | null} burn_per_hour in the limit's unit
  * @property {'recent' | 'window average' | null} burn_basis
@@ -93,9 +137,11 @@ export function evaluateQuotas({
 }) {
   const q = policy.quota;
   const smoothMs = (q.forecast_hours ?? 2) * HOUR;
-  return q.limits.map((/** @type {any} */ limit) => {
+  return shownLimits(q.limits, snapshots, now).map((/** @type {any} */ limit) => {
     /** @type {string[]} */
     const notes = [];
+    if (limit === FIVE_HOUR_LIMIT)
+      notes.push("added: the account's status line reports a five-hour window");
     const reserveShare = limit.reserve ?? q.reserve;
     const reserve = limit.limit == null ? null : reserveShare * limit.limit;
 

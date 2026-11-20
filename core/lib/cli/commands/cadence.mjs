@@ -15,7 +15,7 @@ import { markJobDone, readCadenceState } from '../../cadence/state.mjs';
 import { executorSignal } from '../executor.mjs';
 
 /** The jobs `hitld cadence` knows. */
-const JOBS = ['digest', 'report', 'baseline', 'eval', 'review'];
+const JOBS = ['digest', 'report', 'baseline', 'eval', 'sweep', 'review'];
 
 /**
  * The policy, the private store and the clock, or the error to return.
@@ -52,7 +52,7 @@ export const commands = [
   {
     name: 'cadence due',
     summary:
-      'What recurring work is due and why: digests and reports on thresholds, the owner writing or an idle machine (with a ceiling on silence), baselines and evals on an idle machine, calibration reviews on new outcomes. Reads only; the chief of staff runs what it lists',
+      'What recurring work is due and why: digests and reports on thresholds, the owner writing or an idle machine (with a ceiling on silence), baselines and evals on an idle machine, the stale-item sweep after merges, calibration reviews on new outcomes. Reads only; the chief of staff runs what it lists',
     built_by: 'h',
     output: ['ok', 'now', 'idle', 'owner_present', 'due', 'held', 'waiting', 'ceiling_at', 'next'],
     args: [
@@ -122,7 +122,7 @@ export const commands = [
   {
     name: 'cadence done',
     summary:
-      'Mark a recurring job as run, so the next `cadence due` counts only what is newer. The chief of staff runs it after sending the digest or report, starting the baseline or evals, or building the review. Refused for an executor',
+      'Mark a recurring job as run, so the next `cadence due` counts only what is newer. The chief of staff runs it after sending the digest or report, starting the baseline or evals, passing on the findings of the sweep, or building the review. Refused for an executor',
     built_by: 'h',
     output: ['ok', 'job', 'person', 'mark'],
     args: [

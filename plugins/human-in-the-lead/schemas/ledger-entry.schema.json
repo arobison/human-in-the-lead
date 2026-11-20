@@ -99,8 +99,49 @@
       "minimum": 0
     },
     "tokens": {
-      "description": "From the completion notice; null when the harness does not report usage.",
+      "description": "On reported: what the dispatch cost, output tokens plus fresh input (uncached input and cache writes), never cache reads; null when nothing gave a figure. tokens_source says where it came from. What the executor said its own run cost is never this figure: it is self_reported_tokens.",
       "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "tokens_source": {
+      "description": "On reported, beside tokens (HITLD-438): where the figure came from. session-record: measured, from the harness's own record of the executor's session (an interactive dispatch). result-file: measured, from a headless run's result. notification: the usage block of the harness's completion notification (undocumented). typed: typed by hand, because the harness record was not available; a correction (hitld ledger correct-tokens) is typed. The estimator weighs a measured figure over a typed one. Absent on a line written before it, whose source is not known.",
+      "enum": ["session-record", "result-file", "notification", "typed"]
+    },
+    "usage": {
+      "description": "On reported, when the harness's record or result gave them (HITLD-438): its counts kept apart, cache reads included, and the cost it reports. tokens is input_tokens plus cache_write_tokens plus output_tokens.",
+      "type": "object",
+      "properties": {
+        "input_tokens": {
+          "description": "Uncached input.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_write_tokens": {
+          "description": "Input written to the cache.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_read_tokens": {
+          "description": "Input read from the cache: kept apart, never counted in tokens.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost_usd": {
+          "description": "The cost the harness reports, in US dollars.",
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "self_reported_tokens": {
+      "description": "On reported (HITLD-438): the token figure the executor's report gives for its own run. A guess, since an executor has no meter for its own usage: kept for comparison with the measured figure, and never read as the cost by the summary, the digest or the estimator.",
+      "type": "integer",
       "minimum": 0
     },
     "tool_calls": {
@@ -116,7 +157,17 @@
       "minimum": 0
     },
     "estimate_tokens": {
+      "description": "On dispatched: the token estimate the dispatch started with, set at sizing; on reported, a copy of it. A follow-up's dispatched carries none: the item's earlier one stands. It is read capped at dispatch.estimate_max_multiple times the tier's default, unless the item set it (HITLD-450). A correction (hitld ledger correct-estimate) is a dispatched event that corrects the original, and is read in its place.",
       "$ref": "common#/$defs/tokens"
+    },
+    "estimate_source": {
+      "description": "On dispatched, beside estimate_tokens (HITLD-450): where the estimate came from. item: the item's own estimate_tokens. history: the median of similar past completions. default: the tier's default (dispatch.default_estimates). typed: typed by hand, as a correction (hitld ledger correct-estimate) is. Absent on a line written before it, whose source is not known.",
+      "enum": ["item", "history", "default", "typed"]
+    },
+    "estimate_samples": {
+      "description": "On dispatched, beside estimate_source (HITLD-450): how many similar past completions with a token count there were when it was sized, so an estimate that rested on one record shows in the ledger itself. 0 for an item's own estimate and a typed one. Absent on a line written before it.",
+      "type": "integer",
+      "minimum": 0
     },
     "commit": {
       "$ref": "common#/$defs/commit"
@@ -149,6 +200,14 @@
       "description": "Serial resources the dispatch holds (design part 13.2), on dispatched.",
       "$ref": "common#/$defs/names"
     },
+    "touches": {
+      "description": "On dispatched: the touches the overlap rule and the brief used, the item's own or, when it has none, derived from its text and the repository (HITLD-136).",
+      "$ref": "common#/$defs/globs"
+    },
+    "touches_source": {
+      "description": "On dispatched: item when the touches are the item's own, derived when they were derived from its text. Writing touches on the item corrects derived ones.",
+      "enum": ["item", "derived"]
+    },
     "decision": {
       "description": "The decision item a question, its showing or its answer is about.",
       "$ref": "common#/$defs/id"
@@ -162,7 +221,7 @@
       "enum": ["default"]
     },
     "text": {
-      "description": "On logged: the call, in a sentence, as the orchestrator decided it without asking. The digest lists it, and the owner can reverse it by this event's ID.",
+      "description": "On logged: the call, in a sentence, as the orchestrator decided it without asking. The digest lists it, and the owner can reverse it by this event's ID. On answered: the answer as written in the decision item, which a merge under the owner's delegation checks a changed answer against.",
       "$ref": "common#/$defs/text"
     },
     "area": {
@@ -174,8 +233,18 @@
       "enum": ["headless", "interactive"]
     },
     "reason": {
-      "description": "On lease-released: handover (the holder wrote the hand-over and gave the lease up) or ended (the chief of staff saw the session end without one, and retired it). On stalled: no_progress (nothing observed for the dispatch's stall time), deadline (past its start-to-finish deadline), limit (cut off by a usage limit: quiet across a quota pause, found after the reset) or exited (a headless run's process ended without a result). On resumed: reset (the limiting window reset) or budget (the gate allows dispatch again before the reset: a raised budget or reserve, or new readings).",
-      "enum": ["handover", "ended", "no_progress", "deadline", "limit", "exited", "reset", "budget"]
+      "description": "On lease-released: handover (the holder wrote the hand-over and gave the lease up) or ended (the chief of staff saw the session end without one, and retired it). On stalled: no_progress (nothing observed for the dispatch's stall time), deadline (past its start-to-finish deadline), limit (cut off by a usage limit: quiet across a quota pause, found after the reset) or exited (a headless run's process ended without a result). On resumed: reset (the limiting window reset) or budget (the gate allows dispatch again before the reset: a raised budget or reserve, or new readings). On reported: executor-permissions (the report showed commands the contract requires, hitld, node, npm or git, refused by the executor's permission mode; the result is blocked, and its notes name the commands).",
+      "enum": [
+        "handover",
+        "ended",
+        "no_progress",
+        "deadline",
+        "limit",
+        "exited",
+        "reset",
+        "budget",
+        "executor-permissions"
+      ]
     },
     "step": {
       "description": "On stalled: the step of the watchdog's ladder taken: poke (ask the same agent for its status), follow-up (interrupt it and continue it as a follow-up, keeping its commits), abandon (end it and dispatch the item afresh) or ask (a question for the owner, after repeated failures).",

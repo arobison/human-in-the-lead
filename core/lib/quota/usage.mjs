@@ -124,7 +124,11 @@ export function readingFor(snapshot, limit) {
 export function ledgerUsage(entries, limit, span) {
   if (limit.unit !== 'tokens' && limit.unit !== 'requests') return null;
   const models = limit.scope?.models;
-  const rows = effectiveEntries(entries)
+  // A correction of a dispatch's start estimate (hitld ledger correct-estimate) is not a new
+  // request: the dispatch it corrects stands, at its own time.
+  const rows = effectiveEntries(
+    entries.filter((e) => !(e.event === 'dispatched' && e.corrects !== undefined)),
+  )
     .map((e) => ({ e, at: Date.parse(e.at) }))
     .filter(({ e, at }) => at >= span.start && at <= span.now)
     .filter(({ e }) => !models?.length || models.includes(e.model))

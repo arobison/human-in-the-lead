@@ -4,11 +4,18 @@
 //
 // Also what the watchdog samples of a running executor without asking it (design part 5.2): its
 // branch and worktree, and a headless run's process and output.
+//
+// Git is asked once per look, not once per dispatch: a snapshot reads every worktree (`worktree
+// list`) and every branch with its commits ahead of the main branch (`for-each-ref` with
+// ahead-behind, git 2.41 or later) in two processes. Starting a process costs a few milliseconds
+// on macOS and Linux but most of a fifth of a second on Windows, so per-dispatch calls add up to
+// minutes there. Only a worktree's uncommitted changes are still read one worktree at a time.
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { realPath } from '../env/fsx.mjs';
 
 /**
  * @typedef {import('./run.mjs').Reality} Reality
@@ -25,7 +32,149 @@ function git(cwd, args) {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
+    windowsHide: true,
   }).trim();
+}
+
+/** A path as a key: canonical where it exists, and on Windows without regard to case. @param {string} p */
+function pathKey(p) {
+  let k;
+  try {
+    k = realPath(p);
+  } catch {
+    k = resolve(p);
+  }
+  return process.platform === 'win32' ? k.toLowerCase() : k;
+}
+
+/**
+ * What git shows of the repository's branches and worktrees at one moment.
+ * @typedef {object} GitSnapshot
+ * @property {string[]} names the branches, as `for-each-ref --format=%(refname:short)` names them
+ * @property {(branch: string) => string | null} tip the commit a branch is at; null when it does not exist
+ * @property {(branch: string) => number} aheadOfBranch commits on the branch that the main branch
+ *   lacks; throws when git cannot count them (no main branch)
+ * @property {(commit: string) => number} aheadOfCommit the same for a commit
+ * @property {(branch: string) => string | null} worktreeOf the worktree with the branch checked out
+ * @property {(path: string) => { head: string, branch: string | null } | null} worktreeAt a
+ *   worktree's commit and branch, by its path; null for a path git does not list
+ */
+
+/**
+ * Read the branches and worktrees in two git processes. A part git cannot read is empty.
+ * @param {{ cwd: string, mainBranch?: string }} options
+ * @returns {GitSnapshot}
+ */
+export function gitSnapshot({ cwd, mainBranch = 'main' }) {
+  /** @type {string[]} */
+  const names = [];
+  /** @type {Map<string, { head: string, ahead: number | null }>} */
+  const branches = new Map();
+  const fields = '%(refname)%00%(refname:short)%00%(objectname)';
+  /** @param {string} out @param {boolean} counted */
+  const readRefs = (out, counted) => {
+    for (const line of out.split('\n')) {
+      const [full, short, head, ab] = line.split('\0');
+      if (!full?.startsWith('refs/heads/') || !head) continue;
+      names.push(short);
+      const ahead = counted ? Number(ab?.split(' ')[0]) : NaN;
+      branches.set(full.slice('refs/heads/'.length), {
+        head,
+        ahead: Number.isInteger(ahead) ? ahead : null,
+      });
+    }
+  };
+  try {
+    readRefs(
+      git(cwd, [
+        'for-each-ref',
+        `--format=${fields}%00%(ahead-behind:${mainBranch})`,
+        'refs/heads/',
+      ]),
+      true,
+    );
+  } catch {
+    // git before 2.41 has no ahead-behind, and none can be counted without a main branch: list
+    // the branches alone, and count each one when it is asked about
+    try {
+      readRefs(git(cwd, ['for-each-ref', `--format=${fields}`, 'refs/heads/']), false);
+    } catch {
+      // not a repository, or git is missing: nothing is known
+    }
+  }
+
+  /** @type {Map<string, string>} */
+  const byBranch = new Map();
+  /** @type {Map<string, { head: string, branch: string | null }>} */
+  const byPath = new Map();
+  try {
+    /** @type {{ path: string, head: string, branch: string | null } | null} */
+    let cur = null;
+    const flush = () => {
+      if (!cur) return;
+      byPath.set(pathKey(cur.path), { head: cur.head, branch: cur.branch });
+      if (cur.branch && !byBranch.has(cur.branch)) byBranch.set(cur.branch, cur.path);
+    };
+    for (const line of git(cwd, ['worktree', 'list', '--porcelain']).split('\n')) {
+      if (line.startsWith('worktree ')) {
+        flush();
+        cur = { path: line.slice('worktree '.length), head: '', branch: null };
+      } else if (cur && line.startsWith('HEAD ')) cur.head = line.slice('HEAD '.length);
+      else if (cur && line.startsWith('branch refs/heads/')) {
+        cur.branch = line.slice('branch refs/heads/'.length);
+      }
+    }
+    flush();
+  } catch {
+    // Not a repository, or git is missing: no worktree known.
+  }
+
+  /** @type {Map<string, number>} */
+  const counted = new Map();
+  /** @param {string} rev */
+  const count = (rev) => {
+    let n = counted.get(rev);
+    if (n === undefined) {
+      n = Number(git(cwd, ['rev-list', '--count', `${mainBranch}..${rev}`]));
+      counted.set(rev, n);
+    }
+    return n;
+  };
+  return {
+    names,
+    tip: (branch) => branches.get(branch)?.head ?? null,
+    aheadOfBranch(branch) {
+      const b = branches.get(branch);
+      if (b?.ahead !== null && b?.ahead !== undefined) return b.ahead;
+      return count(`refs/heads/${branch}`);
+    },
+    aheadOfCommit: (commit) => count(commit),
+    worktreeOf: (branch) => byBranch.get(branch) ?? null,
+    worktreeAt: (path) => byPath.get(pathKey(path)) ?? null,
+  };
+}
+
+/** A commit ID that names nothing: the HEAD of a worktree on a branch with no commit yet. */
+const NO_COMMIT = /^0+$/;
+
+/**
+ * The commit a worktree is at and its commits ahead of the main branch, from the snapshot when
+ * git listed the worktree, else from git in the worktree itself.
+ * @param {GitSnapshot} snap @param {string} worktree @param {string} mainBranch
+ * @returns {{ head: string, commits: number }}
+ */
+function worktreeHead(snap, worktree, mainBranch) {
+  const listed = snap.worktreeAt(worktree);
+  if (listed && listed.head && !NO_COMMIT.test(listed.head)) {
+    return {
+      head: listed.head,
+      commits: listed.branch ? snap.aheadOfBranch(listed.branch) : snap.aheadOfCommit(listed.head),
+    };
+  }
+  return {
+    head: git(worktree, ['rev-parse', 'HEAD']),
+    commits: Number(git(worktree, ['rev-list', '--count', `${mainBranch}..HEAD`])),
+  };
 }
 
 /**
@@ -34,47 +183,24 @@ function git(cwd, args) {
  * @returns {Reality}
  */
 export function gitReality({ cwd, mainBranch = 'main' }) {
-  /** @returns {string[]} */
-  const branches = () => {
-    try {
-      return git(cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'])
-        .split('\n')
-        .filter(Boolean);
-    } catch {
-      return [];
-    }
-  };
+  /** @type {GitSnapshot | null} */
+  let snap = null;
+  // One look at git serves every question asked of this reality.
+  const snapshot = () => (snap ??= gitSnapshot({ cwd, mainBranch }));
   return {
-    branches,
+    branches: () => snapshot().names,
     hasCommits(entry) {
       try {
         const worktree = entry.worktree && existsSync(entry.worktree) ? entry.worktree : null;
-        const ref = worktree ? 'HEAD' : entry.branch;
-        if (!ref || (!worktree && !branches().includes(ref))) return false;
-        return Number(git(worktree ?? cwd, ['rev-list', '--count', `${mainBranch}..${ref}`])) > 0;
+        if (worktree) return worktreeHead(snapshot(), worktree, mainBranch).commits > 0;
+        const ref = entry.branch;
+        if (!ref || !snapshot().names.includes(ref)) return false;
+        return snapshot().aheadOfBranch(ref) > 0;
       } catch {
         return false;
       }
     },
   };
-}
-
-/**
- * The worktree that has a branch checked out, from git's own list.
- * @param {string} cwd @param {string} branch @returns {string | null}
- */
-function worktreeOf(cwd, branch) {
-  try {
-    /** @type {string | null} */
-    let path = null;
-    for (const line of git(cwd, ['worktree', 'list', '--porcelain']).split('\n')) {
-      if (line.startsWith('worktree ')) path = line.slice('worktree '.length);
-      else if (line === `branch refs/heads/${branch}`) return path;
-    }
-  } catch {
-    // Not a repository, or git is missing: no worktree known.
-  }
-  return null;
 }
 
 /**
@@ -84,22 +210,26 @@ function worktreeOf(cwd, branch) {
  * seen). The worktree is the dispatch's recorded one, or whichever worktree has its branch checked
  * out (a harness that made its own); without one, the branch alone. Null when neither exists.
  * @param {InFlight} entry
- * @param {{ cwd: string, mainBranch?: string }} options cwd: the primary checkout
+ * @param {{ cwd: string, mainBranch?: string, snapshot?: GitSnapshot }} options cwd: the primary
+ *   checkout; snapshot: one look at git shared by every dispatch sampled at once (gitSnapshot)
  * @returns {{ source: 'worktree', head: string, commits: number, dirty?: number, changed?: string } | null}
  */
-export function worktreeSignal(entry, { cwd, mainBranch = 'main' }) {
+export function worktreeSignal(entry, { cwd, mainBranch = 'main', snapshot }) {
+  const snap = snapshot ?? gitSnapshot({ cwd, mainBranch });
   const recorded = entry.worktree && existsSync(entry.worktree) ? entry.worktree : null;
-  const worktree = recorded ?? (entry.branch ? worktreeOf(cwd, entry.branch) : null);
+  const worktree = recorded ?? (entry.branch ? snap.worktreeOf(entry.branch) : null);
   try {
-    let ref = 'HEAD';
-    if (!worktree) {
+    let head;
+    let commits;
+    if (worktree) {
+      ({ head, commits } = worktreeHead(snap, worktree, mainBranch));
+    } else {
       if (!entry.branch) return null;
-      ref = `refs/heads/${entry.branch}`;
-      git(cwd, ['rev-parse', '--verify', '--quiet', ref]);
+      const tip = snap.tip(entry.branch);
+      if (!tip) return null;
+      head = tip;
+      commits = snap.aheadOfBranch(entry.branch);
     }
-    const at = worktree ?? cwd;
-    const head = git(at, ['rev-parse', ref]);
-    const commits = Number(git(at, ['rev-list', '--count', `${mainBranch}..${ref}`]));
     /** @type {{ source: 'worktree', head: string, commits: number, dirty?: number, changed?: string }} */
     const out = { source: 'worktree', head, commits };
     if (worktree) {

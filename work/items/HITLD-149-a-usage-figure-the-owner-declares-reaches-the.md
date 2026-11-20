@@ -27,3 +27,7 @@ On 2026-11-16, in the chief of staff session, the owner decided how the gate tre
 ## Notes
 
 Raised in the chief of staff session. HITLD-56 (the status-line readout, dropped) and the capture in `hitld install --statusline` cover harnesses that expose usage; this covers the ones that do not.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (509): quota gate declared figure. The decisions since then are the pace decisions (HITLD-530, 549, 550). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

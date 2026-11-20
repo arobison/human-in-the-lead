@@ -20,7 +20,7 @@ import {
   findOrphans,
   unclaimItem,
 } from './claims.mjs';
-import { checkItems, findCollisions } from './check.mjs';
+import { checkItems, findCollisions, unplacedWork } from './check.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { LEVELS, checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
@@ -64,12 +64,15 @@ import { sharedIds } from './shared-ids.mjs';
 import { parseItem, renderItem, slugify } from './frontmatter.mjs';
 import { fromLegacy } from './legacy.mjs';
 import { entityType } from './api.mjs';
-import { listPlaces, loadPlaces, loadWorkTree, git, repoRootOf } from './tree.mjs';
+import { listPlaces, loadPlaces, loadWorkTree, git, readNamed, repoRootOf } from './tree.mjs';
 import {
   LIST_BEGIN,
   mermaidItems,
+  mermaidMilestones,
   mermaidProjects,
+  milestoneGraph,
   renderLists,
+  renderMilestonesView,
   replaceBetweenMarkers,
   viewBlocked,
   viewCriticalPath,
@@ -98,9 +101,14 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean }) => ReturnType<typeof closeItem>} close
- * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }) => { problems: string[], files: number }} check
+ * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }) => { problems: string[], files: number, warnings: string[] }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
+ * @property {(options?: { tokens?: Map<string, number> }) => import('./views.mjs').MilestoneGraph} milestoneGraph
+ *   the milestone graph (design part 12.1.2); with tokens spent per item (from the ledger), each
+ *   node's tokens_spent, or null when the ledger has no record for any of its items
+ * @property {() => Map<string, import('../interface.mjs').Change[]>} histories every entity's
+ *   committed state changes, oldest first, from one read of the work directory's history
  * @property {(options?: { only?: string, dryRun?: boolean, commit?: boolean, migrations?: readonly import('./migrate.mjs').Migration[] }) => ReturnType<typeof migrateTracker>} migrate
  *   apply the registered format migrations to every file (idempotent; dryRun shows the diff)
  * @property {() => Entry[]} releases the release records
@@ -278,18 +286,53 @@ export function openTracker({
   /**
    * A milestone's derived fields.
    * @param {ReturnType<typeof contextOf>} ctx @param {Entry} it
+   * @param {Map<string, number>} [tokens] tokens spent per item, from the ledger
    */
-  const derivedOf = (ctx, it) => {
+  const derivedOf = (ctx, it, tokens) => {
     const d = /** @type {Record<string, unknown>} */ (it.data ?? {});
-    const m = readMilestone(d);
     return milestoneDerived(d, {
       get: (id) => ctx.g.get(id)?.data,
-      authorRoles: authorRoles([
-        ...ctx.g.needs(/** @type {any} */ (it)),
-        ...m.contributions.map((c) => c.id),
-      ]),
+      authorRoles: milestoneRoles(ctx, it),
+      tokens,
     });
   };
+
+  /**
+   * The roles that wrote a milestone's constraints and contributions.
+   * @param {ReturnType<typeof contextOf>} ctx @param {Entry} it
+   */
+  const milestoneRoles = (ctx, it) =>
+    authorRoles([
+      ...ctx.g.needs(/** @type {any} */ (it)),
+      ...readMilestone(/** @type {Record<string, unknown>} */ (it.data ?? {})).contributions.map(
+        (c) => c.id,
+      ),
+    ]);
+
+  /**
+   * The milestone graph over the tracker as it is now.
+   * @param {ReturnType<typeof contextOf>} ctx @param {Map<string, number>} [tokens]
+   */
+  const graphOf = (ctx, tokens) =>
+    milestoneGraph(ctx.g, {
+      checkOf: (m) => {
+        const d = /** @type {Record<string, unknown>} */ (m.data);
+        if (passingCheck(readMilestone(d), milestoneRoles(ctx, m))) return 'passed';
+        return derivedOf(ctx, m).check_due ? 'due' : 'not yet due';
+      },
+      // Spent only as far as the ledger knows: with no record for any of its items, unknown (a
+      // dash), not 0.
+      tokensSpent: (m) => {
+        if (!tokens) return null;
+        const ids = [
+          ...ctx.g.needs(m),
+          ...readMilestone(/** @type {Record<string, unknown>} */ (m.data)).contributions.map(
+            (c) => c.id,
+          ),
+        ];
+        return ids.some((id) => tokens.has(id)) ? derivedOf(ctx, m, tokens).tokens_spent : null;
+      },
+    });
 
   /**
    * An entry's entity: the model's field names plus the stored keys that have none, the derived
@@ -363,7 +406,8 @@ export function openTracker({
    * Claim state from branches, optionally limited to an item.
    * @returns {import('./claims.mjs').ClaimedItem[]}
    */
-  const claims = () => findClaims(root, layout);
+  /** @param {Map<string, import('./tree.mjs').Entry[]>} [cache] refs this command already read */
+  const claims = (cache) => findClaims(root, layout, { cache });
 
   /** @type {FilesTracker} */
   const tracker = {
@@ -552,9 +596,17 @@ export function openTracker({
       const changes = [];
       /** @type {string | null} */
       let prev = null;
-      for (const line of log.split('\n').filter(Boolean)) {
-        const [commit, at] = line.split(' ');
-        const text = git(root, ['show', `${commit}:${it.path}`], { allowFail: true });
+      const commits = log
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.split(' '));
+      // Every version of the file in one process, not one per commit.
+      const texts = readNamed(
+        root,
+        commits.map(([commit]) => `${commit}:${it.path}`),
+      );
+      for (const [i, [commit, at]] of commits.entries()) {
+        const text = texts[i] ?? '';
         // A commit from before HITLD-82 holds `status` with the old values: read in the new form.
         const state = fromLegacy(parseItem(text).data)?.state;
         if (typeof state !== 'string' || state === prev) continue;
@@ -714,6 +766,7 @@ export function openTracker({
      * The batch check. `branches` adds ID collisions across every worktree and branch and
      * double claims; `inflight` (dispatch IDs from the ledger) adds the orphaned-claim check;
      * `terms` (from the private store) adds the private term rule to the classification check.
+     * `warnings` names each open work item under no milestone (a warning, not a problem).
      * @param {{ branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }} [options]
      */
     check({ branches = false, inflight, terms } = {}) {
@@ -736,8 +789,17 @@ export function openTracker({
       for (const line of problemLines(tree.refused)) {
         if (!problems.includes(line)) problems.push(line);
       }
+      // Every place, then the claims, read the same refs: they share one cache, which also takes
+      // the main branch and the worktrees' branches the claims read.
+      /** @type {Map<string, Entry[]>} */
+      const cache = new Map();
       if (branches) {
-        const placed = loadPlaces(root, layout, listPlaces(root, layout, { remotes: true }));
+        const places = listPlaces(root, layout, { remotes: true });
+        const preload = [
+          `refs/heads/${layout.mainBranch}`,
+          ...places.flatMap((p) => (p.branch ? [p.branch] : [])),
+        ];
+        const placed = loadPlaces(root, layout, places, { cache, preload });
         for (const c of findCollisions(placed, layout)) {
           problems.push(
             `${c.id} is two different items: ${c.files.map((f) => `${f.file} on ${f.where.join(', ')}`).join('; ')}`,
@@ -745,7 +807,7 @@ export function openTracker({
         }
       }
       if (branches || inflight) {
-        const found = claims();
+        const found = claims(cache);
         for (const c of found) {
           if (c.double) {
             problems.push(
@@ -755,7 +817,7 @@ export function openTracker({
         }
         if (inflight) problems.push(...findOrphans(found, inflight));
       }
-      return { problems, files: items.length };
+      return { problems, files: items.length, warnings: unplacedWork(items) };
     },
 
     releases,
@@ -780,7 +842,71 @@ export function openTracker({
         lists: renderLists(g),
         'items-graph': mermaidItems(g),
         'projects-graph': mermaidProjects(g),
+        'milestones-graph': mermaidMilestones(graphOf(ctx)),
       };
+    },
+
+    /** The milestone graph; see milestoneGraph in views.mjs. */
+    milestoneGraph: ({ tokens } = {}) => graphOf(contextOf(), tokens),
+
+    /**
+     * Every entity's committed state changes, read in one pass over the history of the work
+     * directory: what `history(id)` gives one entity, for all of them, oldest first. A file's
+     * state is read from the `state:` line its commit adds (or `status:` from before HITLD-82, in
+     * the new form); a rename that keeps the state adds no change.
+     */
+    histories() {
+      const log = git(
+        root,
+        [
+          'log',
+          '--reverse',
+          '--no-renames',
+          '-U0',
+          '--format=%x01%H %cI',
+          '-p',
+          '--',
+          layout.workDir,
+        ],
+        { allowFail: true },
+      );
+      /** @type {Map<string, import('../interface.mjs').Change[]>} */
+      const out = new Map();
+      const fileId = new RegExp(
+        `^\\+\\+\\+ b/.*/(${layout.key.replace(/[^A-Za-z0-9]/g, '\\$&')}-\\d+)[-.][^/]*$`,
+      );
+      /** @type {string[]} */
+      let commit = ['', ''];
+      /** @type {string | null} */
+      let id = null;
+      for (const line of log.split('\n')) {
+        if (line.startsWith('\u0001')) {
+          commit = line.slice(1).split(' ');
+          id = null;
+        } else if (line.startsWith('+++ ')) {
+          id = fileId.exec(line)?.[1] ?? null;
+        } else if (id && /^\+(state|status):/.test(line)) {
+          const raw = line
+            .slice(line.indexOf(':') + 1)
+            .trim()
+            .replace(/^["']|["']$/g, '');
+          const state = line.startsWith('+status:')
+            ? /** @type {Record<string, unknown>} */ (fromLegacy({ status: raw }))?.state
+            : raw;
+          if (typeof state !== 'string' || !state) continue;
+          const changes = out.get(id) ?? [];
+          const prev = changes.at(-1)?.to ?? null;
+          if (state === prev) continue;
+          changes.push({
+            at: commit[1],
+            from: /** @type {any} */ (prev),
+            to: /** @type {any} */ (state),
+            ref: { commit: commit[0] },
+          });
+          out.set(id, changes);
+        }
+      }
+      return out;
     },
 
     /**
@@ -803,7 +929,6 @@ export function openTracker({
         decisions: { title: 'Decision backlog', fence: 'text' },
         projects: { title: 'Projects', fence: 'text' },
         'critical-path': { title: 'Critical path', fence: 'text' },
-        milestones: { title: 'Milestones', fence: 'text' },
         unreleased: { title: 'Merged, not released', fence: 'text' },
         'items-graph': { title: 'Item dependencies', fence: 'mermaid' },
         'projects-graph': { title: 'Project dependencies', fence: 'mermaid' },
@@ -829,6 +954,10 @@ export function openTracker({
         );
       }
       put('lists.md', `${header}\n# Item lists\n\n${texts.lists}`);
+      put(
+        'milestones.md',
+        `${header}\n# Milestones\n\n${renderMilestonesView(tracker.milestoneGraph(), texts.milestones, `${layout.workDir}/${layout.viewsDir}`)}`,
+      );
       for (const file of RETIRED_VIEWS) {
         const path = join(dir, file);
         if (!outDir && isRegularFile(path)) {

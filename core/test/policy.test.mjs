@@ -22,7 +22,23 @@ import {
   POLICY_PATH,
 } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
-import { tempDir } from './helpers/tmp.mjs';
+import { removeTempDir, tempDir } from './helpers/tmp.mjs';
+
+/** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = tempDir('hitld-link-probe-');
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    removeTempDir(dir);
+  }
+})();
+const needsSymlink = {
+  skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
+};
 
 const minimal = { schema_version: 1, project: { id: 'fixture', key: 'W' } };
 
@@ -44,10 +60,7 @@ test("defaults: quotas keep the owner's reserve; plan windows are soft", () => {
   assert.ok(quota.critical_below < quota.economize_below);
   assert.deepEqual(
     quota.limits.map((/** @type {any} */ l) => [l.id, l.window, l.hard]),
-    [
-      ['claude-five-hour', 'rolling_5h', false],
-      ['claude-weekly', 'weekly', false],
-    ],
+    [['claude-weekly', 'weekly', false]],
   );
 });
 
@@ -279,7 +292,7 @@ function repo() {
   return { root, path: plant(root) };
 }
 
-test('a symlinked policy file is refused', () => {
+test('a symlinked policy file is refused', needsSymlink, () => {
   const { root, path } = repo();
   renameSync(path, join(root, 'real-policy.json'));
   symlinkSync(join(root, 'real-policy.json'), path);
@@ -302,7 +315,7 @@ test(
   },
 );
 
-test('a policy file that resolves outside the repository root is refused', () => {
+test('a policy file that resolves outside the repository root is refused', needsSymlink, () => {
   const { root } = repo();
   const elsewhere = tempDir('hitld-elsewhere-');
   plant(elsewhere);

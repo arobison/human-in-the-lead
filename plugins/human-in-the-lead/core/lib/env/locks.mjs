@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { checkHolder } from './config.mjs';
 import { withMutex } from './mutex.mjs';
-import { isAlive, processInfo, sleep } from './proc.mjs';
+import { isAlive, processStart, sleep } from './proc.mjs';
 
 /**
  * @typedef {object} LockRecord
@@ -102,8 +102,8 @@ function staleReason(record, now) {
   // Telling a process from a successor that reused its ID costs a ps call, so it is done only for a
   // lock that has not been renewed lately; a holder that renews is plainly itself.
   if (record.pid_start && now - Date.parse(record.renewed_at) > PID_REUSE_CHECK_AFTER_MS) {
-    const info = processInfo(record.pid);
-    if (info && info.start !== record.pid_start) {
+    const start = processStart(record.pid);
+    if (start && start !== record.pid_start) {
       return `process ${record.pid} is no longer the holder's (its ID was reused)`;
     }
   }
@@ -112,17 +112,19 @@ function staleReason(record, now) {
 }
 
 /**
- * @param {string} resource @param {string} holder @param {number} pid @param {number} ttlMs
- * @param {string} [acquiredAt]
+ * @param {string} resource @param {string} holder @param {number} pid
+ * @param {string | null} pidStart the process's start time, looked up once by the caller (a lookup
+ *   costs a process, and on Windows most of a second)
+ * @param {number} ttlMs @param {string} [acquiredAt]
  * @returns {LockRecord}
  */
-function newRecord(resource, holder, pid, ttlMs, acquiredAt) {
+function newRecord(resource, holder, pid, pidStart, ttlMs, acquiredAt) {
   const now = new Date();
   return {
     resource,
     holder,
     pid,
-    pid_start: processInfo(pid)?.start ?? null,
+    pid_start: pidStart,
     host: hostname(),
     acquired_at: acquiredAt ?? now.toISOString(),
     renewed_at: now.toISOString(),
@@ -153,14 +155,14 @@ function liveQueue(ctx, resource) {
 /**
  * One attempt to take the lock. Returns the new record if taken, or the current holder's.
  * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
- * @param {number} ttlMs
+ * @param {string | null} pidStart @param {number} ttlMs
  * @returns {Promise<{ taken: true, record: LockRecord, renewed?: boolean } | { taken: false, held_by: LockRecord | null }>}
  */
-async function attempt(ctx, resource, holder, pid, ttlMs) {
+async function attempt(ctx, resource, holder, pid, pidStart, ttlMs) {
   const path = lockFile(ctx, resource);
   mkdirSync(join(ctx.machineRoot, 'locks'), { recursive: true });
   for (let tries = 0; tries < 5; tries++) {
-    const record = newRecord(resource, holder, pid, ttlMs);
+    const record = newRecord(resource, holder, pid, pidStart, ttlMs);
     try {
       writeFileSync(path, JSON.stringify(record) + '\n', { flag: 'wx' });
       return { taken: true, record };
@@ -226,13 +228,17 @@ export async function acquireLock(ctx, request) {
     ticket = null;
   };
 
+  /** @type {string | null | undefined} looked up at the first attempt, then reused */
+  let pidStart;
+
   try {
     for (;;) {
       const queue = liveQueue(ctx, resource);
       // Only the first in line may try; a newcomer with others waiting joins the queue instead.
       const myTurn = queue.length === 0 || (ticket !== null && queue[0] === ticket);
       if (myTurn) {
-        const r = await attempt(ctx, resource, holder, pid, ttlMs);
+        if (pidStart === undefined) pidStart = processStart(pid);
+        const r = await attempt(ctx, resource, holder, pid, pidStart, ttlMs);
         if (r.taken) {
           dropTicket();
           const waited = Date.now() - started;
@@ -242,7 +248,15 @@ export async function acquireLock(ctx, request) {
             acquired: true,
             record: r.record,
             waited_ms: waited,
-            handle: makeHandle(ctx, resource, holder, pid, ttlMs, request.autoRenew !== false),
+            handle: makeHandle(
+              ctx,
+              resource,
+              holder,
+              pid,
+              pidStart,
+              ttlMs,
+              request.autoRenew !== false,
+            ),
           };
         }
         if (!request.wait) {
@@ -277,10 +291,10 @@ export async function acquireLock(ctx, request) {
 
 /**
  * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
- * @param {number} ttlMs @param {boolean} autoRenew
+ * @param {string | null} pidStart @param {number} ttlMs @param {boolean} autoRenew
  * @returns {LockHandle}
  */
-function makeHandle(ctx, resource, holder, pid, ttlMs, autoRenew) {
+function makeHandle(ctx, resource, holder, pid, pidStart, ttlMs, autoRenew) {
   const path = lockFile(ctx, resource);
   /** @type {NodeJS.Timeout | null} */
   let timer = null;
@@ -289,7 +303,8 @@ function makeHandle(ctx, resource, holder, pid, ttlMs, autoRenew) {
     if (cur && cur.holder === holder) {
       writeFileSync(
         path,
-        JSON.stringify({ ...newRecord(resource, holder, pid, ttlMs, cur.acquired_at) }) + '\n',
+        JSON.stringify({ ...newRecord(resource, holder, pid, pidStart, ttlMs, cur.acquired_at) }) +
+          '\n',
       );
     }
   };

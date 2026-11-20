@@ -13,7 +13,7 @@
 // held to the same checks as policy.json: owned by the user, not group- or world-writable, no links.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { termsForProject } from '../../store/private-terms.mjs';
@@ -21,7 +21,11 @@ import { formatErrors } from '../../schema/validate.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import { apiResponse, fieldFilter } from '../../tracker/files/api.mjs';
 import { MIGRATIONS } from '../../tracker/files/migrations/index.mjs';
+import { SWEEP_KINDS, sweepTracker } from '../../tracker/files/sweep.mjs';
+import { readLedger } from '../../ledger/ledger.mjs';
+import { openStore, privateStorePath } from '../../store/store.mjs';
 import { CodedError } from '../errors.mjs';
+import { realPath } from '../../platform/fs.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} CommandContext
@@ -118,7 +122,7 @@ function inside(dir, path) {
   let at = path;
   for (;;) {
     try {
-      const rel = relative(realpathSync(dir), realpathSync(at));
+      const rel = relative(realPath(dir), realPath(at));
       return rel === '' || !(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel));
     } catch {
       if (dirname(at) === at) return false;
@@ -487,12 +491,13 @@ export const commands = [
       const t = open(input, ctx, { readOnly: true });
       const inflight = csv(input['in-flight']);
       const terms = workCheckTerms(input, ctx);
-      const { problems, files } = t.check({
+      const checked = t.check({
         branches: Boolean(input.branches),
         inflight,
         terms: terms.matchers,
       });
-      const warnings = [...t.warnings(), ...terms.warnings];
+      const { problems, files } = checked;
+      const warnings = [...t.warnings(), ...terms.warnings, ...(checked.warnings ?? [])];
       if (files === 0) warnings.push(...emptyCheckWarnings(t, input, ctx));
       return {
         ok: problems.length === 0,
@@ -504,6 +509,54 @@ export const commands = [
           : files === 0
             ? '0 files checked (see warnings)'
             : `${files} files, no problems`,
+      };
+    },
+  },
+  {
+    name: 'work sweep',
+    summary: `The stale-item sweep: ${SWEEP_KINDS.join(', ')}. Deterministic and read-only; the orchestrator plans from its findings and the digest lists them`,
+    built_by: 'a',
+    output: ['ok', 'count', 'counts', 'findings', 'checked', 'skipped', 'summary'],
+    args: [
+      {
+        name: 'now',
+        type: 'string',
+        description: 'Judge ages at this time (a timestamp), for tests',
+      },
+      ...where,
+    ],
+    run(input, ctx) {
+      const t = open(input, ctx, { readOnly: true });
+      let now = ctx.now ? ctx.now().getTime() : Date.now();
+      if (input.now !== undefined) {
+        now = Date.parse(String(input.now));
+        if (Number.isNaN(now)) throw new CodedError('usage', '--now is not a timestamp');
+      }
+      const configDir = input.config ? resolve(ctx.cwd, String(input.config)) : undefined;
+      const loaded = loadPolicy({
+        cwd: configDir ?? t.root(),
+        ...(configDir ? { path: resolve(configDir, 'policy.json') } : {}),
+      });
+      const policy = /** @type {Record<string, any>} */ (loaded.policy);
+      const store = openStore(
+        privateStorePath(policy.project.id, { env: ctx.env, repoRoot: t.root() }),
+      );
+      const ledger = readLedger(store);
+      const swept = sweepTracker(t, { events: ledger.events, policy, now });
+      const n = swept.findings.length;
+      return {
+        ok: true,
+        count: n,
+        ...swept,
+        ...(ledger.problems.length
+          ? { warnings: [`the ledger has ${ledger.problems.length} unreadable line(s)`] }
+          : {}),
+        summary: n
+          ? `${n} finding(s): ${Object.entries(swept.counts)
+              .filter(([, c]) => c > 0)
+              .map(([k, c]) => `${c} ${k}`)
+              .join(', ')}`
+          : 'no findings',
       };
     },
   },
@@ -522,7 +575,7 @@ export const commands = [
         name: 'view',
         type: 'string',
         description:
-          'Print one view as text instead of writing files: ready, blocked, decisions, projects, critical-path, milestones, unreleased, lists, items-graph or projects-graph',
+          'Print one view as text instead of writing files: ready, blocked, decisions, projects, critical-path, milestones, unreleased, lists, items-graph, projects-graph or milestones-graph',
       },
       {
         name: 'who',

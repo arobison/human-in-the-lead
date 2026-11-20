@@ -5,9 +5,12 @@ kind: work
 state: planned
 created: 2026-11-14
 project: HITLD-28
+needs: [HITLD-152, HITLD-351]
 ---
 
 ## Why
+
+Ordering (the owner, in the chief of staff session): this waits for HITLD-152, the four-view dashboard, so the planner offers the dashboard first. It is an ordering choice, not a technical dependency.
 
 Q8: offline scenarios stay with our runner; live, model-dependent scenarios run in Inspect AI for sandboxing, multi-model runs and its viewer, without making it a dependency of the core.
 

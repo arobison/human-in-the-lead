@@ -18,3 +18,11 @@ Per design 13.4: heavy work started on a loaded machine is slow and flaky (desig
 - Admission wait is recorded per resource and is a concurrency controller sensor.
 - A quiet hold is exclusive across projects, pauses or waits out other heavy work, and starts only after load stays below its threshold for the settle period; the load during the hold is recorded with the result.
 - Tests use a fake load source, so they do not depend on the test machine.
+
+## Note on 2026-11-19
+
+The owner decided (HITLD-534) that executor count follows measured headroom; load-aware admission is a part of HITLD-559.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (493): load-aware admission thresholds; machine-load gates (weak). The decisions since then are the audit of defaults (HITLD-532 to 538). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

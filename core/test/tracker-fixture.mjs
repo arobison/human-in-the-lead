@@ -12,7 +12,7 @@ import { tempDir } from './helpers/tmp.mjs';
  * @returns {NodeJS.ProcessEnv}
  */
 export function isolatedEnv() {
-  const home = realpathSync(tempDir('hitld-tracker-home-'));
+  const home = realpathSync.native(tempDir('hitld-tracker-home-'));
   return { HOME: home, XDG_DATA_HOME: home, XDG_CONFIG_HOME: home };
 }
 
@@ -53,7 +53,7 @@ export function itemText(fields, body = '\nBody.\n') {
  *   files, by repository-relative path; omit leaves out fixture files, by path
  */
 export function makeRepo({ files = {}, commit = true, omit = [] } = {}) {
-  const root = realpathSync(tempDir('hitld-tracker-'));
+  const root = realpathSync.native(tempDir('hitld-tracker-'));
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.name', 'Fixture');
   git(root, 'config', 'user.email', 'fixture@example.invalid');

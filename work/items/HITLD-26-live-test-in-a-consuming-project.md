@@ -12,3 +12,7 @@ waiting_on: owner
 ## Waiting on
 
 The owner. The first consuming project is this repository: after v0.1.0-rc.1 is published and installed here (HITLD-109), the owner directs one item end to end through the chief of staff in the self-hosting environment. That run is the check of milestone HITLD-67, "Consumer live".
+
+## Notes
+
+Kept as the record of the demo on the owner's decision HITLD-369 (2026-11-16): it overlaps HITLD-109 (the install) and HITLD-349 (the owner's side), and it closes with the owner's recorded run once HITLD-109 is done.

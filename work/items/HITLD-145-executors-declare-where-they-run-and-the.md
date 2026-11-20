@@ -5,6 +5,7 @@ kind: work
 state: planned
 created: 2026-11-16
 project: HITLD-15
+needs: [HITLD-204]
 ---
 
 ## Why
@@ -15,7 +16,7 @@ The effective executor cap is the smallest of the person's, the machine's, the p
 
 - A dispatch records where its executor runs: the orchestrator's machine, its own container, or another environment. The harness adapter sets it from the mode the executor was started in.
 - The machine cap, and the load, memory, port and lock checks of the environment manager, count only executors that share the machine they measure. An executor in its own container is counted against the person's cap, the project's cap, the run's cap and the quotas, and not against the orchestrator's machine.
-- Heavy work an executor runs in its own container is admitted by that container's own load and memory, read where the executor runs, or recorded as unchecked with the reason, never by the orchestrator's machine.
+- Heavy work an executor runs in its own container is admitted by that container's own load and memory, read where the executor runs, never by the orchestrator's machine (the owner's decision, HITLD-426: read the container's load, not recorded as unchecked). The executor contract has the executor report its container's load and memory before heavy work, the ledger records what it reported, and the gate uses it; where the executor cannot report, the work is recorded as unchecked with the reason.
 - `hitld dispatch plan` says, for each held or limited item, which cap or quota decided, so an owner can tell a plan-quota limit from a hardware one. `hitld config explain` shows the same.
 - The machine file and design 13.4 say what the machine cap means in each placement. The orchestrate skill's first-run setup stops proposing a machine executor cap from a cloud VM's core count when executors do not run on it.
 - Tests cover a headless executor on the orchestrator's machine, an interactive one in its own container, and a mix of both under a machine cap. `npm run check`, the offline eval gate and `hitld work check` pass.
@@ -23,3 +24,11 @@ The effective executor cap is the smallest of the person's, the machine's, the p
 ## Notes
 
 Raised by the owner in the chief of staff session. It sits beside HITLD-41 (resource capacities) and HITLD-71 (load-aware dispatch), which assume the work runs on the machine the gate measures, and HITLD-126 (the chief of staff driving other environments). The plan quota stays the cap that spans every placement.
+
+## Note on 2026-11-19
+
+The owner decided (HITLD-534) that the machine cap and heavy-work gates apply only where executors share a machine, and that `max_executors` becomes a ceiling; see HITLD-559.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (508,509,493): executors declare where they run, cap/gates, concurrency. The decisions since then are stay in the harness and answers by proof (HITLD-540, 515); the pace decisions (HITLD-530, 549, 550); the audit of defaults (HITLD-532 to 538). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

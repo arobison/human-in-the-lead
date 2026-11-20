@@ -84,7 +84,7 @@ A release goes through a release pull request ([design 16.5, Release mechanics](
 1. In the owner's own turn, in the main session: `hitld release propose` to see the version, then `hitld release make --branch release/<tag>` (add `--pre rc` for a release candidate). It writes `work/releases/<tag>.md` on that new branch and tags nothing.
 2. The orchestrator pushes the branch and opens a pull request to main, with the title and body `release make` returned.
 3. The owner reviews it and squash-merges it with their `Signed-off-by:` line in the commit message. That merge is the release decision.
-4. The release workflow starts on that push to main, checks the record (`core/bin/release-check.mjs`), and waits: approve it from the run's page (Actions → Release → the run → Review deployments → check `release` → Approve and deploy). It then tags the squash commit, builds, attests provenance and drafts the GitHub release.
+4. The release workflow starts on that push to main, checks the record (`core/bin/release-check.mjs`), checks that the `release` environment has a required reviewer (`scripts/release-environment.mjs`), and waits: approve it from the run's page (Actions → Release → the run → Review deployments → check `release` → Approve and deploy). It then tags the squash commit, builds, attests provenance and drafts the GitHub release.
 5. The owner publishes the draft (Releases → the draft → Edit → Publish release).
 
 The release item for a version is the work item whose `release` key is that version (`release: 0.1.0-rc.1`); it needs every item and milestone the release waits for. `release make` and the check refuse while any of them is not done or dropped. The check also refuses a record whose tag exists, whose version is not the one `release propose` gives at the merged commit's parent, or that did not arrive through a pull request. A release at a version above the proposal (`--version`) is tagged by hand: `hitld release make` on main at a terminal, then `git push origin main <tag>`; the same workflow drafts it on the tag push.
@@ -109,5 +109,7 @@ With Restrict creations on, a tag pushed by hand is refused too, so the by-hand 
 
 - Deployment protection rules: check **Required reviewers**, add the owner, leave **Prevent self-review** unchecked (one maintainer approves their own release), then Save protection rules.
 - Deployment branches and tags: choose **Selected branches and tags** → Add deployment branch or tag rule → Ref type Branch, name pattern `main` → Add rule.
+
+The run refuses without this rule: before the `release` job starts, the `record` job reads the environment through the GitHub API and fails the run when `release` is missing, has no required reviewer, or cannot be read, with how to add one. GitHub creates a missing environment with no rules the first time a job uses it, and such a job runs at once, so this check is what makes the approval a gate. To fix a refused run, add the rule as above, then re-run the failed jobs from the run's page.
 
 Only the workflow's `release` job uses the environment. The by-hand `tagged` job runs on a tag push and does not, so the `main`-only rule does not stop it.

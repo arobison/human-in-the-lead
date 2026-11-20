@@ -7,7 +7,7 @@
   "properties": {
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
     "jobs": {
-      "description": "Per job: digest, report, baseline, eval, or review:<person>.",
+      "description": "Per job: digest, report, baseline, eval, sweep, or review:<person>.",
       "type": "object",
       "additionalProperties": {
         "type": "object",

@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { sizeItem } from '../lib/dispatch/sizing.mjs';
-import { planDispatch } from '../lib/dispatch/plan.mjs';
+import { awaitingMerge, planDispatch, slotsText } from '../lib/dispatch/plan.mjs';
 import { renderBrief } from '../lib/dispatch/brief.mjs';
 import { runDispatchLoop } from '../lib/dispatch/loop.mjs';
 import { startRun } from '../lib/run/run.mjs';
@@ -166,14 +166,14 @@ test('plan: the cap, serial resources, overlap, the gate and a degraded harness'
     r.start.map((s) => s.item),
     ['W-1', 'W-3'],
   );
+  // W-2 needs the gpu W-1 is only proposed for: it waits behind W-1 and is not held.
   assert.deepEqual(
     r.held.map((h) => [h.item, h.reason]),
-    [
-      ['W-2', 'serial'],
-      ['W-4', 'overlap'],
-    ],
+    [['W-4', 'overlap']],
   );
-  assert.equal(r.waiting, 1);
+  assert.equal(r.waiting, 2);
+  assert.equal(r.free, 2, 'the proposals take no slot: cap 3, one running');
+  assert.equal(r.slots, 'cap 3, 1 running (D-9 on W-9), 2 free');
 
   const minimal = planDispatch({
     queue: items.slice(2),
@@ -197,6 +197,102 @@ test('plan: the cap, serial resources, overlap, the gate and a degraded harness'
   assert.equal(stopped.start.length, 0);
   assert.equal(stopped.gate.notify_owner, true);
   assert.ok(stopped.held.every((h) => h.reason === 'quota'));
+});
+
+test('plan: proposals hold nothing; a running dispatch holds its serial resources and slot (HITLD-153)', () => {
+  const p = policy();
+  const items = [
+    ready('W-1', { touches: ['src/run.js'], serial: ['db'] }),
+    ready('W-2', { touches: ['src/run.js'] }),
+    ready('W-3', { serial: ['db'] }),
+  ];
+  const sizes = new Map(items.map((i) => [i.id, sizeItem(i, p)]));
+  const base = { sizes, cap: 2, capabilities: FAKE_PROFILES.full, gate: always };
+  // Nothing runs: W-1 is proposed; W-2 and W-3 clash only with that proposal, so they wait
+  // and are not held, and both slots are free.
+  const idle = planDispatch({ ...base, queue: items, running: [] });
+  assert.deepEqual(
+    idle.start.map((s) => s.item),
+    ['W-1'],
+  );
+  assert.deepEqual(idle.held, []);
+  assert.equal(idle.waiting, 2);
+  assert.equal(idle.free, 2);
+  assert.equal(idle.slots, 'cap 2, 0 running, 2 free');
+  // Planned alone, as dispatch start plans it, W-2 starts although W-1 ranks first.
+  const alone = planDispatch({ ...base, queue: [items[1]], running: [] });
+  assert.deepEqual(
+    alone.start.map((s) => s.item),
+    ['W-2'],
+  );
+  // Once W-1 runs, it holds the db and its touches: W-2 and W-3 are held, and say by whom.
+  const busy = planDispatch({
+    ...base,
+    queue: items.slice(1),
+    running: [{ dispatch: 'D-1', item: 'W-1', serial_resources: ['db'], touches: ['src/run.js'] }],
+  });
+  assert.deepEqual(
+    busy.held.map((h) => [h.item, h.reason, h.why]),
+    [
+      ['W-2', 'overlap', '100% of its touches overlap running work'],
+      ['W-3', 'serial', 'db is held by a running dispatch (D-1 on W-1)'],
+    ],
+  );
+  // Both slots taken: the words name the holders and what frees one.
+  assert.equal(
+    slotsText(2, [
+      { dispatch: 'D-1', item: 'W-1' },
+      { dispatch: 'D-2', item: 'W-5' },
+    ]),
+    'cap 2, 2 running (D-1 on W-1, D-2 on W-5), 0 free: a slot frees when one of them reports or is abandoned',
+  );
+});
+
+test('awaiting merge: a verified branch waits until it merges, is reverted or abandoned (HITLD-153)', () => {
+  const pass = (/** @type {string} */ d, /** @type {string} */ id) => [
+    { id: `reported-${d}`, event: 'reported', dispatch: d, item: id, result: 'done' },
+    { id: `verified-${d}`, event: 'verified', item: id, result: 'pass', branch: `hitld/${id}-x` },
+  ];
+  const events = [...pass('D-1', 'W-1'), ...pass('D-2', 'W-2')];
+  assert.deepEqual(
+    awaitingMerge(events).map((a) => [a.item, a.dispatch, a.branch, a.sent_back]),
+    [
+      ['W-1', 'D-1', 'hitld/W-1-x', false],
+      ['W-2', 'D-2', 'hitld/W-2-x', false],
+    ],
+  );
+  // Sent back by the merge queue: still awaiting, for the follow-up, not a fresh dispatch.
+  const sentBack = [...events, { id: 'v-f', event: 'verified', item: 'W-1', result: 'fail' }];
+  assert.equal(awaitingMerge(sentBack)[0].sent_back, true);
+  // Merged, reverted or abandoned: no longer awaiting, and the tracker decides again.
+  for (const end of [
+    { id: 'm', event: 'merged', item: 'W-1' },
+    { id: 'r', event: 'reverted', item: 'W-1' },
+    { id: 'a', event: 'abandoned', dispatch: 'D-3', item: 'W-1' },
+    { id: 'u', event: 'unclaimed', item: 'W-1' },
+  ]) {
+    assert.deepEqual(
+      awaitingMerge([...events, end]).map((a) => a.item),
+      ['W-2'],
+      end.event,
+    );
+  }
+  // A correction of the pass (the owner dropped the branch) releases the item too.
+  const dropped = [
+    ...events,
+    { id: 'c', event: 'verified', item: 'W-1', result: 'fail', corrects: 'verified-D-1' },
+  ];
+  assert.deepEqual(
+    awaitingMerge(dropped).map((a) => a.item),
+    ['W-2'],
+  );
+  // A partial or blocked report queues nothing: the item is planned as before.
+  assert.deepEqual(
+    awaitingMerge([
+      { id: 'x', event: 'reported', dispatch: 'D-4', item: 'W-4', result: 'partial' },
+    ]),
+    [],
+  );
 });
 
 test('the brief points rather than restates', () => {
@@ -338,10 +434,16 @@ test('completions: the headless JSON result and the subagent notification', () =
       session_id: 'abc',
       total_cost_usd: 0.5,
       duration_ms: 900,
-      usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 70 },
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_creation_input_tokens: 5,
+        cache_read_input_tokens: 1_882_000,
+      },
     }),
   );
-  assert.deepEqual(h.usage, { tokens: 100, toolCalls: null, durationMs: 900 });
+  // Output plus fresh input (uncached and cache writes); the cache reads are not a cost (HITLD-436).
+  assert.deepEqual(h.usage, { tokens: 35, toolCalls: null, durationMs: 900 });
   assert.equal(h.sessionId, 'abc');
   assert.equal(h.usageSource, 'documented');
   const s = subagentCompletion({ text: 'item: W-1' });
@@ -607,6 +709,135 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
   assert.equal(events.find((e) => e.event === 'reported')?.tokens, 5000);
 });
 
+test('dispatch start takes any ready item a free slot allows; finished work awaits merge (HITLD-153)', async () => {
+  const extra = (
+    /** @type {string} */ id,
+    /** @type {string} */ title,
+    /** @type {string} */ file,
+  ) => ({
+    [`work/items/${id}-${title.toLowerCase().replace(/ /g, '-')}.md`]: item({
+      id,
+      title,
+      kind: 'work',
+      state: 'planned',
+      touches: [file],
+    }),
+  });
+  const c = makeConsumer({
+    policy: { execution: { max_executors: { value: 2 } } },
+    files: { ...extra('W-4', 'Four', 'src/four.js'), ...extra('W-5', 'Five', 'src/five.js') },
+  });
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+  const plan = await c.hitld(['dispatch', 'plan']);
+  assert.equal(plan.result.cap, 2);
+  assert.equal(plan.result.start.length, 2);
+  assert.equal(plan.result.free, 2, 'the start list takes no slot');
+  assert.equal(plan.result.slots, 'cap 2, 0 running, 2 free');
+  const proposed = plan.result.start.map((/** @type {any} */ s) => s.item);
+  assert.ok(!proposed.includes('W-4') && !proposed.includes('W-5'));
+
+  // Two items the plan did not propose start past the ones it ranks higher.
+  for (const [id, d] of [
+    ['W-4', 'D-1'],
+    ['W-5', 'D-2'],
+  ]) {
+    const s = await c.hitld(['dispatch', 'start', id]);
+    assert.equal(s.exit, 0, JSON.stringify(s.result));
+    assert.equal(s.result.dispatch, d);
+    await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', `agent-${d}`]);
+  }
+  // No slot is free: the refusal names the slots, their holders and what frees one, as the plan does.
+  const full = await c.hitld(['dispatch', 'start', 'W-1']);
+  assert.equal(full.result.error, 'not-planned');
+  const words =
+    'cap 2, 2 running (D-1 on W-4, D-2 on W-5), 0 free: a slot frees when one of them reports or is abandoned';
+  assert.equal(full.result.message, `W-1 is ready but no slot is free: ${words}`);
+  assert.equal((await c.hitld(['dispatch', 'plan'])).result.slots, words);
+  const hand = await c.hitld(['dispatch', 'start', 'W-1', '--by-hand']);
+  assert.equal(hand.result.message, `W-1 is ready but no slot is free: ${words}`);
+
+  // D-1 finishes W-4 on its branch: the work awaits merge, takes no slot and is not planned again.
+  const branch = 'hitld/W-4-four';
+  git(c.root, 'switch', '-q', '-c', branch);
+  put(c.root, {
+    'src/four.js': 'export const four = 4;\n',
+    'work/items/W-4-four.md': item({
+      id: 'W-4',
+      title: 'Four',
+      kind: 'work',
+      state: 'done',
+      touches: ['src/four.js'],
+    }),
+  });
+  git(c.root, 'add', '-A');
+  git(c.root, 'commit', '-q', '-m', 'W-4');
+  const sha = git(c.root, 'rev-parse', 'HEAD');
+  git(c.root, 'switch', '-q', 'main');
+  const note = join(c.base, 'note-4.txt');
+  writeFileSync(note, report({ item: 'W-4', sha, branch }));
+  const done = await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  assert.equal(done.exit, 0, JSON.stringify(done.result));
+  const refill = done.result.refill;
+  assert.equal(refill.free, 1);
+  assert.ok(!refill.start.some((/** @type {any} */ s) => s.item === 'W-4'));
+  assert.deepEqual(
+    refill.awaiting_merge.map((/** @type {any} */ a) => [a.item, a.dispatch, a.branch]),
+    [['W-4', 'D-1', branch]],
+  );
+  const ready = await c.hitld(['ready']);
+  assert.ok(!ready.result.queue.some((/** @type {any} */ q) => q.id === 'W-4'));
+  const again = await c.hitld(['dispatch', 'start', 'W-4']);
+  assert.equal(again.result.error, 'not-planned');
+  assert.match(again.result.message, /^W-4 awaits merge: D-1 reported it done on hitld\/W-4-four/);
+
+  // The branch merges: W-4 no longer awaits, and the tracker on main says it is done.
+  const merged = await c.hitld(['merge']);
+  assert.deepEqual(merged.result.merged, ['W-4'], JSON.stringify(merged.result));
+  const after = await c.hitld(['dispatch', 'plan']);
+  assert.deepEqual(after.result.awaiting_merge, []);
+  assert.ok(!after.result.start.some((/** @type {any} */ s) => s.item === 'W-4'));
+});
+
+test('an item awaiting merge is planned again once its pass is corrected away (HITLD-153)', async () => {
+  const c = makeConsumer();
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+  const s = await c.hitld(['dispatch', 'start', 'W-2']);
+  assert.equal(s.exit, 0, JSON.stringify(s.result));
+  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const branch = s.result.branch;
+  git(c.root, 'switch', '-q', '-c', branch);
+  put(c.root, { 'src/other.js': 'export const one = 1;\nexport const two = 2;\n' });
+  git(c.root, 'commit', '-q', '-am', 'W-2');
+  const sha = git(c.root, 'rev-parse', 'HEAD');
+  git(c.root, 'switch', '-q', 'main');
+  const note = join(c.base, 'note-2.txt');
+  writeFileSync(note, report({ item: 'W-2', sha, branch }));
+  const done = await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  assert.deepEqual(
+    done.result.refill.awaiting_merge.map((/** @type {any} */ a) => a.item),
+    ['W-2'],
+  );
+  assert.ok(!done.result.refill.start.some((/** @type {any} */ x) => x.item === 'W-2'));
+  // The owner drops the branch: the pass is corrected, and the tracker's word holds again.
+  const dropped = await c.hitld([
+    'ledger',
+    'append',
+    JSON.stringify({
+      event: 'verified',
+      item: 'W-2',
+      result: 'fail',
+      corrects: 'verified-D-1',
+      notes: 'the owner dropped the branch',
+    }),
+  ]);
+  assert.equal(dropped.exit, 0, JSON.stringify(dropped.result));
+  const plan = await c.hitld(['dispatch', 'plan']);
+  assert.deepEqual(plan.result.awaiting_merge, []);
+  assert.ok(plan.result.start.some((/** @type {any} */ x) => x.item === 'W-2'));
+});
+
 test('kill and resume: a dispatch recorded but never started is abandoned; a live one is adopted', async () => {
   const c = makeConsumer();
   recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
@@ -738,4 +969,86 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
   ]);
   assert.equal(follow.result.instruction?.tool, 'Bash', JSON.stringify(follow.result));
   assert.match(follow.result.instruction.input.command, /--resume sess-9/);
+});
+
+test('a completion records its start estimate, refuses a figure far above it, and can be corrected (HITLD-436)', async () => {
+  const c = makeConsumer();
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+  const s = await c.hitld(['dispatch', 'start', 'W-2']);
+  assert.equal(s.exit, 0, JSON.stringify(s.result));
+  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const ledger = () =>
+    readLedger(
+      /** @type {any} */ ({
+        read: (/** @type {string} */ k) =>
+          k === 'ledger.jsonl'
+            ? readFileSync(join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl'), 'utf8')
+            : null,
+      }),
+    ).events;
+  const estimate = ledger().find((e) => e.event === 'dispatched')?.estimate_tokens;
+  assert.ok(typeof estimate === 'number' && estimate > 0, 'the dispatch started with an estimate');
+  const note = join(c.base, 'note-436.txt');
+  writeFileSync(note, report({ item: 'W-2', sha: 'abc1234', branch: s.result.branch }));
+
+  // A cache-read total, many times the estimate: refused, and nothing is recorded or released.
+  const huge = estimate * 5;
+  const complete = (/** @type {string[]} */ more) =>
+    c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note, ...more]);
+  const refused = await complete(['--tokens', String(huge)]);
+  assert.equal(refused.result.error, 'tokens-over-estimate', JSON.stringify(refused.result));
+  assert.match(refused.result.message, /never cache reads/);
+  assert.match(refused.result.message, /--tokens-over-estimate/);
+  assert.ok(!ledger().some((e) => e.event === 'reported'), 'nothing recorded');
+
+  // Recorded on confirmation, saying so, with the start estimate beside the actual.
+  const done = await complete(['--tokens', String(huge), '--tokens-over-estimate']);
+  assert.equal(done.exit, 0, JSON.stringify(done.result));
+  const reported = /** @type {Record<string, any>} */ (
+    ledger().find((e) => e.event === 'reported')
+  );
+  assert.deepEqual([reported.tokens, reported.estimate_tokens], [huge, estimate]);
+  assert.match(reported.notes, /confirmed with --tokens-over-estimate/);
+
+  // The figure was wrong after all: corrected by the supported command, in the ledger.
+  const why = ['--why', 'the figure was the cache-read total'];
+  const fix = await c.hitld(['ledger', 'correct-tokens', reported.id, '--tokens', '8065', ...why]);
+  assert.equal(fix.exit, 0, JSON.stringify(fix.result));
+  assert.deepEqual(fix.result.tokens, { before: huge, after: 8065 });
+  assert.equal(fix.result.event.corrects, reported.id);
+  assert.equal(fix.result.event.estimate_tokens, estimate, 'every other field stands');
+  assert.match(fix.result.event.notes, /tokens corrected from \d+ to 8065 by .+: the figure was/);
+  // A second correction of the same event is refused: it names the one that stands.
+  const twice = await c.hitld([
+    'ledger',
+    'correct-tokens',
+    reported.id,
+    '--tokens',
+    '9000',
+    ...why,
+  ]);
+  assert.equal(twice.result.error, 'already-corrected');
+  assert.equal(twice.result.corrected_by, fix.result.event.id);
+  // Only a completion has a token count to correct.
+  const dispatched = /** @type {any} */ (ledger().find((e) => e.event === 'dispatched'));
+  const wrong = await c.hitld(['ledger', 'correct-tokens', dispatched.id, '--tokens', '1', ...why]);
+  assert.equal(wrong.result.error, 'forbidden-correction');
+
+  // The summary reads the corrected figure, with the estimate beside it.
+  const sum = await c.hitld(['ledger', 'summary']);
+  assert.deepEqual(sum.result.estimate_vs_actual.by_dispatch, [
+    {
+      dispatch: 'D-1',
+      item: 'W-2',
+      estimate_tokens: estimate,
+      estimate_source: 'default',
+      estimate_samples: 0,
+      tokens: 8065,
+      tokens_source: 'typed',
+      ratio: Math.round((8065 / estimate) * 100) / 100,
+    },
+  ]);
+  // The correction is not a second completion: the dispatch is still done once.
+  assert.equal((await complete([])).result.already, true);
 });

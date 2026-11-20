@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { openStore } from '../lib/store/store.mjs';
@@ -33,6 +33,17 @@ import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
 const tmp = () => realpathSync(tempDir('hitld-sec-'));
+
+/** Whether this machine lets the tests make a symbolic link (Windows needs Developer Mode or admin). */
+const canSymlink = (() => {
+  const dir = tmp();
+  try {
+    symlinkSync(join(dir, 'target'), join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 /** @param {{ uri: string, line: number, rule?: string }[]} results @param {string} [version] */
 const sarif = (results, version = '1.0.0') =>
@@ -93,7 +104,7 @@ test('sarif: a passing result is skipped; a suppressed one is still a finding', 
 test('sarif: a location outside the scanned directory is not read', () => {
   const root = tmp();
   assert.equal(relativePath(root, 'src/a.js'), 'src/a.js');
-  assert.equal(relativePath(root, `file://${join(root, 'src', 'a.js')}`), 'src/a.js');
+  assert.equal(relativePath(root, pathToFileURL(join(root, 'src', 'a.js')).href), 'src/a.js');
   assert.equal(relativePath(root, '../outside.js'), null);
   assert.equal(relativePath(root, 'https://example.com/a.js'), null);
 });
@@ -131,14 +142,22 @@ test('fingerprint: the same code twice in a file gets two keys; another rule ano
   assert.equal(new Set(fs.map((f) => f.key)).size, 3);
 });
 
-test('fingerprint: a link out of the scanned directory is not followed', () => {
-  const root = tmp();
-  const outside = tmp();
-  writeFileSync(join(outside, 'secret.js'), 'secret\n');
-  symlinkSync(join(outside, 'secret.js'), join(root, 'link.js'));
-  const [f] = fingerprintRuns(readSarif(sarif([{ uri: 'link.js', line: 1, rule: 'r' }])), root);
-  assert.equal(f.fingerprint_from, 'message');
-});
+test(
+  'fingerprint: a link out of the scanned directory is not followed',
+  {
+    skip: canSymlink
+      ? false
+      : 'this machine does not allow symbolic links (Windows without Developer Mode)',
+  },
+  () => {
+    const root = tmp();
+    const outside = tmp();
+    writeFileSync(join(outside, 'secret.js'), 'secret\n');
+    symlinkSync(join(outside, 'secret.js'), join(root, 'link.js'));
+    const [f] = fingerprintRuns(readSarif(sarif([{ uri: 'link.js', line: 1, rule: 'r' }])), root);
+    assert.equal(f.fingerprint_from, 'message');
+  },
+);
 
 // --- Records ------------------------------------------------------------------------------------
 
@@ -601,7 +620,7 @@ test('commands: the merge scans with the primary checkout policy, never the bran
       ),
     },
     policy: {
-      merge: { mode: 'queue', full_suite: ["node --test 'test/*.test.js'"], scanners: [scanner] },
+      merge: { mode: 'queue', full_suite: ['node --test "test/*.test.js"'], scanners: [scanner] },
     },
   });
   recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });

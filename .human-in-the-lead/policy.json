@@ -5,6 +5,45 @@
     "key": "HITLD"
   },
   "merge": {
+    "mode": "owner",
+    "via": "pull-request",
+    "pull_request": {
+      "checks": [
+        "check",
+        "typecheck",
+        "format",
+        "tests",
+        "evals",
+        "tracker",
+        "dco",
+        "public",
+        "Analyze (actions)",
+        "Analyze (javascript-typescript)"
+      ],
+      "conditional_checks": [
+        {
+          "name": "CodeQL",
+          "unless_only": [
+            "work/**",
+            "docs/**",
+            "**/*.md",
+            "**/*.MD",
+            "**/*.txt",
+            "**/*.TXT",
+            "LICENSE"
+          ]
+        }
+      ],
+      "delegated_by": "HITLD-159"
+    },
+    "owner_paths": ["**", "!work/**", "work/releases/**"],
+    "propose_queue_after": 20,
+    "generated": [
+      {
+        "globs": ["plugins/**"],
+        "regenerate": "npm run build"
+      }
+    ],
     "public_globs": [
       "schemas/**",
       "templates/AGENTS.contract.md",
@@ -21,5 +60,95 @@
         "format": "sarif"
       }
     ]
+  },
+  "rights": {
+    "areas": [
+      {
+        "name": "tracker",
+        "paths": [
+          "work/*",
+          "work/items/**",
+          "work/milestones/**",
+          "work/projects/**",
+          "work/views/**"
+        ]
+      },
+      {
+        "name": "releases",
+        "paths": ["work/releases/**"]
+      },
+      {
+        "name": "core",
+        "paths": [
+          "core/**",
+          "plugins/human-in-the-lead/core/**",
+          "plugins/human-in-the-lead/hooks/**"
+        ]
+      },
+      {
+        "name": "plugins",
+        "paths": [
+          "plugins/*",
+          "plugins/human-in-the-lead/*",
+          "plugins/human-in-the-lead/.claude-plugin/**",
+          "plugins/human-in-the-lead/bin/**"
+        ]
+      },
+      {
+        "name": "skills",
+        "paths": [
+          "skills/**",
+          "agents/**",
+          "plugins/human-in-the-lead/skills/**",
+          "plugins/human-in-the-lead/agents/**"
+        ]
+      },
+      {
+        "name": "schemas",
+        "paths": ["schemas/**", "plugins/human-in-the-lead/schemas/**"]
+      },
+      {
+        "name": "docs",
+        "paths": ["docs/**"]
+      },
+      {
+        "name": "workflows",
+        "paths": [".github/**"]
+      },
+      {
+        "name": "scripts",
+        "paths": ["scripts/**"]
+      },
+      {
+        "name": "evals",
+        "paths": ["evals/**", "plugins/human-in-the-lead/evals/**"]
+      },
+      {
+        "name": "templates",
+        "paths": ["templates/**", "plugins/human-in-the-lead/templates/**"]
+      },
+      {
+        "name": "packaging",
+        "paths": ["packaging/**", ".claude-plugin/**"]
+      },
+      {
+        "name": "signals",
+        "paths": ["signals/**"]
+      },
+      {
+        "name": "policy",
+        "paths": [".human-in-the-lead/**"]
+      }
+    ]
+  },
+  "sweep": {
+    "proposed_max_age": 30
+  },
+  "execution": {
+    "max_executors": {
+      "value": 4,
+      "min": 1,
+      "max": 6
+    }
   }
 }
