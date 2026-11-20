@@ -2,9 +2,10 @@
 id: HITLD-147
 title: Orchestrators enforce that every executor reports up the chain before its turn ends
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-41
 ---
 
 ## Why
