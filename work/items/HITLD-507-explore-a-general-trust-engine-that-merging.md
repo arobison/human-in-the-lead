@@ -2,7 +2,7 @@
 id: HITLD-507
 title: Explore a general trust engine that merging, committing to work, releasing and the other processes that act without asking each hook into
 kind: work
-state: proposed
+state: done
 created: 2026-11-19
 project: HITLD-15
 ---
@@ -56,3 +56,7 @@ Which process outside merging and commitment registers next (releases, for examp
 ## Left the milestone on 2026-11-20 (HITLD-603)
 
 This item left milestone HITLD-191; it closes when the design-docs update (HITLD-572) merges.
+
+## Closed on 2026-11-20 (HITLD-603)
+
+Closed on 2026-11-20: the design-docs update (HITLD-572) merged and says what the owner decided here; its builds are under the trust-engine milestone (HITLD-566).

@@ -2,7 +2,7 @@
 id: HITLD-572
 title: The design documents say what was decided on 2026-11-19, in one change the owner approves
 kind: work
-state: planned
+state: done
 created: 2026-11-19
 project: HITLD-15
 needs: [HITLD-565]
@@ -39,3 +39,7 @@ The design part on sizing tiers (part 5.1) is rewritten for the decision that di
 ## Promoted on 2026-11-20 (HITLD-588)
 
 The owner decided (HITLD-588) that this is drafted now by a curator-style job: an agent briefed with the decision IDs rewrites the affected design parts as one pull request, the chief of staff verifies each part against the decision records, and the owner approves it. The release-stage part (part 21) follows once the roadmap audit's moves are settled.
+
+## Closed on 2026-11-20 (HITLD-603)
+
+The design-docs update merged on 2026-11-20 on the owner's own yes (the pull request titled "Design: update the design parts to the decisions of 2026-11-19 and 2026-11-20"). This item is done.
