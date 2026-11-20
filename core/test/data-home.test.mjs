@@ -49,6 +49,7 @@ function oldHome() {
   const o = {
     env: { LOCALAPPDATA: local },
     home,
+    cwd: home,
     platform: WIN,
     report: (/** @type {string} */ m) => void messages.push(m),
   };
@@ -270,13 +271,18 @@ test('pinnedProjects lists stores at both places and never a move leftover', () 
     join(old, 'q'),
     join(now, 'r'),
     join(now, '.s.moving-12'),
-    join(now, 's.moving-12'),
+    join(now, 'x.moved'),
+    join(now, 'y.moving-1'),
   ]) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'ledger.jsonl'), ledger);
   }
   const names = pinnedProjects(o).map((p) => p.project);
-  assert.deepEqual(names.sort(), ['q', 'r'], 'q at the old place, r at the new, no leftover');
+  assert.deepEqual(
+    names.sort(),
+    ['q', 'r', 'x.moved', 'y.moving-1'],
+    'q at the old place, r at the new, valid IDs that look like move names, no leftover',
+  );
 });
 
 test('four processes racing to move the same store across volumes: one moves it, nothing is lost or left', async () => {
@@ -317,4 +323,111 @@ test('four processes racing to move the same store across volumes: one moves it,
     leftovers(now).filter((f) => f !== '.move-notes.json'),
     [],
   );
+});
+
+const LATER = 11 * 60_000;
+
+test('A: a failed removal is finished later even after the store was written to', () => {
+  const { old, now, o } = oldHome();
+  const seam = {
+    ...crossVolume(old, now),
+    rm: (/** @type {string} */ p, /** @type {any} */ opts) => {
+      if (p.endsWith('.p.moved')) throw Object.assign(new Error('EBUSY: held'), { code: 'EBUSY' });
+      rmSync(p, opts);
+    },
+  };
+  assert.equal(moveOldEntry('p', { ...o, seam }).state, 'leftover');
+  openStore(join(now, 'p')).append('ledger.jsonl', '{"a":2}\n');
+  const r = moveOldEntry('p', { ...o, now: () => Date.now() + LATER });
+  assert.equal(r.state, 'moved', r.reason);
+  assert.equal(existsSync(join(old, '.p.moved')), false, 'the aside copy is gone');
+  assert.equal(existsSync(join(now, 'p', '.hitld-moved.tmp')), false, 'and so is the marker');
+  assert.equal(readFileSync(join(now, 'p', 'ledger.jsonl'), 'utf8'), '{"a":1}\n{"a":2}\n');
+});
+
+test('B: an interrupted move with no store at either path is an error, never a new store', () => {
+  const { old, now, o } = oldHome();
+  renameSync(join(old, 'p'), join(old, '.p.moved'));
+  assert.throws(
+    () => privateStorePath('p', { ...o, env: { ...o.env, HITLD_ROLE: 'executor' } }),
+    /a move of the store for p was interrupted at .*\.p\.moved; .*run hitld outside an executor/,
+  );
+  assert.equal(existsSync(join(old, 'p')), false, 'no second store at the old path');
+  assert.equal(existsSync(join(now, 'p')), false);
+
+  const seam = {
+    rename: (/** @type {string} */ from, /** @type {string} */ to) => {
+      if (from.includes('.moving-'))
+        throw Object.assign(new Error('ENOSPC: no space'), { code: 'ENOSPC' });
+      renameSync(from, to);
+    },
+  };
+  assert.throws(
+    () => moveOldEntry('p', { ...o, seam }),
+    (e) => {
+      assert.match(String(e), /interrupted at .*finishing it failed \(ENOSPC: no space\)/);
+      assert.doesNotMatch(String(e), /another hitld process/);
+      return true;
+    },
+  );
+  const started = Date.now();
+  assert.throws(() => moveOldEntry('p', o), /interrupted .*ENOSPC/, 'noted: it fails at once');
+  assert.ok(Date.now() - started < 1_000);
+  assert.equal(moveOldEntry('p', { ...o, now: () => Date.now() + LATER }).state, 'moved');
+  assert.equal(readFileSync(join(now, 'p', 'ledger.jsonl'), 'utf8'), '{"a":1}\n');
+});
+
+test('C: a stray store at the old place with only new paths is absorbed', () => {
+  const { old, now, o } = oldHome();
+  assert.equal(moveOldEntry('p', o).state, 'moved');
+  mkdirSync(join(old, 'p', 'notes'), { recursive: true });
+  writeFileSync(join(old, 'p', 'notes', 'n.md'), 'from an older release\n');
+  const r = moveOldEntry('p', o);
+  assert.equal(r.state, 'moved', r.reason);
+  assert.equal(readFileSync(join(now, 'p', 'notes', 'n.md'), 'utf8'), 'from an older release\n');
+  assert.equal(readFileSync(join(now, 'p', 'ledger.jsonl'), 'utf8'), '{"a":1}\n');
+  assert.equal(existsSync(join(old, 'p')), false);
+});
+
+test('C: a stray ledger at both places is left, named, with the steps, once a day', () => {
+  const { old, now, o, messages } = oldHome();
+  assert.equal(moveOldEntry('p', o).state, 'moved');
+  mkdirSync(join(old, 'p'));
+  writeFileSync(join(old, 'p', 'ledger.jsonl'), '{"stray":1}\n');
+  writeFileSync(join(old, 'p', 'extra.md'), 'x');
+  assert.equal(entryDir('p', o), join(now, 'p'));
+  assert.equal(messages.length, 1);
+  assert.match(
+    messages[0],
+    /Only at .*: extra\.md\. At both: ledger\.jsonl; of these, of different size: ledger\.jsonl/,
+  );
+  assert.match(messages[0], /To merge by hand: stop every session/);
+  assert.match(messages[0], /once a day/);
+  assert.equal(readFileSync(join(old, 'p', 'ledger.jsonl'), 'utf8'), '{"stray":1}\n');
+  assert.equal(readFileSync(join(now, 'p', 'ledger.jsonl'), 'utf8'), '{"a":1}\n');
+  const t = Date.now();
+  assert.equal(moveOldEntry('p', { ...o, now: () => t + 2 * 60 * 60_000 }).quiet, true);
+  const again = moveOldEntry('p', { ...o, now: () => t + 25 * 60 * 60_000 });
+  assert.equal(again.state, 'both');
+  assert.equal(again.quiet, undefined, 'a day later it is said again');
+});
+
+test('a note dated in the future holds nothing', () => {
+  const { now, o } = oldHome();
+  mkdirSync(now, { recursive: true });
+  writeFileSync(join(now, '.move-notes.json'), JSON.stringify({ p: { at: 9e15 } }));
+  assert.equal(moveOldEntry('p', o).state, 'moved');
+});
+
+test('a lock held by a live process is waited for once, then noted, and the next call is at once', () => {
+  const { old, now, o } = oldHome();
+  mkdirSync(join(now, '.p.move-lock'), { recursive: true });
+  writeFileSync(join(now, '.p.move-lock', 'owner'), `${process.pid}\n`);
+  const r = moveOldEntry('p', o);
+  assert.equal(r.state, 'left');
+  assert.match(r.reason ?? '', /timed out waiting for the lock/);
+  assert.equal(r.path, join(old, 'p'));
+  const started = Date.now();
+  assert.equal(moveOldEntry('p', o).quiet, true);
+  assert.ok(Date.now() - started < 1_000);
 });

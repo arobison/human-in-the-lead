@@ -20,10 +20,20 @@
 //     finishes the job: it copies again if the target is not there, else removes the copy. Names
 //     that start with "." can never be a project ID, so a leftover is never taken for a project.
 //
+// The copy carries a marker (.hitld-moved.tmp) until the aside copy is gone, so a removal that failed
+// is finished later even after the store has been written to. A store found at both places (an
+// older release made one at the old place after the move) is reconciled: paths only the stray copy
+// holds move in; a path both hold is never merged, and the message says what each holds and how
+// to merge them. A move interrupted with no store at either path is an error, never a path.
+//
 // Each outcome is said once per process, on standard error; a skip or a failure is noted for ten
-// minutes in the new directory (.move-notes.json), so the status line and the hooks, which run as
-// a new process each time, neither retry nor repeat it every time. Retries of a busy rename share
-// one small budget per process.
+// minutes in the new directory (.move-notes.json), a store at both places for a day, so the status
+// line and the hooks, which run as a new process each time, neither retry nor repeat it every
+// time. Retries of a busy rename share one small budget per process.
+//
+// Known limits: liveness is a pid check (a reused Windows pid reads as alive, which only delays
+// the move); the run lease is read only from <store>/run-state.json, and a missing or damaged one
+// counts as no lease; the executor check is executorSignal (environment, or a linked worktree).
 //
 // It imports only the platform layer and the cross-process mutex, so the store and the settings
 // files may both use it.
@@ -45,20 +55,28 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { RM_RETRY } from '../platform/fs.mjs';
 import { withMutexSync } from '../env/mutex.mjs';
 import { isAlive } from '../env/proc.mjs';
+import { executorSignal } from '../cli/executor.mjs';
 
 export const DIR_NAME = 'human-in-the-lead';
 
 /**
  * @typedef {{ rename?: (from: string, to: string) => void,
  *   rm?: (path: string, o: import('node:fs').RmOptions) => void }} MoveSeam
- * @typedef {{ env?: NodeJS.ProcessEnv, home?: string, platform?: NodeJS.Platform,
+ * @typedef {{ env?: NodeJS.ProcessEnv, home?: string, platform?: NodeJS.Platform, cwd?: string,
  *   report?: (message: string) => void, now?: () => number, seam?: MoveSeam }} DataHomeOptions
- *   env, home, platform, now and seam are for tests; report receives the move's messages
+ *   env, home, platform, cwd, now and seam are for tests; report receives the move's messages
  *   (standard error by default)
  */
 
-/** How long a skip or failure is remembered across processes. */
+/** How long a skip or failure is remembered across processes; a store at both places, a day. */
 const NOTE_MS = 10 * 60_000;
+const BOTH_NOTE_MS = 24 * 60 * 60_000;
+/**
+ * Written into the copy before it is renamed into place, so a later run knows the aside copy is
+ * safe to delete whatever has been written to the store since. Empty; the store's git ignores
+ * *.tmp, so it is never committed.
+ */
+export const MOVED_MARKER = '.hitld-moved.tmp';
 /** A run lease renewed this recently, and not released, is live (twice the default expiry). */
 const LEASE_LIVE_MS = 60 * 60_000;
 /** The waits between attempts at a busy rename; all entries in a process share one budget. */
@@ -123,9 +141,11 @@ export function dataDirs(options = {}) {
   return [dataDirPath(options), ...(old && existsSync(old) ? [old] : [])];
 }
 
-/** Whether a directory entry name is one of the move's own (temporary, aside, lock, notes). */
-export const isMoveLeftover = (/** @type {string} */ name) =>
-  name.startsWith('.') || name.includes('.moving-') || name.endsWith('.moved');
+/**
+ * Whether a directory entry name is one of the move's own (temporary, aside, lock, notes): every
+ * such name starts with ".", which a project ID never does.
+ */
+export const isMoveLeftover = (/** @type {string} */ name) => name.startsWith('.');
 
 /** @param {unknown} e */
 const codeOf = (e) => /** @type {NodeJS.ErrnoException} */ (e)?.code ?? '';
@@ -203,17 +223,22 @@ function rename(from, to, seam, platform) {
 function readNotes(dir) {
   try {
     const n = JSON.parse(readFileSync(join(dir, NOTES), 'utf8'));
-    return n && typeof n === 'object' ? /** @type {Record<string, { at: number }>} */ (n) : {};
+    return n && typeof n === 'object'
+      ? /** @type {Record<string, { at: number, ms?: number, why?: string }>} */ (n)
+      : {};
   } catch {
     return {};
   }
 }
 
-/** @param {string} dir @param {string} name @param {number | null} at null clears it */
-function writeNote(dir, name, at) {
+/**
+ * @param {string} dir @param {string} name @param {number | null} at null clears it
+ * @param {number} [ms] how long it holds @param {string} [why] the error, when it failed
+ */
+function writeNote(dir, name, at, ms = NOTE_MS, why = undefined) {
   const notes = readNotes(dir);
   if (at === null) delete notes[name];
-  else notes[name] = { at };
+  else notes[name] = { at, ms, ...(why ? { why } : {}) };
   try {
     const tmp = join(dir, `${NOTES}.${process.pid}`);
     writeFileSync(tmp, JSON.stringify(notes));
@@ -229,37 +254,49 @@ function writeNote(dir, name, at) {
  *   quiet when another process said so in the last few minutes
  */
 
+/** A note that still holds at `now`; one dated in the future holds nothing. */
+const holds = (
+  /** @type {{ at: number, ms?: number } | undefined} */ note,
+  /** @type {number} */ now,
+) => !!note && Number.isFinite(note.at) && note.at <= now && now - note.at < (note.ms ?? NOTE_MS);
+
 /**
- * The files under a directory with their sizes, to tell a complete copy from a partial one.
- * @param {string} dir @returns {string}
+ * The files under a directory, by relative path, with their sizes.
+ * @param {string} dir @returns {Map<string, number>}
  */
-function manifest(dir) {
-  /** @type {string[]} */
-  const out = [];
+function files(dir) {
+  /** @type {Map<string, number>} */
+  const out = new Map();
   /** @param {string} d @param {string} rel */
   const walk = (d, rel) => {
-    for (const e of readdirSync(d, { withFileTypes: true }).sort((a, b) =>
-      a.name < b.name ? -1 : 1,
-    )) {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) walk(join(d, e.name), r);
-      else out.push(`${r}:${e.isFile() ? lstatSync(join(d, e.name)).size : 'link'}`);
+      else out.set(r, e.isFile() ? lstatSync(join(d, e.name)).size : -1);
     }
   };
   walk(dir, '');
-  return out.join('\n');
+  return out;
 }
+
+/** At most `n` items, and how many more. @param {string[]} list @param {number} [n] */
+const some = (list, n = 10) =>
+  list.slice(0, n).join(', ') + (list.length > n ? `, and ${list.length - n} more` : '');
+
+/** Whether a directory holds anything (an empty one counts as absent). @param {string} p */
+const hasStore = (p) => existsSync(p) && !isEmptyDir(p);
 
 /** Where an entry resolves now: the old place while it is there and the new one is not. */
 const resolveNow = (/** @type {string} */ source, /** @type {string} */ target) =>
-  existsSync(source) && (!existsSync(target) || isEmptyDir(target)) ? source : target;
+  existsSync(source) && !hasStore(target) ? source : target;
 
 /** Entries this process has already looked at, by old path. */
 const looked = new Map();
 
 /**
  * Move one entry (a project ID, or _machine) from the old Windows place, if it is there and may
- * move. Holds the entry's lock while it works.
+ * move. Holds the entry's lock while it works. Throws, rather than give a path where there is no
+ * store, when a cross-volume move was interrupted and cannot be finished now.
  * @param {string} name
  * @param {DataHomeOptions} [options]
  * @returns {EntryMove}
@@ -276,12 +313,20 @@ export function moveOldEntry(name, options = {}) {
   const now = (options.now ?? Date.now)();
   const seam = options.seam ?? {};
   const rm = seam.rm ?? rmSync;
+  /** A move interrupted after the source went aside, with no store at either path. */
+  const interrupted = () => existsSync(aside) && !existsSync(source) && !hasStore(target);
+  /** @param {string} why */
+  const interruptedError = (why) =>
+    new Error(`a move of ${label(name)} was interrupted at ${aside}; ${why}`);
   /** @param {string} reason @returns {EntryMove} */
-  const left = (reason) => ({ state: 'left', path: source, reason });
+  const left = (reason) => {
+    if (interrupted()) throw interruptedError(reason);
+    return { state: 'left', path: resolveNow(source, target), reason };
+  };
 
-  const role = lookup(env, 'HITLD_ROLE', platform);
-  if (role === 'executor' || lookup(env, 'HITLD_DISPATCH', platform)) {
-    return left('an executor does not move it; the next hitld run outside an executor does');
+  const executor = executorSignal(env, options.cwd ?? process.cwd());
+  if (executor) {
+    return left(`${executor}, and an executor does not move it; run hitld outside an executor`);
   }
   try {
     if (lstatSync(from).isSymbolicLink()) {
@@ -296,7 +341,12 @@ export function moveOldEntry(name, options = {}) {
     return left(`${to} cannot be made (${messageOf(e)})`);
   }
   const note = readNotes(to)[name];
-  if (note && now - note.at < NOTE_MS) {
+  if (holds(note, now)) {
+    if (interrupted()) {
+      throw interruptedError(
+        `it could not be finished a few minutes ago; ${note?.why ?? ''}`.trim(),
+      );
+    }
     const path = resolveNow(source, target);
     return { state: path === source ? 'left' : 'both', path, quiet: true };
   }
@@ -309,29 +359,20 @@ export function moveOldEntry(name, options = {}) {
       if (f.startsWith(`.${name}.moving-`)) rm(join(to, f), { recursive: true, force: true });
     }
     if (existsSync(aside)) {
-      // An earlier cross-volume move renamed the source aside and stopped: before the copy was in
-      // place (copy it again), or after (the copy matches: remove the aside one).
-      if (!existsSync(target) || isEmptyDir(target)) {
+      // A cross-volume move renamed the source aside and stopped: before the copy was in place
+      // (copy it again), or after (the copy carries the marker: the aside one can go, whatever has
+      // been written to the store since).
+      if (!hasStore(target)) {
         if (existsSync(target)) rmdirSync(target);
         copyAside(aside, target, null);
         return finish(aside, target);
       }
-      if (manifest(aside) === manifest(target)) return finish(aside, target);
-      return {
-        state: 'both',
-        path: target,
-        reason: `${aside} holds the store from before a move that stopped, and ${target} differs from it; both were left as they are`,
-      };
+      if (existsSync(join(target, MOVED_MARKER))) return finish(aside, target);
+      return reconcile(aside, target);
     }
     if (!existsSync(source)) return { state: 'not-there', path: target };
     if (existsSync(target)) {
-      if (!isEmptyDir(target)) {
-        return {
-          state: 'both',
-          path: target,
-          reason: `it is at both places; ${source} was left as it is`,
-        };
-      }
+      if (hasStore(target)) return reconcile(source, target);
       rmdirSync(target);
     }
     const busy = inUse(name, source, now);
@@ -347,23 +388,26 @@ export function moveOldEntry(name, options = {}) {
     return finish(aside, target);
   };
   /**
-   * Copy the aside directory to a temporary name, then rename it into place. If that fails, the
-   * temporary copy goes and, when `back` is given, the aside directory returns there.
-   * @param {string} from @param {string} into @param {string | null} back
+   * Copy the aside directory to a temporary name, mark it complete, then rename it into place.
+   * If that fails, the temporary copy goes and, when `back` is given, the aside directory returns
+   * there. (No fsync before the aside copy is removed: a power cut right after could lose what
+   * the file system had not written yet. Accepted for a one-time move.)
+   * @param {string} src @param {string} into @param {string | null} back
    */
-  const copyAside = (from, into, back) => {
+  const copyAside = (src, into, back) => {
     const temp = join(to, `.${name}.moving-${process.pid}`);
     try {
-      cpSync(from, temp, {
+      cpSync(src, temp, {
         recursive: true,
         errorOnExist: true,
         force: false,
         verbatimSymlinks: true,
       });
+      writeFileSync(join(temp, MOVED_MARKER), '');
       rename(temp, into, seam, platform);
     } catch (e) {
       rm(temp, { recursive: true, force: true, ...RM_RETRY });
-      if (back) rename(from, back, seam, platform);
+      if (back) rename(src, back, seam, platform);
       throw e;
     }
   };
@@ -371,7 +415,6 @@ export function moveOldEntry(name, options = {}) {
   const finish = (rest, done) => {
     try {
       rm(rest, { recursive: true, force: true, ...RM_RETRY });
-      return { state: 'moved', path: done };
     } catch (e) {
       return {
         state: 'leftover',
@@ -379,24 +422,71 @@ export function moveOldEntry(name, options = {}) {
         reason: `the copy left at ${rest} can be deleted (${messageOf(e)})`,
       };
     }
+    rm(join(done, MOVED_MARKER), { force: true });
+    return { state: 'moved', path: done };
+  };
+  /**
+   * A store at the new place and another at the old one (`stray`: the source, or an aside copy
+   * without the marker), as when a session on an older release made one there after the move.
+   * Paths only the stray holds move into the store; a path both hold is never merged: both stay,
+   * and the message says what each holds and how to merge them.
+   * @param {string} stray @param {string} store @returns {EntryMove}
+   */
+  const reconcile = (stray, store) => {
+    const busy = inUse(name, stray, now);
+    if (busy) return { state: 'both', path: store, reason: `${stray} is in use (${busy})` };
+    const theirs = files(stray);
+    const ours = files(store);
+    const both = [...theirs.keys()].filter((k) => ours.has(k));
+    if (both.length === 0) {
+      for (const [rel] of theirs) {
+        const dest = join(store, ...rel.split('/'));
+        mkdirSync(dirname(dest), { recursive: true });
+        const src = join(stray, ...rel.split('/'));
+        try {
+          rename(src, dest, seam, platform);
+        } catch (e) {
+          if (codeOf(e) !== 'EXDEV') throw e;
+          cpSync(src, dest, { errorOnExist: true, force: false, verbatimSymlinks: true });
+          rm(src, { force: true, ...RM_RETRY });
+        }
+      }
+      return finish(stray, store);
+    }
+    const only = [...theirs.keys()].filter((k) => !ours.has(k));
+    const differ = both.filter((k) => theirs.get(k) !== ours.get(k));
+    return {
+      state: 'both',
+      path: store,
+      reason: [
+        `${stray} holds a second copy of it, and ${store} is the one in use.`,
+        only.length ? `Only at ${stray}: ${some(only)}.` : '',
+        `At both: ${some(both)}${differ.length ? `; of these, of different size: ${some(differ)}` : ''}.`,
+        `To merge by hand: stop every session that uses this store; move each path that is only at ${stray} into ${store};`,
+        `for a path at both, keep the one you want (for ledger.jsonl, add the old copy's lines the new one lacks, in order);`,
+        `then delete ${stray}. This is said once a day until then.`,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    };
   };
   /** @type {EntryMove} */
   let result;
   try {
     result = withMutexSync(lock, work, { timeoutMs: 5_000, staleMs: 60_000 });
   } catch (e) {
-    if (existsSync(aside) && !existsSync(target)) {
-      throw new Error(
-        `${label(name)} is being moved to ${to} by another hitld process; try again in a moment`,
-      );
+    if (interrupted()) {
+      writeNote(to, name, now, NOTE_MS, messageOf(e));
+      throw interruptedError(`finishing it failed (${messageOf(e)}); the next run tries again`);
     }
-    const path = resolveNow(source, target);
-    result =
-      path === source
-        ? left(`it could not be moved (${messageOf(e)}); the next run tries again`)
-        : { state: 'not-there', path };
+    result = {
+      state: 'left',
+      path: resolveNow(source, target),
+      reason: `it could not be moved (${messageOf(e)}); the next run tries again`,
+    };
   }
-  writeNote(to, name, result.state === 'moved' || result.state === 'not-there' ? null : now);
+  if (result.state === 'moved' || result.state === 'not-there') writeNote(to, name, null);
+  else writeNote(to, name, now, result.state === 'both' ? BOTH_NOTE_MS : NOTE_MS);
   if (result.state === 'moved') {
     try {
       rmdirSync(from);
@@ -422,16 +512,30 @@ export function entryDir(name, options = {}) {
   const from = oldWindowsDataDir(options);
   if (!from) return join(dataDirPath(options), name);
   const key = `${join(from, name)}\0${dataDirPath(options)}`;
-  if (looked.has(key)) return resolveNow(join(from, name), join(dataDirPath(options), name));
-  /** @type {EntryMove & { quiet?: boolean }} */
-  const r = moveOldEntry(name, options);
+  const source = join(from, name);
+  const target = join(dataDirPath(options), name);
+  const seen = looked.get(key);
+  if (seen instanceof Error && existsSync(join(from, `.${name}.moved`)) && !hasStore(target)) {
+    throw seen; // the same interrupted move, said once already: fail at once
+  }
+  if (seen) return resolveNow(source, target);
+  /** @type {EntryMove} */
+  let r;
+  try {
+    r = moveOldEntry(name, options);
+  } catch (e) {
+    looked.set(key, e instanceof Error ? e : new Error(String(e)));
+    throw e;
+  }
   looked.set(key, true);
   const report = options.report ?? ((m) => process.stderr.write(`${m}\n`));
   if (r.state === 'moved' || r.state === 'leftover') {
     const rest = r.state === 'leftover' ? `; ${r.reason}` : '';
     report(`hitld: moved ${label(name)} from ${from} to ${dirname(r.path)}${rest}`);
-  } else if ((r.state === 'left' || r.state === 'both') && !r.quiet) {
+  } else if (r.state === 'left' && !r.quiet) {
     report(`hitld: ${label(name)} is not at ${dataDirPath(options)} yet: ${r.reason}`);
+  } else if (r.state === 'both' && !r.quiet) {
+    report(`hitld: ${label(name)} is at ${r.path}. ${r.reason}`);
   }
   return r.path;
 }
