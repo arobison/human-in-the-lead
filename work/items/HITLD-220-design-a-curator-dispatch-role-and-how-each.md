@@ -27,3 +27,7 @@ HITLD-132 built `hitld work sweep` and a curator pass that is one ordinary track
 ## Decided on 2026-11-20 (HITLD-582)
 
 The outline of the curator role is decided: a curator agent in a fresh small session per job, briefed with decision IDs, drafts bulk program-management work and opens tracker pull requests; the chief of staff verifies it against the decision records and merges tracker-only pull requests under the standing grant. The build is HITLD-583. How each kind of sweep finding routes to an action is still open here.
+
+## Moved on 2026-11-20 (HITLD-586)
+
+The owner decided that the fuller curator lands in rc.4. This design item moves from HITLD-191 c3 to HITLD-403 c5, with its build HITLD-583. The curator already exists (design parts 4, 8.5 and 13.3, HITLD-132); this item completes the design of its role, including the second job of applying decided changes (HITLD-582, 583).
