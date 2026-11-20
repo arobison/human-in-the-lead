@@ -160,7 +160,13 @@ export const commands = [
         sample(p, state.in_flight, host, ctx);
         // Finished worktrees go (env/teardown.mjs), and free disk is checked against the floor.
         const torn = await tearDown(
-          openEnv({ repoRoot: p.repoRoot, store: p.store, policy: p.policy, env: ctx.env }),
+          openEnv({
+            repoRoot: p.repoRoot,
+            store: p.store,
+            policy: p.policy,
+            env: ctx.env,
+            capacity: p.capacity,
+          }),
           { events: before, primary: p.repoRoot },
         );
         const disk = diskWarning(

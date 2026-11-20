@@ -7,6 +7,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -760,33 +761,53 @@ test('a resource with capacity takes several light holders or one heavy one', as
 test('a waiting heavy holder is not overtaken by light ones that arrive after it', async () => {
   const repoRoot = makeRepo();
   const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
-  /** @type {string[]} */
-  const trace = [];
-  /** @param {string} holder @param {number} weight @param {number} holdMs */
-  const work = async (holder, weight, holdMs) => {
-    const got = await env.acquireLock({ resource: 'gpu', holder, weight, wait: true, pollMs: 10 });
-    assert.ok(got.acquired);
-    trace.push(`${holder} in`);
-    await sleep(holdMs);
-    trace.push(`${holder} out`);
-    got.handle.release();
+  const gpu = () => /** @type {any} */ (env.lockStatus().find((l) => l.resource === 'gpu'));
+  /** @param {() => boolean} cond @param {string} what */
+  const until = async (cond, what) => {
+    for (let i = 0; i < 400 && !cond(); i++) await sleep(5);
+    assert.ok(cond(), `timed out waiting until ${what}`);
   };
-  // Two light holders run; a heavy one arrives and waits; light ones that come later would fit
-  // beside the first two, but they queue behind the heavy one.
-  const a = work('D-1', 1, 150);
-  const b = work('D-2', 1, 150);
-  await sleep(30);
-  const heavy = work('D-3', 4, 50);
-  await sleep(30);
-  const c = work('D-4', 1, 10);
-  const d = work('D-5', 1, 10);
-  await Promise.all([a, b, heavy, c, d]);
-  const at = (/** @type {string} */ e) => trace.indexOf(e);
-  assert.ok(at('D-3 in') > at('D-1 out') && at('D-3 in') > at('D-2 out'), trace.join(', '));
-  assert.ok(at('D-4 in') > at('D-3 out'), `D-4 did not overtake D-3: ${trace.join(', ')}`);
-  assert.ok(at('D-5 in') > at('D-3 out'), `D-5 did not overtake D-3: ${trace.join(', ')}`);
-  const w = env.lockWaits();
-  assert.equal(w.gpu.waits, 3, 'the heavy holder and the two light ones behind it waited');
+  /** @type {Set<string>} */
+  const inside = new Set();
+  /** @param {string} holder @param {number} weight */
+  const take = (holder, weight) =>
+    // A timeout, so a failed assertion cannot leave a waiter polling after the test ends.
+    env
+      .acquireLock({ resource: 'gpu', holder, weight, wait: true, pollMs: 5, timeoutMs: 5000 })
+      .then((r) => {
+        assert.ok(r.acquired);
+        inside.add(holder);
+        return r;
+      });
+  // Two light holders hold 2 of 4 units. A heavy holder arrives and queues; then two light ones
+  // that would fit in the 2 free units arrive, and queue behind it. Each step waits for the queue
+  // on disk, not for time to pass.
+  const d1 = await take('D-1', 1);
+  const d2 = await take('D-2', 1);
+  const d3 = take('D-3', 4);
+  await until(() => gpu().waiting.includes('D-3'), 'D-3 queues');
+  const heavyAt = Date.now();
+  await until(() => Date.now() > heavyAt, 'the clock moves on');
+  // One after the other, in different milliseconds: a queue ticket is named by the millisecond it
+  // was made, so two made in the same one have no order between them.
+  const d4 = take('D-4', 1);
+  await until(() => gpu().waiting.includes('D-4'), 'D-4 queues behind D-3');
+  const queuedAt = Date.now();
+  await until(() => Date.now() > queuedAt, 'the clock moves on');
+  const d5 = take('D-5', 1);
+  await until(() => gpu().waiting.length === 3, 'D-5 queues behind D-4');
+  assert.deepEqual(gpu().waiting, ['D-3', 'D-4', 'D-5'], 'in arrival order');
+  await sleep(50);
+  assert.deepEqual([...inside], ['D-1', 'D-2'], 'two units are free, yet nobody overtook D-3');
+  assert.equal(gpu().used, 2);
+  if (d1.acquired) d1.handle.release();
+  if (d2.acquired) d2.handle.release();
+  const heavy = await d3;
+  assert.ok(!inside.has('D-4') && !inside.has('D-5'), 'the heavy holder went first');
+  assert.equal(gpu().used, 4);
+  if (heavy.acquired) heavy.handle.release();
+  for (const r of await Promise.all([d4, d5])) if (r.acquired) r.handle.release();
+  assert.equal(env.lockWaits().gpu.waits, 3, 'the heavy holder and the two behind it waited');
 });
 
 test('a weighted holder whose process is gone, or that expired, is taken over', async (t) => {
@@ -838,6 +859,227 @@ test('a weighted holder whose process is gone, or that expired, is taken over', 
     'renewing adds no weight',
   );
   assert.deepEqual(env.releaseLock({ resource: 'gpu', holder: 'D-1' }), { released: true });
+});
+
+test('a weight that is not a whole number of at least 1 is refused; the merge queue stays serial', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4, 'merge-queue': 4 } });
+  for (const weight of [0, 1.5, NaN, -1]) {
+    await assert.rejects(
+      () => env.acquireLock({ resource: 'gpu', holder: 'D-1', weight }),
+      /not a whole number of at least 1/,
+      `weight ${weight}`,
+    );
+  }
+  const a = await env.acquireLock({ resource: 'merge-queue', holder: 'D-1' });
+  assert.ok(a.acquired);
+  const b = await env.acquireLock({ resource: 'merge-queue', holder: 'D-2' });
+  assert.equal(b.acquired, false, 'a capacity entry for the merge queue has no effect');
+  assert.equal(env.lockStatus().find((l) => l.resource === 'merge-queue')?.capacity, 1);
+  await assert.rejects(
+    () => env.acquireLock({ resource: 'merge-queue', holder: 'D-2', weight: 2 }),
+    /capacity of 1/,
+  );
+  env.releaseLock({ resource: 'merge-queue', holder: 'D-1' });
+});
+
+test('a holder asking again with another weight renews and keeps the weight it holds', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
+  assert.ok((await env.acquireLock({ resource: 'gpu', holder: 'D-1', weight: 1 })).acquired);
+  const again = await env.acquireLock({ resource: 'gpu', holder: 'D-1', weight: 3 });
+  assert.ok(again.acquired);
+  assert.equal(again.acquired && again.record.weight, 1);
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.used, 1);
+  env.releaseLock({ resource: 'gpu', holder: 'D-1' });
+});
+
+test('holders whose names differ only by case keep separate records', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
+  assert.ok((await env.acquireLock({ resource: 'gpu', holder: 'D-1', weight: 1 })).acquired);
+  assert.ok((await env.acquireLock({ resource: 'gpu', holder: 'd-1', weight: 2 })).acquired);
+  const status = env.lockStatus().find((l) => l.resource === 'gpu');
+  assert.equal(status?.used, 3);
+  assert.deepEqual(status?.holders.map((h) => h.holder).sort(), ['D-1', 'd-1']);
+  env.releaseLock({ resource: 'gpu', holder: 'D-1' });
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.used, 2);
+  env.releaseLock({ resource: 'gpu', holder: 'd-1' });
+});
+
+test('status names a live holder when the oldest weighted one is stale, so the planner waits', async (t) => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const old = { resource: 'gpu', holder: 'D-1', ttlSeconds: 1, autoRenew: false };
+  assert.ok((await env.acquireLock(old)).acquired);
+  t.mock.timers.tick(10);
+  const live = { resource: 'gpu', holder: 'D-2', ttlSeconds: 60, autoRenew: false };
+  assert.ok((await env.acquireLock(live)).acquired);
+  t.mock.timers.tick(1200);
+  const status = env.lockStatus().find((l) => l.resource === 'gpu');
+  assert.equal(status?.held_by, 'D-2');
+  assert.equal(status?.stale, null);
+  assert.equal(status?.used, 1);
+  assert.match(String(status?.holders.find((h) => h.holder === 'D-1')?.stale), /expired/);
+  env.releaseLock({ resource: 'gpu', holder: 'D-1' });
+  env.releaseLock({ resource: 'gpu', holder: 'D-2' });
+});
+
+test('an unreadable lock record shows as stale, with or without a capacity', async () => {
+  for (const capacity of [undefined, { benchmark: 4 }]) {
+    const repoRoot = makeRepo();
+    const machineRoot = dir('machine');
+    const { env } = await makeEnv({ repoRoot, machineRoot, capacity });
+    mkdirSync(join(machineRoot, 'locks'), { recursive: true });
+    writeFileSync(join(machineRoot, 'locks', 'benchmark.lock'), '{not json');
+    const status = env.lockStatus().find((l) => l.resource === 'benchmark');
+    assert.equal(status?.stale, 'its record is unreadable', `capacity ${JSON.stringify(capacity)}`);
+    assert.equal(status?.record, null);
+    assert.equal(status?.used, 0);
+  }
+});
+
+test('a capacity changed under live holders never lets both kinds hold beyond it', async () => {
+  const repoRoot = makeRepo();
+  const machineRoot = dir('machine');
+  const wide = (await makeEnv({ repoRoot, machineRoot, capacity: { gpu: 4 } })).env;
+  const narrow = (await makeEnv({ repoRoot, machineRoot })).env;
+  const gpu = (/** @type {typeof wide} */ e) => e.lockStatus().find((l) => l.resource === 'gpu');
+  // Lowered: two weighted holders stay; a caller that sees capacity 1 waits for them.
+  assert.ok((await wide.acquireLock({ resource: 'gpu', holder: 'D-1', weight: 2 })).acquired);
+  assert.ok((await wide.acquireLock({ resource: 'gpu', holder: 'D-2', weight: 2 })).acquired);
+  const refused = await narrow.acquireLock({ resource: 'gpu', holder: 'D-3' });
+  assert.equal(refused.acquired, false);
+  assert.equal(!refused.acquired && refused.held_by?.holder, 'D-1');
+  assert.equal(gpu(narrow)?.used, 4, 'the holders are shown as they are, beyond capacity 1');
+  assert.equal(gpu(narrow)?.held_by, 'D-1');
+  // A weighted holder asking through the narrow view renews its hold, and takes no second one.
+  const renewed = await narrow.acquireLock({ resource: 'gpu', holder: 'D-1' });
+  assert.ok(renewed.acquired && renewed.record.weight === 2);
+  assert.ok(!existsSync(join(machineRoot, 'locks', 'gpu.lock')), 'no single lock beside it');
+  assert.ok(narrow.releaseLock({ resource: 'gpu', holder: 'D-1' }).released);
+  assert.ok(narrow.releaseLock({ resource: 'gpu', holder: 'D-2' }).released);
+  // Raised: a single lock taken at capacity 1 fills the resource for a caller that sees 4.
+  assert.ok((await narrow.acquireLock({ resource: 'gpu', holder: 'D-3' })).acquired);
+  const full = await wide.acquireLock({ resource: 'gpu', holder: 'D-4', weight: 1 });
+  assert.equal(full.acquired, false);
+  assert.equal(!full.acquired && full.held_by?.holder, 'D-3');
+  assert.equal(gpu(wide)?.used, 4);
+  // The single lock's holder asking through the wide view renews it, and takes no weighted hold.
+  const again = await wide.acquireLock({ resource: 'gpu', holder: 'D-3', weight: 1 });
+  assert.ok(again.acquired && again.record.weight === undefined);
+  assert.equal(gpu(wide)?.holders.length, 1);
+  assert.ok(wide.releaseLock({ resource: 'gpu', holder: 'D-3' }).released);
+  assert.equal(gpu(wide)?.used, 0);
+  assert.ok(!existsSync(join(machineRoot, 'locks', 'gpu.lock')), 'released, not orphaned');
+});
+
+/**
+ * A child process that takes a lock and marks itself inside while it holds. A marker's name
+ * carries its weight, so one directory listing gives what is held at that moment.
+ * @param {string} body the loop, given acquireLock, ctx, mark(name, weight), unmark(name) and sleep
+ * @param {Record<string, unknown>} ctxValue
+ */
+const lockChild = (body, ctxValue) => `
+  import { acquireLock } from ${JSON.stringify(pathToFileURL(LOCKS_MJS).href)};
+  import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+  import { join } from 'node:path';
+  const ctx = ${JSON.stringify(ctxValue)};
+  const inside = join(ctx.machineRoot, 'inside');
+  mkdirSync(inside, { recursive: true });
+  const mark = (name, weight) => writeFileSync(join(inside, name + '.' + weight), '');
+  const unmark = (name, weight) => rmSync(join(inside, name + '.' + weight), { force: true });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${body}`;
+
+/** @param {string} code @returns {Promise<string>} the child's output */
+const runChild = (code) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', code], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    children.add(child);
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.once('error', reject);
+    child.once('exit', (c) => (c === 0 ? resolve(out) : reject(new Error(`exit ${c}: ${out}`))));
+  });
+
+test('holders in separate processes never hold more than the capacity', async () => {
+  const machineRoot = dir('machine');
+  const capacity = 4;
+  const inside = join(machineRoot, 'inside');
+  mkdirSync(inside, { recursive: true });
+  const held = () => readdirSync(inside).reduce((n, f) => n + Number(f.split('.').at(-1)), 0);
+  let max = 0;
+  let running = true;
+  const watch = (async () => {
+    while (running) {
+      max = Math.max(max, held());
+      await sleep(1);
+    }
+  })();
+  const weights = [1, 1, 2, 2, 3, 4];
+  const outs = await Promise.all(
+    weights.map((w, i) =>
+      runChild(
+        lockChild(
+          `for (let n = 0; n < 12; n++) {
+            const r = await acquireLock(ctx, { resource: 'gpu', holder: 'D-${i}', weight: ${w}, wait: true, pollMs: 2 });
+            if (!r.acquired) throw new Error('not acquired');
+            mark('D-${i}', ${w});
+            await sleep(Math.floor(Math.random() * 4));
+            unmark('D-${i}', ${w});
+            r.handle.release();
+          }
+          console.log('done');`,
+          { machineRoot, capacity: { gpu: capacity } },
+        ),
+      ),
+    ),
+  ).finally(() => {
+    running = false;
+  });
+  await watch;
+  assert.deepEqual(
+    outs.map((o) => o.trim()),
+    weights.map(() => 'done'),
+  );
+  assert.ok(max <= capacity, `held ${max} of ${capacity}`);
+  assert.ok(max > 1, `holders shared the resource (at most ${max} held at once)`);
+});
+
+test('two processes that see different capacities never both hold at once', async () => {
+  const machineRoot = dir('machine');
+  const trials = 40;
+  const slotMs = 40;
+  const t0 = Date.now() + 600;
+  /** @param {string} name @param {Record<string, number> | undefined} capacity */
+  const side = (name, capacity) =>
+    runChild(
+      lockChild(
+        `const got = [];
+        for (let i = 0; i < ${trials}; i++) {
+          const at = ${t0} + i * ${slotMs};
+          if (at - Date.now() > 3) await sleep(at - Date.now() - 3);
+          while (Date.now() < at) {}
+          const r = await acquireLock(ctx, { resource: 'gpu', holder: '${name}', autoRenew: false });
+          if (!r.acquired) continue;
+          got.push(i);
+          await sleep(${Math.floor(slotMs / 2)});
+          r.handle.release();
+        }
+        console.log(JSON.stringify(got));`,
+        { machineRoot, ...(capacity ? { capacity } : {}) },
+      ),
+    );
+  const [serial, weighted] = (
+    await Promise.all([side('D-1', undefined), side('D-2', { gpu: 4 })])
+  ).map((o) => /** @type {number[]} */ (JSON.parse(o)));
+  const both = serial.filter((i) => weighted.includes(i));
+  assert.deepEqual(both, [], 'trials in which both held the resource');
+  assert.ok(serial.length + weighted.length >= trials / 2, `${serial.length} + ${weighted.length}`);
 });
 
 test('the mutex takes over one whose owner is dead', async () => {
