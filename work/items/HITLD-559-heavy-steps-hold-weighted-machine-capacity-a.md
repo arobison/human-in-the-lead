@@ -26,3 +26,8 @@ The fixed `max_executors` stood in for a real constraint: executors that share a
 ## Notes
 
 Builds on HITLD-41 (resource capacities), HITLD-42 (load-aware admission) and HITLD-145 (the cap applies only to executors that share a machine). Design is settled in the cited decisions; code, skill, schema and policy changes need the owner's own yes to merge. Placement is the chief of staff's, a proposal for the owner to move.
+
+## Sighting on 2026-11-20 (the first outside consumer, GitHub issue 363)
+
+The consumer's session reported timing measurements that shared an 8-core machine with test suites at a load average near 50, so the measurements proved nothing. Its orchestrator had to pass a hand-written rule ("wait for a one-minute load under 4") into every brief. This is the case this item exists for: heavy steps must be gated by measured load, not by a rule in a brief. A status call from the tool that makes the measurement (HITLD-609) would give HITLD the gate.
+
