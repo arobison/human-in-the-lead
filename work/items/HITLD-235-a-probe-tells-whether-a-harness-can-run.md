@@ -23,3 +23,7 @@ HITLD-141 (dispatch does not launch headless tier-3 executors that cannot run th
 ## Notes
 
 Raised from D-16's digest on HITLD-141 (PR #180). Related to HITLD-165, the quota probe: the two could share one probe harness.
+
+## Rewritten on 2026-11-19 (reconciliation, HITLD-573)
+
+The result of the probe is recorded in the machine profile or the ledger, not in run state, which no longer exists (HITLD-470, 484 to 490). The probe itself is unchanged.

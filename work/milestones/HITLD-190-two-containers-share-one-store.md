@@ -10,7 +10,7 @@ done_when:
   - "c1: Both sessions push and pull the store, and the ledger holds both sets of events and dispatches."
   - "c2: A successor orchestrator in a fresh container rebuilds from the store's per-writer ledger files and the tracker, with no hand-over note."
   - "c3: Lease, ledger and push status are read current from the store."
-constraints: [HITLD-74 c1, HITLD-142 c1, HITLD-148 c1, HITLD-149 c1, HITLD-323 c2, HITLD-188 c2, HITLD-236 c3, HITLD-237 c3, HITLD-183 c3, HITLD-470 c2, HITLD-492 c2]
+constraints: [HITLD-74 c1, HITLD-142 c1, HITLD-148 c1, HITLD-149 c1, HITLD-323 c2, HITLD-237 c3, HITLD-183 c3, HITLD-470 c2, HITLD-492 c2]
 check: demo two containers pushing and pulling the store and one ledger holding both, then a successor orchestrator in a fresh container rebuilding from the store's ledger files and the tracker, run by the owner
 ---
 
