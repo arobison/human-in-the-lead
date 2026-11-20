@@ -31,3 +31,7 @@ The outline of the curator role is decided: a curator agent in a fresh small ses
 ## Moved on 2026-11-20 (HITLD-586)
 
 The owner decided that the fuller curator lands in rc.4. This design item moves from HITLD-191 c3 to HITLD-403 c5, with its build HITLD-583. The curator already exists (design parts 4, 8.5 and 13.3, HITLD-132); this item completes the design of its role, including the second job of applying decided changes (HITLD-582, 583).
+
+## Decided on 2026-11-20 (HITLD-587)
+
+The curator's role includes plan audits (read-only, claims with evidence, no plan changes) beside upkeep and applying decided changes, and the dispatcher, not the curator, picks its model and effort per job type from the cascade (HITLD-581). See HITLD-583.
