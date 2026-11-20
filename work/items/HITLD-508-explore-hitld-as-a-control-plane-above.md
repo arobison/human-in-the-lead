@@ -45,3 +45,7 @@ The authority question is settled for any surface: an answer counts by a checkab
 ## Decided on 2026-11-19 (HITLD-540)
 
 The owner decided to stay in the harness for now and treat a real control plane as a much later milestone. A service would have to be a public host that cloud sessions call (they are outbound-only containers behind an allowlisted proxy), with per-session credentials; that is overkill today. This item moves from HITLD-405 c4 to the new milestone HITLD-541, which is not under any release stage. The study stays open as exploration, and the in-harness fixes for dropped questions and polling are tracked separately.
+
+## Split on 2026-11-20 (HITLD-615)
+
+The owner decided that mixing executors, harnesses and providers (including local models) is its own design item, HITLD-616, and does not wait for this control-plane study. This item keeps where the owner interacts and where durable state and loops live.
