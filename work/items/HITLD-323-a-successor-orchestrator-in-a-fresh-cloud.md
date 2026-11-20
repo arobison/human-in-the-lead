@@ -1,6 +1,6 @@
 ---
 id: HITLD-323
-title: "A successor orchestrator in a fresh cloud container cannot resume: the run state and hand-over note do not travel when the store sync is refused"
+title: A cloud session can reach the private store, so the ledger files reach it
 kind: work
 state: proposed
 created: 2026-11-16
@@ -48,3 +48,7 @@ So the design's hand-over (a successor takes over from the store) does not work 
 - **Q4, the stalled run.** When no successor can resume, should the run pause cleanly with a note to the owner and the hand-over limit not strand it?
 
 **Second sighting (2026-11-17, the current orchestrator).** Asked to prepare a hand-over, the orchestrator reported the same consequences from its own container: its run state, ledger, usage snapshots, settings and the hand-over note live only in that container; every checkpoint and merge push of the private store failed with `device-not-enrolled`; so a successor in a fresh container cannot resume and `hitld handover` would release the lease before its push is known to land. It is handled by hand again (a text note, and the successor starts a new run seeded from the last run's numbers), as decided in HITLD-324. The chief of staff had told the owner a successor would resume the same run; that holds by the design but not here. Evidence only; the decisions Q2 to Q4 are still to be made in the walk-through.
+
+## Rewritten on 2026-11-19 (reconciliation, HITLD-573)
+
+The run state and hand-over note no longer travel (HITLD-470, 484 to 490): the successor rebuilds from the store's ledger files and the tracker. Only the store enrollment fix remains, so that ledger files reach the store from every cloud container (HITLD-333). Q2 to Q4 and the Done-when lines about run state in the text above are superseded.

@@ -1,6 +1,6 @@
 ---
 id: HITLD-204
-title: Raising the executor cap during a run is one command, and the plan names the layer that limits it
+title: The executor count is a ceiling the owner can raise with one command, and the plan names what limits it
 kind: work
 state: planned
 created: 2026-11-16
@@ -27,3 +27,7 @@ The executor cap is an account-level knob, so a person setting; the project poli
 ## Notes
 
 Reported by orch-1 and filed by the chief of staff under HITLD-181. Related to HITLD-154 (a delay that eats the owner's attention is named as friction) and HITLD-153 (the planner's start list).
+
+## Rewritten on 2026-11-19 (reconciliation, HITLD-573)
+
+There is no run layer in the cap any more. `max_executors` is a hard ceiling the owner sets; the count follows measured headroom, the project's pace and the merge queue (HITLD-534, 558, 559). The plan names which of these limits it. One command raises the ceiling.

@@ -1,6 +1,6 @@
 ---
 id: HITLD-278
-title: The dispatch planner ignores the run's scope.items and offers items the owner didn't approve
+title: The dispatch planner offers only items in the owner's current commitment
 kind: work
 state: proposed
 created: 2026-11-16
@@ -24,3 +24,7 @@ Evidence: core/lib/cli/commands/orchestrator.mjs:328 readyQueue and :368 plan() 
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `dispatch`, still present on main, confidence 0.85. Steps, scope JSON and code pointers given; a planner test with scope.items shows it. Not covered by HITLD-153. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Rewritten on 2026-11-19 (reconciliation, HITLD-573)
+
+The run object and its `scope.items` are gone (HITLD-470, 484 to 490). The owner's approved set now lives in a commitment decision (a goal under a budget, HITLD-522, built in HITLD-554), and the planner offers only items in it. Until that is built, the approved list is carried by the chief of staff's start brief to the orchestrator, as for the start list of HITLD-539.

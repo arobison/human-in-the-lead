@@ -2,7 +2,8 @@
 id: HITLD-236
 title: An orchestrator idle between wakes does not lose its lease, so the chief of staff does not start a successor over it
 kind: work
-state: planned
+state: dropped
+reason: "Dropped by the owner on 2026-11-19 (reconciliation, HITLD-573): a lease exists only with a run object, which HITLD-470 and 484 to 490 removed."
 created: 2026-11-16
 project: HITLD-15
 ---

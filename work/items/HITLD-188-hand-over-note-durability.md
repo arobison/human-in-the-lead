@@ -2,7 +2,8 @@
 id: HITLD-188
 title: The hand-over note survives the session that wrote it
 kind: work
-state: planned
+state: dropped
+reason: "Dropped by the owner on 2026-11-19 (reconciliation, HITLD-573): the hand-over note belongs to the run object, which HITLD-470 and 484 to 490 removed; the ledger and the tracker carry continuity."
 created: 2026-11-16
 project: HITLD-15
 ---

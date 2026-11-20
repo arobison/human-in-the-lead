@@ -2,7 +2,8 @@
 id: HITLD-466
 title: A run has a human name beside its date-and-number ID, proposed by the chief of staff and renameable
 kind: work
-state: proposed
+state: dropped
+reason: "Dropped by the owner on 2026-11-19 (reconciliation, HITLD-573): there is no run to name once the run object is removed (HITLD-470, 484 to 490)."
 created: 2026-11-17
 project: HITLD-15
 ---
