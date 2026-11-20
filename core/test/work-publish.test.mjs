@@ -189,6 +189,7 @@ test('publishing from main stages the published files, touches no working copy, 
     staged: Object.keys(files),
   });
   assert.match(r.message, /staged as tracked changes/);
+  assert.match(r.message, /git pull --ff-only origin main/);
   // Staged with exactly what was pushed; the working copies, and the file outside, untouched.
   assert.equal(
     status(root),
@@ -349,6 +350,7 @@ test('off main and on a detached HEAD nothing is staged; a staging failure keeps
     assert.equal(r.working_tree.action, 'failed');
     assert.match(r.working_tree.error, /git update-index failed: .*index\.lock/s);
     assert.match(r.message, /the push stands/);
+    assert.doesNotMatch(r.message, /\n|Another git process/);
   } finally {
     rmSync(lock, { force: true });
   }

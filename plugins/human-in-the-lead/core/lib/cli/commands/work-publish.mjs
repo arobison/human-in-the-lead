@@ -11,7 +11,8 @@
 //      since a commit built this way runs no commit hook;
 //   6. push it to a new branch (never main, never forced) and print the pull request to open;
 //   7. on the main branch, stage the published files (HITLD-202), so pulling main after the merge
-//      absorbs them instead of stopping on untracked files; the working tree is never touched.
+//      (git pull --ff-only) absorbs them instead of stopping on untracked files; the working tree
+//      is never touched.
 //      working_tree says which, and a failure there does not undo the push or hide the pull request.
 //
 // hitld does not open the pull request itself: pull requests are not yet published through the
@@ -311,7 +312,7 @@ export const commands = [
         if (earlier) {
           // Already on a pushed branch: stage it as a fresh publish would, and print its pull
           // request again, for a run that stopped before it was opened.
-          const staged = dryRun ? null : staging(root, layout, gathered.files);
+          const staged = dryRun ? null : staging(root, layout, remote, gathered.files);
           return {
             ok: true,
             published: false,
@@ -340,7 +341,7 @@ export const commands = [
           };
         }
         pushBranch(root, remote, commit, branch);
-        const staged = staging(root, layout, gathered.files);
+        const staged = staging(root, layout, remote, gathered.files);
         return {
           ok: true,
           published: true,
@@ -367,9 +368,9 @@ export const commands = [
  * about it. A failure is reported, not thrown: the branch is already pushed, and the pull request
  * to open must still be printed.
  * @param {string} root @param {import('../../tracker/files/config.mjs').Layout} layout
- * @param {import('../../tracker/files/publish.mjs').PublishedFile[]} files
+ * @param {string} remote @param {import('../../tracker/files/publish.mjs').PublishedFile[]} files
  */
-function staging(root, layout, files) {
+function staging(root, layout, remote, files) {
   const main = layout.mainBranch;
   try {
     const t = stagePublished(root, layout, files);
@@ -381,10 +382,11 @@ function staging(root, layout, files) {
     }
     return {
       working_tree: { branch: t.branch, action: 'staged', staged: t.staged },
-      said: `. On ${main}, the ${t.staged.length} published file(s) are staged as tracked changes (the working copies are untouched and still readable); pulling ${main} once the pull request merges absorbs them. A further change staged to one of them before then stops that pull, and nothing is lost: publish the change too, or set it aside with git stash, and pull again`,
+      said: `. On ${main}, the ${t.staged.length} published file(s) are staged as tracked changes (the working copies are untouched and still readable); once the pull request merges, a fast-forward pull (git pull --ff-only ${remote} ${main}) absorbs them. Any other pull (a merge or a rebase) refuses while they are staged, as does a fast-forward pull after a further change is staged to one of them; nothing is lost: git stash, pull, then git stash pop`,
     };
   } catch (e) {
-    const error = /** @type {Error} */ (e).message;
+    // git's advice after its first line (such as the index.lock advice) is left out.
+    const error = /** @type {Error} */ (e).message.split('\n')[0].trim();
     return {
       working_tree: { branch: main, action: 'failed', staged: [], error },
       said: `. Staging the published files on ${main} failed (${error}); the push stands. Before pulling ${main} after the merge, stage the files listed yourself (git add -- <file>...)`,

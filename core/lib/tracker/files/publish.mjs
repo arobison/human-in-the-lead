@@ -6,7 +6,8 @@
 // pushes that commit to a new branch for a pull request. The commit is built with a temporary
 // index, so the branch the session is on stays as it is, and the working tree is never touched.
 // Once pushed, a checkout on the main branch has the published files staged, so a later pull of the
-// merged result absorbs them (stagePublished, HITLD-202); on any other branch nothing moves.
+// merged result (git pull --ff-only) absorbs them (stagePublished, HITLD-202); on any other
+// branch nothing moves.
 //
 // Which files: those under the work directory that differ between the session's working tree and
 // where its branch left main (commits on the branch, staged and unstaged changes, new files). The
@@ -408,7 +409,8 @@ export function pushBranch(root, remote, commit, branch) {
  * branch (HITLD-202). Left as they were, a new file stays untracked, and pulling main once the pull
  * request merges stops on "untracked working tree files would be overwritten". Staged with exactly
  * the content that was pushed, they are tracked changes the merge absorbs: a fast-forward pull
- * whose commit brings the same content goes through. The working tree is never touched, so every
+ * whose commit brings the same content goes through (a merge or rebase pull refuses while they
+ * are staged). The working tree is never touched, so every
  * local reader (work show, rights answer, the next edit, a design) still sees what was published.
  *
  * The index entry is the pushed blob, not whatever the working copy holds by then, so the index
