@@ -12,6 +12,7 @@ import { policyDefaults } from '../lib/policy/policy.mjs';
 import { dispatchGate } from '../lib/quota/gate.mjs';
 import { openEnv, machineRootFor } from '../lib/env/manager.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
+import { readLedger } from '../lib/ledger/ledger.mjs';
 import { settingsLocation } from '../lib/settings/files.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import {
@@ -136,7 +137,7 @@ test('a dead executor does not hold a slot: process gone, or dispatch gone from 
   );
   registerExecutor(root, entry(root, 'ghost', 'D-2'), {}, { liveness: alive });
   registerExecutor(root, entry(root, 'ghost', 'D-3'), {}, { liveness: alive });
-  assert.equal(store.read('ledger.jsonl'), null, 'the project has no ledger: nothing is in flight');
+  assert.deepEqual(readLedger(store).events, [], 'the project has no ledger: nothing is in flight');
   assert.equal(liveExecutors(root).length, 0, 'readers skip every one of them');
   assert.equal(runningElsewhere(root, 'other').person, 0);
   assert.deepEqual(activeProjects(root, 'other'), ['other']);

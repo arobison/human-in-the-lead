@@ -5,7 +5,7 @@
 // ~/.local/share/human-in-the-lead/<project-id>/ when XDG_DATA_HOME is unset.
 //
 // The store is a small key-path file API (read, write, append, list) so it can later be backed by
-// something else. Keys are relative paths such as "ledger.jsonl" or "runs/R-3/run-state.json".
+// something else. Keys are relative paths such as "ledger/w-0123456789abcdef.jsonl" or "run-state.json".
 //
 // Its text parts are also a git repository (<store>/.git, see git.mjs), committed when the store
 // is exported or imported. A SQLite index of the ledger sits beside them (index-db.mjs). The index

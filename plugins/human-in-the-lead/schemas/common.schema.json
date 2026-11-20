@@ -27,6 +27,11 @@
       "items": { "$ref": "#/$defs/id" },
       "uniqueItems": true
     },
+    "ref": {
+      "description": "An ID a record can be about: a global <KEY>-<n> ID, or a dispatch or ledger event ID unique by construction (D- or E- and 16 characters of Crockford base32, HITLD-74).",
+      "type": "string",
+      "pattern": "^(?:[A-Z][A-Z0-9]*-[1-9][0-9]*|[DE]-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{16})$"
+    },
     "signalId": { "type": "string", "pattern": "^SIG-[1-9][0-9]*$" },
     "precedentId": { "type": "string", "pattern": "^P-[1-9][0-9]*$" },
     "contributorId": { "type": "string", "pattern": "^C-[1-9][0-9]*$" },

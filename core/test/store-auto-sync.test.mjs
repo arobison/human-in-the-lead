@@ -11,8 +11,8 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
-import { LEDGER_KEY, appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
-import { ledgerKeys } from '../lib/ledger/writer.mjs';
+import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { ledgerKeyOf, ledgerKeys } from '../lib/ledger/writer.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { VERSION } from '../lib/version.mjs';
 import { bumpVersion } from '../lib/release/semver.mjs';
@@ -760,7 +760,7 @@ test('a release refused at run start or resume pulls nothing and records nothing
   rmSync(settings);
   const newer = /** @type {number} */ (schemas().currentVersion('ledger-entry')) + 1;
   const line = { schema_version: newer, id: 'E-99', event: 'logged', text: 'newer', at: at(30) };
-  two.store.append(LEDGER_KEY, `${JSON.stringify(line)}\n`);
+  two.store.append(ledgerKeyOf('w-0123456789abcdef'), `${JSON.stringify(line)}\n`);
   await refusedAll('newer-schema');
 });
 

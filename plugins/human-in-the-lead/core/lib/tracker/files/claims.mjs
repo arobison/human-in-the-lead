@@ -205,7 +205,7 @@ export function findClaims(root, layout, { cache } = {}) {
 /**
  * Claims that do not match the ledger's in-flight dispatches, both ways (design part 3.2): a
  * claim branch whose dispatch has no open dispatch, and an open dispatch with no claim branch.
- * Only claimants that are dispatch IDs (`D-<n>`) are matched; a person's handle is not a dispatch.
+ * Only claimants that are dispatch IDs (`D-<n>` of before, or unique ones: ledger/ids.mjs) are matched; a person's handle is not a dispatch.
  * @param {ClaimedItem[]} claims @param {string[]} inflight dispatch IDs without a terminal event
  * @returns {string[]} problems
  */
@@ -253,9 +253,7 @@ function commitOnly(root, files, message) {
 
 /** @param {string} id @param {string} claimant */
 const trailers = (id, claimant) =>
-  [`Work-Item: ${id}`, ...(DISPATCH_ID.test(claimant) ? [`Dispatch: ${claimant}`] : [])].join(
-    '\n',
-  );
+  [`Work-Item: ${id}`, ...(DISPATCH_ID.test(claimant) ? [`Dispatch: ${claimant}`] : [])].join('\n');
 
 /**
  * Write the claim commit for an item on the current (executor) branch.

@@ -386,7 +386,7 @@ const table = [
         positional: true,
         required: true,
         description:
-          "The ID of the reported event whose tokens are wrong (reported-D-<n> for a dispatch's completion), or of the correction that now stands for it",
+          "The ID of the reported event whose tokens are wrong (reported-<dispatch ID> for a dispatch's completion), or of the correction that now stands for it",
       },
       {
         name: 'tokens',
@@ -490,7 +490,7 @@ const table = [
         positional: true,
         required: true,
         description:
-          'The ID of the dispatched event whose estimate is wrong (dispatched-D-<n>), or of the correction that now stands for it',
+          'The ID of the dispatched event whose estimate is wrong (dispatched-<dispatch ID>), or of the correction that now stands for it',
       },
       {
         name: 'tokens',

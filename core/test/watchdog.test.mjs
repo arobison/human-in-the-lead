@@ -97,7 +97,8 @@ test('progress: the hook records an executor tool call, the watch samples its br
   await c.hitld(['run', 'start']);
   const start = await c.hitld(['dispatch', 'start', 'W-1']);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const d = start.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1']);
 
   // A tool call by the background agent: the PostToolUse hook knows its agent ID, not its dispatch.
   const env = { PATH: process.env.PATH, XDG_DATA_HOME: c.env.XDG_DATA_HOME };
@@ -143,7 +144,7 @@ test('progress: the hook records an executor tool call, the watch samples its br
   assert.equal(seen.result.dispatches[0].state, 'progressing');
   assert.equal(seen.result.dispatches[0].last_progress_at, new Date(c.t0 + 3000_000).toISOString());
   const worktree = c.store
-    .read('dispatch/progress/D-1.jsonl')
+    .read(`dispatch/progress/${d}.jsonl`)
     ?.trim()
     .split('\n')
     .map((l) => JSON.parse(l));
@@ -153,7 +154,7 @@ test('progress: the hook records an executor tool call, the watch samples its br
   c.at(3600);
   const again = await c.hitld(['dispatch', 'watch']);
   assert.equal(again.result.dispatches[0].quiet_seconds, 600);
-  assert.equal(c.store.read('dispatch/progress/D-1.jsonl')?.trim().split('\n').length, 1);
+  assert.equal(c.store.read(`dispatch/progress/${d}.jsonl`)?.trim().split('\n').length, 1);
 });
 
 test('progress: a sampled source counts when it changes; liveness alone is not progress', () => {
@@ -201,8 +202,8 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   const c = clocked();
   c.status(10, 72000);
   await c.hitld(['run', 'start']);
-  await c.hitld(['dispatch', 'start', 'W-1']);
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const d1 = (await c.hitld(['dispatch', 'start', 'W-1'])).result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'agent-1']);
 
   c.at(1000);
   assert.equal((await c.hitld(['dispatch', 'watch'])).result.wake, false);
@@ -211,9 +212,9 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   c.at(1900);
   const seen = await c.hitld(['dispatch', 'watch'], { HITLD_SESSION: 'cos' });
   assert.equal(seen.result.wake, true);
-  assert.equal(seen.result.wake_message, 'watch: D-1 stalled (poke)');
+  assert.equal(seen.result.wake_message, `watch: ${d1} stalled (poke)`);
   assert.deepEqual(seen.result.due, [
-    { dispatch: 'D-1', item: 'W-1', step: 'poke', reason: 'no_progress' },
+    { dispatch: d1, item: 'W-1', step: 'poke', reason: 'no_progress' },
   ]);
   assert.ok(!c.events().some((e) => e.event === 'stalled'), 'a read records nothing');
   const refused = await c.hitld(['dispatch', 'watch', '--act'], { HITLD_SESSION: 'cos' });
@@ -224,7 +225,7 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   assert.equal(poke.result.actions.length, 1);
   assert.equal(poke.result.actions[0].step, 'poke');
   assert.equal(poke.result.actions[0].to.harness_ref, 'agent-1');
-  assert.match(poke.result.actions[0].message, /Status check for D-1/);
+  assert.match(poke.result.actions[0].message, new RegExp(`Status check for ${d1}`));
 
   // Within the poke's wait nothing more happens.
   c.at(2300);
@@ -235,7 +236,8 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   const follow = await c.hitld(['dispatch', 'watch', '--act']);
   const f = follow.result.actions[0];
   assert.equal(f.step, 'follow-up');
-  assert.equal(f.continues_as, 'D-2');
+  const d2 = f.continues_as;
+  assert.match(d2, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
   assert.equal(f.instruction.tool, 'SendMessage');
   assert.equal(f.instruction.input.to, 'agent-1');
   assert.match(f.instruction.input.message, /Continue the item from your last commit/);
@@ -244,7 +246,7 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   c.at(2600 + 1900);
   const abandon = await c.hitld(['dispatch', 'watch', '--act']);
   assert.equal(abandon.result.actions[0].step, 'abandon');
-  assert.equal(abandon.result.actions[0].dispatch, 'D-2');
+  assert.equal(abandon.result.actions[0].dispatch, d2);
   assert.ok(
     abandon.result.refill.start.some((/** @type {any} */ s) => s.item === 'W-1'),
     'the abandoned item is ready again',
@@ -252,18 +254,20 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
 
   // The fresh dispatch climbs the same ladder; after one re-dispatch the next failure is a question.
   const again = await c.hitld(['dispatch', 'start', 'W-1']);
-  assert.equal(again.result.dispatch, 'D-3');
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-3', '--harness-ref', 'agent-3']);
+  const d3 = again.result.dispatch;
+  assert.match(d3, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
+  await c.hitld(['dispatch', 'handle', '--dispatch', d3, '--harness-ref', 'agent-3']);
   c.at(4500 + 1900);
   assert.equal((await c.hitld(['dispatch', 'watch', '--act'])).result.actions[0].step, 'poke');
   c.at(4500 + 2600);
   const f2 = (await c.hitld(['dispatch', 'watch', '--act'])).result.actions[0];
   assert.equal(f2.step, 'follow-up');
-  assert.equal(f2.continues_as, 'D-4');
+  const d4 = f2.continues_as;
+  assert.match(d4, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
   c.at(4500 + 2600 + 1900);
   const ask = (await c.hitld(['dispatch', 'watch', '--act'])).result.actions[0];
   assert.equal(ask.step, 'ask');
-  assert.equal(ask.dispatch, 'D-4');
+  assert.equal(ask.dispatch, d4);
   assert.deepEqual(schemas().validate('question', ask.question), []);
   assert.deepEqual(ask.question.blocks, ['W-1']);
   assert.equal(ask.question.recommendation.option, 'hold');
@@ -274,24 +278,31 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   const stalls = events.filter((e) => e.event === 'stalled');
   assert.deepEqual(
     stalls.map((e) => `${e.dispatch} ${e.step}`),
-    ['D-1 poke', 'D-1 follow-up', 'D-2 abandon', 'D-3 poke', 'D-3 follow-up', 'D-4 ask'],
+    [
+      `${d1} poke`,
+      `${d1} follow-up`,
+      `${d2} abandon`,
+      `${d3} poke`,
+      `${d3} follow-up`,
+      `${d4} ask`,
+    ],
   );
   assert.deepEqual(
     events
       .filter((e) => ['poked', 'interrupted', 'abandoned'].includes(e.event))
       .map((e) => `${e.event} ${e.dispatch}`),
     [
-      'poked D-1',
-      'interrupted D-1',
-      'abandoned D-2',
-      'poked D-3',
-      'interrupted D-3',
-      'abandoned D-4',
+      `poked ${d1}`,
+      `interrupted ${d1}`,
+      `abandoned ${d2}`,
+      `poked ${d3}`,
+      `interrupted ${d3}`,
+      `abandoned ${d4}`,
     ],
   );
   assert.equal(
-    events.find((e) => e.dispatch === 'D-2' && e.event === 'dispatched')?.notes,
-    'follow-up of D-1',
+    events.find((e) => e.dispatch === d2 && e.event === 'dispatched')?.notes,
+    `follow-up of ${d1}`,
   );
 
   // The measures: every executor dispatch stalled, by tier and model.
@@ -442,8 +453,8 @@ test('a quota pause records why and when the window resets; after the reset the 
   const c = clocked();
   c.status(10, 72000);
   await c.hitld(['run', 'start']);
-  await c.hitld(['dispatch', 'start', 'W-1']);
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const d = (await c.hitld(['dispatch', 'start', 'W-1'])).result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1']);
 
   // The five-hour window reaches the reserve; it resets 3000 seconds after the start.
   c.status(80, 3000);
@@ -481,7 +492,7 @@ test('a quota pause records why and when the window resets; after the reset the 
   const after = await c.hitld(['dispatch', 'watch'], { HITLD_SESSION: 'cos' });
   assert.equal(after.result.resume.due, true);
   assert.equal(after.result.dispatches[0].state, 'cut_off');
-  assert.equal(after.result.wake_message, 'watch: D-1 cut off (follow-up); dispatch may resume');
+  assert.equal(after.result.wake_message, `watch: ${d} cut off (follow-up); dispatch may resume`);
 
   const acted = await c.hitld(['dispatch', 'watch', '--act']);
   assert.equal(acted.exit, 0, JSON.stringify(acted.result));

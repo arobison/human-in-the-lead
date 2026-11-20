@@ -258,6 +258,11 @@ export function readLedger(store) {
   const legacy = files.filter((f) => f.key === LEGACY_LEDGER_KEY);
   for (const f of legacy) ordered.push(...f.events.map((e) => ({ key: f.key, ...e })));
   const writers = files.filter((f) => f.key !== LEGACY_LEDGER_KEY);
+  // Times as instants, so two zones compare right; one that does not parse goes last.
+  const timeOf = (/** @type {LedgerEntry} */ e) => {
+    const t = Date.parse(String(e.at));
+    return Number.isNaN(t) ? Infinity : t;
+  };
   const at = writers.map(() => 0);
   for (;;) {
     let pick = -1;
@@ -265,7 +270,7 @@ export function readLedger(store) {
       if (at[i] >= writers[i].events.length) continue;
       if (
         pick < 0 ||
-        String(writers[i].events[at[i]].event.at) < String(writers[pick].events[at[pick]].event.at)
+        timeOf(writers[i].events[at[i]].event) < timeOf(writers[pick].events[at[pick]].event)
       ) {
         pick = i;
       }
@@ -311,7 +316,8 @@ function parses(text) {
  * @param {PrivateStore | LedgerEntry[]} [source]
  */
 export function nextDispatchId(source) {
-  const events = source === undefined ? [] : Array.isArray(source) ? source : readLedger(source).events;
+  const events =
+    source === undefined ? [] : Array.isArray(source) ? source : readLedger(source).events;
   const used = new Set(events.map((e) => e.dispatch));
   let id = newDispatchId();
   while (used.has(id)) id = newDispatchId();
