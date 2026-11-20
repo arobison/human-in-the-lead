@@ -9,10 +9,6 @@ project: HITLD-15
 
 ## Done when
 
-
-
-## Done when
-
 - The owner has decided each point below, one question at a time, and each answer is recorded as a decision.
 - The design parts are updated to the answers, and build items are filed where a decision needs code.
 - `hitld work check` passes.
