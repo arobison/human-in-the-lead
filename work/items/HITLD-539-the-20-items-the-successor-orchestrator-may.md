@@ -29,3 +29,8 @@ Recommended: Approve the 20. The chief of staff recommended it.
 ## Answer
 
 Recorded in the front matter once answered.
+
+## Amended on 2026-11-20 (HITLD-644)
+
+The owner added the five remaining code items of the rc.2 milestone Consumer live (HITLD-67) to this list: HITLD-74, 147, 148, 149 and 160. The successor checks each against the open designs before starting it (HITLD-514's rule), skips any that a decided design has changed and reports which. The install step HITLD-349 is the owner's own and is not on this list.
+
