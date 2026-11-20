@@ -44,3 +44,16 @@ The owner said the harness, dyno, is in the cesium-2.0-webgpu-pox branch of the 
 ## Clarified on 2026-11-20 (HITLD-612)
 
 Cesium is the first outside consumer, not the consumer of rc.2 (that is this repository, HITLD-67). Its setup and release pin belong to v0.1.0 (HITLD-24, HITLD-66); this walk-through is placed in rc.5, before v0.1.0, so the design is settled before the first outside project depends on it.
+
+## Decided on 2026-11-20 (HITLD-617)
+
+The owner answered that the first outside consumer's benchmark results are confidential and cannot live in the public repository. So the design must include private storage for results, and nothing public may carry them. What that settles and what it leaves open:
+
+- **Settled:** results are kept in private storage (the project's private store or another private location). The project's public repository, its tracker files, its pull request titles and bodies, its commit messages and its public reports carry references only (a run ID and a link that needs access), never a number, a configuration or a trace.
+- **Consequences to design:**
+  - The executor contract's `bench_runs` field cites run IDs, and a report's text goes into a pull request, so what a report may say about a result needs a rule and a check against the private term list.
+  - A budget regression or trend opens an item automatically (design 2.17). In a public tracker that item may name the metric and the commit but not the measured values, which stay in private storage.
+  - The dashboard, the digest and any generated view must read values from private storage at view time and never write them into committed files.
+  - Whether a reference such as a run ID is itself safe to publish needs a decision.
+- **Still open:** the shape of the data area (the store is a git text store sealed to approved devices, so large traces and long commit-by-commit history probably need a separate private location with the store holding an index), who may write it (not executors), size and retention, and how a cloud session receives access.
+
