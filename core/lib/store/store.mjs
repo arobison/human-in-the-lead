@@ -23,7 +23,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { dataDir } from './data-home.mjs';
+import { entryDir } from './data-home.mjs';
 import { replaceFile } from './host.mjs';
 
 const PROJECT_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -42,7 +42,7 @@ export function privateStorePath(projectId, options = {}) {
       `project ID ${JSON.stringify(projectId)} is not a safe directory name (lower-case letters, digits, ".", "_", "-")`,
     );
   }
-  const path = join(dataDir(options), projectId);
+  const path = entryDir(projectId, options);
   if (options.repoRoot) {
     const rel = relative(resolve(options.repoRoot), path);
     if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {

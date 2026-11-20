@@ -1,7 +1,7 @@
 {
   "$id": "machine",
   "title": "Machine settings",
-  "description": "The machine file (design part 13.4): what this machine lets hitld use, kept beside the machine-wide registry at $XDG_DATA_HOME/human-in-the-lead/_machine/machine.json (~/.local/share/human-in-the-lead/_machine/machine.json when XDG_DATA_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps and the port range take the strictest layer; a project may narrow them, never widen them. Internal: never committed or synced.",
+  "description": "The machine file (design part 13.4): what this machine lets hitld use, kept beside the machine-wide registry at $XDG_DATA_HOME/human-in-the-lead/_machine/machine.json (when XDG_DATA_HOME is unset, %LOCALAPPDATA%\\human-in-the-lead\\_machine\\machine.json on Windows and ~/.local/share/human-in-the-lead/_machine/machine.json elsewhere). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps and the port range take the strictest layer; a project may narrow them, never widen them. Internal: never committed or synced.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {

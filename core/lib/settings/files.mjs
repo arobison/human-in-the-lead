@@ -28,7 +28,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { schemas } from '../schema/registry.mjs';
-import { dataDir } from '../store/data-home.mjs';
+import { entryDir } from '../store/data-home.mjs';
 import { mergePolicy, ownershipProblem, readTrustedFile } from '../policy/policy.mjs';
 import { executorSignal } from '../cli/executor.mjs';
 import { renameSettings } from './renamed.mjs';
@@ -96,9 +96,8 @@ export function settingsLocation(kind, options = {}) {
     return { kind, base, dir, path: join(dir, 'person.json') };
   }
   if (kind === 'machine') {
-    const data = dataDir({ ...options, env, home });
-    const base = dirname(data);
-    const dir = join(data, '_machine');
+    const dir = entryDir('_machine', { ...options, env, home });
+    const base = dirname(dirname(dir));
     return { kind, base, dir, path: join(dir, 'machine.json') };
   }
   throw new Error(`no settings file "${kind}": person or machine`);

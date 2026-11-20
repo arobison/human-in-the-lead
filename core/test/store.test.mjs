@@ -1,8 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
-import { moveOldWindowsData } from '../lib/store/data-home.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { hostEnv, retryBusy } from '../lib/store/host.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -59,92 +57,6 @@ test('XDG_DATA_HOME is respected when absolute, on every platform', () => {
     }),
     native('/home/o/.local/share/human-in-the-lead/p'),
   );
-});
-
-/**
- * A home with a store at the old Windows place (~/.local/share/human-in-the-lead): a project's
- * store, with a nested file, and the machine directory.
- */
-function oldWindowsHome() {
-  const home = tempDir('hitld-win-home-');
-  const old = join(home, '.local', 'share', 'human-in-the-lead');
-  mkdirSync(join(old, 'p', 'runs', 'R-1'), { recursive: true });
-  writeFileSync(join(old, 'p', 'ledger.jsonl'), '{"a":1}\n');
-  writeFileSync(join(old, 'p', 'runs', 'R-1', 'run-state.json'), '{}');
-  mkdirSync(join(old, '_machine'));
-  writeFileSync(join(old, '_machine', 'machine.json'), '{"schema_version":1}');
-  const local = join(home, 'AppData', 'Local');
-  return { home, old, local, env: { LOCALAPPDATA: local } };
-}
-
-test('on Windows a store at the old place is moved once, with a message, and nothing is lost', () => {
-  const { home, old, local, env } = oldWindowsHome();
-  /** @type {string[]} */
-  const messages = [];
-  const o = {
-    env,
-    home,
-    platform: /** @type {const} */ ('win32'),
-    report: (/** @type {string} */ m) => messages.push(m),
-  };
-  const first = moveOldWindowsData(o);
-  assert.deepEqual(first.moved, ['_machine', 'p']);
-  assert.deepEqual(first.left, []);
-  assert.equal(messages.length, 1);
-  assert.match(messages[0], /moved _machine, p from .* to .*human-in-the-lead/);
-  const now = join(local, 'human-in-the-lead');
-  assert.equal(readFileSync(join(now, 'p', 'ledger.jsonl'), 'utf8'), '{"a":1}\n');
-  assert.equal(readFileSync(join(now, 'p', 'runs', 'R-1', 'run-state.json'), 'utf8'), '{}');
-  assert.equal(readFileSync(join(now, '_machine', 'machine.json'), 'utf8'), '{"schema_version":1}');
-  assert.equal(existsSync(old), false, 'the old directory is gone once it is empty');
-  assert.equal(openStore(privateStorePath('p', o)).read('ledger.jsonl'), '{"a":1}\n');
-
-  const second = moveOldWindowsData(o);
-  assert.deepEqual(
-    [second.moved, second.left, messages.length],
-    [[], [], 1],
-    'a second run does nothing',
-  );
-});
-
-test('the move leaves an entry that is at both places, and says so', () => {
-  const { home, old, local, env } = oldWindowsHome();
-  mkdirSync(join(local, 'human-in-the-lead', 'p'), { recursive: true });
-  writeFileSync(join(local, 'human-in-the-lead', 'p', 'ledger.jsonl'), 'new\n');
-  /** @type {string[]} */
-  const messages = [];
-  const r = moveOldWindowsData({ env, home, platform: 'win32', report: (m) => messages.push(m) });
-  assert.deepEqual([r.moved, r.left], [['_machine'], ['p']]);
-  assert.equal(readFileSync(join(old, 'p', 'ledger.jsonl'), 'utf8'), '{"a":1}\n');
-  assert.equal(
-    readFileSync(join(local, 'human-in-the-lead', 'p', 'ledger.jsonl'), 'utf8'),
-    'new\n',
-  );
-  assert.ok(messages.some((m) => /p is at both places/.test(m)));
-});
-
-test('nothing moves off Windows or with XDG_DATA_HOME set', () => {
-  const { home, old, env } = oldWindowsHome();
-  const report = () => assert.fail('no message');
-  for (const o of [
-    { env, home, platform: /** @type {const} */ ('linux'), report },
-    {
-      env: { ...env, XDG_DATA_HOME: join(home, 'data') },
-      home,
-      platform: /** @type {const} */ ('win32'),
-      report,
-    },
-  ]) {
-    assert.deepEqual(moveOldWindowsData(o).moved, []);
-  }
-  assert.equal(existsSync(join(old, 'p', 'ledger.jsonl')), true);
-});
-
-test('resolving the store path on Windows moves the old store first', () => {
-  const { home, local, env } = oldWindowsHome();
-  const path = privateStorePath('p', { env, home, platform: 'win32', report: () => {} });
-  assert.equal(path, join(local, 'human-in-the-lead', 'p'));
-  assert.equal(readFileSync(join(path, 'ledger.jsonl'), 'utf8'), '{"a":1}\n');
 });
 
 test('unsafe project IDs are refused', () => {

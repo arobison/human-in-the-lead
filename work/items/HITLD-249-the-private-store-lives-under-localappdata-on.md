@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-243, HITLD-153]
-release_note: "On Windows the private stores and the machine file live under `%LOCALAPPDATA%\\human-in-the-lead` (`XDG_DATA_HOME`, when set, still overrides it on every platform); the first time `hitld` resolves the path, it moves what is still at the old `~/.local/share/human-in-the-lead` there, with a message."
+release_note: "On Windows the private stores and the machine file live under `%LOCALAPPDATA%\\human-in-the-lead` (`XDG_DATA_HOME`, when set, still overrides it on every platform). The first time `hitld` resolves a store or the machine file still at the old `~/.local/share/human-in-the-lead`, it moves it there and says so, unless it is in use (executor worktrees, a live run lease, a live resource lock); then it stays and is used where it is until a later run. Upgrade every project on the machine at once with no sessions running: a session on an older release keeps using the old place."
 ---
 
 ## Why

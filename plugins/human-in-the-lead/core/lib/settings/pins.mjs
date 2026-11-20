@@ -10,12 +10,12 @@
 // Reads only. Nothing here is trusted beyond being shown in a warning.
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { findRepoRoot } from '../policy/policy.mjs';
 import { TAG } from '../release/semver.mjs';
 import { LEDGER_KEY } from '../ledger/ledger.mjs';
 import { MARKETPLACE } from '../install/install.mjs';
-import { machineDir } from './files.mjs';
+import { dataDirs, isMoveLeftover } from '../store/data-home.mjs';
 
 /** @typedef {import('./versions.mjs').Pin} Pin */
 
@@ -104,8 +104,9 @@ function lastRunVersion(storeDir) {
 
 /**
  * The projects pinned on this machine.
- * @param {{ cwd?: string, env?: NodeJS.ProcessEnv, home?: string, project?: string | null }} [options]
- *   project: the current project's ID, so its own store is not read as another project
+ * @param {{ cwd?: string, env?: NodeJS.ProcessEnv, home?: string, platform?: NodeJS.Platform,
+ *   project?: string | null }} [options] project: the current project's ID, so its own store is not
+ *   read as another project; platform is for tests
  * @returns {Pin[]}
  */
 export function pinnedProjects(options = {}) {
@@ -117,19 +118,24 @@ export function pinnedProjects(options = {}) {
     const pin = declaredPin(root, own);
     if (pin) pins.push(pin);
   }
-  const stores = dirname(machineDir({ env: options.env, home: options.home }));
-  /** @type {import('node:fs').Dirent[]} */
-  let entries = [];
-  try {
-    entries = readdirSync(stores, { withFileTypes: true });
-  } catch {
-    entries = [];
-  }
-  for (const d of entries) {
-    if (!d.isDirectory() || d.name.startsWith('_') || d.name === own) continue;
-    const version = lastRunVersion(join(stores, d.name));
-    if (version !== null) {
-      pins.push({ project: d.name, version, where: 'its last run' });
+  // On Windows, while the move from the old place is under way, stores may be at both.
+  const seen = new Set();
+  for (const stores of dataDirs(options)) {
+    /** @type {import('node:fs').Dirent[]} */
+    let entries = [];
+    try {
+      entries = readdirSync(stores, { withFileTypes: true });
+    } catch {
+      entries = [];
+    }
+    for (const d of entries) {
+      if (!d.isDirectory() || d.name.startsWith('_') || isMoveLeftover(d.name)) continue;
+      if (d.name === own || seen.has(d.name)) continue;
+      seen.add(d.name);
+      const version = lastRunVersion(join(stores, d.name));
+      if (version !== null) {
+        pins.push({ project: d.name, version, where: 'its last run' });
+      }
     }
   }
   return pins;

@@ -130,6 +130,6 @@ done
 claude plugin uninstall human-in-the-lead@human-in-the-lead --scope project
 ```
 
-The private store (`~/.local/share/human-in-the-lead/<project ID>/`) and your person and machine files stay: other projects use the second, and the first is your record. Delete the store directory only if you want the ledger gone for good.
+The private store (`~/.local/share/human-in-the-lead/<project ID>/`; on Windows `%LOCALAPPDATA%\human-in-the-lead\<project ID>\`; under `$XDG_DATA_HOME` where set) and your person and machine files stay: other projects use the second, and the first is your record. Delete the store directory only if you want the ledger gone for good.
 
 To upgrade later, run `hitld install` again from the new tag's clone with its `--ref`, and commit the change to `.claude/settings.json` and `AGENTS.md`. Rolling back is reverting that commit.
