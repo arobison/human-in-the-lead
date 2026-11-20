@@ -2,9 +2,10 @@
 id: HITLD-160
 title: rights record leaves a decision item behind when the trust event is invalid, and refuses a question with no structured attributes
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-44
 ---
 
 ## Why
