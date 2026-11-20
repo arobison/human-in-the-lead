@@ -5,9 +5,15 @@
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
-    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
-    "signal": { "$ref": "common#/$defs/signalId" },
-    "verdict": { "const": "reproduced" },
+    "schema_version": {
+      "$ref": "common#/$defs/schemaVersion"
+    },
+    "signal": {
+      "$ref": "common#/$defs/signalId"
+    },
+    "verdict": {
+      "const": "reproduced"
+    },
     "base": {
       "description": "The commit the test fails on.",
       "$ref": "common#/$defs/commit"
@@ -19,7 +25,9 @@
     "failing": {
       "description": "The tests in the file that failed on the base commit, by name, as the runner reported them.",
       "type": "array",
-      "items": { "$ref": "common#/$defs/untrustedText" },
+      "items": {
+        "$ref": "common#/$defs/untrustedText"
+      },
       "minItems": 1
     },
     "expected_failure": {
@@ -31,7 +39,9 @@
       "type": "integer",
       "minimum": 1
     },
-    "checked_at": { "$ref": "common#/$defs/timestamp" }
+    "checked_at": {
+      "$ref": "common#/$defs/timestamp"
+    }
   },
   "required": [
     "schema_version",
@@ -64,10 +74,18 @@
         {
           "type": "object",
           "properties": {
-            "verdict": { "const": "reproduced" },
-            "test": { "$ref": "#/$defs/testPath" },
-            "expected_failure": { "$ref": "#/$defs/failureText" },
-            "summary": { "$ref": "#/$defs/replyText" }
+            "verdict": {
+              "const": "reproduced"
+            },
+            "test": {
+              "$ref": "#/$defs/testPath"
+            },
+            "expected_failure": {
+              "$ref": "#/$defs/failureText"
+            },
+            "summary": {
+              "$ref": "#/$defs/replyText"
+            }
           },
           "required": ["verdict", "test", "expected_failure"],
           "additionalProperties": false
@@ -75,12 +93,18 @@
         {
           "type": "object",
           "properties": {
-            "verdict": { "const": "not-reproduced" },
-            "reason": { "$ref": "#/$defs/replyText" },
+            "verdict": {
+              "const": "not-reproduced"
+            },
+            "reason": {
+              "$ref": "#/$defs/replyText"
+            },
             "missing": {
               "description": "What the report would need for a reproduction: the request for information is drafted from it.",
               "type": "array",
-              "items": { "$ref": "#/$defs/replyText" },
+              "items": {
+                "$ref": "#/$defs/replyText"
+              },
               "maxItems": 10
             }
           },
@@ -94,6 +118,36 @@
       "minLength": 1,
       "maxLength": 500,
       "x-hitld-untrusted": true
+    },
+    "sandbox": {
+      "description": "The record of an open sandbox, kept in the machine-local part of the private store (run/reproduce/), never in the sandbox directory, which the reproducer can write.",
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "common#/$defs/schemaVersion"
+        },
+        "signal": {
+          "$ref": "common#/$defs/signalId"
+        },
+        "base": {
+          "description": "The full commit ID the sandbox was exported from.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "repo": {
+          "description": "The repository it was opened from.",
+          "$ref": "common#/$defs/text"
+        },
+        "dir": {
+          "description": "The sandbox directory, resolved.",
+          "$ref": "common#/$defs/text"
+        },
+        "opened_at": {
+          "$ref": "common#/$defs/timestamp"
+        }
+      },
+      "required": ["schema_version", "signal", "base", "repo", "dir", "opened_at"],
+      "additionalProperties": false
     }
   }
 }

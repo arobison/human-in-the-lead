@@ -1,9 +1,12 @@
-// The sandboxed test run (design part 2.2, step 3): run by sandbox.mjs as its own process, with an
+// The sandboxed test run (design part 2.2, step 3): run by reproduce.mjs as its own process, with an
 // isolated environment, in the directory that holds the tests. It runs one test file with node:test
 // in a child process under the permission model, and prints one JSON summary line.
 //
 // The child's output never reaches this process's stdout: node:test hands it over as test:stdout
-// and test:stderr events, so a test cannot print a result of its own and have it counted.
+// and test:stderr events, so text a test prints is never read as a result. A test that writes
+// node:test's own framing to its stdout gets at most a malformed stream, which reads as an error:
+// a test cannot fake a pass. The memory limit is the V8 heap's; there is no limit on CPU beyond
+// the timeout, and none on the disk the scratch directory may fill.
 //
 //   node runner.mjs <json>   json: { root, test, scratch, timeout_ms }
 
@@ -41,10 +44,12 @@ const stream = run({
   timeout,
   execArgv: [
     '--permission',
+    '--max-old-space-size=256',
     `--allow-fs-read=${root}`,
     `--allow-fs-read=${guard}`,
     `--allow-fs-write=${scratch}`,
     `--import=${pathToFileURL(guard).href}`,
+    // Where this Node's permission model covers the network, it is on and nothing is allowed.
   ],
 });
 
@@ -73,6 +78,6 @@ stream.on('end', () => {
   const text = stderr.join('');
   const network = text.split('\n').filter((l) => l.startsWith(MARKER)).length;
   process.stdout.write(
-    `${JSON.stringify({ tests, load_failure: loadFailure, network_attempts: network, stderr: text.slice(-4000) })}\n`,
+    `${JSON.stringify({ tests, load_failure: loadFailure, network_attempts: network, network_enforced: process.allowedNodeEnvironmentFlags.has('--allow-net'), stderr: text.slice(-4000) })}\n`,
   );
 });

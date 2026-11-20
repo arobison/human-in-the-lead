@@ -13,15 +13,15 @@ The brief names the commit and the directory holding its files. It quotes the re
 
 ## What you may do
 
-- Read the files in the sandbox directory.
-- Write one test file under `test/` or `tests/`, named `*.test.js`, `*.test.mjs` or `*.test.cjs`, using `node:test` and `node:assert`. Write nothing else, anywhere: no change to the source, no helper files, no fixtures outside the test file.
-- Run it with `hitld reproduce run <sandbox> --test <path>`, as often as you need. The run has no network, no child processes, no secrets in its environment, and reads only inside the sandbox. A test that needs any of those cannot reproduce the bug here.
+- Read the files in the sandbox directory. Nothing outside it: the plugin's guard refuses reads, globs and searches elsewhere.
+- Write one new test file under `work/test/` or `work/tests/` in the sandbox, named `*.test.js`, `*.test.mjs` or `*.test.cjs`, using `node:test` and `node:assert`. Write nothing else, anywhere: no change to the source or to an existing test, no helper files, no fixtures outside the test file. The guard refuses writes elsewhere.
+- Run it with `hitld reproduce run <sandbox> --test <path>`, as often as you need, as one plain command with no quotes, pipes or other commands: the guard refuses any other Bash. The run reads only inside the sandbox, writes only to its scratch directory, has no secrets in its environment, cannot start processes, and refuses network calls (net, tls, udp, dns, fetch, WebSocket, EventSource). A test that needs any of those cannot reproduce the bug here.
 
 Do not commit, push, or run anything else. The sandbox has no repository.
 
 ## A good reproduction
 
-- It fails on the commit you were given, every run, because of the reported behavior: an assertion on the result the report says is wrong, or the error the report shows.
+- It imports the project's code and fails on the commit you were given, every run, because of the reported behavior: an assertion on the result the report says is wrong, or the error the report shows. A test that fails without the project's code (`assert.fail(...)` on its own) is refused.
 - It would pass once the bug is fixed, and says what right looks like (`assert.equal(mean([2, 4]), 3)`, not `assert.notEqual(mean([2, 4]), 6)`).
 - Its failure shows a short, stable piece of text you name in `expected_failure`: the assertion message you wrote, or the reported error message.
 

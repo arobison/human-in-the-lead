@@ -7,21 +7,30 @@
 //                     kept at refs/hitld/reproductions/<signal>, and nothing else is kept
 //   reproduce item    the orchestrator makes the proposed item whose "Done when" is that test
 //
+// Only `run` is the reproducer's. The plugin's guard lets the reproducer agent run nothing else
+// (core/harness/claude-code/hooks/reproducer-guard.mjs), and the other three refuse a caller that
+// says it is the reproducer or runs inside a sandbox.
+//
 // Routing (auto-fix under a precedent, design part 2.2, step 4) is triage's (HITLD-29): the item is
 // proposed, and a person commits it.
 
-import { readFileSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { ownerCheckoutOf } from '../../env/primary.mjs';
+import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import {
   ReproduceError,
+  SANDBOX_MARKER,
   checkReproduction,
+  fenceFor,
+  mustBeSignalId,
   openSandbox,
   readReproduction,
-  readSandbox,
   recordReproduction,
   runSandboxed,
+  sandboxLayout,
 } from '../../reproduce/reproduce.mjs';
+import { openStore, privateStorePath } from '../../store/store.mjs';
 import { executorSignal } from '../executor.mjs';
 import { open as openTrackerOf } from './tracker.mjs';
 
@@ -33,9 +42,23 @@ import { open as openTrackerOf } from './tracker.mjs';
 /** @param {string} path @param {Ctx} ctx */
 const pathOf = (path, ctx) => (isAbsolute(path) ? path : resolve(ctx.cwd, path));
 
+/**
+ * Why the caller may be the reproducer: it says so, or it runs inside a sandbox directory.
+ * @param {NodeJS.ProcessEnv} env @param {string} cwd @returns {string | null}
+ */
+export function reproducerSignal(env, cwd) {
+  if (env?.HITLD_ROLE === 'reproducer') return 'HITLD_ROLE is reproducer';
+  for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, SANDBOX_MARKER))) {
+      return `${cwd} is inside the reproducer's sandbox ${dir}`;
+    }
+    if (dirname(dir) === dir) return null;
+  }
+}
+
 /** @param {string} what @param {Ctx} ctx @returns {Result | null} */
 function orchestratorOnly(what, ctx) {
-  const why = executorSignal(ctx.env, ctx.cwd);
+  const why = executorSignal(ctx.env, ctx.cwd) ?? reproducerSignal(ctx.env, ctx.cwd);
   return why
     ? {
         ok: false,
@@ -54,6 +77,23 @@ function repoOf(ctx) {
       error: 'not-a-repository',
       message: `${ctx.cwd} is not in a git repository`,
     }
+  );
+}
+
+/** The project's private store, where sandbox records are kept. @param {Ctx} ctx */
+function storeOf(ctx) {
+  const loaded = loadPolicy({ cwd: ctx.cwd });
+  if (!loaded.policy) {
+    throw new ReproduceError(
+      'policy',
+      'cannot find the private store without a valid policy.json; run hitld check policy',
+    );
+  }
+  return openStore(
+    privateStorePath(loaded.policy.project.id, {
+      env: ctx.env,
+      repoRoot: findRepoRoot(ctx.cwd) ?? undefined,
+    }),
   );
 }
 
@@ -95,7 +135,7 @@ export const commands = [
   {
     name: 'reproduce open',
     summary:
-      "Open the reproducer's sandbox for one reported bug: the base commit's files with no repository, network or secrets, and the brief (orchestrator only)",
+      "Open the reproducer's sandbox for one reported bug: the base commit's files with no repository, and the brief; the sandbox's record goes to the private store (orchestrator only)",
     built_by: 'signal',
     args: [
       {
@@ -108,7 +148,8 @@ export const commands = [
       {
         name: 'dir',
         type: 'string',
-        description: 'An absent or empty directory for the sandbox (default: a new temporary one)',
+        description:
+          'An absent or empty directory for the sandbox (default: a new temporary one, which the caller removes)',
       },
     ],
     output: ['ok', 'signal', 'base', 'dir', 'work', 'brief', 'links_left_out'],
@@ -119,9 +160,11 @@ export const commands = [
         if (typeof repo !== 'string') return repo;
         const made = openSandbox({
           repoRoot: repo,
+          store: storeOf(ctx),
           signal: readJson(String(input.signal), ctx, '--signal'),
           ...(typeof input.base === 'string' ? { base: input.base } : {}),
           ...(typeof input.dir === 'string' ? { dir: pathOf(input.dir, ctx) } : {}),
+          ...(ctx.now ? { now: ctx.now } : {}),
         });
         return {
           ok: true,
@@ -137,7 +180,7 @@ export const commands = [
   {
     name: 'reproduce run',
     summary:
-      "Run one test file in the reproducer's sandbox: no network, no secrets, no child processes, reads only inside the sandbox",
+      "Run one test file in the reproducer's sandbox: reads only inside it, writes only to its scratch, no secrets, no processes, network calls refused",
     built_by: 'signal',
     args: [
       SANDBOX,
@@ -148,16 +191,20 @@ export const commands = [
         description: 'The test file, relative to the sandbox files, under test/ or tests/',
       },
     ],
-    output: ['ok', 'outcome', 'tests', 'failing', 'load_failure', 'network_attempts', 'stderr'],
+    output: [
+      'ok',
+      'outcome',
+      'tests',
+      'failing',
+      'load_failure',
+      'network_attempts',
+      'network_enforced',
+      'stderr',
+    ],
     run: (input, ctx) =>
       guarded(() => {
-        const sandbox = readSandbox(pathOf(String(input.sandbox), ctx));
-        const r = runSandboxed({
-          root: sandbox.work,
-          test: String(input.test),
-          scratch: sandbox.scratch,
-        });
-        return { ok: true, ...r };
+        const layout = sandboxLayout(pathOf(String(input.sandbox), ctx));
+        return { ok: true, ...runSandboxed({ layout, test: String(input.test) }) };
       }),
   },
   {
@@ -192,32 +239,31 @@ export const commands = [
       guarded(() => {
         const repo = repoOf(ctx);
         if (typeof repo !== 'string') return repo;
-        const dir = pathOf(String(input.sandbox), ctx);
-        const sandbox = readSandbox(dir);
-        if (resolve(sandbox.repo) !== resolve(repo)) {
-          return {
-            ok: false,
-            error: 'other-repository',
-            message: `the sandbox was opened from ${sandbox.repo}, not this repository (${repo})`,
-          };
-        }
         const checked = checkReproduction({
-          dir,
+          dir: pathOf(String(input.sandbox), ctx),
+          store: storeOf(ctx),
           reply: readJson(String(input.reply), ctx, '--reply'),
           ...(ctx.now ? { now: ctx.now } : {}),
         });
+        if (resolve(checked.sandbox.repo) !== resolve(repo)) {
+          return {
+            ok: false,
+            error: 'other-repository',
+            message: `the sandbox was opened from ${checked.sandbox.repo}, not this repository (${repo})`,
+          };
+        }
         if (checked.verdict === 'not-reproduced') {
-          const { verdict, reason, missing, refused, discarded } = checked;
+          const { verdict, reason, missing, refused, discarded, runs } = checked;
           return {
             ok: !refused,
             ...(refused ? { error: 'reproduction-refused', message: reason } : {}),
-            signal: sandbox.signal,
+            signal: checked.sandbox.signal,
             verdict,
             reason,
             missing,
             refused,
             discarded,
-            ...('runs' in checked ? { runs: checked.runs } : {}),
+            ...(runs.length ? { runs } : {}),
           };
         }
         const kept = recordReproduction({
@@ -227,7 +273,7 @@ export const commands = [
         });
         return {
           ok: true,
-          signal: sandbox.signal,
+          signal: checked.sandbox.signal,
           verdict: 'reproduced',
           record: checked.record,
           ...kept,
@@ -256,13 +302,13 @@ export const commands = [
       guarded(() => {
         const repo = repoOf(ctx);
         if (typeof repo !== 'string') return repo;
-        const signal = String(input.signal);
+        const signal = mustBeSignalId(input.signal);
         const kept = readReproduction(repo, signal);
         if (!kept) {
           return {
             ok: false,
             error: 'not-reproduced',
-            message: `${signal} has no reproduction (no ${'refs/hitld/reproductions/'}${signal}); an item for it starts from shaping, not from a test`,
+            message: `${signal} has no reproduction (no refs/hitld/reproductions/${signal}); an item for it starts from shaping, not from a test`,
           };
         }
         const { record, ref, commit } = kept;
@@ -270,11 +316,18 @@ export const commands = [
           `- \`${record.test}\` passes. It is the reproduced test: it fails on ${record.base.slice(0, 12)}, and it exists before the executor starts, at \`${ref}\` (commit ${commit.slice(0, 12)}). Take it with \`git checkout ${ref} -- ${record.test}\`.`,
           '- The reproduced test is unchanged.',
         ];
+        // The test names come from the test the reproducer wrote: quoted data, in a fence.
+        const names = record.failing.map((/** @type {string} */ n) => JSON.stringify(n)).join('\n');
+        const fence = fenceFor(names);
         const body = [
           '',
           '## Why',
           '',
-          `A reported bug, ${signal}, reproduced by a failing test (design part 2.2, step 3). Failing on the base: ${record.failing.map((/** @type {string} */ n) => JSON.stringify(n)).join(', ')}.`,
+          `A reported bug, ${signal}, reproduced by a failing test (design part 2.2, step 3). The tests that fail on the base, as the test names them:`,
+          '',
+          `${fence}text`,
+          names,
+          fence,
           '',
           '## Done when',
           '',

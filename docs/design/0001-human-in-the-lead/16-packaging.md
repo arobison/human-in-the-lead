@@ -323,6 +323,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `not-reproduced`: The bug has no kept reproduction, so nothing can be made from one.
 - `already-reproduced`: The signal already has a kept reproduction, which is never replaced.
 - `bad-reproduction`: The ref for a reproduction holds something other than one commit on its base that adds its test.
+- `sandbox-unsafe`: The reproducer's sandbox cannot be trusted here: Node is older than the floor, the canary run got past a limit, or a part of the sandbox was replaced by a link.
 - `other-repository`: The sandbox was opened from another repository than the one the command runs in.
 
 **Secrets and the environment**
