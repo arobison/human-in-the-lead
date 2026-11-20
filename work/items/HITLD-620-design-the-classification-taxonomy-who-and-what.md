@@ -58,3 +58,22 @@ The owner walked through the first questions one at a time. Each is a recorded d
 - The design parts (3 and 10.3) are updated to these decisions, as part of done (docs are part of done, HITLD-579).
 - Dyno's result output and its first example JSON are checked against the label format (GitHub issue 363).
 - Build items are filed: HITLD-636 (labels and the migration), HITLD-637 (clearances and the check), HITLD-638 (enforcement at the commands that return data) and HITLD-639 (places, derived data and loosening).
+
+## Points the design update marks not decided (2026-11-20)
+
+The curator's design update (the pull request titled "Design: update the design parts to the classification decisions of 2026-11-20") writes these as "not decided", each with its nearest item, for the walk-through:
+
+1. How the limit of a hosted tracker, a notification channel, a hosted runner or a report audience becomes a clearance, and what becomes of `max_classification` and `classificationEnforced` (nearest HITLD-637).
+2. How a model channel's clearance is written on the `reach` dimension (nearest HITLD-637).
+3. Whether a provider with no clearance may receive `public` data (nearest HITLD-630 and HITLD-637). Public data is public, so the chief of staff's reading is that it may; to confirm.
+4. Which clearance each role holds; no decision gives the values (nearest HITLD-632).
+5. Whether the rule that an agent carries the level of its inputs stays beside the new check (nearest HITLD-638).
+6. Whether a store pushed to an S3-compatible transport is still the synced-store class or counts as a bucket class (nearest HITLD-639).
+7. How `default_classification` becomes the container's label, and how the files backend's front-matter reader parses the label object and what the read API's `api_version` does (nearest HITLD-636).
+
+## Corrections found while updating the design (2026-11-20)
+
+- **A local model's clearance.** Decision HITLD-630 words it as "anything except owner only", which would include `tools-only` data, and by definition no model sees `tools-only` data. The build item HITLD-637 says down to `local-model-only`. The design update follows HITLD-637 and says so; the chief of staff's reading, for the owner to check.
+- **The meaning of `any-model`.** Decision HITLD-631 glossed it as including a remote model on the owner's account; after the sixth reader (HITLD-634) that account is `approved-models`. The design now says `any-model` means any provider or account, and a channel's own clearance still applies.
+- **The shorthands.** Decision HITLD-625's option text says the four levels stay as shorthands; HITLD-631 removed shorthands. The design follows HITLD-631 and HITLD-634.
+
