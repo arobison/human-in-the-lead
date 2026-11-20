@@ -125,7 +125,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 
 **The run lease and locks**
 
-The run-lease codes, `no-run` and `handover-due` go with the run object when HITLD-492 removes it (HITLD-484).
+The run-lease codes, `no-run` and `handover-due` go with the run object when HITLD-492 removes it (HITLD-484). The meaning of `not-planned` below names the tier as built; tiers are being replaced by execution profiles (HITLD-581).
 
 - `lease-held`: Another session holds the run lease.
 - `lease-lost`: This session no longer holds the run lease: another session holds it.
@@ -145,7 +145,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 
 **Dispatch, handover and the merge queue**
 
-- `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready). As built; tiers are being replaced by execution profiles (HITLD-581).
+- `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready).
 - `disk-floor`: Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.
 - `not-in-flight`: The dispatch is not in flight.
 - `tokens-over-estimate`: The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.
