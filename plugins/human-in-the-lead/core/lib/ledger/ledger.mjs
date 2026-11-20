@@ -117,6 +117,7 @@ const REQUIRED = {
   interrupted: ['dispatch', 'item'],
   paused: ['limit'],
   resumed: ['reason'],
+  friction: ['friction_class', 'source', 'evidence', 'decisions'],
 };
 
 /** @type {Record<string, string[]>} */

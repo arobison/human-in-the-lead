@@ -1,0 +1,29 @@
+{
+  "rated_by": "hand, for the test: synthetic messages, not a real session",
+  "sample": [
+    {
+      "ref": "ev-02",
+      "class": null
+    },
+    {
+      "ref": "ev-06",
+      "class": "repeated-instruction"
+    },
+    {
+      "ref": "ev-14",
+      "class": "repeated-instruction"
+    },
+    {
+      "ref": "ev-15",
+      "class": "owner-correction"
+    },
+    {
+      "ref": "ev-18",
+      "class": "bundled-question"
+    },
+    {
+      "ref": "ev-20",
+      "class": null
+    }
+  ]
+}
