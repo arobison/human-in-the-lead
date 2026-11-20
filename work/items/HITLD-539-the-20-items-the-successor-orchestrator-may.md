@@ -34,3 +34,7 @@ Recorded in the front matter once answered.
 
 The owner added the five remaining code items of the rc.2 milestone Consumer live (HITLD-67) to this list: HITLD-74, 147, 148, 149 and 160. The successor checks each against the open designs before starting it (HITLD-514's rule), skips any that a decided design has changed and reports which. The install step HITLD-349 is the owner's own and is not on this list.
 
+## Order amended on 2026-11-20 (HITLD-646)
+
+The owner decided that the five rc.2 code items added by HITLD-644 (HITLD-74, 147, 148, 149 and 160) start before any of the 20 are queued, after HITLD-595 (HITLD-645), which stays first of all. Each is still checked against the open and decided designs before it starts. The order is the owner's, over the planner's.
+
