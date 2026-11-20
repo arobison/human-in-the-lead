@@ -30,6 +30,7 @@ The design already decides the direction (design parts 3.3, 2.17, 5.x, 13.2 and 
 - Which events invoke it: the executor contract (measure and cite run IDs), the baseline cadence, the performance-budget loop, and an item of kind study.
 - What HITLD shows: the headline result and a link to the tool's own views, not a copy of its trends.
 - Noise and verdicts: whose regression threshold counts (the tool's, the project's budget, the owner's), and how a regression against measured run-to-run noise becomes an item.
+- Where results live: kept by the project's tool and referenced by run ID (the current design), or also stored in the project's private store as a project-owned data area. The store is a generic key-path text store synced through a git repository, with no command that lets a session write a project's own files (executors are refused store commands), no declared record types, and no size or retention rules, so storing results there needs a decision on those. Raised by the owner on 2026-11-20 for the first outside consumer's benchmark results (HITLD-612); the case for a copy is results the project cannot keep in a public repository, and the case against is duplicating what the tool already owns.
 - Whether the evidence source is also the right shape for other tools (an eval harness, a load test, a fuzzer), so the abstraction is not shaped by one project.
 
 ## Notes
