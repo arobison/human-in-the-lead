@@ -53,6 +53,9 @@ export const ERROR_CODES = Object.freeze({
   'lock-held': 'A named resource lock is held by someone else.',
   'lock-timeout': 'A named resource lock was not free before the wait ended.',
 
+  // Quotas
+  'invalid-snapshot': 'The usage snapshot does not match its schema.',
+
   // Ledger
   'invalid-event': 'The ledger event does not match its schema or lacks a field its kind needs.',
   'forbidden-event': 'The event kind is written only by the orchestrator, not by this caller.',
@@ -91,6 +94,8 @@ export const ERROR_CODES = Object.freeze({
   'invalid-default':
     'The default if unanswered is not allowed here: not a two-way door, or not one of the options.',
   'invalid-decision': 'The decision record or answer is not valid.',
+  'invalid-trust-event':
+    'The trust event the question would record does not match its schema; nothing was recorded.',
   'answer-matches-no-option':
     "The answer names none of the decision's options, or words that fit more than one; nothing was recorded.",
   'answer-question-changed':

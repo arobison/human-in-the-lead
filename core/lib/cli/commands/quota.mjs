@@ -28,6 +28,11 @@ function repositoryFileBase(repoRoot) {
   return forgeFileBase(remote, head.startsWith('origin/') ? head.slice('origin/'.length) : 'HEAD');
 }
 import { readQuotaInputs } from '../../quota/inputs.mjs';
+import { DECLARED_SOURCE, shownLimits } from '../../quota/quota.mjs';
+import { SNAPSHOTS_KEY } from '../../quota/usage.mjs';
+import { resetsAtMs } from '../../quota/window.mjs';
+import { schemas } from '../../schema/registry.mjs';
+import { executorSignal } from '../executor.mjs';
 import { workModel } from '../../dashboard/work.mjs';
 import { ownerDigest } from './rights.mjs';
 
@@ -111,6 +116,125 @@ export const commands = [
         skipped_snapshots: g.skipped,
         ...(g.warnings.length ? { warnings: g.warnings } : {}),
         ...gate,
+      };
+    },
+  },
+  {
+    name: 'quota declare',
+    summary:
+      "Record a usage figure the owner reads on their own account, for a limit with no fresh measured reading. The owner's, from their own turn",
+    built_by: 'f',
+    args: [
+      {
+        name: 'used',
+        type: 'string',
+        required: true,
+        description:
+          "The limit's use as the owner's account shows it, in the limit's unit (a percentage of the plan for plan-percent limits, such as 37 or 37.5)",
+      },
+      {
+        name: 'resets-at',
+        type: 'string',
+        required: true,
+        description: "When the limit's window resets, as the account shows it (a timestamp)",
+      },
+      {
+        name: 'limit',
+        type: 'string',
+        description: 'The limit, by its ID in the quota limits (default claude-weekly)',
+      },
+      {
+        name: 'now',
+        type: 'string',
+        description: 'Record it as taken at this time (a timestamp), for tests',
+      },
+    ],
+    run: (input, ctx) => {
+      // The figure is the owner's word on their own account (HITLD-164): taken only from the
+      // owner's own turn on the human command line, like a decision answer, and never from an
+      // executor. The plugin's Bash guard refuses it to executors at the harness first.
+      const why = executorSignal(ctx.env, ctx.cwd);
+      if (why || ctx.interactive !== true) {
+        return {
+          ok: false,
+          error: 'not-permitted',
+          message: `quota declare is the owner's, from their own turn through the main session in the primary checkout (${why ?? 'not the human command line'}); an executor never declares usage`,
+        };
+      }
+      const g = gather(ctx, input);
+      if (g.error) return g.error;
+      const id = typeof input.limit === 'string' && input.limit ? input.limit : 'claude-weekly';
+      const limit = shownLimits(g.policy.quota.limits, g.snapshots, g.now).find(
+        (/** @type {any} */ l) => l.id === id,
+      );
+      if (!limit) {
+        const known = g.policy.quota.limits.map((/** @type {any} */ l) => l.id).join(', ');
+        return {
+          ok: false,
+          error: 'usage',
+          message: `no quota limit ${id}; the limits are ${known || 'none'}`,
+        };
+      }
+      const used = Number(String(input.used).trim().replace(/%$/, ''));
+      if (!String(input.used).trim() || !Number.isFinite(used) || used < 0) {
+        return { ok: false, error: 'usage', message: '--used is not a number of 0 or more' };
+      }
+      if (limit.limit != null && used > limit.limit) {
+        return {
+          ok: false,
+          error: 'usage',
+          message: `--used ${used} is more than the limit of ${limit.limit} for ${id}`,
+        };
+      }
+      const resets = resetsAtMs(String(input['resets-at']));
+      if (resets == null) {
+        return { ok: false, error: 'usage', message: '--resets-at is not a timestamp' };
+      }
+      if (resets <= g.now) {
+        return {
+          ok: false,
+          error: 'usage',
+          message: '--resets-at is not in the future: give the reset the account shows now',
+        };
+      }
+      const snapshot = {
+        schema_version: schemas().currentVersion('usage-snapshot'),
+        at: new Date(g.now).toISOString(),
+        source: DECLARED_SOURCE,
+        readings: [{ limit: id, used, resets_at: new Date(resets).toISOString() }],
+      };
+      const errors = schemas().validateEntity('usage-snapshot', snapshot);
+      if (errors.length) {
+        return {
+          ok: false,
+          error: 'invalid-snapshot',
+          message: errors.map((e) => `${e.path} ${e.message}`).join('; '),
+        };
+      }
+      g.store.append(SNAPSHOTS_KEY, JSON.stringify(snapshot) + '\n');
+      // What the gate makes of it now: a fresh measured reading still wins (HITLD-170).
+      const gate = dispatchGate(
+        g.policy,
+        [...g.snapshots, snapshot],
+        {},
+        {
+          now: g.now,
+          ledger: g.ledger,
+        },
+      );
+      const state = gate.quotas.find((q) => q.id === id);
+      return {
+        ok: true,
+        recorded: snapshot,
+        used_from: state?.used_from ?? null,
+        mode: gate.mode,
+        reason: gate.reason,
+        ...(state?.used_from === 'snapshot'
+          ? {
+              note: `a measured reading from ${state.as_of} is still fresh, so the gate uses it; the declared figure is the fallback once it is not`,
+            }
+          : {}),
+        ...(g.warnings.length ? { warnings: g.warnings } : {}),
       };
     },
   },

@@ -8,7 +8,7 @@
     "schema_version": { "$ref": "common#/$defs/schemaVersion" },
     "at": { "description": "When the reading was taken.", "$ref": "common#/$defs/timestamp" },
     "source": {
-      "description": "What produced it, such as claude-code-statusline.",
+      "description": "What produced it, such as claude-code-statusline. owner-declared marks a figure the owner read on their own account and declared with hitld quota declare: the gate treats it as a reading of low confidence that ages, used only when no fresh measured reading exists (HITLD-164, HITLD-170).",
       "$ref": "common#/$defs/name"
     },
     "session": {
