@@ -31,3 +31,7 @@ Needs the reconciliation of the open items (HITLD-565), so the docs describe the
 ## Glossary (HITLD-577)
 
 The design glossary defines appetite, budget and pace as decided: appetite is estimated size (HITLD-412), budget is what the owner allows a commitment to spend (HITLD-522), pace is the rate the plan allows per hour (HITLD-530).
+
+## Tiers (HITLD-581)
+
+The design part on sizing tiers (part 5.1) is rewritten for the decision that discrete tiers go: an execution mode picked from capability needs, a cost-ordered model-and-effort cascade, and a token budget measured from history, with `tier_override` becoming a profile override. Every other part that says "tier" follows.

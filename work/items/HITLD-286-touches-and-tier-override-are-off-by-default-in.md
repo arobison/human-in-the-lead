@@ -24,3 +24,7 @@ Evidence: schemas/tracker.schema.json optional_keys default []; owner.mjs:231 no
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `backlog`, area `tracker`, still present on main, confidence 0.7. Changing the reference format's defaults or install is a format choice; shape rather than auto-fix.
+
+## Note on 2026-11-20 (HITLD-581)
+
+Discrete tiers are being replaced by an execution mode, a cost-ordered cascade and a measured budget (HITLD-561). This item stays an independent small fix of a default; where it says "tier", read the profile that replaces it.

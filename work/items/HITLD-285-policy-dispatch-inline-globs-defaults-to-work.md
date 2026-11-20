@@ -24,3 +24,7 @@ Evidence: schemas/policy/dispatch.schema.json:10 default ["work/**"]; core/lib/m
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `dispatch`, still present on main, confidence 0.8. A project with work_dir other than work shows it; the default or evidenceFor fix is testable. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Note on 2026-11-20 (HITLD-581)
+
+Discrete tiers are being replaced by an execution mode, a cost-ordered cascade and a measured budget (HITLD-561). This item stays an independent small fix of a default; where it says "tier", read the profile that replaces it.
