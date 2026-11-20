@@ -21,3 +21,7 @@ needs: [HITLD-125]
 ## Notes
 
 Found by the chief of staff and filed under HITLD-181. Builds on HITLD-125. Whether the squash commit carries the owner's delegated sign-off is a separate question and belongs to HITLD-179.
+
+## Second sighting on 2026-11-20 (the retrospective, HITLD-589)
+
+The harness's Stop hook demanded again, at the end of a turn, that untracked files be committed and pushed "to the remote branch". The files were decision records that `hitld work publish` had already pushed to a `hitld/tracker-*` branch for a pull request, so they stayed untracked on main until the pull request merged. Committing them to the session branch would have duplicated them and left a divergent branch; the chief of staff removed the local copies instead. The cause is the one above (published files stay untracked on main), made worse by the hook asking for a push to a different branch than the publish flow uses. The fix this item asks for (untracking or removing the published copies once published) also clears the hook; if the hook still fires for files published but not yet merged, the hook needs an exception for the publish flow, which is outside this project and is raised as feedback.
