@@ -1,10 +1,11 @@
 ---
 id: HITLD-74
-title: "Ledger event and dispatch IDs are unique by construction, and each writer appends to its own ledger file, so store sync never conflicts"
+title: Ledger event and dispatch IDs are unique by construction, and each writer appends to its own ledger file, so store sync never conflicts
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-14
 project: HITLD-15
+claimed_by: D-40
 ---
 
 ## Done when
