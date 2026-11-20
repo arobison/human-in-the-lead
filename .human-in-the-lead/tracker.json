@@ -1,4 +1,4 @@
 {
   "schema_version": 1,
-  "optional_keys": ["release_note"]
+  "optional_keys": ["release_note", "opened_from"]
 }
