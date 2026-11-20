@@ -8,7 +8,13 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EXPECTED_SKIPS, checkSkips, parseSkips, skipsSummary } from '../../scripts/test-skips.mjs';
+import {
+  EXPECTED_SKIPS,
+  cell,
+  checkSkips,
+  parseSkips,
+  skipsSummary,
+} from '../../scripts/test-skips.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -64,6 +70,19 @@ test('the summary lists each skip with its reason and says which are not expecte
     /\| not expected \| core\/test\/age\.test\.mjs \| interop: .* \| the age program/,
   );
   assert.match(skipsSummary({ expected: [], unexpected: [] }, 'linux'), /No test skipped on linux/);
+});
+
+test('a test name with a backslash, a pipe or a backtick stays inside its table cell', () => {
+  assert.equal(cell('a \\| b'), 'a \\\\\\| b');
+  assert.equal(cell('run `age` | then\\'), 'run \\`age\\` \\| then\\\\');
+  assert.equal(cell('two\nlines\r\nhere'), 'two lines here');
+  const odd = { file: 'core/test/x.test.mjs', name: 'C:\\path | `code`', reason: 'why \\ not' };
+  const text = skipsSummary(checkSkips([odd], expected, 'linux'), 'linux');
+  const row = text.split('\n').find((line) => line.startsWith('| not expected'));
+  assert.equal(
+    row,
+    '| not expected | core/test/x.test.mjs | C:\\\\path \\| \\`code\\` | why \\\\ not |',
+  );
 });
 
 test('the reporter writes one line per skipped test, and the check fails on one not expected', () => {

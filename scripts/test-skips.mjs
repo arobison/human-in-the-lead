@@ -58,8 +58,17 @@ export function checkSkips(skips, expected, platform) {
   return { expected: ok, unexpected };
 }
 
-/** @param {string} text */
-const cell = (text) => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+/**
+ * Text as one Markdown table cell: a backslash first, so the escapes added after it stay escapes,
+ * then the pipe that would end the cell and the backtick that would open code; line breaks become
+ * spaces.
+ * @param {string} text
+ */
+export const cell = (text) =>
+  text
+    .replace(/\\/g, '\\\\')
+    .replace(/[|`]/g, '\\$&')
+    .replace(/\r?\n|\r/g, ' ');
 
 /**
  * The job summary, in Markdown.
