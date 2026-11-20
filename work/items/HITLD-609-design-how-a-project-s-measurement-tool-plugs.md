@@ -57,3 +57,12 @@ The owner answered that the first outside consumer's benchmark results are confi
   - Whether a reference such as a run ID is itself safe to publish needs a decision.
 - **Still open:** the shape of the data area (the store is a git text store sealed to approved devices, so large traces and long commit-by-commit history probably need a separate private location with the store holding an index), who may write it (not executors), size and retention, and how a cloud session receives access.
 
+## Noted on 2026-11-20 (the owner, after HITLD-617)
+
+The owner added two facts: the results may be made public someday, and today they are stored only on the machine that ran them. What that changes:
+
+- **Confidential is a setting, not a fixed rule.** The results carry a classification (the design already has classifications and a cap on what each channel may carry), confidential by default. Making them public later is the owner's decision that changes the classification, not a redesign.
+- **Results are per machine.** They are hardware-specific anyway, so a comparison or a regression trend is only meaningful between runs on the same machine, and a cloud session or another machine cannot read them. A reference to a run must therefore name the machine as well as the run ID, and the evidence source reads a result on the machine that holds it.
+- **The first version may not need a copy at all.** HITLD stores references only (machine and run ID, a headline the owner allows, no values) in the synced store, and the values stay where they were produced. A data area in the private store is needed only if results must be read from another machine. That is still open.
+- **Benchmarks run where the hardware is.** A run needs the machine with the right GPU, a quiet machine and the benchmark lock, so the capability set must say which machine can run which suite or instrument (the machine registry, design 13.4, holds capacities and locks per machine), and a session elsewhere asks that machine to run it or waits.
+
