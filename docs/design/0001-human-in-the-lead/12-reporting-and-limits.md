@@ -8,35 +8,20 @@ The owner directs the system mostly from a distance, so what they can see matter
 
 | Readout | Shows | Source |
 |---|---|---|
-| **Live** | The fleet in flight with each item's stage (briefed, claimed, implementing, verifying, reporting, in review, merged); what is blocked and on what; what is waiting on the owner, oldest first | Run state ([part 13](13-operations.md#131-orchestrator-continuity)), ledger, tracker |
-| **Explorable metrics** | Every queue's stock, age and flow; quality and cost measures ([part 11](11-metrics-and-control.md#111-measures)); as time series, filterable by project, milestone, tier, model and harness | Ledger, tracker history, usage snapshots |
+| **Live** | The fleet in flight with each item's stage (briefed, claimed, implementing, verifying, reporting, in review, merged); what is blocked and on what; what is waiting on the owner, oldest first | Ledger ([part 13](13-operations.md#131-orchestrator-continuity)), tracker |
+| **Explorable metrics** | Every queue's stock, age and flow; quality and cost measures ([part 11](11-metrics-and-control.md#111-measures)); as time series, filterable by project, milestone, execution profile, model and harness | Ledger, tracker history, usage snapshots |
 | **Controllers** | Every controller step: sensor values, setpoint and bounds, action, reason, rule version (12.3) | Controller step log |
 | **Progress reports** | What was built per project, decisions made, studies concluded with their verdicts, what is blocked, what is next, with charts (12.2) | All of the above |
-| **Token use over time** | By model, tier, project, harness and kind of work, against what it bought: accepted items, waste, cost per accepted item | Ledger, usage snapshots |
-| **Quotas** | Each account limit: used, remaining, reserve, burn rate, projected exhaustion (12.5) | Usage snapshots, declared limits |
+| **Token use over time** | By model, execution profile, project, harness and kind of work, against what it bought: accepted items, waste, cost per accepted item | Ledger, usage snapshots |
+| **Quotas** | Each account limit: used, remaining, reserve, burn rate against the pace line, projected exhaustion (12.5) | Usage snapshots, declared limits |
 | **Milestone graph** | Milestones as nodes and `needs` between them as edges; each node's outcome, progress against its constraints, appetite spent and check; the critical path highlighted; a milestone's items one step down (12.1.2) | Tracker, ledger, recorded check results |
-| **The dashboard page** | Your move, the roadmap, the plan (the item graph), proposals, flow, and quota and spend, in one file (12.1.3) | Tracker read API and history, ledger, usage snapshots |
-| **Status line** (planned) | One line, always visible: what the person would otherwise ask about (12.1.1) | Run-state file, machine registry |
+| **The dashboard page** | Your move, the roadmap, the plan (the item graph), proposals, flow, quota and spend, and trust, in one file (12.1.3) | Tracker read API and history, ledger, usage snapshots |
 
-### 12.1.1 The status line (planned)
+<a id="1211-the-status-line-planned"></a>
 
-The status line is the one always-visible surface, so it shows what the person would otherwise ask about, in one line and in this priority order:
+### 12.1.1 The status line (dropped)
 
-1. decisions waiting for the person, with the oldest one's age;
-2. branches waiting for their merge, in owner mode;
-3. problems needing attention: a red check on `main`, an incident, a stalled executor;
-4. quota headroom against the person's reserve: amber when economizing, red at the reserve;
-5. the fleet: executors running against the cap, and ready items waiting;
-6. machine state: a quiet-machine hold, who holds a serial resource, heavy work deferred for load;
-7. the orchestrator's context filling (a hand-over is near);
-8. quiet hours on;
-9. time since the last report, as a sign the system is alive.
-
-Rules:
-
-- It is computed from the run-state file and the machine registry only, never from the network, so it is cheap and always current.
-- By default it shows only what needs the person. Fleet and machine detail appear on request, or when something is wrong.
-- How much it shows is a per-person setting in the person file ([13.4](13-operations.md#134-settings-in-four-layers), [part 23](23-people-in-the-lead.md#235-the-interface-as-a-design-surface)).
+A one-line, always-visible status line readout was planned and is dropped: the owner chose the dashboard page instead (HITLD-175). The status-line usage capture, which reads the plan's usage for the quota gate, is a separate thing and is retired once the quota probe is built (12.5).
 
 ### 12.1.2 The milestone graph
 
@@ -63,7 +48,8 @@ The milestone graph shows progress at the level people plan at. It complements t
 - **Plan**: the item dependency graph as inline SVG, the same data as `items-graph.md`. Items are nodes in their stage's color; `needs` are edges; lanes are projects; columns are steps by longest path, with the order in each lane from the same barycenter code; items linked to none drawn stand in a grid under their lane. The critical path is in the accent and ready items are marked. Each node links to its item file, and a text list of the same nodes sits under the graph for a screen reader. It draws the states `reports.dashboard_plan_states` names (planned and in progress by default: proposed items have their own view), and past `reports.dashboard_plan_max_items` items it is cut by project, naming what it leaves out. The full graph stays in `work/views/`.
 - **Proposals**: one table of every proposed item, by project: the idea, what stands between it and committing (ready to commit, waits on the owner's answer, or waits on other items, named), and how many open items wait on it. Proposed milestones are on the Roadmap.
 - **Flow**: how many items stood in each stage at the end of each day, from the committed state history, as stacked bands with the same figures as a table; then each measure beside its pair, the one that must not get worse (11.3): throughput beside the change failure rate, lead time beside the first-pass yield, work in progress beside what is blocked. A shallow clone says its history is cut.
-- **Quota and spend**: each quota against the reserve with its forecast (12.5), the thresholds passed, and the ledger's tokens by model and tier.
+- **Quota and spend**: each quota against the reserve with its forecast (12.5), the pace line against actual burn, the thresholds passed, and the ledger's tokens by model and execution profile.
+- **Trust** (decided, not built; HITLD-547, HITLD-555): one view of every kind of decision the trust engine keeps, with its current supervision mode, the evidence behind it and how near it is to its unlock bar ([2.15](02-loops.md#215-trust-calibration)). Unlock proposals themselves arrive as decisions in Your move.
 
 The stages and their colors are the tracker's: proposed, blocked, ready, in progress and done, with blocked and ready derived as the tracker derives them ([3.2](03-data-model.md)); a milestone shows progress, not a state. Light and dark follow the reader's setting. At phone width nothing scrolls the page sideways: wide graphs scroll inside their frame, and tables stack their cells.
 
@@ -71,7 +57,7 @@ The stages and their colors are the tracker's: proposed, blocked, ready, in prog
 
 ## 12.2 Progress reports
 
-A **progress report** is a digest of progress, sent through the notification channel inside the attention budget ([part 2](02-loops.md#the-owners-attention-as-a-budget)). It is sent when there is something to say, not on a calendar. `hitld cadence due` ([13.3](13-operations.md#133-the-scheduler-later-milestone)) says when, from these triggers:
+A **progress report** is a digest of progress, sent through the notification channel inside the attention budget ([part 2](02-loops.md#the-owners-attention-as-a-budget)). It is sent when there is something to say, not on the clock: the chief of staff looks and reports on events first, with a slow timer only as a safety net (HITLD-536). `hitld cadence due` ([13.3](13-operations.md#133-the-scheduler-later-milestone)) says when, from these triggers:
 
 | Trigger | Setting | Due when |
 |---|---|---|
@@ -80,9 +66,9 @@ A **progress report** is a digest of progress, sent through the notification cha
 | **Value** | `reports.every_merged_estimate_tokens` | The items merged since the last report add up to this many estimate tokens |
 | **The owner's presence** | `reports.when_owner_writes`, `reports.min_changes` | The owner writes in the chief of staff's session and at least `min_changes` merges or decisions are waiting |
 | **An idle machine** | `reports.when_idle`, `reports.min_changes` | No executor is running, load is low, and at least `min_changes` are waiting |
-| **A ceiling on silence** | `reports.silence_max_hours` | This long has passed with no report while a run is active or work changed |
+| **A ceiling on silence** | `reports.silence_max_hours` | This long has passed with no report while work is in flight or changed |
 
-The ceiling limits how long the owner may hear nothing. It is not a schedule: a report sent for any other reason restarts it, and with no run and no change, silence stays silent. A threshold of 0 is off. Quiet hours hold a report unless the owner is the one who wrote. Digests of questions and logged calls use the same triggers under `digests.*`, without the value trigger.
+The ceiling limits how long the owner may hear nothing. It is not a schedule: a report sent for any other reason restarts it, and with nothing in flight and no change, silence stays silent. A threshold of 0 is off. Quiet hours hold a report unless the owner is the one who wrote. Digests of questions and logged calls use the same triggers under `digests.*`, without the value trigger.
 
 - **One phone screen first.** The message itself fits a phone screen: per project, one line on what was built and one on what is next; decisions made and pending; study verdicts; blocked items; quota headroom. A link opens the full HTML report.
 - **Charts** in the full report: queue stocks over time, token use against accepted items, critical-path progress per milestone, quota burn.
@@ -104,7 +90,7 @@ Every controller ([part 11](11-metrics-and-control.md#114-feedback-controllers))
 
 ## 12.5 Quotas and budgets
 
-Autonomous runs spend the owner's account limits. The system must know them, forecast them, stay inside them, and never lock the owner out of their own tools.
+Autonomous work spends the owner's account limits. The system must know them, forecast them, stay inside them, and never lock the owner out of their own tools.
 
 **Where these settings live.** Limits, the reserve and the thresholds below belong to the person, in their own settings file outside any repository; a project may only be stricter ([part 13](13-operations.md#134-settings-in-four-layers)). Usage snapshots are kept per account in the machine-wide registry, so every project on a machine sees the same use.
 
@@ -115,7 +101,7 @@ Each limit is a **quota**:
 | Field | Meaning |
 |---|---|
 | `unit` | `tokens`, `requests`, `usd`, `credits`, or `plan-percent` (a vendor's "usage" percentage with no published unit) |
-| `window` | `rolling_5h` (the five-hour window some Claude plans have), `weekly`, `monthly_utc` (calendar month, UTC), `run`, or a custom period |
+| `window` | `rolling_5h` (the five-hour window some Claude plans have), `weekly`, `monthly_utc` (calendar month, UTC), `run` (as built), or a custom period |
 | `limit` | The amount per window, where known |
 | `scope` | Which account, harness and models it covers |
 | `source` | `measured` from a vendor readout or API, `estimated` from the ledger, or `declared` in the person's settings |
@@ -124,9 +110,9 @@ Each limit is a **quota**:
 | `reserve` | The share kept back for the owner's own interactive use |
 | `resets_at` | Optional: a time the window is known to reset, as the person declares it; later resets follow one window length apart. Used when no reading gives the reset |
 
-The existing run token budget becomes a quota with `window: run`.
+As built, a run's token budget is a quota with `window: run`. With no run object (HITLD-484), a budget belongs to a signed commitment decision instead (HITLD-522, [4.6](04-decision-rights.md#46-autonomy-changes-with-the-record)); how that budget is checked against the quota model is not decided (HITLD-522 says only where the budget lives; the open point is tracked with HITLD-558).
 
-**The default limit is the weekly window** of a Claude subscription (`claude-weekly`: `plan-percent` on `weekly`), read from the status line. Some plans also have a five-hour window (Pro, Max, and seat-based Team and Enterprise plans, per their documentation); Ultra and usage-based plans do not. A limit with no reading stops dispatch, so the five-hour window is not a default. The gate adds it in one of two ways: while the account's latest status-line snapshot reports a five-hour window that has not reset, it adds a `claude-five-hour` limit (`plan-percent` on `rolling_5h`), which goes once Claude Code drops the window after its reset; or the person file declares a limit on `rolling_5h`, which is used as declared, and nothing is added. On a Team or Enterprise seat the status line may not report the window, so the owner may need to declare the limit by hand.
+**The default limit is the weekly window** of a Claude subscription (`claude-weekly`: `plan-percent` on `weekly`), read today from the status-line capture or a declared figure, and from the quota probe once it is built (below). Some plans also have a five-hour window (Pro, Max, and seat-based Team and Enterprise plans, per their documentation); Ultra and usage-based plans do not. A limit with no reading stops dispatch, so the five-hour window is not a default. The gate adds it in one of two ways: while the account's latest status-line snapshot reports a five-hour window that has not reset, it adds a `claude-five-hour` limit (`plan-percent` on `rolling_5h`), which goes once Claude Code drops the window after its reset; or the person file declares a limit on `rolling_5h`, which is used as declared, and nothing is added. On a Team or Enterprise seat the status line may not report the window, so the owner may need to declare the limit by hand.
 
 ### What can be measured, by harness
 
@@ -141,34 +127,44 @@ What a vendor exposes decides how much the system must estimate. Four kinds of s
 
 **Where nothing is machine-readable, the limit is declared** in the person's settings with `source: declared`, and consumption is estimated from the ledger. When a measured value arrives (a daily figure, a status-line snapshot), the estimate is corrected, and the estimator's accuracy (bias) and precision (spread) against measurements are tracked, as for token estimates ([part 1](../0001-human-in-the-lead.md#14-accuracy-and-precision)).
 
-**The status-line usage capture is opt-in.** It touches the person's own harness settings (it installs a status line command, or wraps the person's own), so the first-run setup offers it and explains what it changes ([13.4](13-operations.md#first-run)). Without it, the limit is declared and estimated.
+**The status-line usage capture is opt-in.** It touches the person's own harness settings (it installs a status line command, or wraps the person's own), so the first-run setup offers it and explains what it changes ([13.4](13-operations.md#first-run)). Without it, the limit is declared and estimated. *As built; the owner decided to retire this capture once the quota probe is built (HITLD-173, HITLD-165), which replaces it for the quota gate.*
+
+**The quota probe** (decided in HITLD-166 to HITLD-173; not built, HITLD-165). A probe makes one minimal print-mode request on the smallest model and reads the rate-limit event the `claude` command prints after it: the account's utilization per window and its reset time. It runs when a reading is needed and stale (older than a set age, 30 minutes to start) and again as the used share nears the reserve, wherever the gate needs a reading, and writes each reading to the store when it is reachable. A fresh reading wins over a declared figure; the declared figure is used only when no fresh reading exists. Its cost is recorded as probe spend, counted against no item. A probe that is denied, fails or meets a format it does not recognize falls back to the declared figure and is escalated, from the orchestrator to the chief of staff to the owner. The event's format is not documented, so an unrecognized reading counts as no reading. Once the probe is built, the status-line usage capture is retired.
 
 ### Forecast
 
-For each quota: the **burn rate** (consumption per hour, smoothed over a recent window and split by run and by interactive use where the source allows; usage snapshots are per account in the machine registry, so another project's run is not counted as interactive use, [13.4](13-operations.md#across-projects)), the **remaining** amount above the reserve, and the **projected exhaustion** time with a band that reflects the estimate's precision. A quota projected to run out before its window resets is flagged.
+For each quota: the **burn rate** (consumption per hour, smoothed over a recent window; a project's own share comes from its measured tokens, and everything else on the account, the owner's own use and other projects alike, is the measured remainder, [13.4](13-operations.md#across-projects)), the **remaining** amount above the reserve, and the **projected exhaustion** time with a band that reflects the estimate's precision. A quota projected to run out before its window resets is flagged.
+
+### Pace
+
+**The target pace is an even line to the reserve** (HITLD-530). The line runs from the window's start to the reserve at the reset. When the account's total use is ahead of the line, the gate slows work early; when it is behind, the system may use the spare capacity, but only on work a commitment allows. The reserve stays untouched, and the owner's own use counts as a draw on the line. Pace is the rate the plan allows per hour (HITLD-577).
+
+**Projects are blind to each other** (HITLD-549). Each project follows the line on the account's total utilization, read from the quota probe or a declared figure, and nothing else: no project reads another's data, and there are no shares and no per-project ceilings. This replaces a person-level layer that split the pace into shares per project (HITLD-531), because projects that know about each other can leak confidential information. The person-level layer of the ledger stays limited to learned aggregates ([13.1](13-operations.md#131-orchestrator-continuity)).
+
+**The pace controller starts from AIMD** (HITLD-550): additive increase of a project's executor concurrency and spend while the account total is below the line, multiplicative decrease when it is above, the same rule that adapts the executor count ([5.2](05-execution.md#the-ready-queue-and-the-cap)). It is the rule TCP congestion control uses to let senders that know nothing of each other share one bottleneck through a shared signal. The probe reads about every 30 minutes and spend accumulates over hours, so the gains are conservative, to absorb the delay. A first window needs no special case: like a slow start, the controller begins at a small rate and increases. The study may swap the rule on evidence (HITLD-509). The gains and the feedback interval are not decided: they are set from measurement once the probe exists. *Decided, not built (HITLD-558, milestone HITLD-567).*
 
 ### Control
 
-Quotas are **constraints for the controllers**. The budget controller ([part 11](11-metrics-and-control.md#114-feedback-controllers)) acts as headroom shrinks:
+Quotas are **constraints for the controllers**. As built, the budget controller ([part 11](11-metrics-and-control.md#114-feedback-controllers)) acts on fixed bands as headroom shrinks; whether these bands stay beside the pace controller or give way to it is not decided (HITLD-550 chose AIMD over bands around the line but is silent on the bands; the pace controller's work item is HITLD-558):
 
 | Headroom above the reserve | Action |
 |---|---|
 | Ample | Normal dispatch |
-| Below `quota.economize_below` | Prefer cheaper models and tiers where the sizing rules allow it (never below the tier blast radius requires; such items wait instead); lower concurrency |
-| Below `quota.critical_below` | Dispatch only critical-path items |
+| Below `quota.economize_below` | Prefer cheaper rungs of the cascade where the profile rules allow it (as built, never below what the tier's blast-radius rule requires, and such items wait instead; how blast radius enters execution profiles is not decided, tracked in HITLD-561); lower concurrency |
+| Below `quota.critical_below` | Dispatch only critical-path items; an emergent escalation counts as critical path ([2.4](02-loops.md#24-prioritization)) |
 | At the reserve | Stop autonomous dispatch; in-flight executors finish or checkpoint; the owner is told |
 
-- **The owner's reserve is never spent by autonomous work.** The default reserve is 25% of each window, set in the person file ([13.4](13-operations.md#134-settings-in-four-layers)); it stays available so an autonomous run never locks the owner out of their own interactive use (decided: [Q11](22-open-questions.md#q11-how-large-is-the-owners-reserve-on-each-account-limit)).
+- **The owner's reserve is never spent by autonomous work.** The default reserve is 25% of each window, set in the person file ([13.4](13-operations.md#134-settings-in-four-layers)); it stays available so autonomous work never locks the owner out of their own interactive use; no budget and no escalation spends it (decided: [Q11](22-open-questions.md#q11-how-large-is-the-owners-reserve-on-each-account-limit)).
 - **Threshold notifications** at `quota.notify_used` levels go into the digest; a projected exhaustion before reset, or reaching the reserve, is an interrupt.
 - **Hard budgets need a yes.** Limits that cost money are hard: before any action that would exceed one (paid overage, API spend), the system asks the person and waits. Plan windows are soft, with the reserve (decided: [Q12](22-open-questions.md#q12-which-limits-are-hard)).
 
 ### Pausing and resuming
 
-A stop at the reserve is a pause, not an end. Nothing else wakes the run when the window resets, so the pause says when it will.
+A stop at the reserve is a pause, not an end. Nothing else wakes the work when the window resets, so the pause says when it will.
 
-- **Recorded with its reset.** When the gate stops dispatch for every item, the session holding the lease records `paused` in the ledger: the limit that stopped it, the gate's reason, and when that limit's window resets. The reset comes from the latest reading (the status line's `resets_at`) or, without one, from the limit's declared `resets_at`. An item held because its own estimate would cross the reserve is a hold, not a pause.
-- **A wake at the reset.** `hitld dispatch plan` gives the reset as `wake_at`, and `hitld run status` shows it, so the chief of staff has a wake pending for that time ([part 13](13-operations.md#the-watchdog-and-resuming-after-limits)). When no reset time is known, the watchdog looks again at each of the chief of staff's wakes.
-- **Resumed.** At the wake the orchestrator re-plans. The gate decides from the next reading; once it no longer stops dispatch, the run records `resumed` with reason `reset`.
+- **Recorded with its reset.** When the gate stops dispatch for every item, the orchestrator records `paused` in the ledger: the limit that stopped it, the gate's reason, and when that limit's window resets. The reset comes from the latest reading (its `resets_at`) or, without one, from the limit's declared `resets_at`. An item held because its own estimate would cross the reserve is a hold, not a pause.
+- **A wake at the reset.** `hitld dispatch plan` gives the reset as `wake_at`, so the chief of staff has a wake pending for that time ([part 13](13-operations.md#the-watchdog-and-resuming-after-limits)). When no reset time is known, the watchdog looks again at each of the chief of staff's wakes.
+- **Resumed.** At the wake the orchestrator re-plans. The gate decides from the next reading; once it no longer stops dispatch, the orchestrator records `resumed` with reason `reset`.
 - **A raised budget re-plans at once.** When the person raises a limit or lowers their reserve with `hitld config write`, the command says whether the new settings lift the pause. If they do, the chief of staff wakes the orchestrator straight away, and its plan records `resumed` with reason `budget`, without waiting for the reset.
 - **Executors cut off by the limit.** An executor that stopped because the account reached its limit is found by the watchdog after the reset and continued as a follow-up ([part 5](05-execution.md#the-watchdog)). Until the reset, the watchdog does not count quiet executors as stalled.
 
@@ -183,7 +179,7 @@ Different people need different views of the same progress:
 | Audience | Gets | Classification ceiling |
 |---|---|---|
 | **The owner** | Progress reports, decisions, quotas | Everything |
-| **Area owners and co-maintainers** | Their areas' progress, and decisions in their areas (answered by the owner until [Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)'s signed answers exist) | `internal` (and `confidential` items they are cleared for) |
+| **Area owners and co-maintainers** | Their areas' progress, and decisions in their areas (answered by the owner until an answer can carry a checkable proof from its own person, HITLD-515, and [Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)) | `internal` (and `confidential` items they are cleared for) |
 | **Contributors and users** | Release notes, changelog with credit, roadmap status | `public` |
 | **A team or leadership** | Status per long outcome and project: outcomes, risks, what is next | Set per audience in `policy.json` |
 

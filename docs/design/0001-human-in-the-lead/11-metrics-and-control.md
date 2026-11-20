@@ -13,7 +13,7 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 | **Stocks and flows per queue** | For each queue in [part 2](02-loops.md): items waiting (stock), arrivals and departures per period (flows) | Tracker history, ledger |
 | **Lead time** | From an item's `planned` to `done`; also from a signal's arrival to the release that resolves it | Tracker history |
 | **Critical-path progress** | For each active milestone: items done on its critical path over items on it; and the estimate tokens remaining on the path | Tracker, estimates |
-| **Slot utilization** | Busy executor-slot time over (concurrency cap × run time) | Ledger |
+| **Slot utilization** | Busy executor-slot time over (executors allowed × elapsed time) | Ledger |
 | **Blocked time** | Time items spend ready-but-waiting: on a decision, a serial resource, or the merge queue, broken down by cause | Tracker history, ledger |
 | **Decision latency** | From a decision being asked to being answered, split into queue time (held for a digest: `asked` to `sent`) and owner time (shown, unanswered: `sent` to `answered`). Median and 90th percentile. A decision never recorded as shown has no queue time, and its owner time runs from `asked`. A decision that took its default (`answered` with `via: default`) is counted apart and left out | Ledger |
 
@@ -21,9 +21,9 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 
 | Measure | Definition | Source |
 |---|---|---|
-| **Tokens per accepted item** | All tokens of all dispatches attributed to an item (executor, retries, acceptance, adversary, review) for items merged and not reverted, divided by their count; by tier and item type | Ledger |
+| **Tokens per accepted item** | All tokens of all dispatches attributed to an item (executor, retries, acceptance, adversary, review) for items merged and not reverted, divided by their count; by execution profile and item type | Ledger |
 | **Waste** | Tokens on dispatches whose output was discarded: retried, dropped, reverted. Speculation cost is reported separately | Ledger |
-| **Orchestrator overhead** | Orchestrator tokens over total tokens in a run | Ledger, session usage |
+| **Orchestrator overhead** | Orchestrator tokens over total tokens of the work it ran | Ledger, session usage |
 | **Onboarding tokens** | Tokens an executor consumed before its first edit tool call. Where the harness exports telemetry with token use per request and timestamped tool decisions (Claude Code's OpenTelemetry export is the intended source, collected locally), from that. Session transcript files are not parsed, because their format is not a stable interface. Not measured on harnesses without such telemetry | Telemetry → ledger |
 | **Token estimate error** | Per item type: accuracy as the mean of log(actual / estimate) (bias), and precision as its standard deviation (spread) | Ledger |
 
@@ -31,15 +31,15 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 
 | Measure | Definition | Source |
 |---|---|---|
-| **First-pass yield** | Share of items whose first executor report passed verification and merged without a follow-up round; by tier, item type and area | Ledger |
+| **First-pass yield** | Share of items whose first executor report passed verification and merged without a follow-up round; by execution profile, item type and area | Ledger |
 | **Change failure rate** | Share of merged items later reverted or followed by a fix item that cites them | Tracker links, git |
 | **Rework rate** | Share of merges that are unplanned fixes for recently merged changes (DORA's deployment rework rate, adapted to merges) | Tracker links |
 | **Recovery time** | From a sev-1 or sev-2 being raised to the rollback or fix that ends user impact | Tracker history |
-| **Escaped defects** | Defects found after merge, per area, tier, model and skill version, with reliability growth per area ([part 6](06-verification.md#65-reliability-over-time)) | Tracker, provenance |
+| **Escaped defects** | Defects found after merge, per area, execution profile, model and skill version, with reliability growth per area ([part 6](06-verification.md#65-reliability-over-time)) | Tracker, provenance |
 | **Review yield per token** | Confirmed findings per review token; the same for adversarial passes | Ledger |
 | **Mutation score on changed lines** | Killed mutants over all mutants in changed code | Verification output |
 | **Flake rate** | Test failures that pass on rerun with no change, over all failures | Per-test history from the test reporter ([part 14.7](14-integration.md#147-flaky-tests)), merge queue logs |
-| **Stall rate** | Share of executor dispatches the watchdog found stalled ([part 5](05-execution.md#the-watchdog)), by model, tier and area, with the ladder steps taken. Executors cut off by a usage limit are counted apart: the limit is not the executor's failure. `hitld ledger summary` reports it | Ledger |
+| **Stall rate** | Share of executor dispatches the watchdog found stalled ([part 5](05-execution.md#the-watchdog)), by model, execution profile and area, with the ladder steps taken. Executors cut off by a usage limit are counted apart: the limit is not the executor's failure. `hitld ledger summary` reports it | Ledger |
 | **Calls made without asking** | Logged calls, per session and host that made them, so a call can be traced to who made it. `hitld ledger summary` reports it | Ledger |
 
 ### Attention and relationships
@@ -47,8 +47,9 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 | Measure | Definition | Source |
 |---|---|---|
 | **Decisions per period** and **reads per period** | Owner attention spent, against the budget | Ledger |
+| **Asks** | Every question to the owner, the chief of staff's own included and walk-throughs the owner starts excluded, per decision settled and per hour (HITLD-538; not built, HITLD-563). The trust engine's unlocks are what should lower it | Ledger |
 | **Auto-resolution rate** and **overrule rate** | Share of questions resolved by precedent; share of those the owner reversed | Tracker |
-| **Rubber-stamp share** | Per area, of the answers that record both whether the recommendation was taken and how long the owner took, the share that took it within `trust.rubber_stamp_seconds` of the question being shown. A high share is a prompt to look: either the recommendations are good or the owner is not reading. Its pair is the overturn count: answers stamped and later reversed. The digest lists it per area | Trust record |
+| **Rubber-stamp share** (being removed) | As built: per area, the share of answers that took the recommendation within `trust.rubber_stamp_seconds` of the question being shown, listed in the digest. The owner's answer speed is no longer read as inattention, and the timer stops being a trust input (HITLD-535; removed in HITLD-557). A measure of how well reviews keep up, if wanted, is a metric proposed through HITLD-408 | Trust record |
 | **Escalation worth** | Of the questions rated, the share rated worth asking. Each question offers the optional rating; "that was not worth asking", said right after an answer, rates that answer. A later rating of the same decision replaces the earlier | Trust record |
 | **Time to first response** | For external issues and PRs, per source and trust level | Intake, send gate |
 | **Contributor retention, bus factor** | [Part 9](09-contributors.md#95-community-health) | Tracker, git |
@@ -69,7 +70,7 @@ Every metric here traces to a term of the objective ([part 1](../0001-human-in-t
 
 These are the built defaults. Until the "Controllers" milestone, no controller moves the value; from then on the concurrency controller does.
 
-- A **controller** may move a setting's `value` inside its `min` and `max` without asking. Every move is logged in `controller-steps.jsonl` ([12.3](12-reporting-and-limits.md#123-inspectable-controllers)) with the measurements that caused it, and each digest carries a short summary of the moves since the last one. The run-state file holds each setting's current value.
+- A **controller** may move a setting's `value` inside its `min` and `max` without asking. Every move is logged in `controller-steps.jsonl` ([12.3](12-reporting-and-limits.md#123-inspectable-controllers)) with the measurements that caused it, and each digest carries a short summary of the moves since the last one. As built, the run-state file holds each setting's current value; where it lives once the run object is gone is not decided (HITLD-492 removes the run state and does not say where controller settings go).
 - Moving a setting **outside its bounds**, changing a bound, adding a setting, or changing a controller's rule is a **rule change**: the owner's decision ([part 4](04-decision-rights.md#42-when-the-owner-is-involved)).
 
 ## 11.3 Goodhart pairs
@@ -80,7 +81,7 @@ When a measure becomes a target, it stops being a good measure (Goodhart's law, 
 |---|---|
 | Throughput (merges, items done) | Change failure rate, escaped defects |
 | Tokens per accepted item ↓ | First-pass yield, escaped defects |
-| Decision latency ↓ | Overrule and reversal rate of answered decisions; rubber-stamp share |
+| Decision latency ↓ | Overrule and reversal rate of answered decisions |
 | Auto-resolution rate ↑ | Overrule rate of precedent applications |
 | Slot utilization ↑ | Blocked time, merge conflicts, rework rate |
 | Review allocation ↓ (fewer reviews) | Escaped defects in unreviewed areas |
@@ -99,17 +100,17 @@ Seven controllers: the five below, merge batch size and the flake comparison run
 
 | Controller | Sensor | Actuator | Rule | Pair checked |
 |---|---|---|---|---|
-| **Sizing** | First-pass yield per item type and tier, over the last `n` completions | Default tier for that item type | Below `fpy_low` with at least `min_samples`: raise the default tier one step. Above `fpy_high` with at least `min_samples`: try one step lower on the next items of that type. Between: hold | Tokens per accepted item |
-| **Concurrency** | Merge conflicts needing rework; serial-resource waits over `wait_max`; admission waits for a loaded machine; flake rate, in particular rising with executors ([part 14](14-integration.md#load-and-concurrency)); orchestrator context pressure | `execution.max_executors` | Additive increase, multiplicative decrease: after `k` clean completions, `+1`; on any congestion signal, decrease by one when the cap is 4 or less, and halve above that (rounded down, not below `min`) | Slot utilization, blocked time |
-| **Review allocation** | Confirmed findings per review token, and per adversarial token, per area and tier | Review probability and adversarial budget per area and tier | Allocate in proportion to yield, with a floor (`explore_floor`) so that every area keeps being sampled; raise to the maximum for an area with a recent escaped defect | Escaped defects |
+| **Sizing** | First-pass yield per item type and rung of the cascade, over the last `n` completions | The cascade's starting rung for that item type ([5.1](05-execution.md#51-execution-profiles)) | Below `fpy_low` with at least `min_samples`: start one rung higher. Above `fpy_high` with at least `min_samples`: try one rung lower on the next items of that type. Between: hold. As built, the actuator is the default tier (HITLD-561) | Tokens per accepted item |
+| **Concurrency** (the pace controller) | The account's total use against the even pace line ([12.5](12-reporting-and-limits.md#pace)); measured machine headroom; merge conflicts needing rework; serial-resource waits over `wait_max`; admission waits for a loaded machine; flake rate, in particular rising with executors ([part 14](14-integration.md#load-and-concurrency)); the owner's awaiting-merge queue; orchestrator context pressure | How many executors run and how fast the project spends, under the hard ceiling `execution.max_executors` (HITLD-534, HITLD-550) | Additive increase while the account total is below the line and nothing is congested; multiplicative decrease when it is above or on any congestion signal, with conservative gains for the feedback delay. The gains and the feedback interval are open, set from measurement once the quota probe exists (HITLD-509). As built (until HITLD-558): after `k` clean completions, `+1`; on any congestion signal, decrease by one when the cap is 4 or less, and halve above that (rounded down, not below `min`), acting on `execution.max_executors` itself | Slot utilization, blocked time |
+| **Review allocation** | Confirmed findings per review token, and per adversarial token, per area and execution profile | Review probability and adversarial budget per area and execution profile | Allocate in proportion to yield, with a floor (`explore_floor`) so that every area keeps being sampled; raise to the maximum for an area with a recent escaped defect | Escaped defects |
 | **Question timing** | The owner's recent answer latency and activity (answers in the last interval) | Digest interval; whether non-urgent questions go out now | When the person is answering quickly, shorten the interval, and non-urgent questions may go at once; each one counts against their attention budget and quiet hours hold them. When they are quiet, hold for the next digest. Critical-path and idle-slot questions always go at once (quiet hours permitting). Whether non-urgent questions may go at once is a per-person setting ([13.4](13-operations.md#134-settings-in-four-layers), [part 23](23-people-in-the-lead.md#235-the-interface-as-a-design-surface)) | Decision latency, owner overrule rate |
-| **Budget** (quotas, including the run token budget) | Headroom above the owner's reserve for every quota, and projected exhaustion against each window's reset ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)) | Model and tier choice; concurrency; which items may be dispatched; whether to dispatch at all | Economize below `quota.economize_below` (cheaper models where sizing allows, lower concurrency); critical-path only below `quota.critical_below`; stop autonomous dispatch at the reserve; ask the owner before exceeding any `hard` quota | Critical-path progress; first-pass yield (economizing must not cost more in retries than it saves) |
+| **Budget** (quotas, and each commitment's budget) | Headroom above the owner's reserve for every quota, and projected exhaustion against each window's reset ([part 12](12-reporting-and-limits.md#125-quotas-and-budgets)) | The cascade's rung; concurrency; which items may be dispatched; whether to dispatch at all | As built: economize below `quota.economize_below` (cheaper rungs where the profile allows, lower concurrency); critical-path only below `quota.critical_below`; stop autonomous dispatch at the reserve; ask the owner before exceeding any `hard` quota. Whether these bands stay beside the pace controller is not decided (HITLD-550, HITLD-558); the reserve stays a hard stop | Critical-path progress; first-pass yield (economizing must not cost more in retries than it saves) |
 | **Merge batch size** | Batch failure rate and bisection cost ([part 14](14-integration.md#146-measures)) | `merge.batch_max` | Smaller after failures, so bisection is cheaper; larger after a run of clean batches | Queue wait |
 | **Flake comparison runs** | Flake rate, and how often a comparison was inconclusive ([part 14.7](14-integration.md#147-flaky-tests)) | `flake.compare_runs`, below the ceiling `flake.compare_runs_max` in `policy.json` | More runs when comparisons are inconclusive; fewer after a run of clear ones | Flake cost |
 
-**Stalls feed the sizing controller.** A dispatch the watchdog found stalled counts as a miss in first-pass yield at its tier, whatever happened after. So an item type that keeps stalling at a tier is not taken down to it for familiar ground.
+**Stalls feed the sizing controller.** A dispatch the watchdog found stuck counts as a miss in first-pass yield at its rung, whatever happened after. So an item type that keeps stalling at a rung does not start there again.
 
-The concurrency and budget controllers act on one project's settings, but the caps and quotas they work under are shared. The person's appetite for parallel agents and the machine's maximum apply across every project on the machine, and the person's limits and reserve apply across every machine; the strictest layer wins ([part 13](13-operations.md#134-settings-in-four-layers)).
+The concurrency and budget controllers act on one project's settings, but the caps and quotas they work under are shared. The machine's maximum is a fact about the machine and applies to whatever runs on it, and the person's limits and reserve apply across every machine; the strictest layer wins. Whether a person-level ceiling on parallel agents across projects stays is not decided ([13.4](13-operations.md#134-settings-in-four-layers)). Projects share the account's pace only through its total, blind to each other ([12.5](12-reporting-and-limits.md#pace)) ([part 13](13-operations.md#134-settings-in-four-layers)).
 
 ### Stability rules
 
@@ -142,7 +143,7 @@ Adopting a change is the owner's decision, with the study as the evidence.
 
 The ledger records each dispatch's brief hash and skill versions, and the tracker and git record the repository state at each claim. A **replay** reruns past items against a new skill or brief version:
 
-1. Pick a sample of completed items, stratified by tier, area and item type.
+1. Pick a sample of completed items, stratified by execution profile, area and item type.
 2. For each, check out the repository at the claim commit's parent, and dispatch the item again with the new version, in a scratch worktree, with the original "done when" and the original acceptance checks.
 3. Compare first-pass yield, tokens, onboarding tokens and verification findings against the original dispatches.
 
@@ -154,9 +155,9 @@ For effects replay cannot measure, the new and old versions are assigned to comp
 
 ### Recalibrating on model changes
 
-A new model, or a new version of one, changes every estimate. When the model behind a tier changes:
+A new model, or a new version of one, changes every estimate. When the model behind a rung of the cascade changes:
 
-- token estimators for that tier reset their scale factors and widen their spread until new samples arrive;
-- sizing defaults for that tier return to the policy defaults;
-- the human-read sampling rates for areas the tier touches return to defaults ([part 6](06-verification.md#65-reliability-over-time));
+- token estimators for that rung reset their scale factors and widen their spread until new samples arrive;
+- starting rungs that rest on it return to the policy defaults;
+- the human-read sampling rates for areas the rung touches return to defaults ([part 6](06-verification.md#65-reliability-over-time));
 - a replay of a standard sample is run, so that the change is measured before it is trusted.

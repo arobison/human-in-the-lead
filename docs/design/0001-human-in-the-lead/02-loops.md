@@ -17,7 +17,7 @@ The loops run at different speeds, and **slower loops set the setpoints for fast
 
 The rules are strictest on the slow loops because their mistakes last longest: a wrong concurrency setting costs one batch, a wrong autonomy grant costs many decisions, and a wrong strategy costs the whole portfolio.
 
-**Loops run on evidence, not on the calendar.** Agents keep no office hours, so nothing recurs because a day or a week has passed. What matters is how much has changed and whether the owner is there. A report or digest is due when enough merges, decisions or value have accumulated, when the owner writes, or when the machine is idle; a calendar ceiling only limits how long the owner may hear nothing. A calibration review is due when enough new outcomes have arrived. Baselines and offline evals run when the integration branch has moved and the machine is idle. `hitld cadence due` works this out from the ledger and the machine's state, and the chief of staff runs what it lists ([13.3](13-operations.md#133-the-scheduler-later-milestone)).
+**Loops run on evidence, not on the calendar.** Agents keep no office hours, so nothing recurs because a day or a week has passed. What matters is how much has changed and whether the owner is there. The chief of staff looks and reports on events first (HITLD-536): a pull request's checks finish, an executor goes quiet, a decision is waiting, the pace line is crossed, a usage reading goes stale. A slow timer of every few hours only catches a lost event, and a digest is sent when something needs the owner, not on the clock. A report or digest is due when enough merges, decisions or value have accumulated, when the owner writes, or when the machine is idle; a ceiling only limits how long the owner may hear nothing. A calibration review is due when enough new outcomes have arrived. The count thresholds (`digests.every_merges`, `reports.every_merges` and the like) stay as triggers: a count of what has changed is evidence, not the clock, so it fits events first (HITLD-536). Baselines and offline evals run when the integration branch has moved and the machine is idle. `hitld cadence due` works this out from the ledger and the machine's state, and the chief of staff runs what it lists ([13.3](13-operations.md#133-the-scheduler-later-milestone)).
 
 ```mermaid
 flowchart TB
@@ -98,7 +98,7 @@ These apply to every loop.
 - **Leading indicators drive control.** Delays between an action and its effect cause oscillation (a standard result in control theory and system dynamics; Sterman, *Business Dynamics*, covers it for delayed feedback loops). So each controller acts on the earliest signal available: queue growth rather than lead time, the first failed check rather than the escaped defect.
 - **Little's Law sizes the queues.** For a stable queue, average WIP = throughput × average time in the stage. A WIP limit therefore caps time in the stage for a given throughput; when a stage's queue grows while its throughput holds, it is the constraint.
 - **The constraint gets protected.** Following the theory of constraints, the system identifies the current constraint (usually the owner's attention or the merge queue), keeps it busy with the right work, keeps it from waiting on anything else, and subordinates the other stages to its pace. Feeding a stage faster than the constraint can drain it only grows a queue.
-- **Escalation means "this call is someone else's by the decision rights"**, never "this is hard". Hard but in-rights work goes up a tier, not to the owner. The full rules are in [part 4](04-decision-rights.md).
+- **Escalation means "this call is someone else's by the decision rights"**, never "this is hard". Hard but in-rights work goes up the model-and-effort cascade ([5.1](05-execution.md#51-execution-profiles)), not to the owner. The full rules are in [part 4](04-decision-rights.md).
 
 ---
 
@@ -124,9 +124,9 @@ These apply to every loop.
 | | |
 |---|---|
 | **Queue** | Signals in state `new`. |
-| **WIP limit** | `triage.wip` signals per triage pass. Triage runs as a tier-1 background agent per batch. |
+| **WIP limit** | `triage.wip` signals per triage pass. Triage runs as a background agent per batch, its model and effort from the cascade ([5.1](05-execution.md#51-execution-profiles)). |
 | **Sensors** | Queue stock; time from arrival to triage; routing accuracy (share of routes later changed by a human or a downstream agent); duplicate-detection precision and recall (from later merges of duplicates the triager missed, and from wrongly merged signals reopened). |
-| **Controller** | Batch size follows queue stock within bounds. Routing confidence below `triage.confidence_floor` sends a signal to a tier-2 triager rather than to the owner. |
+| **Controller** | Batch size follows queue stock within bounds. Routing confidence below `triage.confidence_floor` sends a signal to a triager one rung higher in the cascade rather than to the owner. |
 | **Escalation** | To the owner only when the signal itself carries an owner's call: a security report, a request touching a public commitment, a relationship matter (a partner, a complaint, a code-of-conduct report), or a question addressed to the owner personally. Everything else is routed by rule or precedent. |
 
 **Steps.**
@@ -145,15 +145,15 @@ These apply to every loop.
 
 ## 2.3 Shaping
 
-**Purpose.** Turn clusters of signals into **projects** that are ready to bet on. A project being shaped is a `proposed` project: a problem statement, evidence, options, value, confidence, and an appetite. This adapts Shape Up's shaping. Shape Up measures appetite in time; this design measures it in tokens.
+**Purpose.** Turn clusters of signals into **projects** that are ready to bet on. A project being shaped is a `proposed` project: a problem statement, evidence, options, value, confidence, and an appetite. This adapts Shape Up's shaping. Shape Up's appetite is the time a team is willing to spend; in this design **appetite** is how big the work is estimated to be, in tokens, from its item estimates, and what the owner allows a commitment to spend is its **budget** (HITLD-577).
 
 | | |
 |---|---|
 | **Queue** | Proposed projects nobody has shaped yet (a cluster of signals exists), ordered by the cluster's reach and the cost of delay of its strongest signal. |
-| **WIP limit** | `shaping.wip` projects in shaping at once. Shaping is tier 2 or 3, and it spends the owner's attention at the end (the bet), so the limit is low. |
+| **WIP limit** | `shaping.wip` projects in shaping at once. Shaping is design-heavy work ([5.1](05-execution.md#51-execution-profiles)), and it spends the owner's attention at the end (the bet), so the limit is low. |
 | **Sensors** | Shaped projects waiting for a bet (if this grows, shaping is outrunning the owner); share of shaped projects the owner drops (shaping quality); appetite overrun rate on bets that ship. |
 | **Controller** | When projects waiting for a bet exceed `shaping.awaiting_bet_max`, shaping pauses and its capacity goes to execution. When the owner's rejection rate rises, shaping requires more evidence before presenting (for example, desk research or a spike). |
-| **Escalation** | The bet is always the owner's (or the area owner's) call: committing an appetite is a commitment of budget. Shaping escalates early, as a decision, when it finds conflicting evidence or when every option crosses a public commitment. |
+| **Escalation** | The bet is always the owner's (or the area owner's) call: it commits the project. Shaping escalates early, as a decision, when it finds conflicting evidence or when every option crosses a public commitment. |
 
 **A project being shaped has** ([part 3](03-data-model.md#project) has the fields):
 
@@ -162,7 +162,7 @@ These apply to every loop.
 - **Options:** two or three ways to address it, each with what it trades off. "Do nothing" is always an option, with its cost of delay.
 - **Value:** a positive number in the project's value units, with a **confidence** (a probability that the value materializes if built). The pair is what prioritization uses. The unit is the project's own and it is the same for a project and for a milestone's contributions, so a value divided by tokens is a ratio. 1, 2, 3, 5, 8 and 13 are quick choices for the person entering a value, not the only values.
 - **Cost of delay profile:** standard (value lost at a steady rate), urgent (high rate now), fixed-date (value falls to near zero after an external date), or intangible (low rate now, rising later, as with technical debt).
-- **Appetite:** the token budget the problem is worth. Work is shaped to fit the appetite, not estimated after the fact. The project holds it.
+- **Appetite:** how big the work is estimated to be, in tokens, from its item estimates (HITLD-577, HITLD-412). The project holds it, and each milestone holds its share. What a commitment may spend is set by its budget, not by the appetite ([4.6](04-decision-rights.md#46-autonomy-changes-with-the-record)).
 - **Milestones:** the outcome cut into thin, checkable future states for users, each with its "done when", its constraints and its share of the project's appetite ([part 3](03-data-model.md#milestones-and-releases)). `hitld work check` verifies that the shares fit. Their outcomes are what would show, after shipping, that the problem is solved; outcome sensing checks them ([2.10](#210-outcome-sensing)).
 - **Out of scope and risks:** what is explicitly out, and the known holes the work could fall into.
 
@@ -186,7 +186,7 @@ These apply to every loop.
 
 **The ordering rule.** Weighted shortest job first (WSJF, after Reinertsen's work on cost of delay): **cost of delay divided by size**, where size is the token estimate. For dependent items, the critical path dominates: an item that unblocks others carries the cost of delay of everything behind it. Adjustments:
 
-- **Milestones** (planned, [part 3](03-data-model.md#milestones-and-releases)). A milestone's constraint carries the milestone's whole cost of delay, because without it no clause comes true. A contribution carries its own value × confidence (value in the project's value units, the same as a project's), and enters the queue only while it is inside the milestone's scope (the contributions that fit the appetite by value per token). There are no priority labels: what must happen is a constraint, everything else is scored.
+- **Milestones** (planned, [part 3](03-data-model.md#milestones-and-releases)). A milestone's constraint carries the milestone's whole cost of delay, because without it no clause comes true. A contribution carries its own value × confidence (value in the project's value units, the same as a project's), and enters the queue only while it is inside the milestone's scope (the contributions kept in scope by value per token; how scope relates to a budget is not decided, see [part 3](03-data-model.md#milestones-and-releases)). There are no priority labels: what must happen is a constraint, everything else is scored.
 
 - **Value of information.** A study or spike whose verdict would change which option is chosen carries the expected value of that change. This lets cheap experiments jump ahead of expensive builds when the choice is uncertain.
 - **Owner judgment as a prior.** A signal or a project being shaped that carries an owner judgment ([part 3](03-data-model.md#judgment)) has its value and confidence raised by the judgment's weight. This raises it into shaping; it never settles the bet. When shaping, research or a study revises the estimate, the project records why. When evidence **contradicts** a judgment, the system neither overrides it quietly nor defers to it quietly: it puts the conflict to the owner as a decision, with the evidence and a recommendation, and the answer becomes precedent.
@@ -201,9 +201,9 @@ The owner can always reorder directly, in the main session. A direct reorder is 
 | | |
 |---|---|
 | **Queue** | Ready items: state `planned`, every `needs` entry `done`, no open blocking decision. |
-| **WIP limit** | The concurrency cap: executors in flight (`execution.max_executors`), plus one per serial resource (GPU, merge queue). |
-| **Sensors** | Slot utilization; first-pass yield per tier and item type; tokens per dispatch against estimate; merge conflicts; serial-resource waits; questions raised; the orchestrator's own context use. |
-| **Controller** | Concurrency by additive increase and multiplicative decrease; sizing by first-pass yield; the run token budget ([part 11](11-metrics-and-control.md)). |
+| **WIP limit** | Executors in flight, as many as measured resources, the pace controller, merge risk and the owner's awaiting-merge queue allow, under the hard ceiling `execution.max_executors` (HITLD-534); plus one per serial resource (GPU, merge queue). |
+| **Sensors** | Slot utilization; first-pass yield per execution profile and item type; tokens per dispatch against estimate; merge conflicts; serial-resource waits; questions raised; the orchestrator's own context use. |
+| **Controller** | Concurrency by additive increase and multiplicative decrease against the pace line ([12.5](12-reporting-and-limits.md#pace)); the cascade's starting rung by first-pass yield; each commitment's budget ([part 11](11-metrics-and-control.md)). |
 | **Escalation** | Executors make cheap-to-undo calls and log them. Calls that are not theirs become decision items; work continues elsewhere. The question protocol is in [part 5](05-execution.md). |
 
 ## 2.6 Verification
@@ -215,7 +215,7 @@ The owner can always reorder directly, in the main session. A direct reorder is 
 | **Queue** | Executor reports waiting for verification (independent tests, adversarial pass, review where allocated), then branches waiting for the merge queue. |
 | **WIP limit** | Verification agents in flight (`verification.wip`); merge batch size (`merge.batch_max`). In `merge.mode: owner` the owner names each merge, so batch-size control does not apply. |
 | **Sensors** | First-pass yield; defects found per verification kind and per token spent; mutation score on changed code; flake rate ([14.7](14-integration.md#147-flaky-tests)); escaped defects (found after merge) per area. |
-| **Controller** | Review and adversarial allocation by defect yield per area and tier; merge batch size by recent batch failure rate (smaller batches when failures rise, so bisection is cheaper). |
+| **Controller** | Review and adversarial allocation by defect yield per area and execution profile; merge batch size by recent batch failure rate (smaller batches when failures rise, so bisection is cheaper). |
 | **Escalation** | A human reads code only on the triggers in [part 6](06-verification.md). A verification disagreement (tests pass but an adversary or reviewer reports a credible break that the author disputes) goes to the area owner. |
 
 ## 2.7 Shipping
@@ -234,23 +234,31 @@ The owner can always reorder directly, in the main session. A direct reorder is 
 
 **Releases as records** ([part 3](03-data-model.md#release)). `hitld release propose` reads the interface delta since the last tag (schemas, CLI and MCP JSON, the executor contract, the report shape, trailers), proposes the bump from that delta alone, drafts the notes from the items' changelog lines, and lists gaps: public-surface changes without a changelog line, and milestones a release item needs whose check has not passed. Internal change never raises the bump. The owner makes each minor and major release, and a patch may follow a confirmed precedent; `hitld release make` writes the release record and the tag, and every released item gains `released_in`. Releasing often keeps the outer loop through users short: outcome sensing ([2.10](#210-outcome-sensing)) counts its checks in releases, so a slow release cadence slows learning.
 
+**Emergent escalations** (HITLD-441, HITLD-544 to HITLD-546). A problem found while work is going that blocks, distorts or endangers the rest of it is dealt with before planned work:
+
+- **Rules detect; the chief of staff declares the rest** (HITLD-545). A closed list of mechanical conditions the system detects raises an escalation automatically. The first entries come from incidents: every start blocked by one bad record, a dispatch holding a slot with no live session, a finished but unmerged item offered again, and a status that contradicts its own conclusion. For anything else the chief of staff declares an escalation, with a reason from the same list. The owner is told and can demote it.
+- **First in the queue, with a reserved slot.** The planner puts escalations first and keeps one slot reserved for them, even when the pace line says slow. The quota reserve still holds: an escalation never spends it, and when only critical-path work may start, an escalation counts as critical path ([12.5](12-reporting-and-limits.md#control)). An item the owner holds stays held, even when an escalation would otherwise pick it up.
+- **Its fix may start without a new yes, within a cap** (HITLD-546). The fix for a declared escalation may start at once in the reserved slot, within a small budget per escalation. Anything over that budget, any one-way-door change, or anything on a never-unlock kind still waits for the owner's yes. The owner is told when it starts. Escalation fixes are their own kind in the trust engine ([2.15](#215-trust-calibration)), so their standing grows or shrinks on evidence.
+
+The size of the per-escalation budget and of the reserved slot are not decided (HITLD-441). *Decided, not built (HITLD-556).*
+
 **Incidents** are a fast lane through intake, triage, execution and shipping:
 
 - **Severity** is set at triage: sev-1 (users broken now, or a security exposure), sev-2 (degraded, workaround exists), sev-3 (minor).
 - A sev-1 bypasses quiet hours and every queue: it pages the owner at once (this is the algedonic channel in [part 19](19-viable-system-model.md)). **Rollback first**, fix second.
-- The fix is a tier-3 item with blast-radius escalation, verified with the same rigor, shipped as a hotfix.
+- The fix runs in its own session ([5.1](05-execution.md#51-execution-profiles)), verified with the same rigor, shipped as a hotfix. The built sizing moves an item up one tier for blast radius. *Not decided:* how blast radius enters an execution profile; HITLD-581 is silent on it (tracked in HITLD-561).
 - Every sev-1 and sev-2 gets a **blameless review**. Its output is not a document to file; it is one or more **rule changes** (to a skill, a policy setting, an invariant, a test), each proposed to the owner as a decision.
 
 ## 2.8 Learning
 
-**Purpose.** Change the system itself so the next run goes better. This is double-loop learning: not only "fix this defect" (single loop) but "change the rule that let it through" (double loop).
+**Purpose.** Change the system itself so the next piece of work goes better. This is double-loop learning: not only "fix this defect" (single loop) but "change the rule that let it through" (double loop).
 
 | | |
 |---|---|
 | **Queue** | Learning candidates: escaped defects, retried and reverted dispatches, owner overrules of precedent, recurring questions, knowledge-base misses reported by executors, controller oscillations, incident reviews. |
 | **WIP limit** | One rule change in experiment at a time per controlled setting, and `learning.experiments_max` overall ([part 11](11-metrics-and-control.md)). |
 | **Sensors** | All of [part 11](11-metrics-and-control.md)'s metrics, plus the ledger. |
-| **Controller** | A retro at the end of each run (or each merge batch, for long runs) proposes changes. Changes inside policy bounds that a controller owns are applied by the controller. Anything else (a new rule, a skill change, a bound change) becomes an experiment with a hypothesis and a verdict, must pass the eval suite ([part 17](17-evals.md)), and adopting it is the owner's decision. |
+| **Controller** | Retrospectives are triggered by friction signals, a second sighting of the same friction or a rate above its limit, with a slow safety-net timer (HITLD-594; the signals are HITLD-595 and the controller HITLD-596, neither built). A retro proposes changes. Changes inside policy bounds that a controller owns are applied by the controller. Anything else (a new rule, a skill change, a bound change) becomes an experiment with a hypothesis and a verdict, must pass the eval suite ([part 17](17-evals.md)), and adopting it is the owner's decision. |
 | **Escalation** | Every rule change is the owner's decision ([part 4](04-decision-rights.md)). |
 
 **Retro output shape.** A short list of proposals, each: the observation (with ledger and metric citations), the hypothesis ("if we change X, metric Y improves without metric Z, its Goodhart pair, getting worse"), the change, how it will be tested (replay or live, [part 11](11-metrics-and-control.md)), and the minimum sample before a verdict.
@@ -293,7 +301,7 @@ Each project's **outcome check** records: the measures, what was observed, a ver
 
 | | |
 |---|---|
-| **Queue** | Planned projects that need a design (any with tier-3 work, a public surface, or a new pattern) |
+| **Queue** | Planned projects that need a design (any with design-heavy work, a public surface, or a new pattern) |
 | **WIP limit** | Designs awaiting the owner's review (`design.awaiting_review_max`) |
 | **Sensors** | Review turnaround; questions per design; designs reopened during execution (a design that missed something) |
 | **Controller** | When designs reopen often in an area, the design template for that area gains required sections |
@@ -301,7 +309,7 @@ Each project's **outcome check** records: the measures, what was observed, a ver
 
 **Steps.**
 
-1. A tier-3 agent writes the plan from a template (`templates/design.md`): intent, constraints, approaches considered with trade-offs, the chosen approach, risks, the milestones and items it will become with their "done when".
+1. An agent in its own session writes the plan from a template (`templates/design.md`): intent, constraints, approaches considered with trade-offs, the chosen approach, risks, the milestones and items it will become with their "done when".
 2. The agent extracts the **judgment calls** and asks them as decision questions, each with a recommendation ([part 4](04-decision-rights.md#the-decision-question)), batched into one review.
 3. The owner answers; answers are recorded on the design and become precedent where they generalize.
 4. **The gate:** a design becomes items only when every judgment call is answered. The orchestrator then creates the items, pointing their plan sections at the design.
@@ -313,6 +321,7 @@ This design document is itself an example of the stage.
 User docs, API reference, examples and project handbooks are updated **as part of finishing the work**, not afterwards:
 
 - The docs gate is a policy setting (`docs.gate`, design only so far; a project can turn it off). With it on, an item that changes behavior users see carries documentation changes in its "done when", checked in the merge queue: a public symbol without reference docs, an example that no longer runs, or a changed flag missing from the user guide fails the check.
+- **Docs are part of done** (HITLD-579). An item is not done until the docs and design parts it affects are updated, in the same pull request, so the docs stay true to what was built and decided. *Decided, not built (HITLD-580):* the proposed build adds the line to every item's "done when", a check by command that maps changed paths to the design parts they affect and fails a change that touches an affected area without touching its docs unless a `Docs:` trailer says why, and a rule that a change whose docs check is red is not eligible to merge without asking; the path-to-part table and the trailer form are still to be shaped.
 - **Examples run.** With the docs gate on, code examples in docs are executed as tests, so they cannot rot silently.
 - **Freshness** works as for the knowledge base ([part 8](08-knowledge-base.md#85-the-kb-tool)): each page records `checked` and `checked_at` and its `sources`; `hitld kb stale` covers docs too, and the curator's loop refreshes the most-read stale pages.
 - API reference is generated from the code where the language supports it; prose around it is maintained like any page.
@@ -338,9 +347,28 @@ A loop beside verification whose evidence is "good to use", not "correct", inclu
 
 ## 2.15 Trust calibration
 
-**Purpose.** Match the system's autonomy to its record, area by area, so the owner's attention cost falls as trust is earned, and rises again where it is lost. **Its data collection is in "One signal end to end"** ([part 21](21-scope.md)), so the record exists from day one.
+**Purpose.** Match the system's autonomy to its record, kind of decision by kind of decision, so the owner's attention cost falls as trust is earned, and rises again where it is lost. Trust rests on risk and outcomes, never on a count of how often the owner said yes (HITLD-473). **Its data collection is in "One signal end to end"** ([part 21](21-scope.md)), so the record exists from day one.
 
-**What it measures, per area and per kind of decision:**
+### The trust engine
+
+One trust engine serves every process that acts without asking (HITLD-525). *Decided, not built:* the engine is built with merging and commitment together (HITLD-528; HITLD-552 to HITLD-555), in release stage rc.5 (HITLD-551, milestone HITLD-566). Until then trust is recorded as described under "What the built record measures" below, and only the owner's standing delegations act without asking.
+
+- **Supervision modes, not a ladder** (HITLD-527). A kind of decision runs under a **supervision mode**, such as ask first, tell then proceed, proceed and report, an independent check, or two people. Each process registers its modes, which mode is tighter than which (a partial order, so two modes can be incomparable) and the unlock steps it allows. "Most restrictive wins" and "a classifier can only tighten" need only that order. A ladder is the special case where the modes form a chain. Limits such as a budget cap stay in a kind's definition, not in the mode.
+- **Processes register; the engine owns the rest** (HITLD-525). Each process registers its kinds of decision, its evidence signals and its verifiability rule, and asks the engine whether it may proceed. The engine owns the unlock bar, the re-lock on a miss, the trust record and the owner's unlock proposals. A new process is a registration, not a new system.
+- **Shared evidence, plus each process's own** (HITLD-548). The engine owns the signals every process has: the owner's report that a decision was wrong, a re-opened or reverted outcome, and aging without objection. Each process registers its own on top: a failing check on main for merging, a budget overrun for commitment, a missed escalation for escalation fixes. The owner's report is always a miss, in any kind.
+- **The unlock bar and the re-lock.** A kind is proposed for unlocking only when its evidence meets the bar, and what a miss does depends on the kind. A merging kind re-locks at once and its evidence starts again from zero (HITLD-479); a commitment kind drops one mode (HITLD-506); any other process registers its own rule with the engine (HITLD-525). Moving a kind up again is a new proposal to the owner. Merging's bar is 15 merges that have each aged 7 days with no evidence against them, from at least 8 distinct items; the numbers are fixed settings in policy that only the owner changes, and the measuring of HITLD-408 may propose a change from evidence (HITLD-478, HITLD-479, HITLD-521).
+- **The record is derived** (HITLD-529). A kind's mode is the latest signed unlock decision for it, minus any re-lock event after it; its evidence (aged merges, reverts, budget outcomes) is computed from ledger events and tracker records on demand. There is no separate counter to drift or to edit, and a lost record is rebuilt.
+- **Per project** (HITLD-526). Trust is earned and recorded in each project's own record. In another project the system may propose the same unlock, citing the first project's evidence, and the owner decides.
+- **One Trust view, and proposals as decisions** (HITLD-547). One view lists every kind with its current mode, the evidence behind it and how near it is to its unlock bar ([12.1.3](12-reporting-and-limits.md#1213-the-dashboard-page)). An unlock proposal arrives as a normal decision in the owner's queue, showing the evidence and a sample (HITLD-519). Nothing unlocks until the owner answers.
+- **Initial grants** (HITLD-576). The owner's standing delegations of today, tracker-only merges and reversible tracker edits, become kinds already unlocked by a decision the owner signs, dated when it is recorded and citing the standing rule, with the same evidence and re-lock as any kind.
+
+**What registers.** Merging without asking ([14.2](14-integration.md#142-the-queue)); committing to work against a budget, and choosing the next goal ([4.6](04-decision-rights.md#46-autonomy-changes-with-the-record)); escalation fixes ([2.4](#24-prioritization)); and tracker edits by the chief of staff and the curator (the initial grants above). Which process registers next, to test the shape (releases, for example), is decided when the engine is built (HITLD-507).
+
+**Not trust inputs.** The owner's answer speed is not read as inattention, and small-sample thresholds do not decide when a pattern counts (HITLD-535): `trust.rubber_stamp_seconds`, `precedent.review_min_applications` and `review.first_after_outcomes` stop being inputs to any trust or review decision (built in HITLD-557, not yet). A measure of how well the owner's reviews keep up, if wanted, is a metric (HITLD-408), not a rule. A preference about how the owner likes to work never widens what the system may do alone ([4.6](04-decision-rights.md#46-autonomy-changes-with-the-record)).
+
+### What the built record measures
+
+The built trust record (`core/lib/rights/trust.mjs`) records; it decides nothing. It measures, per area and per kind of decision:
 
 | Measure | Definition | Collected from the start by |
 |---|---|---|
@@ -349,7 +377,7 @@ A loop beside verification whose evidence is "good to use", not "correct", inclu
 | **Precedent-match accuracy** | Of precedent applications, the share not overruled; of questions sent to the owner despite a candidate precedent, the share the owner answered as the precedent would have | Precedent application and overrule events |
 | **Input calibration** | How well owner judgments on signals and projects being shaped predicted outcomes (below) | Judgment records and outcome checks |
 
-**Proposals, never self-grants.** When an area's record crosses a threshold with enough samples (`trust.min_samples`, with hysteresis), the loop proposes a change of autonomy to the owner as a decision:
+**Proposals, never self-grants.** *Superseded by the trust engine above (HITLD-525).* The engine owns unlock proposals, per kind of decision and per project, on evidence and not by area (HITLD-473, HITLD-526). The per-area measures in the table can stay as metrics (HITLD-408) or be registered as a process's evidence signals (HITLD-548, HITLD-535). What follows is the earlier per-area design, which describes the built behavior until the engine is built (HITLD-552). When a record supports it, the loop proposes a change of autonomy to the owner as a decision:
 
 - **more autonomy** where the system has been reliably right: a class of question becomes a logged call, a precedent's scope widens, auto-fix opens for an area, a review rate falls;
 - **less autonomy** where it was corrected: a class of logged call becomes a question again, a precedent narrows, review rises.
@@ -358,7 +386,7 @@ The system never grants itself autonomy; every change is the owner's decision, r
 
 **Calibrating inputs, not grading people.** The same method weighs inputs. Judgments ([part 3](03-data-model.md#judgment)) are compared with outcomes per area, and each person's weight tunes itself from the record; the owner's gut checks start high. A weight is an estimate, not a setting, so it is the one slow-loop value that changes without an owner decision: it shrinks toward the default, moves only as far as its evidence supports, and two fixed rules bound it ([part 23](23-people-in-the-lead.md#233-calibration-as-a-prior)). This adjusts how much an input counts in prioritization; it does not score the person who gave it.
 
-**The calibration review is due on evidence.** Each person's review ([23.4](23-people-in-the-lead.md#234-feedback-to-the-person-the-calibration-review)) is due after `review.every_outcomes` new outcomes of their calls, or after `review.first_after_outcomes` for a person who has had none yet. No calendar date makes it due.
+**The calibration review is due on evidence.** Each person's review ([23.4](23-people-in-the-lead.md#234-feedback-to-the-person-the-calibration-review)) is due after `review.every_outcomes` new outcomes of their calls. As built, a person who has had none is due after `review.first_after_outcomes`; that threshold is dropped (HITLD-535), and what makes a first review due instead is not decided (the threshold's removal is HITLD-535, built in HITLD-557; no item names a replacement). No calendar date makes it due.
 
 ## 2.16 Security
 
@@ -428,8 +456,9 @@ The consumer's benchmark tool is the sensor, and its run IDs are the evidence; t
 
 The owner's attention is the scarcest input, so it is budgeted like tokens.
 
-- **Decision budget.** `attention.decisions_per_digest` and `attention.interrupts_per_period` set how many decisions the system may put in front of the owner. When the decision backlog exceeds the budget, the system must reduce it before asking more: batch similar questions into one, resolve by precedent, let questions that are easy to undo default to the recommendation, each logged and listed in the next digest (a call that is hard to undo always waits for the owner), or hold questions whose cost of delay is low.
-- **Digests.** Non-urgent questions and the record of logged calls and precedent applications go into digests. A digest is due when enough has accumulated (`digests.every_merges`, `digests.every_decisions`), when the owner writes, when the machine is idle, or when the owner would otherwise hear nothing for `digests.silence_max_hours`; quiet hours hold it unless the owner is the one who wrote ([13.3](13-operations.md#133-the-scheduler-later-milestone)). Each question stands alone (context, recommendation, choices), so the owner can read it on a phone and answer in the main session.
+- **Every ask counts** (HITLD-538). Every question to the owner counts, the chief of staff's own included; walk-throughs the owner starts do not. The system tracks asks per decision settled and per hour, and the trust engine's unlocks ([2.15](#215-trust-calibration)) are what lower them over time. *Decided, not built (HITLD-563).*
+- **Decision budget.** `attention.decisions_per_digest` and `attention.interrupts_per_period` set how many decisions the system may put in front of the owner; they stay as the owner's ceiling on asks the system starts. When the decision backlog exceeds the budget, the system must reduce it before asking more: batch similar questions into one, resolve by precedent, let questions that are easy to undo default to the recommendation, each logged and listed in the next digest (a call that is hard to undo always waits for the owner), or hold questions whose cost of delay is low.
+- **Digests.** Non-urgent questions and the record of logged calls and precedent applications go into digests. A digest is sent when something needs the owner, not on the clock (HITLD-536): it is due when enough has accumulated (`digests.every_merges`, `digests.every_decisions`), when the owner writes, when the machine is idle, or when the owner would otherwise hear nothing for `digests.silence_max_hours`; quiet hours hold it unless the owner is the one who wrote ([13.3](13-operations.md#133-the-scheduler-later-milestone)). Each question stands alone (context, recommendation, choices), so the owner can read it on a phone and answer in the main session. Each is filed as a pending decision before it is shown ([4.2](04-decision-rights.md#the-decision-question)).
 - **Interrupts.** Sent at once only when a question blocks the critical path or leaves executor slots idle, or for a sev-1. The question-timing controller ([part 11](11-metrics-and-control.md)) adapts to how quickly the owner is responding.
 - **Quiet hours.** Set by the owner. Only sev-1 pages break them.
 - **Reads.** A request for the owner to read code or a document costs attention too, and counts against the same budget ([part 6](06-verification.md)).

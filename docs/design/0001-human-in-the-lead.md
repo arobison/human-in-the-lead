@@ -13,16 +13,16 @@ This design has twenty-three parts. This file holds part 1 (purpose and objectiv
 |---|---|---|
 | 2 | [The system as loops](0001-human-in-the-lead/02-loops.md) | Loops nested by speed; each as a queue with a WIP limit, sensors, a controller and escalation rules; strategy, trust calibration, security, non-functional budgets, plans, rollout, upstream, maintenance, outcome sensing, design review, docs |
 | 3 | [Core data model](0001-human-in-the-lead/03-data-model.md) | Entities, lifecycles, adapter interfaces, and the files backend as the reference |
-| 4 | [Roles and decision rights](0001-human-in-the-lead/04-decision-rights.md) | Who does what, when the owner is involved, how precedent works, several humans in the lead |
-| 5 | [Execution](0001-human-in-the-lead/05-execution.md) | Sizing tiers, dispatch, the merge queue, the ledger, questions, reports, the control plane |
+| 4 | [Roles and decision rights](0001-human-in-the-lead/04-decision-rights.md) | Who does what, when the owner is involved, how precedent works, several humans in the lead, how autonomy is earned |
+| 5 | [Execution](0001-human-in-the-lead/05-execution.md) | Execution profiles, dispatch, the merge queue, the ledger, questions, reports, the control plane |
 | 6 | [Verification: the compiler model](0001-human-in-the-lead/06-verification.md) | Why nobody needs to read generated code, and when someone must |
 | 7 | [UX design and review](0001-human-in-the-lead/07-ux.md) | A loop beside verification whose evidence is "good to use", including developer experience |
 | 8 | [Knowledge base](0001-human-in-the-lead/08-knowledge-base.md) | Markdown as the source of truth, the index, freshness, the `kb` tool, pluggable retrieval |
 | 9 | [Contributors and relationships](0001-human-in-the-lead/09-contributors.md) | Area owners, trust levels, replies, credit, health, legal |
 | 10 | [Security and classification](0001-human-in-the-lead/10-security.md) | Trust boundaries, least privilege, prompt injection, where each class of artifact lives |
 | 11 | [Metrics and feedback controllers](0001-human-in-the-lead/11-metrics-and-control.md) | Definitions, controllers, stability rules, Goodhart pairs, testing changes to the system |
-| 12 | [Reporting, monitoring and account limits](0001-human-in-the-lead/12-reporting-and-limits.md) | Readouts, progress reports, inspectable controllers, quotas with forecasts and the owner's reserve, stakeholder reports |
-| 13 | [Operations](0001-human-in-the-lead/13-operations.md) | Orchestrator continuity, the environment resource manager, the scheduler, settings in four layers (person, machine, project, run) |
+| 12 | [Reporting, monitoring and account limits](0001-human-in-the-lead/12-reporting-and-limits.md) | Readouts, progress reports, inspectable controllers, quotas with forecasts, the pace line and the owner's reserve, stakeholder reports |
+| 13 | [Operations](0001-human-in-the-lead/13-operations.md) | Orchestrator continuity without a run object, the environment resource manager, the scheduler, settings in three layers (person, machine, project) |
 | 14 | [Integration and CI](0001-human-in-the-lead/14-integration.md) | The merge queue, conflicts, bisection and flakes, CI integration |
 | 15 | [Architecture and portability](0001-human-in-the-lead/15-architecture.md) | Four layers (neutral core, portable instructions, harness adapters, thin packaging), the harness support table |
 | 16 | [Packaging and distribution](0001-human-in-the-lead/16-packaging.md) | Repository layout, the `hitld` command, the marketplace and pinned versions, releases and compatibility, migrating the first consumer |
@@ -58,7 +58,7 @@ and they make the calls that need judgment. Agents do the labor: intake, triage,
 
 **Judgment.** A call needs judgment when it turns on values or trade-offs, on uncertainty the evidence cannot settle, on something hard to undo, on taste, or on people. Decision rights encode the known cases; novelty, stakes and irreversibility catch the unknown ones ([part 4](0001-human-in-the-lead/04-decision-rights.md)). Each answer can become precedent, so the same question does not come back. People's judgment is a strong prior but not an infallible one: the system weighs each person's quick reads by their record, shows them where evidence disagrees, and helps them get better at it ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)).
 
-**Trust, in two directions.** Other people (users, contributors, reviewers) trust the output because accountable people stand behind it: they set the direction, made the calls, and hold the relationships. The system drafts; people own the relationship. And the people in the lead trust the system only as far as its record: autonomy is granted area by area as evidence accumulates, and withdrawn when it does not hold ([part 4.6](0001-human-in-the-lead/04-decision-rights.md#46-autonomy-changes-with-the-record)).
+**Trust, in two directions.** Other people (users, contributors, reviewers) trust the output because accountable people stand behind it: they set the direction, made the calls, and hold the relationships. The system drafts; people own the relationship. And the people in the lead trust the system only as far as its record: autonomy is granted kind of decision by kind of decision, per project, as evidence accumulates, and withdrawn at once when it does not hold ([part 4.6](0001-human-in-the-lead/04-decision-rights.md#46-autonomy-changes-with-the-record)).
 
 **Legibility.** Every result can answer "who decided, and on what evidence?" That traceability is what turns the output of a semi-autonomous system into something another person can rely on.
 
@@ -73,7 +73,7 @@ The design point is one owner directing many agents in parallel on a large codeb
 In an agentic flow, labor is cheap and parallel. What is scarce:
 
 1. **The owner's attention.** Measured as decision latency and decisions per period.
-2. **The orchestrator's context window.** Everything the main session reads costs it room to think about the rest of the run.
+2. **The orchestrator's context window.** Everything the orchestrator reads costs it room to think about the rest of the work.
 3. **Serial resources.** The GPU, the merge queue, and files that many items touch.
 
 Two other properties of agents change the classic product development picture:
@@ -95,7 +95,7 @@ As a formula, over a planning horizon:
 maximize    Σ over outcomes o:  w(category(o)) · V(o) · D(t_o)
 
 subject to  owner attention used      ≤  A        (decisions and reads per period)
-            tokens used               ≤  T        (per run and per period)
+            tokens used               ≤  T        (per commitment and per period)
             quality                   ≥  Q        (change failure rate, escaped defects)
             relationship health       ≥  R        (response times, contributor retention)
 ```
@@ -169,7 +169,7 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 - An agent acts on instructions found in an issue, a PR, a web page or a code comment.
 - Confidential material reaches the public repository or a public channel.
 - Contributors feel they are talking to a bot that does not listen.
-- The orchestrator's context fills with diffs and logs, so it manages the run badly.
+- The orchestrator's context fills with diffs and logs, so it manages the work badly.
 - The owner's judgment is overridden silently, or deferred to without the evidence that disagrees with it.
 
 ---
@@ -180,13 +180,13 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 |---|---|
 | **Owner** | The person who holds the project's decision rights: identity and policy, direction, weights, budgets. "The owner" always means this person. A record's `owner` field is different: whoever is accountable for that record, which defaults to the owner. |
 | **Area owner** | A human with delegated decision rights over an area (paths and topics). |
-| **Chief of staff** | The owner's front-desk session: the session the owner talks to, which takes their requests and answers, keeps their attention budget and hands work to an orchestrator. It starts orchestrator sessions and their successors, owns every scheduled task and wake source of a run, and records only what the owner says: answers, ratings and merge approvals. It never holds the run lease. `chief-of-staff` where code needs a role value. Distinct from the orchestrator. |
-| **Orchestrator** | The session that runs the work: plans, sizes, dispatches, merges, asks. Implements only tiny tasks. It holds the run lease, and it is disposable: it hands over to a fresh session as its context fills, and the chief of staff starts the successor. Where no session can be started, the main session is both. |
-| **Executor** | An agent that implements one item in its own worktree. A background agent (tiers 1–2) or its own session (tier 3). |
+| **Chief of staff** | The owner's front-desk session: the session the owner talks to, which takes their requests and answers, keeps their attention budget and hands work to an orchestrator. It starts orchestrator sessions and their successors from a brief, holds the owner hold, owns every scheduled task and wake source, delegates drafting and bulk tracker work to the curator, and records only what the owner says: answers, ratings and merge approvals. `chief-of-staff` where code needs a role value. Distinct from the orchestrator. |
+| **Orchestrator** | The session that runs the work: plans, chooses execution profiles, dispatches, merges, asks. Implements only tiny tasks. It is disposable: when its measured context passes a set share it ends, and the chief of staff starts a successor, which rebuilds from the ledger, the tracker and GitHub. There is no run object, lease or hand-over note (HITLD-484; the built code still has them until HITLD-492). Where no session can be started, the main session is both. |
+| **Executor** | An agent that implements one item in its own worktree: a background agent or a session of its own, by execution mode. |
 | **Signal** | Anything that arrives: a bug report, feature request, idea, question, failing test, research finding. Has provenance. |
-| **Project, item** | The work tree. A project groups items toward an outcome and holds the appetite; items are the unit of dispatch. A project has no parent. |
+| **Project, item** | The work tree. A project groups items toward an outcome and holds its appetite; items are the unit of dispatch. A project has no parent. |
 | **Project being shaped** | A `proposed` project: a cluster of signals turned into a problem, evidence, options, value, confidence, cost of delay, appetite, what is out of scope and the risks. The owner's bet, the answer to its decision, moves it to `planned`; a rejected one is `dropped` with the reason. |
-| **Bet** | The owner's commitment of a project's appetite: the answer to the project's decision. Who made it is read from that answer. |
+| **Bet** | The owner's go-ahead for a project: the answer to the project's decision. It is not a commitment in the sense defined below (a goal under a budget, HITLD-522, HITLD-577). Who made it is read from that answer. |
 | **Milestone** | A checkable future state for users, named by its outcome and never numbered: done-when clauses, constraints, contributions, an independent check, and a share of its project's appetite. One kind; a **learning milestone** is the one whose check is a study. A milestone with no parent is a **long outcome**, whose constraints are other milestones. |
 | **Item kinds** | `work` (change the product), `decision` (a question for a decider), `external` (work someone the system cannot dispatch completes: the owner by hand, a contributor, an upstream project, a vendor). |
 | **Decision** | An item of kind `decision`: a question, options, a recommendation, a decider, and after answering, an answer and rationale. |
@@ -194,21 +194,31 @@ Plans in this design are milestones and dependencies, never time estimates. Dura
 | **Judgment** | A person's recorded judgment on a signal or a project being shaped (a gut check or a considered call): a calibrated prior for prioritization, never a decision by itself. |
 | **Judgment record** | The per-person view of every call a person made (judgments and decision answers), each with optional confidence, what they expected, the evidence available at the time, and outcomes as they arrive ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)). |
 | **Calibration review** | A periodic report to one person on how their calls turned out, by area and confidence level; for their own improvement, private to them by default, never a ranking ([part 23](0001-human-in-the-lead/23-people-in-the-lead.md)). |
-| **Trust calibration** | The slow loop that matches the system's autonomy to its record per area, by proposals the owner decides. |
+| **Trust calibration** | The slow loop that matches the system's autonomy to its record, by proposals the owner decides; the trust engine carries it out. |
+| **Trust engine** | The one mechanism every process that acts without asking registers with: it keeps each kind of decision's supervision mode and evidence per project, derived from the ledger and the tracker, proposes unlocks to the owner as decisions, and answers a miss by the kind's own rule: merging re-locks at once, a commitment kind drops one mode ([2.15](0001-human-in-the-lead/02-loops.md#215-trust-calibration)). Decided, not built. |
+| **Supervision mode** | How closely a kind of decision is supervised: ask first, tell then proceed, proceed and report, an independent check, two people. A process registers its modes and which is tighter than which (a partial order); a ladder is the case where they form a chain. |
+| **Kind (of decision)** | A class of decision a process registers with the trust engine, such as a kind of change for merging (set by path rules) or a kind of commitment. Trust is earned per kind, never by a count of approvals. |
+| **Commitment** | A goal (an existing milestone or release item) under a budget, signed by the owner in a commitment decision; the system commits to the items that serve the goal until it is met, the budget is spent or the quota gate says stop. Decided, not built. |
+| **Emergent escalation** | A problem found while work is going that blocks, distorts or endangers the rest, detected by rule or declared by the chief of staff, and dealt with ahead of planned work in a reserved slot ([2.4](0001-human-in-the-lead/02-loops.md#24-prioritization)). Decided, not built. |
+| **Answer proof** | What makes an answer count: a proof the system can check, carried by whatever channel delivers it; today the harness-attested turn of the owner in their own session, later the person's signature. |
 | **Study, run, verdict** | A question with a hypothesis, the evidence runs that test it, and the verdict that cites them. |
-| **Appetite** | The token budget a piece of work is worth (Shape Up's appetite, in tokens). |
-| **Tier** | The size class that sets who executes an item and with which model and effort. |
+| **Appetite** | How big a milestone or project is estimated to be, in tokens, from its item estimates (HITLD-577). |
+| **Budget** | What the owner allows a signed commitment to spend: tokens, time and the owner's attention (HITLD-577, HITLD-522). |
+| **Pace** | The rate the plan allows per hour: the even line from a usage window's start to the reserve at its reset (HITLD-577, HITLD-530). |
+| **Execution profile** | How an item is executed: an execution mode (inline, background agent, own session) picked from what the work needs, a model and effort from a cost-ordered cascade that escalates on failure, and a token budget measured from similar finished items. It replaces the discrete sizing tiers (HITLD-581); the built code still uses tiers 0 to 3. |
 | **Dispatch** | One assignment of an item to an executor. An item may have several (retries, follow-ups). |
 | **State, result** | `state` is where a record is in its lifecycle (`proposed`, `planned`, `in-progress`, `done`, `dropped`; only work items are ever `in-progress`). `result` is how an attempt ended (a report's `done`, `partial` or `blocked`; a check's `pass`, `fail`, `error` or `not-applicable`). Every value is lowercase kebab-case. Ready, blocked, claimed and stage are derived, never stored. |
 | **Claim, unclaim** | A claim is the first commit of an executor's branch, setting a work item `in-progress` with `claimed_by`. Unclaiming gives up an abandoned claim with an `unclaim:` commit on main. Releasing is shipping: a release is what reached users. |
-| **Ledger** | The append-only record of dispatches and their results, kept outside the repo. |
+| **Ledger** | The append-only record of dispatches and their results, per project in its private store, one file per writer with IDs unique by construction; only aggregates cross projects. Per-writer files and unique IDs are decided, not built. |
 | **Brief** | The short instruction an executor receives. Points at the item file; does not restate it. |
-| **Report** | The fixed-shape message an executor returns; its `result` says how the attempt ended. The HTML page of run measures is the dashboard (`hitld dashboard`). |
+| **Report** | The fixed-shape message an executor returns; its `result` says how the attempt ended. The HTML page of measures is the dashboard (`hitld dashboard`). |
 | **Logged call** | A cheap-to-undo decision an executor makes itself and records in its report. |
 | **Classification** | `public`, `internal`, `confidential`, `secret`. Sets where an artifact may live. |
 | **Private store** | Where non-public artifacts live: the ledger, confidential research, relationship notes. Outside the public repo. |
 | **policy.json** | The data file holding every tunable setting and the owner's bounds on it. |
 | **Serial resource** | A resource only one executor may use at a time (a GPU, the merge queue). |
+| **Curator** | The agent that keeps the knowledge base, the work items and the docs true to what was built and decided, in three jobs: upkeep after merges, applying changes the owner decided, and plan audits; the last two are decided and land in rc.4. |
+| **Preference record** | A person-level record of how the owner likes to work, from their own words; it never grants authority. Decided, not built. |
 | **Harness** | The agent tool that runs sessions and agents: Claude Code, GitHub Copilot, Codex, Cursor. |
 | **Harness adapter** | The layer that dispatches executors, receives completions and reaches the human in one harness, behind one interface. |
 | **`hitld`** | The command line (and Node library, and MCP server) that holds the system's logic. |

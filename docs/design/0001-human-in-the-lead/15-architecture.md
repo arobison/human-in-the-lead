@@ -75,7 +75,7 @@ interface HarnessAdapter {
   id: string                                   // 'claude-code', 'copilot-vscode', 'copilot-cloud', 'codex', …
   capabilities(): HarnessCapabilities
 
-  dispatch(d: DispatchRequest): DispatchHandle // item, brief, tier, role, model, effort, isolation, budget
+  dispatch(d: DispatchRequest): DispatchHandle // item, brief, tier (an execution mode once HITLD-561 lands), role, model, effort, isolation, budget
   onComplete(h: DispatchHandle): Completion    // report text, commit, usage where the harness reports it
   followUp(h: DispatchHandle, message: string): void   // continue the same agent with its context
   ask(q: DecisionQuestion): MessageRef         // put a question to the human
@@ -84,7 +84,7 @@ interface HarnessAdapter {
 
 interface HarnessCapabilities {
   parallel_subagents: boolean        // several executors at once under one orchestrator
-  persistent_sessions: boolean       // a separate long-running session (tier 3)
+  persistent_sessions: boolean       // a separate long-running session (the own-session mode)
   worktrees: boolean                // an isolated checkout per executor
   background_completion: boolean     // completion arrives as an event, without polling
   remote_human_channel: boolean       // the human can answer away from the machine
@@ -103,12 +103,12 @@ The orchestrator reads the capability set and adapts. Nothing in the core assume
 | Missing capability | Degraded behavior |
 |---|---|
 | Parallel subagents | Sequential dispatch: one executor at a time, still from the ready queue in priority order. The concurrency controller is pinned at 1 |
-| Persistent sessions | Tier-3 work runs as a tier-2 dispatch at the highest model and effort available, with a smaller slice of the item per dispatch |
+| Persistent sessions | Work that needs its own session runs as a background dispatch at the highest model and effort available, with a smaller slice of the item per dispatch |
 | Worktrees | One executor at a time per checkout, or a fresh clone per executor where disk allows |
 | Background completion | The orchestrator collects completions at defined points (after each dispatch returns, at a merge batch boundary), never in a polling loop |
 | Remote human channel | Questions go through a notification channel adapter ([part 3](03-data-model.md#notification-channel-adapter)): GitHub issues, Slack, or push |
 | Hooks (`none`; `subset` as 15.5 says) | Enforcement moves from hooks to the merge queue's checks: a report that breaks its shape, a write outside `touches`, or a dependency change without a decision is refused at merge rather than blocked at the tool call. The guard is weaker (it catches after the fact), so a harness without hooks is dispatched public items only. Q16 ([part 22](22-open-questions.md)) may grant exceptions later |
-| Model or effort selection | Tiers map onto what the harness offers; the ledger records what actually ran |
+| Model or effort selection | The cascade's rungs ([5.1](05-execution.md#51-execution-profiles)) map onto what the harness offers; the ledger records what actually ran |
 | Usage reporting | The ledger records `usage: unknown`; cost metrics exclude those dispatches and say so |
 
 <a id="154-the-claude-code-adapter"></a>
@@ -117,10 +117,10 @@ The orchestrator reads the capability set and adapts. Nothing in the core assume
 
 | Function | How |
 |---|---|
-| **Tier 1–2 dispatch** | Background subagents from the plugin's agent definitions, with `model`, `effort`, `tools` and `isolation: worktree` in their front matter. Each gets a temporary worktree branched from the default branch |
-| **Tier 3 dispatch** | Either a headless run (`claude -p` with JSON output, started in its own worktree as a background process; the process exit is the completion notice), or, when a person will steer the work, an interactive session the chief of staff starts, as it starts orchestrator sessions, which reports back in the fixed shape |
+| **Background-agent dispatch** | Background subagents from the plugin's agent definitions, with `model`, `effort`, `tools` and `isolation: worktree` in their front matter. Each gets a temporary worktree branched from the default branch |
+| **Own-session dispatch** | Either a headless run (`claude -p` with JSON output, started in its own worktree as a background process; the process exit is the completion notice), or, when a person will steer the work, an interactive session the chief of staff starts, as it starts orchestrator sessions, which reports back in the fixed shape |
 | **Orchestrator sessions** | The chief of staff starts each one and its successor ([part 13](13-operations.md#mapping-onto-harnesses)): on Claude Code on the web, a cloud session; locally, a headless `claude -p` run resumed with `--resume` for each wake. Wakes (GitHub events, relayed completions, scheduled tasks) are messages from the chief of staff |
-| **Completion** | Background subagent results arrive in the orchestrator's next turn as completion notifications. The documentation does not say they carry usage (in the desktop app on 2026-11-14 they were observed to include token, tool-use and duration counts, which the adapter records when present and labels as undocumented; cost metrics that rest on them say so). Documented usage comes from OpenTelemetry metrics collected locally and, for headless tier-3 runs, the `total_cost_usd` and usage in the JSON result. An interactive tier-3 session's usage is read from the harness's own record of the session: the result message that ends each of its turns, with the turn's usage and `total_cost_usd` (the documented result message's fields), as a cloud session's event list returns them, saved to a file for `hitld dispatch complete --session-record`; the turns since the dispatch started are summed, and the per-model breakdown since the last result is read where the record has it (it counts subagents; undocumented). Each completion's tokens are output plus fresh input; the parts, cache reads included, and the reported cost are kept apart beside them, with where the figure came from (`tokens_source`: measured from the session record, the result file or the notification, or typed by hand when there is no record). What an executor's report says its own run cost is a guess, kept apart (`self_reported_tokens`) and never read as the cost (HITLD-438). Session transcript files are not parsed, and so the usage an onboarding session spent is read from the usage the harness reports, not from transcripts |
+| **Completion** | Background subagent results arrive in the orchestrator's next turn as completion notifications. The documentation does not say they carry usage (in the desktop app on 2026-11-14 they were observed to include token, tool-use and duration counts, which the adapter records when present and labels as undocumented; cost metrics that rest on them say so). Documented usage comes from OpenTelemetry metrics collected locally and, for headless runs in their own session, the `total_cost_usd` and usage in the JSON result. An interactive session's usage is read from the harness's own record of the session: the result message that ends each of its turns, with the turn's usage and `total_cost_usd` (the documented result message's fields), as a cloud session's event list returns them, saved to a file for `hitld dispatch complete --session-record`; the turns since the dispatch started are summed, and the per-model breakdown since the last result is read where the record has it (it counts subagents; undocumented). Each completion's tokens are output plus fresh input; the parts, cache reads included, and the reported cost are kept apart beside them, with where the figure came from (`tokens_source`: measured from the session record, the result file or the notification, or typed by hand when there is no record). What an executor's report says its own run cost is a guess, kept apart (`self_reported_tokens`) and never read as the cost (HITLD-438). Session transcript files are not parsed, and so the usage an onboarding session spent is read from the usage the harness reports, not from transcripts |
 | **Follow-up** | Messages to a running or finished subagent continue it with its context |
 | **Ask and notify** | Remote Control: the chief of staff's session is the channel, reachable from the Claude app on a phone. Interrupts are messages in that session. Digests go out when `hitld cadence due` says one is due: enough merges or decisions, the owner writing, an idle machine, or the ceiling on silence ([13.3](13-operations.md#133-the-scheduler-later-milestone)). For now, quiet hours mean non-sev-1 messages are held |
 | **Hooks** | Plugin-level hooks (`PreToolUse` guard, `PostToolUse` progress signal for the watchdog, `Stop`/`SubagentStop` report check and ledger, `SessionStart`). The built guard matches `Bash` only (push, moving the default branch, orchestrator commands), so for now write scope is enforced at merge, and the guard does not yet stop file edits. Plugin agent definitions cannot carry their own hooks, so the guard identifies the role from the hook input and the worktree path, and applies that role's rules |
@@ -128,21 +128,25 @@ The orchestrator reads the capability set and adapts. Nothing in the core assume
 
 ## 15.5 The Copilot adapter (next, before Codex)
 
-GitHub Copilot has two surfaces, and they map onto different tiers.
+GitHub Copilot has two surfaces, and they map onto different execution modes.
 
-### VS Code agent mode: interactive, tiers 0–2
+<a id="vs-code-agent-mode-interactive-tiers-02"></a>
+
+### VS Code agent mode: interactive, inline and background agents
 
 | Function | How |
 |---|---|
 | **Instructions** | Reads `AGENTS.md` (and `.github/copilot-instructions.md`); skills from `.agents/skills/`, `.github/skills/` or `.claude/skills/` |
-| **Roles** | Custom agents (`.agent.md`) for executor tiers, reviewer, adversary, with `tools` and `model` set per role |
+| **Roles** | Custom agents (`.agent.md`) for executors, reviewer, adversary, with `tools` and `model` set per role |
 | **Dispatch** | Subagents (the Copilot harness's `task` tool) under an orchestrating chat session. Parallel execution is not documented, so the adapter starts with `parallel_subagents: false` and raises it only when the eval suite shows parallel runs work |
 | **Isolation** | Worktree isolation exists but is documented as not a security boundary, so the guard is the merge queue plus hooks |
 | **Hooks** | Preview: `preToolUse` and `postToolUse` from `.github/hooks/*.json`. Treated as `subset` until they leave preview, so this surface also gets public items only (15.3), pending Q16 |
 | **Tools** | The command line in the integrated terminal, or the MCP server from a workspace `.mcp.json` |
 | **Ask and notify** | The chat session itself while the owner is at the machine; otherwise a notification channel adapter |
 
-### The Copilot cloud agent: asynchronous, tier 3 and intake to PR
+<a id="the-copilot-cloud-agent-asynchronous-tier-3-and-intake-to-pr"></a>
+
+### The Copilot cloud agent: asynchronous, own sessions and intake to PR
 
 GitHub now calls the coding agent the Copilot cloud agent. It takes a task, works on its own branch in a GitHub-hosted environment, and opens a pull request.
 
@@ -162,7 +166,7 @@ The cloud agent is also a natural **intake-to-PR** path: a public issue triaged 
 
 ## 15.6 Other harnesses (later)
 
-- **OpenAI Codex**: reads `AGENTS.md` natively, reads skills, supports MCP, subagents with per-agent model and reasoning effort, and `PreToolUse` hooks; `codex exec` runs headless with JSON events, and cloud tasks give one isolated workspace per task. A good fit for the same adapter shape as Claude Code's headless tier 3.
+- **OpenAI Codex**: reads `AGENTS.md` natively, reads skills, supports MCP, subagents with per-agent model and reasoning effort, and `PreToolUse` hooks; `codex exec` runs headless with JSON events, and cloud tasks give one isolated workspace per task. A good fit for the same adapter shape as Claude Code's headless own-session mode.
 - **Cursor**: reads `AGENTS.md`, skills (including from `.claude/skills/`), MCP, parallel and background subagents with optional worktree isolation, hooks, and plugins.
 - **Gemini CLI**: reads skills, MCP, subagents and hooks, but reads `AGENTS.md` only when configured to. Google announced on 2026-05-19 that Gemini CLI is being replaced by Antigravity CLI, so an adapter for Google's harness should target whichever is current when that milestone comes.
 
