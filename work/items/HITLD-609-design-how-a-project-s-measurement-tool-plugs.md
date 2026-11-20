@@ -137,3 +137,7 @@ The owner agreed with dropping the local-measurement hook (the proposal above). 
 - **HITLD's machine-wide lock guards only HITLD's own processes** (its executors' heavy steps and the merge queue). It no longer tries to represent a measurement, a target machine or a farm.
 - **Still to design:** the shape of the status and the completion record (dyno proposes them), how HITLD's load gate reads the status, and the rule for tool adapters in HITLD's guidance (an adapter's configuration names no code to run except in a property HITLD marks as executing and the owner approves).
 
+## Noted on 2026-11-20 (the classification walk-through, HITLD-632 to 635)
+
+A result's label is the `classification` field holding an object with two keys: `readers` (public, any-model, approved-models, local-model-only, tools-only, owner-only) and `reach` (this-machine, synced-store, bucket-client-encrypted, bucket-provider-managed, anywhere), and a registered place for a bucket. A result starts local-model-only and this-machine-only until the bucket dyno owns is registered. Dyno's result output should use this shape; dyno's first example JSON is checked against it.
+

@@ -48,11 +48,13 @@ The owner walked through the first questions one at a time. Each is a recorded d
 - **Default clearances (HITLD-630):** the remote model on the owner's own account is cleared for public, internal and confidential data, but not for secret data or labels that say no remote model or owner only; a local model is cleared for anything except owner only; any other provider needs the owner's decision.
 - **Vocabulary (HITLD-631):** explicit, with no shorthands, because agents mostly use labels and the owner will not remember what a shorthand means. Who may read: public; any model (including a remote model on the owner's account); local model only; tools only (no model sees it); owner only. The widest place it may reach: this machine only; the owner's synced private store; a private bucket with client-side encryption; a private bucket with provider-managed encryption; anywhere. The owner registers concrete places (this machine, the store, the bucket dyno owns) under a class. Benchmark results start as local model only and this machine only until the bucket is registered.
 
-## Still to settle in the walk-through
+- **Role clearance (HITLD-632):** a session's effective clearance is the narrower of its model's and its role's; a role never exceeds its model's; widening for one task is the owner's recorded decision, never a standing grant to the system.
+- **Label format (HITLD-633):** the `classification` field stays and its value is an object with two keys, `readers` and `reach`, in front matter, command JSON and dyno's results.
+- **A sixth reader and the migration (HITLD-634):** readers, widest to narrowest: public; any model; approved models (the owner's own account by default plus any channel granted); local model only; tools only; owner only. This amends the five readers of HITLD-631, so that internal and confidential stay distinct. The one-time migration: public becomes public + anywhere; internal becomes any model + synced store; confidential becomes approved models + synced store; secret is not a label (secrets are never stored and the guard refuses them). The old names are retired afterward.
+- **Where clearances live (HITLD-635):** in the owner's person-level settings, outside every repository; a project may add a narrower limit in its committed policy, never a wider one; changing a clearance is the owner's recorded decision.
 
-- Whether a role (an executor, an orchestrator, the curator) may hold a standing clearance for its job beyond its model's, and how that is recorded.
-- How a label is written in a file and in a command's JSON (two explicit fields, their names, and how a place class is registered), and what dyno's result label looks like so the two agree.
-- The one-time move of today's four level names (public, internal, confidential, secret) on existing entities to explicit labels, through the tracker's migration mechanism, after which the old names are retired.
-- What a clearance is for a tool, for the synced store's sealing, and for a bucket, so the same rule decides every channel.
-- Build items, filed from the decisions, each with its own done-when.
+## Still to do
 
+- The design parts (3 and 10.3) are updated to these decisions, as part of done (docs are part of done, HITLD-579).
+- Dyno's result output and its first example JSON are checked against the label format (GitHub issue 363).
+- Build items are filed: HITLD-636 (labels and the migration), HITLD-637 (clearances and the check), HITLD-638 (enforcement at the commands that return data) and HITLD-639 (places, derived data and loosening).
