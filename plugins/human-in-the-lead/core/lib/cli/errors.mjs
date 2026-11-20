@@ -53,6 +53,9 @@ export const ERROR_CODES = Object.freeze({
   'lock-held': 'A named resource lock is held by someone else.',
   'lock-timeout': 'A named resource lock was not free before the wait ended.',
 
+  // Quotas
+  'invalid-snapshot': 'The usage snapshot does not match its schema.',
+
   // Ledger
   'invalid-event': 'The ledger event does not match its schema or lacks a field its kind needs.',
   'forbidden-event': 'The event kind is written only by the orchestrator, not by this caller.',

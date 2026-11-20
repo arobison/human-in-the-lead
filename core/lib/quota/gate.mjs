@@ -118,6 +118,7 @@ function forecastLine(s) {
  *   ask_owner: boolean,
  *   notify_owner: boolean,
  *   resets_at: string | null,
+ *   refresh: { limit: string, why: string }[],
  *   unread: string[],
  *   quotas: import('./quota.mjs').QuotaState[],
  * }}
@@ -166,6 +167,13 @@ export function dispatchGate(policy, snapshots, item = {}, options = {}) {
   const ask = mode === 'stop' && worst?.s.hard === true;
   if (ask) reason += "; this limit is hard, so going past it needs the owner's yes first";
   if (unread.length) reason += ` (no reading for ${unread.join(', ')})`;
+  // A usage figure the owner declared that nears the reserve or has grown old: the owner is asked
+  // for a fresh one (HITLD-164). It changes no mode; at the reserve the gate stops anyway.
+  const refresh = quotas
+    .filter((s) => s.refresh)
+    .map((s) => ({ limit: s.id, why: /** @type {string} */ (s.refresh) }));
+  for (const r of refresh)
+    reason += `; ask the owner for a fresh usage figure for ${r.limit} (${r.why})`;
 
   return {
     mode,
@@ -182,6 +190,7 @@ export function dispatchGate(policy, snapshots, item = {}, options = {}) {
     // When the binding limit's window resets (its reading's reset, or the declared one): a stop
     // at it is a pause the chief of staff wakes the run from then (design part 12.5).
     resets_at: worst && mode !== 'normal' ? worst.s.resets_at : null,
+    refresh,
     unread,
     quotas,
   };

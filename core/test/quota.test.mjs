@@ -29,6 +29,7 @@ import { FIVE_HOUR_LIMIT, evaluateQuotas, shownLimits } from '../lib/quota/quota
 import { dispatchGate } from '../lib/quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml } from '../lib/quota/report.mjs';
 import { tempDir } from './helpers/tmp.mjs';
+import { makeConsumer } from './orchestrator-fixture.mjs';
 
 const tmp = realpathSync.native(tempDir('hitld-quota-'));
 
@@ -738,4 +739,199 @@ test('hitld dashboard --no-write returns the data contract and writes no files',
   assert.equal(existsSync(out), false);
   assert.equal(r.json.html, undefined);
   assert.equal(existsSync(join(p.store.root, 'reports', 'dashboard.html')), false);
+});
+
+// A usage figure the owner declares (HITLD-149, HITLD-164, HITLD-170).
+
+/** A figure the owner declared for claude-weekly, whose window resets at T0 + 4 days. */
+const RESET = T0 + 4 * 24 * HOUR;
+const declared = (/** @type {number} */ at, /** @type {number} */ used) => ({
+  schema_version: 1,
+  at: iso(at),
+  source: 'owner-declared',
+  readings: [{ limit: 'claude-weekly', used, resets_at: iso(RESET) }],
+});
+const weekly = (/** @type {Record<string, any>[]} */ snapshots, /** @type {number} */ now) =>
+  dispatchGate(policyWith(), snapshots, {}, { now });
+
+test('a declared figure opens the gate as a reading of low confidence', () => {
+  assert.equal(weekly([], T0).mode, 'stop');
+  const gate = weekly([declared(T0, 30)], T0);
+  assert.equal(gate.mode, 'normal');
+  assert.equal(gate.allow, true);
+  const s = gate.quotas[0];
+  assert.equal(s.used_from, 'declared');
+  assert.equal(s.used, 30);
+  assert.equal(s.confidence, 'low');
+  assert.equal(s.declared?.used, 30);
+  assert.equal(s.resets_at, iso(RESET));
+  assert.deepEqual(gate.refresh, []);
+});
+
+test('a declared figure ages toward the reserve with the burn recorded up to it', () => {
+  // 30% three days into the window: a window average of 30/72 = 0.42% an hour.
+  const snaps = [declared(T0, 30)];
+  const later = weekly(snaps, T0 + 48 * HOUR);
+  const s = later.quotas[0];
+  assert.ok(Math.abs(/** @type {number} */ (s.used) - 50) < 0.01, `used ${s.used}`);
+  assert.equal(s.as_of, iso(T0));
+  assert.equal(s.forecast.burn_basis, 'window average');
+  // 100 - 50 - 25 = 25% above the reserve: economize, and the owner is asked for a fresh figure.
+  assert.equal(later.mode, 'economize');
+  assert.equal(later.refresh.length, 1);
+  assert.match(later.refresh[0].why, /near it/);
+  assert.match(later.reason, /ask the owner for a fresh usage figure for claude-weekly/);
+  // At the reserve dispatch waits, still asking: 45% three days in is 0.625% an hour, so 75%
+  // two days later.
+  const stopped = weekly([declared(T0, 45)], T0 + 48 * HOUR);
+  assert.equal(stopped.mode, 'stop');
+  assert.equal(stopped.allow, false);
+  assert.equal(stopped.refresh.length, 1);
+  // A recent rate, from an earlier reading, wins over the window average.
+  const recent = weekly(
+    [{ ...declared(T0 - HOUR, 28), source: 'claude-code-statusline' }, declared(T0, 30)],
+    T0 + 10 * HOUR,
+  ).quotas[0];
+  assert.equal(recent.forecast.burn_basis, 'recent');
+  assert.ok(Math.abs(/** @type {number} */ (recent.used) - 50) < 0.01, `used ${recent.used}`);
+});
+
+test('a stale declared figure asks for a refresh without slowing dispatch', () => {
+  // 10% three days in: 0.14% an hour, so 13 hours on the estimate is far from the reserve.
+  const gate = weekly([declared(T0, 10)], T0 + 13 * HOUR);
+  assert.equal(gate.mode, 'normal');
+  assert.equal(gate.allow, true);
+  assert.equal(gate.refresh.length, 1);
+  assert.match(
+    gate.refresh[0].why,
+    /13 hours old, older than quota\.declared_refresh_hours \(12\)/,
+  );
+  const fresh = weekly([declared(T0, 10)], T0 + 11 * HOUR);
+  assert.deepEqual(fresh.refresh, []);
+  const sooner = dispatchGate(
+    policyWith({ declared_refresh_hours: 2 }),
+    [declared(T0, 10)],
+    {},
+    { now: T0 + 3 * HOUR },
+  );
+  assert.equal(sooner.refresh.length, 1);
+  const report = buildReport({
+    policy: policyWith(),
+    snapshots: [declared(T0, 10)],
+    now: T0 + 13 * HOUR,
+  });
+  assert.equal(report.gate.refresh.length, 1);
+  assert.match(
+    renderDigest(report),
+    /Asked: a fresh usage figure for claude-weekly, as your account shows it .*hitld quota declare\./,
+  );
+});
+
+test('a fresh measured reading is kept over a figure declared after it', () => {
+  const measured = snap(T0 - 10 * 60_000, 5, 20);
+  const snaps = [measured, declared(T0 - 60_000, 60)];
+  const now = weekly(snaps, T0).quotas.find((q) => q.id === 'claude-weekly');
+  assert.equal(now?.used_from, 'snapshot');
+  assert.equal(now?.used, 20);
+  assert.equal(now?.confidence, 'high');
+  // Once the measured reading is no longer fresh, the later declared figure is the fallback.
+  const stale = weekly(snaps, T0 + 40 * 60_000).quotas.find((q) => q.id === 'claude-weekly');
+  assert.equal(stale?.used_from, 'declared');
+  assert.ok(/** @type {number} */ (stale?.used) >= 60);
+  // A stale measured reading after the declared figure is the later word, and is used.
+  const after = weekly([declared(T0 - 2 * HOUR, 60), snap(T0 - HOUR, 5, 20)], T0).quotas.find(
+    (q) => q.id === 'claude-weekly',
+  );
+  assert.equal(after?.used_from, 'snapshot');
+  assert.equal(after?.used, 20);
+  // A declared figure from a window that has reset is not used.
+  const reset = weekly([declared(T0, 30)], RESET + HOUR).quotas[0];
+  assert.equal(reset.used, null);
+});
+
+test('hitld quota declare records an owner-declared snapshot, and refuses an executor', async () => {
+  const p = project();
+  const args = ['quota', 'declare', '--used', '17.5%', '--resets-at', iso(RESET)];
+  const r = await hitld([...args, '--now', iso(T0)], p);
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  assert.equal(r.json.recorded.source, 'owner-declared');
+  assert.deepEqual(r.json.recorded.readings, [
+    { limit: 'claude-weekly', used: 17.5, resets_at: iso(RESET) },
+  ]);
+  assert.equal(r.json.used_from, 'declared');
+  assert.equal(r.json.mode, 'normal');
+  const lines = /** @type {string} */ (p.store.read('usage/snapshots.jsonl')).trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.deepEqual(schemas().validateEntity('usage-snapshot', JSON.parse(lines[0])), []);
+  const status = await hitld(['quota', 'status', '--now', iso(T0 + HOUR)], p);
+  assert.equal(status.json.mode, 'normal');
+  assert.equal(status.json.quotas[0].used_from, 'declared');
+
+  // Wrong input is refused, and nothing is written.
+  for (const [bad, msg] of /** @type {[string[], RegExp][]} */ ([
+    [['--used', 'lots', '--resets-at', iso(RESET)], /--used/],
+    [['--used', '120', '--resets-at', iso(RESET)], /more than the limit/],
+    [['--used', '10', '--resets-at', iso(T0 - HOUR)], /not in the future/],
+    [['--used', '10', '--resets-at', iso(RESET), '--limit', 'nope'], /no quota limit nope/],
+  ])) {
+    const out = await hitld(['quota', 'declare', ...bad, '--now', iso(T0)], p);
+    assert.equal(out.json.ok, false);
+    assert.match(out.json.message, msg);
+  }
+
+  // An executor's process is refused, and so is a caller that is not the human command line.
+  const executor = await hitld([...args, '--now', iso(T0)], {
+    ...p,
+    env: { ...p.env, HITLD_ROLE: 'executor' },
+  });
+  assert.equal(executor.json.error, 'not-permitted');
+  const dispatched = await hitld([...args, '--now', iso(T0)], {
+    ...p,
+    env: { ...p.env, HITLD_DISPATCH: 'D-7' },
+  });
+  assert.equal(dispatched.json.error, 'not-permitted');
+  const command = COMMANDS.find((c) => c.name === 'quota declare');
+  const mcp = await command?.run?.(
+    { used: '10', 'resets-at': iso(RESET), now: iso(T0) },
+    { cwd: p.repo, env: { ...process.env, ...p.env } },
+  );
+  assert.equal(mcp?.error, 'not-permitted');
+  assert.equal(
+    /** @type {string} */ (p.store.read('usage/snapshots.jsonl')).trim().split('\n').length,
+    1,
+  );
+});
+
+test('run status and the digest ask the owner for a fresh figure once it grows old', async () => {
+  const c = makeConsumer();
+  assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+  const now = Date.now();
+  const resets = iso(now + 2 * 24 * HOUR);
+  const old = await c.hitld([
+    'quota',
+    'declare',
+    '--used',
+    '20',
+    '--resets-at',
+    resets,
+    '--now',
+    iso(now - 13 * HOUR),
+  ]);
+  assert.equal(old.exit, 0, JSON.stringify(old.result));
+  const status = await c.hitld(['run', 'status']);
+  assert.equal(status.exit, 0, JSON.stringify(status.result));
+  assert.equal(status.result.ask_figure?.[0]?.limit, 'claude-weekly');
+  assert.match(status.result.next, /ask the owner for a fresh usage figure for claude-weekly/);
+  const digest = await c.hitld(['rights', 'digest', '--full']);
+  assert.equal(digest.exit, 0, JSON.stringify(digest.result));
+  assert.match(digest.result.text, /a fresh usage figure for claude-weekly/);
+  assert.deepEqual(digest.result.quota.refresh, ['claude-weekly']);
+  // A fresh figure ends the ask.
+  assert.equal(
+    (await c.hitld(['quota', 'declare', '--used', '22', '--resets-at', resets])).exit,
+    0,
+  );
+  const calm = await c.hitld(['run', 'status']);
+  assert.equal(calm.result.ask_figure, undefined);
+  assert.doesNotMatch(calm.result.next, /fresh usage figure/);
 });
