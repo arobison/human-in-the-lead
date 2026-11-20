@@ -2,7 +2,7 @@
 id: HITLD-470
 title: Revisit whether a run needs to exist apart from the ledger, now that orchestrators are disposable
 kind: work
-state: proposed
+state: done
 created: 2026-11-17
 project: HITLD-15
 ---
@@ -39,3 +39,10 @@ Design-heavy: stays proposed and is walked through with the owner. Related: HITL
 - Build: remove `hitld run start`, `resume`, `handover` and the run state and lease (design 13 and the packaging doc), the `run.*` settings and `orchestrator.handover_after_completions`; the per-run counters (permission refusals, the owner hold) move to the orchestrator and the chief of staff.
 - Skills and design: the chief-of-staff and orchestrate skills describe starting a numbered orchestrator from a brief, not a hand-over.
 
+## Left the milestone on 2026-11-20 (HITLD-603)
+
+This item left milestone HITLD-190; it closes when the design-docs update (HITLD-572) merges.
+
+## Closed on 2026-11-20 (HITLD-603)
+
+Closed on 2026-11-20: the design-docs update (HITLD-572) merged and says what the owner decided here; its builds are filed (HITLD-492 and the items under HITLD-484).

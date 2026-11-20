@@ -39,3 +39,7 @@ Raised by the owner in the chief of staff session. The owner settled the choices
 ## Returned to proposed on 2026-11-20 (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (507,441): executors later file proposed items, trust per model type; report found section part unaffected. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); emergent escalations (HITLD-544 to 546). The owner decided (HITLD-578) that the items the decisions change most return to `proposed` until reshaped, so the planner does not offer them; the owner promotes the item again once it is reshaped.
+
+## Moved on 2026-11-20 (HITLD-605)
+
+On the owner's decision HITLD-605, this item moved from milestone HITLD-405 (c3) to milestone HITLD-566 (c3), the clause for emergent work, where the executor filing of bugs and found work belongs with the trust engine (release stage rc.5).

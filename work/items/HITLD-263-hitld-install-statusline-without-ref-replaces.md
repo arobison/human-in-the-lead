@@ -25,3 +25,7 @@ Evidence: core/lib/install/install.mjs:267-290 with no --ref always builds a dir
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `install`, still present on main, confidence 0.85. Exact steps given; a test installs with --ref then --statusline and checks the source. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Decided on 2026-11-20 (HITLD-606)
+
+The owner decided that this item closes when the quota probe (HITLD-165) lands: that item retires the status-line usage capture (decision HITLD-173), so nothing is left to fix here. It needs HITLD-165 and is not built separately.

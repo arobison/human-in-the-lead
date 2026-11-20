@@ -36,3 +36,7 @@ Design-heavy: stays proposed and is walked through with the owner. Related: HITL
 ## Still to decide
 
 The size of the per-escalation budget and of the reserved slot. An item the owner holds stays held even if an escalation would otherwise pick it up (HITLD-353, HITLD-504).
+
+## Moved on 2026-11-20 (HITLD-602)
+
+On the owner's decision HITLD-602, this item moved from milestone HITLD-189 (c2) to milestone HITLD-566 (c3), where its build belongs with the trust engine (release stage rc.5).

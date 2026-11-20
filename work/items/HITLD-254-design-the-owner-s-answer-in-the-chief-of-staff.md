@@ -25,3 +25,7 @@ The owner talks only to the chief of staff. In the first self-hosted run, they c
 ## Notes
 
 `proposed`: a choice about where authority sits, which the classifier exists to protect, so the owner decides it. Raised by the owner in the chief of staff session, 2026-11-16 (their own words: "needing to reach into the orchestrator to manually approve that is annoying, too"). Related: HITLD-186 (permission denials as typed faults that escalate), HITLD-154 (a wait that eats the owner's attention is named as friction), HITLD-153 (an item the owner names first cannot jump the planner), HITLD-179 (what the owner's sign-off is and who may use it), HITLD-36 (signed decision answers). Filed under HITLD-181.
+
+## Moved on 2026-11-20 (HITLD-607)
+
+On the owner's decision HITLD-607, this item moved from milestone HITLD-407 (c1) to milestone HITLD-404 (c4). It still needs a design walk-through (HITLD-135) before it is built, so it is not ready.

@@ -23,3 +23,9 @@ From HITLD-15:
 - **safe-to-publish** (capability). Outcome: anyone can read the public repository, and nothing in it or its history should not be there. Done when: the confidentiality pass finds nothing open, and the owner has finished the guided design review. Check: an independent scan of the repository and its history. Constraints: HITLD-22, HITLD-23.
 
 Shaped by the planning pass HITLD-343 (2026-11-16). c1 is met (HITLD-22 and 23 are done). Stage: v0.1.0 (HITLD-24 needs it); the scan runs just before the tag.
+
+## Changed on 2026-11-20
+
+HITLD-620 (the classification taxonomy: who and what may read data, and where it may go) joined clause c2 as a proposal.
+
+HITLD-620 left clause c2 on the owner's decision HITLD-621: it moved to milestone HITLD-567 in rc.5.

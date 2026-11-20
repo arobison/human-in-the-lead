@@ -2,7 +2,7 @@
 id: HITLD-472
 title: Redesign the trust signal that lets the system merge without asking, so it rests on risk and outcomes, not a count of approvals
 kind: work
-state: proposed
+state: done
 created: 2026-11-18
 project: HITLD-15
 ---
@@ -59,3 +59,11 @@ Nothing in the design is open here. `merge.owner_areas` fold into the path rules
 ## Note on 2026-11-19 (HITLD-527)
 
 Merging registers with the trust engine as a small chain of supervision modes (waits for the owner, eligible to self-merge). The engine's concept is supervision modes with an order, not only a ladder, so a kind may later register a mode such as an independent check.
+
+## Left the milestone on 2026-11-20 (HITLD-603)
+
+This item left milestone HITLD-191; it closes when the design-docs update (HITLD-572) merges.
+
+## Closed on 2026-11-20 (HITLD-603)
+
+Closed on 2026-11-20: the design-docs update (HITLD-572) merged and says what the owner decided here; its builds are under the trust-engine milestone (HITLD-566).

@@ -28,3 +28,7 @@ Raised by the owner in the chief of staff session. It needs HITLD-134 (`rights r
 ## Returned to proposed on 2026-11-20 (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (493,509,508): friction sensor, attention budget, owner waiting. The decisions since then are stay in the harness and answers by proof (HITLD-540, 515); the pace decisions (HITLD-530, 549, 550); the audit of defaults (HITLD-532 to 538). The owner decided (HITLD-578) that the items the decisions change most return to `proposed` until reshaped, so the planner does not offer them; the owner promotes the item again once it is reshaped.
+
+## Moved on 2026-11-20 (HITLD-602)
+
+On the owner's decision HITLD-602, this item moved from milestone HITLD-189 (c2) to milestone HITLD-566 (c3), where its build belongs with the trust engine (release stage rc.5).

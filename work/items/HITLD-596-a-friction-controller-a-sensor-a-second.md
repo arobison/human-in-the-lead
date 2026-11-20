@@ -32,3 +32,7 @@ Design part 2's learning loop says "a retro at the end of each run", and the run
 ## Notes
 
 Design-heavy in its details: stays `proposed` and is walked through with the owner after the signals exist (HITLD-595), since the baseline needs data. Code and design: the owner's own yes to merge. Needs HITLD-595 and the curator (HITLD-583). Placed under HITLD-408 c4 (friction counts come from the ledger, and changes to them are proposed to the owner) by the chief of staff, a proposal for the owner to move. Related: design parts 2 and 11.4, HITLD-387, 536, 538, 570, 587.
+
+## Moved on 2026-11-20 (HITLD-608)
+
+On the owner's decision HITLD-608, this item moved from milestone HITLD-408 (c4) to milestone HITLD-403 (c5), beside the fuller curator (HITLD-583 and HITLD-220), in release stage rc.4.

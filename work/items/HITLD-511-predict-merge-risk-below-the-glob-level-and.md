@@ -31,3 +31,7 @@ The design already lets overlapping items run in parallel at the cost of a rebas
 ## Notes
 
 Design-heavy: stays proposed and is walked through with the owner before any build. Placed under HITLD-189 c2 (the planner offers what can start) by the chief of staff, a proposal for the owner to move. Related: HITLD-82, HITLD-507 (one trust engine), HITLD-509.
+
+## Moved on 2026-11-20 (HITLD-602)
+
+On the owner's decision HITLD-602, this item moved from milestone HITLD-189 (c2) to milestone HITLD-408 (c2). It ships after v0.1.0 and is under no release.
