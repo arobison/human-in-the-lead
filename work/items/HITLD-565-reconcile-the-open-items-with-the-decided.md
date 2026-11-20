@@ -2,7 +2,7 @@
 id: HITLD-565
 title: Reconcile the open items with the decided designs
 kind: work
-state: proposed
+state: done
 created: 2026-11-19
 project: HITLD-15
 ---
@@ -25,3 +25,7 @@ The audit of 2026-11-19 found 92 open items an open design could change and 15 i
 ## Notes
 
 A shaping pass; the owner decides the drops. Design is settled in the cited decisions; code, skill, schema and policy changes need the owner's own yes to merge. Placement is the chief of staff's, a proposal for the owner to move.
+
+## Done on 2026-11-20
+
+The reconciliation walk-through with the owner is finished (decisions HITLD-571 to 578, and the 15 unsure items resolved by notes). Two follow-ups carry on from it: the consolidated design-docs update (HITLD-572) and the roadmap audit of the proposed milestones.
