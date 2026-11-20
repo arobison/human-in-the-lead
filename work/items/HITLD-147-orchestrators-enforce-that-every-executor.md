@@ -2,10 +2,11 @@
 id: HITLD-147
 title: Orchestrators enforce that every executor reports up the chain before its turn ends
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 claimed_by: D-41
+release_note: An interactive executor's brief now ends with a communication block naming the orchestrator's session, and the executor sends its report there at the end of every turn; `hitld dispatch start` refuses one it cannot address (`no-report-block`), and `hitld dispatch watch --ended <sessions>` lists a session that ended with no report under `unreported`, to chase.
 ---
 
 ## Why
