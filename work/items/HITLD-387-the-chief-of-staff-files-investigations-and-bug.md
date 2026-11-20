@@ -26,3 +26,7 @@ On 2026-11-16 the `tracker` check run on two tracker-only pull requests read `in
 ## Notes
 
 Skill and eval change: needs the owner's own yes to merge. Related: HITLD-155 (executors raise the bugs they find), HITLD-143 (whether the chief of staff's reversible tracker edits need a per-change owner approval: filing an item is one of them; until that is decided, an item filed this way is `proposed` and the owner can drop it), HITLD-239 (repeated orchestrator silence), HITLD-182 (the chief of staff acts on events during long tasks), HITLD-386 (the example).
+
+## Note on 2026-11-20 (reconciliation)
+
+Under the one trust engine (HITLD-507, 552) "the chief of staff files investigations and bug reports itself" is a kind with a supervision mode, not a separate rule. Today it files on a second sighting by the owner's standing rule (recorded as an initial grant, HITLD-576).

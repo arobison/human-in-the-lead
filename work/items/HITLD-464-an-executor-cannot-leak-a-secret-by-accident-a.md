@@ -25,3 +25,7 @@ Structural options (executors holding no store key unless they need one, a key p
 ## Note on 2026-11-19
 
 The owner decided (HITLD-537) that every rule an executor could break by accident is enforced by a hook or a scrubbed environment and every fact comes from an independent source; this item is the first of that, and the general item is HITLD-562.
+
+## Note on 2026-11-20 (reconciliation)
+
+This is the first of the general rule that every rule an executor could break by accident is enforced by a hook or a scrubbed environment (HITLD-537, build HITLD-562). Which key signs answers (HITLD-516) does not change what this item scrubs.
