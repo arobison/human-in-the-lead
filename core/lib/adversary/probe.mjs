@@ -21,7 +21,7 @@ import { cases, shrink } from './generate.mjs';
  * @property {string[]} [known] digests of counterexamples already recorded: passed over
  * @property {unknown[]} [check] check these arguments only, instead of attacking
  *
- * @typedef {{ id: string, runs: number, error?: string,
+ * @typedef {{ id: string, runs: number, error?: string, capped?: boolean,
  *   break?: { args: unknown[], variant?: unknown[], message: string, found_at: number } }} ProbeResult
  */
 
@@ -57,15 +57,19 @@ async function probe(inv) {
     return { id: inv.id, runs: 0, error: `could not load: ${e instanceof Error ? e.message : e}` };
   }
   if (inv.check) {
-    const b = evaluate(inv, fns, inv.check);
-    return { id: inv.id, runs: 1, ...(b ? { break: { args: inv.check, ...b, found_at: 1 } } : {}) };
+    // Given arguments are shrunk like the pass's own, so the break is recorded at the smallest
+    // counterexample the pass would find, not twice.
+    if (!evaluate(inv, fns, inv.check)) return { id: inv.id, runs: 1 };
+    const small = shrink(inv.args, inv.check, (a) => evaluate(inv, fns, a) !== null);
+    const b = /** @type {import('./forms.mjs').Break} */ (evaluate(inv, fns, small));
+    return { id: inv.id, runs: 1, break: { args: small, ...b, found_at: 1 } };
   }
   const known = new Set(inv.known ?? []);
   const fails = (/** @type {unknown[]} */ args) => evaluate(inv, fns, args) !== null;
   // Every failing case is shrunk the same way, so the cases of one bug settle on one smallest
   // counterexample. One already recorded is passed over, and the search goes on: another break
   // of the same invariant still shows while the first one's fix is open. Shrinking costs, so
-  // after SHRINKS_PER_INVARIANT recorded ones the search stops.
+  // after SHRINKS_PER_INVARIANT recorded ones the search stops, and says so (capped).
   let n = 0;
   let shrinks = 0;
   for (const seed of inv.seeds) {
@@ -77,7 +81,7 @@ async function probe(inv) {
       if (!known.has(counterexampleDigest({ args: small, variant: b.variant }))) {
         return { id: inv.id, runs: n, break: { args: small, ...b, found_at: n } };
       }
-      if (++shrinks >= SHRINKS_PER_INVARIANT) return { id: inv.id, runs: n };
+      if (++shrinks >= SHRINKS_PER_INVARIANT) return { id: inv.id, runs: n, capped: true };
     }
   }
   return { id: inv.id, runs: n };

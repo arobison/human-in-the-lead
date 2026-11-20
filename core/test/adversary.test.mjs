@@ -661,3 +661,84 @@ test('guard: an executor is denied every hitld adversary command (default deny);
     assert.equal(guard(command, 'human-in-the-lead:adversary'), '', command);
   }
 });
+
+test('record shrinks a given counterexample first: one defect is recorded once', () => {
+  const { root } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
+  const [reg] = regsOf(root);
+  const rec = recordBreak(root, reg, 'twice-is-once', { args: [40], tracker: () => refusing });
+  assert.ok(rec.ok);
+  assert.deepEqual(rec.ok ? rec.args : null, [11]);
+  const after = attackArea(root, reg);
+  assert.deepEqual(after.breaks, [], 'the pass finds nothing new');
+  const same = recordBreak(root, reg, 'twice-is-once', { args: [33], tracker: () => refusing });
+  assert.match(!same.ok ? same.reason : '', /already recorded/);
+});
+
+test('the search says when it stopped at its limit of recorded shrinks', () => {
+  const { root } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
+  const [reg] = regsOf(root);
+  assert.ok(recordBreak(root, reg, 'twice-is-once', { tracker: () => refusing }).ok);
+  const r = attackArea(root, reg);
+  assert.deepEqual(r.breaks, []);
+  assert.deepEqual(r.checked, [{ id: 'twice-is-once', runs: r.checked[0].runs, capped: true }]);
+});
+
+test('a link or directory among the regression tests is passed over with a warning', () => {
+  const { root } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
+  const [reg] = regsOf(root);
+  mkdirSync(join(root, 'test/adversary/adversary-twice-is-once-dir.test.js'), { recursive: true });
+  symlinkSync(
+    join(root, 'nowhere.js'),
+    join(root, 'test/adversary/adversary-twice-is-once-gone.test.js'),
+  );
+  const r = attackArea(root, reg);
+  assert.deepEqual(r.errors, []);
+  assert.equal(r.breaks.length, 1);
+  assert.equal(r.warnings.length, 2);
+  assert.match(r.warnings.join('\n'), /-dir\.test\.js is not a regular file[\s\S]*-gone\.test\.js/);
+  assert.ok(recordBreak(root, reg, 'twice-is-once', { tracker: () => refusing }).ok);
+});
+
+test('an open regression test that cannot load is reported as that, not as fixed', () => {
+  const { root, git } = repo({ 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' });
+  const [reg] = regsOf(root);
+  assert.ok(recordBreak(root, reg, 'twice-is-once', { tracker: () => refusing }).ok);
+  git('mv', 'src/f.js', 'src/g.js');
+  const r = attackArea(root, reg);
+  assert.match(r.errors.join('\n'), /could not load: Error \[ERR_MODULE_NOT_FOUND\]/);
+  assert.doesNotMatch(r.errors.join('\n'), /passes now/);
+});
+
+test('tests_dir: nothing is made outside the repository through a link on the way', () => {
+  const outside = tempDir('adversary-outside-');
+  const { root } = repo(
+    { 'src/f.js': 'export const f = (n) => (n > 9 ? n - 1 : n);\n' },
+    { tests_dir: 'test/sub/deep' },
+  );
+  symlinkSync(outside, join(root, 'test'));
+  const reg = {
+    area: 'lib',
+    path: 'kb/areas/lib/invariants.json',
+    paths: ['src/**', 'test/**'],
+    data: JSON.parse(readFileSync(join(root, 'kb/areas/lib/invariants.json'), 'utf8')),
+    errors: [],
+  };
+  const r = recordBreak(root, reg, 'twice-is-once', { tracker: () => refusing });
+  assert.match(!r.ok ? r.reason : '', /leads outside the repository/);
+  assert.deepEqual(readdirSync(outside), [], 'nothing was made outside');
+});
+
+test('a lone surrogate in a statement reads back the same from the test call and the metadata', () => {
+  const lit = literal('a\ud800b', "'");
+  assert.equal(lit, "'a\\ud800b'");
+  assert.equal(new Function(`return ${lit};`)(), 'a\ud800b');
+});
+
+test('adversary file under pull requests with nothing pending is ok, with nothing to file', async () => {
+  const { root } = repo({ 'src/f.js': 'export const f = (n) => Math.abs(n);\n' }, undefined, {
+    merge: { mode: 'owner', via: 'pull-request' },
+  });
+  const r = await hitld(['adversary', 'file'], root, {});
+  assert.equal(r.exit, 0);
+  assert.deepEqual(r.result, { ok: true, filed: [], skipped: [], pending: [] });
+});

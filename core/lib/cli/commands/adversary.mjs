@@ -131,7 +131,7 @@ export const commands = [
     summary:
       'Run the adversarial pass: attack each invariant of an area (or of the areas a change touches) with generated inputs, and report every break with its smallest counterexample',
     built_by: 'signal',
-    output: ['ok', 'seed', 'areas', 'breaks', 'known', 'recorded', 'errors'],
+    output: ['ok', 'seed', 'areas', 'breaks', 'known', 'warnings', 'recorded', 'errors'],
     args: [
       { name: 'area', type: 'string', description: 'One area (default: every registry)' },
       {
@@ -190,6 +190,7 @@ export const commands = [
         })),
         breaks,
         known: areas.flatMap((a) => a.known),
+        warnings: areas.flatMap((a) => a.warnings.map((w) => `${a.area}: ${w}`)),
         ...(input.record ? { recorded } : {}),
         errors,
       };
@@ -313,16 +314,18 @@ export const commands = [
       if (policy.merge?.via === 'pull-request') {
         // `work publish` carries only tracker files to main, so a test renamed here would keep its
         // pending mark there, and a fresh checkout would file the item again.
+        const pending = pendingRegressions(root, pick.regs).map((p) => ({
+          invariant: p.invariant,
+          tests: p.tests.map((t) => t.test),
+          draft: p.draft,
+        }));
+        if (!pending.length) return { ok: true, filed: [], skipped: [], pending: [] };
         return {
           ok: false,
           reason:
             'merge.via is pull-request: an item filed here reaches main through hitld work publish, which leaves the test behind',
           next: 'file each item below with hitld work new and hitld work publish, then on a branch run hitld adversary file --test <test> --fix <ID> for each of its tests and merge that branch',
-          pending: pendingRegressions(root, pick.regs).map((p) => ({
-            invariant: p.invariant,
-            tests: p.tests.map((t) => t.test),
-            draft: p.draft,
-          })),
+          pending,
         };
       }
       const r = filePending(root, pick.regs, io);

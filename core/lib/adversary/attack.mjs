@@ -10,7 +10,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hashSeed } from '../eval/util.mjs';
@@ -31,26 +31,34 @@ export const SEEDS_PER_PASS = 4;
  * @typedef {{ area: string, invariant: string, statement: string, form: string, args: unknown[],
  *   variant?: unknown[], message: string, found_at: number, seed: number }} Break
  * @typedef {{ area: string, registry: string, invariants: number, seed: number,
- *   checked: { id: string, runs: number }[], breaks: Break[], known: (Break & { tests: string[] })[],
- *   errors: string[] }} AreaResult
+ *   checked: { id: string, runs: number, capped?: boolean }[], breaks: Break[],
+ *   known: (Break & { tests: string[] })[], errors: string[], warnings: string[] }} AreaResult
+ *   capped: the search stopped after its limit of failing cases that shrink to recorded ones
  */
 
 /**
  * The regression tests in a tests directory still marked todo (their fix is not done), with the
  * counterexample each holds; for one invariant, or all.
+ * A name that is not a regular file (a link, a directory) is passed over, with a warning.
  * @param {string} root @param {string} testsDir @param {string} [id]
+ * @param {string[]} [warnings] where to say what was passed over
  * @returns {(import('./regression.mjs').Regression & { test: string })[]}
  */
-export function openRegressions(root, testsDir, id) {
+export function openRegressions(root, testsDir, id, warnings = []) {
   const dir = join(root, testsDir);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => f.startsWith('adversary-') && /\.test\.m?js$/.test(f))
     .sort()
     .flatMap((f) => {
+      const rel = `${testsDir.replace(/\/$/, '')}/${f}`;
+      if (!lstatSync(join(dir, f)).isFile()) {
+        warnings.push(`${rel} is not a regular file: passed over`);
+        return [];
+      }
       const r = readRegression(readFileSync(join(dir, f), 'utf8'));
       if (!r || !r.marked || (id !== undefined && r.invariant !== id)) return [];
-      return [{ ...r, test: `${testsDir.replace(/\/$/, '')}/${f}` }];
+      return [{ ...r, test: rel }];
     });
 }
 
@@ -66,7 +74,9 @@ export const invariantSeed = (seed, area, id) => hashSeed(`${area}:${id}`, seed)
  * @returns {{ results: import('./probe.mjs').ProbeResult[] } | { error: string }}
  */
 function runProbe(root, invariants, timeoutMs) {
-  // A marker the code under attack cannot know, so it cannot print results of its own.
+  // A marker per run keeps what the code under attack happens to print out of the results. It
+  // does not stop hostile code: that runs in the probe's own process and can write anything, at
+  // the same trust as running the area's tests.
   const nonce = randomBytes(12).toString('hex');
   const r = spawnSync(process.execPath, [PROBE], {
     cwd: root,
@@ -129,6 +139,7 @@ export function attackArea(root, registry, options = {}) {
     breaks: [],
     known: [],
     errors: [...registry.errors],
+    warnings: [],
   };
   if (!registry.data) return result;
   const data = registry.data;
@@ -140,12 +151,14 @@ export function attackArea(root, registry, options = {}) {
   }
   result.invariants = chosen.length;
   if (!chosen.length) return result;
-  const open = openRegressions(root, data.tests_dir).filter((r) =>
+  const open = openRegressions(root, data.tests_dir, undefined, result.warnings).filter((r) =>
     chosen.some((i) => i.id === r.invariant),
   );
   if (!options.check) {
     for (const r of open) {
-      if (!regressionFails(root, r.test).fails) {
+      const run = regressionFails(root, r.test);
+      if (!run.loaded) result.errors.push(`${r.test} could not load: ${run.cause}`);
+      else if (!run.fails) {
         result.errors.push(
           `${r.test} passes now: its fix landed, so remove its todo mark (it stays as a regression test)`,
         );
@@ -175,7 +188,7 @@ export function attackArea(root, registry, options = {}) {
   for (const r of out.results) {
     const inv = /** @type {Invariant} */ (chosen.find((i) => i.id === r.id));
     if (r.error) result.errors.push(`invariant ${r.id}: ${r.error}`);
-    else result.checked.push({ id: r.id, runs: r.runs });
+    else result.checked.push({ id: r.id, runs: r.runs, ...(r.capped ? { capped: true } : {}) });
     if (!r.break) continue;
     /** @type {Break} */
     const b = {

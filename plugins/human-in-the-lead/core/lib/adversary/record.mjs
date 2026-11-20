@@ -10,8 +10,16 @@
 // test's todo mark.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 import { CodedError } from '../cli/errors.mjs';
 import { attackArea, openRegressions } from './attack.mjs';
 import { FORMS } from './forms.mjs';
@@ -142,13 +150,31 @@ function fileItem(io, reg, draft) {
  * @returns {string | null} what is wrong
  */
 function testsDirInside(root, testsDir) {
-  const dir = join(root, testsDir);
-  mkdirSync(dir, { recursive: true });
-  const real = realpathSync(dir);
   const top = realpathSync(root);
-  return real === top || real.startsWith(top + sep)
-    ? null
-    : `tests_dir ${testsDir} leads outside the repository`;
+  const inside = (/** @type {string} */ p) => {
+    try {
+      const real = realpathSync(p);
+      return real === top || real.startsWith(top + sep);
+    } catch {
+      return false; // a dangling link
+    }
+  };
+  const there = (/** @type {string} */ p) => {
+    try {
+      lstatSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  // The deepest part that exists, a link included, is checked before anything is made, so a link
+  // on the way cannot have directories made outside the repository.
+  const dir = join(root, testsDir);
+  let existing = dir;
+  while (!there(existing)) existing = dirname(existing);
+  if (!inside(existing)) return `tests_dir ${testsDir} leads outside the repository`;
+  mkdirSync(dir, { recursive: true });
+  return inside(dir) ? null : `tests_dir ${testsDir} leads outside the repository`;
 }
 
 /**
@@ -157,7 +183,8 @@ function testsDirInside(root, testsDir) {
  * @param {Registry} reg
  * @param {string} invariant
  * @param {Io & { args?: unknown[], seed?: number, fix?: string }} o
- *   args: the counterexample (default: the pass's own); fix: an item already filed for it;
+ *   args: a counterexample (default: the pass's own), shrunk first like the pass's, so one
+ *   defect is not recorded twice; fix: an item already filed for it;
  *   commit false: leave the files uncommitted, for a commit with the caller's own trailers
  * @returns {Recorded}
  */
@@ -210,6 +237,10 @@ export function recordBreak(root, reg, invariant, o) {
   writeFileSync(join(root, test), text);
   // The test must fail before any item is filed: a filed item's ID is used for good.
   const run = regressionFails(root, test);
+  if (!run.loaded) {
+    rmSync(join(root, test), { force: true });
+    return { ok: false, invariant, reason: `the regression test could not load: ${run.cause}` };
+  }
   if (!run.fails) {
     rmSync(join(root, test), { force: true });
     return {

@@ -51,7 +51,8 @@ const oneLine = (t) => t.replace(/[\r\n\u2028\u2029]/g, escaped);
 
 /**
  * A JavaScript string literal in the given quote, built in one pass: the quote and the backslash
- * are escaped, and every control or line-ending character is written as a \u escape.
+ * are escaped, and every control or line-ending character and every lone surrogate is written as
+ * a \u escape, as JSON.stringify writes them.
  * @param {string} s @param {string} quote ' or "
  */
 export function literal(s, quote) {
@@ -59,8 +60,15 @@ export function literal(s, quote) {
   for (const c of s) {
     const code = c.charCodeAt(0);
     if (c === quote || c === '\\') out += `\\${c}`;
-    else if (code < 0x20 || code === 0x7f || c === '\u2028' || c === '\u2029') out += escaped(c);
-    else out += c;
+    else if (
+      code < 0x20 ||
+      code === 0x7f ||
+      c === '\u2028' ||
+      c === '\u2029' ||
+      (c.length === 1 && code >= 0xd800 && code <= 0xdfff) // a lone surrogate, as JSON writes it
+    ) {
+      out += escaped(c);
+    } else out += c;
   }
   return `${out}${quote}`;
 }
@@ -235,9 +243,10 @@ export function regressionText({ area, registry, data, inv, c, todo, message }) 
 
 /**
  * Whether the test file fails, as node:test reports a failing todo test. Runs it with no secrets
- * in the environment.
+ * in the environment. loaded false: the file did not get as far as its test (it does not import
+ * or parse), and cause says why.
  * @param {string} root @param {string} rel
- * @returns {{ fails: boolean, output: string }}
+ * @returns {{ fails: boolean, loaded: boolean, cause: string, output: string }}
  */
 export function regressionFails(root, rel) {
   const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', rel], {
@@ -247,5 +256,11 @@ export function regressionFails(root, rel) {
     timeout: 120_000,
   });
   const output = `${r.stdout ?? ''}${r.stderr ?? ''}`;
-  return { fails: /^\s*not ok \d+ - .*# TODO/m.test(output), output };
+  const loaded = /^\s*(?:not )?ok \d+ - invariant /m.test(output);
+  const cause = loaded
+    ? ''
+    : (output.match(/^#?\s*((?:[A-Z][A-Za-z]*Error|Error)\b[^\n]*)/m)?.[1] ??
+        output.trim().split('\n').slice(-3).join(' ')) ||
+      (r.error ? r.error.message : 'no output');
+  return { fails: loaded && /^\s*not ok \d+ - .*# TODO/m.test(output), loaded, cause, output };
 }
