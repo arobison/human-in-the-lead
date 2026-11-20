@@ -72,10 +72,13 @@ import {
  * @property {(dir: string) => string[]} [trackerCheck] the problems of the tracker in a checked-out
  *   tree that refuse a branch: two items with one ID (design 3.4). Not a policy fast check, so it
  *   runs whatever merge.fast_checks says
- * @property {(dir: string, from: string, to: string) => { closed: { id: string }[], problems: string[] }} [closeByTrailer]
+ * @property {(dir: string, from: string, to: string, own: string | null) => { closed: { id: string }[], problems: string[] }} [closeByTrailer]
  *   in the queue's worktree, checked out at the rebased branch `to`: commit the `state: done` edit
  *   of each item a commit in from..to names in a `Closes:` trailer (tracker/files/closing.mjs).
- *   Without it, no trailer closes anything
+ *   own: the entry's item when a dispatch made the branch, the only item it may close; null for a
+ *   branch made by hand. `hitld merge` always sets this; there is no policy setting to turn it
+ *   off. Only code that calls runMergeQueue itself can leave it out, and then no trailer closes
+ *   anything
  *
  * @typedef {object} FlakeSettings
  * @property {number} [compareRuns] runs of the full suite on each side of the base comparison
@@ -494,14 +497,17 @@ export async function runMergeQueue(r) {
         }
         // Closing by trailer: the Done edit of each item a `Closes:` trailer names, committed on
         // top of the branch, before every check below, so they all cover it.
-        const closing = s.closeByTrailer?.(dir, tip, rb.sha) ?? { closed: [], problems: [] };
+        const closing = s.closeByTrailer?.(dir, tip, rb.sha, e.dispatch ? e.item : null) ?? {
+          closed: [],
+          problems: [],
+        };
         if (closing.problems.length) {
           result.rejected.push({
             item: e.item,
             branch: e.branch,
             reason: 'closes',
             output: closing.problems.join('\n'),
-            message: `A Closes: trailer on your branch cannot be honored: ${closing.problems.join('; ')}. Fix the trailer (git commit --amend, or a rebase for an earlier commit): Closes: names a planned or in-progress work item that the branch finishes; use Refs: to link one without closing it.`,
+            message: `A Closes: trailer on your branch cannot be honored: ${closing.problems.join('; ')}. Fix the trailer (git commit --amend, or a rebase for an earlier commit): Closes: names a planned or in-progress work item that the branch finishes, and a dispatched branch only its own item; use Refs: to link one without closing it.`,
             dispatch: e.dispatch,
           });
           rejectedNow.add(e.item);

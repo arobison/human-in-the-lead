@@ -117,7 +117,7 @@ export const actions = {
         fullSuite: ['node --test "test/*.test.js"'],
         generated: [],
         flakeReruns: 0,
-        closeByTrailer: (dir, from, to) => closeByTrailer(dir, layout, from, to),
+        closeByTrailer: (dir, from, to, own) => closeByTrailer(dir, layout, from, to, { own }),
       };
       const entries = [{ item: 'W-1', branch: 'fix/by-hand' }];
       /** @type {string[] | null} */

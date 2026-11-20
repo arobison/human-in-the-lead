@@ -8,7 +8,11 @@ import { main } from '../lib/cli/main.mjs';
 import { runMergeQueue } from '../lib/merge/queue.mjs';
 import { approvePresented, presentToOwner } from '../lib/merge/owner.mjs';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
-import { closeByTrailer } from '../lib/tracker/files/closing.mjs';
+import { closeByTrailer, setStateLine, subjectIds } from '../lib/tracker/files/closing.mjs';
+import { STRICT } from '../lib/guard/classification.mjs';
+import { compileTerms } from '../lib/guard/private-terms.mjs';
+import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
+import { STATUS_INPUT, git as ogit, makeConsumer, report } from './orchestrator-fixture.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
 import { commitAll, git, isolatedEnv, makeRepo, policyFor, put } from './tracker-fixture.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -39,7 +43,7 @@ const settingsFor = (root) => {
     fullSuite: ['true'],
     generated: [],
     flakeReruns: 0,
-    closeByTrailer: (dir, from, to) => closeByTrailer(dir, layout, from, to),
+    closeByTrailer: (dir, from, to, own) => closeByTrailer(dir, layout, from, to, { own }),
   };
 };
 
@@ -328,4 +332,278 @@ test('a Work-Item trailer on a tracker-only commit is bookkeeping; on a commit w
     r.json.mismatches.map((/** @type {any} */ m) => [m.kind, m.item]),
     [['done-without-commit', 'W-5']],
   );
+});
+
+// --- After the review of HITLD-49 ---------------------------------------------------------
+
+/**
+ * A branch of one commit with a full message, made from main.
+ * @param {string} root @param {string} branch @param {string[]} paragraphs
+ * @param {Record<string, string>} [files]
+ */
+function branchWith(root, branch, paragraphs, files) {
+  git(root, 'checkout', '-q', '-b', branch, 'main');
+  put(root, files ?? { [`src/${branch.replace(/\W/g, '-')}.txt`]: `${branch}\n` });
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', ...paragraphs.flatMap((p) => ['-m', p]));
+  git(root, 'checkout', '-q', 'main');
+}
+
+test('a value in the tracker key that is not an ID is refused; one in another key is ignored', () => {
+  const root = makeRepo();
+  for (const [name, value] of [
+    ['dot', 'W-4.'],
+    ['lower', 'w-4'],
+    ['zero', 'W-04'],
+  ]) {
+    branchWith(root, `fix/${name}`, ['Fix', `Closes: ${value}`]);
+    git(root, 'checkout', '-q', `fix/${name}`);
+    const r = closeByTrailer(root, layoutOf(root), 'main', 'HEAD');
+    assert.deepEqual(r.closed, [], value);
+    assert.match(
+      r.problems[0],
+      new RegExp(
+        `^Closes: ${value.replace('.', '\\.')} \\([0-9a-f]{12}\\) is not an ID in this tracker \\(W-<n>`,
+      ),
+    );
+    git(root, 'checkout', '-q', 'main');
+  }
+  branchWith(root, 'fix/forge', ['Fix', 'Closes: #57\nCloses: APP-4']);
+  git(root, 'checkout', '-q', 'fix/forge');
+  assert.deepEqual(closeByTrailer(root, layoutOf(root), 'main', 'HEAD'), {
+    closed: [],
+    problems: [],
+  });
+});
+
+test('a dispatched branch closes only its own item; a dropped item never closes', async () => {
+  const root = makeRepo({
+    files: {
+      'work/items/W-7-given-up.md':
+        '---\nid: W-7\ntitle: Given up\nkind: work\nstate: dropped\nproject: W-2\nreason: not needed\n---\n\nBody.\n',
+    },
+  });
+  branchWith(root, 'exec/w-4', ['W-4', 'Closes: W-5']);
+  branchWith(root, 'exec/w-5', ['W-5', 'Closes: W-5']);
+  branchWith(root, 'fix/dropped', ['Fix', 'Closes: W-7']);
+  const result = await runMergeQueue({
+    repoRoot: root,
+    entries: [
+      { item: 'W-4', branch: 'exec/w-4', dispatch: 'D-1' },
+      { item: 'W-5', branch: 'exec/w-5', dispatch: 'D-2' },
+      { item: 'W-7', branch: 'fix/dropped' },
+    ],
+    settings: settingsFor(root),
+  });
+  assert.deepEqual(
+    result.rejected.map((x) => [x.item, x.reason, x.dispatch ?? null]),
+    [
+      ['W-4', 'closes', 'D-1'],
+      ['W-7', 'closes', null],
+    ],
+  );
+  assert.match(
+    String(result.rejected[0].output),
+    /names an item other than W-4, the one this branch was dispatched for/,
+  );
+  assert.match(String(result.rejected[1].output), /names an item that is dropped/);
+  assert.deepEqual(
+    result.merged.map((m) => [m.item, m.closed]),
+    [['W-5', ['W-5']]],
+  );
+  assert.equal(stateAt(root, 'main', W5), 'done');
+  assert.equal(stateAt(root, 'main', W4), 'planned');
+});
+
+test('only the trailer block counts: a Closes: line mid-body or quoted closes nothing', async () => {
+  const root = makeRepo();
+  branchWith(root, 'fix/prose', [
+    'Fix the thing',
+    'Someone wrote this in the issue:\nCloses: W-5\nbut that is not this commit.',
+    '> Closes: W-5',
+    'Refs: W-4',
+  ]);
+  git(root, 'checkout', '-q', 'fix/prose');
+  assert.deepEqual(closeByTrailer(root, layoutOf(root), 'main', 'HEAD'), {
+    closed: [],
+    problems: [],
+  });
+});
+
+test('two branches that close one item in a batch close it once', async () => {
+  const root = makeRepo();
+  branchWith(root, 'fix/one', ['One', 'Closes: W-4']);
+  branchWith(root, 'fix/two', ['Two', 'Closes: W-4']);
+  const before = git(root, 'rev-parse', 'main').trim();
+  const result = await runMergeQueue({
+    repoRoot: root,
+    entries: [
+      { item: 'W-4', branch: 'fix/one' },
+      { item: 'W-5', branch: 'fix/two' },
+    ],
+    settings: settingsFor(root),
+  });
+  assert.deepEqual(
+    result.merged.map((m) => [m.item, m.closed]),
+    [
+      ['W-4', ['W-4']],
+      ['W-5', undefined],
+    ],
+  );
+  assert.equal(
+    git(root, 'log', '--format=%s', `${before}..main`)
+      .split('\n')
+      .filter((s) => s === 'close: W-4').length,
+    1,
+  );
+  assert.equal(stateAt(root, 'main', W4), 'done');
+});
+
+test('bisection sends back the branch that breaks the suite, and its close with it; the good branch keeps its close', async () => {
+  const root = makeRepo();
+  branchWith(root, 'fix/good', ['Good', 'Closes: W-4']);
+  branchWith(root, 'fix/bad', ['Bad', 'Closes: W-5'], { 'src/broken.txt': 'broken\n' });
+  const result = await runMergeQueue({
+    repoRoot: root,
+    entries: [
+      { item: 'W-4', branch: 'fix/good' },
+      { item: 'W-5', branch: 'fix/bad' },
+    ],
+    settings: { ...settingsFor(root), fullSuite: ['test ! -e src/broken.txt'] },
+  });
+  assert.deepEqual(
+    result.rejected.map((x) => [x.item, x.reason]),
+    [['W-5', 'suite']],
+  );
+  assert.ok(result.bisection_runs > 0);
+  assert.deepEqual(
+    result.merged.map((m) => [m.item, m.closed]),
+    [['W-4', ['W-4']]],
+  );
+  assert.equal(stateAt(root, 'main', W4), 'done');
+  assert.equal(stateAt(root, 'main', W5), 'planned');
+});
+
+test('the commit guard covers the close commit: a private term in the item file refuses the branch', async () => {
+  const term = 'Quillmarsh';
+  const root = makeRepo({
+    files: {
+      [W4]: `---\nid: W-4\ntitle: Second step\nkind: work\nstate: planned\nproject: W-2\nneeds: [W-3]\n---\n\nAsked for by ${term}.\n`,
+    },
+  });
+  branchWith(root, 'fix/term', ['Fix', 'Closes: W-4']);
+  const before = git(root, 'rev-parse', 'main').trim();
+  const result = await runMergeQueue({
+    repoRoot: root,
+    entries: [{ item: 'W-4', branch: 'fix/term' }],
+    settings: {
+      ...settingsFor(root),
+      classification: {
+        ...STRICT,
+        terms: compileTerms([{ term, kind: 'name', id: 'PT-1' }]),
+      },
+    },
+  });
+  assert.deepEqual(
+    result.rejected.map((x) => [x.item, x.reason, x.files]),
+    [['W-4', 'classification', [W4]]],
+  );
+  assert.equal(git(root, 'rev-parse', 'main').trim(), before);
+});
+
+test('the close changes the state line and no other byte of the item file', async () => {
+  const text =
+    '---\nid: W-4\ntitle: "Second: step, with a colon"\nkind: work\nstate: planned\nproject: W-2\nneeds: [W-3]\nrelease: 0.2.0\n---\n\nBody, kept as written.\n';
+  const root = makeRepo({ files: { [W4]: text } });
+  branchWith(root, 'fix/bytes', ['Fix', 'Closes: W-4']);
+  const result = await runMergeQueue({
+    repoRoot: root,
+    entries: [{ item: 'W-4', branch: 'fix/bytes' }],
+    settings: settingsFor(root),
+  });
+  assert.deepEqual(result.rejected, []);
+  assert.equal(git(root, 'show', `main:${W4}`), text.replace('state: planned', 'state: done'));
+  assert.equal(setStateLine('no front matter\n', 'done'), null);
+  assert.equal(setStateLine('---\nid: W-1\n---\nstate: planned\n', 'done'), null);
+});
+
+test('on main, a subject naming the item counts, a bulk edit is not a change, and a release item is left out', async () => {
+  const root = makeRepo({
+    files: {
+      'work/items/W-7-the-release.md':
+        '---\nid: W-7\ntitle: The release\nkind: work\nstate: planned\nproject: W-2\nrelease: 0.1.0\n---\n\nBody.\n',
+    },
+  });
+  settings(root);
+  /** @param {string} path @param {string} from @param {string} to */
+  const edit = (path, from, to) =>
+    put(root, { [path]: readFileSync(join(root, path), 'utf8').replace(from, to) });
+  // The first commit that names an item, so done items after it are checked.
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'Start', '-m', 'Refs: W-3');
+  // A squash merge through a pull request: the subject names W-4, and no trailer does.
+  put(root, { 'src/w4.txt': 'the work\n' });
+  edit(W4, 'state: planned', 'state: done');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'W-4: the second step (#12)', '-m', 'Agent-Role: executor');
+  // A bulk edit after it rewrites six item files, W-3 among them (done before any trailer).
+  for (const f of [
+    'work/items/W-3-first-step.md',
+    W4,
+    W5,
+    'work/items/W-6-which-way.md',
+    'work/items/W-7-the-release.md',
+    'work/projects/W-2-the-project.md',
+  ]) {
+    edit(f, 'Body.', 'Body, reworded.');
+  }
+  commitAll(root, 'Tracker: reword every body');
+  // The release item is marked done in a tracker commit, as a release does.
+  edit('work/items/W-7-the-release.md', 'state: planned', 'state: done');
+  commitAll(root, 'Tracker: the release is published');
+  const r = await hitld(['work', 'check'], root);
+  assert.deepEqual(r.json.mismatches, []);
+  assert.deepEqual(subjectIds('W-650, 651: the chief (#7)', 'W'), ['W-650', 'W-651']);
+  assert.deepEqual(subjectIds('W-571 to 573: placement', 'W'), ['W-571', 'W-572', 'W-573']);
+  assert.deepEqual(subjectIds('Add a thing (W-12) (#5)', 'W'), ['W-12']);
+  assert.deepEqual(subjectIds('Tracker: W-1: something', 'W'), []);
+  assert.deepEqual(subjectIds('W-4x is not one', 'W'), []);
+});
+
+test('hitld merge end to end: an executor closes its own item by trailer; another item in its trailer sends it back', async () => {
+  const c = makeConsumer();
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+  /** @param {string} id @param {string} trailer */
+  const dispatchAndReport = async (id, trailer) => {
+    const start = await c.hitld(['dispatch', 'start', id]);
+    assert.equal(start.exit, 0, JSON.stringify(start.result));
+    const d = start.result.dispatch;
+    await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', `agent-${d}`]);
+    const branch = start.result.branch;
+    ogit(c.root, 'switch', '-q', '-c', branch);
+    put(c.root, { [`src/${id}.js`]: `export const x = '${id}';\n` });
+    ogit(c.root, 'add', '-A');
+    ogit(c.root, 'commit', '-q', '-m', `${id}: the work`, '-m', trailer);
+    const sha = ogit(c.root, 'rev-parse', 'HEAD');
+    ogit(c.root, 'switch', '-q', 'main');
+    const note = join(c.base, `note-${id}.txt`);
+    writeFileSync(note, report({ item: id, sha, branch }));
+    const done = await c.hitld(['dispatch', 'complete', '--dispatch', d, '--report-file', note]);
+    assert.equal(done.exit, 0, JSON.stringify(done.result));
+    return d;
+  };
+  const d1 = await dispatchAndReport('W-1', `Closes: W-1\nWork-Item: W-1`);
+  const d2 = await dispatchAndReport('W-2', `Closes: W-3\nWork-Item: W-2`);
+  const merged = await c.hitld(['merge']);
+  assert.equal(merged.exit, 0, JSON.stringify(merged.result));
+  assert.deepEqual(merged.result.merged, ['W-1']);
+  assert.deepEqual(merged.result.closed, ['W-1']);
+  assert.match(readFileSync(join(c.root, 'work/items/W-1-add-numbers.md'), 'utf8'), /state: done/);
+  assert.match(readFileSync(join(c.root, 'work/items/W-3-after-one.md'), 'utf8'), /state: planned/);
+  const back = merged.result.rejected.find((/** @type {any} */ x) => x.item === 'W-2');
+  assert.equal(back.reason, 'closes');
+  assert.equal(back.follow_up.dispatch, d2);
+  assert.match(back.problems[0], /^Closes: W-3 \([0-9a-f]{12}\) names an item other than W-2/);
+  assert.match(back.follow_up.message, /a dispatched branch only its own item/);
+  void d1;
 });

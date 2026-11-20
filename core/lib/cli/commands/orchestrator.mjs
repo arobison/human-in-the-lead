@@ -709,7 +709,7 @@ const ownerPresentation = (o) => ({
   waiting: o.waiting,
   reused: o.reused,
   next: o.presentation
-    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations), and each directed read with its question (with a chief of staff, in your message to it). Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]; when the chief of staff recorded the answer (hitld merge approve), plain hitld merge applies it. Send each rejected follow_up"
+    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations, and the items its Closes: trailers close, from closed), and each directed read with its question (with a chief of staff, in your message to it). Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]; when the chief of staff recorded the answer (hitld merge approve), plain hitld merge applies it. Send each rejected follow_up"
     : 'nothing passed the checks to present: for each rejected entry with a follow_up, hitld dispatch follow-up; then refill with hitld dispatch plan',
 });
 
@@ -1953,9 +1953,9 @@ const table = [
             }
           },
           // Closing by trailer (design 3.4): with main's tracker layout, in the rebased tree.
-          closeByTrailer: (dir, from, to) =>
+          closeByTrailer: (dir, from, to, own) =>
             existsSync(join(dir, layout.workDir))
-              ? closeByTrailer(dir, layout, from, to)
+              ? closeByTrailer(dir, layout, from, to, { own })
               : { closed: [], problems: [] },
           // From main's policy and tracker.json, never the branch's own; the private terms from
           // the private store, so every commit's files and message are checked for them.
