@@ -29,10 +29,23 @@ export const UNASSIGNED = 'unassigned';
  */
 export function recordTrustEvent(store, event, at) {
   const line = { schema_version: 1, ...event, at };
-  const errors = schemas().validateEntity('trust-event', line);
-  if (errors.length) throw new Error(`trust event is invalid: ${formatErrors(errors)}`);
+  const problem = invalidTrustEvent(event, at);
+  if (problem) throw new Error(`trust event is invalid: ${problem}`);
   store.append(TRUST_KEY, JSON.stringify(line) + '\n');
   return line;
+}
+
+/**
+ * What is wrong with an event, checked as recordTrustEvent checks it; null when nothing is. A
+ * command that writes other records first checks its trust events with this before its first
+ * write, so a refusal leaves no trace (HITLD-160).
+ * @param {TrustEvent} event everything but schema_version and at
+ * @param {string} at
+ * @returns {string | null}
+ */
+export function invalidTrustEvent(event, at) {
+  const errors = schemas().validateEntity('trust-event', { schema_version: 1, ...event, at });
+  return errors.length ? formatErrors(errors) : null;
 }
 
 /**

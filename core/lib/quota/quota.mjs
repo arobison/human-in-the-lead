@@ -10,7 +10,14 @@ import { HOUR, declaredReset, resetsAtMs, windowBounds } from './window.mjs';
 import { ledgerUsage, readingFor } from './usage.mjs';
 
 /** A snapshot older than this, in a window that has not reset, is a reading but a weak one. */
-const FRESH_MS = 30 * 60_000;
+export const FRESH_MS = 30 * 60_000;
+/**
+ * The source of a usage figure the owner reads on their own account and declares with `hitld
+ * quota declare` (HITLD-149, HITLD-164). Every other source is a measured reading.
+ */
+export const DECLARED_SOURCE = 'owner-declared';
+/** How old a declared figure may grow before the owner is asked for a fresh one, by default. */
+const REFRESH_HOURS = 12;
 const STALE_MS = 3 * HOUR;
 /** Two readings closer than this say nothing about a rate. */
 const MIN_SPAN_MS = 5 * 60_000;
@@ -19,6 +26,8 @@ const RANK = { low: 0, medium: 1, high: 2 };
 
 /** @param {number} ms @returns {string} */
 const iso = (ms) => new Date(ms).toISOString();
+/** @param {number} n */
+const round = (n) => Math.round(n * 10) / 10;
 
 /**
  * The five-hour window some Claude plans have. It is not a default limit: Ultra and usage-based
@@ -84,7 +93,11 @@ export function shownLimits(limits, snapshots, now) {
  * @property {number} reserve_share
  * @property {number | null} reserve in the limit's unit
  * @property {number | null} used
- * @property {'snapshot' | 'ledger' | null} used_from
+ * @property {'snapshot' | 'declared' | 'ledger' | null} used_from declared: an estimate from the
+ *   owner's figure and the burn since, used only when no fresh measured reading exists (HITLD-170)
+ * @property {{ used: number, at: string, burn_per_hour: number | null } | null} declared the
+ *   owner's figure the estimate starts from, when used_from is declared
+ * @property {string | null} refresh why the owner is asked for a fresh figure, or null
  * @property {string | null} as_of
  * @property {string | null} resets_at
  * @property {'high' | 'medium' | 'low'} confidence
@@ -145,21 +158,42 @@ export function evaluateQuotas({
     const reserveShare = limit.reserve ?? q.reserve;
     const reserve = limit.limit == null ? null : reserveShare * limit.limit;
 
-    // The freshest reading for this limit that belongs to a window not yet reset.
+    // The reading for this limit, from a window not yet reset (HITLD-170). A measured reading
+    // younger than FRESH_MS wins. Without one, the latest reading of either kind is used: a figure
+    // the owner declared after a stale measured reading, or a stale measured reading after the
+    // owner's figure. A figure declared after a fresh measured reading does not replace it.
     // A snapshot from the machine registry carries its account and counts only for limits on that
     // account (a limit with no account is on the default one); a project's own snapshot has none
     // and counts for every limit, as before.
     const account = limit.scope?.account ?? 'default';
-    const readings = snapshots
-      .filter((s) => s.account === undefined || s.account === account)
-      .map((s) => readingFor(s, limit))
-      .filter((r) => r && r.at <= now)
-      .sort((a, b) => /** @type {any} */ (a).at - /** @type {any} */ (b).at);
-    const last = /** @type {{ at: number, used: number, resetsAt: number | null } | undefined} */ (
-      readings[readings.length - 1]
-    );
-    const live = last && (last.resetsAt == null || last.resetsAt > now) ? last : null;
-    if (last && !live) notes.push('the latest snapshot is from a window that has since reset');
+    /** @typedef {{ at: number, used: number, resetsAt: number | null, declared: boolean }} Reading */
+    const readings = /** @type {Reading[]} */ (
+      snapshots
+        .filter((s) => s.account === undefined || s.account === account)
+        .map((s) => {
+          const r = readingFor(s, limit);
+          return r ? { ...r, declared: s.source === DECLARED_SOURCE } : null;
+        })
+        .filter((r) => r && r.at <= now)
+    ).sort((a, b) => a.at - b.at);
+    const isLive = (/** @type {Reading} */ r) => r.resetsAt == null || r.resetsAt > now;
+    const lastOf = (/** @type {boolean} */ declared) =>
+      readings.filter((r) => r.declared === declared).at(-1);
+    const measured = lastOf(false);
+    const owners = lastOf(true);
+    const measuredLive = measured && isLive(measured) ? measured : null;
+    const ownersLive = owners && isLive(owners) ? owners : null;
+    /** @type {Reading | null} */
+    let live = measuredLive;
+    if (
+      ownersLive &&
+      !(measuredLive && now - measuredLive.at <= FRESH_MS) &&
+      !(measuredLive && measuredLive.at > ownersLive.at)
+    ) {
+      live = ownersLive;
+    }
+    if (!live && readings.length)
+      notes.push('the latest snapshot is from a window that has since reset');
 
     // A reading's reset time wins; the person's declared reset stands in where there is none.
     const declared = live?.resetsAt == null ? declaredReset(limit, now) : null;
@@ -173,10 +207,36 @@ export function evaluateQuotas({
     /** @type {{ at: number, used: number }[]} */
     let points = [];
     let used = /** @type {number | null} */ (null);
-    /** @type {'snapshot' | 'ledger' | null} */
+    /** @type {'snapshot' | 'declared' | 'ledger' | null} */
     let usedFrom = null;
     let asOf = /** @type {number | null} */ (null);
-    if (live) {
+    /** @type {{ used: number, at: string, burn_per_hour: number | null } | null} */
+    let declaredFigure = null;
+    /** @type {{ recent: number | null, average: number | null } | null} */
+    let declaredRates = null;
+    if (live?.declared) {
+      // The owner's figure, aged: the burn the readings recorded up to it (the recent rate, else
+      // the window's average), carried on from its time to now, so the figure does not hold still
+      // as work runs. It never passes the limit itself.
+      points = readings
+        .filter((r) => isLive(r) && r.at >= bounds.start && r.at <= live.at)
+        .map((r) => ({ at: r.at, used: r.used }));
+      declaredRates = rates(points, {
+        now: live.at,
+        start: bounds.start,
+        used: live.used,
+        smoothMs,
+      });
+      const burn = declaredRates.recent ?? declaredRates.average;
+      const since = burn != null && burn > 0 ? burn * ((now - live.at) / HOUR) : 0;
+      used = limit.limit == null ? live.used + since : Math.min(limit.limit, live.used + since);
+      usedFrom = 'declared';
+      asOf = live.at;
+      declaredFigure = { used: live.used, at: iso(live.at), burn_per_hour: burn };
+      notes.push(
+        `estimated from the owner's figure of ${round(live.used)} at ${iso(live.at)}${burn == null ? ', with no burn recorded to carry it on' : ` and a burn of ${round(burn)}/h since`}`,
+      );
+    } else if (live) {
       used = live.used;
       usedFrom = 'snapshot';
       asOf = live.at;
@@ -212,6 +272,7 @@ export function evaluateQuotas({
     } else if (usedFrom === 'ledger') {
       confidence = limit.source === 'estimated' ? 'medium' : 'low';
     }
+    // A declared figure is a reading of low confidence that ages (HITLD-164): it stays low.
     if (
       limit.confidence &&
       RANK[/** @type {'high'|'medium'|'low'} */ (limit.confidence)] < RANK[confidence]
@@ -234,12 +295,14 @@ export function evaluateQuotas({
       before_reset: null,
     };
     if (used != null) {
-      const r = rates(points, {
-        now,
-        start: hasFixedStart || usedFrom === 'ledger' ? bounds.start : null,
-        used,
-        smoothMs,
-      });
+      const r =
+        declaredRates ??
+        rates(points, {
+          now,
+          start: hasFixedStart || usedFrom === 'ledger' ? bounds.start : null,
+          used,
+          smoothMs,
+        });
       const burn = r.recent ?? r.average;
       if (burn != null) {
         forecast.burn_per_hour = burn;
@@ -262,6 +325,21 @@ export function evaluateQuotas({
       }
     }
 
+    // The owner is asked for a fresh figure when the estimate nears the reserve (inside the
+    // economize band) or the figure is older than quota.declared_refresh_hours. Dispatch waits for
+    // it only at the reserve, where the gate stops anyway.
+    /** @type {string | null} */
+    let refresh = null;
+    if (usedFrom === 'declared' && asOf != null) {
+      const hours = (now - asOf) / HOUR;
+      const maxHours = q.declared_refresh_hours ?? REFRESH_HOURS;
+      if (headroom != null && headroom < q.economize_below) {
+        refresh = `the estimate from the owner's figure is ${round(headroom * 100)}% above the reserve, near it`;
+      } else if (hours > maxHours) {
+        refresh = `the owner's figure is ${round(hours)} hours old, older than quota.declared_refresh_hours (${maxHours})`;
+      }
+    }
+
     return {
       id: limit.id,
       unit: limit.unit,
@@ -273,6 +351,8 @@ export function evaluateQuotas({
       reserve,
       used,
       used_from: usedFrom,
+      declared: declaredFigure,
+      refresh,
       as_of: asOf == null ? null : iso(asOf),
       resets_at: bounds.end == null ? null : iso(bounds.end),
       confidence,

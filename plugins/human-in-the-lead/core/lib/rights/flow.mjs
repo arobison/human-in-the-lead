@@ -52,7 +52,7 @@ import {
 } from './format.mjs';
 import { enforceOffer, ownerOnly } from './offer.mjs';
 import { factsOf, fromLegacyQuestion, normalizeQuestion, routeQuestion } from './route.mjs';
-import { UNASSIGNED, readTrustEvents, recordTrustEvent } from './trust.mjs';
+import { UNASSIGNED, invalidTrustEvent, readTrustEvents, recordTrustEvent } from './trust.mjs';
 import {
   LOGGED_TEXT_MAX,
   decisionTimes,
@@ -451,7 +451,13 @@ export function askQuestion(deps, given, options = {}) {
   const at = options.at ?? nowOf(deps);
   const classification = question.classification ?? 'internal';
   const area = areaLabel(route.areas);
-  const facts = factsOf(question, route);
+  // A question with no structured attributes (no areas, paths, tags, item kind or rule that
+  // fired) has no facts, and its trust event carries none: the schema takes no empty facts.
+  const structured = factsOf(question, route);
+  const facts = Object.keys(structured).length ? { facts: structured } : {};
+  // The trust event is checked with the rest, before the decision item is created, so a refusal
+  // leaves no trace (HITLD-160). Its subject is the ID the item will get.
+  const placeholder = `${deps.policy.project.key}-1`;
 
   if (resolved) {
     const p = resolved.precedent;
@@ -483,24 +489,24 @@ export function askQuestion(deps, given, options = {}) {
     };
     const problem = invalidDraft(deps, { ...draft, ...answered });
     if (problem) return fail('invalid-decision', problem);
+    /** @param {string} subject */
+    const application = (subject) => ({
+      kind: 'application',
+      area: area ?? UNASSIGNED,
+      subject,
+      decider: route.deciders.join(', '),
+      ...(route.basis ? { basis: route.basis } : {}),
+      precedent: p.id,
+      ...facts,
+    });
+    const invalidEvent = invalidTrustEvent(application(placeholder), at);
+    if (invalidEvent) return fail('invalid-trust-event', invalidEvent);
     const made = create(deps, { ...draft, state: 'planned' });
     if (typeof made !== 'string') return made;
     const id = made;
     deps.tracker.update(id, answered, versionOf(deps.tracker.get(id)));
     deps.tracker.transition(id, 'done', `resolved by precedent ${p.id}`, {});
-    recordTrustEvent(
-      deps.store,
-      {
-        kind: 'application',
-        area: area ?? UNASSIGNED,
-        subject: id,
-        decider: route.deciders.join(', '),
-        ...(route.basis ? { basis: route.basis } : {}),
-        precedent: p.id,
-        facts,
-      },
-      at,
-    );
+    recordTrustEvent(deps.store, application(id), at);
     return {
       ok: true,
       outcome: 'precedent',
@@ -576,6 +582,18 @@ export function askQuestion(deps, given, options = {}) {
   };
   const problem = invalidDraft(deps, draft);
   if (problem) return fail('invalid-decision', problem);
+  /** @param {string} subject */
+  const askedEvent = (subject) => ({
+    kind: 'asked',
+    area: area ?? UNASSIGNED,
+    subject,
+    decider: route.deciders.join(', '),
+    ...(route.basis ? { basis: route.basis } : {}),
+    ...(remaining.length ? { candidates: remaining.map((c) => c.id) } : {}),
+    ...facts,
+  });
+  const invalidEvent = invalidTrustEvent(askedEvent(placeholder), at);
+  if (invalidEvent) return fail('invalid-trust-event', invalidEvent);
   const made = create(deps, draft);
   if (typeof made !== 'string') return made;
   const id = made;
@@ -604,19 +622,7 @@ export function askQuestion(deps, given, options = {}) {
   };
   deps.store.write(askedKey(id), canonicalJson(record) + '\n');
   for (const blocked of question.blocks ?? []) deps.tracker.link(blocked, 'needs', id);
-  recordTrustEvent(
-    deps.store,
-    {
-      kind: 'asked',
-      area: area ?? UNASSIGNED,
-      subject: id,
-      decider: route.deciders.join(', '),
-      ...(route.basis ? { basis: route.basis } : {}),
-      ...(remaining.length ? { candidates: remaining.map((c) => c.id) } : {}),
-      facts,
-    },
-    at,
-  );
+  recordTrustEvent(deps.store, askedEvent(id), at);
   recordDecisionEvent(deps.store, 'asked', id, at, { who: deps.who });
   if (options.send || options.recorded) {
     recordDecisionEvent(deps.store, 'sent', id, at, { delivery: 'interrupt', who: deps.who });
