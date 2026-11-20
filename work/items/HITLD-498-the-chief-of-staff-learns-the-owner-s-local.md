@@ -21,3 +21,7 @@ Reported in GitHub issue #296. The owner travels. The person file set no `attent
 ## Notes
 
 Triaged 2026-11-18: proposed. Related: HITLD-84 (the attention budget's person-file keys and quiet hours), HITLD-162 (where person settings live), HITLD-148 (a cloud session starts with the owner's settings). Skill and code: the owner's own yes to merge.
+
+## Note on 2026-11-20 (reconciliation)
+
+The owner's awake time is what the rung-2 objection window counts (HITLD-523), so the commitment build (HITLD-554) needs this item.
