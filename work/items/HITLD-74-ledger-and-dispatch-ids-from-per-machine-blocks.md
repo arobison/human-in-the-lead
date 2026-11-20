@@ -26,3 +26,7 @@ Related: HITLD-490 (the ledger is per project, with a person-level layer: HITLD-
 ## Affected by a decision (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (HITLD-74): part of the ledger design: unique IDs, per-writer ledger files. The decisions since then are the ledger and no-run decisions (HITLD-484 to 490). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.
+
+## Plan audit on 2026-11-20 (still valid as written)
+
+Checked against the ledger and no-run decisions (HITLD-484 to HITLD-490). This item already builds them: IDs unique by construction and one append-only file per writer (HITLD-489, which replaced HITLD-485), and the ledger kept per project in that project's own private store (HITLD-490). The trust-engine, pace, probe and answer-proof decisions do not change what it builds. No rewording.

@@ -14,9 +14,9 @@ The person file and the machine file live in each container's home directory. A 
 
 ## Done when
 
-- A cloud session in an enrolled environment starts with the owner's person settings (caps, reserve, declared limits, attention budget and quiet hours) read from the private store, so it asks for nothing the owner already answered.
+- A cloud session in an enrolled environment starts with the owner's person settings (caps, reserve, declared limits, attention budget and quiet hours) read from the project's own private store (each project has its own, HITLD-490), so it asks for nothing the owner already answered. What it reads names no other project: no other project's store address and no share set against another project (HITLD-549).
 - The machine file is recorded at session start from the probe, as it already is for a cloud VM, and the owner's answers about the machine are kept in the store, not asked again.
-- The orchestrator acts on the chief of staff's wake message that the owner said to go on without the store only when the owner's word is in a record it can read from the store (HITLD-174). Until that record exists the rule in the skills stays as HITLD-142 left it, and nothing stalls on this decision.
+- The orchestrator acts on the chief of staff's wake message that the owner said to go on without the store only when the owner's word is in a record it can read from the store (HITLD-174). That record is an answer record that carries its proof (HITLD-515): the answer record is built by HITLD-564, and which key signs waits for the store migration design (HITLD-516), so this item does not make up a record or a proof kind of its own. Until such a record exists the rule in the skills stays as HITLD-142 left it, and nothing stalls on this decision.
 - The first-run setup asks only for what is missing, and says what it took from the store.
 - When the store cannot be reached at session start, the session runs on the conservative defaults (one executor, the default reserve, no declared limits), says what it could not read and why, and asks nothing the store would have answered once it is reachable. The owner can say in their own message to go on.
 - A change to the person file is made only in the owner's own turn, and reaches the store through `hitld store push`. An executor cannot change it.
@@ -38,3 +38,14 @@ The executor cap is a person setting, not a project one (the owner, 2026-11-16, 
 ## Affected by a decision (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (333,508,470): settings in private store; store enrollment. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the ledger and no-run decisions (HITLD-484 to 490); stay in the harness and answers by proof (HITLD-540, 515); answers, proof and contributors (HITLD-515 to 517). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.
+
+## Reworded on 2026-11-20 (plan audit)
+
+The goal and the owner's two choices stand (HITLD-162: the settings live in the private store, synced; HITLD-163: conservative defaults when the store cannot be reached). Two lines of Done when changed to match later decisions:
+
+- **Which store, and what travels (HITLD-490, HITLD-549).** The first line said "the private store". The owner decided each project keeps its own private store (HITLD-490) and that projects are blind to each other: no project reads another project's data or learns that another exists (HITLD-549). The line now says the project's own store and says what the session reads names no other project. The listed settings (caps, reserve, declared limits, attention budget, quiet hours) are unchanged. The person file also holds keys that name other projects (store addresses, shares), and those do not travel.
+- **The owner's word to go on without the store (HITLD-515, HITLD-516, HITLD-174).** The third line said the orchestrator acts on the owner's word only when it is "in a record it can read". The owner decided an answer counts by a checkable proof carried in one answer record, with the harness-attested turn as the proof today and the key to be chosen later (HITLD-515, HITLD-516). The record is therefore that answer record (HITLD-564), not one this item invents. The line already said the rule stays as HITLD-142 left it until the record exists, and that still holds.
+
+Checked and unchanged: the ledger and no-run decisions (HITLD-484 to HITLD-490), the trust-engine decisions (HITLD-518 to HITLD-529, HITLD-547, HITLD-548), stay in the harness (HITLD-540) and contributor input (HITLD-517) do not change what this item builds.
+
+For the owner, not decided here: the settings section of the operations design and its question on syncing the person file across machines still say the person file is not synced, which predates HITLD-162. HITLD-162 governs the settings a cloud session needs, so the build updates that design text for the owner's yes to merge. The same section says whether a person-level ceiling on executors across projects stays is not decided; the cap here stays as HITLD-230 set it.
