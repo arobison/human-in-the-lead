@@ -29,6 +29,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -450,25 +451,8 @@ function spawnRunner({ root, test, scratch, timeoutMs }) {
 }
 
 const CANARY_TEST = 'test/canary.test.mjs';
-/** @param {string} outside a file outside the canary's root @param {string} socketPath a unix socket path outside it */
-const canaryText = (outside, socketPath) =>
-  [
-    "import { test } from 'node:test';",
-    "import assert from 'node:assert/strict';",
-    "import { readFileSync } from 'node:fs';",
-    "import { execFileSync } from 'node:child_process';",
-    "import { lookup } from 'node:dns';",
-    "import net from 'node:net';",
-    "import dgram from 'node:dgram';",
-    `test('read outside', () => assert.throws(() => readFileSync(${JSON.stringify(outside)}), { code: 'ERR_ACCESS_DENIED' }));`,
-    "test('socket', () => assert.throws(() => net.connect(9, '127.0.0.1'), { code: 'HITLD_NETWORK_DENIED' }));",
-    "test('dns', () => assert.throws(() => lookup('localhost', () => {}), { code: 'HITLD_NETWORK_DENIED' }));",
-    `test('process', () => assert.throws(() => execFileSync(${JSON.stringify(process.execPath)}, ['-v']), { code: 'ERR_ACCESS_DENIED' }));`,
-    "test('udp', () => assert.throws(() => dgram.createSocket('udp4'), { code: 'HITLD_NETWORK_DENIED' }));",
-    // A raw Pipe handle, made from stdio's handle class, connecting to a unix socket path.
-    `test('raw pipe', () => { const Pipe = process.stdout._handle.constructor; assert.throws(() => new Pipe(0).connect({}, ${JSON.stringify(socketPath)}), { code: 'HITLD_NETWORK_DENIED' }); });`,
-    '',
-  ].join('\n');
+/** The canary's fixed text, copied into the canary directory; its values go in a JSON file. */
+const CANARY_PROBE = fileURLToPath(new URL('./canary-probe.mjs', import.meta.url));
 
 /** Sandboxes whose canary passed in this process. */
 const canaryPassed = new Set();
@@ -492,9 +476,10 @@ function checkSandboxHolds(layout) {
   mkdirSync(layout.scratch, { recursive: true });
   writeFileSync(outside, 'outside\n');
   mkdirSync(join(layout.canary, 'test'), { recursive: true });
+  copyFileSync(CANARY_PROBE, join(layout.canary, CANARY_TEST));
   writeFileSync(
-    join(layout.canary, CANARY_TEST),
-    canaryText(outside, join(layout.scratch, 'canary.sock')),
+    join(layout.canary, 'test', 'canary.json'),
+    `${JSON.stringify({ outside, node: process.execPath, socket: join(layout.scratch, 'canary.sock') })}\n`,
   );
   const scratch = join(layout.scratch, 'canary');
   removeInside(scratch, layout.dir);

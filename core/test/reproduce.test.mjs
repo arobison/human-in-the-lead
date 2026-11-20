@@ -136,6 +136,47 @@ const HEAD = ["import { test } from 'node:test';", "import assert from 'node:ass
   '\n',
 );
 
+/** The escape probe: fixed text that reads its port and paths from test/escape.json. */
+const ESCAPE_PROBE = [
+  HEAD,
+  "import { readFileSync, symlinkSync } from 'node:fs';",
+  "import http from 'node:http';",
+  "import net from 'node:net';",
+  "import tls from 'node:tls';",
+  "import dgram from 'node:dgram';",
+  "import dns from 'node:dns';",
+  "import { lookup } from 'node:dns';",
+  "import { lookup as lookupP, Resolver as ResolverP } from 'node:dns/promises';",
+  "const config = JSON.parse(readFileSync(new URL('./escape.json', import.meta.url), 'utf8'));",
+  "const denied = { code: 'HITLD_NETWORK_DENIED' };",
+  "const url = 'http://127.0.0.1:' + config.port + '/';",
+  "test('fetch', async () => { await fetch(url); });",
+  "test('http', () => { http.get(url); });",
+  "test('socket', () => { net.connect(config.port, '127.0.0.1'); });",
+  "test('tls', () => { tls.connect(443, '127.0.0.1'); });",
+  "test('udp', () => { dgram.createSocket('udp4').send('x', 9, '127.0.0.1'); });",
+  "test('esm lookup', () => assert.throws(() => lookup('localhost', () => {}), denied));",
+  "test('promises lookup', () => assert.throws(() => lookupP('localhost'), denied));",
+  "test('resolveTxt', () => assert.throws(() => dns.resolveTxt('x.example', () => {}), denied));",
+  "test('reverse', () => assert.throws(() => dns.reverse('127.0.0.1', () => {}), denied));",
+  "test('lookupService', () => assert.throws(() => dns.lookupService('127.0.0.1', 22, () => {}), denied));",
+  "test('Resolver', () => assert.throws(() => new dns.Resolver().resolve4('x.example', () => {}), denied));",
+  "test('promises Resolver', () => assert.throws(() => new ResolverP().resolveTxt('x.example'), denied));",
+  "test('WebSocket', () => assert.throws(() => new WebSocket('ws://127.0.0.1:9/'), denied));",
+  "test('secret', () => assert.equal(process.env.HITLD_TEST_SECRET, undefined));",
+  "test('outside', () => readFileSync(config.outside));",
+  "test('passwd', () => readFileSync('/etc/passwd'));",
+  "test('make a link', () => symlinkSync('/etc/passwd', config.link));",
+  "test('child', async () => (await import('node:child_process')).execFileSync('true'));",
+  "test('binding', () => process.binding('tcp_wrap'));",
+  "test('dgram socket', () => assert.throws(() => dgram.createSocket('udp4'), denied));",
+  "test('dgram class', () => assert.throws(() => new dgram.Socket('udp4'), denied));",
+  "test('raw pipe', () => { const Pipe = process.stdout._handle.constructor; const p = new Pipe(0); assert.throws(() => p.connect({ oncomplete() {} }, config.socket), denied); });",
+  "test('raw pipe on stdout', () => assert.throws(() => process.stdout._handle.connect({ oncomplete() {} }, config.socket), denied));",
+  "test('raw tcp', () => assert.throws(() => net._createServerHandle('127.0.0.1', 0, 4), denied));",
+  '',
+].join('\n');
+
 test('the sandbox holds the base files and no repository, and the brief quotes the report as data', async () => {
   const f = await fixture();
   assert.equal(readFileSync(join(f.work, 'src/stats.js'), 'utf8'), BUGGY);
@@ -222,48 +263,21 @@ test(
     await new Promise((r) => uds.once('listening', r));
     // The same request from outside the sandbox works.
     assert.equal(await (await fetch(`http://127.0.0.1:${port}/`)).text(), 'reached');
-    const denied = { code: 'HITLD_NETWORK_DENIED' };
-    const lines = [
-      HEAD,
-      "import { readFileSync, symlinkSync } from 'node:fs';",
-      "import http from 'node:http';",
-      "import net from 'node:net';",
-      "import tls from 'node:tls';",
-      "import dgram from 'node:dgram';",
-      "import dns from 'node:dns';",
-      "import { lookup } from 'node:dns';",
-      "import { lookup as lookupP, Resolver as ResolverP } from 'node:dns/promises';",
-      `const denied = ${JSON.stringify(denied)};`,
-      `test('fetch', async () => { await fetch('http://127.0.0.1:${port}/'); });`,
-      `test('http', () => { http.get('http://127.0.0.1:${port}/'); });`,
-      `test('socket', () => { net.connect(${port}, '127.0.0.1'); });`,
-      "test('tls', () => { tls.connect(443, '127.0.0.1'); });",
-      "test('udp', () => { dgram.createSocket('udp4').send('x', 9, '127.0.0.1'); });",
-      "test('esm lookup', () => assert.throws(() => lookup('localhost', () => {}), denied));",
-      "test('promises lookup', () => assert.throws(() => lookupP('localhost'), denied));",
-      "test('resolveTxt', () => assert.throws(() => dns.resolveTxt('x.example', () => {}), denied));",
-      "test('reverse', () => assert.throws(() => dns.reverse('127.0.0.1', () => {}), denied));",
-      "test('lookupService', () => assert.throws(() => dns.lookupService('127.0.0.1', 22, () => {}), denied));",
-      "test('Resolver', () => assert.throws(() => new dns.Resolver().resolve4('x.example', () => {}), denied));",
-      "test('promises Resolver', () => assert.throws(() => new ResolverP().resolveTxt('x.example'), denied));",
-      "test('WebSocket', () => assert.throws(() => new WebSocket('ws://127.0.0.1:9/'), denied));",
-      "test('secret', () => assert.equal(process.env.HITLD_TEST_SECRET, undefined));",
-      `test('outside', () => readFileSync(${JSON.stringify(join(f.repo, 'package.json'))}));`,
-      "test('passwd', () => readFileSync('/etc/passwd'));",
-      `test('make a link', () => symlinkSync('/etc/passwd', ${JSON.stringify(join(f.sandbox, 'scratch', 'run', 'tmp', 'l'))}));`,
-      "test('child', async () => (await import('node:child_process')).execFileSync('true'));",
-      "test('binding', () => process.binding('tcp_wrap'));",
-      "test('dgram socket', () => assert.throws(() => dgram.createSocket('udp4'), denied));",
-      "test('dgram class', () => assert.throws(() => new dgram.Socket('udp4'), denied));",
-      `test('raw pipe', () => { const Pipe = process.stdout._handle.constructor; const p = new Pipe(0); assert.throws(() => p.connect({ oncomplete() {} }, ${JSON.stringify(join(f.base, 'outside.sock'))}), denied); });`,
-      `test('raw pipe on stdout', () => assert.throws(() => process.stdout._handle.connect({ oncomplete() {} }, ${JSON.stringify(join(f.base, 'outside.sock'))}), denied));`,
-      `test('raw tcp', () => assert.throws(() => net._createServerHandle('127.0.0.1', 0, 4), denied));`,
-      '',
-    ];
+    // The probe is fixed text; what it needs to know is in test/escape.json beside it.
+    put(
+      f.work,
+      'test/escape.json',
+      JSON.stringify({
+        port,
+        outside: join(f.repo, 'package.json'),
+        link: join(f.sandbox, 'scratch', 'run', 'tmp', 'l'),
+        socket: sock,
+      }),
+    );
     process.env.HITLD_TEST_SECRET = 'not-for-the-sandbox';
     let by;
     try {
-      by = await run(f, 'test/escape.test.mjs', lines.join('\n'));
+      by = await run(f, 'test/escape.test.mjs', ESCAPE_PROBE);
     } finally {
       delete process.env.HITLD_TEST_SECRET;
       server.close();
