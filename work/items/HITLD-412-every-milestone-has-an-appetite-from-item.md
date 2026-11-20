@@ -25,3 +25,11 @@ The planning pass (HITLD-343, merged as PR #249 (HITLD-343) once approved) place
 ## Notes
 
 Needs HITLD-298 (estimates on) and HITLD-343 (the placements). Related: HITLD-81 (agent-shaped estimates). Mostly tracker work plus walk-throughs.
+
+## Terms decided on 2026-11-20 (HITLD-577)
+
+Appetite is how big a milestone is estimated to be, from its item estimates (HITLD-412). Budget is what the owner allows a signed commitment to spend (HITLD-522). Pace is the rate the plan allows per hour, the even line (HITLD-530). Where this item uses one of these words for another meaning, the meaning above applies.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (509,291): milestone appetite from estimates. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the pace decisions (HITLD-530, 549, 550). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

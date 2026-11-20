@@ -24,3 +24,7 @@ Dispatch routes by a file count (`dispatch.tier1_max_touches` 3) and familiar yi
 ## Notes
 
 Shape with HITLD-285, 286 and 287 (sizing and touches defaults). Design is settled in the cited decisions; code, skill, schema and policy changes need the owner's own yes to merge. Placement is the chief of staff's, a proposal for the owner to move.
+
+## Folded items (HITLD-575)
+
+HITLD-287 and HITLD-500 are folded into this item and close when it lands. HITLD-285 and HITLD-286 stay as independent small fixes.

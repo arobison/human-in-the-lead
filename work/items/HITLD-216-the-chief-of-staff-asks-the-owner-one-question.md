@@ -22,3 +22,7 @@ The owner has said, in the first self-hosted run, that they find the question bo
 ## Notes
 
 The owner's instructions, 2026-11-16: ask one at a time, use the question box, terse; their attention budget will be very small for some days and they want "small stuff with easy questions". Related to HITLD-135 (the walk-through skill, for design questions) and HITLD-154 (a wait that eats attention). Filed under HITLD-181.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (508,407): CoS question asking, owner queue, decisions where asked. The decisions since then are stay in the harness and answers by proof (HITLD-540, 515). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

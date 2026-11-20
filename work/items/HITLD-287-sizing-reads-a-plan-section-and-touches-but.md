@@ -24,3 +24,7 @@ Evidence: core/lib/dispatch/item.mjs:48 reads only section 'Plan'; sizing.mjs:82
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `backlog`, area `dispatch`, still present on main, confidence 0.75. Discoverability and docs across migrate, work check and guides; needs shaping with #157 and #156.
+
+## Folded on 2026-11-20 (reconciliation, HITLD-575)
+
+The owner decided that this item describes the old sizing model, which HITLD-561 replaces (an item's tier and cost come from measured history with its plan as the prior, HITLD-533). This item is folded into HITLD-561 and closes when that item lands; it is not built separately.

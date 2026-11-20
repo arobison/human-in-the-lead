@@ -26,3 +26,7 @@ HITLD-27, a decision open since 2026-11-14, asked how a merge by hand and the me
 ## Notes
 
 Code and skill: needs the owner's own yes to merge. Related: HITLD-133 (merging through GitHub pull requests), HITLD-386 (the stale check-run status), HITLD-150 (the delegated merge path), HITLD-76 (stacked pull requests, which HITLD-27 held up).
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (74/489,472): merge hand writes ledger merged event, queue lock. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the ledger and no-run decisions (HITLD-484 to 490). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.

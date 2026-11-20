@@ -2,7 +2,7 @@
 id: HITLD-81
 title: "Agent-shaped estimates: token ranges, owner-attention cost and rework, calibrated per area and tier"
 kind: work
-state: planned
+state: proposed
 created: 2026-11-15
 project: HITLD-28
 ---
@@ -20,3 +20,6 @@ Effort is estimated in tokens from the median of similar past items (design 5.1)
 - Each estimator's bias and spread are tracked per area and tier (design 5.1), shown in the run report, and an eval scenario checks that a seeded biased estimator is corrected.
 - Value stays a person's judgment (HITLD-80); agents do not estimate it.
 
+## Returned to proposed on 2026-11-20 (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (509): estimates, appetite. The decisions since then are the pace decisions (HITLD-530, 549, 550). The owner decided (HITLD-578) that the items the decisions change most return to `proposed` until reshaped, so the planner does not offer them; the owner promotes the item again once it is reshaped.

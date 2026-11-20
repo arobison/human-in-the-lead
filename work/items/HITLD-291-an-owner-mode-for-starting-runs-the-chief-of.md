@@ -64,3 +64,7 @@ The one trust record and how the owner sees it (the dashboard) are settled in HI
 ## Note on 2026-11-19 (HITLD-527)
 
 The three rungs of HITLD-505 are this process's registration with the trust engine: a chain of supervision modes (ask first, tell then proceed, proceed and report). The engine's concept is more general than a ladder, so a commitment kind may later register a mode that does not sit on the chain, such as an independent check.
+
+## Terms decided on 2026-11-20 (HITLD-577)
+
+Appetite is how big a milestone is estimated to be, from its item estimates (HITLD-412). Budget is what the owner allows a signed commitment to spend (HITLD-522). Pace is the rate the plan allows per hour, the even line (HITLD-530). Where this item uses one of these words for another meaning, the meaning above applies.

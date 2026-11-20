@@ -22,3 +22,7 @@ Merging a pull request has several steps that the chief of staff did by hand and
 ## Notes
 
 Builds on HITLD-150 (merge authority on the pull-request path), HITLD-167 (ending sessions) and HITLD-182 (reading notifications between tool calls). Filed under HITLD-181.
+
+## Rewritten on 2026-11-20 (reconciliation, HITLD-576)
+
+Under the one trust engine (HITLD-507, 552) this item is the registration of a kind that the owner has already unlocked by standing rule: today's delegation is recorded as the owner's initial grant, a decision the owner signs dated at migration and citing the standing rule, with the same evidence and re-lock as any kind. It is not a separate rights mechanism.

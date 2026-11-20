@@ -22,3 +22,7 @@ Quota is read from a figure the owner declares until the probe exists (HITLD-165
 ## Notes
 
 The owner's correction, 2026-11-16: usage includes their other sessions. Related to HITLD-149, HITLD-164, HITLD-165 and HITLD-139. Filed under HITLD-181.
+
+## Affected by a decision (reconciliation, HITLD-578)
+
+The audit of 2026-11-19 found that an open design touches this item (509,418): usage figure schedule quota gate. The decisions since then are the pace decisions (HITLD-530, 549, 550). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.
