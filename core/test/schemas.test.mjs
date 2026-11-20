@@ -7,6 +7,25 @@ const registry = schemas();
 /** A valid example of every stand-alone data file, from the design where it gives one. */
 const examples = {
   // Part 10.5: a recorded triage verdict, in the private store.
+  invariants: {
+    schema_version: 1,
+    area: 'cache',
+    tests_dir: 'test/adversary',
+    fix_parent: 'W-1',
+    invariants: [
+      {
+        id: 'key-round-trip',
+        statement: 'A cache key read back after writing is the same key.',
+        checked: '2026-11-20',
+        form: 'round-trip',
+        module: 'src/key.js',
+        target: 'writeKey',
+        inverse: 'readKey',
+        args: [{ type: 'string', chars: 'ab:/', max_length: 12 }],
+        runs: 500,
+      },
+    ],
+  },
   'security-records': {
     schema_version: 1,
     kind: 'verdicts',

@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "id": "adversary/false-break-refused",
+  "suite": "adversary",
+  "category": "adversarial-loop",
+  "description": "A break claimed on arguments the invariant holds for is checked and refused: no test, no item, no commit.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "adversary.repo",
+      "with": {
+        "variant": "clean-squeeze"
+      }
+    },
+    {
+      "id": "claim",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": [
+          "adversary",
+          "record",
+          "--area",
+          "text",
+          "--invariant",
+          "squeeze-idempotent",
+          "--input",
+          "[\"a//b///c\"]"
+        ]
+      }
+    },
+    {
+      "id": "after",
+      "action": "adversary.inspect",
+      "with": {}
+    }
+  ],
+  "graders": [
+    {
+      "id": "refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.claim.result.ok",
+        "value": false
+      }
+    },
+    {
+      "id": "why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.claim.result.reason",
+        "pattern": "^not a break"
+      }
+    },
+    {
+      "id": "no-test",
+      "grader": "count",
+      "with": {
+        "path": "steps.after.tests",
+        "equals": 0
+      }
+    },
+    {
+      "id": "only-the-change",
+      "grader": "count",
+      "with": {
+        "path": "steps.after.commits",
+        "equals": 1
+      }
+    },
+    {
+      "id": "tree-clean",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after.clean_tree",
+        "value": true
+      }
+    }
+  ]
+}
