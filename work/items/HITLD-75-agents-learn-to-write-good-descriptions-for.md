@@ -18,8 +18,8 @@ The design's entities are items (work, decision, external), projects, initiative
 - A writing guide per entity kind says what each part is for and how to write it: Why, Done when, Plan and Notes for items; summary and outcome for projects and initiatives; outcome, done-when clauses and check for milestones. It has short good and poor examples, neutral, and the skills that create entities point at it.
 - A deterministic check flags mechanical problems as warnings, in `hitld work check` or its own command: a missing Why or Done when, a Done-when line with nothing observable to check, time estimates, history of how a decision was made, and words the classification rules forbid.
 - An offline eval category for description quality: from fixture signals, a drafted entity is graded against a rubric by a model other than the writer, and seeded poor descriptions are caught.
-- Signals that a description was poor are recorded against the entity: questions an executor sent back, deviations caused by an unclear scope, rework, and the owner's edits to agent-written text. They appear in the digest, and they are the evidence for proposing changes to the guide.
-- The guide's rules are checked against outcomes: descriptions that scored low show more questions or rework, or the rule is revised.
+
+Clauses 4 and 5 (description signals recorded against the entity and shown in the digest, and the guide's rules checked against outcomes) moved to HITLD-698, on the owner's decision to split this item.
 
 ## Plan
 
