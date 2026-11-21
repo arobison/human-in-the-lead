@@ -24,7 +24,7 @@ const STORE = {
   name: 'store',
   type: 'string',
   description:
-    "The private store directory. Default: the project's, from policy.json (project.id) under $XDG_DATA_HOME/human-in-the-lead",
+    "The private store directory. Default: the project's, from policy.json (project.id) under $XDG_DATA_HOME/human-in-the-lead, else %LOCALAPPDATA%\\human-in-the-lead on Windows and ~/.local/share/human-in-the-lead elsewhere",
 };
 
 /** @param {string} path @param {import('../table.mjs').CommandContext} ctx */

@@ -28,6 +28,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { schemas } from '../schema/registry.mjs';
+import { entryDir } from '../store/data-home.mjs';
 import { mergePolicy, ownershipProblem, readTrustedFile } from '../policy/policy.mjs';
 import { executorSignal } from '../cli/executor.mjs';
 import { renameSettings } from './renamed.mjs';
@@ -38,11 +39,13 @@ import { realPath, renameReplacing } from '../platform/fs.mjs';
  * @typedef {import('../schema/validate.mjs').ValidationError} ValidationError
  * @typedef {import('../schema/registry.mjs').SchemaRegistry} SchemaRegistry
  * @typedef {'person' | 'machine'} SettingsKind
- * @typedef {{ env?: NodeJS.ProcessEnv, home?: string }} LocationOptions env and home are for tests
+ * @typedef {{ env?: NodeJS.ProcessEnv, home?: string, platform?: NodeJS.Platform }} LocationOptions
+ *   env, home and platform are for tests
  *
  * @typedef {object} SettingsLocation
  * @property {SettingsKind} kind
- * @property {string} base the XDG base directory; the file must stay inside it
+ * @property {string} base the base directory (XDG, or %LOCALAPPDATA% on Windows); the file must stay
+ *   inside it
  * @property {string} dir the directory that holds the file
  * @property {string} path the file
  *
@@ -77,7 +80,9 @@ const xdg = (value, home, fallback) =>
 /**
  * Where a settings file lives (design part 13.4). The person file is configuration:
  * $XDG_CONFIG_HOME/human-in-the-lead/person.json. The machine file sits beside the machine-wide
- * registry, next to the private stores: $XDG_DATA_HOME/human-in-the-lead/_machine/machine.json.
+ * registry, next to the private stores: <data directory>/_machine/machine.json, where the data
+ * directory is $XDG_DATA_HOME/human-in-the-lead, else %LOCALAPPDATA%\human-in-the-lead on Windows
+ * and ~/.local/share/human-in-the-lead elsewhere (store/data-home.mjs).
  * A project ID never starts with "_", so _machine cannot be a project's store.
  * @param {SettingsKind} kind @param {LocationOptions} [options]
  * @returns {SettingsLocation}
@@ -91,8 +96,8 @@ export function settingsLocation(kind, options = {}) {
     return { kind, base, dir, path: join(dir, 'person.json') };
   }
   if (kind === 'machine') {
-    const base = xdg(env.XDG_DATA_HOME, home, ['.local', 'share']);
-    const dir = join(base, 'human-in-the-lead', '_machine');
+    const dir = entryDir('_machine', { ...options, env, home });
+    const base = dirname(dirname(dir));
     return { kind, base, dir, path: join(dir, 'machine.json') };
   }
   throw new Error(`no settings file "${kind}": person or machine`);

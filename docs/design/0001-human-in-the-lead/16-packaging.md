@@ -546,7 +546,7 @@ The plugin holds only generic machinery. The project holds:
 
 Outside the repository, with the person: the person file (`~/.config/human-in-the-lead/person.json`) and the machine file, written by the first-run setup ([13.4](13-operations.md#134-settings-in-four-layers)).
 
-Outside the repository, in the private store: the ledger, private signals, confidential decisions, precedents and knowledge, research, contributor records, process studies, digests, dashboard intents, and the project's sealed eval scenarios if it keeps any ([part 3](03-data-model.md#private-store)). **Anything confidential lives there, never in the plugin or the repository.**
+Outside the repository, in the private store (`$XDG_DATA_HOME/human-in-the-lead/<project-id>/` when `XDG_DATA_HOME` is set, on every platform; else `%LOCALAPPDATA%\human-in-the-lead\<project-id>\` on Windows and `~/.local/share/human-in-the-lead/<project-id>/` elsewhere; a store at the old Windows place, `~/.local/share`, is moved once, with a message): the ledger, private signals, confidential decisions, precedents and knowledge, research, contributor records, process studies, digests, dashboard intents, and the project's sealed eval scenarios if it keeps any ([part 3](03-data-model.md#private-store)). **Anything confidential lives there, never in the plugin or the repository.**
 
 The decision log is the set of decision items plus the generated `kb/decisions.md`.
 

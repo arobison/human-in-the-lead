@@ -3,8 +3,9 @@
 // seam piece (h)'s dispatch planner uses.
 
 import { realPath } from './fsx.mjs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { envSettings } from './config.mjs';
+import { siblingEntry } from '../store/data-home.mjs';
 import { acquireLock, lockStatus, releaseLock } from './locks.mjs';
 import { leasePort, releasePort, startServer } from './ports.mjs';
 import { logEvent, readEvents, readRegistry } from './registry.mjs';
@@ -17,7 +18,7 @@ import { adoptWorktree, createWorktree, releaseWorktree, runSetup } from './work
  * sits beside the project stores; project IDs cannot start with an underscore, so it cannot clash.
  * @param {string} storeRoot a project's private store directory
  */
-export const machineRootFor = (storeRoot) => join(dirname(storeRoot), '_machine');
+export const machineRootFor = (storeRoot) => siblingEntry(storeRoot, '_machine');
 
 /** @param {string} p */
 function realpathOr(p) {
