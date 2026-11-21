@@ -194,6 +194,18 @@ const examples = {
     classification: 'public',
     opened_from: ['SIG-88'],
   },
+  // Design part 2.2, step 3: a checked reproduction, as kept with its test (HITLD-30).
+  reproduction: {
+    schema_version: 1,
+    signal: 'SIG-7',
+    verdict: 'reproduced',
+    base: '0123456789abcdef0123456789abcdef01234567',
+    test: 'test/mean.test.js',
+    failing: ['mean of two numbers'],
+    expected_failure: 'mean([2, 4]) should be 3',
+    runs: 2,
+    checked_at: '2026-11-20T12:00:00.000Z',
+  },
   // signals/SIG-1-definition-of-ready.md in this repository, as parsed front matter.
   signal: {
     schema_version: 1,

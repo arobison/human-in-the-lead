@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "id": "reproduce/vacuous-test-refused",
+  "suite": "reproduce",
+  "category": "reproduction",
+  "description": "A test that fails on its own, with the named error but without touching the project's code, is refused: it fails the same way without the project's files, so it shows no bug, and nothing is kept.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "fixture",
+      "action": "reproduce.fixture",
+      "with": {}
+    },
+    {
+      "id": "open",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "open", "--signal", "../signal.json", "--dir", "../repro"]
+      }
+    },
+    {
+      "id": "test",
+      "action": "file.write",
+      "with": {
+        "path": "repro/work/test/mean.test.js",
+        "content": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('boom', () => assert.fail('mean([2, 4]) should be 3'));\n"
+      }
+    },
+    {
+      "id": "reply",
+      "action": "file.write",
+      "with": {
+        "path": "reply.json",
+        "content": "{\"verdict\": \"reproduced\", \"test\": \"test/mean.test.js\", \"expected_failure\": \"mean([2, 4]) should be 3\", \"summary\": \"mean divides by one less than the count\"}"
+      }
+    },
+    {
+      "id": "check",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "check", "../repro", "--reply", "../reply.json"]
+      }
+    },
+    {
+      "id": "item",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "item", "SIG-7", "--parent", "W-10", "--title", "mean() is wrong"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.error",
+        "value": "reproduction-refused"
+      }
+    },
+    {
+      "id": "not-reproduced",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.verdict",
+        "value": "not-reproduced"
+      }
+    },
+    {
+      "id": "says-why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.check.result.reason",
+        "pattern": "without the project's files"
+      }
+    },
+    {
+      "id": "no-item",
+      "grader": "equals",
+      "with": {
+        "path": "steps.item.result.error",
+        "value": "not-reproduced"
+      }
+    }
+  ]
+}

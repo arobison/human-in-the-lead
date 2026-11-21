@@ -20,7 +20,7 @@ The command prints JSON and exits 0 only when every scenario passes and the gate
 | `schemas/eval-scenario.schema.json`, `schemas/eval-result.schema.json` | The scenario and result formats |
 | `schemas/policy/eval.schema.json` | The gate's thresholds: category floors and tolerances |
 
-`<suite>` is the area name, matching your command file in `core/lib/cli/commands/`: `foundation`, `tracker`, `ledger`, `env`, `contract`, `rights`, `quota`, `eval`, `orchestrator`, `security`, `release`, `adopt`, `store`, `design`, `adversary`. Make the directory when you add your first scenario. A consuming project adds its own scenarios under its own `evals/`, in the same format; `hitld eval` runs both.
+`<suite>` is the area name, matching your command file in `core/lib/cli/commands/`: `foundation`, `tracker`, `ledger`, `env`, `contract`, `rights`, `quota`, `eval`, `orchestrator`, `security`, `release`, `adopt`, `store`, `design`, `reproduce`, `adversary`. Make the directory when you add your first scenario. A consuming project adds its own scenarios under its own `evals/`, in the same format; `hitld eval` runs both.
 
 ## A scenario
 
