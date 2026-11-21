@@ -2,7 +2,7 @@
 id: HITLD-32
 title: Adversarial loop on one area
 kind: work
-state: in-progress
+state: done
 created: 2026-11-14
 project: HITLD-28
 claimed_by: D-46
