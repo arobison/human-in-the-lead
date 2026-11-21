@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "id": "adversary/finds-bug-escape",
+  "suite": "adversary",
+  "category": "adversarial-loop",
+  "description": "A seeded bug the example tests miss (escaping that skips %) is found by the adversarial pass on the change, breaking invariant field-round-trip; the break is committed as a failing regression test marked todo (the pass then knows that counterexample), and on main its fix item is filed and committed with it.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "adversary.repo",
+      "with": {
+        "variant": "bug-escape"
+      }
+    },
+    {
+      "id": "due",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": ["adversary", "due", "--base", "main"]
+      }
+    },
+    {
+      "id": "pass",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": ["adversary", "attack", "--base", "main", "--record"]
+      }
+    },
+    {
+      "id": "again",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": ["adversary", "attack", "--base", "main"]
+      }
+    },
+    {
+      "id": "merge",
+      "action": "adversary.merge",
+      "with": {}
+    },
+    {
+      "id": "file",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": ["adversary", "file"]
+      }
+    },
+    {
+      "id": "after",
+      "action": "adversary.inspect",
+      "with": {}
+    }
+  ],
+  "graders": [
+    {
+      "id": "examples-miss-it",
+      "grader": "equals",
+      "with": {
+        "path": "steps.repo.examples_pass",
+        "value": true
+      }
+    },
+    {
+      "id": "pass-due",
+      "grader": "equals",
+      "with": {
+        "path": "steps.due.result.due[0].area",
+        "value": "text"
+      }
+    },
+    {
+      "id": "one-break",
+      "grader": "count",
+      "with": {
+        "path": "steps.pass.result.breaks",
+        "equals": 1
+      }
+    },
+    {
+      "id": "the-seeded-invariant",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pass.result.breaks[0].invariant",
+        "value": "field-round-trip"
+      }
+    },
+    {
+      "id": "recorded",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pass.result.recorded[0].ok",
+        "value": true
+      }
+    },
+    {
+      "id": "recorded-counterexample-known",
+      "grader": "count",
+      "with": {
+        "path": "steps.again.result.known",
+        "equals": 1
+      }
+    },
+    {
+      "id": "fix-item-filed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.file.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "one-fix-item",
+      "grader": "count",
+      "with": {
+        "path": "steps.file.result.filed",
+        "equals": 1
+      }
+    },
+    {
+      "id": "one-test",
+      "grader": "count",
+      "with": {
+        "path": "steps.after.tests",
+        "equals": 1
+      }
+    },
+    {
+      "id": "test-marked-todo",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after.tests[0].todo",
+        "value": true
+      }
+    },
+    {
+      "id": "item-and-test-together",
+      "grader": "count",
+      "with": {
+        "path": "steps.after.commits[0].files",
+        "equals": 2
+      }
+    },
+    {
+      "id": "one-item",
+      "grader": "count",
+      "with": {
+        "path": "steps.after.items",
+        "equals": 1
+      }
+    },
+    {
+      "id": "item-proposed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after.items[0].state",
+        "value": "proposed"
+      }
+    },
+    {
+      "id": "item-names-the-invariant",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after.items[0].title",
+        "value": "Invariant field-round-trip of the text area holds for every input"
+      }
+    },
+    {
+      "id": "test-names-the-item",
+      "grader": "matches",
+      "with": {
+        "path": "steps.after.tests[0].todo_mark",
+        "pattern": "^W-9: "
+      }
+    },
+    {
+      "id": "suite-green",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after.suite_passes",
+        "value": true
+      }
+    },
+    {
+      "id": "tree-clean",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after.clean_tree",
+        "value": true
+      }
+    }
+  ]
+}

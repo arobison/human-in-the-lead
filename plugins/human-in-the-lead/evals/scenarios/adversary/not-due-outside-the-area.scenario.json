@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "adversary/not-due-outside-the-area",
+  "suite": "adversary",
+  "category": "adversarial-loop",
+  "description": "A change that touches no area with an invariant registry is not due for the adversarial pass, and the pass over the change attacks nothing.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "adversary.repo",
+      "with": {
+        "variant": "outside"
+      }
+    },
+    {
+      "id": "due",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": ["adversary", "due", "--base", "main"]
+      }
+    },
+    {
+      "id": "pass",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": ["adversary", "attack", "--base", "main"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "none-due",
+      "grader": "count",
+      "with": {
+        "path": "steps.due.result.due",
+        "equals": 0
+      }
+    },
+    {
+      "id": "nothing-attacked",
+      "grader": "count",
+      "with": {
+        "path": "steps.pass.result.areas",
+        "equals": 0
+      }
+    },
+    {
+      "id": "ok",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pass.result.ok",
+        "value": true
+      }
+    }
+  ]
+}
