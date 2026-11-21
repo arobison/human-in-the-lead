@@ -25,7 +25,14 @@
       "id": "d1_handle",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "handle", "--dispatch", "D-1", "--harness-ref", "agent-1"],
+        "argv": [
+          "dispatch",
+          "handle",
+          "--dispatch",
+          "{{steps.d1.result.dispatch}}",
+          "--harness-ref",
+          "agent-1"
+        ],
         "session": "orch-1"
       }
     },
@@ -38,7 +45,14 @@
       "id": "d2_handle",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "handle", "--dispatch", "D-2", "--harness-ref", "agent-2"],
+        "argv": [
+          "dispatch",
+          "handle",
+          "--dispatch",
+          "{{steps.d2.result.dispatch}}",
+          "--harness-ref",
+          "agent-2"
+        ],
         "session": "orch-1"
       }
     },
@@ -54,7 +68,14 @@
       "id": "complete1",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "complete", "--dispatch", "D-1", "--report-file", "../note-1.txt"],
+        "argv": [
+          "dispatch",
+          "complete",
+          "--dispatch",
+          "{{steps.d1.result.dispatch}}",
+          "--report-file",
+          "../note-1.txt"
+        ],
         "session": "orch-1"
       }
     },
@@ -75,7 +96,14 @@
       "id": "complete2",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "complete", "--dispatch", "D-2", "--report-file", "../note-2.txt"],
+        "argv": [
+          "dispatch",
+          "complete",
+          "--dispatch",
+          "{{steps.d2.result.dispatch}}",
+          "--report-file",
+          "../note-2.txt"
+        ],
         "session": "orch-1"
       }
     },
@@ -124,7 +152,10 @@
     {
       "id": "names-what-it-waits-for",
       "grader": "equals",
-      "with": { "path": "steps.draining.result.reporting_here", "value": ["D-2"] }
+      "with": {
+        "path": "steps.draining.result.reporting_here",
+        "value": ["{{steps.d2.result.dispatch}}"]
+      }
     },
     {
       "id": "handed-over",

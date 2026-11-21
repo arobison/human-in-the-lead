@@ -26,7 +26,14 @@
       "id": "d1_handle",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "handle", "--dispatch", "D-1", "--harness-ref", "agent-1"],
+        "argv": [
+          "dispatch",
+          "handle",
+          "--dispatch",
+          "{{steps.d1.result.dispatch}}",
+          "--harness-ref",
+          "agent-1"
+        ],
         "session": "orch-1"
       }
     },
@@ -80,7 +87,14 @@
       "id": "d3_handle",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "handle", "--dispatch", "D-3", "--harness-ref", "agent-3"],
+        "argv": [
+          "dispatch",
+          "handle",
+          "--dispatch",
+          "{{steps.d3.result.dispatch}}",
+          "--harness-ref",
+          "agent-3"
+        ],
         "session": "orch-1",
         "clock_offset_seconds": 4600
       }
@@ -97,7 +111,14 @@
       "id": "done",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "complete", "--dispatch", "D-3", "--report-file", "../note-3.txt"],
+        "argv": [
+          "dispatch",
+          "complete",
+          "--dispatch",
+          "{{steps.d3.result.dispatch}}",
+          "--report-file",
+          "../note-3.txt"
+        ],
         "session": "orch-1",
         "clock_offset_seconds": 5000
       }
@@ -127,7 +148,10 @@
     {
       "id": "stall-seen",
       "grader": "equals",
-      "with": { "path": "steps.seen.result.wake_message", "value": "watch: D-1 stalled (poke)" }
+      "with": {
+        "path": "steps.seen.result.wake_message",
+        "value": "watch: {{steps.d1.result.dispatch}} stalled (poke)"
+      }
     },
     {
       "id": "poked-first",
@@ -146,8 +170,11 @@
     },
     {
       "id": "follow-up-is-a-new-dispatch",
-      "grader": "equals",
-      "with": { "path": "steps.follow.result.actions[0].continues_as", "value": "D-2" }
+      "grader": "matches",
+      "with": {
+        "path": "steps.follow.result.actions[0].continues_as",
+        "pattern": "^D-[0-9A-HJKMNP-TV-Z]{16}$"
+      }
     },
     {
       "id": "follow-up-continues-the-agent",
@@ -162,7 +189,10 @@
     {
       "id": "abandoned-the-follow-up",
       "grader": "equals",
-      "with": { "path": "steps.abandon.result.actions[0].dispatch", "value": "D-2" }
+      "with": {
+        "path": "steps.abandon.result.actions[0].dispatch",
+        "value": "{{steps.follow.result.actions[0].continues_as}}"
+      }
     },
     {
       "id": "re-planned",
@@ -171,8 +201,8 @@
     },
     {
       "id": "re-dispatched",
-      "grader": "equals",
-      "with": { "path": "steps.d3.result.dispatch", "value": "D-3" }
+      "grader": "matches",
+      "with": { "path": "steps.d3.result.dispatch", "pattern": "^D-[0-9A-HJKMNP-TV-Z]{16}$" }
     },
     {
       "id": "recovered",

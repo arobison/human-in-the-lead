@@ -2,9 +2,11 @@
 id: HITLD-147
 title: Orchestrators enforce that every executor reports up the chain before its turn ends
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-41
+release_note: An interactive executor's brief now ends with a communication block naming the orchestrator's session, and the executor sends its report there at the end of every turn; `hitld dispatch start` refuses one it cannot address (`no-report-block`), and `hitld dispatch watch --ended <sessions>` lists a session that ended with no report under `unreported`, to chase.
 ---
 
 ## Why
@@ -27,6 +29,8 @@ On 2026-11-16, in the chief of staff session, the owner decided how an orchestra
 ## Notes
 
 Raised by the owner in the chief of staff session. HITLD-136 also changes what the brief says, so build the two in order or in one wave with care. HITLD-144 covers the orchestrator's message to the chief of staff and the Stop-hook test. The watchdog from HITLD-92 catches a stalled executor, and this adds the one that finished without reporting.
+
+As built, the brief names the orchestrator that started the executor, so after a hand-over a successor learns of an in-flight interactive session's report through the chief of staff's relay (`hitld dispatch watch --ended` lists it under `unreported`).
 
 ## Affected by a decision (reconciliation, HITLD-578)
 

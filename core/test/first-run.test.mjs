@@ -15,7 +15,13 @@ test('setupState: done only when both files exist, and says which are missing', 
     person: { present: person },
     machine: { present: machine },
   });
-  assert.deepEqual(setupState(f(true, true)), { done: true, missing: [], reason: null });
+  assert.deepEqual(setupState(f(true, true)), {
+    done: true,
+    missing: [],
+    reason: null,
+    from_store: [],
+    conservative: null,
+  });
   const half = setupState(f(true, false));
   assert.equal(half.done, false);
   assert.deepEqual(half.missing, ['machine']);

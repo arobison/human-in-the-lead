@@ -12,6 +12,7 @@ import { policyDefaults } from '../lib/policy/policy.mjs';
 import { dispatchGate } from '../lib/quota/gate.mjs';
 import { openEnv, machineRootFor } from '../lib/env/manager.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
+import { readLedger } from '../lib/ledger/ledger.mjs';
 import { settingsLocation } from '../lib/settings/files.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import {
@@ -136,7 +137,7 @@ test('a dead executor does not hold a slot: process gone, or dispatch gone from 
   );
   registerExecutor(root, entry(root, 'ghost', 'D-2'), {}, { liveness: alive });
   registerExecutor(root, entry(root, 'ghost', 'D-3'), {}, { liveness: alive });
-  assert.equal(store.read('ledger.jsonl'), null, 'the project has no ledger: nothing is in flight');
+  assert.deepEqual(readLedger(store).events, [], 'the project has no ledger: nothing is in flight');
   assert.equal(liveExecutors(root).length, 0, 'readers skip every one of them');
   assert.equal(runningElsewhere(root, 'other').person, 0);
   assert.deepEqual(activeProjects(root, 'other'), ['other']);
@@ -320,8 +321,8 @@ test('check 11: two projects stay within the person cap, see the same usage, and
   assert.equal(startA2.result.error, 'not-planned');
   const live = liveExecutors(machineRootFor(openStore(privateStorePath('x', { env })).root));
   assert.deepEqual(live.map((e) => `${e.project}/${e.dispatch}`).sort(), [
-    'beta/D-1',
-    'orch-fixture/D-1',
+    `beta/${startB.result.dispatch}`,
+    `orch-fixture/${startA.result.dispatch}`,
   ]);
 
   // A's executor reports done: its slot is free for either project.
@@ -342,7 +343,14 @@ test('check 11: two projects stay within the person cap, see the same usage, and
   git(a.root, 'switch', '-q', 'main');
   const note = join(a.base, 'note.txt');
   writeFileSync(note, report({ item: 'W-1', sha, branch }));
-  const done = await A(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  const done = await A([
+    'dispatch',
+    'complete',
+    '--dispatch',
+    startA.result.dispatch,
+    '--report-file',
+    note,
+  ]);
   assert.equal(done.exit, 0, JSON.stringify(done.result));
   const after = await B(['dispatch', 'plan']);
   assert.equal(after.result.cap, 2, 'beta sees alpha release its slot');

@@ -147,7 +147,7 @@ test('below the floor, dispatch plan holds work and dispatch start refuses by na
   // With room again, the same item starts.
   const roomy = await hitld(c, ['dispatch', 'start', 'W-1'], machineWith(100_000));
   assert.equal(roomy.exit, 0, JSON.stringify(roomy.result));
-  assert.equal(roomy.result.dispatch, 'D-1');
+  assert.match(roomy.result.dispatch, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
 });
 
 test('run status, the watchdog and the digest warn near the floor, before it is reached', async () => {
@@ -290,8 +290,8 @@ test('the watchdog removes a merged worktree through the manager, keeping primar
   assert.ok(existsSync(join(c.root, '.git')), 'the primary checkout stays');
 
   const status = await hitld(c, ['env', 'status'], roomy);
-  assert.deepEqual(status.result.worktrees.map((/** @type {any} */ w) => w.holder).sort(), [
-    'D-1',
-    'D-92',
-  ]);
+  assert.deepEqual(
+    status.result.worktrees.map((/** @type {any} */ w) => w.holder).sort(),
+    [live.result.dispatch, 'D-92'].sort(),
+  );
 });
