@@ -13,7 +13,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { findRepoRoot } from '../policy/policy.mjs';
 import { TAG } from '../release/semver.mjs';
-import { LEDGER_KEY } from '../ledger/ledger.mjs';
+import { ledgerKeys } from '../ledger/writer.mjs';
+import { openStore } from '../store/store.mjs';
 import { MARKETPLACE } from '../install/install.mjs';
 import { machineDir } from './files.mjs';
 
@@ -79,24 +80,33 @@ export function declaredPin(root, project) {
  * @param {string} storeDir @returns {string | null}
  */
 function lastRunVersion(storeDir) {
-  let text;
-  try {
-    text = readFileSync(join(storeDir, LEDGER_KEY), 'utf8');
-  } catch {
-    return null;
-  }
+  const store = openStore(storeDir);
   /** @type {string | null} */
   let version = null;
-  for (const line of text.split('\n')) {
-    if (!line.includes('"run-started"') && !line.includes('"lease-taken"')) continue;
+  let latest = '';
+  for (const key of ledgerKeys(store)) {
+    let text;
     try {
-      const e = JSON.parse(line);
-      const v = e?.skill_versions?.hitld_version ?? e?.skill_versions?.plugin;
-      if ((e?.event === 'run-started' || e?.event === 'lease-taken') && typeof v === 'string') {
-        version = v;
-      }
+      text = store.read(key) ?? '';
     } catch {
-      // a damaged line says nothing
+      continue;
+    }
+    for (const line of text.split('\n')) {
+      if (!line.includes('"run-started"') && !line.includes('"lease-taken"')) continue;
+      try {
+        const e = JSON.parse(line);
+        const v = e?.skill_versions?.hitld_version ?? e?.skill_versions?.plugin;
+        const at = typeof e?.at === 'string' ? e.at : '';
+        if (
+          (e?.event === 'run-started' || e?.event === 'lease-taken') &&
+          typeof v === 'string' &&
+          at >= latest
+        ) {
+          [version, latest] = [v, at];
+        }
+      } catch {
+        // a damaged line says nothing
+      }
     }
   }
   return version;

@@ -2,10 +2,14 @@
 id: HITLD-668
 title: How should the run ledger record merges after the orchestrator handed over?
 kind: decision
-state: planned
+state: done
 created: 2026-11-21
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-21T05:23:11.202Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question

@@ -31,7 +31,9 @@ function toRegExp(glob) {
       out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
     }
   }
-  const re = new RegExp(`^${out}$`, 'u');
+  // "s": a path may hold a carriage return, a line feed, U+2028 or U+2029 (git forbids only NUL
+  // and "/"), and `**` must match those as `*` does; without it `.` stops at them.
+  const re = new RegExp(`^${out}$`, 'su');
   cache.set(glob, re);
   return re;
 }

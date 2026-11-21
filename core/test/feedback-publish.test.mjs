@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from '../lib/cli/args.mjs';
 import { commands as realCommands, makeCommands } from '../lib/cli/commands/feedback.mjs';
@@ -50,6 +50,10 @@ writeFileSync(
     .map((e) => JSON.stringify({ schema_version: 1, at: '2026-11-14T10:00:00Z', ...e }))
     .join('\n') + '\n',
 );
+
+// The store has a private term list, as a pulled store does: a placeholder term that no draft
+// holds. Without a list nothing is sent (HITLD-187; the test that takes it away is below).
+addTerm(openStore(store), { term: 'unused-sample-term-9', kind: 'name' });
 
 const filer = fakeFiler();
 const table = makeCommands({ makeFiler: () => filer });
@@ -262,12 +266,37 @@ test('publish: nothing is filed without an approval; an executor is refused', as
   assert.equal(stored(id).state, 'drafted');
 });
 
+test('publish: with no private term list here, nothing is sent, by approval or by hand, and the record stays drafted', async () => {
+  const list = join(store, 'private', 'terms.jsonl');
+  const kept = join(root, 'terms.kept');
+  renameSync(list, kept);
+  try {
+    const id = await record('The digest repeated the same merge twice, honestly.');
+    await draft(id, { ...clean, title: 'The digest repeated a merge' });
+    const before = filer.sent.length;
+    for (const answer of ['approve', 'by-hand']) {
+      const r = await run(['feedback', 'publish', id, '--answer', answer, '--store', store]);
+      assert.deepEqual([r.ok, r.error], [false, 'private-list-invalid'], answer);
+      assert.match(r.message, /^nothing is sent: the private term list was not checked: /, answer);
+      assert.match(r.message, /hitld store status says what is missing/, answer);
+      assert.ok(!r.message.includes(store), 'the refusal never names the store path');
+    }
+    assert.equal(filer.sent.length, before, 'nothing was sent');
+    assert.equal(stored(id).state, 'drafted');
+    assert.equal(stored(id).approval, undefined);
+  } finally {
+    renameSync(kept, list);
+  }
+});
+
 test('publish: an approved draft is filed with the form headings, labels and footer, never the raw words', async () => {
   const words = 'That digest was much longer than it needed to be for one merge, honestly.';
   const id = await record(words);
   await draft(id, { ...clean, title: 'The digest was long for a single merge' });
   const r = await run(['feedback', 'publish', id, '--answer', 'approve', '--store', store]);
   assert.deepEqual([r.ok, r.state, r.filed], [true, 'filed', true], JSON.stringify(r));
+  assert.equal(r.list_found, true);
+  assert.equal(r.warnings, undefined);
   const sent = filer.sent.at(-1);
   assert.ok(sent);
   assert.equal(sent.repo, FEEDBACK_REPO);

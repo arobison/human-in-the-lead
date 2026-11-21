@@ -4,6 +4,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { CodedError } from '../cli/errors.mjs';
 import { checkHolder, worktreeRoot } from './config.mjs';
 import { git, gitOk } from './git.mjs';
 import { findOutsideLinks, unlinkOutsideLinks } from './links.mjs';
@@ -31,19 +32,123 @@ const slugify = (s) =>
     .slice(0, 40) || 'work';
 
 /**
+ * @typedef {object} BranchChoice
+ * @property {string} branch the name the worktree takes
+ * @property {string} wanted the name asked for
+ * @property {'free' | 'merged' | 'unmerged' | 'checked-out'} found what the wanted name held
+ * @property {'new' | 'reuse' | 'fresh'} chose a new branch under the wanted name, the existing
+ *   branch moved forward to the base's tip, or a new branch under a fresh name
+ * @property {string} note what was found and chosen, in a sentence
+ */
+
+/** The branches checked out in any worktree of the repository. @param {string} repoRoot */
+async function checkedOutBranches(repoRoot) {
+  const out = new Set();
+  for (const line of (await git(['worktree', 'list', '--porcelain'], repoRoot)).split('\n')) {
+    if (line.startsWith('branch refs/heads/')) out.add(line.slice('branch refs/heads/'.length));
+  }
+  return out;
+}
+
+/**
+ * The tips a branch name has: the local branch and any remote-tracking branch of that name. A
+ * remote's name may hold a slash, so a remote-tracking ref counts when it ends in /<name>, under
+ * whatever remote. That can count a tip that belongs to another name, which only makes the choice
+ * stricter (a fresh name instead of a reuse); it never misses one.
+ * @param {string} repoRoot @param {string} name
+ */
+async function tipsNamed(repoRoot, name) {
+  const refs = await git(
+    ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/remotes'],
+    repoRoot,
+  );
+  /** @type {string[]} */
+  const tips = [];
+  for (const line of refs.split('\n')) {
+    const [ref, sha] = line.split(' ');
+    if (!ref || !sha) continue;
+    const local = ref === `refs/heads/${name}`;
+    const remote = ref.startsWith('refs/remotes/') && ref.endsWith(`/${name}`);
+    if (local || remote) tips.push(sha);
+  }
+  return tips;
+}
+
+/**
+ * Which branch a new worktree takes (HITLD-194). An item dispatched again after an abandon wants
+ * the name its earlier dispatch used. When that branch exists and everything on it is already in
+ * `base` (local and remote-tracking tips alike) and no worktree has it checked out, it is reused:
+ * moved forward to the base's tip, which loses no commit. Otherwise (it holds unmerged commits, or
+ * a kept worktree still has it) it is left exactly as it is and the worktree takes the first free
+ * name of <wanted>-2, <wanted>-3, ...
+ * @param {string} repoRoot @param {string} wanted @param {string} base
+ * @returns {Promise<BranchChoice>}
+ */
+export async function chooseBranch(repoRoot, wanted, base) {
+  const checkedOut = await checkedOutBranches(repoRoot);
+  /** @param {string} name @returns {Promise<BranchChoice['found']>} */
+  const state = async (name) => {
+    const tips = await tipsNamed(repoRoot, name);
+    if (!tips.length) return 'free';
+    if (checkedOut.has(name)) return 'checked-out';
+    for (const tip of tips) {
+      if (!(await gitOk(['merge-base', '--is-ancestor', tip, base], repoRoot))) return 'unmerged';
+    }
+    return 'merged';
+  };
+  const found = await state(wanted);
+  if (found === 'free') {
+    return { branch: wanted, wanted, found, chose: 'new', note: `${wanted} is new` };
+  }
+  if (found === 'merged') {
+    return {
+      branch: wanted,
+      wanted,
+      found,
+      chose: 'reuse',
+      note: `${wanted} already exists with nothing unmerged on it; reusing it from the tip of ${base}`,
+    };
+  }
+  const why =
+    found === 'unmerged' ? `holds commits not in ${base}` : 'is checked out in another worktree';
+  for (let n = 2; n < 100; n++) {
+    const name = `${wanted}-${n}`;
+    if ((await state(name)) === 'free') {
+      return {
+        branch: name,
+        wanted,
+        found,
+        chose: 'fresh',
+        note: `${wanted} ${why}, so it is left as it is; this dispatch works on ${name}`,
+      };
+    }
+  }
+  throw new CodedError(
+    'branch-names-taken',
+    `${wanted} ${why}, and ${wanted}-2 to ${wanted}-99 are all taken; delete the ones that are merged or not wanted`,
+  );
+}
+
+/**
  * Cut a worktree from the tip of `base` (default: policy.json merge.main_branch) on a branch named
- * <branch_prefix>/<ID>-<slug>. Asking again for a holder that already has one returns it.
+ * <branch_prefix>/<ID>-<slug>, or on `branch` when the caller names it. When that name is taken,
+ * chooseBranch decides: reuse a branch with nothing unmerged, or take a fresh name. Asking again
+ * for a holder that already has one returns it.
  * @param {WorktreeContext} ctx
- * @param {{ holder: string, itemId: string, slug?: string, base?: string }} request
- * @returns {Promise<{ lease: WorktreeLease, existing: boolean }>}
+ * @param {{ holder: string, itemId: string, slug?: string, base?: string, branch?: string,
+ *   choice?: BranchChoice }} request choice: what the caller's own chooseBranch found for
+ *   `branch`, logged with the event so it says why that name was taken
+ * @returns {Promise<{ lease: WorktreeLease, existing: boolean, branch_choice?: BranchChoice }>}
  */
 export async function createWorktree(ctx, request) {
   const holder = checkHolder(request.holder);
   checkHolder(request.itemId);
   const base = request.base ?? ctx.settings.mainBranch ?? 'main';
-  const branch = `${ctx.settings.branchPrefix}/${request.itemId}-${slugify(request.slug ?? 'work')}`;
-  if (!(await gitOk(['check-ref-format', '--branch', branch], ctx.repoRoot))) {
-    throw new Error(`"${branch}" is not a valid branch name`);
+  const wanted =
+    request.branch ??
+    `${ctx.settings.branchPrefix}/${request.itemId}-${slugify(request.slug ?? 'work')}`;
+  if (!(await gitOk(['check-ref-format', '--branch', wanted], ctx.repoRoot))) {
+    throw new Error(`"${wanted}" is not a valid branch name`);
   }
   const path = resolve(worktreeRoot(ctx.settings, ctx.repoRoot, ctx.store.root), holder);
 
@@ -53,7 +158,14 @@ export async function createWorktree(ctx, request) {
     if (existsSync(path)) throw new Error(`${path} already exists and is not leased to ${holder}`);
     mkdirSync(dirname(path), { recursive: true });
     const tip = (await git(['rev-parse', '--verify', `${base}^{commit}`], ctx.repoRoot)).trim();
-    await git(['worktree', 'add', '-b', branch, path, tip], ctx.repoRoot);
+    const choice = await chooseBranch(ctx.repoRoot, wanted, base);
+    const branch = choice.branch;
+    const logged = request.choice?.branch === branch ? request.choice : choice;
+    // -B only for a branch chooseBranch found fully merged: moving it to the tip loses nothing.
+    await git(
+      ['worktree', 'add', choice.chose === 'reuse' ? '-B' : '-b', branch, path, tip],
+      ctx.repoRoot,
+    );
     /** @type {WorktreeLease} */
     const lease = {
       holder,
@@ -66,8 +178,15 @@ export async function createWorktree(ctx, request) {
       created_at: new Date().toISOString(),
     };
     registry.worktrees[holder] = lease;
-    logEvent(ctx.store, 'worktree_created', { holder, branch, path: lease.path, base, tip });
-    return { lease, existing: false };
+    logEvent(ctx.store, 'worktree_created', {
+      holder,
+      branch,
+      path: lease.path,
+      base,
+      tip,
+      ...(logged.chose === 'new' ? {} : { branch_found: logged.found, branch_note: logged.note }),
+    });
+    return { lease, existing: false, branch_choice: choice };
   });
 }
 
