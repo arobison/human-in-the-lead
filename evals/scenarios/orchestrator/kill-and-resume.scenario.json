@@ -13,7 +13,10 @@
     {
       "id": "resume",
       "action": "orchestrator.cli",
-      "with": { "argv": ["run", "resume", "--live", "D-2", "--force"], "session": "second" }
+      "with": {
+        "argv": ["run", "resume", "--live", "{{steps.d2.result.dispatch}}", "--force"],
+        "session": "second"
+      }
     },
     {
       "id": "plan",
@@ -34,8 +37,8 @@
     },
     {
       "id": "d1-recorded",
-      "grader": "equals",
-      "with": { "path": "steps.d1.result.dispatch", "value": "D-1" }
+      "grader": "matches",
+      "with": { "path": "steps.d1.result.dispatch", "pattern": "^D-[0-9A-HJKMNP-TV-Z]{16}$" }
     },
     {
       "id": "d1-agent-call",
@@ -45,12 +48,12 @@
     {
       "id": "abandoned",
       "grader": "equals",
-      "with": { "path": "steps.resume.result.abandoned", "value": ["D-1"] }
+      "with": { "path": "steps.resume.result.abandoned", "value": ["{{steps.d1.result.dispatch}}"] }
     },
     {
       "id": "adopted",
       "grader": "equals",
-      "with": { "path": "steps.resume.result.adopted", "value": ["D-2"] }
+      "with": { "path": "steps.resume.result.adopted", "value": ["{{steps.d2.result.dispatch}}"] }
     },
     {
       "id": "replanned",

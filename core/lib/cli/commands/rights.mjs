@@ -420,7 +420,7 @@ export function makeCommands({ openTracker }) {
           required: true,
         },
         { name: 'item', type: 'string', description: 'The work item it was about' },
-        { name: 'dispatch', type: 'string', description: 'The dispatch it came up in (D-<n>)' },
+        { name: 'dispatch', type: 'string', description: 'The dispatch it came up in (its D- ID)' },
         { name: 'area', type: 'string', description: 'The area it belongs to' },
         {
           name: 'session',

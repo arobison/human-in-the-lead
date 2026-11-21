@@ -24,6 +24,7 @@ import { applyPatch } from './format.mjs';
 import { findEntry, writeStored } from './edit.mjs';
 import { git, idNumber, loadPlaces, refPlaces } from './tree.mjs';
 import { CodedError } from '../../cli/errors.mjs';
+import { DISPATCH_ID } from '../../ledger/ids.mjs';
 
 /**
  * @typedef {import('./config.mjs').Layout} Layout
@@ -204,7 +205,7 @@ export function findClaims(root, layout, { cache } = {}) {
 /**
  * Claims that do not match the ledger's in-flight dispatches, both ways (design part 3.2): a
  * claim branch whose dispatch has no open dispatch, and an open dispatch with no claim branch.
- * Only claimants that are dispatch IDs (`D-<n>`) are matched; a person's handle is not a dispatch.
+ * Only claimants that are dispatch IDs (`D-<n>` of before, or unique ones: ledger/ids.mjs) are matched; a person's handle is not a dispatch.
  * @param {ClaimedItem[]} claims @param {string[]} inflight dispatch IDs without a terminal event
  * @returns {string[]} problems
  */
@@ -216,7 +217,7 @@ export function findOrphans(claims, inflight) {
   for (const c of claims) {
     for (const cl of c.claims) {
       claimants.add(cl.claimant);
-      if (/^D-[1-9]\d*$/.test(cl.claimant) && !open.has(cl.claimant)) {
+      if (DISPATCH_ID.test(cl.claimant) && !open.has(cl.claimant)) {
         problems.push(
           `${c.id} is claimed by ${cl.claimant} on ${cl.branch}, but that dispatch is not in flight (an abandoned branch?)`,
         );
@@ -252,9 +253,7 @@ function commitOnly(root, files, message) {
 
 /** @param {string} id @param {string} claimant */
 const trailers = (id, claimant) =>
-  [`Work-Item: ${id}`, ...(/^D-[1-9]\d*$/.test(claimant) ? [`Dispatch: ${claimant}`] : [])].join(
-    '\n',
-  );
+  [`Work-Item: ${id}`, ...(DISPATCH_ID.test(claimant) ? [`Dispatch: ${claimant}`] : [])].join('\n');
 
 /**
  * Write the claim commit for an item on the current (executor) branch.

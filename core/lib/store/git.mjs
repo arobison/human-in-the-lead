@@ -27,7 +27,8 @@ const INCOMING = 'refs/hitld/incoming';
  * A trailing slash names a directory; a trailing star, any path that starts with the rest. The SQLite index is rebuilt from the text on each machine;
  * the run state and its checkpoints are rebuilt from the ledger (design part 13.1); the primary
  * checkout record, worktree records and usage snapshots describe this machine; the digest cursor
- * is what this machine has shown.
+ * is what this machine has shown; the ledger writer names this machine's own ledger file, so a
+ * store moved elsewhere writes a file of its own there (ledger/writer.mjs).
  */
 export const MACHINE_LOCAL = Object.freeze([
   'index.sqlite*',
@@ -37,6 +38,7 @@ export const MACHINE_LOCAL = Object.freeze([
   'env/',
   'usage/',
   'rights/digest.json',
+  'ledger-writer.json',
 ]);
 
 const GITIGNORE = [
