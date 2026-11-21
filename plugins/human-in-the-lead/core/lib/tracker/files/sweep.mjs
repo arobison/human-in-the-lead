@@ -20,6 +20,7 @@
 // A kind that cannot be checked is listed under `skipped` with the reason, never reported clean.
 
 import { inflight } from '../../ledger/inflight.mjs';
+import { DISPATCH_ID } from '../../ledger/ids.mjs';
 import { releaseTags, surfaceTouches } from '../../release/propose.mjs';
 import { isPrerelease } from '../../release/semver.mjs';
 import { findClaims, mainRef, unclaimedClaims } from './claims.mjs';
@@ -63,7 +64,7 @@ export const SWEEP_KINDS = Object.freeze([
 ]);
 
 const DAY = 86_400_000;
-const DISPATCH = /^D-[1-9]\d*$/;
+const DISPATCH = DISPATCH_ID;
 
 /** @param {unknown} v @returns {string[]} */
 const ids = (v) =>

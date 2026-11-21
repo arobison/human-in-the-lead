@@ -61,6 +61,7 @@ import { advanceTo, runMergeQueue } from './queue.mjs';
  * @property {string[]} deviations what the system found that the brief did not ask for
  * @property {DirectedRead[]} reads
  * @property {string} [dispatch]
+ * @property {string[]} [closed] the items the branch's `Closes:` trailers close in the same merge
  *
  * @typedef {object} Presentation the batch put to the owner, kept at PRESENTED_KEY
  * @property {1} schema_version
@@ -332,6 +333,7 @@ export function evidenceFor(o) {
     deviations,
     reads,
     ...(t.dispatch ? { dispatch: t.dispatch } : {}),
+    ...(t.closed?.length ? { closed: t.closed } : {}),
   };
 }
 
@@ -518,6 +520,7 @@ export async function approvePresented(o) {
             branch: b.branch,
             commit: b.commit,
             ...(b.dispatch ? { dispatch: b.dispatch } : {}),
+            ...(b.closed?.length ? { closed: b.closed } : {}),
           })),
           rejected: [],
           flakes: [],

@@ -1,28 +1,43 @@
-// The ledger (design part 5.4): ledger.jsonl at the root of the private store, one JSON event per
-// line, append-only. Corrections are new events that reference the old one.
+// The ledger (design part 5.4): append-only JSON lines in the private store, one event per line.
+// Corrections are new events that reference the old one.
+//
+// One file per writer (HITLD-74, HITLD-489): each writer appends to its own ledger/<writer>.jsonl
+// (writer.mjs), and the project's ledger is the union of those files, after the single
+// ledger.jsonl that every writer shared before the change. That file is read as it is and never
+// appended to again. The union is ordered by time across files and by line within one, the same
+// on every machine that holds the same files. Event and dispatch IDs are unique by construction
+// (ids.mjs), so two stores that both appended merge with nothing to reconcile.
 //
 // A line is committed when it is complete, so a crash during an append can leave only a torn last
 // line (no trailing newline, not valid JSON). Reading ignores it and the next append cuts it off.
 // Every event has a unique ID, so appending the same event twice (a retry after a crash) is a
-// no-op, which is what makes applying an event idempotent (design part 13.1).
+// no-op, which is what makes applying an event idempotent (design part 13.1). The same event
+// written by two writers before they synced is read once.
 //
 // The ledger is never rewritten, so its reader takes every name it ever held (design part 16.5).
 // Schema version 1 named three events and two fields differently: `claimed` (now `started`: the
 // harness started the executor), `question` (now `asked`), `released` (now `unclaimed`: a claim
 // given up), `outcome` (now `result`: how the attempt ended) and `handle` (now `harness_ref`). A
-// line in the old names is read in the new ones, permanently; new lines are written in the new
-// names, at version 2.
+// line in the old names is read in the new ones, permanently. Version 3 (HITLD-74) is the first
+// written to per-writer files, with unique IDs; versions 1 and 2 are the numbered IDs of the
+// shared file, which keep their meaning.
 
 import { schemas } from '../schema/registry.mjs';
+import { newDispatchId, newEventId } from './ids.mjs';
+import { LEGACY_LEDGER_KEY, ledgerKeyOf, ledgerKeys, resolveWriter } from './writer.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
  * @typedef {Record<string, any>} LedgerEntry a validated line; see schemas/ledger-entry.schema.json
- * @typedef {{ line: number, message: string }} LedgerProblem
- * @typedef {{ events: LedgerEntry[], problems: LedgerProblem[], torn: boolean }} LedgerRead
+ * @typedef {{ file: string, line: number, message: string }} LedgerProblem
+ * @typedef {{ events: LedgerEntry[], problems: LedgerProblem[], torn: boolean, files: string[], counts: Record<string, number>, origins: Map<string, { file: string, index: number }> }} LedgerRead
+ *   torn: some file ends in an unfinished line; files: the ledger files read, in order; counts: how
+ *   many valid events each file holds; origins: for each event read, its file and its place among
+ *   that file's valid events, so a reader can say what is new in each file (each is append-only)
  */
 
-export const LEDGER_KEY = 'ledger.jsonl';
+/** The ledger every writer shared before HITLD-74: read, never appended to. */
+export const LEDGER_KEY = LEGACY_LEDGER_KEY;
 
 /**
  * Events about a decision or a call, not about a dispatch's life: one may name a dispatch (the
@@ -176,18 +191,17 @@ function checkEventRules(e) {
 }
 
 /**
- * Read the whole ledger. Lines that are not valid events are reported, not thrown, so a damaged
- * ledger can still be summarized and repaired by hand.
- * @param {PrivateStore} store @returns {LedgerRead}
+ * Read one ledger file: its valid events with their line numbers, and its problems.
+ * @param {PrivateStore} store @param {string} key
  */
-export function readLedger(store) {
-  const text = store.read(LEDGER_KEY) ?? '';
+function readFile(store, key) {
+  const text = store.read(key) ?? '';
   const lines = text.split('\n');
   // The last element is '' after a trailing newline, or an unfinished line a crash left.
   const unfinished = lines.pop() ?? '';
   const torn = unfinished !== '';
   if (torn && parses(unfinished)) lines.push(unfinished); // complete, only the newline is missing
-  /** @type {LedgerEntry[]} */
+  /** @type {{ event: LedgerEntry, line: number }[]} */
   const events = [];
   /** @type {LedgerProblem[]} */
   const problems = [];
@@ -197,7 +211,11 @@ export function readLedger(store) {
     try {
       data = /** @type {any} */ (fromLegacyEvent(JSON.parse(raw)));
     } catch (e) {
-      problems.push({ line: i + 1, message: `is not JSON: ${/** @type {Error} */ (e).message}` });
+      problems.push({
+        file: key,
+        line: i + 1,
+        message: `is not JSON: ${/** @type {Error} */ (e).message}`,
+      });
       return;
     }
     const errors = [
@@ -206,14 +224,100 @@ export function readLedger(store) {
     ];
     if (errors.length) {
       problems.push({
+        file: key,
         line: i + 1,
         message: errors.map((er) => `${er.path} ${er.message}`).join('; '),
       });
       return;
     }
-    events.push(data);
+    events.push({ event: data, line: i + 1 });
   });
   return { events, problems, torn };
+}
+
+/**
+ * The same event written twice: the same apart from when and by which session. Both the reader
+ * (two writers recorded one fact before they synced) and the appender (a retry, or a fact another
+ * session recorded) use it, so the two agree on what a duplicate is.
+ * @param {LedgerEntry} a @param {LedgerEntry} b
+ */
+const sameFact = (a, b) => {
+  const strip = (/** @type {LedgerEntry} */ e) =>
+    JSON.stringify({ ...e, at: undefined, session: undefined, host: undefined });
+  return strip(a) === strip(b);
+};
+
+/**
+ * Read the whole ledger: the union of its files (ledgerKeys). The legacy file comes first, in its
+ * own order; then the writers' files, merged by time, each kept in its own order, ties going to
+ * the file that sorts first. An ID already read is read once: a second copy of the same event
+ * (two writers recorded one fact before they synced) is skipped, and one with other content is a
+ * problem. Lines that are not valid events are reported, not thrown, so a damaged ledger can
+ * still be summarized and repaired by hand.
+ * @param {PrivateStore} store @returns {LedgerRead}
+ */
+export function readLedger(store) {
+  const files = ledgerKeys(store).map((key) => ({ key, ...readFile(store, key) }));
+  /** @type {LedgerProblem[]} */
+  const problems = files.flatMap((f) => f.problems);
+  /** @type {{ key: string, event: LedgerEntry, line: number }[]} */
+  const ordered = [];
+  const legacy = files.filter((f) => f.key === LEGACY_LEDGER_KEY);
+  for (const f of legacy) ordered.push(...f.events.map((e) => ({ key: f.key, ...e })));
+  const writers = files.filter((f) => f.key !== LEGACY_LEDGER_KEY);
+  // Times as instants, so two zones compare right; one that does not parse goes last.
+  const timeOf = (/** @type {LedgerEntry} */ e) => {
+    const t = Date.parse(String(e.at));
+    return Number.isNaN(t) ? Infinity : t;
+  };
+  const at = writers.map(() => 0);
+  for (;;) {
+    let pick = -1;
+    for (let i = 0; i < writers.length; i++) {
+      if (at[i] >= writers[i].events.length) continue;
+      if (
+        pick < 0 ||
+        timeOf(writers[i].events[at[i]].event) < timeOf(writers[pick].events[at[pick]].event)
+      ) {
+        pick = i;
+      }
+    }
+    if (pick < 0) break;
+    ordered.push({ key: writers[pick].key, ...writers[pick].events[at[pick]++] });
+  }
+  /** @type {Map<string, { key: string, event: LedgerEntry }>} */
+  const seen = new Map();
+  /** @type {Map<string, { file: string, index: number }>} */
+  const origins = new Map();
+  /** @type {Map<LedgerEntry, number>} */
+  const indexOf = new Map();
+  for (const f of files) f.events.forEach((e, i) => indexOf.set(e.event, i));
+  /** @type {LedgerEntry[]} */
+  const events = [];
+  for (const o of ordered) {
+    const first = seen.get(o.event.id);
+    if (first) {
+      if (!sameFact(first.event, o.event)) {
+        problems.push({
+          file: o.key,
+          line: o.line,
+          message: `id ${o.event.id} is also in ${first.key} with other content; that one is read`,
+        });
+      }
+      continue;
+    }
+    seen.set(o.event.id, o);
+    origins.set(o.event.id, { file: o.key, index: /** @type {number} */ (indexOf.get(o.event)) });
+    events.push(o.event);
+  }
+  return {
+    events,
+    problems,
+    torn: files.some((f) => f.torn),
+    files: files.map((f) => f.key),
+    counts: Object.fromEntries(files.map((f) => [f.key, f.events.length])),
+    origins,
+  };
 }
 
 /** @param {string} text */
@@ -226,23 +330,18 @@ function parses(text) {
   }
 }
 
-/** @param {LedgerEntry[]} events @param {RegExp} pattern @param {string} field */
-function maxSuffix(events, pattern, field) {
-  let max = 0;
-  for (const e of events) {
-    const m = pattern.exec(String(e[field] ?? ''));
-    if (m) max = Math.max(max, Number(m[1]));
-  }
-  return max;
-}
-
 /**
- * The next dispatch ID: one above the highest D-<n> in the ledger.
- * @param {PrivateStore | LedgerEntry[]} source
+ * A new dispatch ID, unique by construction (ids.mjs). The ledger is passed only to make sure, as
+ * cheaply as asked, that the ID is not in it.
+ * @param {PrivateStore | LedgerEntry[]} [source]
  */
 export function nextDispatchId(source) {
-  const events = Array.isArray(source) ? source : readLedger(source).events;
-  return `D-${maxSuffix(events, /^D-(\d+)$/, 'dispatch') + 1}`;
+  const events =
+    source === undefined ? [] : Array.isArray(source) ? source : readLedger(source).events;
+  const used = new Set(events.map((e) => e.dispatch));
+  let id = newDispatchId();
+  while (used.has(id)) id = newDispatchId();
+  return id;
 }
 
 /**
@@ -412,35 +511,32 @@ export function startEstimate(events, dispatch, item, d) {
   return startEstimateOf(events, dispatch, item, d)?.tokens;
 }
 
-/** Two events are the same event if they differ only in when they were written. @param {LedgerEntry} a @param {LedgerEntry} b */
-const sameEvent = (a, b) => {
-  const strip = (/** @type {LedgerEntry} */ e) => JSON.stringify({ ...e, at: undefined });
-  return strip(a) === strip(b);
-};
-
 /**
- * Append one event: fill in schema_version, id and time; validate; then write one line.
+ * Append one event: fill in schema_version, id and time; validate against the whole ledger (the
+ * union of its files); then write one line to this writer's own file (writer.mjs).
  * - An event whose ID is already in the ledger and is otherwise identical is not appended again
  *   (`appended: false`); with different content it is an error.
  * - A dispatch takes at most one terminal event (reported, abandoned or unclaimed), and nothing
  *   else after it, so a stale session cannot revive or double-finish a dispatch.
  * @param {PrivateStore} store
  * @param {LedgerEntry} event
- * @param {{ now?: () => Date }} [options]
- * @returns {{ event: LedgerEntry, appended: boolean, events: LedgerEntry[] }}
- *   events: the whole ledger after the call
+ * @param {{ now?: () => Date, writer?: string, env?: NodeJS.ProcessEnv, cwd?: string }} [options]
+ *   writer, env and cwd choose the file (resolveWriter); by default this process's session or the
+ *   store's own
+ * @returns {{ event: LedgerEntry, appended: boolean, events: LedgerEntry[], file?: string }}
+ *   events: the whole ledger after the call; file: the file the line went to
  */
 export function appendEvent(store, event, options = {}) {
   const now = options.now ?? (() => new Date());
   const registry = schemas();
-  const { events, torn } = readLedger(store);
+  const { events } = readLedger(store);
   /** @type {LedgerEntry} */
   const entry = {
     schema_version: registry.currentVersion('ledger-entry'),
     ...event,
     at: event.at ?? now().toISOString(),
   };
-  entry.id ??= `E-${maxSuffix(events, /^E-(\d+)$/, 'id') + 1}`;
+  entry.id ??= newEventId();
 
   const errors = [...registry.validateEntity('ledger-entry', entry), ...checkEventRules(entry)];
   if (errors.length) {
@@ -452,7 +548,9 @@ export function appendEvent(store, event, options = {}) {
 
   const same = events.find((e) => e.id === entry.id);
   if (same) {
-    if (!sameEvent(same, entry)) {
+    // The reader's rule (sameFact): a retry, or the same fact another session already recorded,
+    // is not appended again; one ID with other content is an error.
+    if (!sameFact(same, entry)) {
       throw new LedgerError(`ledger event ${entry.id} already exists with different content`);
     }
     return { event: same, appended: false, events };
@@ -479,15 +577,16 @@ export function appendEvent(store, event, options = {}) {
     }
   }
 
+  const file = ledgerKeyOf(resolveWriter(store, options));
   const line = JSON.stringify(entry) + '\n';
-  if (torn) {
+  const text = store.read(file) ?? '';
+  if (text !== '' && !text.endsWith('\n')) {
     // A crash left an unfinished last line: keep it if it is whole, cut it off if not.
-    const text = store.read(LEDGER_KEY) ?? '';
     const cut = text.lastIndexOf('\n') + 1;
     const kept = parses(text.slice(cut)) ? text + '\n' : text.slice(0, cut);
-    store.write(LEDGER_KEY, kept + line);
+    store.write(file, kept + line);
   } else {
-    store.append(LEDGER_KEY, line);
+    store.append(file, line);
   }
-  return { event: entry, appended: true, events: [...events, entry] };
+  return { event: entry, appended: true, events: [...events, entry], file };
 }

@@ -96,11 +96,13 @@ test('every record appends to the ledger first, then writes a checkpoint', () =>
   const run = startRun(spied, { ...A, now: clock() });
   order.length = 0;
   run.record({ event: 'dispatched', dispatch: 'D-1', item: 'W-1', role: 'executor', tier: 2 });
-  assert.deepEqual(order, [
-    'append ledger.jsonl',
-    'write run/checkpoints/slot-2.json',
-    'write run-state.json',
-  ]);
+  // The append goes to this writer's own ledger file.
+  assert.deepEqual(
+    order.map((o) =>
+      o.replace(/^append ledger\/w-[0-9a-f]{16}\.jsonl$/, 'append ledger/<w>.jsonl'),
+    ),
+    ['append ledger/<w>.jsonl', 'write run/checkpoints/slot-2.json', 'write run-state.json'],
+  );
   assert.equal(run.state.in_flight.length, 1);
   assert.equal(run.state.checkpoint.number, 2);
 });
@@ -265,7 +267,7 @@ test('a damaged run-state.json falls back to the newest checkpoint; a lost one i
   // resuming works from the checkpoint
   assert.doesNotThrow(() => takeLease(store, { ...A, now: clock(5) }));
 
-  for (const k of [...files.keys()]) if (k !== 'ledger.jsonl') files.delete(k);
+  for (const k of [...files.keys()]) if (!k.startsWith('ledger/')) files.delete(k);
   assert.equal(loadState(store).state, null);
   assert.throws(() => takeLease(store, { ...A, now: clock(5) }), /hitld run rebuild/);
   const rebuilt = rebuildRun(store, { now: clock(5) });
@@ -596,7 +598,7 @@ test('kill and resume: a kill between a ledger append and its checkpoint resumes
     expirySeconds: EXPIRY,
     reality: world.reality,
   });
-  assert.deepEqual(resumed.abandoned, ['D-1']);
+  assert.deepEqual(resumed.abandoned, [ledger.at(-1)?.dispatch]);
   assert.deepEqual(resumed.unclaimed_items, ['W-1']);
   assert.equal(world.started.length, 0, 'the harness was never called');
   const events = readLedger(memoryStore(world.files)).events.map((e) => e.event);
@@ -614,6 +616,9 @@ test('kill and resume: an executor started but not yet on file is adopted, not s
   killer.at = 5;
   await assert.rejects(() => dispatchExecutor(run, adapter, request(), {}), Killed);
   assert.equal(world.started.length, 1, 'the executor is running');
+  const dispatch = readLedger(memoryStore(world.files)).events.find(
+    (e) => e.event === 'dispatched',
+  )?.dispatch;
 
   const resumed = await resumeRun(memoryStore(world.files), {
     ...B,
@@ -621,11 +626,11 @@ test('kill and resume: an executor started but not yet on file is adopted, not s
     expirySeconds: EXPIRY,
     reality: world.reality,
   });
-  assert.deepEqual(resumed.adopted, ['D-1']);
+  assert.deepEqual(resumed.adopted, [dispatch]);
   assert.deepEqual(resumed.abandoned, []);
   assert.equal(
     resumed.run.state.in_flight[0].harness_ref,
-    'ref-D-1',
+    `ref-${dispatch}`,
     'its harness_ref is recorded on adoption',
   );
   assert.equal(world.started.length, 1, 'no second executor');
@@ -704,22 +709,25 @@ test('the harness refusing a dispatch ends it in the ledger', async () => {
   const store = memoryStore();
   const run = startRun(store, { ...A, now: clock() });
   const adapter = createFakeAdapter({ capabilities: FAKE_PROFILES.minimal });
-  await dispatchExecutor(run, adapter, request(), {});
+  const first = await dispatchExecutor(run, adapter, request(), {});
   await assert.rejects(
     () => dispatchExecutor(run, adapter, request({ item: 'W-2' }), {}),
     /parallel_subagents/,
   );
   const events = readLedger(store).events;
+  const second = events.at(-1)?.dispatch;
+  assert.match(String(second), /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
+  assert.notEqual(second, first.dispatch);
   assert.deepEqual(
-    events.slice(-2).map((e) => [e.event, e.dispatch]),
+    events.slice(-2).map((e) => [e.event, e.dispatch, e.item]),
     [
-      ['dispatched', 'D-2'],
-      ['abandoned', 'D-2'],
+      ['dispatched', second, 'W-2'],
+      ['abandoned', second, 'W-2'],
     ],
   );
   assert.deepEqual(
     run.state.in_flight.map((/** @type {any} */ d) => d.dispatch),
-    ['D-1'],
+    [first.dispatch],
   );
 });
 

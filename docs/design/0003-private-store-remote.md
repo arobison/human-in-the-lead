@@ -39,7 +39,7 @@ Eval baselines are out of scope: HITLD-100 commits accepted baselines to the rep
 
 The store's git history already separates the two ([3.2](0001-human-in-the-lead/03-data-model.md#private-store)):
 
-- **Moves:** the text files the store commits. The ledger, the trust record, decisions and ask records, precedents, signals, notes, judgment records, studies, eval results and feedback.
+- **Moves:** the text files the store commits. The ledger, the trust record, decisions and ask records, precedents, signals, notes, judgment records, studies, eval results and feedback, and the owner's settings that travel (`settings/person.json` and `settings/machine.json`, HITLD-148; [13.4](0001-human-in-the-lead/13-operations.md#security)). What this machine's last pull did is machine-local, in `<store>/.git/hitld-pull.json`: those settings are read only after a pull that reached the remote.
 - **Never moves:** the machine-local files the store's `.gitignore` keeps out. The SQLite index (rebuilt from the text), `run-state.json` and `run/` (rebuilt from the ledger), `primary-checkout.json`, `env/`, `usage/`, the digest cursor, and the machine registry beside the stores.
 
 Secrets never move either: they are not in the store at all ([13](0001-human-in-the-lead/13-operations.md), `env.secret_tasks`). A device's private key is machine-local and never enters the store.

@@ -6,7 +6,7 @@
 
 /**
  * @typedef {string} Id a tracker ID, <KEY>-<n>
- * @typedef {string} DispatchId D-<n>
+ * @typedef {string} DispatchId D-<n> (numbered, before HITLD-74) or D-<16 base32> (ledger/ids.mjs)
  * @typedef {string} Version an opaque version for optimistic concurrency (for files: a blob hash)
  * @typedef {'proposed' | 'planned' | 'in-progress' | 'done' | 'dropped'} State
  * @typedef {'needs' | 'parent' | 'duplicate_of' | 'opened_from'} Relation

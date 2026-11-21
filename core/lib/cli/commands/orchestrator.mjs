@@ -39,6 +39,8 @@ import { absorb } from '../../run/state.mjs';
 import { TOKENS_FAR_ABOVE_ESTIMATE, farAboveEstimate, reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
+import { chooseBranch } from '../../env/worktree.mjs';
+import { CodedError } from '../errors.mjs';
 import { tearDown } from '../../env/teardown.mjs';
 import {
   activeProjects,
@@ -69,7 +71,13 @@ import {
   refusedCommands,
   refusedNote,
 } from '../../dispatch/permissions.mjs';
-import { envPrefix, executorEnv, renderBrief } from '../../dispatch/brief.mjs';
+import {
+  envPrefix,
+  executorEnv,
+  hasReportBlock,
+  renderBrief,
+  reportsByMessage,
+} from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
 import {
   mergedSincePlanned,
@@ -90,6 +98,7 @@ import {
   validSignoff,
 } from '../../merge/pull-request.mjs';
 import { duplicateIds } from '../../tracker/files/check.mjs';
+import { closeByTrailer } from '../../tracker/files/closing.mjs';
 import { loadWorkTree } from '../../tracker/files/tree.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import {
@@ -116,6 +125,7 @@ import { securityGate } from '../../merge/security.mjs';
 import { CAPABILITIES, MATRIX } from '../../../harness/claude-code/capabilities.mjs';
 import { followUpInstruction, instructionFor } from '../../../harness/claude-code/instructions.mjs';
 import { completionOf } from '../../../harness/claude-code/adapter.mjs';
+import { SESSION_ID_PATTERN } from '../../../harness/claude-code/session.mjs';
 import { install } from '../../install/install.mjs';
 import { dispatchedOn, reportVersion } from '../../install/drift.mjs';
 import { pushingAfter } from '../../store/auto-sync.mjs';
@@ -176,13 +186,17 @@ const dueFor = (run, policy, input) =>
 
 /**
  * The private terms the merge checks every commit against. A list that does not read stops the
- * merge: nothing goes to main unchecked.
- * @param {import('../../store/store.mjs').PrivateStore} store @param {string} projectId
- * @param {NodeJS.ProcessEnv} env
+ * merge: nothing goes to main unchecked. One that is not there (a store not pulled) adds its
+ * warning to `notes`, which the merge's result carries (HITLD-187); with merge.require_private_list
+ * on, the owner's choice, it stops the merge instead.
+ * @param {import('../../store/store.mjs').PrivateStore} store @param {Record<string, any>} policy
+ * @param {NodeJS.ProcessEnv} env @param {string[]} notes
  */
-function mergeTerms(store, projectId, env) {
+function mergeTerms(store, policy, env, notes) {
+  /** @type {ReturnType<typeof loadTerms>} */
+  let t;
   try {
-    return loadTerms({ store, projectId, env }).matchers;
+    t = loadTerms({ store, projectId: policy.project.id, env });
   } catch (e) {
     const err = /** @type {{ code?: unknown, message: string }} */ (e);
     if (err.code === 'private-list-invalid') {
@@ -190,6 +204,14 @@ function mergeTerms(store, projectId, env) {
     }
     throw e;
   }
+  if (!t.list_found && policy.merge.require_private_list === true) {
+    throw new Refusal(
+      'private-list-invalid',
+      `${t.warnings[0]}. merge.require_private_list is on, so nothing merged: pull the private store where this device can open it (hitld store status says what is missing), or merge where the store is`,
+    );
+  }
+  notes.push(...t.warnings);
+  return t.matchers;
 }
 
 export class Refusal extends Error {
@@ -257,6 +279,19 @@ export async function guarded(fn) {
     }
     throw e;
   }
+}
+
+/**
+ * guarded, with warnings the command notes along the way added to its result, refusal or not.
+ * @param {(notes: string[]) => Result | Promise<Result>} fn @returns {Promise<Result>}
+ */
+async function guardedNoting(fn) {
+  /** @type {string[]} */
+  const notes = [];
+  const r = await guarded(() => fn(notes));
+  if (!notes.length) return r;
+  const had = Array.isArray(r.warnings) ? /** @type {string[]} */ (r.warnings) : [];
+  return { ...r, warnings: [...had, ...notes] };
 }
 
 /**
@@ -691,7 +726,8 @@ const rejectedJson = (x, main) => ({
   reason: x.reason,
   ...(x.files ? { files: x.files } : {}),
   ...(x.command ? { command: x.command } : {}),
-  ...((x.reason === 'classification' || x.reason === 'duplicate_id') && x.output
+  ...((x.reason === 'classification' || x.reason === 'duplicate_id' || x.reason === 'closes') &&
+  x.output
     ? { problems: x.output.split('\n') }
     : {}),
   follow_up:
@@ -715,7 +751,7 @@ const ownerPresentation = (o) => ({
   waiting: o.waiting,
   reused: o.reused,
   next: o.presentation
-    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations), and each directed read with its question (with a chief of staff, in your message to it). Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]; when the chief of staff recorded the answer (hitld merge approve), plain hitld merge applies it. Send each rejected follow_up"
+    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations, and the items its Closes: trailers close, from closed), and each directed read with its question (with a chief of staff, in your message to it). Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]; when the chief of staff recorded the answer (hitld merge approve), plain hitld merge applies it. Send each rejected follow_up"
     : 'nothing passed the checks to present: for each rejected entry with a follow_up, hitld dispatch follow-up; then refill with hitld dispatch plan',
 });
 
@@ -1139,6 +1175,19 @@ const table = [
     run: (input, ctx) =>
       guarded(async () => {
         const p = project(ctx);
+        // A session ID given by hand (--session, $HITLD_SESSION) is checked for the shape a
+        // harness gives one before anything uses it: an executor's brief names it (HITLD-147), so
+        // a space or a line break in it would change the brief's text.
+        const given = identityOf(p, input, ctx);
+        if (
+          (given.source === 'flag' || given.source === 'env') &&
+          !SESSION_ID_PATTERN.test(String(given.session))
+        ) {
+          throw new Refusal(
+            'usage',
+            `the session ID from ${given.source === 'flag' ? '--session' : '$HITLD_SESSION'} is not one a harness gives: one word of letters, digits and . _ : -, at most 128 characters, with no spaces or line breaks`,
+          );
+        }
         const run = runOf(p, input, ctx);
         const id = String(input.item);
         const due = dueFor(run, p.policy, input);
@@ -1176,8 +1225,33 @@ const table = [
         }
         const item = /** @type {Item} */ (q.byId.get(id));
         const dispatch = nextDispatchId(readLedger(p.store).events);
-        const branch = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
+        const wanted = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
         const tier = planned.tier;
+        // Tier 3 cuts its own worktree. An earlier dispatch of the item, abandoned, may have left
+        // its branch behind (HITLD-194): settle the name now, so the ledger and the brief carry
+        // the branch the worktree gets. A branch with unmerged commits is never touched.
+        const env =
+          tier === 3
+            ? openEnv({
+                repoRoot: p.repoRoot,
+                store: p.store,
+                policy: p.policy,
+                env: ctx.env,
+                capacity: p.capacity,
+              })
+            : null;
+        /** @type {import('../../env/worktree.mjs').BranchChoice | null} */
+        let branchChoice = null;
+        if (env) {
+          try {
+            branchChoice = await chooseBranch(p.repoRoot, wanted, env.settings.mainBranch);
+          } catch (e) {
+            // Before the ledger write: nothing is recorded, and the item stays ready.
+            if (e instanceof CodedError) throw new Refusal(e.code, e.message);
+            throw e;
+          }
+        }
+        const branch = branchChoice?.branch ?? wanted;
         const mode = /** @type {'headless' | 'interactive'} */ (
           String(input.mode ?? planned.mode ?? p.policy.dispatch.tier3_mode)
         );
@@ -1191,6 +1265,15 @@ const table = [
             { plan: planJson(result, setup) },
           );
         }
+        // An executor that reports by message gets the communication block (HITLD-147), naming
+        // this session as its commands here already name it: --session, $HITLD_SESSION or the
+        // harness's session ID. One only the run's own record holds is not an address the harness
+        // can send to, so it gives no block, and the start is refused below.
+        const byMessage = reportsByMessage({ tier, mode });
+        const reportTo =
+          byMessage && given.session && ['flag', 'env', 'harness'].includes(String(given.source))
+            ? given.session
+            : null;
         const xenv = executorEnv(dispatch, p.policy.project.id);
         const briefPath = join(p.store.root, briefKey(dispatch));
         const resultPath = join(p.store.root, resultKey(dispatch));
@@ -1219,7 +1302,18 @@ const table = [
             touches,
             overlaps,
             merged,
+            reportTo,
           });
+        // Refused before anything is recorded or made: a brief without the block leaves the
+        // executor ending its turns where no one hears them. The check reads the rendered brief,
+        // not reportTo alone, so that a later change to renderBrief that drops or rewords the
+        // block is refused here instead of reaching an executor.
+        if (byMessage && !(reportTo && hasReportBlock(briefFor(null), reportTo))) {
+          throw new Refusal(
+            'no-report-block',
+            `${id} runs as an interactive session, which reports by message, and its brief has no communication block: this session's ID (${given.session}) comes only from the run's record, not from --session, $HITLD_SESSION or the harness. Pass --session <your harness session ID> or set HITLD_SESSION, then start it again`,
+          );
+        }
 
         // Write ahead: the dispatch is in the ledger before anything starts.
         run.record({
@@ -1280,21 +1374,20 @@ const table = [
 
         /** @type {string | null} */
         let worktree = null;
-        if (tier === 3) {
+        if (env) {
           // Its own worktree from hitld env, set up before the executor starts.
-          const env = openEnv({
-            repoRoot: p.repoRoot,
-            store: p.store,
-            policy: p.policy,
-            env: ctx.env,
-            capacity: p.capacity,
-          });
           try {
             const made = await env.createWorktree({
               holder: dispatch,
               itemId: id,
-              slug: slugify(item.title),
+              branch,
+              ...(branchChoice ? { choice: branchChoice } : {}),
             });
+            if (made.lease.branch !== branch) {
+              throw new Error(
+                `the worktree got ${made.lease.branch}, not ${branch} as recorded: the branch changed while ${dispatch} started`,
+              );
+            }
             worktree = made.lease.path;
             const setup = await env.runSetup({ holder: dispatch });
             if (!setup.ok) throw new Error('the declared worktree setup failed');
@@ -1348,6 +1441,14 @@ const table = [
           item: id,
           tier,
           branch,
+          // What the item's branch name held and which branch this dispatch took (HITLD-194).
+          ...(branchChoice && branchChoice.chose !== 'new'
+            ? {
+                branch_found: branchChoice.found,
+                branch_chose: branchChoice.chose,
+                branch_note: branchChoice.note,
+              }
+            : {}),
           worktree,
           brief_file: briefPath,
           executor_env: envPrefix(xenv),
@@ -1810,7 +1911,7 @@ const table = [
       HOST,
     ],
     run: (input, ctx) =>
-      guarded(async () => {
+      guardedNoting(async (notes) => {
         const p = project(ctx);
         const run = runOf(p, input, ctx);
         const owner = p.policy.merge.mode === 'owner';
@@ -1960,13 +2061,18 @@ const table = [
               return [`the tracker files could not be read: ${/** @type {Error} */ (e).message}`];
             }
           },
+          // Closing by trailer (design 3.4): with main's tracker layout, in the rebased tree.
+          closeByTrailer: (dir, from, to, own) =>
+            existsSync(join(dir, layout.workDir))
+              ? closeByTrailer(dir, layout, from, to, { own })
+              : { closed: [], problems: [] },
           // From main's policy and tracker.json, never the branch's own; the private terms from
           // the private store, so every commit's files and message are checked for them.
           classification: {
             ceiling: layout.classificationCeiling,
             defaultClassification: layout.defaultClassification,
             privatePaths: layout.privatePaths,
-            terms: mergeTerms(p.store, p.policy.project.id, ctx.env),
+            terms: mergeTerms(p.store, p.policy, ctx.env, notes),
           },
         };
         /** @param {string} dir */
@@ -2071,6 +2177,8 @@ const table = [
               ? { before: rs[0].main.before, after: rs[rs.length - 1].main.after }
               : null,
             merged: rs.flatMap((r) => r.merged.map((m) => m.item)),
+            // The items the merged branches' Closes: trailers closed in the same merge.
+            closed: rs.flatMap((r) => r.merged.flatMap((m) => m.closed ?? [])),
             ...(worktreesRemoved.length ? { worktrees_removed: worktreesRemoved } : {}),
             rejected: rs.flatMap((r) => r.rejected.map((x) => rejectedJson(x, main))),
             flakes: rs.flatMap((r) =>

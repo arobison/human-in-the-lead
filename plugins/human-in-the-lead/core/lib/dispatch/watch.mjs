@@ -25,6 +25,12 @@
 // reset, a background agent that went quiet during the pause, and never progressed after the
 // reset, was cut off by the limit: it is continued as a follow-up (reason limit), which is not a
 // failure and does not count on the ladder.
+//
+// An interactive session that ended its turn without sending its report (HITLD-147) is not a stall
+// to wait out: the harness shows its session ended or idle while its dispatch is still in flight.
+// Only the harness knows that, so the caller passes the sessions it shows so (`ended`), and each
+// such dispatch is `unreported`: the chief of staff reads its final state and relays the report,
+// or pokes it to send one. It is chased, not waited on, and takes no step of the ladder.
 
 import { lastProcess, progressTimes } from './progress.mjs';
 import { startEstimate } from '../ledger/ledger.mjs';
@@ -44,7 +50,7 @@ import { startEstimate } from '../ledger/ledger.mjs';
  * @property {string | null} mode headless or interactive for tier 3
  * @property {string | null} harness_ref
  * @property {string | null} model
- * @property {'progressing' | 'stalled' | 'overdue' | 'cut_off' | 'waiting_for_reset' | 'finished' | 'foreign'} state
+ * @property {'progressing' | 'stalled' | 'overdue' | 'cut_off' | 'waiting_for_reset' | 'finished' | 'foreign' | 'unreported'} state
  * @property {StallReason | null} reason
  * @property {Step | null} step the step due now, or null
  * @property {string | null} last_progress_at
@@ -107,8 +113,10 @@ export function rungsFor(entry) {
  *   host?: string,
  *   pause?: Pause | null,
  *   timedPause?: Pause | null,
+ *   ended?: ReadonlySet<string>,
  * }} r
- *   pause: the pause in force; timedPause: the latest pause that named its reset
+ *   pause: the pause in force; timedPause: the latest pause that named its reset; ended: the
+ *   interactive sessions the harness shows as ended or idle, by harness reference or dispatch ID
  * @returns {Verdict[]}
  */
 export function watchDispatches(r) {
@@ -166,6 +174,15 @@ export function watchDispatches(r) {
       ...more,
     });
 
+    // Before the host: the harness's own view of the session holds wherever the watch runs.
+    if (
+      entry.mode === 'interactive' &&
+      (r.ended?.has(entry.dispatch) || (entry.harness_ref && r.ended?.has(entry.harness_ref)))
+    ) {
+      return verdict('unreported', {
+        why: 'its session has ended or is idle and its dispatch has no completed report (its report may be unsent, or sent and not yet completed): chase it, do not wait',
+      });
+    }
     if (r.host && entry.host && entry.host !== r.host) {
       return verdict('foreign', {
         why: `it runs on ${entry.host}: the watchdog there judges it`,
@@ -264,6 +281,17 @@ export function watchDispatches(r) {
     });
   });
 }
+
+/**
+ * What the chief of staff does with an interactive session that ended without its report.
+ * @param {Verdict} v
+ */
+export const chaseStep = (v) =>
+  `first check whether ${v.dispatch}'s report already reached the orchestrator (then it only waits for hitld dispatch complete); if not, read the final state of session ${v.harness_ref ?? `of ${v.dispatch}`} (its last message, its result events): when it holds the report in the fixed shape, relay it to the orchestrator holding the lease as reported ${v.dispatch}; otherwise send it the report request (report_request). Do not wait for it`;
+
+/** The message that asks a session that ended its turn without reporting to send its report. @param {string} dispatch */
+export const reportRequest = (dispatch) =>
+  `Report check for ${dispatch}: your turn ended without sending your report. Send it now to the orchestrator's session your brief names, with the harness's message tool, in the fixed shape (or your exact blocker), even if nothing changed.`;
 
 /** The ladder steps due now. @param {Verdict[]} verdicts */
 export const dueSteps = (verdicts) => verdicts.filter((v) => v.step !== null);

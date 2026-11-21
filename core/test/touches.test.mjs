@@ -6,6 +6,8 @@ import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { sizeItem } from '../lib/dispatch/sizing.mjs';
 import { planDispatch } from '../lib/dispatch/plan.mjs';
 import { renderBrief } from '../lib/dispatch/brief.mjs';
+import { readLedger } from '../lib/ledger/ledger.mjs';
+import { openStore } from '../lib/store/store.mjs';
 import { deriveTouches, overlapsInFlight, touchesOf } from '../lib/dispatch/touches.mjs';
 import { FAKE_PROFILES } from '../harness/fake/fake.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
@@ -187,7 +189,12 @@ test('dispatch: the brief names overlapping work in flight and merges since plan
   const four = await c.hitld(['dispatch', 'start', 'W-4']);
   assert.equal(four.exit, 0, JSON.stringify(four.result));
   const brief = readFileSync(four.result.brief_file, 'utf8');
-  assert.match(brief, /In flight on the same paths: D-1 \(W-1\) touches src\/calc.js\./);
+  assert.match(
+    brief,
+    new RegExp(
+      `In flight on the same paths: ${one.result.dispatch} \\(W-1\\) touches src/calc.js\\.`,
+    ),
+  );
   assert.match(brief, /^merge main before you report when a dispatch in flight overlaps$/m);
   assert.match(
     brief,
@@ -204,15 +211,12 @@ test('dispatch: the brief names overlapping work in flight and merges since plan
     brief5,
     /In flight on the same paths|Merged since|merge main before you report/,
   );
-  const ledger = readFileSync(
-    join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl'),
-    'utf8',
-  ).split('\n');
-  const dispatched = ledger
-    .filter(Boolean)
-    .map((l) => JSON.parse(l))
-    .find((e) => e.event === 'dispatched' && e.item === 'W-5');
-  assert.deepEqual([dispatched.touches, dispatched.touches_source], [['src/named.js'], 'derived']);
+  const { events } = readLedger(openStore(join(c.data, 'human-in-the-lead/orch-fixture')));
+  const dispatched = events.find((e) => e.event === 'dispatched' && e.item === 'W-5');
+  assert.deepEqual(
+    [dispatched?.touches, dispatched?.touches_source],
+    [['src/named.js'], 'derived'],
+  );
 });
 
 test('the report check flags a public-interface change whose item has no release_note', async () => {

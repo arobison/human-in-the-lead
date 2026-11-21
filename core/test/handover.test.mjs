@@ -33,6 +33,19 @@ const A = { session: 'orch-1', host: 'example-laptop' };
 const B = { session: 'orch-2', host: 'example-laptop' };
 const COS = { session: 'cos', host: 'phone-relay' };
 
+test('releasing a lease right after a renewal keeps the renewal time', () => {
+  const store = memoryStore();
+  const run = startRun(store, { ...A, now: clock(600) });
+  const taken = run.state.lease.renewed_at;
+  const renewed = run.checkpoint().lease.renewed_at;
+  assert.ok(renewed > taken, 'the checkpoint renewed the lease');
+  const r = releaseLease(store, { ...A, now: clock(900), reason: 'handover' });
+  assert.equal(r.appended, true);
+  assert.equal(r.released.reason, 'handover');
+  assert.equal(r.state.lease.renewed_at, renewed, 'not reset to when the lease was taken');
+  assert.equal(loadState(store).state?.lease.renewed_at, renewed);
+});
+
 test('a hand-over releases the lease: the holder can no longer record, a successor takes it at once', () => {
   const store = memoryStore();
   const first = startRun(store, { ...A, now: clock(), harnessRef: 'example-host-1' });
@@ -174,8 +187,9 @@ test('commands: the chief of staff reads the lease, retires a killed orchestrato
   const orch2 = { env: { HITLD_SESSION: 'orch-2' } };
   const cos = { env: { HITLD_SESSION: 'cos' } };
   assert.equal((await c.hitld(['run', 'start', '--harness-ref', 'cloud-orch-1'], orch1)).exit, 0);
-  await c.hitld(['dispatch', 'start', 'W-1'], orch1); // killed before the Agent call
-  await c.hitld(['dispatch', 'start', 'W-2'], orch1); // the agent was started
+  // The first dispatch is killed before the Agent call; the second's agent was started.
+  const d1 = (await c.hitld(['dispatch', 'start', 'W-1'], orch1)).result.dispatch;
+  const d2 = (await c.hitld(['dispatch', 'start', 'W-2'], orch1)).result.dispatch;
 
   const status = await c.hitld(['run', 'status'], cos);
   assert.equal(status.exit, 0, JSON.stringify(status.result));
@@ -183,25 +197,25 @@ test('commands: the chief of staff reads the lease, retires a killed orchestrato
   assert.equal(status.result.lease.free, false);
   assert.equal(status.result.in_flight, 2);
 
-  const early = await c.hitld(['run', 'resume', '--live', 'D-2'], orch2);
+  const early = await c.hitld(['run', 'resume', '--live', d2], orch2);
   assert.equal(early.result.error, 'lease-held', 'a fresh lease is not taken without cause');
 
   const retired = await c.hitld(['run', 'retire', '--holder', 'orch-1'], cos);
   assert.equal(retired.exit, 0, JSON.stringify(retired.result));
   assert.equal(retired.result.released.reason, 'ended');
-  assert.deepEqual(retired.result.reported_to_it, ['D-1', 'D-2']);
+  assert.deepEqual(retired.result.reported_to_it, [d1, d2]);
   const free = await c.hitld(['run', 'status'], cos);
   assert.equal(free.result.wake_to, null);
   assert.match(free.result.next, /start a successor/);
 
   const resumed = await c.hitld(
-    ['run', 'resume', '--live', 'D-2', '--harness-ref', 'cloud-orch-2'],
+    ['run', 'resume', '--live', d2, '--harness-ref', 'cloud-orch-2'],
     orch2,
   );
   assert.equal(resumed.exit, 0, JSON.stringify(resumed.result));
   assert.equal(resumed.result.took_over.reason, 'ended');
-  assert.deepEqual(resumed.result.abandoned, ['D-1']);
-  assert.deepEqual(resumed.result.adopted, ['D-2']);
+  assert.deepEqual(resumed.result.abandoned, [d1]);
+  assert.deepEqual(resumed.result.adopted, [d2]);
   assert.equal((await c.hitld(['run', 'status'], cos)).result.wake_to, 'cloud-orch-2');
   const stale = await c.hitld(['dispatch', 'start', 'W-1'], orch1);
   assert.equal(stale.result.error, 'lease-lost');
@@ -218,30 +232,33 @@ test('commands: after enough completions the refill is held, the hand-over waits
   const orch1 = { env: { HITLD_SESSION: 'orch-1' } };
   const orch2 = { env: { HITLD_SESSION: 'orch-2' } };
   await c.hitld(['run', 'start'], orch1);
-  await c.hitld(['dispatch', 'start', 'W-1'], orch1);
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1'], orch1);
-  await c.hitld(['dispatch', 'start', 'W-2'], orch1);
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-2', '--harness-ref', 'agent-2'], orch1);
+  const d1 = (await c.hitld(['dispatch', 'start', 'W-1'], orch1)).result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'agent-1'], orch1);
+  const d2 = (await c.hitld(['dispatch', 'start', 'W-2'], orch1)).result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d2, '--harness-ref', 'agent-2'], orch1);
 
   const note = join(c.base, 'note.txt');
   writeFileSync(note, report({ item: 'W-1', sha: 'abc1234', branch: 'hitld/W-1-add-numbers' }));
   const done = await c.hitld(
-    ['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note],
+    ['dispatch', 'complete', '--dispatch', d1, '--report-file', note],
     orch1,
   );
   assert.equal(done.exit, 0, JSON.stringify(done.result));
   assert.equal(done.result.handover.due, true);
   assert.deepEqual(done.result.refill.start, []);
-  assert.match(done.result.refill.next, /process the completions of D-2, then hitld handover/);
+  assert.match(
+    done.result.refill.next,
+    new RegExp(`process the completions of ${d2}, then hitld handover`),
+  );
   const refused = await c.hitld(['dispatch', 'start', 'W-3'], orch1);
   assert.equal(refused.result.error, 'handover-due');
 
   const early = await c.hitld(['handover'], orch1);
   assert.equal(early.result.error, 'draining');
-  assert.deepEqual(early.result.reporting_here, ['D-2']);
+  assert.deepEqual(early.result.reporting_here, [d2]);
 
   writeFileSync(note, report({ item: 'W-2', sha: 'def5678', branch: 'hitld/W-2-another-thing' }));
-  await c.hitld(['dispatch', 'complete', '--dispatch', 'D-2', '--report-file', note], orch1);
+  await c.hitld(['dispatch', 'complete', '--dispatch', d2, '--report-file', note], orch1);
   const handed = await c.hitld(['handover'], orch1);
   assert.equal(handed.exit, 0, JSON.stringify(handed.result));
   assert.equal(handed.result.released.reason, 'handover');

@@ -5,16 +5,14 @@
 // appends them; installing that capture is not this piece). A line that fails its schema is
 // skipped and counted, never trusted.
 //
-// Ledger: the seam to piece (b). Until its reader merges, readLedgerEntries is the stand-in: it
-// reads ledger.jsonl at the store root and keeps the lines that look like ledger entries. The
-// functions below take entries as an array, so swapping the reader changes nothing else.
+// Ledger: read by the ledger's own reader (ledger/ledger.mjs), the union of the writers' files.
+// The functions below take entries as an array.
 
 import { schemas } from '../schema/registry.mjs';
 import { readLedger } from '../ledger/ledger.mjs';
 import { resetsAtMs } from './window.mjs';
 
 export const SNAPSHOTS_KEY = 'usage/snapshots.jsonl';
-export const LEDGER_KEY = 'ledger.jsonl';
 
 /** @typedef {{ read: (key: string) => string | null }} Reader */
 
