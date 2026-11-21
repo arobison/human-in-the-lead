@@ -113,6 +113,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 
 - `policy`: policy.json is missing, invalid or not trusted.
 - `settings`: A settings file is invalid.
+- `settings-not-pulled`: The project's store holds the owner's settings and is not up to date here, so config write did not write them there (in a cloud session, nothing at all); pull the store first.
 - `tracker`: tracker.json is invalid.
 - `id-counter-unreachable`: A new ID is taken from the counter on the store repository, and it could not be reached or written; no ID was taken.
 - `contract`: The contract block in AGENTS.md could not be installed.
@@ -153,6 +154,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready).
 - `disk-floor`: Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.
 - `not-in-flight`: The dispatch is not in flight.
+- `no-report-block`: An executor that reports by message (an interactive session) would get a brief without the communication block, because no session ID it could send its report to is known: pass --session or set HITLD_SESSION, or run in a harness that gives one.
 - `tokens-over-estimate`: The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.
 - `unknown-dispatch`: The dispatch has no recorded harness reference, so it cannot be continued.
 - `still-running`: The dispatch is still running; its completion notice comes first.
@@ -312,6 +314,19 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `private-term-invalid`: A term is not one the private term list takes: too short or long, more than one line, or of an unknown kind.
 - `private-term-unknown`: No term on the private term list has that ID or matches that term.
 - `private-list-invalid`: A line of the private term list does not read, so nothing is checked or committed until it is fixed.
+
+**The reproducer**
+
+- `invalid-signal`: The signal record given to reproduce is not a valid signal.
+- `not-a-bug`: The signal is not a reported bug, and only a bug is reproduced.
+- `invalid-reply`: The reproducer's reply does not match the reply in schemas/reproduction.schema.json.
+- `outside-the-test`: The reproducer changed a file other than its one test file in the sandbox, so the reproduction is refused.
+- `reproduction-refused`: The reply claims a reproduction, and the check found none: the test passes, does not run, needs the network, or fails another way.
+- `not-reproduced`: The bug has no kept reproduction, so nothing can be made from one.
+- `already-reproduced`: The signal already has a kept reproduction, which is never replaced.
+- `bad-reproduction`: The ref for a reproduction holds something other than one commit on its base that adds its test.
+- `sandbox-unsafe`: The reproducer's sandbox cannot be trusted here: Node is older than the floor, the canary run got past a limit, or a part of the sandbox was replaced by a link.
+- `other-repository`: The sandbox was opened from another repository than the one the command runs in.
 
 **Secrets and the environment**
 

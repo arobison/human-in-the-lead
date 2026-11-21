@@ -39,6 +39,8 @@
  * @typedef {object} Context
  * @property {Record<string, any>} policy the effective policy
  * @property {LedgerEntry[]} events the ledger, oldest first
+ * @property {Map<string, { file: string, index: number }>} [origins] where each event was read
+ *   from (readLedger), so a mark's per-file counts can be applied
  * @property {Record<string, any>[]} trust the trust record, oldest first
  * @property {CadenceState} state
  * @property {Idle} idle
@@ -63,13 +65,28 @@ const OWNER = 'owner';
 /**
  * The ledger events after a mark: after the event it names, or when that event is not in the
  * ledger any more, those written after the mark's time; with no mark, all of them.
+ *
+ * The ledger is the union of the writers' files ordered by time (HITLD-74), so a pull can bring in
+ * another writer's event stamped before the mark's event. A mark that says how many events of
+ * each file it had read (`files`, with `origins` from the ledger read) also counts every event
+ * beyond those, wherever it sorts. Each file is append-only, so that is exact; what a mark without
+ * `files` misses is what a pull brought in stamped before it.
  * @param {LedgerEntry[]} events @param {JobMark | undefined} mark
+ * @param {Map<string, { file: string, index: number }>} [origins] readLedger's origins
  */
-export function eventsSince(events, mark) {
+export function eventsSince(events, mark, origins) {
   if (!mark) return events;
   if (typeof mark.through === 'string') {
     const at = events.findIndex((e) => e.id === mark.through);
-    if (at >= 0) return events.slice(at + 1);
+    if (at >= 0) {
+      const files = mark.files;
+      if (!files || !origins) return events.slice(at + 1);
+      return events.filter((e, i) => {
+        if (i > at) return true;
+        const o = origins.get(e.id);
+        return o !== undefined && o.index >= (files[o.file] ?? 0);
+      });
+    }
   }
   // The ledger was empty at the mark: everything in it is newer.
   if (mark.through === null) return events;
@@ -274,7 +291,7 @@ export function dueJobs(ctx) {
 
   for (const job of /** @type {const} */ (['digest', 'report'])) {
     const mark = state.jobs[job];
-    const c = countChanges(events, eventsSince(events, mark));
+    const c = countChanges(events, eventsSince(events, mark, ctx.origins));
     const cfg = policy[job === 'digest' ? 'digests' : 'reports'];
     const lastAt = mark?.at ?? events[0]?.at;
     const r = messaging(job, cfg, c, ctx, lastAt);
@@ -311,7 +328,7 @@ export function dueJobs(ctx) {
     ['eval', 'eval', ['hitld eval --offline'], undefined],
   ])) {
     const mark = state.jobs[job];
-    const c = countChanges(events, eventsSince(events, mark));
+    const c = countChanges(events, eventsSince(events, mark, ctx.origins));
     const r = onIdleMachine(job, policy[section].every_merges, c, ctx);
     /** @type {Entry} */
     const entry = {
@@ -334,7 +351,7 @@ export function dueJobs(ctx) {
   // quiet hours do not hold it.
   {
     const mark = state.jobs.sweep;
-    const c = countChanges(events, eventsSince(events, mark));
+    const c = countChanges(events, eventsSince(events, mark, ctx.origins));
     const every = policy.sweep.every_merges;
     const isDue = every > 0 && c.merges >= every;
     /** @type {Entry} */

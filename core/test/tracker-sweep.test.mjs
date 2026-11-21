@@ -10,6 +10,8 @@ import { main } from '../lib/cli/main.mjs';
 import { findCommand } from '../lib/cli/table.mjs';
 import { buildSweepConsumer } from '../lib/eval/orchestrator-fixtures.mjs';
 import { SWEEP_KINDS } from '../lib/tracker/files/sweep.mjs';
+import { ledgerKeys } from '../lib/ledger/writer.mjs';
+import { openStore } from '../lib/store/store.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
 /** A fresh fixture and a runner for the command line in it. */
@@ -67,7 +69,7 @@ test('the sweep lists each finding kind, in order, and nothing beside them', asy
   assert.equal(by('W-3').age_days, 76);
   assert.deepEqual(by('W-6').needs, ['W-5']);
   assert.equal(by('W-8').evidence.length, 1);
-  assert.match(by('W-10').evidence[0], /^ledger E-\d+$/);
+  assert.match(by('W-10').evidence[0], /^ledger E-[0-9A-HJKMNP-TV-Z]{16}$/);
   assert.equal(by('W-11').other, 'W-13');
   assert.deepEqual(by('W-11').shared, ['W-12']);
   assert.deepEqual(by('W-14').files, ['schemas/thing.schema.json']);
@@ -81,7 +83,8 @@ test('the sweep lists each finding kind, in order, and nothing beside them', asy
 test('a kind the sweep cannot check is skipped with the reason, never reported clean', async () => {
   const f = fixture();
   // No dispatch in the ledger: claims cannot be matched against it.
-  writeFileSync(join(f.data, 'human-in-the-lead', f.project, 'ledger.jsonl'), '');
+  const store = openStore(join(f.data, 'human-in-the-lead', f.project));
+  for (const key of ledgerKeys(store)) store.write(key, '');
   // proposed_max_age 0 is off; release_note not turned on.
   const policyPath = join(f.root, '.human-in-the-lead', 'policy.json');
   const policy = JSON.parse(readFileSync(policyPath, 'utf8'));

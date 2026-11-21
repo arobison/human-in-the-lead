@@ -94,7 +94,7 @@
       "grader": "matches",
       "with": {
         "path": "steps.digest.result.text",
-        "pattern": "Calls made without asking \\(1\\)\\nE-1 Started W-2"
+        "pattern": "Calls made without asking \\(1\\)\\nE-[0-9A-HJKMNP-TV-Z]{16} Started W-2"
       }
     }
   ]

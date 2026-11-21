@@ -21,7 +21,14 @@
       "id": "d1_handle",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "handle", "--dispatch", "D-1", "--harness-ref", "agent-1"],
+        "argv": [
+          "dispatch",
+          "handle",
+          "--dispatch",
+          "{{steps.d1.result.dispatch}}",
+          "--harness-ref",
+          "agent-1"
+        ],
         "session": "orch-1"
       }
     },

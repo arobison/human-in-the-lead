@@ -61,7 +61,7 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   machine?: { has: (name: string) => boolean, why: (name: string) => string },
  *   overlapSerialize?: number,
  *   critical?: Set<string>,
- *   setup?: { done: boolean, reason?: string | null, byHand?: string },
+ *   setup?: { done: boolean, reason?: string | null, byHand?: string, conservative?: string | null },
  *   disk?: { state: string, reason: string },
  *   touches?: (item: Item) => import('./touches.mjs').Touches,
  *   executorModes?: (item: Item) => ModeAbility,
@@ -90,6 +90,11 @@ export function planDispatch(r) {
   if (setupWait) {
     cap = Math.min(cap, 1);
     notes.push('setup not done: conservative defaults apply (one executor, the default reserve)');
+  } else if (r.setup?.conservative) {
+    // The person settings were expected from the store and could not be read (HITLD-148): the
+    // run goes on, at one executor, and says why.
+    cap = Math.min(cap, 1);
+    notes.push(r.setup.conservative);
   }
   /** @type {Planned[]} */
   const start = [];
