@@ -2,7 +2,7 @@
 id: HITLD-241
 title: The synchronous mutex retries when its lock directory is moved aside between creation and the owner write
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 claimed_by: D-59
