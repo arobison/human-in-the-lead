@@ -8,20 +8,53 @@ import { tempDir } from './helpers/tmp.mjs';
 /** A path written with "/", in this system's separators (Windows: "\"). @param {string} p */
 const native = (p) => p.split('/').join(sep);
 
-test('the default store path is ~/.local/share/human-in-the-lead/<project-id>/', () => {
-  assert.equal(
-    privateStorePath('example-project', { env: {}, home: '/home/o' }),
-    native('/home/o/.local/share/human-in-the-lead/example-project'),
-  );
+test('the default store path is ~/.local/share/human-in-the-lead/<project-id>/ off Windows', () => {
+  for (const platform of /** @type {const} */ (['linux', 'darwin'])) {
+    assert.equal(
+      privateStorePath('example-project', {
+        env: { LOCALAPPDATA: '/l' },
+        home: '/home/o',
+        platform,
+      }),
+      native('/home/o/.local/share/human-in-the-lead/example-project'),
+      platform,
+    );
+  }
 });
 
-test('XDG_DATA_HOME is respected when absolute', () => {
+test('on Windows the default store path is %LOCALAPPDATA%\\human-in-the-lead\\<project-id>', () => {
+  const win = { home: '/home/o', platform: /** @type {const} */ ('win32') };
   assert.equal(
-    privateStorePath('p', { env: { XDG_DATA_HOME: '/data' }, home: '/home/o' }),
-    native('/data/human-in-the-lead/p'),
+    privateStorePath('p', { ...win, env: { LOCALAPPDATA: '/users/o/appdata/local' } }),
+    native('/users/o/appdata/local/human-in-the-lead/p'),
   );
+  // Without %LOCALAPPDATA% (or with a relative one), the profile's AppData\Local.
+  for (const env of [{}, { LOCALAPPDATA: 'relative' }]) {
+    assert.equal(
+      privateStorePath('p', { ...win, env }),
+      native('/home/o/AppData/Local/human-in-the-lead/p'),
+    );
+  }
+});
+
+test('XDG_DATA_HOME is respected when absolute, on every platform', () => {
+  for (const platform of /** @type {const} */ (['linux', 'darwin', 'win32'])) {
+    assert.equal(
+      privateStorePath('p', {
+        env: { XDG_DATA_HOME: '/data', LOCALAPPDATA: '/l' },
+        home: '/home/o',
+        platform,
+      }),
+      native('/data/human-in-the-lead/p'),
+      platform,
+    );
+  }
   assert.equal(
-    privateStorePath('p', { env: { XDG_DATA_HOME: 'relative' }, home: '/home/o' }),
+    privateStorePath('p', {
+      env: { XDG_DATA_HOME: 'relative' },
+      home: '/home/o',
+      platform: 'linux',
+    }),
     native('/home/o/.local/share/human-in-the-lead/p'),
   );
 });

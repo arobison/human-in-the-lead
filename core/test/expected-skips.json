@@ -1,0 +1,44 @@
+{
+  "$comment": "The tests that may skip, and where (HITLD-185). CI fails when a test skips that no entry here covers: an entry covers a skip when the platform is listed, the file is listed and the skip's reason contains the entry's reason. The age interoperability tests are covered on no platform: the tests job installs age, so CI always runs them. scripts/test-skips.mjs checks a run against this file.",
+  "expected": [
+    {
+      "platforms": ["win32"],
+      "reason": "symbolic links",
+      "why": "Windows without Developer Mode or admin cannot create symbolic links",
+      "files": [
+        "core/test/env.test.mjs",
+        "core/test/eval.test.mjs",
+        "core/test/feedback.test.mjs",
+        "core/test/policy.test.mjs",
+        "core/test/precedent.test.mjs",
+        "core/test/security.test.mjs",
+        "core/test/settings.test.mjs",
+        "core/test/tracker-git.test.mjs"
+      ]
+    },
+    {
+      "platforms": ["win32"],
+      "reason": "POSIX file modes",
+      "why": "Windows has no POSIX file modes or owners to refuse a file by",
+      "files": ["core/test/policy.test.mjs", "core/test/settings.test.mjs"]
+    },
+    {
+      "platforms": ["win32"],
+      "reason": "the stand-in tools are shell scripts",
+      "why": "the keychain tests stand in for the keychain tools with shell scripts",
+      "files": ["core/test/store-devices.test.mjs"]
+    },
+    {
+      "platforms": ["win32"],
+      "reason": "no keychain tool on this platform",
+      "why": "the store keeps a device key in a keychain only on Linux and macOS",
+      "files": ["core/test/store-devices.test.mjs"]
+    },
+    {
+      "platforms": ["linux", "darwin", "win32"],
+      "reason": "no unprivileged network and PID namespaces",
+      "why": "GitHub's runners give no unprivileged network and PID namespaces, so CI does not exercise the reproducer sandbox's namespace layer; the real check is a run on a Linux machine that allows them",
+      "files": ["core/test/reproduce.test.mjs"]
+    }
+  ]
+}

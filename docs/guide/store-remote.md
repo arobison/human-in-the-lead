@@ -223,7 +223,7 @@ Each step has its own undo. None of them deletes a store on any machine.
 - **Remove a device:** the steps in "Removing a device", then delete its key.
 - **Remove the keychain entry** of a local device with the command above, once its device is removed.
 - **Delete the store repository** on GitHub. The stores on your machines stay as they are, and a new repository can be set up later with step 3, a first device and a push.
-- **Delete a local store** only if you want its ledger gone for good: `~/.local/share/human-in-the-lead/<project ID>/`. With the remote set, the next pull on that machine restores it.
+- **Delete a local store** only if you want its ledger gone for good: `~/.local/share/human-in-the-lead/<project ID>/` (on Windows `%LOCALAPPDATA%\human-in-the-lead\<project ID>\`; under `$XDG_DATA_HOME` where set). With the remote set, the next pull on that machine restores it.
 
 ## A project that kept the address or the device list in its repository
 

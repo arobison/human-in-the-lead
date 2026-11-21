@@ -3,9 +3,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { main } from '../lib/cli/main.mjs';
+import { EXIT, main } from '../lib/cli/main.mjs';
+import { item, makeConsumer } from './orchestrator-fixture.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { addTerm } from '../lib/store/private-terms.mjs';
 import { commitAll, git, isolatedEnv, itemText, makeRepo, put } from './tracker-fixture.mjs';
@@ -112,6 +113,7 @@ test('a session with decisions filed and answered publishes them as one commit o
   assert.equal(git(root, 'rev-parse', 'HEAD'), head);
   assert.equal(git(root, 'symbolic-ref', '--short', 'HEAD').trim(), 'claude/session');
   assert.equal(git(root, 'status', '--porcelain'), status);
+  assert.deepEqual(r.working_tree, { branch: 'claude/session', action: 'left', staged: [] });
 
   // Publishing again before main moves pushes nothing new.
   const again = await run(root, publish(), env);
@@ -133,6 +135,248 @@ test('a session with decisions filed and answered publishes them as one commit o
   assert.equal(answered.published, true, JSON.stringify(answered));
   assert.deepEqual(answered.files, [{ path: 'work/items/W-7-which-color.md', change: 'changed' }]);
   assert.equal(git(remote, 'rev-parse', `${answered.branch}^`), git(remote, 'rev-parse', 'main'));
+});
+
+/** The blob at <rev>:<path> in a repository. @param {string} repo @param {string} rev @param {string} path */
+const blobOf = (repo, rev, path) => git(repo, 'rev-parse', `${rev}:${path}`).trim();
+
+/** A checkout on main with a remote, as a self-hosted session has. */
+function onMain() {
+  const s = session();
+  git(s.root, 'checkout', '-q', 'main');
+  return s;
+}
+
+/** git status, untracked files one by one. @param {string} root */
+const status = (root) => git(root, 'status', '--porcelain', '--untracked-files=all');
+
+/** Merge a pushed branch on the remote as the forge's squash does. @param {string} remote @param {string} branch */
+function squashMerge(remote, branch) {
+  const tree = git(remote, 'rev-parse', `${branch}^{tree}`).trim();
+  const commit = git(
+    remote,
+    '-c',
+    'user.name=Forge',
+    '-c',
+    'user.email=forge@example.invalid',
+    'commit-tree',
+    tree,
+    '-p',
+    'main',
+    '-m',
+    'squash',
+  ).trim();
+  git(remote, 'update-ref', 'refs/heads/main', commit);
+  return commit;
+}
+
+test('publishing from main stages the published files, touches no working copy, and a later pull fast-forwards', async () => {
+  const { root, remote, env } = onMain();
+  // Two decisions filed (new files), one answered (a changed file), and a file outside the tracker.
+  const files = {
+    'work/items/W-6-which-way.md': decision('W-6', 'Which way?', 'done'),
+    'work/items/W-7-which-color.md': decision('W-7', 'Which color?'),
+    'work/items/W-8-which-size.md': decision('W-8', 'Which size?'),
+  };
+  put(root, { ...files, 'notes.txt': 'not tracker\n' });
+
+  const r = await run(root, publish(), env);
+  assert.equal(r.code, 0, JSON.stringify(r));
+  assert.equal(r.published, true);
+  assert.deepEqual(r.working_tree, {
+    branch: 'main',
+    action: 'staged',
+    staged: Object.keys(files),
+  });
+  assert.match(r.message, /staged as tracked changes/);
+  assert.match(r.message, /git pull --ff-only origin main/);
+  // Staged with exactly what was pushed; the working copies, and the file outside, untouched.
+  assert.equal(
+    status(root),
+    'M  work/items/W-6-which-way.md\nA  work/items/W-7-which-color.md\nA  work/items/W-8-which-size.md\n?? notes.txt\n',
+  );
+  for (const [path, text] of Object.entries(files)) {
+    assert.equal(readFileSync(join(root, path), 'utf8'), text);
+  }
+  const show = await run(root, ['work', 'show', 'W-7', '--json'], env);
+  assert.equal(show.entity?.state, 'planned', JSON.stringify(show));
+
+  // Run again before the merge: nothing new, the same pull request printed again, still staged.
+  const again = await run(root, publish(), env);
+  assert.equal(again.published, false);
+  assert.equal(again.branch, r.branch);
+  assert.deepEqual(again.pull_request, r.pull_request);
+  assert.equal(again.working_tree.action, 'staged');
+  assert.match(again.message, /already pushed/);
+
+  // The pull request merges, and main is pulled: the staged copies are absorbed.
+  rmSync(join(root, 'notes.txt'));
+  const merged = squashMerge(remote, r.branch);
+  git(root, 'pull', '-q', '--ff-only', 'origin', 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').trim(), merged);
+  assert.equal(status(root), '');
+  const after = await run(root, publish(), env);
+  assert.equal(after.published, false);
+  assert.match(after.message, /changed no tracker file/);
+});
+
+test('on main, a decision asked and published can still be answered before the merge', async () => {
+  const c = makeConsumer({
+    files: {
+      'work/projects/W-7-dependencies.md': item(
+        { id: 'W-7', title: 'Dependencies', kind: 'project', state: 'planned', owner: 'owner' },
+        '\n## Summary\n\n',
+      ),
+    },
+  });
+  const remote = realpathSync(tempDir('hitld-publish-remote-'));
+  git(remote, 'init', '-q', '--bare', '-b', 'main');
+  git(c.root, 'remote', 'add', 'origin', remote);
+  git(c.root, 'push', '-q', 'origin', 'main');
+  const question = {
+    title: 'Which color?',
+    question: 'Which color should the badge be?',
+    context: 'The badge has no color yet.',
+    options: [
+      { label: 'Blue', what_happens: 'the badge is blue' },
+      { label: 'Green', what_happens: 'the badge is green' },
+    ],
+    recommendation: { option: 'A', why: 'It matches the rest.' },
+    triggers: [{ basis: 'public-commitment', reason: 'it is visible' }],
+    tags: ['badge'],
+    item_kind: 'work',
+    classification: 'public',
+    parent: 'W-7',
+  };
+  const asked = await c.hitld(['rights', 'ask', '--question', JSON.stringify(question)]);
+  assert.equal(asked.result.outcome, 'asked', JSON.stringify(asked.result));
+  const id = asked.result.decision;
+  const published = await c.hitld(publish());
+  assert.equal(published.result.published, true, JSON.stringify(published.result));
+  assert.equal(published.result.working_tree.action, 'staged');
+
+  const shown = await c.hitld(['work', 'show', id, '--json']);
+  assert.equal(shown.result.entity?.state, 'planned', JSON.stringify(shown.result));
+  const answered = await c.hitld(['rights', 'answer', id, '--answer', 'A']);
+  assert.equal(answered.exit, EXIT.ok, JSON.stringify(answered.result));
+  assert.equal((await c.hitld(['work', 'show', id, '--json'])).result.entity.state, 'done');
+  // The answer is published on a branch of its own.
+  const answer = await c.hitld(publish());
+  assert.equal(answer.result.published, true, JSON.stringify(answer.result));
+  assert.notEqual(answer.result.branch, published.result.branch);
+});
+
+test('on main, an item published at v1 and edited to v2 keeps v2; staging v2 stops the pull until it is settled', async () => {
+  const { root, remote, env } = onMain();
+  const path = 'work/items/W-7-which-color.md';
+  put(root, { [path]: decision('W-7', 'Which color?') });
+  const r = await run(root, publish(), env);
+  assert.equal(r.working_tree.action, 'staged');
+
+  const v2 = decision('W-7', 'Which color, now?');
+  put(root, { [path]: v2 });
+  assert.equal(status(root), `AM ${path}\n`);
+  assert.equal(readFileSync(join(root, path), 'utf8'), v2);
+  const show = await run(root, ['work', 'show', 'W-7', '--json'], env);
+  assert.equal(show.entity?.title, 'Which color, now?', JSON.stringify(show));
+
+  // Staged, v2 differs from what the merge brings: the pull stops, and nothing is lost.
+  git(root, 'add', '--', path);
+  squashMerge(remote, r.branch);
+  assert.throws(() => git(root, 'pull', '-q', '--ff-only', 'origin', 'main'));
+  assert.equal(readFileSync(join(root, path), 'utf8'), v2);
+  // With the pushed copy staged again (the edit stays in the working tree), the pull goes through.
+  git(root, 'update-index', '--cacheinfo', `100644,${blobOf(remote, r.branch, path)},${path}`);
+  git(root, 'pull', '-q', '--ff-only', 'origin', 'main');
+  assert.equal(status(root), ` M ${path}\n`);
+  assert.equal(readFileSync(join(root, path), 'utf8'), v2);
+});
+
+test('on main, odd names, a design, a removal and a CRLF copy are staged exactly as pushed', async () => {
+  const { root, remote, env } = onMain();
+  git(root, 'config', 'core.autocrlf', 'true');
+  const odd = 'work/items/W-9-a b*[c]?.md';
+  put(root, {
+    [odd]: decision('W-9', 'Odd?'),
+    'work/items/W-10-crlf.md': decision('W-10', 'Line ends?').replaceAll('\n', '\r\n'),
+    'docs/design/0009-colors.md': '# 0009: Colors\n',
+  });
+  rmSync(join(root, 'work/items/W-5-third-step.md'));
+  const r = await run(root, publish('--design', 'docs/design/0009-colors.md'), env);
+  assert.equal(r.code, 0, JSON.stringify(r));
+  assert.deepEqual(r.working_tree.staged, [
+    'docs/design/0009-colors.md',
+    'work/items/W-10-crlf.md',
+    'work/items/W-5-third-step.md',
+    odd,
+  ]);
+  // Every staged entry is the pushed blob, and nothing in the working tree differs from it.
+  for (const path of r.working_tree.staged.filter(
+    (/** @type {string} */ p) => !p.includes('W-5'),
+  )) {
+    assert.equal(git(root, 'rev-parse', `:${path}`).trim(), blobOf(remote, r.branch, path), path);
+  }
+  assert.equal(git(root, 'diff', '--name-only'), '');
+  assert.equal(
+    git(root, 'diff', '--cached', '--name-status', '--', 'work/items/W-5-third-step.md'),
+    'D\twork/items/W-5-third-step.md\n',
+  );
+  assert.ok(readFileSync(join(root, 'work/items/W-10-crlf.md'), 'utf8').includes('\r\n'));
+
+  squashMerge(remote, r.branch);
+  git(root, 'pull', '-q', '--ff-only', 'origin', 'main');
+  assert.equal(status(root), '');
+});
+
+test('off main and on a detached HEAD nothing is staged; a staging failure keeps the push and the pull request', async () => {
+  const { root, env } = onMain();
+  git(root, 'checkout', '-q', '--detach');
+  put(root, { 'work/items/W-7-which-color.md': decision('W-7', 'Which color?') });
+  const detached = await run(root, publish(), env);
+  assert.equal(detached.published, true, JSON.stringify(detached));
+  assert.deepEqual(detached.working_tree, { branch: null, action: 'left', staged: [] });
+  assert.equal(status(root), '?? work/items/W-7-which-color.md\n');
+
+  git(root, 'checkout', '-q', 'main');
+  put(root, { 'work/items/W-8-which-size.md': decision('W-8', 'Which size?') });
+  const lock = join(root, '.git', 'index.lock');
+  writeFileSync(lock, '');
+  try {
+    const r = await run(root, publish('--branch', 'hitld/tracker-locked'), env);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.published, true);
+    assert.equal(r.branch, 'hitld/tracker-locked');
+    assert.equal(r.pull_request.head, 'hitld/tracker-locked');
+    assert.equal(r.working_tree.action, 'failed');
+    assert.match(r.working_tree.error, /git update-index failed: .*index\.lock/s);
+    assert.match(r.message, /the push stands/);
+    assert.doesNotMatch(r.message, /\n|Another git process/);
+  } finally {
+    rmSync(lock, { force: true });
+  }
+});
+
+test('on main, copies the remote already has are not staged, and the message says how to update', async () => {
+  const { root, remote, env } = onMain();
+  const path = 'work/items/W-7-which-color.md';
+  const other = realpathSync(tempDir('hitld-publish-other-'));
+  git(other, 'clone', '-q', remote, '.');
+  git(other, 'config', 'user.name', 'Other');
+  git(other, 'config', 'user.email', 'other@example.invalid');
+  writeFileSync(join(other, path), decision('W-7', 'Which color?'));
+  commitAll(other, 'file W-7');
+  git(other, 'push', '-q', 'origin', 'main');
+  rmSync(other, { recursive: true, force: true });
+
+  put(root, { [path]: decision('W-7', 'Which color?') });
+  const r = await run(root, publish(), env);
+  assert.equal(r.published, false, JSON.stringify(r));
+  assert.deepEqual(r.skipped, [path]);
+  assert.match(r.message, /nothing was staged\. To update, stage the files listed under skipped/);
+  assert.equal(status(root), `?? ${path}\n`);
+  git(root, 'add', '--', path);
+  git(root, 'pull', '-q', '--ff-only', 'origin', 'main');
+  assert.equal(status(root), '');
 });
 
 test('a session with nothing to publish says so and pushes nothing', async () => {
