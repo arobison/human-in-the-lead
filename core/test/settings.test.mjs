@@ -28,7 +28,10 @@ import { proposeMigration } from '../lib/settings/migrate.mjs';
 import { envSettings } from '../lib/env/config.mjs';
 import { removeTempDir, tempDir } from './helpers/tmp.mjs';
 
-const posixOnly = { skip: process.platform === 'win32' };
+// Expected on Windows only (core/test/expected-skips.json).
+const posixOnly = {
+  skip: process.platform === 'win32' && 'Windows: no POSIX file modes or owners to refuse by',
+};
 
 /** Whether this machine lets the tests create symbolic links (Windows needs Developer Mode or admin). */
 const canSymlink = (() => {

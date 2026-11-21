@@ -346,6 +346,7 @@ test(
   async (t) => {
     forceNetworkNamespace(undefined);
     if (!networkNamespace()) {
+      // Expected on GitHub's runners and on macOS and Windows (core/test/expected-skips.json).
       t.skip('this machine gives no unprivileged network and PID namespaces');
       return;
     }
