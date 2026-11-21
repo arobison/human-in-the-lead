@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "project": { "id": "kb-fixture", "key": "KB" },
+  "kb": { "note_tokens_max": 300, "index_tokens_max": 150 }
+}

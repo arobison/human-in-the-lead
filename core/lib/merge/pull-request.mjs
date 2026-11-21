@@ -44,7 +44,7 @@ import { matchesAny } from '../precedent/glob.mjs';
 import { unverifiedAnswers } from './answers.mjs';
 import { areasOf, waitsForOwner } from './owner.mjs';
 import { QUARANTINE_PATH } from './quarantine.mjs';
-import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
+import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
 
 /**
  * @typedef {import('./queue.mjs').Entry} Entry
@@ -63,6 +63,7 @@ import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
  * @property {string[]} [setup] commands run once in the queue's fresh worktree (env.worktree_setup)
  * @property {import('../guard/classification.mjs').Rules} [classification]
  * @property {(dir: string) => string[]} [trackerCheck]
+ * @property {(dir: string) => string[]} [kbCheck] the knowledge base's errors (`hitld kb check`)
  * @property {(dir: string, item: string) => ItemAt | null} itemAt the item as the checked-out tree holds it
  * @property {{ name: string, unless_only: string[] }[]} [conditionalChecks]
  *   merge.pull_request.conditional_checks: waited for unless every changed file matches unless_only
@@ -102,7 +103,7 @@ import { dependencyOrder, shellExec, stageAll } from './queue.mjs';
  *   changed: string[], approval: { at: string, presented_at: string | null, as_presented: boolean } | null,
  *   delegated_by: string | null, dispatch?: string }} PullMerged approval: the owner's, when they
  *   approved it; delegated_by: the decision it was merged under without asking, with the owner's sign-off
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'duplicate_id' | 'quarantine'
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'duplicate_id' | 'knowledge_base' | 'quarantine'
  *   | 'not_closed' | 'publish' | 'checks' | 'missing' | 'needs_rejected', files?: string[], checks?: Check[],
  *   output?: string, message?: string, number?: number, url?: string, dispatch?: string }} PullRejected
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, checks: string[],
@@ -471,6 +472,15 @@ export async function runPullRequestQueue(r) {
           reason: 'duplicate_id',
           output: duplicates.join('\n'),
           message: `Your branch holds two tracker items with one ID: ${duplicates.join('; ')}. Give the item your branch adds a new ID (only the orchestrator creates items) and take the duplicate out of the branch.`,
+        });
+        continue;
+      }
+      const kbErrors = s.kbCheck?.(dir) ?? [];
+      if (kbErrors.length) {
+        reject(e, {
+          reason: 'knowledge_base',
+          output: kbErrors.join('\n'),
+          message: kbMessage('', kbErrors),
         });
         continue;
       }
