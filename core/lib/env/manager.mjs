@@ -3,8 +3,9 @@
 // seam piece (h)'s dispatch planner uses.
 
 import { realPath } from './fsx.mjs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { envSettings } from './config.mjs';
+import { siblingEntry } from '../store/data-home.mjs';
 import { acquireLock, lockStatus, releaseLock } from './locks.mjs';
 import { leasePort, releasePort, startServer } from './ports.mjs';
 import { logEvent, readEvents, readRegistry } from './registry.mjs';
@@ -17,7 +18,7 @@ import { adoptWorktree, createWorktree, releaseWorktree, runSetup } from './work
  * sits beside the project stores; project IDs cannot start with an underscore, so it cannot clash.
  * @param {string} storeRoot a project's private store directory
  */
-export const machineRootFor = (storeRoot) => join(dirname(storeRoot), '_machine');
+export const machineRootFor = (storeRoot) => siblingEntry(storeRoot, '_machine');
 
 /** @param {string} p */
 function realpathOr(p) {
@@ -31,7 +32,10 @@ function realpathOr(p) {
 /**
  * @param {{ repoRoot: string, store: import('../store/store.mjs').PrivateStore,
  *   policy: Record<string, any>, env?: NodeJS.ProcessEnv, machineRoot?: string,
- *   secretReader?: import('./secrets.mjs').SecretReader }} options
+ *   secretReader?: import('./secrets.mjs').SecretReader,
+ *   capacity?: Record<string, number> }} options
+ *   capacity: the machine profile's capacity per resource (design 13.4); a resource with no
+ *   entry has capacity 1
  */
 export function openEnv(options) {
   const { repoRoot, store, policy } = options;
@@ -41,6 +45,7 @@ export function openEnv(options) {
   const locks = {
     machineRoot: options.machineRoot ?? machineRootFor(store.root),
     repoRoot: realpathOr(repoRoot),
+    capacity: options.capacity,
     log: (/** @type {string} */ kind, /** @type {Record<string, unknown>} */ data) =>
       logEvent(store, kind, data),
   };
@@ -117,7 +122,7 @@ export function openEnv(options) {
       const worktree = await releaseWorktree(wt, r);
       const port = await releasePort({ store }, { holder: r.holder });
       const released = lockStatus(locks, settings.serialResources)
-        .filter((l) => l.held_by === r.holder)
+        .filter((l) => l.holders.some((h) => h.holder === r.holder))
         .map((l) => {
           releaseLock(locks, { resource: l.resource, holder: r.holder });
           return l.resource;

@@ -2,9 +2,10 @@
 id: HITLD-241
 title: The synchronous mutex retries when its lock directory is moved aside between creation and the owner write
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-59
 ---
 
 ## Why
@@ -23,3 +24,5 @@ Likely cause, from reading the code and not yet reproduced: `withMutexSync` does
 ## Notes
 
 Found by the chief of staff reading the failed job's log, and filed under HITLD-181. Not a reason to skip or quarantine the test.
+
+Follow-up, not built here: the takeover still goes by path, and a rename cannot be made conditional on which directory the path names. Two takers breaking one truly dead holder's mutex within the same few microseconds (one between its identity check and its rename while the other removes the dead directory and a third process makes a fresh one) can still leave two holders. Closing that needs the break itself serialized: a breaker mutex beside the mutex, or an operating-system file lock. That wants an item of its own.

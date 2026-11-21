@@ -541,6 +541,7 @@ async function hitld(argv, cwd, env) {
   return { code, json: JSON.parse(out) };
 }
 
+// The keychain tests skip on Windows only, as expected (core/test/expected-skips.json).
 const keychainTests = process.platform === 'linux' || process.platform === 'darwin';
 
 /**

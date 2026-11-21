@@ -72,6 +72,8 @@ import {
  * @property {(dir: string) => string[]} [trackerCheck] the problems of the tracker in a checked-out
  *   tree that refuse a branch: two items with one ID (design 3.4). Not a policy fast check, so it
  *   runs whatever merge.fast_checks says
+ * @property {(dir: string) => string[]} [kbCheck] the errors of the knowledge base in a checked-out
+ *   tree that refuse a branch (`hitld kb check`, design 8.5); runs whatever merge.fast_checks says
  * @property {(dir: string, from: string, to: string, own: string | null) => { closed: { id: string }[], problems: string[] }} [closeByTrailer]
  *   in the queue's worktree, checked out at the rebased branch `to`: commit the `state: done` edit
  *   of each item a commit in from..to names in a `Closes:` trailer (tracker/files/closing.mjs).
@@ -90,7 +92,7 @@ import {
  *
  * @typedef {(command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string }} Exec
  *
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'closes' | 'classification' | 'duplicate_id' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'closes' | 'classification' | 'duplicate_id' | 'knowledge_base' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
  *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string,
  *   message?: string, findings?: import('./security.mjs').SentBack[] }} Rejected
  * @typedef {{ runs: number, failures: number }} SideRuns
@@ -107,6 +109,12 @@ import {
  *   dispatch?: string, closed?: string[] }} Tested a branch that passed every check, rebased onto
  *   `parent`; closed: the items its `Closes:` trailers closed in it
  */
+
+/**
+ * What a branch refused for its knowledge base is told. @param {string} main @param {string[]} errors
+ */
+export const kbMessage = (main, errors) =>
+  `Your branch${main ? `, rebased onto ${main},` : ''} fails hitld kb check: ${errors.join('; ')}. Fix the notes on your branch; run hitld kb check to see the same errors.`;
 
 /** The ref that keeps a held batch's tested commit while it waits for the owner. */
 export const HELD_REF = 'refs/hitld/merge-held';
@@ -539,6 +547,20 @@ export async function runMergeQueue(r) {
             reason: 'duplicate_id',
             output: duplicates.join('\n'),
             message: `Your branch, rebased onto ${s.mainBranch}, holds two tracker items with one ID: ${duplicates.join('; ')}. Give the item your branch adds a new ID (only the orchestrator creates items) and take the duplicate out of the branch.`,
+            dispatch: e.dispatch,
+          });
+          rejectedNow.add(e.item);
+          continue;
+        }
+        // The knowledge base's errors (design 8.5): refused here, whatever the fast checks are.
+        const kbErrors = s.kbCheck?.(dir) ?? [];
+        if (kbErrors.length) {
+          result.rejected.push({
+            item: e.item,
+            branch: e.branch,
+            reason: 'knowledge_base',
+            output: kbErrors.join('\n'),
+            message: kbMessage(s.mainBranch, kbErrors),
             dispatch: e.dispatch,
           });
           rejectedNow.add(e.item);

@@ -434,6 +434,31 @@ test('work migrate on a tracker already in the format changes nothing', async ()
   assert.match(unknown.json.message, /no migration named "x"/);
 });
 
+test('work migrate commits only its own files, leaving another staged file staged (HITLD-202)', async () => {
+  const root = repo();
+  put(root, {
+    'work/items/W-3-first-step.md': itemText({
+      id: 'W-3',
+      title: 'First step',
+      kind: 'work',
+      state: 'done',
+      project: 'W-2',
+      priority: 'high',
+    }),
+  });
+  git(root, 'commit', '-q', '-am', 'an old item');
+  // As `hitld work publish` leaves a design it published on main: staged, not committed.
+  put(root, { 'docs/design/0009-x.md': '# 0009: X\n' });
+  git(root, 'add', '--', 'docs/design/0009-x.md');
+  const out = await hitld(['work', 'migrate', '--only', 'retire-priority'], root);
+  assert.equal(out.code, 0, JSON.stringify(out.json));
+  assert.deepEqual(
+    git(root, 'show', '--name-only', '--format=', 'HEAD').split('\n').filter(Boolean),
+    ['work/items/W-3-first-step.md'],
+  );
+  assert.equal(git(root, 'status', '--porcelain'), 'A  docs/design/0009-x.md\n');
+});
+
 test('lineDiff marks changed lines with context and gaps', () => {
   const a = ['1', '2', '3', '4', '5', '6', '7', '8'].join('\n');
   const b = ['1', '2', 'three', '4', '5', '6', '7', 'eight'].join('\n');
