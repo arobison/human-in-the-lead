@@ -178,7 +178,7 @@ Write it in American English, as everything else this project publishes.
 
 Private things are named by their role, never by name, in everything that may be published: commits, pull requests, comments, release notes, items and reports. Say "the store repository", "a device" or "the owner's main machine", never the store's address, its repository's name or a device's name. The private term list in the private store holds those names (`hitld store remote set` and `hitld store device init` add them, the owner adds more), and the checks refuse text that holds one.
 
-1. **Before you post** a pull request's title or body, an issue or review comment, or release notes, write the text to a file and run `hitld publish check --file <file>` (several `--file`s for a title and a body, or `--text -` from standard input). Post only when it is `ok`.
+1. **Before you post** a pull request's title or body, an issue or review comment, or release notes, write the text to a file and run `hitld publish check --file <file>` (several `--file`s for a title and a body, or `--text -` from standard input). Post only when it is `ok` and `list_found` is true; when the list was not checked (`list_found: false`, named in its warnings), do not post: report it to the owner.
 2. **When it is refused** (`error: private-term`), each `problems` line names the kind and the line, never the term. Write those lines again, naming the thing by its role, and check again. Never work around a refusal, never post the text without the check, and never ask for the term or run `hitld private list`.
 3. **A refused commit** is the same rule: the commit hooks and the merge refuse a file or commit message that holds a private term (rule `private-term`). Write it again by role.
 

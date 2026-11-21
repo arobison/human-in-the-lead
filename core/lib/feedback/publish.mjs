@@ -395,9 +395,11 @@ export function pending(store) {
 /**
  * Refuse a publication that holds a term from the private term list (design part 10.3, rule 7),
  * naming the kind and line of each, in the title or the body, and never the term. A list that does
- * not read refuses too: nothing is sent unchecked.
+ * not read refuses too, and so does one that is not there (HITLD-187): nothing is sent unchecked.
+ * The warnings that remain (an address that does not read) are for the result to carry.
  * @param {PrivateStore} store @param {{ title: string, body: string }} content
  * @param {{ ctx: Ctx, policy: Record<string, any> }} o
+ * @returns {{ list_found: boolean, warnings: string[] }}
  */
 function refuseIfPrivate(store, content, o) {
   /** @type {ReturnType<typeof loadTerms>} */
@@ -417,6 +419,14 @@ function refuseIfPrivate(store, content, o) {
     }
     throw e;
   }
+  // The owner's answer (HITLD-187): an issue goes to a public forge only once the list was there to
+  // check it against; a session that has not pulled the store sends nothing.
+  if (!terms.list_found) {
+    throw new GateRefusal(
+      'private-list-invalid',
+      `nothing is sent: ${terms.warnings[0] ?? 'the private term list was not checked'}. Pull the private store where this device can open it (hitld store status says what is missing), or answer from where the store is; the record stays drafted`,
+    );
+  }
   const found = [
     ['title', content.title],
     ['body', content.body],
@@ -427,6 +437,7 @@ function refuseIfPrivate(store, content, o) {
       `nothing is sent: the issue holds ${found.length} private term(s) from the private term list (${found.join('; ')}). Edit the draft to refer to each by its role, then answer again`,
     );
   }
+  return { list_found: terms.list_found, warnings: terms.warnings };
 }
 
 /**
@@ -517,7 +528,9 @@ export async function answerPublication(store, id, input, o) {
 
   // Before anything is approved or sent: the issue is checked against the private term list, as
   // hitld publish check does. The refusal names each term's kind and line, never the term.
-  if (mode !== null) refuseIfPrivate(store, publication(record, draft), o);
+  const checked = mode !== null ? refuseIfPrivate(store, publication(record, draft), o) : null;
+  /** @type {{ list_found?: boolean, warnings?: string[] }} */
+  const said = checked ? { list_found: checked.list_found, warnings: checked.warnings } : {};
 
   const approved = approvePublication({
     subject: id,
@@ -532,9 +545,9 @@ export async function answerPublication(store, id, input, o) {
   const approvedRecord = { ...withoutOutcome(record), draft, approval: { ...approved.approval } };
   if (approved.approval.mode === 'by-hand') {
     const next = save(store, o.ctx.cwd, approvedRecord);
-    return { record: next, filed: false, sent: false, issue: approved.content };
+    return { record: next, filed: false, sent: false, issue: approved.content, ...said };
   }
   const { url } = await sendApproved(approved, o.filer);
   const next = save(store, o.ctx.cwd, { ...approvedRecord, state: 'filed', url });
-  return { record: next, filed: true, sent: true };
+  return { record: next, filed: true, sent: true, ...said };
 }
