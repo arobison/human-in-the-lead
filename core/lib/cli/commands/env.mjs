@@ -48,7 +48,16 @@ function open(ctx) {
     };
   }
   const store = openStore(privateStorePath(loaded.policy.project.id, { env: ctx.env, repoRoot }));
-  return { env: openEnv({ repoRoot, store, policy: loaded.policy, env: ctx.env }), cwd: repoRoot };
+  return {
+    env: openEnv({
+      repoRoot,
+      store,
+      policy: loaded.policy,
+      env: ctx.env,
+      capacity: loaded.layers?.machine?.capacity,
+    }),
+    cwd: repoRoot,
+  };
 }
 
 /**
@@ -152,7 +161,15 @@ function openForExec(ctx) {
       `a settings file is invalid: ${layered.errors.map((e) => `${e.path} ${e.message}`).join('; ')}`,
     );
   }
-  return { env: openEnv({ repoRoot: root, store, policy: layered.policy, env: ctx.env }) };
+  return {
+    env: openEnv({
+      repoRoot: root,
+      store,
+      policy: layered.policy,
+      env: ctx.env,
+      capacity: layered.layers?.machine?.capacity,
+    }),
+  };
 }
 
 /**
@@ -346,6 +363,12 @@ export const commands = [
       },
       { name: 'dispatch', type: 'string', required: true, description: 'The dispatch ID' },
       {
+        name: 'weight',
+        type: 'integer',
+        description:
+          "Units of the resource's capacity to take (machine profile capacity; default 1). A resource with no capacity entry takes 1",
+      },
+      {
         name: 'wait',
         type: 'boolean',
         description: 'Queue behind earlier arrivals until the lock is free',
@@ -372,6 +395,7 @@ export const commands = [
       const r = await env.acquireLock({
         resource: String(input.resource),
         holder: String(input.dispatch),
+        weight: typeof input.weight === 'number' ? input.weight : undefined,
         pid: typeof input.pid === 'number' ? input.pid : process.ppid,
         wait: input.wait === true,
         timeoutMs:
@@ -386,6 +410,7 @@ export const commands = [
             ok: true,
             resource: r.record.resource,
             holder: r.record.holder,
+            ...(r.record.weight === undefined ? {} : { weight: r.record.weight }),
             expires_at: r.record.expires_at,
             waited_ms: r.waited_ms,
           }
