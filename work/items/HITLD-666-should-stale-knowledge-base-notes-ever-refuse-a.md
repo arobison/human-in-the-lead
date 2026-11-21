@@ -2,10 +2,14 @@
 id: HITLD-666
 title: Should stale knowledge-base notes ever refuse a merge?
 kind: decision
-state: planned
+state: done
 created: 2026-11-20
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-21T05:22:02.384Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question
