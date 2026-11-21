@@ -133,7 +133,7 @@ test('questions come first, most costly to delay first, each with its recommenda
   assert.ok(at(/^Merged \(1\)$/) > at(/^Questions/));
   assert.ok(out.includes('W-1 Fix padding'));
   assert.ok(at(/^Calls made without asking \(1\)$/) > at(/^Merged/));
-  assert.ok(out.some((l) => /^E-\d+ Kept the default timeout$/.test(l)));
+  assert.ok(out.some((l) => /^E-[0-9A-HJKMNP-TV-Z]{16} Kept the default timeout$/.test(l)));
   assert.ok(out.includes('Reverse one: hitld rights reverse <ID>'));
   assert.deepEqual(
     [d.merged.map((/** @type {any} */ m) => m.item), d.logged_calls.length],
@@ -447,7 +447,7 @@ test('the digest fits one phone screen, however much is new, and says what it le
   const full = buildDigest(deps, { settings: wide, now: deps.now(), full: true });
   assert.ok(lines(full).length > DIGEST_BUDGET.lines);
   assert.deepEqual(full.size.omitted, {});
-  assert.equal(lines(full).filter((l) => /^E-\d+ /.test(l)).length, 40);
+  assert.equal(lines(full).filter((l) => /^E-[0-9A-HJKMNP-TV-Z]{16} /.test(l)).length, 40);
 });
 
 test('with a few questions, the long lists are shortened and the way to undo a call stays', () => {
@@ -465,7 +465,7 @@ test('with a few questions, the long lists are shortened and the way to undo a c
     out.join('\n'),
   );
   assert.ok(out.includes('Reverse one: hitld rights reverse <ID>'));
-  assert.ok(out.some((l) => /^E-\d+ Call number 1: /.test(l)));
+  assert.ok(out.some((l) => /^E-[0-9A-HJKMNP-TV-Z]{16} Call number 1: /.test(l)));
   assert.equal(d.logged_calls.length, 40);
 });
 

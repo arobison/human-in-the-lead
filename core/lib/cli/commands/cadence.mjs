@@ -93,9 +93,11 @@ export const commands = [
       const attention = g.loaded.settings?.attention;
       const quiet = attention ? quietState(g.now, attention.quiet_hours, attention.timezone) : null;
       const ownerPresent = input['owner-present'] === true;
+      const ledger = readLedger(g.store);
       const result = dueJobs({
         policy: g.policy,
-        events: readLedger(g.store).events,
+        events: ledger.events,
+        origins: ledger.origins,
         trust: readTrustEvents(g.store),
         state: readCadenceState(g.store),
         idle,
@@ -178,7 +180,8 @@ export const commands = [
       }
       const g = gather(ctx, input);
       if (g.error) return g.error;
-      const events = readLedger(g.store).events;
+      const ledger = readLedger(g.store);
+      const events = ledger.events;
       /** @type {string | null} */
       let through = events.at(-1)?.id ?? null;
       if (typeof input.through === 'string') {
@@ -202,7 +205,14 @@ export const commands = [
         };
       }
       const key = job === 'review' ? `review:${person}` : job;
-      const mark = { at: new Date(g.now).toISOString(), through, trust_through: trustThrough };
+      // How many events of each ledger file the job had read, so an event another writer recorded
+      // earlier that a later pull brings in still counts as new (HITLD-74).
+      const mark = {
+        at: new Date(g.now).toISOString(),
+        through,
+        trust_through: trustThrough,
+        files: ledger.counts,
+      };
       markJobDone(g.store, key, mark);
       return { ok: true, job, ...(person ? { person } : {}), mark };
     },

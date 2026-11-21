@@ -145,3 +145,17 @@ A result's label is the `classification` field holding an object with two keys: 
 
 The owner decided that HITLD starts without asking only the measurements an executor needs for its own item, within a per-item cap on how many. Scheduled baselines on the main branch, and a search for the commit a regression came in, ask the owner first, until the trust engine (HITLD-552) has enough evidence to propose unlocking each kind (merging's unlock bar is the model). So measurement kinds register on the trust engine as separate kinds of decision: an executor's own-item measurement (starts), a baseline (asks), a regression search (asks). The cap, and who is told when a start is refused or queued, are still to settle.
 
+
+## Dyno's second reply on GitHub issue 363, 2026-11-21 (the interface is built)
+
+Dyno's command line is built with the proposed interface, and its session replied with example JSON from the simulated target. Every command prints one object with `api_version`, `command` and `ok`; exit codes are 0 ok, 1 problem, 2 usage, 3 not built yet (naming the item that builds it) and 4 refused. Commands not built yet: fetching and storing results across machines, pinning, studies, devices and runners; compare, trend and bisect are proposed as an item of their own. Its local measurement worker has run only with a stand-in command, so the first real measurement may change the details.
+
+What the examples settle, and what they open, for the walk-through (checked against the decisions above):
+
+- **Completion record: matches the decision.** One line of an event log (`measurement-finished`, with handle, state, requester, times, run ID, verdict, exit code and a `result_command`), and the same object is the `completion` field of `measure status`. Nothing runs on completion. Open: the log's location is a placeholder for dyno's own state folder, so how HITLD finds and watches it is still to design.
+- **The status call does not match the three states HITLD decided on (HITLD-624).** Dyno's `state` is only about dyno's own measurements (`busy`, `waiting-for-quiet`, `quiet`). The machine's load, power, thermal state and `quiet_enough` are reported separately under `machine`, and `state` can say `quiet` while `quiet_enough` is false (seen in its own build, at about one load per core with nothing measuring). So a gate on `state` alone would let HITLD's heavy steps start on a loaded machine. HITLD's gate must read both fields, or keep its own load check. This is a question for the walk-through, not yet decided.
+- **No classification label in `result show`.** HITLD asked that every result carry one (readers and reach, HITLD-632 to 635). The example has no `classification` field, and `values_included: false` is the only protection shown. To ask dyno when the label design is walked through.
+- **The quiet level is a guess:** load per core below 0.3, overridable; other GPU use is reported as "not measured"; thermal and power come from the operating system and are `unknown` where it does not report them, and they do not block.
+- **Smaller points:** one `api_version` for all commands (adding a field keeps it); the simulated target advances on calls, not on time, so tests are deterministic; plain `status` does not advance it.
+
+HITLD has not replied on the issue yet.

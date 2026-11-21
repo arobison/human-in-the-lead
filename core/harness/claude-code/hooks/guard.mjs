@@ -5,7 +5,12 @@
 // The system never pushes on its
 // own (design part 5.3); main moves only through the merge queue (part 14.1).
 
+// The reproducer agent's rules run in this same process, for every tool (reproducer-rules.mjs):
+// hooks.json sends every tool call here, and anything that is neither an executor's Bash call nor
+// the reproducer's passes through at once.
+
 import { isExecutor, readHookInput } from './input.mjs';
+import { isReproducer, reproducerRefusal } from './reproducer-rules.mjs';
 
 const input = readHookInput();
 const command = String(input.tool_input?.command ?? '');
@@ -26,7 +31,10 @@ const hitldCalls = (text) =>
   [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
 /** @type {string | null} */
 let why = null;
-if (isExecutor(input, process.env)) {
+const bash = input.tool_name === undefined || input.tool_name === 'Bash';
+if (isReproducer(input)) {
+  why = reproducerRefusal(input);
+} else if (bash && isExecutor(input, process.env)) {
   if (/\bgit\b[^\n;&|]*\bpush\b/.test(command)) why = 'executors never push; the owner pushes';
   else if (/\bgit\b[^\n;&|]*\bupdate-ref\b[^\n;&|]*\brefs\/heads\/main\b/.test(command)) {
     why = 'only the merge queue moves main';

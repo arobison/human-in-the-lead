@@ -627,7 +627,8 @@ test('commands: the merge scans with the primary checkout policy, never the bran
   assert.equal((await c.hitld(['run', 'start'])).exit, 0);
   const start = await c.hitld(['dispatch', 'start', 'W-1']);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const dispatch = start.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', 'agent-1']);
   const branch = start.result.branch;
   git(c.root, 'switch', '-q', '-c', branch);
   put(c.root, {
@@ -653,7 +654,7 @@ test('commands: the merge scans with the primary checkout policy, never the bran
   git(c.root, 'switch', '-q', 'main');
   const note = join(c.base, 'note.txt');
   writeFileSync(note, report({ item: 'W-1', sha, branch }));
-  await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  await c.hitld(['dispatch', 'complete', '--dispatch', dispatch, '--report-file', note]);
 
   const merged = await c.hitld(['merge']);
   assert.deepEqual(merged.result.merged, [], JSON.stringify(merged.result));
