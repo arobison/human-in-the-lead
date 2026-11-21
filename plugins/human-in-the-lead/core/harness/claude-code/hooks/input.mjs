@@ -4,6 +4,7 @@
 // tier-3 run, whose environment carries HITLD_DISPATCH.
 
 import { readFileSync } from 'node:fs';
+import { DISPATCH_ID } from '../../../lib/ledger/ids.mjs';
 
 /** @returns {Record<string, any>} */
 export function readHookInput() {
@@ -20,5 +21,6 @@ export function isExecutor(input, env) {
   if (typeof input.agent_type === 'string') {
     return /^human-in-the-lead:executor(-tier\d)?$/.test(input.agent_type);
   }
-  return typeof env.HITLD_DISPATCH === 'string' && /^D-[1-9][0-9]*$/.test(env.HITLD_DISPATCH);
+  // Either form of dispatch ID: numbered before HITLD-74, or unique by construction.
+  return typeof env.HITLD_DISPATCH === 'string' && DISPATCH_ID.test(env.HITLD_DISPATCH);
 }

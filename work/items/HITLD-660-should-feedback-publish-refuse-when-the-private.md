@@ -2,10 +2,14 @@
 id: HITLD-660
 title: Should feedback publish refuse when the private term list was not checked?
 kind: decision
-state: planned
+state: done
 created: 2026-11-20
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-21T04:48:18.123Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question

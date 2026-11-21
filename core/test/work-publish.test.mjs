@@ -456,6 +456,29 @@ test('a private term in a would-be commit message or tracker file is refused bef
   assert.deepEqual(branches(remote), ['main']);
 });
 
+test('with no private term list here, work publish says the list was not checked; with one, it does not', async () => {
+  const { root, remote, env } = session();
+  put(root, { 'work/items/W-7-which-color.md': decision('W-7', 'Which color?') });
+  const bare = await run(root, publish('--dry-run'), env);
+  assert.equal(bare.code, 0, JSON.stringify(bare));
+  assert.equal(bare.list_found, false);
+  // One warning, though the message, the text and the files were each checked against no list.
+  assert.equal(bare.warnings.length, 1, JSON.stringify(bare.warnings));
+  assert.match(
+    bare.warnings[0],
+    /^the private term list was not checked: there is no private store here/,
+  );
+  addTerm(openStore(privateStorePath('fixture', { env })), {
+    term: 'orchid-fox-7',
+    kind: 'device',
+  });
+  const listed = await run(root, publish('--dry-run'), env);
+  assert.equal(listed.code, 0, JSON.stringify(listed));
+  assert.equal(listed.list_found, true);
+  assert.equal(listed.warnings, undefined);
+  assert.deepEqual(branches(remote), ['main']);
+});
+
 test('executors are refused, main is never the branch, and a change main made unseen is not overwritten', async () => {
   const { root, remote, env } = session();
   put(root, { 'work/items/W-7-which-color.md': decision('W-7', 'Which color?') });

@@ -166,7 +166,12 @@ export async function importStore(options) {
       incoming: manifest.head,
       sealed_to: sealedTo(manifest),
       changed: merged.changed,
-      index: { events: index.events, ledger_problems: index.ledger_problems },
+      index: {
+        events: index.events,
+        dispatches: index.dispatches,
+        files: index.files,
+        ledger_problems: index.ledger_problems,
+      },
     };
   } finally {
     dropIncoming(root);

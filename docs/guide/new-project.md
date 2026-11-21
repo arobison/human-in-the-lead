@@ -82,7 +82,7 @@ If you work from more than one machine, or from cloud sessions, read [Moving the
    claude plugin install human-in-the-lead@human-in-the-lead --scope project
    ```
 
-10. **Start your first session.** Open Claude Code in the project and ask it to start a run (the `orchestrate` skill). Before anything else it does the first-run setup, because your person file and this machine's file do not exist yet: it detects the machine, shows every proposed value in one numbered message, and waits. Reply `yes to all`, or `change N to X` for any number of values. It then asks, as a separate question, whether to install the status-line usage capture; that one is always its own question.
+10. **Start your first session.** Open Claude Code in the project and ask it to start a run (the `orchestrate` skill). Before anything else it does the first-run setup, because your person file and this machine's file do not exist yet: it detects the machine, shows every proposed value in one numbered message, and waits. Reply `yes to all`, or `change N to X` for any number of values. It then asks, as a separate question, whether to install the status-line usage capture; that one is always its own question. With a store remote, your answers also go in the project's private store once `hitld store push` carries them, so a new cloud session reads them and does not ask again (the person file's store addresses stay on this machine).
 
     Without Claude Code, you can write the two files yourself:
 

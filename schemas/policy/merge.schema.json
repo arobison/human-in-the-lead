@@ -168,6 +168,11 @@
       "minimum": 0,
       "maximum": 5,
       "default": 1
+    },
+    "require_private_list": {
+      "description": "Whether hitld merge refuses (private-list-invalid) when the private term list is not there to check every commit against, as in a session that has not pulled the private store. Off by default: the merge then checks the terms implied here (the store address in use, device names) and warns that the list was not checked, so a cloud session with the store address and no device key keeps merging. Turn it on where the store is always pulled before a merge.",
+      "type": "boolean",
+      "default": false
     }
   },
   "additionalProperties": false

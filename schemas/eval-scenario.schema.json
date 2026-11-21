@@ -62,7 +62,7 @@
       "additionalProperties": false
     },
     "steps": {
-      "description": "Run in order. Each step's result is kept under steps.<id> for the graders.",
+      "description": "Run in order. Each step's result is kept under steps.<id> for the graders. A string in a step's or a grader's with may name what an earlier step returned as {{steps.<id>.<path>}}: the value itself when it is the whole string, else its text. That is how a scenario passes on what it cannot know in advance, such as a dispatch ID (HITLD-74).",
       "type": "array",
       "items": {
         "type": "object",

@@ -266,6 +266,16 @@ export const commands = [
 
         const commit = buildCommit(root, base.commit, gathered.files, text.message);
         const terms = termsForProject({ policy, env: ctx.env, repoRoot: root });
+        // A list that is not there is checked against nothing but the implied terms: each check
+        // says so, and the result carries it once (HITLD-187).
+        const warnings = [
+          ...new Set(
+            [messageCheck, textCheck, terms].flatMap(
+              (c) => /** @type {string[]} */ (/** @type {any} */ (c).warnings ?? []),
+            ),
+          ),
+        ];
+        const said = { list_found: terms.list_found, ...(warnings.length ? { warnings } : {}) };
         const judged = checkCommits(root, base.commit, commit, {
           ...rulesFrom(policy, layout.defaultClassification),
           terms: terms.matchers,
@@ -319,6 +329,7 @@ export const commands = [
             ...common,
             branch,
             ...shown,
+            ...said,
             pull_request: pullRequest,
             opened: false,
             ...(staged ? { working_tree: staged.working_tree } : {}),
@@ -335,6 +346,7 @@ export const commands = [
             commit,
             ...shown,
             checks,
+            ...said,
             pull_request: pullRequest,
             opened: false,
             message: `dry run: ${gathered.files.length} tracker file(s) would be published on ${branch}; nothing was pushed`,
@@ -350,6 +362,7 @@ export const commands = [
           commit,
           ...shown,
           checks,
+          ...said,
           pull_request: pullRequest,
           opened: false,
           working_tree: staged.working_tree,
