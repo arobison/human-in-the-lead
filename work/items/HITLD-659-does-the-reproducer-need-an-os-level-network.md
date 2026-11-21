@@ -2,10 +2,14 @@
 id: HITLD-659
 title: Does the reproducer need an OS-level network boundary before its pull request merges?
 kind: decision
-state: planned
+state: done
 created: 2026-11-20
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-21T04:42:48.933Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question

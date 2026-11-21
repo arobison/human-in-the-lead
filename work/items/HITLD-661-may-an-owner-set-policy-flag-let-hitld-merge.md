@@ -2,10 +2,14 @@
 id: HITLD-661
 title: May an owner-set policy flag let hitld merge refuse when the private term list is absent?
 kind: decision
-state: planned
+state: done
 created: 2026-11-20
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-21T04:49:11.228Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question

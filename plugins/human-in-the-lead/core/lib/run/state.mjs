@@ -1,7 +1,7 @@
 // The run state as a fold of the ledger (design part 13.1). The run-state file is derived, never
-// authoritative: every field that matters is the result of applying ledger events in order, so
-// resuming means applying the events after `ledger_position`, and rebuilding means applying them
-// all. Both use the same `applyEvent`, so they cannot disagree.
+// authoritative: every field that matters is the result of applying ledger events in order. Both
+// resuming (absorb) and rebuilding fold the whole ledger with the same `applyEvent`, so they cannot
+// disagree, even when a pull brings another writer's earlier-stamped events (HITLD-74).
 //
 // What the ledger cannot give: `controllers` and `quotas` (they are written by other pieces at
 // their own clean points) and the lease's last renewal (a checkpoint's time). A rebuild leaves the
@@ -119,12 +119,19 @@ const leaseOf = (e) => ({
 });
 
 /**
- * Apply the ledger events after the state's position. Nothing is applied twice: events up to and
- * including `ledger_position` are skipped, so a state that already absorbed some of them (a crash
- * after the checkpoint, a retry) is safe. A position that is not in the ledger means the state
- * and the ledger do not belong together, which is an error: rebuild instead.
+ * Bring a state up to the ledger. The position must be in the ledger: a position that is not means
+ * the state and the ledger do not belong together, which is an error: rebuild instead.
+ *
+ * The ledger is the union of the writers' files, ordered by time (ledger/ledger.mjs), so a pull can
+ * bring in another writer's event stamped before the position: applying only what comes after the
+ * position would skip it for ever. So the state is folded again from the whole ledger, as a
+ * rebuild does, and the two cannot disagree. What the ledger cannot give is kept from the state:
+ * `controllers`, `quotas`, the checkpoint, and the lease's last renewal while the same lease holds.
+ * Applying the same ledger twice changes nothing.
  * @param {RunState} state @param {LedgerEntry[]} events
- * @returns {{ state: RunState, applied: LedgerEntry[] }}
+ * @returns {{ state: RunState, applied: LedgerEntry[], changed: boolean }} applied: the events
+ *   after the position; changed: whether what the ledger gives differs from before, which is also
+ *   true when only an earlier-stamped event arrived
  */
 export function absorb(state, events) {
   const position = state.ledger_position;
@@ -135,8 +142,29 @@ export function absorb(state, events) {
     );
   }
   const applied = events.slice(from);
-  for (const e of applied) applyEvent(state, e);
-  return { state, applied };
+  const before = canonicalJson(ledgerPart(state));
+  const folded = foldLedger(events);
+  const renewed = state.lease?.renewed_at;
+  // The same lease: the same taking of it, released since or not. Its last renewal is a
+  // checkpoint's time, which the ledger does not hold, so it is kept (run.mjs releaseLease).
+  const holder = (/** @type {Record<string, any>} */ l) =>
+    canonicalJson({ ...l, renewed_at: null, released: null });
+  const sameLease = state.lease && folded.lease && holder(state.lease) === holder(folded.lease);
+  for (const key of Object.keys(folded)) {
+    if (['controllers', 'quotas', 'checkpoint', 'schema_version'].includes(key)) continue;
+    state[key] = folded[key];
+  }
+  if (sameLease && renewed !== undefined && renewed > state.lease.renewed_at) {
+    state.lease.renewed_at = renewed;
+  }
+  const changed = applied.length > 0 || canonicalJson(ledgerPart(state)) !== before;
+  return { state, applied, changed };
+}
+
+/** What of a state the ledger gives: all but the parts kept from the state itself. @param {RunState} state */
+function ledgerPart(state) {
+  const { controllers: _c, quotas: _q, checkpoint: _k, ...rest } = state;
+  return { ...rest, lease: rest.lease ? { ...rest.lease, renewed_at: null } : rest.lease };
 }
 
 /**

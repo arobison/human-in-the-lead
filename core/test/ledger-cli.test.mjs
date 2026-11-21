@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { policyDefaults } from '../lib/policy/policy.mjs';
 import { openStore } from '../lib/store/store.mjs';
+import { readLedger } from '../lib/ledger/ledger.mjs';
 import { loadState } from '../lib/run/checkpoint.mjs';
 import { Run } from '../lib/run/run.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
@@ -365,9 +366,10 @@ test("hitld: with a project policy, the store is the project's private store", a
   });
   assert.equal(code, EXIT.ok, out);
   const root = join(xdg, 'human-in-the-lead', 'ledger-fixture');
-  assert.ok(existsSync(join(root, 'ledger.jsonl')));
+  const { events } = readLedger(openStore(root));
+  assert.equal(events.length, 1);
   assert.ok(existsSync(join(root, 'run-state.json')));
-  const started = JSON.parse(readFileSync(join(root, 'ledger.jsonl'), 'utf8').trim());
+  const [started] = events;
   assert.match(started.policy_hash, /^[0-9a-f]{64}$/);
   assert.equal(JSON.parse(out).run.id.length > 0, true);
 });
@@ -404,7 +406,7 @@ test('hitld ledger append: fields are allowlisted per event type, and correction
   // schema_version is the system's: dropped, not trusted
   const sv = await append({ event: 'asked', decision: 'W-50', schema_version: 99 });
   assert.equal(sv.code, EXIT.ok);
-  assert.equal(sv.json.event.schema_version, 2);
+  assert.equal(sv.json.event.schema_version, 3);
   // The session and host are the caller's own, not a field it may set.
   assert.deepEqual([sv.json.event.session, sv.json.event.host], ['s-1', 'example-laptop']);
 

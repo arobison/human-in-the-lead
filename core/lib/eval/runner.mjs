@@ -11,7 +11,7 @@ import { isolateProcessEnv } from '../isolated-env.mjs';
 import { GRADERS, boundVerdict } from './graders.mjs';
 import { buildFixture } from './fixtures.mjs';
 import { NO_PROFILE, PROFILES, missingCapabilities } from './profiles.mjs';
-import { hashSeed, seededShuffle } from './util.mjs';
+import { getPath, hashSeed, seededShuffle } from './util.mjs';
 
 /**
  * @typedef {import('./scenario.mjs').LoadedScenario} LoadedScenario
@@ -148,7 +148,9 @@ export async function runCase(loaded, profile, options) {
       const entry = { step: step.id, action: step.action, with: step.with ?? {} };
       transcript.push(entry);
       try {
-        steps[step.id] = await options.actions[step.action].run(step.with ?? {}, ctx);
+        const input = /** @type {Record<string, unknown>} */ (resolveRefs(step.with ?? {}, steps));
+        entry.with = input;
+        steps[step.id] = await options.actions[step.action].run(input, ctx);
         entry.result = steps[step.id];
       } catch (e) {
         entry.error = e instanceof Error ? e.message : String(e);
@@ -169,7 +171,8 @@ export async function runCase(loaded, profile, options) {
     sc.graders.forEach((/** @type {Record<string, any>} */ g, /** @type {number} */ i) => {
       const id = g.id ?? `${g.grader}-${i + 1}`;
       try {
-        const verdict = GRADERS[g.grader].run(g.with ?? {}, state);
+        const input = /** @type {Record<string, any>} */ (resolveRefs(g.with ?? {}, steps));
+        const verdict = GRADERS[g.grader].run(input, state);
         graders.push({ id, grader: g.grader, ...boundVerdict(verdict) });
       } catch (e) {
         graders.push({
@@ -201,6 +204,34 @@ export async function runCase(loaded, profile, options) {
     rmSync(home, { recursive: true, force: true });
     if (!options.keepSandbox) rmSync(sandbox, { recursive: true, force: true });
   }
+}
+
+const REF = /\{\{\s*(steps\.[^}\s]+)\s*\}\}/g;
+
+/**
+ * A step's or a grader's `with`, each `{{steps.<id>.<path>}}` in it replaced by what an earlier
+ * step returned there: the value itself when the reference is the whole string, else its text.
+ * This is how a scenario passes on what it cannot know in advance, such as a dispatch ID, which
+ * is unique by construction (HITLD-74). A reference to nothing an earlier step returned is an
+ * error, never an empty string.
+ * @param {unknown} value @param {Record<string, unknown>} steps @returns {unknown}
+ */
+export function resolveRefs(value, steps) {
+  if (typeof value === 'string') {
+    const lookup = (/** @type {string} */ path) => {
+      const r = getPath({ steps }, path);
+      if (!r.found) throw new Error(`{{${path}}} names nothing an earlier step returned`);
+      return r.value;
+    };
+    const whole = /^\{\{\s*(steps\.[^}\s]+)\s*\}\}$/.exec(value);
+    if (whole) return lookup(whole[1]);
+    return value.replace(REF, (_, path) => String(lookup(path)));
+  }
+  if (Array.isArray(value)) return value.map((v) => resolveRefs(v, steps));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveRefs(v, steps)]));
+  }
+  return value;
 }
 
 /**
