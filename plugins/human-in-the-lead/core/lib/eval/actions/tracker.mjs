@@ -6,6 +6,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gradeDrafts } from '../description-fixtures.mjs';
 import { resolvePolicy } from '../../policy/policy.mjs';
 import { runMergeQueue } from '../../merge/queue.mjs';
 import { approvePresented, presentToOwner } from '../../merge/owner.mjs';
@@ -50,6 +51,12 @@ export const actions = {
       const made = buildSweepConsumer(join(ctx.sandbox, 'consumer'), join(ctx.sandbox, 'data'));
       return { root: 'consumer', project: made.project, now: made.now };
     },
+  },
+  'tracker.description-grade': {
+    description:
+      "Grade the description-quality fixtures (core/lib/eval/description-fixtures.mjs): each entity drafted from a fixture signal is checked by the deterministic description check and graded against the describe skill's rubric by the majority of a different model's three votes, recorded and replayed offline. Returns { drafts, seeded_poor, caught, by_check, false_flags, seeded_criteria_found, judges_independent }.",
+    input: { type: 'object', properties: {}, additionalProperties: false },
+    run: () => gradeDrafts(),
   },
 
   'tracker.close-by-trailer-merge': {
