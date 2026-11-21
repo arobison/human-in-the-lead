@@ -2,10 +2,14 @@
 id: HITLD-663
 title: How should the six unstarted items of the 20 proceed while the start hold stands?
 kind: decision
-state: planned
+state: done
 created: 2026-11-20
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-21T04:50:39.135Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question

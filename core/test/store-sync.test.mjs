@@ -74,7 +74,7 @@ function versions() {
 test('round trip: the text history moves to another store; machine-local files and the index stay', async () => {
   const { dir, file } = fixture();
   const a = openStore(join(dir, 'stores', 'a'));
-  question(a, 'E-1', 1);
+  const mine = String(question(a, 'E-1', 1).file);
   question(a, 'E-2', 2);
   a.write('precedents/P-1.json', '{"id":"P-1"}\n');
   a.write('run-state.json', '{"secret-to-this-machine":true}\n');
@@ -104,7 +104,10 @@ test('round trip: the text history moves to another store; machine-local files a
     .stdout.toString('utf8')
     .trim()
     .split('\n');
-  assert.deepEqual(committed.sort(), ['.gitignore', 'ledger.jsonl', 'precedents/P-1.json']);
+  // The ledger is this writer's own file; its writer record is machine-local and stays.
+  assert.match(mine, /^ledger\/w-[0-9a-f]{16}\.jsonl$/);
+  assert.ok(a.read('ledger-writer.json'));
+  assert.deepEqual(committed.sort(), ['.gitignore', mine, 'precedents/P-1.json']);
 
   // The other device opens it with its own key.
   const b = openStore(join(dir, 'stores', 'b'));
@@ -113,15 +116,20 @@ test('round trip: the text history moves to another store; machine-local files a
   assert.equal(r.format, 2);
   assert.equal(r.result, 'fast-forward');
   assert.equal(r.head, out.head);
-  assert.equal(b.read('ledger.jsonl'), a.read('ledger.jsonl'));
+  assert.equal(b.read(mine), a.read(mine));
   assert.equal(b.read('precedents/P-1.json'), '{"id":"P-1"}\n');
-  for (const local of ['run-state.json', 'run/checkpoints/slot-0.json', 'primary-checkout.json']) {
+  for (const local of [
+    'run-state.json',
+    'run/checkpoints/slot-0.json',
+    'primary-checkout.json',
+    'ledger-writer.json',
+  ]) {
     assert.equal(b.read(local), null, local);
   }
   assert.equal(b.read('usage/snapshots.jsonl'), null);
   // The index was rebuilt from the text on this side.
-  assert.deepEqual(await readIndex(b), { events: 2, index_version: 1 });
-  assert.deepEqual(b.list(), ['index.sqlite', 'ledger.jsonl', 'precedents/P-1.json']);
+  assert.deepEqual(await readIndex(b), { events: 2, dispatches: 0, index_version: 2 });
+  assert.deepEqual(b.list(), ['index.sqlite', mine, 'precedents/P-1.json']);
 });
 
 test('both machines write, then sync both ways: each ends with the same history', async () => {
@@ -135,9 +143,9 @@ test('both machines write, then sync both ways: each ends with the same history'
   question(a, 'E-1', 1);
   await syncStore(opts(a.root, file)); // a writes the file
   await syncStore(asB(b.root)); // b takes it and writes back
-  assert.equal(b.read('ledger.jsonl'), a.read('ledger.jsonl'));
+  assert.deepEqual(readLedger(b).events, readLedger(a).events);
 
-  // Distinct event IDs on each side (as reserved ID blocks would give), plus a file only one side changed.
+  // Distinct event IDs on each side, each in its writer's own file, plus a file only one side changed.
   question(a, 'E-a1', 3);
   question(b, 'E-b1', 2);
   b.append('trust/events.jsonl', '{"area":"cache","at":"2026-11-14T10:05:00Z"}\n');
@@ -148,14 +156,14 @@ test('both machines write, then sync both ways: each ends with the same history'
   assert.equal(back.imported?.ok && back.imported.result, 'merged');
   const toB = await syncStore(asB(b.root));
   assert.equal(toB.ok, true);
-  assert.equal(a.read('ledger.jsonl'), b.read('ledger.jsonl'));
+  assert.deepEqual(readLedger(a).events, readLedger(b).events);
   assert.deepEqual(
     readLedger(a).events.map((e) => e.id),
     ['E-1', 'E-b1', 'E-a1'],
   );
   assert.equal(readLedger(a).problems.length, 0);
   assert.equal(a.read('trust/events.jsonl'), b.read('trust/events.jsonl'));
-  assert.deepEqual(await readIndex(b), { events: 3, index_version: 1 });
+  assert.deepEqual(await readIndex(b), { events: 3, dispatches: 0, index_version: 2 });
 });
 
 test('a key the file was not encrypted to is refused, and nothing changes', async () => {
@@ -242,7 +250,9 @@ test('format 1: a file an earlier version wrote still imports with its passphras
   const r = await importStore({ ...opts(b, FORMAT_1_FIXTURE), passphrase: PASS });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.format, 1);
-  assert.equal(r.result, 'fast-forward');
+  // Not a fast-forward: this release keeps one more path on the machine (ledger-writer.json), so
+  // its .gitignore, which is always this side's, differs from the file's.
+  assert.equal(r.result, 'merged');
   assert.deepEqual(
     readLedger(openStore(b)).events.map((e) => e.id),
     ['E-1'],
@@ -395,18 +405,22 @@ test(
   },
 );
 
-test('a conflict stops the import with nothing written: the same event ID twice, or a file changed on both sides', async () => {
+test('a conflict stops the import with nothing written: the same event ID twice in the shared ledger of before, or a file changed on both sides', async () => {
   const { dir, file } = fixture();
   const a = openStore(join(dir, 'a'));
   const b = openStore(join(dir, 'b'));
-  question(a, 'E-1', 1);
+  /** A line of the single ledger.jsonl every writer shared before HITLD-74. */
+  const legacy = (/** @type {string} */ id, /** @type {number} */ n) =>
+    `${JSON.stringify({ schema_version: 2, id, event: 'asked', decision: `W-${n}`, at: at(n) })}\n`;
+  a.append('ledger.jsonl', legacy('E-1', 1));
   a.write('precedents/P-1.json', '{"v":0}\n');
   exportStore(opts(a.root, file));
   await importStore(opts(b.root, file));
 
-  // Each machine allocates the next ID on its own: two different E-2 events.
-  question(a, 'E-2', 2);
-  question(b, 'E-2', 3);
+  // Before HITLD-74 each machine numbered the next event on its own: two different E-2 events in
+  // the one file. Old ledgers are not reconciled: that still stops the import.
+  a.append('ledger.jsonl', legacy('E-2', 2));
+  b.append('ledger.jsonl', legacy('E-2', 3));
   exportStore(opts(a.root, file));
   const ledgerBefore = b.read('ledger.jsonl');
   const headBefore = snapshot(b.root, 'test');
@@ -477,7 +491,7 @@ test('the index is a cache: deleted, it is rebuilt from the ledger', async () =>
   rmSync(join(a.root, INDEX_FILE));
   assert.equal(await readIndex(a), null);
   await rebuildIndex(a);
-  assert.deepEqual(await readIndex(a), { events: 3, index_version: 1 });
+  assert.deepEqual(await readIndex(a), { events: 3, dispatches: 0, index_version: 2 });
 });
 
 /** @param {string[]} argv @param {string} cwd @param {NodeJS.ProcessEnv} env */

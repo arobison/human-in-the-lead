@@ -2,10 +2,14 @@
 id: HITLD-665
 title: Is about 39 seconds of extra CI test time for the eval-isolation tests acceptable?
 kind: decision
-state: planned
+state: done
 created: 2026-11-20
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-21T05:21:04.304Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question

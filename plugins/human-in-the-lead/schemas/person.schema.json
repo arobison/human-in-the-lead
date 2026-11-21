@@ -1,7 +1,7 @@
 {
   "$id": "person",
   "title": "Person settings",
-  "description": "The person file (design part 13.4): a person's plans, limits and appetite, kept outside every repository at $XDG_CONFIG_HOME/human-in-the-lead/person.json (~/.config/human-in-the-lead/person.json when XDG_CONFIG_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps, reserves and thresholds take the strictest layer; a project may be stricter, never looser. Version 2 adds attention, version 3 adds projects.<id>.store_remote; a file is written with the lowest version that expresses it, so one that sets neither is version 1 (design part 16.5). Internal: never committed or synced.",
+  "description": "The person file (design part 13.4): a person's plans, limits and appetite, kept outside every repository at $XDG_CONFIG_HOME/human-in-the-lead/person.json (~/.config/human-in-the-lead/person.json when XDG_CONFIG_HOME is unset). Data only: unknown and code-running keys are refused. A key left out is not set at this layer, so the next layer or the default applies. Caps, reserves and thresholds take the strictest layer; a project may be stricter, never looser. Version 2 adds attention, version 3 adds projects.<id>.store_remote; a file is written with the lowest version that expresses it, so one that sets neither is version 1 (design part 16.5). Internal: the file itself is never committed. Its max_executors, quota and attention also travel, as settings/person.json in each project's own private store, written by hitld config write and carried by hitld store push (HITLD-148); its projects keys never leave this file.",
   "x-hitld-schema-version": 3,
   "type": "object",
   "properties": {

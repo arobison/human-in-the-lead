@@ -13,9 +13,11 @@ import { absorb } from '../../run/state.mjs';
 import { gitSnapshot, processSignal, worktreeSignal } from '../../run/reality.mjs';
 import { isNews, readProgress, recordProgress } from '../../dispatch/progress.mjs';
 import {
+  chaseStep,
   continueMessage,
   dueSteps,
   pokeMessage,
+  reportRequest,
   stallQuestion,
   watchDispatches,
 } from '../../dispatch/watch.mjs';
@@ -139,12 +141,24 @@ export const commands = [
         description:
           'Record the steps that are due and print what to do for each (poke, continue as a follow-up, abandon and re-plan, ask the owner). Only the session holding the lease; without it the command records nothing in the ledger: it samples, and tears down finished worktrees',
       },
+      {
+        name: 'ended',
+        type: 'string',
+        description:
+          "The tier-3 interactive sessions the harness shows as ended or idle (on the web, get_session's status_bucket), comma-separated, by session reference or dispatch ID. One whose dispatch has no completed report is listed under unreported, to chase",
+      },
       SESSION,
       HOST,
     ],
     run: (input, ctx) =>
       guarded(async () => {
         const p = project(ctx);
+        const ended = new Set(
+          String(input.ended ?? '')
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean),
+        );
         if (!p.state) {
           return {
             ok: false,
@@ -206,6 +220,7 @@ export const commands = [
               host,
               pause: active,
               timedPause: lastTimedPause(events),
+              ended,
             }),
           };
         };
@@ -245,10 +260,22 @@ export const commands = [
                 ]
               : []),
           ];
+          // Interactive sessions that ended their turn with no report (HITLD-147): the chief of
+          // staff chases each itself; nothing here is for the orchestrator's ladder.
+          const unreported = verdicts
+            .filter((v) => v.state === 'unreported')
+            .map((v) => ({
+              dispatch: v.dispatch,
+              item: v.item,
+              harness_ref: v.harness_ref,
+              next: chaseStep(v),
+              report_request: reportRequest(v.dispatch),
+            }));
           return {
             ok: true,
             at: new Date(now).toISOString(),
             dispatches: verdicts.map(shown),
+            ...(unreported.length ? { unreported } : {}),
             due: due.map((v) => ({
               dispatch: v.dispatch,
               item: v.item,
@@ -261,9 +288,16 @@ export const commands = [
             ...housekeeping,
             wake: parts.length > 0,
             wake_message: parts.length ? `watch: ${parts.join('; ')}` : null,
-            next: parts.length
-              ? `wake the session holding the lease (hitld run status names wake_to) with wake_message; it runs hitld dispatch watch --act`
-              : 'nothing is due: no wake needed',
+            next: [
+              ...(unreported.length
+                ? ['chase each dispatch in unreported yourself, as its next says']
+                : []),
+              parts.length
+                ? `wake the session holding the lease (hitld run status names wake_to) with wake_message; it runs hitld dispatch watch --act`
+                : unreported.length
+                  ? 'nothing else is due: no wake needed'
+                  : 'nothing is due: no wake needed',
+            ].join('; '),
           };
         }
 

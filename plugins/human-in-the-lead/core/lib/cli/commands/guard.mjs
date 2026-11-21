@@ -125,7 +125,7 @@ export const commands = [
       const t = terms(root, loaded.policy, ctx);
       if ('ok' in t)
         return { ...t, message: `${t.message}; nothing is committed until it is fixed` };
-      warnings.push(...(loaded.policy ? t.warnings : []));
+      warnings.push(...t.warnings);
       const rules = {
         ...rulesFrom(policy, tracker.config.default_classification),
         terms: t.matchers,
@@ -208,7 +208,7 @@ export const commands = [
               message: `refused: the commit message holds ${found.length} private term(s) from the private term list (design part 10.3, rule 7); each problem names its kind and line. Write it again, referring to each by its role`,
             }
           : { message: 'the commit message holds no private term' }),
-        ...(loaded.policy && t.warnings.length ? { warnings: t.warnings } : {}),
+        ...(t.warnings.length ? { warnings: t.warnings } : {}),
       };
     },
   },
