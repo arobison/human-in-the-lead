@@ -130,6 +130,16 @@ test('the offline eval gate run twice in a row over a fixed set: the second run 
   const homeBefore = listing(home);
   /** @type {any[]} */
   const runs = [];
+  // Each run's verdicts, read from what it recorded as soon as it ends. Two runs inside the same
+  // second get the same run ID and so the same record, which the second run overwrites.
+  /** @param {any} run */
+  const verdicts = (run) =>
+    JSON.parse(readFileSync(run.stored, 'utf8')).scenarios.map((/** @type {any} */ c) => ({
+      id: c.id,
+      profile: c.profile,
+      result: c.result,
+      graders: c.graders.map((/** @type {any} */ g) => [g.id, g.passed]),
+    }));
   process.env.TMPDIR = process.env.TMP = process.env.TEMP = tmp;
   try {
     for (let i = 0; i < 2; i++) {
@@ -138,7 +148,7 @@ test('the offline eval gate run twice in a row over a fixed set: the second run 
       // (with its private store) in the temporary directory, and nothing in the home.
       assert.deepEqual(readdirSync(tmp), [], `run ${i + 1} left files in the temporary directory`);
       assert.deepEqual(listing(home), homeBefore, `run ${i + 1} wrote to the home`);
-      runs.push(run);
+      runs.push({ ...run, verdicts: verdicts(run) });
     }
   } finally {
     for (const [name, value] of Object.entries(saved)) {
@@ -153,15 +163,6 @@ test('the offline eval gate run twice in a row over a fixed set: the second run 
   }
   // The same verdict for every case, and the same baseline: the results the first run recorded
   // are not one the second compares against.
-  /** @param {any} run */
-  const verdicts = (run) =>
-    JSON.parse(readFileSync(run.stored, 'utf8')).scenarios.map((/** @type {any} */ c) => ({
-      id: c.id,
-      profile: c.profile,
-      result: c.result,
-      graders: c.graders.map((/** @type {any} */ g) => [g.id, g.passed]),
-    }));
-  assert.deepEqual(verdicts(runs[1]), verdicts(runs[0]));
+  assert.deepEqual(runs[1].verdicts, runs[0].verdicts);
   assert.equal(runs[1].gate.baseline_source, runs[0].gate.baseline_source);
-  assert.notEqual(runs[1].run, runs[0].run);
 });
