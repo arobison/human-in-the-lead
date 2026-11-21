@@ -2,10 +2,14 @@
 id: HITLD-662
 title: Must the Windows store move be run on a real Windows machine before it merges?
 kind: decision
-state: planned
+state: done
 created: 2026-11-20
 project: HITLD-15
 decider: owner
+answer: B
+answered_at: 2026-11-21T04:49:58.532Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question
