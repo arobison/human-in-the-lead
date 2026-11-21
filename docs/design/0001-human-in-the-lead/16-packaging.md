@@ -123,6 +123,7 @@ A code is lowercase kebab-case and means one thing. Two commands that refuse the
 - `no-eval-run`: No stored eval run has that ID, or none is stored yet.
 - `invalid-eval-run`: A stored eval run is not a valid eval result.
 - `setup-failed`: The worktree's setup commands failed.
+- `branch-names-taken`: An item's branch name and its fresh names (<name>-2 to <name>-99) are all taken, so no worktree was cut.
 - `version-not-pinned`: This session runs another release of the plugin than the pin in .claude/settings.json names, so no run starts or resumes.
 
 **The run lease and locks**
