@@ -2,10 +2,11 @@
 id: HITLD-202
 title: work publish leaves the files it published untracked on main
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-125]
+claimed_by: D-56
 ---
 
 ## Why
