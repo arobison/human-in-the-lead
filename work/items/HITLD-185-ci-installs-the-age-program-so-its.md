@@ -2,7 +2,7 @@
 id: HITLD-185
 title: CI installs the age program so its interoperability tests run, and the job reports which tests it skipped
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-131]
