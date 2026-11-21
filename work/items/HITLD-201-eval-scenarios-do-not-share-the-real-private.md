@@ -2,7 +2,7 @@
 id: HITLD-201
 title: Eval scenarios do not share the real private store, and an earlier run cannot make a scenario flaky
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 claimed_by: D-54
