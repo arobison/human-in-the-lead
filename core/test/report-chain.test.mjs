@@ -175,8 +175,11 @@ test('dispatch watch --ended: an interactive dispatch whose session ended with n
     env: { HITLD_SESSION: 'orch-session' },
   });
   assert.equal(start.exit, 0, JSON.stringify(start.result));
+  // The dispatch's ID as dispatch start made it (unique by construction since HITLD-74).
+  const d = String(start.result.dispatch);
+  assert.match(d, /^D-[0-9A-Z]{16}$/);
   const handled = await c.hitld(
-    ['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'session_exec'],
+    ['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'session_exec'],
     { env: { HITLD_SESSION: 'orch-session' } },
   );
   assert.equal(handled.exit, 0, JSON.stringify(handled.result));
@@ -190,16 +193,26 @@ test('dispatch watch --ended: an interactive dispatch whose session ended with n
   assert.equal(watch.exit, 0, JSON.stringify(watch.result));
   assert.equal(watch.result.unreported.length, 1);
   const [u] = watch.result.unreported;
-  assert.deepEqual([u.dispatch, u.item, u.harness_ref], ['D-1', 'W-4', 'session_exec']);
+  assert.deepEqual([u.dispatch, u.item, u.harness_ref], [d, 'W-4', 'session_exec']);
   assert.match(u.next, /read the final state of session session_exec/);
-  assert.match(u.next, /^first check whether D-1's report already reached the orchestrator/);
-  assert.match(u.next, /relay it to the orchestrator holding the lease as reported D-1/);
+  assert.ok(
+    u.next.startsWith(`first check whether ${d}'s report already reached the orchestrator`),
+  );
+  assert.ok(u.next.includes(`relay it to the orchestrator holding the lease as reported ${d};`));
+  assert.ok(u.report_request.startsWith(`Report check for ${d}:`));
   assert.match(u.next, /Do not wait/);
   assert.match(u.report_request, /Send it now to the orchestrator's session your brief names/);
   assert.match(watch.result.next, /^chase each dispatch in unreported yourself/);
   assert.equal(
-    watch.result.dispatches.find((/** @type {any} */ d) => d.dispatch === 'D-1').state,
+    watch.result.dispatches.find((/** @type {any} */ x) => x.dispatch === d).state,
     'unreported',
+  );
+  // Named by its dispatch ID instead of its session reference: the same.
+  const byId = await c.hitld(['dispatch', 'watch', '--ended', d], cos);
+  assert.deepEqual(
+    byId.result.unreported?.map((/** @type {any} */ x) => x.dispatch),
+    [d],
+    JSON.stringify(byId.result),
   );
 });
 
