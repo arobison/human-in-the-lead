@@ -285,13 +285,18 @@ export function migrateTracker(root, layout, { dryRun = false, commit = true, en
   if (commit) {
     git(root, ['add', '-A', '--', ...paths]);
     const names = plan.steps.filter((s) => s.files.length).map((s) => s.name);
+    // Only the migration's own paths: anything else already staged (such as a design file that
+    // `hitld work publish` staged on main, HITLD-202) stays staged and out of this commit.
     git(root, [
       'commit',
+      '--only',
       '--no-verify',
       '-m',
       `migrate: ${names.join(', ')}`,
       '-m',
       plan.steps.map((s) => `${s.name}: ${s.summary}`).join('\n'),
+      '--',
+      ...paths,
     ]);
     sha = git(root, ['rev-parse', 'HEAD']).trim();
   }

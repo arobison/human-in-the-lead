@@ -3,9 +3,11 @@
 // A session that may not push main (a cloud session, or any orchestrator or chief of staff on a
 // branch of its own) files and answers decisions in its working tree. Publishing gathers the
 // tracker files it changed, builds one commit for them on top of the remote's main branch, and
-// pushes that commit to a new branch for a pull request. Nothing in the session's own checkout
-// moves: the commit is built with a temporary index, so the branch the session is on, its index
-// and its working tree stay as they are.
+// pushes that commit to a new branch for a pull request. The commit is built with a temporary
+// index, so the branch the session is on stays as it is, and the working tree is never touched.
+// Once pushed, a checkout on the main branch has the published files staged, so a later pull of the
+// merged result (git pull --ff-only) absorbs them (stagePublished, HITLD-202); on any other
+// branch nothing moves.
 //
 // Which files: those under the work directory that differ between the session's working tree and
 // where its branch left main (commits on the branch, staged and unstaged changes, new files). The
@@ -400,6 +402,36 @@ export function pushBranch(root, remote, commit, branch) {
     );
   }
   git(root, ['update-ref', `${PUBLISHED_REFS}/${branch}`, commit]);
+}
+
+/**
+ * After a publish, stage the published files in the checkout's index when it is on the main
+ * branch (HITLD-202). Left as they were, a new file stays untracked, and pulling main once the pull
+ * request merges stops on "untracked working tree files would be overwritten". Staged with exactly
+ * the content that was pushed, they are tracked changes the merge absorbs: a fast-forward pull
+ * whose commit brings the same content goes through (a merge or rebase pull refuses while they
+ * are staged). The working tree is never touched, so every
+ * local reader (work show, rights answer, the next edit, a design) still sees what was published.
+ *
+ * The index entry is the pushed blob, not whatever the working copy holds by then, so the index
+ * matches the pushed commit. On any other branch nothing moves: the session's branch is its own to
+ * commit.
+ * @param {string} root @param {Layout} layout @param {PublishedFile[]} files
+ * @returns {{ branch: string | null, staged: string[] }} branch null: detached HEAD
+ */
+export function stagePublished(root, layout, files) {
+  const branch = git(root, ['symbolic-ref', '-q', '--short', 'HEAD'], { allowFail: true }).trim();
+  if (branch !== layout.mainBranch || !files.length) {
+    return { branch: branch || null, staged: [] };
+  }
+  // One update-index for every file, as buildCommit does: mode 0 stages a removal. Paths go in
+  // NUL-terminated, so no name is read as a pattern or split on a line break.
+  const none = '0'.repeat(git(root, ['rev-parse', 'HEAD']).trim().length);
+  const entries = files.map((f) =>
+    f.blob === null ? `0 ${none}\t${f.path}\0` : `100644 ${f.blob}\t${f.path}\0`,
+  );
+  git(root, ['update-index', '-z', '--index-info'], { input: entries.join('') });
+  return { branch, staged: files.map((f) => f.path) };
 }
 
 /**
