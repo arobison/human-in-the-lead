@@ -22,3 +22,5 @@ HITLD-142 (done) put a rule in the chief-of-staff skill: `create_session` attach
 ## Notes
 
 Related: permission denials are typed faults that escalate (HITLD-186). The harness limit stays: no session can attach a repository to another, and `create_session` takes one source. Raised by the owner, 2026-11-21.
+
+On 2026-11-21 the harness refused an orchestrator's attach twice, the second time after the owner's approval was relayed through the chief of staff. A relayed approval is not accepted for this tool: the owner's own message in that session, or a permission rule for the attach tool in the owner's settings, is what counts. So the permission rule is part of this item's fix, not an optional extra.

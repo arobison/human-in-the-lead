@@ -6,7 +6,7 @@ state: done
 created: 2026-11-21
 project: HITLD-15
 decider: owner
-answer: A. Every sub-session that needs the store gets it attached|Any sub-session that needs the store has the store repository attached, and the chief of staff makes sure it is. A session cannot be given a repository by another session, so the chief of staff passes the attach tool when creating it and the session attaches the repository itself (the rule already in the chief-of-staff skill, HITLD-142). Sessions that do not need the store never get it.
+answer: Every sub-session that needs the store gets it attached
 answered_at: 2026-11-21T06:47:09.876Z
 answered_via: chat
 answered_by: owner
@@ -20,8 +20,8 @@ Orch-4's read-only diagnosis (2026-11-21): its device key is set and matches the
 
 ## Options and recommendation
 
-- A. A: Every sub-session that needs the store gets it attached|Any sub-session that needs the store has the store repository attached, and the chief of staff makes sure it is. A session cannot be given a repository by another session, so the chief of staff passes the attach tool when creating it and the session attaches the repository itself (the rule already in the chief-of-staff skill, HITLD-142). Sessions that do not need the store never get it.
-- B. B: Never attach it to sub-sessions|Only the chief of staff holds the store.
+- A. Every sub-session that needs the store gets it attached: Any sub-session that needs the store has the store repository attached, and the chief of staff makes sure it is. A session cannot be given a repository by another session, so the chief of staff passes the attach tool when creating it and the session attaches the repository itself (the rule already in the chief-of-staff skill, HITLD-142). Sessions that do not need the store never get it.
+- B. Never attach it to sub-sessions: Only the chief of staff holds the store.
 
 Recommended: A. The chief of staff recommended it.
 
