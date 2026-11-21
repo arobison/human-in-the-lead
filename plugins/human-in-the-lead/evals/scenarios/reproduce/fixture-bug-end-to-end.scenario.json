@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "id": "reproduce/fixture-bug-end-to-end",
+  "suite": "reproduce",
+  "category": "reproduction",
+  "description": "A reported bug in a fixture consumer becomes a failing test in the sandbox, is checked by script and kept off every branch, and becomes a proposed item whose \"Done when\" is that test, which exists before any executor starts. An executor cannot make the item.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "fixture",
+      "action": "reproduce.fixture",
+      "with": {}
+    },
+    {
+      "id": "open",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "open", "--signal", "../signal.json", "--dir", "../repro"]
+      }
+    },
+    {
+      "id": "test",
+      "action": "file.write",
+      "with": {
+        "path": "repro/work/test/mean.test.js",
+        "content": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { mean } from '../src/stats.js';\ntest('mean of two numbers', () => assert.equal(mean([2, 4]), 3, 'mean([2, 4]) should be 3'));\n"
+      }
+    },
+    {
+      "id": "run",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "run", "../repro", "--test", "test/mean.test.js"]
+      }
+    },
+    {
+      "id": "reply",
+      "action": "file.write",
+      "with": {
+        "path": "reply.json",
+        "content": "{\"verdict\": \"reproduced\", \"test\": \"test/mean.test.js\", \"expected_failure\": \"mean([2, 4]) should be 3\", \"summary\": \"mean divides by one less than the count\"}"
+      }
+    },
+    {
+      "id": "check",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "check", "../repro", "--reply", "../reply.json"]
+      }
+    },
+    {
+      "id": "executor-item",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "reproduce",
+          "item",
+          "SIG-7",
+          "--parent",
+          "W-10",
+          "--title",
+          "mean() divides by the wrong count"
+        ],
+        "as_executor": true
+      }
+    },
+    {
+      "id": "item",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": [
+          "reproduce",
+          "item",
+          "SIG-7",
+          "--parent",
+          "W-10",
+          "--title",
+          "mean() divides by the wrong count"
+        ]
+      }
+    },
+    {
+      "id": "show",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["work", "show", "W-11", "--json"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "sandbox-opened",
+      "grader": "equals",
+      "with": {
+        "path": "steps.open.exit",
+        "value": 0
+      }
+    },
+    {
+      "id": "fails-in-the-sandbox",
+      "grader": "equals",
+      "with": {
+        "path": "steps.run.result.outcome",
+        "value": "fail"
+      }
+    },
+    {
+      "id": "no-network-used",
+      "grader": "equals",
+      "with": {
+        "path": "steps.run.result.network_attempts",
+        "value": 0
+      }
+    },
+    {
+      "id": "reproduced",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.verdict",
+        "value": "reproduced"
+      }
+    },
+    {
+      "id": "kept-off-branches",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.ref",
+        "value": "refs/hitld/reproductions/SIG-7"
+      }
+    },
+    {
+      "id": "failing-test-named",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.record.failing",
+        "value": ["mean of two numbers"]
+      }
+    },
+    {
+      "id": "executor-refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.executor-item.result.error",
+        "value": "not-permitted"
+      }
+    },
+    {
+      "id": "item-made",
+      "grader": "equals",
+      "with": {
+        "path": "steps.item.exit",
+        "value": 0
+      }
+    },
+    {
+      "id": "item-proposed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.item.result.state",
+        "value": "proposed"
+      }
+    },
+    {
+      "id": "item-test",
+      "grader": "equals",
+      "with": {
+        "path": "steps.item.result.test",
+        "value": "test/mean.test.js"
+      }
+    },
+    {
+      "id": "done-when-is-the-test",
+      "grader": "matches",
+      "with": {
+        "path": "steps.item.result.done_when[0]",
+        "pattern": "^- `test/mean\\.test\\.js` passes\\. It is the reproduced test"
+      }
+    },
+    {
+      "id": "item-file-done-when",
+      "grader": "matches",
+      "with": {
+        "path": "steps.show.result.entity.body",
+        "pattern": "## Done when\\n\\n- `test/mean\\.test\\.js` passes"
+      }
+    }
+  ]
+}
