@@ -22,6 +22,6 @@ Design part 21, One signal end to end.
 
 The pass on the core area broke three invariants, each recorded as regression tests marked todo with their fix items pending:
 
-- `**` does not match across a line break: `globMatch('a/**', 'a/\r')` is false while `a/*` matches. Its fix is HITLD-654.
+- `**` does not match across a line break: `globMatch('a/**', 'a/\r')` is false while `a/*` matches. Fixed by HITLD-654; its two regression tests no longer carry todo marks.
 - `safePath('./C:x')` returns `C:x`, which it refuses when given directly: the absolute check runs before normalizing. Low impact on POSIX; on Windows, a drive-relative escape.
 - An inline list in front matter does not read back. The defect is broader than the recorded counterexamples show: any `"` in the middle of a list member toggles the reader's quoting, so `needs: [a"b, c]` reads back as one member, with no comma inside the member needed.
