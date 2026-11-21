@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "tracker/close-by-trailer-owner",
+  "suite": "tracker",
+  "category": "tracker",
+  "description": "Closing by trailer in owner merge mode (design part 3.4): a person's branch made by hand carries Closes: W-1. The batch presented to the owner names W-1 as closed in it, and once the owner says yes, main holds the work and W-1's Done edit together, while Refs: W-3 changes nothing.",
+  "mode": "offline",
+  "steps": [
+    { "id": "merge", "action": "tracker.close-by-trailer-merge", "with": { "owner": true } }
+  ],
+  "graders": [
+    {
+      "id": "owner-sees-the-close",
+      "grader": "equals",
+      "with": { "path": "steps.merge.presented_closed", "value": ["W-1"] }
+    },
+    {
+      "id": "closed-in-the-merge",
+      "grader": "equals",
+      "with": { "path": "steps.merge.closed", "value": ["W-1"] }
+    },
+    {
+      "id": "only-closes-changes-state",
+      "grader": "equals",
+      "with": {
+        "path": "steps.merge.states",
+        "value": { "W-1": "done", "W-2": "planned", "W-3": "planned" }
+      }
+    },
+    {
+      "id": "work-and-close-merged-together",
+      "grader": "equals",
+      "with": { "path": "steps.merge.commits_merged", "value": 2 }
+    }
+  ]
+}

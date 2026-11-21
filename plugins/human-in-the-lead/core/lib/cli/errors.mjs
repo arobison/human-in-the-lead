@@ -30,6 +30,8 @@ export const ERROR_CODES = Object.freeze({
   // The project, its files and the run
   policy: 'policy.json is missing, invalid or not trusted.',
   settings: 'A settings file is invalid.',
+  'settings-not-pulled':
+    "The project's store holds the owner's settings and is not up to date here, so config write did not write them there (in a cloud session, nothing at all); pull the store first.",
   tracker: 'tracker.json is invalid.',
   'id-counter-unreachable':
     'A new ID is taken from the counter on the store repository, and it could not be reached or written; no ID was taken.',
@@ -41,6 +43,8 @@ export const ERROR_CODES = Object.freeze({
   'no-eval-run': 'No stored eval run has that ID, or none is stored yet.',
   'invalid-eval-run': 'A stored eval run is not a valid eval result.',
   'setup-failed': "The worktree's setup commands failed.",
+  'branch-names-taken':
+    "An item's branch name and its fresh names (<name>-2 to <name>-99) are all taken, so no worktree was cut.",
   'version-not-pinned':
     'This session runs another release of the plugin than the pin in .claude/settings.json names, so no run starts or resumes.',
 
@@ -72,6 +76,8 @@ export const ERROR_CODES = Object.freeze({
   'disk-floor':
     "Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.",
   'not-in-flight': 'The dispatch is not in flight.',
+  'no-report-block':
+    'An executor that reports by message (an interactive session) would get a brief without the communication block, because no session ID it could send its report to is known: pass --session or set HITLD_SESSION, or run in a harness that gives one.',
   'tokens-over-estimate':
     "The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.",
   'unknown-dispatch': 'The dispatch has no recorded harness reference, so it cannot be continued.',

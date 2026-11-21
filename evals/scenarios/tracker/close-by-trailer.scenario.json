@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "id": "tracker/close-by-trailer",
+  "suite": "tracker",
+  "category": "tracker",
+  "description": "Closing by trailer (design part 3.4): a person's branch, made by hand with no claim, carries Closes: W-1 and Refs: W-3 and says \"closes W-2\" in prose. The merge queue commits W-1's Done edit on top of the work, in the same merge; Refs: and the prose change nothing. Reverting the merge reopens W-1, and hitld work check on main stays quiet. Then a commit pushed straight to main with Closes: W-1, and W-2 marked done by hand with no commit naming it: hitld work check names both, as warnings, and its result is still ok.",
+  "mode": "offline",
+  "steps": [
+    { "id": "merge", "action": "tracker.close-by-trailer-merge", "with": {} },
+    { "id": "after_merge", "action": "orchestrator.cli", "with": { "argv": ["work", "check"] } },
+    { "id": "revert", "action": "tracker.close-by-trailer-revert", "with": {} },
+    { "id": "after_revert", "action": "orchestrator.cli", "with": { "argv": ["work", "check"] } },
+    { "id": "push", "action": "tracker.direct-push", "with": {} },
+    { "id": "after_push", "action": "orchestrator.cli", "with": { "argv": ["work", "check"] } }
+  ],
+  "graders": [
+    {
+      "id": "merged",
+      "grader": "equals",
+      "with": { "path": "steps.merge.merged", "value": ["W-1"] }
+    },
+    {
+      "id": "closed-in-the-merge",
+      "grader": "equals",
+      "with": { "path": "steps.merge.closed", "value": ["W-1"] }
+    },
+    {
+      "id": "only-closes-changes-state",
+      "grader": "equals",
+      "with": {
+        "path": "steps.merge.states",
+        "value": { "W-1": "done", "W-2": "planned", "W-3": "planned" }
+      }
+    },
+    {
+      "id": "done-edit-is-the-merges-last-commit",
+      "grader": "equals",
+      "with": { "path": "steps.merge.last_subject", "value": "close: W-1" }
+    },
+    {
+      "id": "done-edit-changes-only-the-item",
+      "grader": "equals",
+      "with": { "path": "steps.merge.last_files", "value": "work/items/W-1-add-numbers.md" }
+    },
+    {
+      "id": "work-and-close-merged-together",
+      "grader": "equals",
+      "with": { "path": "steps.merge.commits_merged", "value": 2 }
+    },
+    {
+      "id": "nothing-mismatched-after-merge",
+      "grader": "count",
+      "with": { "path": "steps.after_merge.result.mismatches", "equals": 0 }
+    },
+    {
+      "id": "revert-reopens",
+      "grader": "equals",
+      "with": { "path": "steps.revert.states.W-1", "value": "planned" }
+    },
+    {
+      "id": "nothing-mismatched-after-revert",
+      "grader": "count",
+      "with": { "path": "steps.after_revert.result.mismatches", "equals": 0 }
+    },
+    {
+      "id": "two-mismatches-after-push",
+      "grader": "count",
+      "with": { "path": "steps.after_push.result.mismatches", "equals": 2 }
+    },
+    {
+      "id": "push-caught",
+      "grader": "equals",
+      "with": { "path": "steps.after_push.result.mismatches[0].kind", "value": "open-with-commit" }
+    },
+    {
+      "id": "push-caught-item",
+      "grader": "equals",
+      "with": { "path": "steps.after_push.result.mismatches[0].item", "value": "W-1" }
+    },
+    {
+      "id": "push-commit-named",
+      "grader": "matches",
+      "with": {
+        "path": "steps.after_push.result.mismatches[0].commits[0]",
+        "pattern": "^[0-9a-f]{12}$"
+      }
+    },
+    {
+      "id": "hand-close-caught",
+      "grader": "equals",
+      "with": {
+        "path": "steps.after_push.result.mismatches[1].kind",
+        "value": "done-without-commit"
+      }
+    },
+    {
+      "id": "hand-close-caught-item",
+      "grader": "equals",
+      "with": { "path": "steps.after_push.result.mismatches[1].item", "value": "W-2" }
+    },
+    {
+      "id": "warns-not-fails",
+      "grader": "equals",
+      "with": { "path": "steps.after_push.exit", "value": 0 }
+    }
+  ]
+}
