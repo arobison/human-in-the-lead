@@ -791,12 +791,15 @@ test('hitld work check, query, show and views run from the repository', async ()
   settings(root);
   const check = await hitld(['work', 'check'], root);
   assert.equal(check.code, 0);
-  // The fixture's open work items are under no milestone: a warning each, and still ok.
+  // The fixture's open work items are under no milestone: a warning each, and still ok. It has no
+  // private store, so no term list either, and says so (HITLD-187).
+  assert.match(check.json.warnings[0], /^the private term list was not checked: /);
   assert.deepEqual(check.json, {
     ok: true,
     files: 6,
     problems: [],
     warnings: [
+      check.json.warnings[0],
       'work/items/W-4-second-step.md: W-4 is open and under no milestone; make it a constraint of the milestone clause it serves',
       'work/items/W-5-third-step.md: W-5 is open and under no milestone; make it a constraint of the milestone clause it serves',
       // The fixture's bodies are stubs, so the description check (HITLD-75) warns on each open
@@ -809,6 +812,15 @@ test('hitld work check, query, show and views run from the repository', async ()
       'work/milestones/W-1-goal.md: W-1 description (missing-outcome): no outcome: one sentence, the state for users',
       'work/milestones/W-1-goal.md: W-1 description (missing-clauses): no done-when clauses',
       'work/milestones/W-1-goal.md: W-1 description (missing-check): no check: demo, integration-test or study, and what it runs',
+    ],
+    // On main: the trailers checked against the items (tracker-closing.test.mjs). No commit names
+    // an item yet, so done items are not checked.
+    mismatches: [],
+    mismatches_skipped: [
+      {
+        kind: 'done-without-commit',
+        why: 'no commit on main names an item in a Work-Item, Closes or Refs trailer yet, so no done item could have one',
+      },
     ],
     summary: '6 files, no problems',
   });

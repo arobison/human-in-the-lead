@@ -33,7 +33,9 @@
     },
     "refs": {
       "description": "Dispatch, decision, item and ledger event IDs the feedback is about.",
-      "$ref": "common#/$defs/ids"
+      "type": "array",
+      "items": { "$ref": "common#/$defs/ref" },
+      "uniqueItems": true
     },
     "what_happened": {
       "description": "A short account drawn from the ledger entries for the refs. Absent when none were found.",

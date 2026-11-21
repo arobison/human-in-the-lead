@@ -2,10 +2,12 @@
 id: HITLD-148
 title: A cloud session starts with the owner's settings and the machine's profile, with nothing carried between sessions by hand
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-142]
+claimed_by: D-42
+release_note: "The owner's settings travel in each project's private store: `hitld config write` puts the executor cap, the quota and the attention budget (and the owner's answers about a kind of machine) there for `hitld store push`, a fresh cloud session reads them after a pull that reached the remote, and when the store cannot be read it runs on conservative defaults and says why (`setup.from_store`, `setup.conservative`)."
 ---
 
 ## Why
@@ -49,3 +51,15 @@ The goal and the owner's two choices stand (HITLD-162: the settings live in the 
 Checked and unchanged: the ledger and no-run decisions (HITLD-484 to HITLD-490), the trust-engine decisions (HITLD-518 to HITLD-529, HITLD-547, HITLD-548), stay in the harness (HITLD-540) and contributor input (HITLD-517) do not change what this item builds.
 
 For the owner, not decided here: the settings section of the operations design and its question on syncing the person file across machines still say the person file is not synced, which predates HITLD-162. HITLD-162 governs the settings a cloud session needs, so the build updates that design text for the owner's yes to merge. The same section says whether a person-level ceiling on executors across projects stays is not decided; the cap here stays as HITLD-230 set it.
+
+## As built (D-42)
+
+- The settings that travel live in the project's own store: `settings/person.json` (`max_executors`, `quota`, `attention`) and `settings/machine.json` (the owner's answers per kind of machine: `max_executors`, `memory_ceiling_mb`, `load`, `disk_floor_mb`, `capacity`). The person file's `projects` keys never enter a store, and a copy that holds any other key is refused (`core/lib/settings/store-copy.mjs`).
+- `hitld config write` writes them in the owner's own turn, after the settings file (which refuses executors); `hitld store push` carries them. `--merge` in a fresh container starts from the store's copy.
+- Every pull records what it did, machine-local in `<store>/.git/hitld-pull.json` (`core/lib/store/last-pull.mjs`), and so does a push that went through. With a remote configured, the copy is read only when the last pull reached the remote at the address in use within 24 hours, with the same trusted loading as the settings files (no symbolic link, the owner's file, writable by nobody else). A read copy's keys replace the person file's, with a warning for each. A refused copy is never quoted.
+- While the store is expected and not up to date, `config write` does not write the store's copy (`settings-not-pulled`): in a cloud session it writes nothing, on a machine only the person's own file. A stale copy or a container's leftover file never reaches the store.
+- Limit: "an executor cannot change it" holds for the command (`config write` refuses executors by `HITLD_ROLE`, `HITLD_DISPATCH` and a linked worktree), not for the file. A process that edits `settings/person.json` in the store directly would have the edit carried by the owner's next `hitld store push`. A check at push time is a follow-up.
+- Not read with a remote configured: no person settings from anywhere in a cloud session (a container's leftover file may be stale), so `setup.conservative` says what and why, nothing is asked, and `dispatch plan` runs at one executor. On the owner's own machine their file stands, with a warning.
+- `hitld machine detect` with no machine file uses the store's answers for the detected kind (`kind_source: store`), so a cloud session's `--write` at start asks nothing.
+- `hitld config explain` reports `setup.from_store` and `setup.conservative`. The orchestrate skill now makes the store check and a pull before reading the settings, asks only for `setup.missing`, records a cloud machine with `--write`, and pushes after a write. The HITLD-174 rule is unchanged until the answer record (HITLD-564) exists.
+- The design's settings section, Q28, the scope table and design 0003's list of what moves now say the settings sync through the project's store (HITLD-162), for the owner's yes at merge.

@@ -28,6 +28,33 @@ export const envPrefix = (env) =>
     .map(([k, v]) => `${k}=${v}`)
     .join(' ');
 
+/**
+ * Whether an executor reports by sending a message rather than through its harness's own channel
+ * (HITLD-147). A subagent's last message is its completion notice and a headless run writes its
+ * result file, both on the orchestrator's machine; an interactive session, which may run outside
+ * it, ends a turn without anything reaching the orchestrator unless it sends a message.
+ * @param {{ tier: number, mode?: string | null }} d
+ */
+export const reportsByMessage = (d) => d.tier >= 3 && d.mode === 'interactive';
+
+/** The opening words of the communication block; `hasReportBlock` looks for them. */
+const REPORT_TO = 'Report up the chain: the orchestrator is session ';
+
+/**
+ * The communication block (HITLD-147, as the owner decided it in HITLD-161): it names the
+ * orchestrator's own session, so no one pastes it by hand.
+ * @param {string} session the orchestrator's session ID
+ */
+export const reportBlock = (session) =>
+  `${REPORT_TO}${session}. Your last act of every turn is to send it your report in the fixed shape, or your exact blocker, with the harness's message tool (on the web, send_message to session ${session}), even when nothing changed. The last words of a turn reach no one: a turn that ends without that message has not reported.`;
+
+/**
+ * Whether a brief carries the communication block naming `session`.
+ * @param {string} brief @param {string} session
+ */
+export const hasReportBlock = (brief, session) =>
+  brief.split('\n').some((l) => l.startsWith(`${REPORT_TO}${session}. `));
+
 /** At most this many paths per line of the overlap lines; the rest are counted. */
 const PATHS_SHOWN = 6;
 
@@ -40,11 +67,13 @@ const pathList = (paths) =>
 /**
  * `touches`: what the overlap rule used (touches.mjs), when the caller derived them; `overlaps`:
  * the dispatches in flight whose touches overlap; `merged`: the merges since the item was planned
- * that changed the same paths.
+ * that changed the same paths; `reportTo`: the orchestrator's session, for an executor that reports
+ * by message (`reportsByMessage`), which writes the communication block.
  * @param {{ item: Item, sizing: Sizing, dispatch: string, branch: string, policy: Record<string, any>,
  *   isolation: 'worktree' | 'none', worktree?: string | null,
  *   touches?: import('./touches.mjs').Touches,
- *   overlaps?: import('./touches.mjs').Overlap[], merged?: import('./touches.mjs').Merge[] }} r
+ *   overlaps?: import('./touches.mjs').Overlap[], merged?: import('./touches.mjs').Merge[],
+ *   reportTo?: string | null }} r
  * @returns {string}
  */
 export function renderBrief({
@@ -58,6 +87,7 @@ export function renderBrief({
   touches: used,
   overlaps = [],
   merged = [],
+  reportTo = null,
 }) {
   const prefix = envPrefix(executorEnv(dispatch, String(policy.project?.id ?? '')));
   const id = String(item.id);
@@ -110,5 +140,6 @@ export function renderBrief({
     'Follow the executor contract in AGENTS.md and the execute skill: claim first, close in the same',
     'change, measure through the benchmark tool, report in the fixed shape.',
     '',
+    ...(reportTo ? [reportBlock(reportTo), ''] : []),
   ].join('\n');
 }

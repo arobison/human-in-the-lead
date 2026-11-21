@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "id": "reproduce/sandbox-denies-network",
+  "suite": "reproduce",
+  "category": "reproduction",
+  "description": "A test that reaches for the network in the reproducer's sandbox is denied, and a reproduction that needs the network is refused.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "fixture",
+      "action": "reproduce.fixture",
+      "with": {}
+    },
+    {
+      "id": "open",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "open", "--signal", "../signal.json", "--dir", "../repro"]
+      }
+    },
+    {
+      "id": "test",
+      "action": "file.write",
+      "with": {
+        "path": "repro/work/test/mean.test.js",
+        "content": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('remote mean', async () => { await fetch('http://127.0.0.1:9/'); assert.fail('mean([2, 4]) should be 3'); });\n"
+      }
+    },
+    {
+      "id": "run",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "run", "../repro", "--test", "test/mean.test.js"]
+      }
+    },
+    {
+      "id": "reply",
+      "action": "file.write",
+      "with": {
+        "path": "reply.json",
+        "content": "{\"verdict\": \"reproduced\", \"test\": \"test/mean.test.js\", \"expected_failure\": \"mean([2, 4]) should be 3\", \"summary\": \"mean divides by one less than the count\"}"
+      }
+    },
+    {
+      "id": "check",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "check", "../repro", "--reply", "../reply.json"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "denied",
+      "grader": "matches",
+      "with": {
+        "path": "steps.run.result.failing[0].failure.code",
+        "pattern": "^HITLD_NETWORK_DENIED$"
+      }
+    },
+    {
+      "id": "refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.error",
+        "value": "reproduction-refused"
+      }
+    },
+    {
+      "id": "says-why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.check.result.reason",
+        "pattern": "tried to use the network"
+      }
+    }
+  ]
+}
