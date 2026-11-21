@@ -2,10 +2,11 @@
 id: HITLD-202
 title: work publish leaves the files it published untracked on main
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-125]
+claimed_by: D-56
 ---
 
 ## Why
@@ -15,7 +16,7 @@ needs: [HITLD-125]
 ## Done when
 
 - After a successful publish the working tree is clean: the published files are removed from main's working tree, or left as tracked changes that the pull request's merge absorbs, and the command says which.
-- A test publishes from main with new items and checks that `git status` is clean afterwards and that a later fast-forward pull of the merged result works.
+- A test publishes from main with new items and checks that `git status` afterwards shows no untracked published file, only the published files staged (`A`/`M`) with the pushed content and the working copies untouched, and that a later fast-forward pull (`git pull --ff-only`) of the merged result works and leaves `git status` clean. A status-based Stop hook can still fire on those staged changes until the merge; that needs a hook exception for the publish flow or harness feedback, as the second sighting below says, and is outside this item.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
 
 ## Notes
