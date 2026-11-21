@@ -654,7 +654,8 @@ async function mergeWithBadNote(merge) {
   assert.equal((await hitld(['run', 'start'])).exit, 0);
   const start = await hitld(['dispatch', 'start', 'W-1']);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
-  await hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const dispatch = start.result.dispatch;
+  await hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', 'agent-1']);
   const branch = start.result.branch;
   git(c.root, 'switch', '-q', '-c', branch);
   put(c.root, {
@@ -675,14 +676,14 @@ async function mergeWithBadNote(merge) {
     '-m',
     'W-1',
     '-m',
-    'Work-Item: W-1\nDispatch: D-1\nAgent-Role: executor',
+    `Work-Item: W-1\nDispatch: ${dispatch}\nAgent-Role: executor`,
   );
   const sha = git(c.root, 'rev-parse', 'HEAD');
   if (viaPR) git(c.root, 'push', '-q', 'origin', branch);
   git(c.root, 'switch', '-q', 'main');
   const note = join(c.base, 'note.txt');
   writeFileSync(note, report({ item: 'W-1', sha, branch }));
-  const done = await hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  const done = await hitld(['dispatch', 'complete', '--dispatch', dispatch, '--report-file', note]);
   assert.equal(done.result.queued_to_merge, branch, JSON.stringify(done.result));
   const before = git(c.root, 'rev-parse', 'main');
   const merged = await hitld(['merge']);
