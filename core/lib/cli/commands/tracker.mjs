@@ -89,7 +89,8 @@ export function open(input, ctx, { readOnly = false } = {}) {
 function workCheckTerms(input, ctx) {
   const repo = input.repo ? resolve(ctx.cwd, String(input.repo)) : ctx.cwd;
   const loaded = loadPolicy({ cwd: repo });
-  if (!loaded.policy) return { matchers: [], warnings: [] };
+  // No policy.json: no store, but the address in use is still checked and the warning says the
+  // list was not (HITLD-187).
   try {
     return termsForProject({
       policy: loaded.policy,
