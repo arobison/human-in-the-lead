@@ -2,9 +2,10 @@
 id: HITLD-75
 title: Agents learn to write good descriptions for items, projects, initiatives and milestones
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-14
 project: HITLD-28
+claimed_by: D-50
 ---
 
 ## Why
