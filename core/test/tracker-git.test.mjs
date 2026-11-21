@@ -791,12 +791,15 @@ test('hitld work check, query, show and views run from the repository', async ()
   settings(root);
   const check = await hitld(['work', 'check'], root);
   assert.equal(check.code, 0);
-  // The fixture's open work items are under no milestone: a warning each, and still ok.
+  // The fixture's open work items are under no milestone: a warning each, and still ok. It has no
+  // private store, so no term list either, and says so (HITLD-187).
+  assert.match(check.json.warnings[0], /^the private term list was not checked: /);
   assert.deepEqual(check.json, {
     ok: true,
     files: 6,
     problems: [],
     warnings: [
+      check.json.warnings[0],
       'work/items/W-4-second-step.md: W-4 is open and under no milestone; make it a constraint of the milestone clause it serves',
       'work/items/W-5-third-step.md: W-5 is open and under no milestone; make it a constraint of the milestone clause it serves',
     ],
