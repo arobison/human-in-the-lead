@@ -105,7 +105,21 @@ test('a question another run files under the same ID reaches a scenario only thr
 const listing = (dir) =>
   existsSync(dir) ? readdirSync(dir, { recursive: true }).map(String).sort() : [];
 
-test('the offline eval gate run twice in a row: the second run reads nothing the first left', async () => {
+/**
+ * The scenarios the twice-run test runs: not the whole gate, since the claim is about each case's
+ * store, not about every scenario. The rights scenarios reach the private store through the `cli`
+ * action, under the fixture's project ID and with decision IDs that start again at FX-2 in every
+ * case: what a store shared by cases or runs would mix up. The lease scenario, from the HITLD-572
+ * sighting, keeps each device's store in the case's sandbox through the `store.*` actions.
+ */
+const TWICE = [
+  'rights/judgement-never-settles-a-call',
+  'rights/operational-call-is-logged-not-asked',
+  'rights/relayed-answer-is-not-recorded',
+  'store/unreleased-lease-refused',
+];
+
+test('the offline eval gate run twice in a row over a fixed set: the second run reads nothing the first left', async () => {
   const cwd = tempDir('hitld-eval-twice-');
   const env = { XDG_DATA_HOME: tempDir('hitld-eval-twice-data-') };
   // Every sandbox and case home goes in a temporary directory of this test's own, so what a run
@@ -119,7 +133,7 @@ test('the offline eval gate run twice in a row: the second run reads nothing the
   process.env.TMPDIR = process.env.TMP = process.env.TEMP = tmp;
   try {
     for (let i = 0; i < 2; i++) {
-      const run = /** @type {any} */ (await evalOffline({ cwd, env }));
+      const run = /** @type {any} */ (await evalOffline({ cwd, env, scenarios: TWICE.join(',') }));
       // Nothing of the run is left where a later run's scenarios look: no sandbox, no case home
       // (with its private store) in the temporary directory, and nothing in the home.
       assert.deepEqual(readdirSync(tmp), [], `run ${i + 1} left files in the temporary directory`);
@@ -133,6 +147,7 @@ test('the offline eval gate run twice in a row: the second run reads nothing the
     }
   }
   for (const run of runs) {
+    assert.equal(run.summary.total, TWICE.length);
     assert.deepEqual(run.problems, []);
     assert.equal(run.summary.failed + run.summary.errors, 0);
   }
