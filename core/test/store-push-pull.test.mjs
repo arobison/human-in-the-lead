@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { appendEvent } from '../lib/ledger/ledger.mjs';
+import { ledgerKeys } from '../lib/ledger/writer.mjs';
 import { generateIdentity } from '../lib/store/age.mjs';
 import { open } from '../lib/store/sealed.mjs';
 import { git, head, snapshot } from '../lib/store/git.mjs';
@@ -94,7 +95,17 @@ function fixture() {
 
 /** @param {import('../lib/store/store.mjs').PrivateStore} store @param {string} id @param {number} n */
 const question = (store, id, n) =>
-  appendEvent(store, { event: 'asked', decision: `W-${n}`, id, at: at(n) });
+  // No session: each store appends as its own writer, as a device's store does.
+  appendEvent(store, { event: 'asked', decision: `W-${n}`, id, at: at(n) }, { env: {} });
+
+/**
+ * The text of every ledger file, in the order they are read.
+ * @param {import('../lib/store/store.mjs').PrivateStore} store
+ */
+const ledgerText = (store) =>
+  ledgerKeys(store)
+    .map((k) => store.read(k))
+    .join('');
 
 /** @param {string[]} argv @param {string} cwd @param {NodeJS.ProcessEnv} env */
 async function hitld(argv, cwd, env) {
@@ -294,7 +305,7 @@ test('push then pull on a second store; status before and after', async () => {
   assert.equal(pulled.code, EXIT.ok, JSON.stringify(pulled.json));
   assert.equal(pulled.json.result, 'fast-forward');
   assert.equal(pulled.json.remote_version, pushed.json.version);
-  assert.equal(b.store.read('ledger.jsonl'), a.store.read('ledger.jsonl'));
+  assert.equal(ledgerText(b.store), ledgerText(a.store));
   assert.equal(b.store.read('notes/cache.md'), `${SECRET_NOTE}\n`);
   // The private term list remote set wrote on a arrives with the rest (design 10.3, rule 7).
   assert.equal(b.store.read('private/terms.jsonl'), a.store.read('private/terms.jsonl'));
@@ -312,7 +323,7 @@ test('push then pull on a second store; status before and after', async () => {
   assert.equal((await b.run(['push'])).json.result, 'pushed');
   assert.equal((await a.run(['status'])).json.pull_due, true);
   assert.equal((await a.run(['pull'])).json.result, 'fast-forward');
-  assert.equal(a.store.read('ledger.jsonl'), b.store.read('ledger.jsonl'));
+  assert.equal(ledgerText(a.store), ledgerText(b.store));
 });
 
 test('the remote holds no plain text of the store (milestone c4)', async () => {
@@ -325,12 +336,12 @@ test('the remote holds no plain text of the store (milestone c4)', async () => {
   assert.equal((await a.run(['push'])).code, EXIT.ok);
 
   const markers = [
-    ...(a.store.read('ledger.jsonl') ?? '').trim().split('\n'),
+    ...ledgerText(a.store).trim().split('\n'),
     SECRET_NOTE,
     'tenant 4471',
     'precedents/P-1.json',
     'notes/cache.md',
-    'ledger.jsonl',
+    ...ledgerKeys(a.store),
     '"event":"asked"',
     'W-1',
     'E-3',
@@ -355,7 +366,7 @@ test('the remote holds no plain text of the store (milestone c4)', async () => {
   const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], {
     cwd: plain,
     env,
-    input: a.store.read('ledger.jsonl') ?? '',
+    input: ledgerText(a.store),
     encoding: 'utf8',
   }).stdout.trim();
   spawnSync('git', ['update-ref', 'refs/heads/x', blob], { cwd: plain, env });
@@ -373,7 +384,7 @@ test('machine-local files are never pushed', async () => {
   assert.deepEqual(await pushedPaths(f, DEVICE_B.identity), [
     '.gitignore',
     'devices/approvals.jsonl',
-    'ledger.jsonl',
+    ...ledgerKeys(a.store),
     'notes/cache.md',
     'precedents/P-1.json',
     'private/terms.jsonl',
@@ -392,6 +403,7 @@ test('machine-local files are never pushed', async () => {
   assert.equal((await b.run(['pull'])).code, EXIT.ok);
   assert.equal(b.store.read('run-state.json'), '{"b":true}\n');
   assert.equal(b.store.read('primary-checkout.json'), null);
+  assert.equal(b.store.read('ledger-writer.json'), null);
   assert.equal(b.store.read('usage/snapshots.jsonl'), null);
   assert.equal(b.store.read('run/checkpoints/slot-0.json'), null);
 });
@@ -421,14 +433,14 @@ test('a push against a moved remote pulls, merges and pushes again; both records
   assert.equal(second.json.previous_version, v1.json.version);
 
   for (const id of ['E-1', 'E-a1', 'E-b1']) {
-    assert.match(b.store.read('ledger.jsonl') ?? '', new RegExp(`"id":"${id}"`));
+    assert.match(ledgerText(b.store), new RegExp(`"id":"${id}"`));
   }
   // a takes b's push and ends with the same history.
   assert.equal((await a.run(['pull'])).code, EXIT.ok);
   for (const id of ['E-1', 'E-a1', 'E-b1']) {
-    assert.match(a.store.read('ledger.jsonl') ?? '', new RegExp(`"id":"${id}"`));
+    assert.match(ledgerText(a.store), new RegExp(`"id":"${id}"`));
   }
-  assert.equal(a.store.read('ledger.jsonl'), b.store.read('ledger.jsonl'));
+  assert.equal(ledgerText(a.store), ledgerText(b.store));
   assert.equal(a.store.read('notes/b.md'), 'written on b\n');
   assert.equal((await a.run(['status'])).json.push_due, false);
 });
@@ -451,10 +463,10 @@ test('two devices pushing at once both land', async () => {
   await b.run(['pull']);
   for (const side of [a, b]) {
     for (const id of ['E-1', 'E-a1', 'E-b1']) {
-      assert.match(side.store.read('ledger.jsonl') ?? '', new RegExp(`"id":"${id}"`));
+      assert.match(ledgerText(side.store), new RegExp(`"id":"${id}"`));
     }
   }
-  assert.equal(a.store.read('ledger.jsonl'), b.store.read('ledger.jsonl'));
+  assert.equal(ledgerText(a.store), ledgerText(b.store));
 });
 
 test('a real conflict stops the push and changes nothing on either side', async () => {
@@ -535,7 +547,7 @@ test('the identity may come from a file descriptor; neither secret is ever an ar
   } finally {
     closeSync(fd);
   }
-  assert.equal(b.store.read('ledger.jsonl'), a.store.read('ledger.jsonl'));
+  assert.equal(ledgerText(b.store), ledgerText(a.store));
 
   for (const sub of ['push', 'pull', 'status']) {
     for (const secretFlag of ['--passphrase', '--identity']) {

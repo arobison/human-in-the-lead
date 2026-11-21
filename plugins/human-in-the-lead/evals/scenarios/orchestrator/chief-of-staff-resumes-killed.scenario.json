@@ -26,7 +26,14 @@
       "id": "d2_handle",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["dispatch", "handle", "--dispatch", "D-2", "--harness-ref", "agent-2"],
+        "argv": [
+          "dispatch",
+          "handle",
+          "--dispatch",
+          "{{steps.d2.result.dispatch}}",
+          "--harness-ref",
+          "agent-2"
+        ],
         "session": "orch-1"
       }
     },
@@ -38,7 +45,10 @@
     {
       "id": "too_early",
       "action": "orchestrator.cli",
-      "with": { "argv": ["run", "resume", "--live", "D-2"], "session": "orch-2" }
+      "with": {
+        "argv": ["run", "resume", "--live", "{{steps.d2.result.dispatch}}"],
+        "session": "orch-2"
+      }
     },
     {
       "id": "retire",
@@ -54,7 +64,14 @@
       "id": "resume",
       "action": "orchestrator.cli",
       "with": {
-        "argv": ["run", "resume", "--live", "D-2", "--harness-ref", "cloud-orch-2"],
+        "argv": [
+          "run",
+          "resume",
+          "--live",
+          "{{steps.d2.result.dispatch}}",
+          "--harness-ref",
+          "cloud-orch-2"
+        ],
         "session": "orch-2"
       }
     },
@@ -120,18 +137,18 @@
       "grader": "matches",
       "with": {
         "path": "steps.resume.result.handover.text",
-        "pattern": "In flight \\(1\\): D-2 W-2"
+        "pattern": "In flight \\(1\\): {{steps.d2.result.dispatch}} W-2"
       }
     },
     {
       "id": "abandoned",
       "grader": "equals",
-      "with": { "path": "steps.resume.result.abandoned", "value": ["D-1"] }
+      "with": { "path": "steps.resume.result.abandoned", "value": ["{{steps.d1.result.dispatch}}"] }
     },
     {
       "id": "adopted",
       "grader": "equals",
-      "with": { "path": "steps.resume.result.adopted", "value": ["D-2"] }
+      "with": { "path": "steps.resume.result.adopted", "value": ["{{steps.d2.result.dispatch}}"] }
     },
     {
       "id": "replanned",

@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main } from '../lib/cli/main.mjs';
@@ -22,7 +22,7 @@ import { pauseTransition } from '../lib/quota/pause.mjs';
 import { evaluateQuotas } from '../lib/quota/quota.mjs';
 import { declaredReset } from '../lib/quota/window.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
-import { git, makeConsumer, put } from './orchestrator-fixture.mjs';
+import { git, item, makeConsumer, put } from './orchestrator-fixture.mjs';
 
 const HOOKS = resolve(fileURLToPath(new URL('../harness/claude-code/hooks/', import.meta.url)));
 
@@ -45,13 +45,13 @@ function clocked(options) {
   const c = makeConsumer(options);
   const t0 = Date.now();
   let offset = 0;
-  /** @param {string[]} argv @param {NodeJS.ProcessEnv} [env] */
-  const hitld = async (argv, env = {}) => {
+  /** @param {string[]} argv @param {NodeJS.ProcessEnv} [env] @param {string} [cwd] */
+  const hitld = async (argv, env = {}, cwd = c.root) => {
     let out = '';
     const exit = await main(argv, {
       out: (t) => (out += t),
       err: () => {},
-      cwd: c.root,
+      cwd,
       env: { ...c.env, ...env },
       now: () => new Date(t0 + offset * 1000),
     });
@@ -97,7 +97,8 @@ test('progress: the hook records an executor tool call, the watch samples its br
   await c.hitld(['run', 'start']);
   const start = await c.hitld(['dispatch', 'start', 'W-1']);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const d = start.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1']);
 
   // A tool call by the background agent: the PostToolUse hook knows its agent ID, not its dispatch.
   const env = { PATH: process.env.PATH, XDG_DATA_HOME: c.env.XDG_DATA_HOME };
@@ -143,7 +144,7 @@ test('progress: the hook records an executor tool call, the watch samples its br
   assert.equal(seen.result.dispatches[0].state, 'progressing');
   assert.equal(seen.result.dispatches[0].last_progress_at, new Date(c.t0 + 3000_000).toISOString());
   const worktree = c.store
-    .read('dispatch/progress/D-1.jsonl')
+    .read(`dispatch/progress/${d}.jsonl`)
     ?.trim()
     .split('\n')
     .map((l) => JSON.parse(l));
@@ -153,7 +154,20 @@ test('progress: the hook records an executor tool call, the watch samples its br
   c.at(3600);
   const again = await c.hitld(['dispatch', 'watch']);
   assert.equal(again.result.dispatches[0].quiet_seconds, 600);
-  assert.equal(c.store.read('dispatch/progress/D-1.jsonl')?.trim().split('\n').length, 1);
+  assert.equal(c.store.read(`dispatch/progress/${d}.jsonl`)?.trim().split('\n').length, 1);
+  // A headless executor has no agent type, only its dispatch, which is unique by construction
+  // (HITLD-74): the hook still knows it for an executor and records under it.
+  assert.match(d, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
+  const headless = spawnSync(process.execPath, [join(HOOKS, 'progress.mjs')], {
+    input: JSON.stringify({ tool_name: 'Bash', cwd: c.root }),
+    encoding: 'utf8',
+    env: { ...env, HITLD_DISPATCH: d },
+  });
+  assert.equal(headless.status, 0);
+  assert.ok(
+    c.store.list('dispatch/progress/').some((k) => k.includes(d)),
+    'a headless executor with a unique dispatch ID is recorded',
+  );
 });
 
 test('progress: a sampled source counts when it changes; liveness alone is not progress', () => {
@@ -201,8 +215,8 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   const c = clocked();
   c.status(10, 72000);
   await c.hitld(['run', 'start']);
-  await c.hitld(['dispatch', 'start', 'W-1']);
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const d1 = (await c.hitld(['dispatch', 'start', 'W-1'])).result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'agent-1']);
 
   c.at(1000);
   assert.equal((await c.hitld(['dispatch', 'watch'])).result.wake, false);
@@ -211,9 +225,9 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   c.at(1900);
   const seen = await c.hitld(['dispatch', 'watch'], { HITLD_SESSION: 'cos' });
   assert.equal(seen.result.wake, true);
-  assert.equal(seen.result.wake_message, 'watch: D-1 stalled (poke)');
+  assert.equal(seen.result.wake_message, `watch: ${d1} stalled (poke)`);
   assert.deepEqual(seen.result.due, [
-    { dispatch: 'D-1', item: 'W-1', step: 'poke', reason: 'no_progress' },
+    { dispatch: d1, item: 'W-1', step: 'poke', reason: 'no_progress' },
   ]);
   assert.ok(!c.events().some((e) => e.event === 'stalled'), 'a read records nothing');
   const refused = await c.hitld(['dispatch', 'watch', '--act'], { HITLD_SESSION: 'cos' });
@@ -224,7 +238,7 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   assert.equal(poke.result.actions.length, 1);
   assert.equal(poke.result.actions[0].step, 'poke');
   assert.equal(poke.result.actions[0].to.harness_ref, 'agent-1');
-  assert.match(poke.result.actions[0].message, /Status check for D-1/);
+  assert.match(poke.result.actions[0].message, new RegExp(`Status check for ${d1}`));
 
   // Within the poke's wait nothing more happens.
   c.at(2300);
@@ -235,7 +249,8 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   const follow = await c.hitld(['dispatch', 'watch', '--act']);
   const f = follow.result.actions[0];
   assert.equal(f.step, 'follow-up');
-  assert.equal(f.continues_as, 'D-2');
+  const d2 = f.continues_as;
+  assert.match(d2, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
   assert.equal(f.instruction.tool, 'SendMessage');
   assert.equal(f.instruction.input.to, 'agent-1');
   assert.match(f.instruction.input.message, /Continue the item from your last commit/);
@@ -244,7 +259,7 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   c.at(2600 + 1900);
   const abandon = await c.hitld(['dispatch', 'watch', '--act']);
   assert.equal(abandon.result.actions[0].step, 'abandon');
-  assert.equal(abandon.result.actions[0].dispatch, 'D-2');
+  assert.equal(abandon.result.actions[0].dispatch, d2);
   assert.ok(
     abandon.result.refill.start.some((/** @type {any} */ s) => s.item === 'W-1'),
     'the abandoned item is ready again',
@@ -252,18 +267,20 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
 
   // The fresh dispatch climbs the same ladder; after one re-dispatch the next failure is a question.
   const again = await c.hitld(['dispatch', 'start', 'W-1']);
-  assert.equal(again.result.dispatch, 'D-3');
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-3', '--harness-ref', 'agent-3']);
+  const d3 = again.result.dispatch;
+  assert.match(d3, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
+  await c.hitld(['dispatch', 'handle', '--dispatch', d3, '--harness-ref', 'agent-3']);
   c.at(4500 + 1900);
   assert.equal((await c.hitld(['dispatch', 'watch', '--act'])).result.actions[0].step, 'poke');
   c.at(4500 + 2600);
   const f2 = (await c.hitld(['dispatch', 'watch', '--act'])).result.actions[0];
   assert.equal(f2.step, 'follow-up');
-  assert.equal(f2.continues_as, 'D-4');
+  const d4 = f2.continues_as;
+  assert.match(d4, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
   c.at(4500 + 2600 + 1900);
   const ask = (await c.hitld(['dispatch', 'watch', '--act'])).result.actions[0];
   assert.equal(ask.step, 'ask');
-  assert.equal(ask.dispatch, 'D-4');
+  assert.equal(ask.dispatch, d4);
   assert.deepEqual(schemas().validate('question', ask.question), []);
   assert.deepEqual(ask.question.blocks, ['W-1']);
   assert.equal(ask.question.recommendation.option, 'hold');
@@ -274,24 +291,31 @@ test('the ladder: poke, follow-up with commits kept, abandon and re-dispatch, th
   const stalls = events.filter((e) => e.event === 'stalled');
   assert.deepEqual(
     stalls.map((e) => `${e.dispatch} ${e.step}`),
-    ['D-1 poke', 'D-1 follow-up', 'D-2 abandon', 'D-3 poke', 'D-3 follow-up', 'D-4 ask'],
+    [
+      `${d1} poke`,
+      `${d1} follow-up`,
+      `${d2} abandon`,
+      `${d3} poke`,
+      `${d3} follow-up`,
+      `${d4} ask`,
+    ],
   );
   assert.deepEqual(
     events
       .filter((e) => ['poked', 'interrupted', 'abandoned'].includes(e.event))
       .map((e) => `${e.event} ${e.dispatch}`),
     [
-      'poked D-1',
-      'interrupted D-1',
-      'abandoned D-2',
-      'poked D-3',
-      'interrupted D-3',
-      'abandoned D-4',
+      `poked ${d1}`,
+      `interrupted ${d1}`,
+      `abandoned ${d2}`,
+      `poked ${d3}`,
+      `interrupted ${d3}`,
+      `abandoned ${d4}`,
     ],
   );
   assert.equal(
-    events.find((e) => e.dispatch === 'D-2' && e.event === 'dispatched')?.notes,
-    'follow-up of D-1',
+    events.find((e) => e.dispatch === d2 && e.event === 'dispatched')?.notes,
+    `follow-up of ${d1}`,
   );
 
   // The measures: every executor dispatch stalled, by tier and model.
@@ -442,8 +466,8 @@ test('a quota pause records why and when the window resets; after the reset the 
   const c = clocked();
   c.status(10, 72000);
   await c.hitld(['run', 'start']);
-  await c.hitld(['dispatch', 'start', 'W-1']);
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+  const d = (await c.hitld(['dispatch', 'start', 'W-1'])).result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1']);
 
   // The five-hour window reaches the reserve; it resets 3000 seconds after the start.
   c.status(80, 3000);
@@ -481,7 +505,7 @@ test('a quota pause records why and when the window resets; after the reset the 
   const after = await c.hitld(['dispatch', 'watch'], { HITLD_SESSION: 'cos' });
   assert.equal(after.result.resume.due, true);
   assert.equal(after.result.dispatches[0].state, 'cut_off');
-  assert.equal(after.result.wake_message, 'watch: D-1 cut off (follow-up); dispatch may resume');
+  assert.equal(after.result.wake_message, `watch: ${d} cut off (follow-up); dispatch may resume`);
 
   const acted = await c.hitld(['dispatch', 'watch', '--act']);
   assert.equal(acted.exit, 0, JSON.stringify(acted.result));
@@ -813,4 +837,230 @@ test('repeated silence goes to the owner: the third unanswered wake sets escalat
   const again = await wakeThenWatch(7000);
   assert.equal(again.wakes_since_heard, 1);
   assert.equal(again.escalate_to_owner, false);
+});
+
+// --- Dispatched again after an abandon (HITLD-194) -----------------------------------------------
+
+/**
+ * Start tier-3 W-4, leave something on its branch (nothing, a commit, or its claim commit), let the
+ * watchdog abandon it, run `between` (an unclaim, a hand cleanup), and start W-4 again: at once,
+ * as the refill does, or after the next watch has torn the old worktree down. Dispatch IDs are
+ * the ones the starts return.
+ * @param {{ onFirst: 'nothing' | 'commit' | 'claim', tearDownFirst: boolean,
+ *   between?: (c: ReturnType<typeof clocked>, first: Record<string, any>) => Promise<void> }} o
+ */
+async function abandonAndRedispatch(o) {
+  const c = clocked({
+    files: {
+      'work/items/W-4-redesign.md': item({
+        id: 'W-4',
+        title: 'Redesign',
+        kind: 'work',
+        state: 'planned',
+        tier_override: '3',
+        touches: ['src/other.js'],
+      }),
+    },
+  });
+  c.status(10, 72000);
+  await c.hitld(['run', 'start']);
+  const first = await c.hitld(['dispatch', 'start', 'W-4']);
+  assert.equal(first.exit, 0, JSON.stringify(first.result));
+  assert.equal(first.result.tier, 3);
+  assert.equal(first.result.branch_chose, undefined, 'a first dispatch names nothing it found');
+  const d1 = String(first.result.dispatch);
+  const handled = await c.hitld([
+    'dispatch',
+    'handle',
+    '--dispatch',
+    d1,
+    '--harness-ref',
+    'bash-1',
+  ]);
+  assert.equal(handled.exit, 0, JSON.stringify(handled.result));
+  assert.equal(handled.result.dispatch, d1);
+  if (o.onFirst === 'commit') {
+    writeFileSync(join(first.result.worktree, 'half-done.txt'), 'half\n');
+    git(first.result.worktree, 'add', 'half-done.txt');
+    git(first.result.worktree, 'commit', '-q', '-m', 'half done');
+  } else if (o.onFirst === 'claim') {
+    const claim = await c.hitld(
+      ['work', 'claim', 'W-4', '--dispatch', d1],
+      {},
+      first.result.worktree,
+    );
+    assert.equal(claim.exit, 0, JSON.stringify(claim.result));
+  }
+  const oldTip = git(c.root, 'rev-parse', first.result.branch);
+  // Quiet past the headless limit (sampling a commit counts as progress once), then abandoned.
+  let at = 0;
+  let abandoned = false;
+  while (!abandoned && at < 18000) {
+    c.at((at += 6000));
+    const watch = await c.hitld(['dispatch', 'watch', '--act']);
+    assert.equal(watch.exit, 0, JSON.stringify(watch.result));
+    const step = watch.result.actions.find((/** @type {any} */ a) => a.step === 'abandon');
+    if (step) {
+      abandoned = true;
+      assert.equal(step.dispatch, d1);
+      assert.match(
+        step.then,
+        /hitld work unclaim W-4 --reason/,
+        'the step says to give up the claim',
+      );
+    }
+  }
+  assert.ok(abandoned, `the watchdog abandoned ${d1}`);
+  if (o.tearDownFirst) {
+    c.at(at + 60);
+    await c.hitld(['dispatch', 'watch', '--act']);
+    assert.ok(!existsSync(first.result.worktree), 'the abandoned worktree is torn down');
+  }
+  if (o.between) await o.between(c, first.result);
+  const second = await c.hitld(['dispatch', 'start', 'W-4']);
+  assert.equal(second.exit, 0, JSON.stringify(second.result));
+  const d2 = String(second.result.dispatch);
+  assert.notEqual(d2, d1);
+  const handled2 = await c.hitld([
+    'dispatch',
+    'handle',
+    '--dispatch',
+    d2,
+    '--harness-ref',
+    'bash-2',
+  ]);
+  assert.equal(handled2.exit, 0, JSON.stringify(handled2.result));
+  assert.equal(git(second.result.worktree, 'branch', '--show-current'), second.result.branch);
+  assert.equal(git(second.result.worktree, 'rev-parse', 'HEAD'), git(c.root, 'rev-parse', 'main'));
+  const dispatched = c.events().find((e) => e.event === 'dispatched' && e.dispatch === d2);
+  assert.equal(dispatched?.branch, second.result.branch, 'the ledger records the branch it got');
+  assert.ok(
+    readFileSync(second.result.brief_file, 'utf8').includes(second.result.branch),
+    'the brief names the branch it got',
+  );
+  /** @param {string} branch */
+  const tip = (branch) => {
+    try {
+      return git(c.root, 'rev-parse', '--verify', '-q', `refs/heads/${branch}`);
+    } catch {
+      return null;
+    }
+  };
+  const created = c.store
+    .read('env/events.jsonl')
+    ?.split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l))
+    .find((e) => e.kind === 'worktree_created' && e.holder === d2);
+  return { c, d1, d2, first: first.result, second: second.result, oldTip, tip, created };
+}
+
+test('dispatched again at once after an abandon, an item takes a fresh branch name (HITLD-194)', async () => {
+  const { first, second, oldTip, tip, created } = await abandonAndRedispatch({
+    onFirst: 'nothing',
+    tearDownFirst: false,
+  });
+  assert.equal(second.branch, `${first.branch}-2`);
+  assert.equal(second.branch_found, 'checked-out');
+  assert.equal(second.branch_chose, 'fresh');
+  assert.match(second.branch_note, /is checked out in another worktree, so it is left as it is/);
+  assert.equal(tip(first.branch), oldTip, 'the old branch is untouched');
+  // The environment's own record says why -2 was taken, not only the dispatch's result.
+  assert.equal(created?.branch, second.branch, JSON.stringify(created));
+  assert.equal(created?.branch_note, second.branch_note);
+});
+
+test('dispatched again after the teardown, an item with nothing on its branch starts on its own name (HITLD-194)', async () => {
+  const { first, second } = await abandonAndRedispatch({
+    onFirst: 'nothing',
+    tearDownFirst: true,
+  });
+  // The teardown deleted the branch (nothing on it was unmerged), so the name is free again.
+  assert.equal(second.branch, first.branch);
+  assert.equal(second.branch_chose, undefined);
+});
+
+test('a branch left with nothing unmerged on it is reused by the next dispatch, from main (HITLD-194)', async () => {
+  const { c, first, second } = await abandonAndRedispatch({
+    onFirst: 'nothing',
+    tearDownFirst: false,
+    // Released by hand as abandoned: the worktree goes, the branch with nothing on it stays.
+    between: async (c, first) => {
+      const done = await c.hitld([
+        'env',
+        'cleanup',
+        '--dispatch',
+        first.dispatch,
+        '--result',
+        'abandoned',
+      ]);
+      assert.equal(done.exit, 0, JSON.stringify(done.result));
+      put(c.root, { 'later.txt': 'main moved on\n' });
+      git(c.root, 'add', 'later.txt');
+      git(c.root, 'commit', '-q', '-m', 'main moves on');
+    },
+  });
+  assert.equal(second.branch, first.branch);
+  assert.equal(second.branch_found, 'merged');
+  assert.equal(second.branch_chose, 'reuse');
+  assert.match(second.branch_note, /nothing unmerged on it; reusing it from the tip of main/);
+  assert.equal(git(c.root, 'rev-parse', first.branch), git(c.root, 'rev-parse', 'main'));
+});
+
+test('abandoned with a commit on its branch, an item dispatched again takes a fresh name and leaves the commit (HITLD-194)', async () => {
+  const { c, first, second, oldTip, tip } = await abandonAndRedispatch({
+    onFirst: 'commit',
+    tearDownFirst: true,
+  });
+  assert.equal(second.branch, `${first.branch}-2`);
+  assert.equal(second.branch_found, 'unmerged');
+  assert.equal(second.branch_chose, 'fresh');
+  assert.match(second.branch_note, /holds commits not in main, so it is left as it is/);
+  assert.equal(tip(first.branch), oldTip, 'the unmerged branch is untouched');
+  assert.equal(git(c.root, 'show', `${first.branch}:half-done.txt`), 'half');
+});
+
+test('abandoned after its claim, the item waits until it is unclaimed on main; the next dispatch claims it and work check is clean (HITLD-194)', async () => {
+  const { c, d1, d2, first, second } = await abandonAndRedispatch({
+    onFirst: 'claim',
+    tearDownFirst: true,
+    between: async (c, first) => {
+      // A live claim on the old branch keeps the item out of the queue: no second claimant starts.
+      const early = await c.hitld(['dispatch', 'start', 'W-4']);
+      assert.equal(early.result.error, 'not-planned', JSON.stringify(early.result));
+      const before = await c.hitld(['work', 'check', '--branches', '--in-flight', 'none']);
+      assert.ok(
+        before.result.problems.some((/** @type {string} */ p) =>
+          p.includes(`W-4 is claimed by ${first.dispatch} on ${first.branch}`),
+        ),
+        JSON.stringify(before.result.problems),
+      );
+      const unclaim = await c.hitld([
+        'work',
+        'unclaim',
+        'W-4',
+        '--reason',
+        `abandoned: ${first.dispatch}`,
+      ]);
+      assert.equal(unclaim.exit, 0, JSON.stringify(unclaim.result));
+      assert.deepEqual(
+        unclaim.result.unclaimed.map((/** @type {any} */ u) => [u.claimant, u.branch]),
+        [[first.dispatch, first.branch]],
+      );
+    },
+  });
+  assert.equal(second.branch, `${first.branch}-2`, 'the claim commit is unmerged work');
+  assert.equal(second.branch_found, 'unmerged');
+  const claimed = await c.hitld(['work', 'claim', 'W-4', '--dispatch', d2], {}, second.worktree);
+  assert.equal(claimed.exit, 0, JSON.stringify(claimed.result));
+  assert.equal(claimed.result.branch, second.branch);
+  // The fixture's items have no project, which work check reports; no problem is about a claim.
+  const check = await c.hitld(['work', 'check', '--branches', '--in-flight', d2]);
+  assert.deepEqual(
+    check.result.problems.filter((/** @type {string} */ p) => /claim/i.test(p)),
+    [],
+    JSON.stringify(check.result),
+  );
+  assert.notEqual(d1, d2);
+  assert.equal(git(c.root, 'rev-parse', first.branch).length, 40, 'the old branch is still there');
 });

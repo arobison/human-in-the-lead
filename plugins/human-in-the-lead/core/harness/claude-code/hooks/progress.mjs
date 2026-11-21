@@ -6,6 +6,7 @@
 // any problem it writes nothing.
 
 import { isExecutor, readHookInput } from './input.mjs';
+import { DISPATCH_ID } from '../../../lib/ledger/ids.mjs';
 
 const input = readHookInput();
 if (isExecutor(input, process.env)) {
@@ -22,7 +23,7 @@ if (isExecutor(input, process.env)) {
     const root = ownerCheckoutOf(cwd);
     const loaded = root ? loadPolicy({ cwd: root }) : null;
     const env = process.env.HITLD_DISPATCH;
-    const dispatch = typeof env === 'string' && /^D-[1-9][0-9]*$/.test(env) ? env : undefined;
+    const dispatch = typeof env === 'string' && DISPATCH_ID.test(env) ? env : undefined;
     const ref = typeof input.agent_id === 'string' && input.agent_id ? input.agent_id : undefined;
     if (root && loaded?.policy && (dispatch || ref)) {
       const store = openStore(

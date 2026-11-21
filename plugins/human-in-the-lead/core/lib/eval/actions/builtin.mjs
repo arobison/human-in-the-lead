@@ -7,6 +7,7 @@
 // harness: use ctx.adapter, the fake) and returns data.
 
 import { schemas } from '../../schema/registry.mjs';
+import { DISPATCH_ID_PATTERN } from '../../ledger/ids.mjs';
 import { checkHarnessAdapter } from '../../../harness/interface.mjs';
 import { isObject, readSandboxFile, sandboxPath, writeSandboxFile } from '../util.mjs';
 
@@ -178,7 +179,7 @@ export const actions = Object.freeze({
     input: {
       type: 'object',
       properties: {
-        dispatch: { type: 'string', pattern: '^D-[1-9][0-9]*$' },
+        dispatch: { type: 'string', pattern: DISPATCH_ID_PATTERN },
         item: { type: 'string', minLength: 1 },
         tier: { type: 'integer', minimum: 0, maximum: 3 },
         role: { type: 'string', minLength: 1 },
