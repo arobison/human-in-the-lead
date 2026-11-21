@@ -20,6 +20,11 @@
             "description": "The ID of the last ledger event the job had read; null when the ledger was empty.",
             "type": ["string", "null"]
           },
+          "files": {
+            "description": "How many events of each ledger file the job had read (HITLD-74): each file is append-only, so an event beyond these counts is new however it sorts in the ledger. A mark written before HITLD-74 has none.",
+            "type": "object",
+            "additionalProperties": { "type": "integer", "minimum": 0 }
+          },
           "trust_through": {
             "description": "How many trust events the job had read.",
             "type": "integer",

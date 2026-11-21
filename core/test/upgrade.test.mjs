@@ -13,6 +13,7 @@ import { VERSION } from '../lib/version.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { LEDGER_KEY, appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { ledgerKeys } from '../lib/ledger/writer.mjs';
 import { STATE_KEY } from '../lib/run/checkpoint.mjs';
 import { releaseLease, resumeRun, startRun } from '../lib/run/run.mjs';
 import { bumpVersion, parseVersion } from '../lib/release/semver.mjs';
@@ -70,6 +71,15 @@ async function hitld(argv, cwd, env = {}) {
   const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env });
   return { code, json: JSON.parse(out) };
 }
+
+/**
+ * The text of every ledger file, in the order they are read.
+ * @param {import('../lib/store/store.mjs').PrivateStore} store
+ */
+const ledgerText = (store) =>
+  ledgerKeys(store)
+    .map((k) => store.read(k))
+    .join('');
 
 /** A ledger as an earlier release left it: a run started on `version`. @param {any} store @param {string} version */
 function startedOn(store, version) {
@@ -163,14 +173,15 @@ test('hitld run start and run resume check the release first, and record nothing
   const refused = await hitld(['run', 'start', ...me], off.root);
   assert.deepEqual([refused.code, refused.json.error], [EXIT.failed, 'version-not-pinned']);
   assert.equal(refused.json.version.pin.version, NEXT_MINOR);
-  assert.equal(existsSync(join(off.storeDir, LEDGER_KEY)), false, 'nothing recorded');
+  assert.deepEqual(ledgerKeys(openStore(off.storeDir)), [], 'nothing recorded');
 
   // A run an earlier release started, and handed over.
   const p = project(github(`v${VERSION}`));
   startRun(p.store, { session: 'old', host: 'example-laptop' });
-  const text = /** @type {string} */ (p.store.read(LEDGER_KEY));
+  const [written] = ledgerKeys(p.store);
+  const text = /** @type {string} */ (p.store.read(written));
   p.store.write(
-    LEDGER_KEY,
+    written,
     text.replace(`"hitld_version":"${VERSION}"`, `"hitld_version":"${OLDER_SAME_MINOR}"`),
   );
   releaseLease(p.store, { session: 'old', host: 'example-laptop', reason: 'handover' });
@@ -206,7 +217,7 @@ test('rollback: an older release refuses data a newer release wrote, and writes 
   );
   const state = JSON.parse(p.store.read(STATE_KEY) ?? 'null') ?? {};
   p.store.write(STATE_KEY, JSON.stringify({ ...state, schema_version: STATE_V + 1 }));
-  const ledgerBefore = p.store.read(LEDGER_KEY);
+  const ledgerBefore = ledgerText(p.store);
   const stateBefore = p.store.read(STATE_KEY);
 
   // Reverting the pin brought this release back; the data stays as the newer release left it.
@@ -229,7 +240,7 @@ test('rollback: an older release refuses data a newer release wrote, and writes 
   const start = await hitld(['run', 'start', '--replace', ...me], p.root);
   assert.deepEqual([start.code, start.json.error], [EXIT.failed, 'newer-schema']);
   assert.match(start.json.message, /never writes ahead/);
-  assert.equal(p.store.read(LEDGER_KEY), ledgerBefore, 'the ledger is untouched');
+  assert.equal(ledgerText(p.store), ledgerBefore, 'the ledger is untouched');
   assert.equal(p.store.read(STATE_KEY), stateBefore, 'the run state is untouched');
 
   // Data a newer release wrote at schema versions this one reads is only a warning.
@@ -369,7 +380,7 @@ test('hitld upgrade plan: from the pin and the ledger, read only', async () => {
   startedOn(p.store, '0.1.1');
   const listing = () => [
     readdirSync(p.root).join(','),
-    p.store.read(LEDGER_KEY),
+    ledgerText(p.store),
     readdirSync(dir).join(','),
   ];
   const before = listing();

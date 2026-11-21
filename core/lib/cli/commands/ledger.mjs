@@ -15,6 +15,7 @@ import {
 import { TOKENS_FAR_ABOVE_ESTIMATE } from '../../run/protocol.mjs';
 import { inflight } from '../../ledger/inflight.mjs';
 import { summary } from '../../ledger/summary.mjs';
+import { readThroughIndex } from '../../store/index-db.mjs';
 import { LeaseError } from '../../run/lease.mjs';
 import { NO_SESSION, recordSession, resolveIdentity } from '../../run/identity.mjs';
 import {
@@ -386,7 +387,7 @@ const table = [
         positional: true,
         required: true,
         description:
-          "The ID of the reported event whose tokens are wrong (reported-D-<n> for a dispatch's completion), or of the correction that now stands for it",
+          "The ID of the reported event whose tokens are wrong (reported-<dispatch ID> for a dispatch's completion), or of the correction that now stands for it",
       },
       {
         name: 'tokens',
@@ -490,7 +491,7 @@ const table = [
         positional: true,
         required: true,
         description:
-          'The ID of the dispatched event whose estimate is wrong (dispatched-D-<n>), or of the correction that now stands for it',
+          'The ID of the dispatched event whose estimate is wrong (dispatched-<dispatch ID>), or of the correction that now stands for it',
       },
       {
         name: 'tokens',
@@ -616,18 +617,25 @@ const table = [
   },
   {
     name: 'ledger tail',
-    summary: 'Show the latest ledger events',
+    summary:
+      "Show the latest ledger events, read through the local index, with this machine's display numbers for their dispatches",
     built_by: 'b',
     args: [{ name: 'limit', type: 'integer', description: 'How many events (default 10)' }, STORE],
-    run: (input, ctx) => {
+    run: async (input, ctx) => {
       const { store } = setup(input, ctx);
-      const { events, problems } = readLedger(store);
       const n = Math.max(1, /** @type {number | undefined} */ (input.limit) ?? 10);
+      // The index ingests the union of the writers' files and numbers new dispatches as it does.
+      const read = await readThroughIndex(store, { limit: n });
+      const shown = new Set(read.events.map((e) => e.dispatch).filter((d) => d !== undefined));
       return {
         ok: true,
-        total: events.length,
-        events: events.slice(-n),
-        ledger_problems: problems,
+        total: read.total,
+        events: read.events,
+        // This machine's numbers: short names for people, never written into trailers or briefs.
+        dispatch_numbers: Object.fromEntries(
+          read.numbers.filter((x) => shown.has(x.dispatch)).map((x) => [x.dispatch, x.number]),
+        ),
+        ledger_problems: readLedger(store).problems,
       };
     },
   },
