@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main } from '../lib/cli/main.mjs';
@@ -22,7 +22,7 @@ import { pauseTransition } from '../lib/quota/pause.mjs';
 import { evaluateQuotas } from '../lib/quota/quota.mjs';
 import { declaredReset } from '../lib/quota/window.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
-import { git, makeConsumer, put } from './orchestrator-fixture.mjs';
+import { git, item, makeConsumer, put } from './orchestrator-fixture.mjs';
 
 const HOOKS = resolve(fileURLToPath(new URL('../harness/claude-code/hooks/', import.meta.url)));
 
@@ -45,13 +45,13 @@ function clocked(options) {
   const c = makeConsumer(options);
   const t0 = Date.now();
   let offset = 0;
-  /** @param {string[]} argv @param {NodeJS.ProcessEnv} [env] */
-  const hitld = async (argv, env = {}) => {
+  /** @param {string[]} argv @param {NodeJS.ProcessEnv} [env] @param {string} [cwd] */
+  const hitld = async (argv, env = {}, cwd = c.root) => {
     let out = '';
     const exit = await main(argv, {
       out: (t) => (out += t),
       err: () => {},
-      cwd: c.root,
+      cwd,
       env: { ...c.env, ...env },
       now: () => new Date(t0 + offset * 1000),
     });
@@ -837,4 +837,230 @@ test('repeated silence goes to the owner: the third unanswered wake sets escalat
   const again = await wakeThenWatch(7000);
   assert.equal(again.wakes_since_heard, 1);
   assert.equal(again.escalate_to_owner, false);
+});
+
+// --- Dispatched again after an abandon (HITLD-194) -----------------------------------------------
+
+/**
+ * Start tier-3 W-4, leave something on its branch (nothing, a commit, or its claim commit), let the
+ * watchdog abandon it, run `between` (an unclaim, a hand cleanup), and start W-4 again: at once,
+ * as the refill does, or after the next watch has torn the old worktree down. Dispatch IDs are
+ * the ones the starts return.
+ * @param {{ onFirst: 'nothing' | 'commit' | 'claim', tearDownFirst: boolean,
+ *   between?: (c: ReturnType<typeof clocked>, first: Record<string, any>) => Promise<void> }} o
+ */
+async function abandonAndRedispatch(o) {
+  const c = clocked({
+    files: {
+      'work/items/W-4-redesign.md': item({
+        id: 'W-4',
+        title: 'Redesign',
+        kind: 'work',
+        state: 'planned',
+        tier_override: '3',
+        touches: ['src/other.js'],
+      }),
+    },
+  });
+  c.status(10, 72000);
+  await c.hitld(['run', 'start']);
+  const first = await c.hitld(['dispatch', 'start', 'W-4']);
+  assert.equal(first.exit, 0, JSON.stringify(first.result));
+  assert.equal(first.result.tier, 3);
+  assert.equal(first.result.branch_chose, undefined, 'a first dispatch names nothing it found');
+  const d1 = String(first.result.dispatch);
+  const handled = await c.hitld([
+    'dispatch',
+    'handle',
+    '--dispatch',
+    d1,
+    '--harness-ref',
+    'bash-1',
+  ]);
+  assert.equal(handled.exit, 0, JSON.stringify(handled.result));
+  assert.equal(handled.result.dispatch, d1);
+  if (o.onFirst === 'commit') {
+    writeFileSync(join(first.result.worktree, 'half-done.txt'), 'half\n');
+    git(first.result.worktree, 'add', 'half-done.txt');
+    git(first.result.worktree, 'commit', '-q', '-m', 'half done');
+  } else if (o.onFirst === 'claim') {
+    const claim = await c.hitld(
+      ['work', 'claim', 'W-4', '--dispatch', d1],
+      {},
+      first.result.worktree,
+    );
+    assert.equal(claim.exit, 0, JSON.stringify(claim.result));
+  }
+  const oldTip = git(c.root, 'rev-parse', first.result.branch);
+  // Quiet past the headless limit (sampling a commit counts as progress once), then abandoned.
+  let at = 0;
+  let abandoned = false;
+  while (!abandoned && at < 18000) {
+    c.at((at += 6000));
+    const watch = await c.hitld(['dispatch', 'watch', '--act']);
+    assert.equal(watch.exit, 0, JSON.stringify(watch.result));
+    const step = watch.result.actions.find((/** @type {any} */ a) => a.step === 'abandon');
+    if (step) {
+      abandoned = true;
+      assert.equal(step.dispatch, d1);
+      assert.match(
+        step.then,
+        /hitld work unclaim W-4 --reason/,
+        'the step says to give up the claim',
+      );
+    }
+  }
+  assert.ok(abandoned, `the watchdog abandoned ${d1}`);
+  if (o.tearDownFirst) {
+    c.at(at + 60);
+    await c.hitld(['dispatch', 'watch', '--act']);
+    assert.ok(!existsSync(first.result.worktree), 'the abandoned worktree is torn down');
+  }
+  if (o.between) await o.between(c, first.result);
+  const second = await c.hitld(['dispatch', 'start', 'W-4']);
+  assert.equal(second.exit, 0, JSON.stringify(second.result));
+  const d2 = String(second.result.dispatch);
+  assert.notEqual(d2, d1);
+  const handled2 = await c.hitld([
+    'dispatch',
+    'handle',
+    '--dispatch',
+    d2,
+    '--harness-ref',
+    'bash-2',
+  ]);
+  assert.equal(handled2.exit, 0, JSON.stringify(handled2.result));
+  assert.equal(git(second.result.worktree, 'branch', '--show-current'), second.result.branch);
+  assert.equal(git(second.result.worktree, 'rev-parse', 'HEAD'), git(c.root, 'rev-parse', 'main'));
+  const dispatched = c.events().find((e) => e.event === 'dispatched' && e.dispatch === d2);
+  assert.equal(dispatched?.branch, second.result.branch, 'the ledger records the branch it got');
+  assert.ok(
+    readFileSync(second.result.brief_file, 'utf8').includes(second.result.branch),
+    'the brief names the branch it got',
+  );
+  /** @param {string} branch */
+  const tip = (branch) => {
+    try {
+      return git(c.root, 'rev-parse', '--verify', '-q', `refs/heads/${branch}`);
+    } catch {
+      return null;
+    }
+  };
+  const created = c.store
+    .read('env/events.jsonl')
+    ?.split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l))
+    .find((e) => e.kind === 'worktree_created' && e.holder === d2);
+  return { c, d1, d2, first: first.result, second: second.result, oldTip, tip, created };
+}
+
+test('dispatched again at once after an abandon, an item takes a fresh branch name (HITLD-194)', async () => {
+  const { first, second, oldTip, tip, created } = await abandonAndRedispatch({
+    onFirst: 'nothing',
+    tearDownFirst: false,
+  });
+  assert.equal(second.branch, `${first.branch}-2`);
+  assert.equal(second.branch_found, 'checked-out');
+  assert.equal(second.branch_chose, 'fresh');
+  assert.match(second.branch_note, /is checked out in another worktree, so it is left as it is/);
+  assert.equal(tip(first.branch), oldTip, 'the old branch is untouched');
+  // The environment's own record says why -2 was taken, not only the dispatch's result.
+  assert.equal(created?.branch, second.branch, JSON.stringify(created));
+  assert.equal(created?.branch_note, second.branch_note);
+});
+
+test('dispatched again after the teardown, an item with nothing on its branch starts on its own name (HITLD-194)', async () => {
+  const { first, second } = await abandonAndRedispatch({
+    onFirst: 'nothing',
+    tearDownFirst: true,
+  });
+  // The teardown deleted the branch (nothing on it was unmerged), so the name is free again.
+  assert.equal(second.branch, first.branch);
+  assert.equal(second.branch_chose, undefined);
+});
+
+test('a branch left with nothing unmerged on it is reused by the next dispatch, from main (HITLD-194)', async () => {
+  const { c, first, second } = await abandonAndRedispatch({
+    onFirst: 'nothing',
+    tearDownFirst: false,
+    // Released by hand as abandoned: the worktree goes, the branch with nothing on it stays.
+    between: async (c, first) => {
+      const done = await c.hitld([
+        'env',
+        'cleanup',
+        '--dispatch',
+        first.dispatch,
+        '--result',
+        'abandoned',
+      ]);
+      assert.equal(done.exit, 0, JSON.stringify(done.result));
+      put(c.root, { 'later.txt': 'main moved on\n' });
+      git(c.root, 'add', 'later.txt');
+      git(c.root, 'commit', '-q', '-m', 'main moves on');
+    },
+  });
+  assert.equal(second.branch, first.branch);
+  assert.equal(second.branch_found, 'merged');
+  assert.equal(second.branch_chose, 'reuse');
+  assert.match(second.branch_note, /nothing unmerged on it; reusing it from the tip of main/);
+  assert.equal(git(c.root, 'rev-parse', first.branch), git(c.root, 'rev-parse', 'main'));
+});
+
+test('abandoned with a commit on its branch, an item dispatched again takes a fresh name and leaves the commit (HITLD-194)', async () => {
+  const { c, first, second, oldTip, tip } = await abandonAndRedispatch({
+    onFirst: 'commit',
+    tearDownFirst: true,
+  });
+  assert.equal(second.branch, `${first.branch}-2`);
+  assert.equal(second.branch_found, 'unmerged');
+  assert.equal(second.branch_chose, 'fresh');
+  assert.match(second.branch_note, /holds commits not in main, so it is left as it is/);
+  assert.equal(tip(first.branch), oldTip, 'the unmerged branch is untouched');
+  assert.equal(git(c.root, 'show', `${first.branch}:half-done.txt`), 'half');
+});
+
+test('abandoned after its claim, the item waits until it is unclaimed on main; the next dispatch claims it and work check is clean (HITLD-194)', async () => {
+  const { c, d1, d2, first, second } = await abandonAndRedispatch({
+    onFirst: 'claim',
+    tearDownFirst: true,
+    between: async (c, first) => {
+      // A live claim on the old branch keeps the item out of the queue: no second claimant starts.
+      const early = await c.hitld(['dispatch', 'start', 'W-4']);
+      assert.equal(early.result.error, 'not-planned', JSON.stringify(early.result));
+      const before = await c.hitld(['work', 'check', '--branches', '--in-flight', 'none']);
+      assert.ok(
+        before.result.problems.some((/** @type {string} */ p) =>
+          p.includes(`W-4 is claimed by ${first.dispatch} on ${first.branch}`),
+        ),
+        JSON.stringify(before.result.problems),
+      );
+      const unclaim = await c.hitld([
+        'work',
+        'unclaim',
+        'W-4',
+        '--reason',
+        `abandoned: ${first.dispatch}`,
+      ]);
+      assert.equal(unclaim.exit, 0, JSON.stringify(unclaim.result));
+      assert.deepEqual(
+        unclaim.result.unclaimed.map((/** @type {any} */ u) => [u.claimant, u.branch]),
+        [[first.dispatch, first.branch]],
+      );
+    },
+  });
+  assert.equal(second.branch, `${first.branch}-2`, 'the claim commit is unmerged work');
+  assert.equal(second.branch_found, 'unmerged');
+  const claimed = await c.hitld(['work', 'claim', 'W-4', '--dispatch', d2], {}, second.worktree);
+  assert.equal(claimed.exit, 0, JSON.stringify(claimed.result));
+  assert.equal(claimed.result.branch, second.branch);
+  // The fixture's items have no project, which work check reports; no problem is about a claim.
+  const check = await c.hitld(['work', 'check', '--branches', '--in-flight', d2]);
+  assert.deepEqual(
+    check.result.problems.filter((/** @type {string} */ p) => /claim/i.test(p)),
+    [],
+    JSON.stringify(check.result),
+  );
+  assert.notEqual(d1, d2);
+  assert.equal(git(c.root, 'rev-parse', first.branch).length, 40, 'the old branch is still there');
 });
