@@ -8,16 +8,7 @@ export const commands = [
     built_by: 'signal',
   },
   { name: 'note', summary: "Record an owner's note as a signal", built_by: 'signal' },
-  { name: 'kb search', summary: 'Search the knowledge base', built_by: 'signal' },
-  { name: 'kb index', summary: 'Regenerate the knowledge base index', built_by: 'signal' },
-  { name: 'kb stale', summary: 'Knowledge base pages past their freshness', built_by: 'signal' },
   { name: 'kb orphans', summary: 'Knowledge base pages nothing links to', built_by: 'kb-upkeep' },
-  { name: 'kb links', summary: 'Check knowledge base links', built_by: 'signal' },
-  {
-    name: 'kb check',
-    summary: 'Check knowledge base front matter and structure',
-    built_by: 'signal',
-  },
   {
     name: 'mcp',
     summary: 'Serve the same operations over MCP (tools only)',

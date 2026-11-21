@@ -1,7 +1,8 @@
 // `npm test`: the test suite in a temporary directory of its own, which must be empty afterward.
 // Every test removes what it makes (helpers/tmp.mjs); a run that leaves anything behind fails and
 // names it, and the directory is removed either way. Arguments, when given, replace the default
-// file pattern, as `node --test` takes them.
+// file pattern, as `node --test` takes them. HITLD_TEST_SKIPS_FILE, when set, names a file the run
+// writes its skipped tests to, one JSON line each (helpers/skips-reporter.mjs; HITLD-185).
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
@@ -22,6 +23,14 @@ const TEST_FLAGS = [
   `--test-reporter=${join(HERE, 'helpers', 'slowest-reporter.mjs')}`,
   '--test-reporter-destination=stdout',
 ];
+// Read here: the test processes run in an isolated environment that drops HITLD_* variables.
+const skipsFile = process.env.HITLD_TEST_SKIPS_FILE;
+if (skipsFile) {
+  TEST_FLAGS.push(
+    `--test-reporter=${join(HERE, 'helpers', 'skips-reporter.mjs')}`,
+    `--test-reporter-destination=${skipsFile}`,
+  );
+}
 
 /** What a tool keeps in the temporary directory as a cache, not a test's: Prettier's compile cache. */
 const CACHES = new Set(['node-compile-cache']);

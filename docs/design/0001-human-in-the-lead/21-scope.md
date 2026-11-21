@@ -40,7 +40,7 @@ This is bootstrap **stage 0** ([part 18](18-self-improvement.md#181-bootstrap-st
 | **Reporting and limits (minimal)** | Ledger usage; quotas declared in `policy.json` with the owner's reserve; opt-in status-line snapshots of the window percentages where available; the opt-in status-line readout ([12.1.1](12-reporting-and-limits.md#1211-the-status-line-planned)); a forecast per quota; the reserve rule enforced at dispatch; `hitld dashboard` writing a static HTML report and a text digest ([part 12](12-reporting-and-limits.md#127-the-minimal-version)) | Explorable dashboards; controller replay; vendor API readers; per-audience reports |
 | **Notification** | Remote Control through the main session: interrupts for critical-path and idle-slot questions; digests when `hitld cadence due` says one is due (thresholds, the owner writing, an idle machine); quiet hours as holds | Other channels |
 | **Private store** | A directory outside the repository: git text files for what syncs, SQLite for machine-local state and a rebuildable index ([part 3](03-data-model.md#private-store)); `hitld store export`, `import` and `sync` | Other backends |
-| **Knowledge base** | The structure, front matter, the generated index and the `kb` tool's `search`, `index`, `stale`, `links` and `check` (not yet built) | Curator's loop over the knowledge base, contradiction pass, hybrid retriever |
+| **Knowledge base** | The structure, front matter, the generated index and the `kb` tool's `search`, `index`, `stale`, `links` and `check` (built, HITLD-55) | Curator's loop over the knowledge base, contradiction pass, hybrid retriever |
 
 <a id="usable-in-a-consuming-project"></a>
 
