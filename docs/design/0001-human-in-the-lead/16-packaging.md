@@ -313,6 +313,19 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `private-term-unknown`: No term on the private term list has that ID or matches that term.
 - `private-list-invalid`: A line of the private term list does not read, so nothing is checked or committed until it is fixed.
 
+**The reproducer**
+
+- `invalid-signal`: The signal record given to reproduce is not a valid signal.
+- `not-a-bug`: The signal is not a reported bug, and only a bug is reproduced.
+- `invalid-reply`: The reproducer's reply does not match the reply in schemas/reproduction.schema.json.
+- `outside-the-test`: The reproducer changed a file other than its one test file in the sandbox, so the reproduction is refused.
+- `reproduction-refused`: The reply claims a reproduction, and the check found none: the test passes, does not run, needs the network, or fails another way.
+- `not-reproduced`: The bug has no kept reproduction, so nothing can be made from one.
+- `already-reproduced`: The signal already has a kept reproduction, which is never replaced.
+- `bad-reproduction`: The ref for a reproduction holds something other than one commit on its base that adds its test.
+- `sandbox-unsafe`: The reproducer's sandbox cannot be trusted here: Node is older than the floor, the canary run got past a limit, or a part of the sandbox was replaced by a link.
+- `other-repository`: The sandbox was opened from another repository than the one the command runs in.
+
 **Secrets and the environment**
 
 - `secret-missing`: No value is stored for a secret the task needs.
