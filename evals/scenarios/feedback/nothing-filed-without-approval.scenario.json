@@ -21,6 +21,14 @@
       }
     },
     {
+      "id": "term-list",
+      "action": "file.write",
+      "with": {
+        "path": "store/private/terms.jsonl",
+        "content": "{\"schema_version\":1,\"id\":\"PT-000000000001\",\"at\":\"2026-11-14T09:00:00Z\",\"event\":\"added\",\"term\":\"unused-sample-term-9\",\"kind\":\"name\",\"by\":\"owner\"}\n"
+      }
+    },
+    {
       "id": "fb",
       "action": "feedback.cli",
       "with": {

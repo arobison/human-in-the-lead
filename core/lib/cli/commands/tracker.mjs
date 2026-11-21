@@ -89,7 +89,8 @@ export function open(input, ctx, { readOnly = false } = {}) {
 function workCheckTerms(input, ctx) {
   const repo = input.repo ? resolve(ctx.cwd, String(input.repo)) : ctx.cwd;
   const loaded = loadPolicy({ cwd: repo });
-  if (!loaded.policy) return { matchers: [], warnings: [] };
+  // No policy.json: no store, but the address in use is still checked and the warning says the
+  // list was not (HITLD-187).
   try {
     return termsForProject({
       policy: loaded.policy,
@@ -470,7 +471,7 @@ export const commands = [
   {
     name: 'work check',
     summary:
-      'Check schema, references, cycles, classification and orphaned claims; view freshness on main',
+      "Check schema, references, cycles, classification and orphaned claims; view freshness on main; on main, warn of an open item that a commit's Work-Item or Closes trailer names, and a done item that no commit's trailer names",
     built_by: 'a',
     args: [
       {
@@ -495,6 +496,7 @@ export const commands = [
         branches: Boolean(input.branches),
         inflight,
         terms: terms.matchers,
+        consistency: true,
       });
       const { problems, files } = checked;
       const warnings = [...t.warnings(), ...terms.warnings, ...(checked.warnings ?? [])];
@@ -504,6 +506,15 @@ export const commands = [
         files,
         problems,
         ...(warnings.length ? { warnings } : {}),
+        // Warnings, never problems: the orchestrator offers the fix (design 3.4).
+        ...(checked.consistency
+          ? {
+              mismatches: checked.consistency.mismatches,
+              ...(checked.consistency.skipped.length
+                ? { mismatches_skipped: checked.consistency.skipped }
+                : {}),
+            }
+          : {}),
         summary: problems.length
           ? `${problems.length} problem(s)`
           : files === 0

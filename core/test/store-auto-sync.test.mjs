@@ -3,6 +3,7 @@
 // do the same for a session that dies between them. Two sessions are two private stores on two
 // devices, with a bare repository standing in for the store's host.
 
+import { readLastPull } from '../lib/store/last-pull.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -11,7 +12,8 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
-import { LEDGER_KEY, appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { ledgerKeyOf, ledgerKeys } from '../lib/ledger/writer.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { VERSION } from '../lib/version.mjs';
 import { bumpVersion } from '../lib/release/semver.mjs';
@@ -560,6 +562,9 @@ test('autoPull and autoPush: a conflict is a failure that names the paths, nothi
     contextFromCwd(f.project, a.env)
   );
   assert.equal((await autoPush(ca)).result, 'pushed');
+  // A push that went through merged the remote first: it counts as reaching the remote.
+  assert.equal(readLastPull(ca.store)?.status, 'done');
+  assert.equal(typeof readLastPull(ca.store)?.url, 'string');
   const cb = /** @type {NonNullable<ReturnType<typeof contextFromCwd>>} */ (
     contextFromCwd(f.project, b.env)
   );
@@ -570,6 +575,9 @@ test('autoPull and autoPush: a conflict is a failure that names the paths, nothi
   assert.equal(pulled.status, 'failed');
   assert.equal(pulled.error?.code, 'conflict');
   assert.ok(pulled.error?.conflicts);
+  // A pull that came back not ok is recorded as failed, so the settings in the store are not read.
+  assert.equal(readLastPull(cb.store)?.status, 'failed');
+  assert.equal(readLastPull(cb.store)?.code, 'conflict');
   assert.equal(b.store.read('notes/n.md'), 'two\n');
 });
 
@@ -683,7 +691,10 @@ function snapshot(s) {
   };
   if (existsSync(s.data)) walk(s.data);
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: s.store.root, encoding: 'utf8' });
-  return { head: head.stdout.trim(), ledger: s.store.read(LEDGER_KEY), files };
+  const ledger = ledgerKeys(s.store)
+    .map((k) => s.store.read(k))
+    .join('');
+  return { head: head.stdout.trim(), ledger, files };
 }
 
 test('a release refused at run start or resume pulls nothing and records nothing (HITLD-110)', async () => {
@@ -756,7 +767,7 @@ test('a release refused at run start or resume pulls nothing and records nothing
   rmSync(settings);
   const newer = /** @type {number} */ (schemas().currentVersion('ledger-entry')) + 1;
   const line = { schema_version: newer, id: 'E-99', event: 'logged', text: 'newer', at: at(30) };
-  two.store.append(LEDGER_KEY, `${JSON.stringify(line)}\n`);
+  two.store.append(ledgerKeyOf('w-0123456789abcdef'), `${JSON.stringify(line)}\n`);
   await refusedAll('newer-schema');
 });
 

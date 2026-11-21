@@ -40,7 +40,8 @@ import {
   readApprovals,
   requestsOnBranch,
 } from './devices.mjs';
-import { syncCauses } from './reach.mjs';
+import { UNREACHABLE_CODES, syncCauses } from './reach.mjs';
+import { recordPull } from './last-pull.mjs';
 import { NO_ADDRESS, chooseRemote, clearRemote, readRemoteConfig, setRemote } from './address.mjs';
 
 export { chooseRemote, clearRemote, readRemoteConfig, setRemote };
@@ -219,10 +220,40 @@ async function mergeVersion(o, version) {
 
 /**
  * Bring the remote's head into the store. An empty remote, or a head this store already merged,
- * changes nothing. A conflict stops the pull with nothing merged.
+ * changes nothing. A conflict stops the pull with nothing merged. Each outcome is recorded on this
+ * machine (last-pull.mjs), so the settings that travel in the store are read only after a pull
+ * that reached the remote.
  * @param {PushPullOptions} o
  */
 export async function pullStore(o) {
+  try {
+    const result = await pullOnce(o);
+    const r = /** @type {Record<string, unknown>} */ (result);
+    recordPull(
+      o.root,
+      result.ok
+        ? { status: 'done', url: o.url }
+        : { status: 'failed', url: o.url, code: String(r.error), message: String(r.message) },
+    );
+    return result;
+  } catch (e) {
+    const code =
+      typeof (/** @type {any} */ (e)?.code) === 'string'
+        ? String(/** @type {any} */ (e).code)
+        : 'failed';
+    const message = e instanceof Error ? e.message : String(e);
+    recordPull(o.root, {
+      url: o.url,
+      status: UNREACHABLE_CODES.has(code) ? 'unreachable' : 'failed',
+      code,
+      message,
+    });
+    throw e;
+  }
+}
+
+/** One pull, unrecorded: what pullStore does. @param {PushPullOptions} o */
+async function pullOnce(o) {
   const version = await o.remote.head();
   if (version === null) {
     return { ok: true, result: 'empty', project: o.projectId, remote_version: null };
@@ -253,6 +284,19 @@ export async function pullStore(o) {
  *   resolve this device again from the store, after a merge; without it, `devices` stands
  */
 export async function pushStore(o) {
+  const result = await pushOnce(o);
+  // A push that went through merged the remote's head first: the store is as new as the remote.
+  if (/** @type {Record<string, unknown>} */ (result)?.ok) {
+    recordPull(o.root, { status: 'done', url: o.url });
+  }
+  return result;
+}
+
+/**
+ * One push, unrecorded: what pushStore does.
+ * @param {PushPullOptions & { refresh?: () => import('./devices-port.mjs').Devices }} o
+ */
+async function pushOnce(o) {
   // Refused unless the owner has approved this device's key, as far as this store knows. Enrolled
   // means its own key is among the recipients, so the device can always open what it pushed.
   assertEnrolled(o.devices);

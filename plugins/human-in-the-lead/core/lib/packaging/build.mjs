@@ -51,6 +51,9 @@ const SKILL_EXTRAS = /** @type {Record<string, Record<string, string>>} */ ({
  */
 const AGENT_EXTRAS = /** @type {Record<string, Record<string, string>>} */ ({
   generalizer: { tools: 'Read', model: 'inherit' },
+  // The reproducer writes and runs one test in its sandbox (HITLD-30). Bash is for
+  // `hitld reproduce run`; its writes are checked by `hitld reproduce check`, not trusted.
+  reproducer: { tools: 'Read, Glob, Grep, Write, Edit, Bash', model: 'inherit' },
 });
 
 /** @param {string} dir @returns {string[]} files under dir, relative to it */

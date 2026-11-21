@@ -110,6 +110,27 @@ jobs:
         run: node core/bin/hitld.mjs eval --offline --require-baseline
         if: steps.changes.outputs.code == 'true'
 
+  # The reproducer's sandbox trusts Node 22.22.0 and later only (HITLD-30): its tests run on that
+  # version too, where the permission-model fixes it needs first arrived. On Node 22.13 to 22.21
+  # those tests skip and the sandbox refuses to run.
+  reproduce-floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out GitHub's merge commit; its first parent is the base, which
+          # scripts/ci-changes.mjs diffs against.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.22.0
+      - id: changes
+        run: node scripts/ci-changes.mjs
+      - name: Reproducer tests
+        run: node core/test/run.mjs core/test/reproduce.test.mjs
+        if: steps.changes.outputs.code == 'true'
+
   # Two tracker items with one ID (two sessions each filed from their own copy of main) fail
   # here, naming both files (design part 3.4). On every pull request, a work/-only one too. Not on
   # main, where the check also wants the views current, which only a merge regenerates.
@@ -131,7 +152,7 @@ jobs:
   # steps were skipped for a work/-only pull request succeeded too), and fails otherwise.
   check:
     if: always()
-    needs: [typecheck, format, tests, evals, tracker]
+    needs: [typecheck, format, tests, evals, tracker, reproduce-floor]
     runs-on: ubuntu-latest
     steps:
       - name: Every check job succeeded

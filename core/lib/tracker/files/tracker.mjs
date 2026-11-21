@@ -21,6 +21,7 @@ import {
   unclaimItem,
 } from './claims.mjs';
 import { checkItems, findCollisions, unplacedWork } from './check.mjs';
+import { mainMismatches } from './closing.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { LEVELS, checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
@@ -91,6 +92,11 @@ import { CodedError } from '../../cli/errors.mjs';
  * @typedef {import('./tree.mjs').Entry} Entry
  * @typedef {import('./claims.mjs').ClaimedItem} ClaimedItem
  *
+ * @typedef {object} Consistency the main branch's commit trailers against its items (closing.mjs)
+ * @property {boolean} checked false when the checkout is not on the main branch
+ * @property {import('./closing.mjs').Mismatch[]} mismatches
+ * @property {{ kind: string, why: string }[]} skipped the kinds not checked, and why
+ *
  * @typedef {object} FilesExtras what the `hitld work` commands need beyond the interface
  * @property {() => Layout} layout
  * @property {() => string[]} warnings tracker.json names from before HITLD-82, still read
@@ -101,7 +107,7 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean }) => ReturnType<typeof closeItem>} close
- * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }) => { problems: string[], files: number, warnings: string[] }} check
+ * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[], consistency?: boolean }) => { problems: string[], files: number, warnings: string[], consistency?: Consistency }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
  * @property {(options?: { tokens?: Map<string, number> }) => import('./views.mjs').MilestoneGraph} milestoneGraph
@@ -774,9 +780,11 @@ export function openTracker({
      * double claims; `inflight` (dispatch IDs from the ledger) adds the orphaned-claim check;
      * `terms` (from the private store) adds the private term rule to the classification check.
      * `warnings` names each open work item under no milestone (a warning, not a problem).
-     * @param {{ branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[] }} [options]
+     * `consistency` adds, on the main branch only, the mismatches between main's commit trailers
+     * and its items (closing.mjs), as warnings and under `consistency`.
+     * @param {{ branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[], consistency?: boolean }} [options]
      */
-    check({ branches = false, inflight, terms } = {}) {
+    check({ branches = false, inflight, terms, consistency = false } = {}) {
       const items = read();
       const onMain = currentBranch(root) === layout.mainBranch;
       const g = buildGraph(items);
@@ -824,7 +832,26 @@ export function openTracker({
         }
         if (inflight) problems.push(...findOrphans(found, inflight));
       }
-      return { problems, files: items.length, warnings: unplacedWork(items) };
+      const warnings = unplacedWork(items);
+      if (!consistency) return { problems, files: items.length, warnings };
+      /** @type {Consistency} */
+      const found = onMain
+        ? {
+            checked: true,
+            ...mainMismatches(root, layout, `refs/heads/${layout.mainBranch}`, items),
+          }
+        : {
+            checked: false,
+            mismatches: [],
+            skipped: [
+              {
+                kind: 'all',
+                why: `this checkout is not on ${layout.mainBranch}; the trailers on ${layout.mainBranch} are checked there`,
+              },
+            ],
+          };
+      warnings.push(...found.mismatches.map((m) => `${m.path}: ${m.why}`));
+      return { problems, files: items.length, warnings, consistency: found };
     },
 
     releases,
