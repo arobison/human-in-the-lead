@@ -5,7 +5,7 @@
 // ~/.local/share/human-in-the-lead/<project-id>/ when XDG_DATA_HOME is unset.
 //
 // The store is a small key-path file API (read, write, append, list) so it can later be backed by
-// something else. Keys are relative paths such as "ledger.jsonl" or "runs/R-3/run-state.json".
+// something else. Keys are relative paths such as "ledger/w-0123456789abcdef.jsonl" or "run-state.json".
 //
 // Its text parts are also a git repository (<store>/.git, see git.mjs), committed when the store
 // is exported or imported. A SQLite index of the ledger sits beside them (index-db.mjs). The index
@@ -18,6 +18,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -98,9 +99,13 @@ export function openStore(root) {
       appendFileSync(p, text);
     },
     list(prefix = '') {
-      if (!existsSync(base)) return [];
+      // Walk only the directory the prefix names (ledger/ for the ledger's files), not the whole
+      // store and its git repository on every read.
+      const dir = prefix.includes('/') ? prefix.slice(0, prefix.lastIndexOf('/')) : '';
+      const from = dir === '' ? base : pathOf(dir);
+      if (!existsSync(from) || !statSync(from).isDirectory()) return [];
       // Dot paths at the top are the store's git repository and its .gitignore, not keys.
-      return readdirSync(base, { recursive: true, withFileTypes: true })
+      return readdirSync(from, { recursive: true, withFileTypes: true })
         .filter((d) => d.isFile() && !d.name.endsWith('.tmp'))
         .map((d) => relative(base, join(d.parentPath, d.name)).split(sep).join('/'))
         .filter((k) => k.startsWith(prefix) && !k.startsWith('.'))

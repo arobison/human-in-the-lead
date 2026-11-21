@@ -833,7 +833,8 @@ test('hitld merge with merge.via pull-request: presented to the owner, approved 
     assert.equal((await hitld(['run', 'start'])).exit, 0);
     const start = await hitld(['dispatch', 'start', 'W-1']);
     assert.equal(start.exit, 0, JSON.stringify(start.result));
-    await hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1']);
+    const dispatch = start.result.dispatch;
+    await hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', 'agent-1']);
     const branch = start.result.branch;
     git(c.root, 'switch', '-q', '-c', branch);
     put(c.root, {
@@ -854,14 +855,21 @@ test('hitld merge with merge.via pull-request: presented to the owner, approved 
       '-m',
       'W-1',
       '-m',
-      'Work-Item: W-1\nDispatch: D-1\nAgent-Role: executor',
+      `Work-Item: W-1\nDispatch: ${dispatch}\nAgent-Role: executor`,
     );
     const sha = git(c.root, 'rev-parse', 'HEAD');
     git(c.root, 'push', '-q', 'origin', branch);
     git(c.root, 'switch', '-q', 'main');
     const note = join(c.base, 'note.txt');
     writeFileSync(note, report({ item: 'W-1', sha, branch }));
-    const done = await hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+    const done = await hitld([
+      'dispatch',
+      'complete',
+      '--dispatch',
+      dispatch,
+      '--report-file',
+      note,
+    ]);
     assert.equal(done.result.queued_to_merge, branch);
 
     const shown = await hitld(['merge']);
@@ -949,12 +957,13 @@ test('hitld merge with owner paths and a delegation: the owner approves code, th
     };
     /**
      * Dispatch an item, commit its change on its branch with the item closed, report it.
-     * @param {string} id @param {string} dispatch @param {string} file the item's file
+     * @param {string} id @param {string} file the item's file
      * @param {string} title @param {Record<string, string>} files
      */
-    const deliver = async (id, dispatch, file, title, files) => {
+    const deliver = async (id, file, title, files) => {
       const start = await hitld(['dispatch', 'start', id]);
       assert.equal(start.exit, 0, JSON.stringify(start.result));
+      const dispatch = start.result.dispatch;
       await hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', `agent-${id}`]);
       const branch = start.result.branch;
       git(c.root, 'switch', '-q', '-c', branch);
@@ -991,7 +1000,7 @@ test('hitld merge with owner paths and a delegation: the owner approves code, th
     // A code change waits for the owner, who approves it: their sign-off is recorded, the
     // approval is trust evidence, and after one clean approval (propose_queue_after 1) the queue
     // is proposed.
-    const code = await deliver('W-1', 'D-1', 'work/items/W-1-add-numbers.md', 'Add numbers', {
+    const code = await deliver('W-1', 'work/items/W-1-add-numbers.md', 'Add numbers', {
       'src/calc.js': 'export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n',
     });
     const shown = await hitld(['merge']);
@@ -1013,15 +1022,9 @@ test('hitld merge with owner paths and a delegation: the owner approves code, th
     void code;
 
     // A tracker-only change merges without asking, with the owner's sign-off marked as delegated.
-    const tracker = await deliver(
-      'W-2',
-      'D-2',
-      'work/items/W-2-another-thing.md',
-      'Another thing',
-      {
-        'work/notes.md': 'a note\n',
-      },
-    );
+    const tracker = await deliver('W-2', 'work/items/W-2-another-thing.md', 'Another thing', {
+      'work/notes.md': 'a note\n',
+    });
     // Its branch left main before W-1 merged: the first pass brings it up to date, the next merges.
     const update = await hitld(['merge']);
     assert.equal(update.exit, 0, JSON.stringify(update.result));

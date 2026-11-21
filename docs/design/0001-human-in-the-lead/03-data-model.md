@@ -303,7 +303,7 @@ A part of the project with an owner: `name`, `paths` (globs), `topics`, `owners`
 
 ### Ledger entry
 
-Defined in [part 5](05-execution.md#54-the-ledger). Not a tracker entity: it lives in the project's private store, append-only, one file per writer (decided, not built).
+Defined in [part 5](05-execution.md#54-the-ledger). Not a tracker entity: it lives in the project's private store, append-only, one file per writer (`ledger/<writer>.jsonl`, HITLD-74), after the single `ledger.jsonl` of before, which is read and never appended to.
 
 ### Audit record
 

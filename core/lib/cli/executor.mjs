@@ -4,6 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
+import { DISPATCH_ID } from '../ledger/ids.mjs';
 
 /**
  * Why this process may not take an owner's decision (record a decision, accept a baseline), or null. Two signals, either one enough: the
@@ -16,7 +17,7 @@ import { join } from 'node:path';
  * @returns {string | null}
  */
 export function executorSignal(env, cwd) {
-  if (env?.HITLD_ROLE === 'executor' || /^D-[1-9][0-9]*$/.test(env?.HITLD_DISPATCH ?? '')) {
+  if (env?.HITLD_ROLE === 'executor' || DISPATCH_ID.test(env?.HITLD_DISPATCH ?? '')) {
     return 'this process runs for a dispatch';
   }
   try {

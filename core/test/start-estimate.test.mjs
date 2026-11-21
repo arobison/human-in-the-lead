@@ -303,10 +303,11 @@ async function started() {
   assert.equal((await c.hitld(['run', 'start'])).exit, 0);
   const start = await c.hitld(['dispatch', 'start', 'W-4', '--mode', 'interactive']);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'session-1']);
+  const d = start.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'session-1']);
   const root = join(c.data, 'human-in-the-lead/orch-fixture');
   const ledger = () => readLedger(openStore(root)).events;
-  return { c, start, root, ledger };
+  return { c, d, start, root, ledger };
 }
 
 test('dispatch start records where the estimate came from and how many completions it rests on', async () => {
@@ -319,20 +320,20 @@ test('dispatch start records where the estimate came from and how many completio
 });
 
 test('ledger correct-estimate records a correction that is read in place of the original, with the refusal threshold before and after', async () => {
-  const { c, start, root, ledger } = await started();
+  const { c, d, start, root, ledger } = await started();
   // The estimate is corrected to the poisoned figure, as a stand-in for one recorded before: even
   // a typed figure is read under the bound.
   const poison = await c.hitld([
     'ledger',
     'correct-estimate',
-    'dispatched-D-1',
+    `dispatched-${d}`,
     '--tokens',
     String(POISONED),
     '--why',
     'a test: the figure found in a real ledger',
   ]);
   assert.equal(poison.exit, 0, JSON.stringify(poison.result));
-  assert.equal(poison.result.event.corrects, 'dispatched-D-1');
+  assert.equal(poison.result.event.corrects, `dispatched-${d}`);
   assert.equal(poison.result.event.estimate_source, 'typed');
   assert.equal(poison.result.event.brief_hash, ledger()[1].brief_hash, 'every other field stands');
   assert.deepEqual(poison.result.estimate, {
@@ -349,18 +350,18 @@ test('ledger correct-estimate records a correction that is read in place of the 
   const inFlight = await c.hitld(['ledger', 'in-flight']);
   assert.deepEqual(
     inFlight.result.in_flight.map((/** @type {any} */ d) => d.dispatch),
-    ['D-1'],
+    [d],
   );
   assert.deepEqual(
     loadState(openStore(root)).state?.in_flight.map((/** @type {any} */ d) => d.dispatch),
-    ['D-1'],
+    [d],
   );
 
   // The original is corrected once; the correction is what a second correction names.
   const twice = await c.hitld([
     'ledger',
     'correct-estimate',
-    'dispatched-D-1',
+    `dispatched-${d}`,
     '--tokens',
     '400000',
     '--why',
@@ -373,16 +374,7 @@ test('ledger correct-estimate records a correction that is read in place of the 
   const note = join(c.base, 'report.txt');
   writeFileSync(note, report({ item: 'W-4', sha: 'abc1234', branch: start.result.branch }));
   const complete = (/** @type {string} */ tokens) =>
-    c.hitld([
-      'dispatch',
-      'complete',
-      '--dispatch',
-      'D-1',
-      '--report-file',
-      note,
-      '--tokens',
-      tokens,
-    ]);
+    c.hitld(['dispatch', 'complete', '--dispatch', d, '--report-file', note, '--tokens', tokens]);
   const refused = await complete('4000000');
   assert.notEqual(refused.exit, 0);
   assert.equal(refused.result.error, 'tokens-over-estimate');
@@ -419,7 +411,7 @@ test('ledger correct-estimate records a correction that is read in place of the 
   const wrong = await c.hitld([
     'ledger',
     'correct-estimate',
-    'reported-D-1',
+    `reported-${d}`,
     '--tokens',
     '1',
     '--why',

@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "id": "reproduce/invented-test-refused",
+  "suite": "reproduce",
+  "category": "reproduction",
+  "description": "A reply that claims a reproduction for a test that passes on the base commit, and prints a fake failure, is refused by the script: the bug is not reproduced and nothing is kept.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "fixture",
+      "action": "reproduce.fixture",
+      "with": {}
+    },
+    {
+      "id": "open",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "open", "--signal", "../signal.json", "--dir", "../repro"]
+      }
+    },
+    {
+      "id": "test",
+      "action": "file.write",
+      "with": {
+        "path": "repro/work/test/mean.test.js",
+        "content": "import { test } from 'node:test';\nconsole.log('not ok 1 - mean([2, 4]) should be 3');\ntest('fine', () => {});\n"
+      }
+    },
+    {
+      "id": "reply",
+      "action": "file.write",
+      "with": {
+        "path": "reply.json",
+        "content": "{\"verdict\": \"reproduced\", \"test\": \"test/mean.test.js\", \"expected_failure\": \"mean([2, 4]) should be 3\", \"summary\": \"mean divides by one less than the count\"}"
+      }
+    },
+    {
+      "id": "check",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "check", "../repro", "--reply", "../reply.json"]
+      }
+    },
+    {
+      "id": "item",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "item", "SIG-7", "--parent", "W-10", "--title", "mean() is wrong"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "refused",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.error",
+        "value": "reproduction-refused"
+      }
+    },
+    {
+      "id": "not-reproduced",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.verdict",
+        "value": "not-reproduced"
+      }
+    },
+    {
+      "id": "says-why",
+      "grader": "matches",
+      "with": {
+        "path": "steps.check.result.reason",
+        "pattern": "passes on the base commit"
+      }
+    },
+    {
+      "id": "no-item",
+      "grader": "equals",
+      "with": {
+        "path": "steps.item.result.error",
+        "value": "not-reproduced"
+      }
+    }
+  ]
+}

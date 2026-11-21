@@ -5,13 +5,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { sizeItem } from '../lib/dispatch/sizing.mjs';
 import { planDispatch } from '../lib/dispatch/plan.mjs';
 import { mentionedRefusals, refusalsInRun, refusedCommands } from '../lib/dispatch/permissions.mjs';
 import { readLedger } from '../lib/ledger/ledger.mjs';
+import { openStore } from '../lib/store/store.mjs';
 import { headlessCompletion } from '../harness/claude-code/completion.mjs';
 import { FAKE_PROFILES } from '../harness/fake/fake.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
@@ -199,7 +200,8 @@ test('cli: a refused headless run holds headless for every item; a quoted refusa
   const start = await c.hitld(['dispatch', 'start', 'W-4']);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
   assert.equal(start.result.instruction.tool, 'Bash', 'headless by default');
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'bash-1']);
+  const d1 = start.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'bash-1']);
   const resultFile = start.result.on_complete.split('--result-file ')[1];
   // What the first self-hosted run's executors left: no report in the fixed shape, every
   // contract command refused.
@@ -223,7 +225,7 @@ test('cli: a refused headless run holds headless for every item; a quoted refusa
     'dispatch',
     'complete',
     '--dispatch',
-    'D-1',
+    d1,
     '--result-file',
     resultFile,
   ]);
@@ -233,15 +235,9 @@ test('cli: a refused headless run holds headless for every item; a quoted refusa
   assert.deepEqual(done.result.refused_commands, ['hitld', 'node', 'npm', 'git']);
   assert.equal(done.result.report_errors, undefined, 'never a missing report shape');
   assert.doesNotMatch(done.result.next, /fixed shape/);
-  const ledger = join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl');
-  const events = () =>
-    readLedger(
-      /** @type {any} */ ({
-        read: (/** @type {string} */ k) =>
-          k === 'ledger.jsonl' ? readFileSync(ledger, 'utf8') : null,
-      }),
-    ).events;
-  const reported = events().find((e) => e.event === 'reported' && e.dispatch === 'D-1');
+  const store = openStore(join(c.data, 'human-in-the-lead/orch-fixture'));
+  const events = () => readLedger(store).events;
+  const reported = events().find((e) => e.event === 'reported' && e.dispatch === d1);
   assert.equal(reported?.result, 'blocked');
   assert.equal(reported?.reason, 'executor-permissions');
   assert.equal(reported?.notes, 'refused hitld, node, npm, git');
