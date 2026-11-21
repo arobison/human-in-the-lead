@@ -21,7 +21,7 @@ A person-level view would break blindness unless the owner opts in.
 ## Options and recommendation
 
 - A. No, not in rc.2: Each project's page shows only that project; a person-level view is left for a later decision.
-- B. Yes, only as an explicit owner opt-in: A person-level page the owner turns on, with labelled aggregates.
+- B. Yes, only as an explicit owner opt-in: A person-level page the owner turns on, with labeled aggregates.
 
 Recommended: No, not in rc.2. The chief of staff recommended it.
 
