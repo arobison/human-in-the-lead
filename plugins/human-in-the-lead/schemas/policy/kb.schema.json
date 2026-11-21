@@ -1,0 +1,27 @@
+{
+  "$id": "policy/kb",
+  "title": "policy.json: kb",
+  "description": "The knowledge base (design part 8): the size budgets `hitld kb check` holds notes and the index to, and when a note with no sources counts as stale.",
+  "type": "object",
+  "properties": {
+    "index_tokens_max": {
+      "description": "The index's budget in tokens (estimated as characters / 4). Above it, `hitld kb index` splits the index by area: a top-level index of areas and kb/areas/<area>/index.md for each.",
+      "type": "integer",
+      "minimum": 100,
+      "default": 4000
+    },
+    "note_tokens_max": {
+      "description": "A note's budget in tokens (estimated as characters / 4), front matter included. `hitld kb check` refuses a note above it.",
+      "type": "integer",
+      "minimum": 100,
+      "default": 2000
+    },
+    "max_age_unsourced": {
+      "description": "Days after its `checked` date that a note with no `sources` counts as stale. 0 is off.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 90
+    }
+  },
+  "additionalProperties": false
+}

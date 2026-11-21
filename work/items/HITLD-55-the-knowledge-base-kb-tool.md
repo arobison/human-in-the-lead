@@ -1,10 +1,11 @@
 ---
 id: HITLD-55
-title: "The knowledge-base `kb` tool"
+title: The knowledge-base `kb` tool
 kind: work
-state: planned
+state: done
 created: 2026-11-14
 project: HITLD-28
+claimed_by: D-49
 ---
 
 ## Why

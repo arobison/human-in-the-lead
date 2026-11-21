@@ -370,6 +370,8 @@ test('a newer schema, an unknown export format, or a costly format-1 header is r
   await assert.rejects(importStore(opts(join(dir, 'b'), file)), { code: 'damaged' });
 });
 
+// Expected to skip on no platform CI runs: the tests job installs age, and a skip there fails the
+// job (core/test/expected-skips.json). A machine without age skips this one locally.
 const AGE = ['age', 'age-keygen'].every(
   (cmd) => spawnSync(cmd, ['--version'], { encoding: 'utf8' }).status === 0,
 );
