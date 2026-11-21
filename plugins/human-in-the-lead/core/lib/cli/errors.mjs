@@ -30,6 +30,8 @@ export const ERROR_CODES = Object.freeze({
   // The project, its files and the run
   policy: 'policy.json is missing, invalid or not trusted.',
   settings: 'A settings file is invalid.',
+  'settings-not-pulled':
+    "The project's store holds the owner's settings and is not up to date here, so config write did not write them there (in a cloud session, nothing at all); pull the store first.",
   tracker: 'tracker.json is invalid.',
   'id-counter-unreachable':
     'A new ID is taken from the counter on the store repository, and it could not be reached or written; no ID was taken.',

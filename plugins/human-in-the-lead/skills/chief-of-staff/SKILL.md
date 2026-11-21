@@ -34,7 +34,7 @@ Where nothing can start a session, you cannot be a separate chief of staff: foll
 
 ## 0. Before the first orchestrator
 
-Run the first-run setup with the owner here (the orchestrate skill, step 0), the store check included, because it needs the owner's answers. Never ask an orchestrator to do it. The store check here covers this session only: each orchestrator makes its own in its own container.
+Run the first-run setup with the owner here (the orchestrate skill, step 0), the store check included, because it needs the owner's answers. Never ask an orchestrator to do it. The store check here covers this session only: each orchestrator makes its own in its own container. The owner's answers travel in the project's store once `hitld store push` has carried them, so an orchestrator reads them at its start: never carry them to it in a message.
 
 ## 1. Start an orchestrator
 
@@ -111,7 +111,7 @@ You own every scheduled task, reminder and subscription of the run. Orchestrator
 - **Due work and quota resets.** Nothing recurs on the calendar. `hitld cadence due` (step 2) says when a digest, report, baselines, evals, the stale-item sweep or a calibration review is due. Its `ceiling_at` is when a silence ceiling is reached. `hitld run status` shows `wake_at` when dispatch is paused at the quota gate until a limit resets. Keep one reminder pending, at the earlier of `ceiling_at` and `wake_at`, and none for the jobs. It is an ordinary wake (step 2): after a reset, the watch says `dispatch may resume`, and the cadence check runs as usual. Without `wake_at`, the hourly check-in's watch says when a pause may lift.
 - **A usage figure from the owner.** When `hitld run status` shows `ask_figure`, or the digest asks for a fresh usage figure, ask the owner what their account shows for that limit (the used share and its reset), and record their answer with `hitld quota declare --used <figure> --resets-at <reset> [--limit <ID>]`, only from the owner's own message. Never write a store file by hand to give the gate a reading.
 - **One-off wake-ups.** On `wake_at` in an orchestrator's message (a quota reset, or another reason), schedule a reminder for that time that wakes the orchestrator with the reason, unless the pending reminder above already falls then.
-- **A raised budget.** When the owner changes their limits or reserve and `hitld config write` prints `replan.lifts: true`, wake the orchestrator at once with `budget raised`. Write the person file only on the owner's own message, as in the first-run setup.
+- **A raised budget.** When the owner changes their limits or reserve and `hitld config write` prints `replan.lifts: true`, wake the orchestrator at once with `budget raised`. Write the person file only on the owner's own message, as in the first-run setup, then run `hitld store push` so the next session reads the change.
 - **GitHub events.** When the run has pull requests (the owner opened them, or an orchestrator names one), subscribe to their activity here.
 - **When the run ends** (nothing left, or the owner stops it): delete the run's scheduled tasks and subscriptions, and tell the owner.
 
