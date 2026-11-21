@@ -6,7 +6,7 @@ state: done
 created: 2026-11-21
 project: HITLD-15
 decider: owner
-answer: A. Allow the attach, and make it automatic in future|The owner allows add_repo for the orchestrator (a permission rule or approval), and HITLD handles the grant automatically from now on; filed as a feature request.
+answer: Allow the attach, and make it automatic in future
 answered_at: 2026-11-21T06:48:28.645Z
 answered_via: chat
 answered_by: owner
@@ -20,9 +20,9 @@ Orch-4's device key is set and matches the approved device. Its attach was refus
 
 ## Options and recommendation
 
-- A. A: Allow the attach, and make it automatic in future|The owner allows add_repo for the orchestrator (a permission rule or approval), and HITLD handles the grant automatically from now on; filed as a feature request.
-- B. B: Owner attaches the store repository themselves|The owner adds it as a source in the session.
-- C. C: Keep waiting for a successor|Leave the ledger in orch-4's container; merges are recoverable from their Dispatch trailers.
+- A. Allow the attach, and make it automatic in future: The owner allows add_repo for the orchestrator (a permission rule or approval), and HITLD handles the grant automatically from now on; filed as a feature request.
+- B. Owner attaches the store repository themselves: The owner adds it as a source in the session.
+- C. Keep waiting for a successor: Leave the ledger in orch-4's container; merges are recoverable from their Dispatch trailers.
 
 Recommended: A. The chief of staff recommended it.
 
