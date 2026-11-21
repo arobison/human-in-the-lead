@@ -335,6 +335,8 @@ export function project(ctx) {
     state,
     machineRoot,
     person: layered.layers?.person ?? null,
+    /** The machine profile's capacity per resource, for the locks (design 13.4). */
+    capacity: /** @type {Record<string, number> | undefined} */ (layered.layers?.machine?.capacity),
     max: {
       person: /** @type {number | undefined} */ (layered.layers?.person?.max_executors),
       machine: /** @type {number | undefined} */ (layered.layers?.machine?.max_executors),
@@ -464,7 +466,13 @@ export function plan(p, ctx, byHand, only) {
   const share = shareFraction(p.person, projectId, activeProjects(p.machineRoot, projectId));
   const ledger = readLedgerEntries(p.store);
   const runStarted = p.state?.run?.started_at ? Date.parse(p.state.run.started_at) : null;
-  const env = openEnv({ repoRoot: p.repoRoot, store: p.store, policy: p.policy, env: ctx.env });
+  const env = openEnv({
+    repoRoot: p.repoRoot,
+    store: p.store,
+    policy: p.policy,
+    env: ctx.env,
+    capacity: p.capacity,
+  });
   const locks = new Map(
     env.lockStatus().map((l) => [l.resource, l.held_by && !l.stale ? l.held_by : null]),
   );
@@ -1232,7 +1240,13 @@ const table = [
         // the branch the worktree gets. A branch with unmerged commits is never touched.
         const env =
           tier === 3
-            ? openEnv({ repoRoot: p.repoRoot, store: p.store, policy: p.policy, env: ctx.env })
+            ? openEnv({
+                repoRoot: p.repoRoot,
+                store: p.store,
+                policy: p.policy,
+                env: ctx.env,
+                capacity: p.capacity,
+              })
             : null;
         /** @type {import('../../env/worktree.mjs').BranchChoice | null} */
         let branchChoice = null;
@@ -1849,6 +1863,7 @@ const table = [
                 store: p.store,
                 policy: p.policy,
                 env: ctx.env,
+                capacity: p.capacity,
               }).registry().worktrees,
             ).find((w) => w.branch === first.branch)?.path ??
             null,
@@ -2083,6 +2098,7 @@ const table = [
           store: p.store,
           policy: p.policy,
           env: ctx.env,
+          capacity: p.capacity,
         });
         // Each waiting branch's files, read once: the listing below and presentToOwner both route
         // by them.

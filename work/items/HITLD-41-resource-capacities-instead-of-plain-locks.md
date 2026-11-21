@@ -2,10 +2,11 @@
 id: HITLD-41
 title: Resource capacities instead of plain locks
 kind: work
-state: planned
+state: done
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-40]
+claimed_by: D-47
 ---
 
 ## Why
