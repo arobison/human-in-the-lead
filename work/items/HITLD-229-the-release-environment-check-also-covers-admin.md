@@ -2,9 +2,10 @@
 id: HITLD-229
 title: The release environment check also covers admin bypass and the main-only deployment branch rule
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-57
 ---
 
 ## Why
