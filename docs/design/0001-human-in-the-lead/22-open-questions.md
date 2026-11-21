@@ -353,7 +353,7 @@ These are calls the design makes without asking. Each can be reversed cheaply no
 - Markdown stays the knowledge base's source of truth; any search index is a rebuildable cache ([part 8](08-knowledge-base.md#82-markdown-in-git-is-the-source-of-truth)).
 - Speculation cost is reported separately from waste ([part 5](05-execution.md#speculative-execution-later)).
 - Trust levels L0–L4 ([part 9](09-contributors.md#92-trust-levels)).
-- The private store's default path is `~/.local/share/human-in-the-lead/<project-id>/` ([part 3](03-data-model.md#private-store)).
+- The private store's default path is `~/.local/share/human-in-the-lead/<project-id>/`, and `%LOCALAPPDATA%\human-in-the-lead\<project-id>\` on Windows (HITLD-245); `XDG_DATA_HOME` overrides both ([part 3](03-data-model.md#private-store)).
 - Controllers move settings only inside owner-set bounds; anything else is a rule change ([part 11](11-metrics-and-control.md#112-who-moves-what)). Judgment weights are estimates, not settings, and have no owner bounds ([Q24](#q24-who-decides-a-change-to-a-persons-prior-weight-blocks-hl)).
 - New projects start in owner merge mode (`merge.mode: owner`): the owner decides each merge ([part 14](14-integration.md)).
 - For caps and limits, the strictest settings layer wins ([13.4](13-operations.md#precedence)).

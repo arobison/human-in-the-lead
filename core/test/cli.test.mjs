@@ -41,7 +41,7 @@ test('hitld version', async () => {
 });
 
 test('a command not yet built says so and names who builds it (built_by)', async () => {
-  const { code, out } = await run(['kb', 'search']);
+  const { code, out } = await run(['note']);
   assert.equal(code, EXIT.notBuilt);
   const result = parse(out);
   assert.equal(result.error, 'not-built');

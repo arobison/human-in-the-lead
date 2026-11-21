@@ -39,6 +39,10 @@ const canSymlink = (() => {
 const needsSymlink = {
   skip: !canSymlink && 'Windows: creating symbolic links needs Developer Mode or admin',
 };
+// Expected on Windows only (core/test/expected-skips.json).
+const posixOnly = {
+  skip: process.platform === 'win32' && 'Windows: no POSIX file modes or owners to refuse by',
+};
 
 const minimal = { schema_version: 1, project: { id: 'fixture', key: 'W' } };
 
@@ -266,24 +270,18 @@ test("a worktree's .git file counts as the repository root", () => {
   assert.equal(findPolicyFile(join(wt, 'src')), path);
 });
 
-test(
-  'a group- or world-writable policy file is refused',
-  { skip: process.platform === 'win32' },
-  () => {
-    const root = tempDir('hitld-policy-');
-    const path = plant(root);
-    chmodSync(path, 0o666);
-    const result = loadPolicy({ cwd: root });
-    assert.equal(result.policy, null);
-    assert.match(result.errors[0].message, /writable by group or others \(mode 666\)/);
-    chmodSync(path, 0o664);
-    assert.match(loadPolicy({ cwd: root }).errors[0].message, /mode 664/);
-    chmodSync(path, 0o644);
-    assert.deepEqual(loadPolicy({ cwd: root }).errors, []);
-  },
-);
-
-const posixOnly = { skip: process.platform === 'win32' };
+test('a group- or world-writable policy file is refused', posixOnly, () => {
+  const root = tempDir('hitld-policy-');
+  const path = plant(root);
+  chmodSync(path, 0o666);
+  const result = loadPolicy({ cwd: root });
+  assert.equal(result.policy, null);
+  assert.match(result.errors[0].message, /writable by group or others \(mode 666\)/);
+  chmodSync(path, 0o664);
+  assert.match(loadPolicy({ cwd: root }).errors[0].message, /mode 664/);
+  chmodSync(path, 0o644);
+  assert.deepEqual(loadPolicy({ cwd: root }).errors, []);
+});
 
 /** A fresh repository with a valid policy.json. */
 function repo() {
@@ -301,19 +299,15 @@ test('a symlinked policy file is refused', needsSymlink, () => {
   assert.match(result.errors[0].message, /is a symbolic link/);
 });
 
-test(
-  'a FIFO planted as the policy file is refused without blocking',
-  { skip: process.platform === 'win32' },
-  () => {
-    const { path } = repo();
-    const root = path.slice(0, path.indexOf('/.human-in-the-lead'));
-    rmSync(path);
-    execFileSync('mkfifo', [path]);
-    const result = loadPolicy({ cwd: root });
-    assert.equal(result.policy, null);
-    assert.match(result.errors[0].message, /not a regular file/);
-  },
-);
+test('a FIFO planted as the policy file is refused without blocking', posixOnly, () => {
+  const { path } = repo();
+  const root = path.slice(0, path.indexOf('/.human-in-the-lead'));
+  rmSync(path);
+  execFileSync('mkfifo', [path]);
+  const result = loadPolicy({ cwd: root });
+  assert.equal(result.policy, null);
+  assert.match(result.errors[0].message, /not a regular file/);
+});
 
 test('a policy file that resolves outside the repository root is refused', needsSymlink, () => {
   const { root } = repo();

@@ -28,7 +28,7 @@ const STORE = {
   name: 'store',
   type: 'string',
   description:
-    "The private store directory. Default: the project's, from policy.json (project.id) under $XDG_DATA_HOME/human-in-the-lead. Refused if it is inside the repository or a worktree",
+    "The private store directory. Default: the project's, from policy.json (project.id) under $XDG_DATA_HOME/human-in-the-lead, else %LOCALAPPDATA%\\human-in-the-lead on Windows and ~/.local/share/human-in-the-lead elsewhere. Refused if it is inside the repository or a worktree",
 };
 
 /**
