@@ -24,3 +24,11 @@ HITLD-142 (done) put a rule in the chief-of-staff skill: `create_session` attach
 Related: permission denials are typed faults that escalate (HITLD-186). The harness limit stays: no session can attach a repository to another, and `create_session` takes one source. Raised by the owner, 2026-11-21.
 
 On 2026-11-21 the harness refused an orchestrator's attach twice, the second time after the owner's approval was relayed through the chief of staff. A relayed approval is not accepted for this tool: the owner's own message in that session, or a permission rule for the attach tool in the owner's settings, is what counts. So the permission rule is part of this item's fix, not an optional extra.
+
+## Questions to walk through (the owner, 2026-11-21)
+
+The owner asked whether the system can solve this itself, without the owner changing settings or permission rules each time. What it cannot do is approve its own access: a sub-session attaching a repository to itself is an access grant, and the harness requires the owner's own word for it (the same principle as design 4.6). A relayed approval from the chief of staff is refused. What it can do, to walk through one question at a time:
+
+- **Check at first-run setup, once.** The grant the chief of staff passes down (HITLD-142) is dropped when the chief of staff's own session does not hold the attach tool. Setup should check for it and tell the owner once what to allow, before any orchestrator starts, so the one step that stays the owner's is explicit and up front, not discovered in the middle of a run. This is the item's core.
+- **A scoped credential for the store in the environment, so no per-session attach is needed.** Any session in the environment could reach the store with it. The cost is a token with access to the store repository living in the environment, and it is not yet known whether the harness's credential injection would clash with its own GitHub access. Needs a check before it is offered.
+- **Fewer hand-overs.** Each hand-over starts a fresh session that needs the attach again. Handing over less often (by the orchestrator's limits and its cadence) reduces how often the step arises.
