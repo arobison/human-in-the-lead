@@ -145,7 +145,9 @@ async function waitingWithoutList(merge = {}) {
   assert.equal(existsSync(join(root, ...TERMS_KEY.split('/'))), false);
   const d = await c.hitld(['dispatch', 'start', 'W-1'], { env: CLOUD });
   assert.equal(d.exit, 0, JSON.stringify(d.result));
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'agent-1'], {
+  // The dispatch ID is the one dispatch start gives (unique per ledger), never a literal.
+  const dispatch = d.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', 'agent-1'], {
     env: CLOUD,
   });
   const branch = d.result.branch;
@@ -157,9 +159,12 @@ async function waitingWithoutList(merge = {}) {
   git(c.root, 'switch', '-q', 'main');
   const note = join(c.base, 'note.txt');
   writeFileSync(note, report({ item: 'W-1', sha, branch }));
-  const done = await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note], {
-    env: CLOUD,
-  });
+  const done = await c.hitld(
+    ['dispatch', 'complete', '--dispatch', dispatch, '--report-file', note],
+    {
+      env: CLOUD,
+    },
+  );
   assert.equal(done.result.queued_to_merge, branch, JSON.stringify(done.result));
   return { c, root };
 }
