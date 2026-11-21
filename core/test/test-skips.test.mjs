@@ -32,11 +32,10 @@ const LINK_SKIP = {
   reason: 'Windows: creating symbolic links needs Developer Mode or admin',
 };
 
-test('every expected skip names files that give its reason, and none is expected on Linux', () => {
+test('every expected skip names files that give its reason, and the age tests are expected nowhere', () => {
   assert.ok(expected.length > 0 && expected.length <= 8, 'a short list');
   for (const entry of expected) {
     assert.ok(entry.why, `${entry.reason}: says why`);
-    assert.ok(!entry.platforms.includes('linux'), `${entry.reason}: CI runs on Linux`);
     for (const file of entry.files) {
       assert.ok(existsSync(join(ROOT, file)), file);
       assert.ok(
@@ -45,6 +44,32 @@ test('every expected skip names files that give its reason, and none is expected
       );
     }
   }
+});
+
+test('on Linux, where CI runs, only the namespace test may skip; the age tests may not', () => {
+  const ageSync = {
+    file: 'core/test/store-sync.test.mjs',
+    name: 'an export opens with the age program, and a store file age writes imports',
+    reason: AGE_SKIP.reason,
+  };
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    assert.equal(
+      checkSkips([AGE_SKIP, ageSync], expected, platform).unexpected.length,
+      2,
+      platform,
+    );
+  }
+  const namespaces = {
+    file: 'core/test/reproduce.test.mjs',
+    name: 'where the machine allows namespaces, a run goes in them and says so',
+    reason: 'this machine gives no unprivileged network and PID namespaces',
+  };
+  assert.deepEqual(checkSkips([namespaces], expected, 'linux').unexpected, []);
+  const onLinux = expected.filter((e) => e.platforms.includes('linux'));
+  assert.deepEqual(
+    onLinux.map((e) => e.files),
+    [['core/test/reproduce.test.mjs']],
+  );
 });
 
 test('a skip is expected only on a listed platform, in a listed file, with the reason', () => {
