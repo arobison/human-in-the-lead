@@ -51,3 +51,15 @@ An independent review found further silent passes, and the skills told agents to
 - A list file with no lines (empty, or blank lines only) counts as no list. A file whose terms were all removed still has its lines and counts as read.
 - `private-list-invalid` names the list by its key in the store, never the store's path. A directory where the list goes, or a list that cannot be read, is refused with that code.
 - Design part 10.3: the merge row says it checks only the implied terms when there is no list. The reason for warning instead of refusing now cites design 0003, section 8: a session with an address and no key, or with an unreachable remote, runs on a local store it never pulled.
+
+## Owner's answers on pull request 404 (D-52)
+
+The owner answered the two questions from the review fixes:
+
+- **`hitld feedback publish` refuses to send** when the private term list was not checked. This applies whether the person approves it or posts it by hand. The record stays drafted, and the refusal says how to fix it: pull the store where this device can open it (`hitld store status` says what is missing), or answer from where the store is.
+- **`merge.require_private_list`** is an opt-in policy flag, off by default. When it is on, `hitld merge` refuses when the list is not there, and main does not move. When it is off, the merge checks the implied terms and warns, as before, so cloud sessions keep merging.
+
+Both refusals use the existing code `private-list-invalid`, and each refusal's message says that the list is missing and how to fix it. A new code, or a wider description of this one, has to be listed word for word in design part 16.2, which a test checks. Design changes still to make in `docs/`, not made here:
+
+- Part 10.3, the "Where it is checked" table: the merge row should name `merge.require_private_list`. The paragraph after the table should say that `feedback publish` refuses, not warns, when there is no list.
+- Part 16.2, and its copy in `core/lib/cli/errors.mjs`: widen the description of `private-list-invalid` to cover a list that cannot be read or is not there. Or, if the owner wants the missing-list refusals told apart from a list that does not read, add a code `private-list-missing` and switch both refusals to it.

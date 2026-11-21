@@ -395,8 +395,8 @@ export function pending(store) {
 /**
  * Refuse a publication that holds a term from the private term list (design part 10.3, rule 7),
  * naming the kind and line of each, in the title or the body, and never the term. A list that does
- * not read refuses too: nothing is sent unchecked. A list that is not there gives its warning, for
- * the result to carry (HITLD-187).
+ * not read refuses too, and so does one that is not there (HITLD-187): nothing is sent unchecked.
+ * The warnings that remain (an address that does not read) are for the result to carry.
  * @param {PrivateStore} store @param {{ title: string, body: string }} content
  * @param {{ ctx: Ctx, policy: Record<string, any> }} o
  * @returns {{ list_found: boolean, warnings: string[] }}
@@ -418,6 +418,14 @@ function refuseIfPrivate(store, content, o) {
       );
     }
     throw e;
+  }
+  // The owner's answer (HITLD-187): an issue goes to a public forge only once the list was there to
+  // check it against; a session that has not pulled the store sends nothing.
+  if (!terms.list_found) {
+    throw new GateRefusal(
+      'private-list-invalid',
+      `nothing is sent: ${terms.warnings[0] ?? 'the private term list was not checked'}. Pull the private store where this device can open it (hitld store status says what is missing), or answer from where the store is; the record stays drafted`,
+    );
   }
   const found = [
     ['title', content.title],

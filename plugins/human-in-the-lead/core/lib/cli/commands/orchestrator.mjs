@@ -177,15 +177,16 @@ const dueFor = (run, policy, input) =>
 /**
  * The private terms the merge checks every commit against. A list that does not read stops the
  * merge: nothing goes to main unchecked. One that is not there (a store not pulled) adds its
- * warning to `notes`, which the merge's result carries (HITLD-187).
- * @param {import('../../store/store.mjs').PrivateStore} store @param {string} projectId
+ * warning to `notes`, which the merge's result carries (HITLD-187); with merge.require_private_list
+ * on, the owner's choice, it stops the merge instead.
+ * @param {import('../../store/store.mjs').PrivateStore} store @param {Record<string, any>} policy
  * @param {NodeJS.ProcessEnv} env @param {string[]} notes
  */
-function mergeTerms(store, projectId, env, notes) {
+function mergeTerms(store, policy, env, notes) {
+  /** @type {ReturnType<typeof loadTerms>} */
+  let t;
   try {
-    const t = loadTerms({ store, projectId, env });
-    notes.push(...t.warnings);
-    return t.matchers;
+    t = loadTerms({ store, projectId: policy.project.id, env });
   } catch (e) {
     const err = /** @type {{ code?: unknown, message: string }} */ (e);
     if (err.code === 'private-list-invalid') {
@@ -193,6 +194,14 @@ function mergeTerms(store, projectId, env, notes) {
     }
     throw e;
   }
+  if (!t.list_found && policy.merge.require_private_list === true) {
+    throw new Refusal(
+      'private-list-invalid',
+      `${t.warnings[0]}. merge.require_private_list is on, so nothing merged: pull the private store where this device can open it (hitld store status says what is missing), or merge where the store is`,
+    );
+  }
+  notes.push(...t.warnings);
+  return t.matchers;
 }
 
 export class Refusal extends Error {
@@ -1972,7 +1981,7 @@ const table = [
             ceiling: layout.classificationCeiling,
             defaultClassification: layout.defaultClassification,
             privatePaths: layout.privatePaths,
-            terms: mergeTerms(p.store, p.policy.project.id, ctx.env, notes),
+            terms: mergeTerms(p.store, p.policy, ctx.env, notes),
           },
         };
         /** @param {string} dir */
