@@ -96,6 +96,7 @@ import {
   validSignoff,
 } from '../../merge/pull-request.mjs';
 import { duplicateIds } from '../../tracker/files/check.mjs';
+import { closeByTrailer } from '../../tracker/files/closing.mjs';
 import { loadWorkTree } from '../../tracker/files/tree.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import {
@@ -715,7 +716,8 @@ const rejectedJson = (x, main) => ({
   reason: x.reason,
   ...(x.files ? { files: x.files } : {}),
   ...(x.command ? { command: x.command } : {}),
-  ...((x.reason === 'classification' || x.reason === 'duplicate_id') && x.output
+  ...((x.reason === 'classification' || x.reason === 'duplicate_id' || x.reason === 'closes') &&
+  x.output
     ? { problems: x.output.split('\n') }
     : {}),
   follow_up:
@@ -739,7 +741,7 @@ const ownerPresentation = (o) => ({
   waiting: o.waiting,
   reused: o.reused,
   next: o.presentation
-    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations), and each directed read with its question (with a chief of staff, in your message to it). Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]; when the chief of staff recorded the answer (hitld merge approve), plain hitld merge applies it. Send each rejected follow_up"
+    ? "put the question to the owner in one message: one line per branch (item, title, the checks passed, the files changed, anything outside its touches, deviations, and the items its Closes: trailers close, from closed), and each directed read with its question (with a chief of staff, in your message to it). Merge only on the owner's own message: yes is hitld merge --all, a list is hitld merge --only <branch>[,<branch>]; when the chief of staff recorded the answer (hitld merge approve), plain hitld merge applies it. Send each rejected follow_up"
     : 'nothing passed the checks to present: for each rejected entry with a follow_up, hitld dispatch follow-up; then refill with hitld dispatch plan',
 });
 
@@ -2015,6 +2017,11 @@ const table = [
               return [`the tracker files could not be read: ${/** @type {Error} */ (e).message}`];
             }
           },
+          // Closing by trailer (design 3.4): with main's tracker layout, in the rebased tree.
+          closeByTrailer: (dir, from, to, own) =>
+            existsSync(join(dir, layout.workDir))
+              ? closeByTrailer(dir, layout, from, to, { own })
+              : { closed: [], problems: [] },
           // From main's policy and tracker.json, never the branch's own; the private terms from
           // the private store, so every commit's files and message are checked for them.
           classification: {
@@ -2125,6 +2132,8 @@ const table = [
               ? { before: rs[0].main.before, after: rs[rs.length - 1].main.after }
               : null,
             merged: rs.flatMap((r) => r.merged.map((m) => m.item)),
+            // The items the merged branches' Closes: trailers closed in the same merge.
+            closed: rs.flatMap((r) => r.merged.flatMap((m) => m.closed ?? [])),
             ...(worktreesRemoved.length ? { worktrees_removed: worktreesRemoved } : {}),
             rejected: rs.flatMap((r) => r.rejected.map((x) => rejectedJson(x, main))),
             flakes: rs.flatMap((r) =>
