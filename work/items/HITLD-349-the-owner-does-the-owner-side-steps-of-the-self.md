@@ -25,3 +25,7 @@ HITLD-109 needs this item so the planner does not offer HITLD-109 while its owne
 ## Moved on 2026-11-20 (HITLD-592)
 
 On the owner's approval of the nine roadmap moves (HITLD-592), this item is placed under milestone HITLD-67 as `HITLD-349 c1`: the owner's own install step belongs to the first clause, the owner directing one item end to end on an installed release.
+
+## Checked on 2026-11-21
+
+The owner said all the install steps are still open (the private store repository and its address, enrolling the cloud environment as a device, a fresh chief-of-staff session, and the plugin pin). Evidence seen this session says the store repository exists, is attached to the chief-of-staff session and is reachable, and that the cloud environment's device is enrolled and approved; the owner's step list is therefore to be confirmed by them, not assumed done. The item stays open and waiting on the owner.

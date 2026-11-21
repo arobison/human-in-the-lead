@@ -7,7 +7,7 @@ import { formatErrors } from '../schema/validate.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
- * @typedef {{ at: string, through?: string | null, trust_through?: number }} JobMark
+ * @typedef {{ at: string, through?: string | null, trust_through?: number, files?: Record<string, number> }} JobMark
  * @typedef {{ schema_version: number, jobs: Record<string, JobMark> }} CadenceState
  */
 

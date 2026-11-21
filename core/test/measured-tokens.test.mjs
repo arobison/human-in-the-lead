@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   headlessCompletion,
@@ -16,6 +16,7 @@ import {
 import { completionOf } from '../harness/claude-code/adapter.mjs';
 import { reportedEvent } from '../lib/run/protocol.mjs';
 import { readLedger } from '../lib/ledger/ledger.mjs';
+import { openStore } from '../lib/store/store.mjs';
 import { summarize } from '../lib/ledger/summary.mjs';
 import { estimateTokens, historyFromLedger, measuredFirst } from '../lib/dispatch/sizing.mjs';
 import { tokensPerItem } from '../lib/quota/report.mjs';
@@ -387,27 +388,21 @@ async function dispatched(/** @type {'interactive' | 'headless'} */ mode) {
   assert.equal((await c.hitld(['run', 'start'])).exit, 0);
   const start = await c.hitld(['dispatch', 'start', 'W-4', '--mode', mode]);
   assert.equal(start.exit, 0, JSON.stringify(start.result));
-  await c.hitld(['dispatch', 'handle', '--dispatch', 'D-1', '--harness-ref', 'session-1']);
-  const ledger = () =>
-    readLedger(
-      /** @type {any} */ ({
-        read: (/** @type {string} */ k) =>
-          k === 'ledger.jsonl'
-            ? readFileSync(join(c.data, 'human-in-the-lead/orch-fixture/ledger.jsonl'), 'utf8')
-            : null,
-      }),
-    ).events;
+  const d = start.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'session-1']);
+  const store = openStore(join(c.data, 'human-in-the-lead/orch-fixture'));
+  const ledger = () => readLedger(store).events;
   const reported = () =>
     /** @type {Record<string, any>} */ (ledger().find((e) => e.event === 'reported'));
   const text = report({ item: 'W-4', sha: 'abc1234', branch: start.result.branch }).replace(
     '  - node --test test/: 1 passed',
     '  - node --test test/: 1 passed\n  - token use: self-reported, a guess: about 270k tokens',
   );
-  return { c, start, ledger, reported, text };
+  return { c, d, start, ledger, reported, text };
 }
 
 test('an interactive completion is measured from the session record, the guess kept apart', async () => {
-  const { c, start, ledger, reported, text } = await dispatched('interactive');
+  const { c, d, start, ledger, reported, text } = await dispatched('interactive');
   assert.equal(start.result.instruction.tool, 'session');
   assert.match(start.result.on_complete, /--session-record <file>/);
   const since = /** @type {string} */ (ledger().find((e) => e.event === 'dispatched')?.at);
@@ -438,7 +433,7 @@ test('an interactive completion is measured from the session record, the guess k
     'dispatch',
     'complete',
     '--dispatch',
-    'D-1',
+    d,
     '--session-record',
     record,
     '--tokens',
@@ -447,14 +442,7 @@ test('an interactive completion is measured from the session record, the guess k
   assert.equal(both.result.error, 'usage', JSON.stringify(both.result));
   assert.match(both.result.message, /--session-record is measured/);
 
-  const out = await c.hitld([
-    'dispatch',
-    'complete',
-    '--dispatch',
-    'D-1',
-    '--session-record',
-    record,
-  ]);
+  const out = await c.hitld(['dispatch', 'complete', '--dispatch', d, '--session-record', record]);
   assert.equal(out.exit, 0, JSON.stringify(out.result));
   assert.equal(out.result.result, 'done', 'the report is the last turn of the record');
   assert.equal(out.result.tokens.recorded, 120_030);
@@ -503,14 +491,14 @@ test('an interactive completion is measured from the session record, the guess k
 });
 
 test('an interactive completion without the record: a typed figure, which the ledger says', async () => {
-  const { c, reported, text } = await dispatched('interactive');
+  const { c, d, reported, text } = await dispatched('interactive');
   const note = join(c.base, 'report.txt');
   writeFileSync(note, text);
   const out = await c.hitld([
     'dispatch',
     'complete',
     '--dispatch',
-    'D-1',
+    d,
     '--report-file',
     note,
     '--tokens',
@@ -533,10 +521,10 @@ test('an interactive completion without the record: a typed figure, which the le
 });
 
 test('an interactive completion with neither: the guess is never recorded as the cost', async () => {
-  const { c, reported, text } = await dispatched('interactive');
+  const { c, d, reported, text } = await dispatched('interactive');
   const note = join(c.base, 'report.txt');
   writeFileSync(note, text);
-  const out = await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1', '--report-file', note]);
+  const out = await c.hitld(['dispatch', 'complete', '--dispatch', d, '--report-file', note]);
   assert.equal(out.exit, 0, JSON.stringify(out.result));
   assert.equal(out.result.tokens.recorded, null);
   assert.match(out.result.tokens.warning, /no figure is recorded/);
@@ -545,7 +533,7 @@ test('an interactive completion with neither: the guess is never recorded as the
 });
 
 test('a headless completion with large cache reads records them apart, measured', async () => {
-  const { c, start, reported, text } = await dispatched('headless');
+  const { c, d, start, reported, text } = await dispatched('headless');
   const resultFile = start.result.on_complete.split('--result-file ')[1];
   writeFileSync(
     resultFile,
@@ -566,14 +554,14 @@ test('a headless completion with large cache reads records them apart, measured'
     'dispatch',
     'complete',
     '--dispatch',
-    'D-1',
+    d,
     '--result-file',
     resultFile,
     '--tokens',
     '1882231',
   ]);
   assert.equal(typed.result.error, 'usage', 'a typed figure beside the result is refused');
-  const out = await c.hitld(['dispatch', 'complete', '--dispatch', 'D-1']);
+  const out = await c.hitld(['dispatch', 'complete', '--dispatch', d]);
   assert.equal(out.exit, 0, JSON.stringify(out.result));
   const e = reported();
   assert.deepEqual(

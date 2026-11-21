@@ -1,5 +1,6 @@
 import { approvalSummary, chooseNamed, evidenceFor, queueProposals } from '../lib/merge/owner.mjs';
 import { test } from 'node:test';
+import { DISPATCH_ID } from '../lib/ledger/ids.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -67,7 +68,14 @@ async function ownerConsumer(mode = 'owner', o = {}) {
     n += 1;
     const start = await c.hitld(['dispatch', 'start', id]);
     assert.equal(start.exit, 0, JSON.stringify(start.result));
-    await c.hitld(['dispatch', 'handle', '--dispatch', `D-${n}`, '--harness-ref', `agent-${n}`]);
+    await c.hitld([
+      'dispatch',
+      'handle',
+      '--dispatch',
+      start.result.dispatch,
+      '--harness-ref',
+      `agent-${n}`,
+    ]);
     const branch = start.result.branch;
     branches[id] = branch;
     git(c.root, 'switch', '-q', '-c', branch);
@@ -82,7 +90,7 @@ async function ownerConsumer(mode = 'owner', o = {}) {
       'dispatch',
       'complete',
       '--dispatch',
-      `D-${n}`,
+      start.result.dispatch,
       '--report-file',
       note,
     ]);
@@ -104,7 +112,7 @@ test('owner mode: hitld merge checks first; the red branch goes back and only th
     r.result.rejected.map((/** @type {any} */ x) => [x.item, x.reason]),
     [['W-2', 'fast_check']],
   );
-  assert.equal(r.result.rejected[0].follow_up.dispatch, 'D-2');
+  assert.match(r.result.rejected[0].follow_up.dispatch, DISPATCH_ID);
   assert.deepEqual(
     r.result.presented.map((/** @type {any} */ b) => b.item),
     ['W-1'],

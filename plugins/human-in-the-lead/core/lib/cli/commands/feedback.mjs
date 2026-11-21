@@ -371,7 +371,9 @@ export function makeCommands({ makeFiler }) {
             state: r.record.state,
             filed: r.filed,
             ...(r.record.url ? { url: r.record.url } : {}),
-            ...(r.issue ? { issue: r.issue } : {}),
+            ...('issue' in r && r.issue ? { issue: r.issue } : {}),
+            ...(r.list_found === undefined ? {} : { list_found: r.list_found }),
+            ...(r.warnings?.length ? { warnings: r.warnings } : {}),
           };
         } catch (e) {
           if (e instanceof GateRefusal) return { ok: false, error: e.code, message: e.message };

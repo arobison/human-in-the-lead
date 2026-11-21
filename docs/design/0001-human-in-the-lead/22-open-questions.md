@@ -163,6 +163,8 @@ Prioritization divides cost of delay by size, so value needs a unit ([part 1](..
 
 *Decided: no, as recommended.* The person keeps the person file with their dotfiles, and HITLd does not sync it. Settings loading allows a dotfiles repository and symlinks to it ([13.4](13-operations.md#security)).
 
+*Replaced by the owner (2026-11-16, HITLD-162):* the settings a session needs (the executor cap, the quota and the attention budget) travel in each project's private store, synced, because a cloud container is discarded with its session. The keys that name other projects stay in the person file (HITLD-549). Built in HITLD-148 ([13.4](13-operations.md#security)).
+
 - **Recommend: no. The person keeps it with their other dotfiles, and the system does not sync it.** The first-run walk-through on a new machine offers to copy values the person pastes in. The account-wide usage reading already keeps every machine inside the plan.
 - **Alternative: sync it through the private store's bundle exchange** ([Q1](#q1-where-does-the-private-store-live-and-do-other-machines-share-it)). One less file to carry, at the cost of personal plans and limits traveling with project data.
 

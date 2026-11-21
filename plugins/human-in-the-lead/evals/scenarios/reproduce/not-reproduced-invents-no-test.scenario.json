@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "id": "reproduce/not-reproduced-invents-no-test",
+  "suite": "reproduce",
+  "category": "reproduction",
+  "description": "A bug the reproducer cannot reproduce is reported as not reproduced, with what the report would need; a test left in the sandbox is discarded, nothing is kept, and no item is made from it.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "language": "javascript"
+    }
+  },
+  "steps": [
+    {
+      "id": "fixture",
+      "action": "reproduce.fixture",
+      "with": {}
+    },
+    {
+      "id": "open",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "open", "--signal", "../signal.json", "--dir", "../repro"]
+      }
+    },
+    {
+      "id": "stray",
+      "action": "file.write",
+      "with": {
+        "path": "repro/work/test/guess.test.js",
+        "content": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { mean } from '../src/stats.js';\ntest('mean of two numbers', () => assert.equal(mean([2, 4]), 3, 'mean([2, 4]) should be 3'));\n"
+      }
+    },
+    {
+      "id": "reply",
+      "action": "file.write",
+      "with": {
+        "path": "reply.json",
+        "content": "{\"verdict\": \"not-reproduced\", \"reason\": \"the report does not say which input\", \"missing\": [\"the input that gives the wrong result\"]}"
+      }
+    },
+    {
+      "id": "check",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "check", "../repro", "--reply", "../reply.json"]
+      }
+    },
+    {
+      "id": "item",
+      "action": "orchestrator.cli",
+      "with": {
+        "argv": ["reproduce", "item", "SIG-7", "--parent", "W-10", "--title", "mean() is wrong"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "reported",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.exit",
+        "value": 0
+      }
+    },
+    {
+      "id": "not-reproduced",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.verdict",
+        "value": "not-reproduced"
+      }
+    },
+    {
+      "id": "missing-named",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.missing",
+        "value": ["the input that gives the wrong result"]
+      }
+    },
+    {
+      "id": "test-discarded",
+      "grader": "equals",
+      "with": {
+        "path": "steps.check.result.discarded",
+        "value": ["test/guess.test.js"]
+      }
+    },
+    {
+      "id": "no-item",
+      "grader": "equals",
+      "with": {
+        "path": "steps.item.result.error",
+        "value": "not-reproduced"
+      }
+    }
+  ]
+}

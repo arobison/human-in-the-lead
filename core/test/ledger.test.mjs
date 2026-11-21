@@ -58,11 +58,16 @@ test('append fills in the schema version, a unique ID and the time, and writes o
   const now = clock();
   const a = appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1' }), { now });
   const b = appendEvent(store, dispatched({ dispatch: 'D-2', item: 'W-2' }), { now });
-  assert.equal(a.event.id, 'E-1');
-  assert.equal(b.event.id, 'E-2');
-  assert.equal(a.event.schema_version, 2);
+  assert.match(a.event.id, /^E-[0-9A-HJKMNP-TV-Z]{16}$/);
+  assert.match(b.event.id, /^E-[0-9A-HJKMNP-TV-Z]{16}$/);
+  assert.ok(a.event.id < b.event.id, 'a later ID sorts later');
+  assert.equal(a.event.schema_version, 3);
   assert.match(a.event.at, /^2026-11-14T03:00:01/);
-  const lines = (store.read(LEDGER_KEY) ?? '').trimEnd().split('\n');
+  // One file of this writer's own, never the shared file of before.
+  assert.match(String(a.file), /^ledger\/w-[0-9a-f]{16}\.jsonl$/);
+  assert.equal(b.file, a.file);
+  assert.equal(store.read(LEDGER_KEY), null);
+  const lines = (store.read(String(a.file)) ?? '').trimEnd().split('\n');
   assert.equal(lines.length, 2);
   assert.equal(JSON.parse(lines[1]).dispatch, 'D-2');
 });
@@ -128,18 +133,22 @@ test('a correction names an event that exists', () => {
   );
 });
 
-test('dispatch IDs continue from the ledger', () => {
+test('dispatch IDs are unique by construction, whatever numbered ones the ledger holds', () => {
   const store = memoryStore();
-  assert.equal(nextDispatchId(store), 'D-1');
+  const first = nextDispatchId(store);
+  assert.match(first, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
   appendEvent(store, dispatched({ dispatch: 'D-7', item: 'W-1' }));
-  assert.equal(nextDispatchId(store), 'D-8');
+  const second = nextDispatchId(store);
+  assert.match(second, /^D-[0-9A-HJKMNP-TV-Z]{16}$/);
+  assert.ok(first < second, 'time-ordered');
 });
 
 test('a torn last line is ignored when reading and cut off by the next append', () => {
   const files = new Map();
   const store = memoryStore(files);
-  appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1' }));
-  files.set(LEDGER_KEY, (files.get(LEDGER_KEY) ?? '') + '{"schema_version":1,"id":"E-2","eve');
+  const { file } = appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1' }));
+  const key = String(file);
+  files.set(key, (files.get(key) ?? '') + '{"schema_version":1,"id":"E-2","eve');
   const read = readLedger(store);
   assert.equal(read.events.length, 1);
   assert.equal(read.torn, true);
@@ -154,8 +163,9 @@ test('a torn last line is ignored when reading and cut off by the next append', 
 test('a whole last line that only lacks its newline is kept', () => {
   const files = new Map();
   const store = memoryStore(files);
-  appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1' }));
-  files.set(LEDGER_KEY, (files.get(LEDGER_KEY) ?? '').trimEnd());
+  const { file } = appendEvent(store, dispatched({ dispatch: 'D-1', item: 'W-1' }));
+  const key = String(file);
+  files.set(key, (files.get(key) ?? '').trimEnd());
   assert.equal(readLedger(store).events.length, 1);
   appendEvent(store, dispatched({ dispatch: 'D-2', item: 'W-2' }));
   assert.equal(readLedger(store).events.length, 2);

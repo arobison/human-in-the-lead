@@ -31,6 +31,7 @@ import { loadPolicy } from '../policy/policy.mjs';
 import { privateStorePath } from './store.mjs';
 import { NO_ADDRESS, chooseRemote } from './address.mjs';
 import { UNREACHABLE_CODES, cause, causesLine, failureCauses } from './reach.mjs';
+import { recordPull } from './last-pull.mjs';
 
 /**
  * @typedef {object} SyncContext
@@ -219,6 +220,18 @@ export async function autoPull(c) {
       }`,
     };
   } catch (e) {
+    // A pull that stopped before it reached pullStore (the address or this device's key would not
+    // open) is recorded too, so an older `done` does not stand for it.
+    const code =
+      typeof (/** @type {any} */ (e)?.code) === 'string'
+        ? String(/** @type {any} */ (e).code)
+        : 'failed';
+    recordPull(c.store, {
+      status: UNREACHABLE_CODES.has(code) ? 'unreachable' : 'failed',
+      ...(remoteUrl ? { url: remoteUrl } : {}),
+      code,
+      message: e instanceof Error ? e.message : String(e),
+    });
     return problem('pull', e, { env: c.env, url: remoteUrl, devices });
   }
 }
