@@ -31,12 +31,15 @@ import {
  * @property {(call: Instruction) => Promise<void>} [send] a follow-up call
  * @property {(text: string, urgency: string) => Promise<string>} [say] a message to the owner in the main session
  *
- * @typedef {{ kind: 'subagent', text: string, usage?: { tokens?: number | null, toolCalls?: number | null, durationMs?: number | null } | null, commit?: string }
+ * @typedef {({ kind: 'subagent', text: string, usage?: { tokens?: number | null, toolCalls?: number | null, durationMs?: number | null } | null, commit?: string }
  *   | { kind: 'headless', json: string, commit?: string }
- *   | { kind: 'session', record: string, text?: string, since?: string | null, commit?: string }} Notification
+ *   | { kind: 'session', record: string, text?: string, since?: string | null, commit?: string })
+ *   & { report?: string }} Notification
  *   session: an interactive session's completion, from the harness's own record of the session
  *   (`record`); `text` is the report when it came apart from the record (as the chief of staff
- *   relayed it), else the record's last turn is the report
+ *   relayed it), else the record's last turn is the report. `report`, of any kind: the report as
+ *   it rides in the executor's closing commit (`hitld dispatch reconcile`, HITLD-780), which
+ *   stands over the one in the harness's record; the record still gives the tokens
  */
 
 export const ID = 'claude-code';
@@ -65,9 +68,11 @@ export function completionOf(dispatch, n) {
         ? sessionRecordCompletion(n.record, { since: n.since ?? null })
         : subagentCompletion(n);
   const report =
-    n.kind === 'session' && typeof n.text === 'string' && n.text.trim()
-      ? reportFromNotification(n.text)
-      : parsed.report;
+    typeof n.report === 'string' && n.report.trim()
+      ? n.report.trim()
+      : n.kind === 'session' && typeof n.text === 'string' && n.text.trim()
+        ? reportFromNotification(n.text)
+        : parsed.report;
   return {
     ...parsed,
     report,
