@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-14
 project: HITLD-28
+constraint_of: [HITLD-408 c3]
 claimed_by: D-50
 ---
 

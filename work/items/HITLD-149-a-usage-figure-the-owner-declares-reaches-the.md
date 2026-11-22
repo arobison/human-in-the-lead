@@ -6,6 +6,7 @@ state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-151]
+constraint_of: [HITLD-67 c1, HITLD-190 c1]
 claimed_by: D-43
 release_note: "New `hitld quota declare --used <figure> --resets-at <reset> [--limit <ID>]` records a usage figure the owner reads on their own account as an `owner-declared` usage snapshot, only from the owner's own turn and never from an executor. The gate treats it as a low-confidence reading that ages with the burn recorded up to it, used only when no measured reading younger than 30 minutes exists. A new policy setting `quota.declared_refresh_hours` (default 12) and the economize threshold decide when `hitld run status` (`ask_figure`) and the digest ask for a fresh figure. The report's `gate.refresh`, a quota's `declared` and `refresh`, `used_from: declared` and the error code `invalid-snapshot` are new."
 ---

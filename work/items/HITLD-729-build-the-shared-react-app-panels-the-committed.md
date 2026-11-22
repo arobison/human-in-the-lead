@@ -6,6 +6,7 @@ state: done
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-691]
+constraint_of: [HITLD-67 c4]
 claimed_by: D-01M80WW9X15NK1FB
 release_note: hitld dashboard pages with a tracker inline the shared React app (a committed bundle, checked in CI) and the contract data; core/lib/ui/ exports a typed client, React hooks, the six panel components, theme variables and a panel registry for a project's own app
 ---

@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-15
 project: HITLD-15
+constraint_of: [HITLD-67 c2]
 claimed_by: D-9
 release_note: "`hitld work publish` carries a cloud session's tracker changes to main as one pull request."
 ---

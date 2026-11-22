@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-15
 project: HITLD-15
+constraint_of: [HITLD-101 c1]
 claimed_by: D-106
 needs: [HITLD-105]
 release_note: "`hitld run start` and `run resume` pull the store, and checkpoints, hand-overs, merges and `run retire` push; SessionStart and SessionEnd hooks pull and push. A reachable remote that will not decrypt or merge refuses the start (`store-pull-refused`); `--no-sync` skips it. A lease another machine took and never released counts as held."

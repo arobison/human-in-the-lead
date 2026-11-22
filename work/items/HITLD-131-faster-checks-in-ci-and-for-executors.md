@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-15
 project: HITLD-15
+constraint_of: [HITLD-67 c2]
 claimed_by: D-11
 release_note: "CI runs typecheck, format, tests, evals and tracker as parallel jobs behind an aggregate `check`, work-only pull requests skip the code checks, and `npm run check:fast` gives a quick local check."
 ---

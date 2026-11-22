@@ -12,7 +12,6 @@ done_when:
   - "c3: A removed device cannot open anything pushed after its removal."
   - "c4: The storage holds no plain text of the store, checked by a scan of the remote."
   - "c5: No skill or agent prompt mentions a key, a passphrase or a store file path; every store move is a hitld command or a hook."
-constraints: [HITLD-102 c3, HITLD-103 c3, HITLD-104 c2, HITLD-105 c1, HITLD-106 c1, HITLD-107 c5, HITLD-113 c4]
 check: demo c1 to c3 against a real private repository, run by someone other than the items' authors
 check_results:
   - "pass 2026-11-15 owner: the owner's verdict \"pass\" on the demo against a real private store repository with two cloud environments: c1 a run discarded after a checkpoint resumed in a fresh session with its ledger, trust record and open decision HITLD-117 intact, after lease-held and a retire; c2 each environment took a turn and saw the other's records on its next pull; c3 after the owner removed the second environment (HITLD-118) the push re-sealed to one device and pruned the remote to one bundle, and the removed key's pull, push and resume were refused; c4 no store text in any of the remote's objects; c5 the prompt test passes and no key was printed"

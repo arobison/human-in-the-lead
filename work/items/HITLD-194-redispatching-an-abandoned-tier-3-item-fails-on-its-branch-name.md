@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-16
 project: HITLD-15
+constraint_of: [HITLD-404 c3]
 claimed_by: D-53
 release_note: An item dispatched again after its tier-3 dispatch was abandoned now starts. When its branch name is taken, `hitld dispatch start` reuses the branch only if nothing on it is unmerged and no worktree has it checked out, and otherwise takes `<name>-2`, leaving the old branch as it is; it says which (`branch_found`, `branch_chose`, `branch_note`).
 ---

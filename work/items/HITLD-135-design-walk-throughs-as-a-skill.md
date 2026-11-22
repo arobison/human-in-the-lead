@@ -6,6 +6,7 @@ state: done
 created: 2026-11-15
 project: HITLD-15
 needs: [HITLD-134]
+constraint_of: [HITLD-67 c3, HITLD-193 c1]
 claimed_by: D-12
 release_note: "`hitld design questions`, `answer` and `decide`, and the `design` skill, walk the owner through a design's open questions one at a time, each answer recorded."
 ---

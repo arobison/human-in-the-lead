@@ -9,7 +9,7 @@ outcome: A consuming project can pin a released version that already has the mil
 done_when:
   - "c1: A fresh clone of a fixture consumer installs the plugin pinned to a release tag, and `hitld check contract` passes (check 10 of design 21.1)."
   - "c2: `hitld release propose` on main reports no missing release notes and no undecided high alert, and the release environment refuses an unsafe configuration."
-constraints: [HITLD-18 c1, HITLD-45 c1, HITLD-58 c1, HITLD-59 c1, HITLD-63 c1, HITLD-227 c2, HITLD-300 c2, HITLD-229 c2, HITLD-499 c2]
+constraint_of: [HITLD-1 c5]
 check: integration-test the check-10 install test against the candidate tag
 ---
 

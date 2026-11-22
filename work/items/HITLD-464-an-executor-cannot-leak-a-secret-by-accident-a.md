@@ -5,6 +5,7 @@ kind: work
 state: planned
 created: 2026-11-17
 project: HITLD-15
+constraint_of: [HITLD-189 c1]
 ---
 
 ## Done when

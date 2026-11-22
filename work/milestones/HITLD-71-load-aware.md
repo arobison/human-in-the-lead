@@ -9,7 +9,7 @@ outcome: Heavy work waits while the person's machine is busy, and benchmarks run
 done_when:
   - "c1: Serial resources have capacities and weighted holders that queue fairly."
   - "c2: Admission defers heavy work above the load threshold, and quiet holds start below it."
-constraints: [HITLD-41 c1, HITLD-42 c2]
+constraint_of: [HITLD-1 c4]
 check: integration-test simulated load on a fixture machine profile
 ---
 

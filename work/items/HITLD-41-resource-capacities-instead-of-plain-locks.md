@@ -6,6 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-40]
+constraint_of: [HITLD-71 c1]
 claimed_by: D-47
 ---
 

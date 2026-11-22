@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-14
 project: HITLD-15
+constraint_of: [HITLD-66 c1]
 claimed_by: D-63
 release_note: "Security scanners declared in `merge.scanners` run in the merge queue against a baseline; only new, untriaged findings send a branch back (`hitld security status`, `baseline`, `verdict`, `accept`)."
 ---

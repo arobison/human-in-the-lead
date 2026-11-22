@@ -6,6 +6,7 @@ state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-243, HITLD-153]
+constraint_of: [HITLD-406 c1]
 claimed_by: D-58
 release_note: "On Windows the private stores and the machine file live under `%LOCALAPPDATA%\\human-in-the-lead` (`XDG_DATA_HOME`, when set, still overrides it on every platform). The first time `hitld` resolves a store or the machine file still at the old `~/.local/share/human-in-the-lead`, it moves it there and says so, unless it is in use (executor worktrees, a live run lease, a live resource lock); then it stays and is used where it is until a later run. Stop every session on an older plugin version, and upgrade every project on the machine at once, before the move: a session on an older release keeps using the old place, and what it writes there is merged only where no file is at both places. Known limits: a reused Windows process ID reads as a live holder (the move waits); the run lease is read only from the store's run-state.json; an executor's progress hook says nothing while a move is interrupted; a copy across volumes does not keep directory modes."
 ---

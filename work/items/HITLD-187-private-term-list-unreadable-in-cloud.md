@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-16
 project: HITLD-15
+constraint_of: [HITLD-64 c3]
 claimed_by: D-52
 release_note: "When the private term list is not there to read, as in a cloud session that has not pulled the store, the commit hooks, the merge, `hitld work check` and `hitld publish check` warn by name that the list was not checked, and `publish check` no longer says the text may be posted."
 ---

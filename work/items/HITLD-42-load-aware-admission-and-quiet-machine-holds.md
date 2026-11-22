@@ -6,6 +6,7 @@ state: planned
 created: 2026-11-14
 project: HITLD-28
 needs: [HITLD-41, HITLD-38]
+constraint_of: [HITLD-71 c2]
 ---
 
 ## Why
