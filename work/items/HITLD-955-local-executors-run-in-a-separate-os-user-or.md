@@ -23,3 +23,7 @@ A local executor runs as the owner's OS user and inherits their git credentials 
 ## Notes
 
 From the Fable forge-enforcement spec (2026-11-22) and the owner's walk-through decisions HITLD-944 to 951. Large. Platform differences (a separate user on macOS and Linux, a container or namespace, Windows) are settled in the item. The executor profile is HITLD-956.
+
+## Added on 2026-11-22
+
+The Fable local-sandbox and security research (2026-11-22) says: build this provider-agnostic from the start (decision HITLD-958, design HITLD-959); prefer the orchestrator verifying and pushing a local executor's branch over giving the sandbox any forge credential; keep the sandbox's reads default-deny for the keychain and ssh keys (default-open reads are a common mistake in the tools surveyed); and make anything the host later executes or parses (hooks, `.git/config`, `.git/hooks`, `.envrc`, IDE settings) read-only to the agent, which is the escape class behind several 2026 CVEs.

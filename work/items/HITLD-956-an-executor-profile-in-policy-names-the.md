@@ -22,3 +22,7 @@ HITLd's executor knowledge is Claude Code–specific: the guard is a Claude Code
 ## Notes
 
 From the Fable forge-enforcement spec (2026-11-22) and the owner's walk-through decisions HITLD-944 to 951. The design home is the 'HITLd runs above the harness' milestone (HITLD-541). rc.3.
+
+## Added on 2026-11-22
+
+Part of the role-placement design (HITLD-959, decision HITLD-958): the profile is the configuration surface for the harness adapter and the model endpoint, and each agent receives only its own provider's key through an egress proxy rather than an environment variable.
