@@ -202,12 +202,12 @@ test('the plan, the brief and the gate say where a cost came from and how many c
   const crossing = dispatchGate(
     /** @type {any} */ (tight.policy),
     [],
-    { estimate_tokens: 900_000, estimate_basis: sizing.estimate_basis },
+    { estimate_tokens: 950_000, estimate_basis: sizing.estimate_basis },
     { now, ledger: [] },
   );
   assert.match(
     crossing.reason,
-    /estimate of 900000 tokens \(from the tier \d default \(dispatch\.default_estimates\): 1 similar past completion is fewer than the 3 needed \(dispatch\.estimate_min_samples\)\) would cross the reserve/,
+    /estimate of 950000 tokens \(from the tier \d default \(dispatch\.default_estimates\): 1 similar past completion is fewer than the 3 needed \(dispatch\.estimate_min_samples\)\) would cross the reserve/,
   );
 });
 
