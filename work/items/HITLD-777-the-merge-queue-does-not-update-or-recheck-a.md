@@ -2,7 +2,7 @@
 id: HITLD-777
 title: The merge queue does not update or recheck a branch when main moved only under work/
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80RAYWZYGR1JT
