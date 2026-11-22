@@ -163,7 +163,8 @@ stateDiagram-v2
 | `critical_path` | Whether the item is on the longest dependency chain (by estimate tokens) to a milestone that needs it |
 | `cost_of_delay_rate` | Inherited from the project, plus the rates of everything that `needs` it, milestones included |
 | `constraint_of`, `contributes_to` | The milestones whose `constraints` or `contributions` name it. The milestone holds the edge; the item stores nothing |
-| `released_in` | The first full release whose record lists it ([Release](#release)); a pre-release does not set it |
+| `packages` | The release packages whose `paths` match the files it touches: its `touches` before it merges, its commits' files after ([Release package](#release-package)) |
+| `released_in` | For each of its packages, the first full release whose record lists it ([Release](#release)); a pre-release does not set it |
 | `lead_time`, `blocked_time` | From git history of the item file and the ledger |
 
 ### Decision
@@ -189,7 +190,7 @@ An item of kind `decision`. It sits in the same tracker, uses the same lifecycle
 
 ### Milestones and releases
 
-*Accepted and built (HITLD-45): milestone files and release records in the files backend ([3.4](#file-format)), the migration from the old keys, `hitld release propose` and `hitld release make`. The first release waits for it ([Q33](22-open-questions.md#q33-does-the-first-release-wait-for-the-milestone-and-release-format-affects-hitld-24)). Not built yet: `tokens_spent` needs the ledger handed to the tracker, and `cost_of_delay_rate` stays null until a rate is known for a milestone; the milestone graph is HITLD-62.*
+*Accepted and built (HITLD-45): milestone files and release records in the files backend ([3.4](#file-format)), the migration from the old keys, `hitld release propose` and `hitld release make`. The first release waits for it ([Q33](22-open-questions.md#q33-does-the-first-release-wait-for-the-milestone-and-release-format-affects-hitld-24)). Not built yet: `tokens_spent` needs the ledger handed to the tracker, and `cost_of_delay_rate` stays null until a rate is known for a milestone; the milestone graph is HITLD-62. Release packages, which give each separately versioned unit its own version, tags, records and interface delta, are decided and not built (HITLD-752; the build is HITLD-759): [Release package](#release-package).*
 
 A milestone is a future state worth reaching; a release is the record of what reached users. Together they replace the files backend's `milestone` key on items and `milestones` list on projects, and its `priority` key retires ([3.4](#file-format), [Q30](22-open-questions.md#q30-does-the-files-backends-priority-key-retire-with-the-milestone-migration-affects-the-milestone-format)).
 
@@ -202,6 +203,7 @@ A checkable future state with its own "done when" (principle 2 in [3.0](#30-prin
 | Field | Kind | Notes |
 |---|---|---|
 | `id`, `title`, `parent`, `state`, `owner`, `classification`, `opened_from` | stored | As for items. `parent` is a project, or none for a long outcome |
+| `package` | stored | The release package it belongs to ([Release package](#release-package)). `hitld work check` refuses a package that is not declared |
 | `kind` | stored | `milestone`, the one kind. A learning milestone (a question gets answered) is the one whose `check` is a study: derived from the check, never stored |
 | `outcome` | stored | One sentence: the state for users, or the question answered |
 | `done_when` | stored | Clauses, each with a short ID (`c1`, `c2`). Outcome predicates for users where possible ("a new user installs the plugin and dispatches a first item without help"), not lists of outputs. A learning milestone's clause names the study whose verdict settles it |
@@ -230,29 +232,72 @@ A checkable future state with its own "done when" (principle 2 in [3.0](#30-prin
 
 **Done means checked** (principle 8). Every constraint `done` is a proxy: it moves the milestone to `check_due`, never to `done`. The check is independent of the items' authors, like an acceptance check ([6.2](06-verification.md#62-independent-verification)): an acceptance author writes it from the outcome and the clauses, before the work starts. A learning milestone is `done` when its study has a verdict, whatever the verdict says (principle 11). The states are `proposed`, `planned`, `done` and `dropped` (with a reason). There is no `in-progress`: items are claimed, milestones are not.
 
+#### Release package
+
+*Decided, not built (HITLD-752: decisions HITLD-753 to 757, 760 to 762 and 783; the build is HITLD-759; GitHub issue 465).*
+
+A **release package** is a unit with its own version, its own tags, its own release records and its own interface delta: the word the monorepo tools use (HITLD-761). A repository whose code ships as one unit declares one package; a monorepo whose modules are versioned separately declares one per module. Every repository declares at least one package, and setup (`hitld install`) creates the first, so there is no implicit unnamed package and no code path without one (HITLD-783).
+
+**Declared in `policy.json`** (HITLD-753). Each package has:
+
+| Field | Notes |
+|---|---|
+| `name` | Used by `--package`, in the record folder and in the tag |
+| `tag` | The tag template (below); `{name}@{version}` when left out |
+| `paths` | Globs for the files the package owns |
+| `surface` | The committed surface file its interface is measured from (below) |
+| `version_from` | Where its current version is read: a manifest field (for example `version` in a `package.json`), or its latest tag |
+| `depends_on` | Optional: other packages it depends on, each with a version range (`^1.2.0`) |
+| `group` | Optional: the lockstep group it belongs to |
+| `channels` | Optional: the pre-release channels it uses, from `alpha`, `beta` and `rc`; `rc` alone when it lists none |
+
+`release propose` and `release make` take `--package <name>`. It may be left out only when exactly one package is declared (HITLD-783).
+
+**Work belongs to a package by its files** (HITLD-760). An item belongs to every package whose `paths` match a file it touches: before it merges, the files its `touches` names, where it has them; once merged, the files its commits changed. An item that touches two packages is in the next release of each. A project is an outcome and may span packages, so it names none. A milestone and a release item each name their package in a `package` key; `hitld work check` refuses one that names a package that is not declared.
+
+**Tag templates** (HITLD-754). A template is filled from `{name}` and `{version}`, and must hold `{version}`. The default is `{name}@{version}` (`core@1.2.0`); other shapes are `{name}-v{version}`, `{name}/v{version}` (the Go module form) and `v{version}` (a repository with one package). HITLD writes a package's tags from its template, and tag matching and the latest-tag lookup read the template, never a fixed `v*`. `hitld work check` refuses two templates that could match the same tag: `v{version}` in two packages, or a package's template `core@{version}` beside a package named `core` with the default.
+
+**The interface delta** (HITLD-755). The project's own tool (an API extractor, a header list, a schema dump) writes the package's surface file, one line per fact about its public interface, and the file is committed. `release propose` diffs it between the package's last full release tag and now:
+
+- added lines only: additive, so minor;
+- a removed or changed line: breaking, so major (minor while the version is 0.y.z, flagged as breaking);
+- no change: patch.
+
+The owner still confirms minor and major (principle 9). Each line added or removed is one `interface_delta` entry. With no release tag yet, the whole file counts as added, measured from 0.0.0. How a package with no surface file is bumped is open ([Q39](22-open-questions.md#q39-how-is-a-package-with-no-surface-file-bumped-affects-hitld-759)). This repository's own package writes its surface file from the sources the delta read before packages ([16.5](16-packaging.md#165-releases-and-compatibility)).
+
+**Dependencies** (HITLD-760, HITLD-783). `depends_on` names the packages a package depends on, each with a version range. A release record pins the exact version of each, read from that package's `version_from` at the released commit, and `release make` refuses a pin outside its range. `hitld work check` refuses a `depends_on` that names a package not declared, and a cycle among packages, naming the packages in it. When a package's delta is breaking, `release propose` lists its **dependents**: every package that depends on it, with its range and whether the proposed version falls outside it (HITLD-762).
+
+**Lockstep groups** (HITLD-762). Packages with the same `group` share one version. `release propose --package` for any member proposes for the whole group: the bump is the largest of the members' deltas, and the dependents list covers every member. `release make` releases every member at that version together: one record and one tag each, in one commit, under one owner decision.
+
+**Release trains** (HITLD-762). A train is a work item that needs the release items of several packages; it has no `release` or `package` key of its own. Its gates are its own and those of every release item it needs. `release make --item <train>` makes every release it needs together, in one commit, under one owner approval, once no gate is open. While a train is open, a release it needs is not made alone: `release make` refuses it and names the train. There is no train by default: each package releases when its own shipping loop decides.
+
+**Pre-release channels** (HITLD-762). `--pre <channel>` names a channel the package lists. Each package keeps its own counter per channel and version (`core@1.2.0-beta.1`, `core@1.2.0-beta.2`, then `core@1.2.0-rc.1`), and channels order as semantic versioning orders them: `alpha` before `beta` before `rc`, all before the full release.
+
 #### Release
 
-The record of what reached users, written when the release is made, as one file per release: `work/releases/<tag>.md` ([Q32](22-open-questions.md#q32-where-does-a-release-record-live-affects-releases)). A release moves items from merged to released: it is the flow out of the merged-but-unreleased stock (principle 1).
+The record of what one package released to users, written when the release is made, as one file per release: `work/releases/<package>/<tag>.md`, named by the tag with any `/` in it written as `-` ([Q32](22-open-questions.md#q32-where-does-a-release-record-live-affects-releases), HITLD-756). Before release packages a record was `work/releases/<tag>.md`; the migration moves it ([16.5, Migrating to release packages](16-packaging.md#migrating-to-release-packages)). A release moves items from merged to released: it is the flow out of the merged-but-unreleased stock (principle 1).
 
 | Field | Kind | Notes |
 |---|---|---|
-| `id` | stored | The tag, for example `v0.4.0` |
-| `version`, `previous` | stored | This version and the release before it |
+| `id` | stored | The tag, for example `v0.4.0` or `core@1.2.0` |
+| `package` | stored | The release package ([Release package](#release-package)) |
+| `version`, `previous` | stored | This version and the package's release before it |
 | `bump` | stored | `major`, `minor` or `patch` |
-| `interface_delta` | stored | The changes to the public interface ([16.5](16-packaging.md#165-releases-and-compatibility)) since `previous` that justify the bump: schemas, CLI and MCP JSON, the executor contract, the report shape, trailers, adapter interfaces. Each is marked breaking, additive or fix |
+| `interface_delta` | stored | The changes to the package's public interface since `previous` that justify the bump: the lines of its surface file added and removed ([Release package](#release-package)). For this repository's own package these are the schemas, CLI and MCP JSON, the executor contract, the report shape, trailers and adapter interfaces ([16.5](16-packaging.md#165-releases-and-compatibility)). Each is marked breaking, additive or fix |
+| `depends_on` | stored | The exact version of each package it depends on, as it was at the released commit |
 | `decision` | stored | The decision or the precedent under which it was made |
-| `items` | derived | Items whose closing commits lie between `previous` and this tag, from `Work-Item` trailers. Written into the record when it is made, so readers need no git |
+| `items` | derived | Items of this package whose closing commits lie between `previous` and this tag, from `Work-Item` trailers. Written into the record when it is made, so readers need no git |
 | `notes` | derived | Generated from those items' `release_note` lines, with credit. Written into the record when it is made |
-| `milestones` | derived | Milestones whose check passed on the released code |
+| `milestones` | derived | Milestones of this package whose check passed on the released code |
 | `classification` | stored | `public` for a public project. After the migration, a label with readers `public` and reach `anywhere` (HITLD-634) |
 
-A **release item** (the work item that makes a release) carries the version it makes in a `release` key (`release: 0.1.0-rc.1`). Milestones are never named by version; the version lives on the release item, which `need`s what must be finished first: milestones and items. Everything it needs that is not done or dropped is a **gate**: the release waits for it. A milestone is met by its passing check; an item by its state. `hitld work check` refuses a `release` value that is not a version and two release items for one version. `hitld release propose` and `release make` find the release item whose `release` is the version they propose or make, and use it as if `--item` named it; `--item` still overrides, and an item whose `release` is another version is refused. Each gate is listed with its ID, title and state, `release make` refuses while one is open, and the release workflow's record check applies the same rule ([16.5](16-packaging.md#release-mechanics)). With no release item for the version and no `--item`, no gate is enforced.
+A **release item** (the work item that makes a release) carries the version it makes in a `release` key (`release: 0.1.0-rc.1`) and its package in a `package` key. Milestones are never named by version; the version lives on the release item, which `need`s what must be finished first: milestones and items. Everything it needs that is not done or dropped is a **gate**: the release waits for it. A milestone is met by its passing check; an item by its state. `hitld work check` refuses a `release` value that is not a version, and two release items for one package and version. `hitld release propose` and `release make` find the release item whose `package` and `release` are the package and version they propose or make, and use it as if `--item` named it; `--item` still overrides, and an item whose `release` is another version is refused. Each gate is listed with its ID, title and state, `release make` refuses while one is open, and the release workflow's record check applies the same rule ([16.5](16-packaging.md#release-mechanics)). With no release item for the version and no `--item`, no gate is enforced.
 
-**When to release.** `main` is always green ([part 14](14-integration.md)), so a release can be cut at any merge. The shipping loop decides when, by weighing the unreleased stock's cost of delay against the cost of a release ([2.7](02-loops.md#27-shipping)). There is no release train by default. A shorter delay from merge to release closes the outer loop through users sooner (principle 6).
+**When to release.** `main` is always green ([part 14](14-integration.md)), so a release can be cut at any merge. The shipping loop decides when, by weighing the unreleased stock's cost of delay against the cost of a release ([2.7](02-loops.md#27-shipping)). There is no release train by default; a train is chosen with a train item ([Release package](#release-package)). A shorter delay from merge to release closes the outer loop through users sooner (principle 6).
 
-**Pre-releases.** A version may carry a pre-release part (`0.1.0-rc.1`, tag `v0.1.0-rc.1`), made with `--pre rc`; each next one counts up (`rc.2`). A pre-release has its record and tag like any release, but it is never the base of a bump: `previous`, the interface delta, the bump and the items are measured from the last full release, so every pre-release of a version and the version itself carry the same bump. A pre-release does not set `released_in`.
+**Pre-releases.** A version may carry a pre-release part (`0.1.0-rc.1`, tag `v0.1.0-rc.1`), made with `--pre rc` or another channel the package lists; each next one in that channel counts up (`rc.2`). A pre-release has its record and tag like any release, but it is never the base of a bump: `previous`, the interface delta, the bump and the items are measured from the package's last full release, so every pre-release of a version and the version itself carry the same bump. A pre-release does not set `released_in`.
 
-**`hitld release propose`** reads the interface delta since the last full release tag and proposes the bump from it alone (principle 10): a breaking change proposes major (minor while the version is 0.y.z, flagged as breaking), an additive change minor, fixes only patch. Internal change, however large, proposes patch at most. With no release tag yet, it says so, and the whole public interface counts as the initial surface: additive, measured from 0.0.0. It drafts the notes, lists items that changed public surface without a changelog line, and lists unmet gates (those of the release item for the version it proposes). The surface it compares is read from each version's own files: the schemas, the command table (each command's arguments, and the top-level fields of its JSON where the command declares `output`), the report shape and trailers named in the contract template, the rest of the contract's wording, and the read API's `api_version`. **Minor and major releases are the owner's** (a one-way door, principle 9): `hitld release make` writes the record and the tag only from the owner's own turn, as decision answers are taken ([Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)), and never pushes. It makes the release on the main branch from a clean working tree, refuses a version below what the delta proposes, and waits for the gates of the release item for the version it makes (found by that version, or named with `--item`). With `--branch <name>` it writes the record on a new branch from main instead and tags nothing: the owner's squash merge of that release pull request is the release decision, and the release workflow tags the merged commit after the owner approves the run ([16.5, Release mechanics](16-packaging.md#release-mechanics)). A patch release may follow a precedent the owner has confirmed ([2.7](02-loops.md#27-shipping)), because a patch never changes the interface. The record names the precedent in `decision`.
+**`hitld release propose`** reads one package's interface delta since its last full release tag and proposes the bump from it alone (principle 10): a breaking change proposes major (minor while the version is 0.y.z, flagged as breaking), an additive change minor, fixes only patch. Internal change, however large, proposes patch at most. With no release tag yet, it says so, and the whole public interface counts as the initial surface: additive, measured from 0.0.0. It drafts the notes, lists items that changed public surface without a changelog line, lists unmet gates (those of the release item for the version it proposes) and, for a breaking change, the package's dependents. The surface it compares is the package's surface file at each version ([Release package](#release-package)); this repository's own surface file is written from the schemas, the command table (each command's arguments, and the top-level fields of its JSON where the command declares `output`), the report shape and trailers named in the contract template, the rest of the contract's wording, and the read API's `api_version` ([16.5](16-packaging.md#165-releases-and-compatibility)). **Minor and major releases are the owner's** (a one-way door, principle 9): `hitld release make` writes the record under `work/releases/<package>/` and the tag from the package's template only from the owner's own turn, as decision answers are taken ([Q21](22-open-questions.md#q21-how-is-a-deciders-identity-established-blocks-any-second-human-and-any-channel-other-than-the-local-session)), and never pushes. It makes the release on the main branch from a clean working tree, refuses a version below what the delta proposes, and waits for the gates of the release item for the version it makes (found by package and version, or named with `--item`). With `--branch <name>` it writes the record on a new branch from main instead and tags nothing: the owner's squash merge of that release pull request is the release decision, and the release workflow tags the merged commit after the owner approves the run ([16.5, Release mechanics](16-packaging.md#release-mechanics)). A patch release may follow a precedent the owner has confirmed ([2.7](02-loops.md#27-shipping)), because a patch never changes the interface. The record names the precedent in `decision`.
 
 ### Precedent
 
@@ -529,8 +574,9 @@ work/
   milestones/                    # one file per milestone
     W-1-a-usable-command-line.md # a long outcome: no parent
     W-4-config-errors-explained.md
-  releases/                      # one record per release, named by its tag
-    v0.4.0.md
+  releases/                      # one folder per release package
+    main/
+      v0.4.0.md                  # one record per release, named by its tag
   views/                         # generated, never edited by hand
     ready.md
     blocked.md
@@ -570,10 +616,10 @@ The stored keys take the model's names (HITLD-82), except the parent: the files 
 
 | Kinds | Keys |
 |---|---|
-| work, decision, external | `id`, `title`, `kind`, `state`, `created`, `project`, `owner`, `needs`, `reason`; work items add `claimed_by` and `release` (a version: one work item per version); decisions add `decider` and, once answered, `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by`, `precedent` and `resolved_by_precedent`; external items add `waiting_on`. An item's `needs` may name items and milestones |
+| work, decision, external | `id`, `title`, `kind`, `state`, `created`, `project`, `owner`, `needs`, `reason`; work items add `claimed_by`, `release` (a version: one work item per package and version) and `package` (on a release item, [Release package](#release-package)); decisions add `decider` and, once answered, `answer`, `rationale`, `answered_at`, `answered_via`, `answered_by`, `precedent` and `resolved_by_precedent`; external items add `waiting_on`. An item's `needs` may name items and milestones |
 | project | the common keys plus `owner`, `plan`, the shaping keys `problem`, `signals`, `evidence`, `options`, `value`, `confidence`, `cost_of_delay`, `appetite_tokens`, `out_of_scope`, `risks`, and `decision`, `reason` |
-| milestone | the common keys plus `project` (none for a long outcome), `owner`, `outcome`, `done_when`, `constraints`, `contributions`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
-| release record (`releases/<tag>.md`) | `id`, `version`, `previous`, `bump`, `interface_delta`, `decision`, `items`, `milestones`, `classification`; the body holds the notes |
+| milestone | the common keys plus `project` (none for a long outcome), `package`, `owner`, `outcome`, `done_when`, `constraints`, `contributions`, `appetite_tokens`, `deadline`, `check`, `check_results`, `reason` |
+| release record (`releases/<package>/<tag>.md`) | `id`, `package`, `version`, `previous`, `bump`, `interface_delta`, `depends_on`, `decision`, `items`, `milestones`, `classification`; the body holds the notes |
 
 The front matter holds strings and lists of strings only (*decided, not built (HITLD-633):* with one exception, the `classification` label, an object with two keys), so each structured milestone entry is one line of text in a fixed form, and the read API returns it typed:
 
@@ -587,7 +633,8 @@ The front matter holds strings and lists of strings only (*decided, not built (H
 | `deadline` | `<YYYY-MM-DD> <source>` |
 | `options` (project) | `<label>: <trade-offs>` |
 | `cost_of_delay` (project) | `<standard, urgent, fixed-date or intangible>[ rate=<number>][ date=<YYYY-MM-DD>]`; `fixed-date` needs its date |
-| `interface_delta` (release) | `<breaking, additive or fix> <area>: <what>`, where the area is `schemas`, `cli`, `contract`, `report`, `trailers`, `read-api` or `adapters` |
+| `interface_delta` (release) | `<breaking, additive or fix> <area>: <what>`, where the area is `surface` (a line of a package's surface file), or, for this repository's own package, `schemas`, `cli`, `contract`, `report`, `trailers`, `read-api` or `adapters` |
+| `depends_on` (release) | `<package> <version>` |
 
 A decision's question, context, options, recommendation, precedent offer, rule basis and reversibility are text for the decider, so `hitld rights ask` writes them into its body under the reference sections (Question; Options and recommendation; Answer), not into the front matter. The private store keeps the options it was asked with, so an answer such as "A" is read against them. A decision item is filed under a project like any item: the question names it as `parent`. A question classified above the tracker's `default_classification` is refused unless `classification` is in `optional_keys`, so it is never written as public.
 
