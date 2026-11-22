@@ -196,8 +196,9 @@ test('shares near the reserve: a project judges its share of the headroom left',
   assert.equal(shareFraction(null, 'x', ['x', 'y']), 0.5, 'equal by default');
   assert.equal(shareFraction(person, 'big', ['big']), 1, 'alone, it has all of it');
 
-  // 25% of the limit above the reserve: economize for a project with all of it.
-  const s = [snapshot(50)];
+  // 100 - 65 - 10 (the default reserve) = 25% of the limit above the reserve: economize for a
+  // project with all of it.
+  const s = [snapshot(65)];
   const opt = { now: T0 };
   assert.equal(dispatchGate(policy, s, {}, { ...opt, share: 1 }).mode, 'economize');
   assert.equal(
@@ -215,7 +216,7 @@ test('shares near the reserve: a project judges its share of the headroom left',
   assert.match(small.reason, /share of 25% left/);
   // Ample headroom is nobody's competition, and a stop stays a stop.
   assert.equal(dispatchGate(policy, [snapshot(10)], {}, { ...opt, share: 0.25 }).mode, 'normal');
-  assert.equal(dispatchGate(policy, [snapshot(80)], {}, { ...opt, share: 0.25 }).mode, 'stop');
+  assert.equal(dispatchGate(policy, [snapshot(92)], {}, { ...opt, share: 0.25 }).mode, 'stop');
 });
 
 test('the merge queue lock is per repository; other locks stay machine-wide', async () => {

@@ -133,6 +133,7 @@ const REQUIRED = {
   paused: ['limit'],
   resumed: ['reason'],
   friction: ['friction_class', 'source', 'evidence', 'decisions'],
+  'context-measured': ['run', 'session', 'host', 'context_share', 'by'],
 };
 
 /** @type {Record<string, string[]>} */
@@ -183,6 +184,9 @@ function checkEventRules(e) {
     if (e[f] !== undefined && e.event !== 'dispatched') {
       errors.push({ path: f, message: 'is only for dispatched' });
     }
+  }
+  if (e.context_share !== undefined && e.event !== 'context-measured') {
+    errors.push({ path: 'context_share', message: 'is only for context-measured' });
   }
   if (e.defects !== undefined && !(e.event === 'verified' && e.result === 'fail')) {
     errors.push({ path: 'defects', message: 'is only for a failed verification' });

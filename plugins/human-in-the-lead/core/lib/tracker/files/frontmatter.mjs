@@ -1,7 +1,8 @@
 // The front-matter reader and writer for the files backend (design part 3.4, "File format").
 //
 // The front matter is data only: `key: value` lines, inline lists `[A-1, A-2]` and block lists
-// (`- A-1` lines under a key). It is a small subset of YAML read by this module alone, which
+// (`- A-1` lines under a key). An inline list may run over several indented lines or start on the
+// line after its key, as Prettier wraps a long one (GitHub issue 112). It is a small subset of YAML read by this module alone, which
 // refuses anchors, aliases, tags, block strings and maps. Nothing read from a file is executed,
 // evaluated or imported. The format is the reference format, unchanged, so existing files read and
 // write without conversion (design part 16.7).
@@ -27,9 +28,19 @@ export function parseItem(text) {
   const data = {};
   /** @type {string | null} */
   let listKey = null;
-  for (const [n, line] of m[1].split('\n').entries()) {
+  const lines = m[1].split('\n');
+  for (let n = 0; n < lines.length; n++) {
+    const line = lines[n];
     const at = `frontmatter line ${n + 2}`;
     if (line.trim() === '') continue;
+    if (listKey && data[listKey].length === 0 && /^\s+\[/.test(line)) {
+      // `key:` and then the list on the next line, as Prettier writes one too long for its key's line.
+      const flow = flowList(lines, n, line.trim(), at, errors);
+      n = flow.end;
+      setOwn(data, listKey, flow.members);
+      listKey = null;
+      continue;
+    }
     const item = line.match(/^\s+-\s+(.*)$/);
     if (item) {
       if (!listKey) errors.push(`${at}: a list entry with no key above it`);
@@ -50,15 +61,9 @@ export function parseItem(text) {
       setOwn(data, key, []);
       listKey = key;
     } else if (v.startsWith('[')) {
-      if (!v.endsWith(']')) errors.push(`${at}: an inline list must end on its line`);
-      setOwn(
-        data,
-        key,
-        splitList(v.slice(1, -1))
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .map((s) => scalar(s, at, errors)),
-      );
+      const flow = flowList(lines, n, v, at, errors);
+      n = flow.end;
+      setOwn(data, key, flow.members);
     } else {
       setOwn(data, key, scalar(v, at, errors));
     }
@@ -73,6 +78,30 @@ export function parseItem(text) {
  */
 function setOwn(data, key, value) {
   Object.defineProperty(data, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/**
+ * Read an inline list that opens on line `start` with `first`. The list may run on over the lines
+ * after it while they are indented (or blank, or the closing `]`); they join with a space, as YAML
+ * folds a flow collection. A list that never closes is named, and reading goes on at the first line
+ * that is not part of it.
+ * @param {string[]} lines @param {number} start @param {string} first
+ * @param {string} at @param {string[]} errors
+ */
+function flowList(lines, start, first, at, errors) {
+  let text = first;
+  let end = start;
+  while (!text.endsWith(']') && end + 1 < lines.length && /^(\s|\]|$)/.test(lines[end + 1])) {
+    end++;
+    text = `${text} ${lines[end].trim()}`.trim();
+  }
+  const closed = text.endsWith(']');
+  if (!closed) errors.push(`${at}: a list opened with "[" has no closing "]"`);
+  const members = splitList(text.slice(1, closed ? -1 : undefined))
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => scalar(s, at, errors));
+  return { end, members };
 }
 
 /** Split an inline list on commas that are not inside double quotes. @param {string} s */
@@ -130,17 +159,55 @@ export function renderItem(data, order, body = '') {
   const keys = [...new Set([...order, ...Object.keys(data)])];
   const lines = ['---'];
   for (const key of keys) {
-    const v = data[key];
-    if (v === undefined || v === null || v === '') continue;
-    if (Array.isArray(v)) {
-      if (v.length) lines.push(`${key}: [${v.map(listMember).join(', ')}]`);
-    } else {
-      const s = String(v);
-      lines.push(`${key}: ${needsQuotes(s) ? quote(s) : s}`);
-    }
+    const line = renderLine(key, data[key]);
+    if (line !== null) lines.push(line);
   }
   lines.push('---', '');
   return `${lines.join('\n')}${body.replace(/^\n+/, '\n')}`;
+}
+
+/**
+ * One key's front-matter line, as renderItem writes it, or null for an empty value.
+ * @param {string} key @param {unknown} v
+ * @returns {string | null}
+ */
+function renderLine(key, v) {
+  if (v === undefined || v === null || v === '') return null;
+  if (Array.isArray(v)) return v.length ? `${key}: [${v.map(listMember).join(', ')}]` : null;
+  const s = String(v);
+  return `${key}: ${needsQuotes(s) ? quote(s) : s}`;
+}
+
+/**
+ * Set some keys in an item file's front matter in place, keeping every other line as it is
+ * (HITLD-261): a key that is there has its line (and any block-list lines under it) replaced, or
+ * removed for an empty value; a key that is not there goes before the first key that follows it
+ * in `order`, else last. The body is untouched. A file with no front matter is returned as is.
+ * @param {string} text @param {Record<string, unknown>} values the keys to set, as stored
+ * @param {string[]} order the canonical key order, for placing a new key
+ */
+export function setKeys(text, values, order) {
+  const normalized = text.replace(/\r\n/g, '\n');
+  const m = normalized.match(/^---\n([\s\S]*?)\n---(\n|$)/);
+  if (!m) return text;
+  const lines = m[1].split('\n');
+  const keyOf = (/** @type {string} */ l) => /^([A-Za-z_][\w-]*):(?:\s|$)/.exec(l)?.[1];
+  for (const [key, v] of Object.entries(values)) {
+    const line = renderLine(key, v);
+    const at = lines.findIndex((l) => keyOf(l) === key);
+    if (at >= 0) {
+      let end = at + 1;
+      while (end < lines.length && /^\s+-\s/.test(lines[end])) end++;
+      lines.splice(at, end - at, ...(line === null ? [] : [line]));
+      continue;
+    }
+    if (line === null) continue;
+    const later = new Set(order.includes(key) ? order.slice(order.indexOf(key) + 1) : []);
+    const before = lines.findIndex((l) => later.has(keyOf(l) ?? ''));
+    if (before >= 0) lines.splice(before, 0, line);
+    else lines.push(line);
+  }
+  return `---\n${lines.join('\n')}\n---${m[2]}${normalized.slice(m[0].length)}`;
 }
 
 /** @param {unknown} m */

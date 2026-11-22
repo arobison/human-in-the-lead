@@ -9,7 +9,7 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1,
-      "default": 0.25
+      "default": 0.1
     },
     "economize_below": {
       "description": "Below this headroom: prefer cheaper models and tiers where sizing allows, and lower concurrency. Moved to the person file (design part 13.4); here it still loads, with a warning, until the person file sets it, and after that only an earlier threshold has effect.",

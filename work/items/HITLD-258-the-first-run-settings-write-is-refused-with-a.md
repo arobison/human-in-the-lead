@@ -2,10 +2,12 @@
 id: HITLD-258
 title: The first-run settings write is refused with a misleading reason
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c1, HITLD-402 c3]
+claimed_by: D-01M81644XG5J7PF4
+release_note: `hitld config write` and `hitld machine detect --write` refused from a linked worktree now say to run the setup from the primary checkout or outside any repository, instead of calling the person an executor. A refusal for a settings file inside a managed project names the `.human-in-the-lead` entry that marks it, what it holds, and how to fix it.
 ---
 
 ## Why
