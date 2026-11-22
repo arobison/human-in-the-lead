@@ -30,3 +30,8 @@ Code and skill: needs the owner's own yes to merge. Related: HITLD-133 (merging 
 ## Affected by a decision (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (74/489,472): merge hand writes ledger merged event, queue lock. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the ledger and no-run decisions (HITLD-484 to 490). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.
+
+## Added on 2026-11-22
+
+The item also joins milestone HITLD-67 (second clause). Two more points from the session: the queue opened a second and a third pull request (502, 504) for a branch the chief of staff had merged directly, so the queue skips a branch whose item is already done on main or already has a merged event; and the command refuses a merge while a required check run is still in progress, which is the mistake made with pull request 509.
+
