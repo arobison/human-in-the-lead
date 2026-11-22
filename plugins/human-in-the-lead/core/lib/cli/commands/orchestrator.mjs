@@ -81,6 +81,7 @@ import {
   reportsByMessage,
 } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
+import { recordParent } from '../../dispatch/parent.mjs';
 import {
   mergedSincePlanned,
   overlapsInFlight,
@@ -1416,6 +1417,12 @@ const table = [
         }
         const brief = briefFor(worktree);
         p.store.write(briefKey(dispatch), brief);
+        // The session process that starts it: a background agent dies with it (HITLD-737).
+        recordParent(p.store, dispatch, {
+          env: ctx.env,
+          host: run.host,
+          now: new Date(nowOf(ctx)),
+        });
         mkdirSync(dirname(resultPath), { recursive: true });
         mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
 
@@ -1943,6 +1950,11 @@ const table = [
           host: run.host,
         });
         p.store.write(briefKey(dispatch), message);
+        recordParent(p.store, dispatch, {
+          env: ctx.env,
+          host: run.host,
+          now: new Date(nowOf(ctx)),
+        });
         if (call.tool === 'Bash') {
           mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
         }
