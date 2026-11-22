@@ -2,10 +2,11 @@
 id: HITLD-255
 title: The front-matter parser rejects YAML lists that a formatter wrapped
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-403 c1]
+claimed_by: D-01M815N3MEC1WD35
 ---
 
 ## Why
