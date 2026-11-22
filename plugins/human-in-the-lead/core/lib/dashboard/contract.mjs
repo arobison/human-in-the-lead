@@ -5,7 +5,8 @@
 // Versioning: `api_version` stays the same when a field is added, and goes up when a field is
 // removed, renamed or given another type. Callers ignore fields they do not know. Version 2 is the
 // first under this name: it renamed the quota forecast's `before_reset` (version 1, under
-// `metrics_schema_version`), a key the schema guard refuses as a lifecycle hook name.
+// `metrics_schema_version`), a key the schema guard refuses as a lifecycle hook name (decision
+// HITLD-718).
 //
 // Classification: every tracker entity in the contract carries its label (its own, or the
 // project's default_classification). An entity labeled confidential or secret is cut to a stub
