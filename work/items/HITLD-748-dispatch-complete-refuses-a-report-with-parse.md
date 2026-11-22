@@ -2,9 +2,10 @@
 id: HITLD-748
 title: dispatch complete refuses a report with parse errors and records nothing, so the executor can resend
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80SRYS55FYBF2
 ---
 
 ## Why
