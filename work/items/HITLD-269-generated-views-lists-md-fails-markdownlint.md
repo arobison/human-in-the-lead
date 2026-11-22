@@ -2,7 +2,7 @@
 id: HITLD-269
 title: Generated views/lists.md fails markdownlint (MD001)
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ Evidence: work/views/lists.md:3-5 '# Item lists' then '### ...'; written by core
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `tracker`, still present on main, confidence 0.9. Exact lint error and line; visible in this repository's own views. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Promoted on 2026-11-22
+
+Promoted to rc.2 on the owner's decision (2026-11-22).

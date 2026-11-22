@@ -25,3 +25,7 @@ Evidence: core/lib/rights/flow.mjs:452 classification ?? 'internal'; core/lib/tr
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `backlog`, area `tracker`, still present on main, confidence 0.7. The fix is a classification choice that overlaps HITLD-77 (confidential decisions in the private store); shape together.
+
+## Held back from rc.2 on 2026-11-22
+
+The owner chose the silent-failures group for rc.2, but this item needs HITLD-77 (confidential decisions in the private store), which is a larger item and not in rc.2. It stays proposed until HITLD-77 is decided.
