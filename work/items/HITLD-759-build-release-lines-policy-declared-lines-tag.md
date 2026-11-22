@@ -2,9 +2,10 @@
 id: HITLD-759
 title: "Build release packages: policy-declared packages, tag templates, surface-file deltas, --package, dependencies, groups, trains, channels and migration"
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M810MFACNEE1X8
 ---
 
 ## Why
