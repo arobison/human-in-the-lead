@@ -7,7 +7,14 @@ import { dirname, resolve } from 'node:path';
 import { CodedError } from '../cli/errors.mjs';
 import { checkHolder, worktreeRoot } from './config.mjs';
 import { git, gitOk } from './git.mjs';
-import { INCLUDE_FILE, copyIncluded } from './include.mjs';
+import {
+  INCLUDE_FILE,
+  copyIncluded,
+  listIncluded,
+  renderIncluded,
+  templateValues,
+} from './include.mjs';
+import { leasePort } from './ports.mjs';
 import { findOutsideLinks, unlinkOutsideLinks } from './links.mjs';
 import { logEvent, readRegistry, updateRegistry } from './registry.mjs';
 import { realPath } from './fsx.mjs';
@@ -305,6 +312,11 @@ export async function runSetup(ctx, request) {
       note: `the files ${INCLUDE_FILE} lists could not be copied: ${/** @type {Error} */ (e).message}`,
     };
   }
+  // The templates it marks, rendered with the holder's leased port (HITLD-744), which setup leases
+  // when there is a template: a lease is the holder's for as long as it lasts, so the server it
+  // starts later gets the same port. A template that fails is recorded and `hitld env check`
+  // reports it; like a file that could not be copied, it does not fail setup.
+  result.templates = await renderTemplates(ctx, holder, lease);
   for (const command of commands) {
     const step = await runStep(
       command,
@@ -335,9 +347,44 @@ export async function runSetup(ctx, request) {
       steps: result.steps.length,
       links_out: result.links_out?.map((x) => x.path) ?? [],
       included: result.included?.copied ?? [],
+      rendered: result.templates?.rendered ?? [],
+      templates_failed: result.templates?.failed.map((f) => f.template) ?? [],
     });
   });
   return result;
+}
+
+/**
+ * @param {WorktreeContext} ctx @param {string} holder @param {WorktreeLease} lease
+ * @returns {Promise<import('./include.mjs').TemplateResult | undefined>} undefined when nothing is marked
+ */
+async function renderTemplates(ctx, holder, lease) {
+  try {
+    if (realPath(lease.repo_root) === realPath(lease.path)) return undefined;
+    if (!(await listIncluded(lease.repo_root)).templates.length) return undefined;
+    /** @type {number | undefined} */
+    let port;
+    let note;
+    try {
+      port = (await leasePort({ store: ctx.store, range: ctx.settings.portRange }, { holder }))
+        .lease.port;
+    } catch (e) {
+      note = `no port could be leased for the templates: ${/** @type {Error} */ (e).message}`;
+    }
+    const out = await renderIncluded({
+      primary: lease.repo_root,
+      worktree: lease.path,
+      values: templateValues(port),
+    });
+    return { ...out, ...(port === undefined ? {} : { port }), ...(note ? { note } : {}) };
+  } catch (e) {
+    return {
+      rendered: [],
+      failed: [],
+      skipped: [],
+      note: `the templates ${INCLUDE_FILE} marks could not be rendered: ${/** @type {Error} */ (e).message}`,
+    };
+  }
 }
 
 /**
