@@ -1,7 +1,7 @@
 {
   "$id": "ledger-entry",
   "title": "Ledger entry",
-  "description": "One line of a ledger file in the private store (design parts 5.4 and 13.1): ledger/<writer>.jsonl, one file per writer, or ledger.jsonl, the single file every writer shared before version 3, read and never appended to. Append-only: corrections are new events that reference the old one. The ledger is internal as a whole, so lines carry no classification. Events: the ten of part 5.4, plus sent (a question was shown to its decider), logged (a call the orchestrator made without asking) and, for orchestrator continuity, run-started, lease-taken and lease-released (part 13.1). merge-approved records the owner's answer to a batch presented in owner merge mode (all of it, or a list), bound to that presentation and written by the session the owner said it in; the session holding the lease applies it. For the watchdog (part 5.2): stalled (a dispatch showed no progress for too long, or passed its deadline, with the ladder step taken), poked (its agent was asked to report its status), interrupted (it was stopped, and continues as a follow-up with its commits kept; it ends the dispatch). For quota pauses (part 12.5): paused (the quota gate stopped autonomous dispatch, with the limit and when its window resets) and resumed. friction (HITLD-595, part 18.4): one sighting of a friction class, read from the harness's record of a session by hitld friction scan, or recorded by the chief of staff as it recognizes one (self_recognized); its ID is its class and its evidence's ID, so a second scan appends nothing. The trust record of the approval is written once, when it is applied. dispatched is recorded before the harness is called; started is recorded when the harness has accepted the dispatch, and carries its harness_ref. Version 2 (HITLD-82) renamed claimed to started, question to asked, released to unclaimed, outcome to result and handle to harness_ref; the reader takes a version 1 line in the old names, permanently, since the ledger is never rewritten. Version 3 (HITLD-74) is the first written to per-writer files, with event and dispatch IDs unique by construction (a prefix and 16 characters of Crockford base32: time, then random); the numbered E-<n> and D-<n> of versions 1 and 2 keep their meaning.",
+  "description": "One line of a ledger file in the private store (design parts 5.4 and 13.1): ledger/<writer>.jsonl, one file per writer, or ledger.jsonl, the single file every writer shared before version 3, read and never appended to. Append-only: corrections are new events that reference the old one. The ledger is internal as a whole, so lines carry no classification. Events: the ten of part 5.4, plus sent (a question was shown to its decider), logged (a call the orchestrator made without asking) and, for orchestrator continuity, run-started, lease-taken and lease-released (part 13.1). merge-approved records the owner's answer to a batch presented in owner merge mode (all of it, or a list), bound to that presentation and written by the session the owner said it in; the session holding the lease applies it. For the watchdog (part 5.2): stalled (a dispatch showed no progress for too long, or passed its deadline, with the ladder step taken), poked (its agent was asked to report its status), interrupted (it was stopped, and continues as a follow-up with its commits kept; it ends the dispatch). For quota pauses (part 12.5): paused (the quota gate stopped autonomous dispatch, with the limit and when its window resets) and resumed. friction (HITLD-595, part 18.4): one sighting of a friction class, read from the harness's record of a session by hitld friction scan, or recorded by the chief of staff as it recognizes one (self_recognized); its ID is its class and its evidence's ID, so a second scan appends nothing. context-measured (HITLD-796, part 13.1): the share of its context the session holding the lease has used, read by the chief of staff from the harness's record of that session; session and host name the holder, by the chief of staff, and the hand-over is due once it reaches policy orchestrator.handover_context_share. The trust record of the approval is written once, when it is applied. dispatched is recorded before the harness is called; started is recorded when the harness has accepted the dispatch, and carries its harness_ref. Version 2 (HITLD-82) renamed claimed to started, question to asked, released to unclaimed, outcome to result and handle to harness_ref; the reader takes a version 1 line in the old names, permanently, since the ledger is never rewritten. Version 3 (HITLD-74) is the first written to per-writer files, with event and dispatch IDs unique by construction (a prefix and 16 characters of Crockford base32: time, then random); the numbered E-<n> and D-<n> of versions 1 and 2 keep their meaning.",
   "x-hitld-schema-version": 3,
   "type": "object",
   "properties": {
@@ -35,7 +35,8 @@
         "interrupted",
         "paused",
         "resumed",
-        "friction"
+        "friction",
+        "context-measured"
       ]
     },
     "run": {
@@ -330,6 +331,12 @@
     "self_recognized": {
       "description": "On friction: true when the chief of staff recorded it as it recognized it, so the independent reader's reading can be compared with it.",
       "type": "boolean"
+    },
+    "context_share": {
+      "description": "On context-measured: the share of its context window the orchestrator holding the lease has used, as the chief of staff read it from the harness's record of that session (HITLD-794).",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
     }
   },
   "required": ["schema_version", "id", "event", "at"],
