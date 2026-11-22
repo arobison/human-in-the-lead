@@ -585,6 +585,47 @@ test('hooks: the report check blocks an executor without a report, once; the gua
   assert.equal(ownerPush.stdout, '');
 });
 
+test('the guard lets an executor run rights who and precedent match, and no other rights or precedent subcommand (HITLD-740)', () => {
+  /** @param {string} command */
+  const asExecutor = (command) =>
+    hook('guard.mjs', { tool_name: 'Bash', tool_input: { command } }, { HITLD_DISPATCH: 'D-1' })
+      .stdout;
+  const question = `'{"title":"Which port","triggers":[],"reversibility":"reversible"}'`;
+  for (const allowed of [
+    `hitld rights who --question ${question}`,
+    'HITLD_ROLE=executor hitld rights who --file q.json',
+    `node core/bin/hitld.mjs precedent match --question ${question}`,
+    'hitld precedent match --file q.json',
+    'hitld rights who --file q.json && hitld precedent match --file q.json',
+  ]) {
+    assert.equal(asExecutor(allowed), '', allowed);
+  }
+  for (const denied of [
+    // Neighbors of rights who: the commands that ask, show, record or answer.
+    'hitld rights ask --file q.json',
+    'hitld rights record --file q.json --answer A',
+    'hitld rights pending',
+    'hitld rights digest',
+    'hitld rights',
+    'hitld rights whoami',
+    // Neighbors of precedent match: anything that would list, add or change a precedent.
+    'hitld precedent add --file p.json',
+    'hitld precedent list',
+    'hitld precedent',
+    'hitld precedent matches',
+    // An allowed call does not carry a refused one past the guard.
+    'hitld rights who --file q.json && hitld rights ask --file q.json',
+    'hitld precedent match --file q.json; hitld precedent add --file p.json',
+  ]) {
+    assert.match(asExecutor(denied), /"deny"/, denied);
+  }
+  // The owner's session is not an executor's: the guard says nothing there.
+  assert.equal(
+    hook('guard.mjs', { tool_name: 'Bash', tool_input: { command: 'hitld rights ask' } }).stdout,
+    '',
+  );
+});
+
 // --- End to end through the command line ---------------------------------------------------
 
 test('install leaves the status line off by default and accepts --no-statusline', async () => {
