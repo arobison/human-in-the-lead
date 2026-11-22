@@ -13,6 +13,7 @@ import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { readPrimaryCheckout } from '../../env/primary.mjs';
 import { openEnv } from '../../env/manager.mjs';
 import { splitCommand } from '../../env/secrets.mjs';
+import { INCLUDE_FILE, missingIncluded } from '../../env/include.mjs';
 
 /**
  * Open the manager for the project at the working directory.
@@ -264,6 +265,52 @@ export const commands = [
         existing: made.existing,
         adopted: lease.adopted,
         setup,
+      };
+    }),
+  },
+  {
+    name: 'env check',
+    summary:
+      'Check a worktree has what it needs: each git-ignored file .worktreeinclude lists, named by path (contents are never read out)',
+    built_by: 'c',
+    args: [
+      {
+        name: 'dispatch',
+        type: 'string',
+        description: "The dispatch whose worktree to check; default the current directory's",
+      },
+    ],
+    run: withEnv(async (input, env, ctx, repoRoot) => {
+      let worktree;
+      if (input.dispatch) {
+        const lease = env.registry().worktrees[String(input.dispatch)];
+        if (!lease) {
+          return {
+            ok: false,
+            error: 'no-worktree',
+            message: `${input.dispatch} holds no worktree`,
+          };
+        }
+        worktree = lease.path;
+      } else {
+        worktree = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+          cwd: ctx.cwd,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+      }
+      const include = await missingIncluded({ primary: repoRoot, worktree });
+      const ok = include.missing.length === 0;
+      return {
+        ok,
+        ...(ok
+          ? {}
+          : {
+              error: 'include-missing',
+              message: `the worktree lacks ${include.missing.length} file(s) ${INCLUDE_FILE} lists: ${include.missing.join(', ')}; hitld env setup copies them`,
+            }),
+        worktree: realPath(worktree),
+        include,
       };
     }),
   },
