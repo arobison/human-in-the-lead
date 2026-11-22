@@ -2,9 +2,10 @@
 id: HITLD-766
 title: The chief-of-staff skill merges tracker-only pull requests as soon as they are green, whatever the merge queue is doing
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80WW60E08SE52
 ---
 
 ## Why
