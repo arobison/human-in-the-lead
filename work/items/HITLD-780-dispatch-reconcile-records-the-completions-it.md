@@ -2,9 +2,10 @@
 id: HITLD-780
 title: "dispatch reconcile records the completions it observes: a closing commit carrying a report, and an executor that has ended"
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80RZ0C9CT77ZY
 ---
 
 ## Why
