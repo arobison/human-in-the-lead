@@ -25,6 +25,8 @@ calls:
 questions: none | <what>
 ```
 
+The commit line is exactly `commit: <full sha> (branch <name>)`, with nothing after the closing bracket; a note about the branch goes under `deviations`. Every list line is indented two spaces under its heading.
+
 Commit trailers: `Work-Item:`, `Dispatch:`, `Agent-Role:`, `Agent-Model:` (your model ID) and `Agent-Effort:`.
 
 Write American English in reports, commit messages, comments, docs and names: enroll, judgment, license, behavior, labeled.
