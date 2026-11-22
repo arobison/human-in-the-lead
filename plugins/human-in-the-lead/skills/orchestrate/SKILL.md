@@ -32,7 +32,7 @@ Usually the chief of staff (the chief-of-staff skill) started this session, and 
   merge_ready: <the batch hitld merge presented: its question and one line per branch with its evidence and reads, or none>
   start_session: <dispatch, worktree, brief file, branch> | none
   wake_at: <time and reason> | none
-  relay: <for a tier-3 session the chief of staff started: dispatch, poke or stop, and the message> | none
+  relay: <for a tier-3 session the chief of staff started: dispatch, poke, follow-up or stop, and the message> | none
   handover: <file> | none
   ```
 
@@ -122,7 +122,7 @@ Then do useful work between notices: merge, answer questions, triage. Do not wai
 
 ## 5. Follow-ups go to the same agent
 
-A fix after a failed check, an answer to its question, a bad report shape: `hitld dispatch follow-up --dispatch D-<n> --message "<what>"`, then make the `SendMessage` (or headless `Bash`) call it prints, and handle its completion as in step 4. Never brief a fresh agent for the same item while its agent can continue.
+A fix after a failed check, an answer to its question, a bad report shape, the rest of a `partial`: `hitld dispatch follow-up --dispatch D-<n> --message "<what>"`, then make the `SendMessage` (or headless `Bash`) call it prints, and handle its completion as in step 4. It is a new dispatch, `dispatch` in its output: complete the executor's next report under that ID, never the earlier one, whose report stands (`dispatch complete` on the earlier ID answers `already` and names the follow-up in `continued_as`). For a tier-3 interactive session it prints a `relay` (the session, the new dispatch and the message): with a chief of staff, put it in `relay` as a follow-up; when you are both, send the message to that session yourself. A refused follow-up records nothing. Never brief a fresh agent for the same item while its agent can continue.
 
 ## 6. Merge
 
