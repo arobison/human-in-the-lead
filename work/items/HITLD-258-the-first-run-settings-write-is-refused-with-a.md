@@ -2,7 +2,7 @@
 id: HITLD-258
 title: The first-run settings write is refused with a misleading reason
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ Evidence: core/lib/settings/files.mjs:364 "executors never write settings" and :
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `setup`, still present on main, confidence 0.75. Both cases have clear steps and the exact refusal text; message changes are testable. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Promoted on 2026-11-22
+
+Promoted to rc.2 on the owner's decision (2026-11-22).

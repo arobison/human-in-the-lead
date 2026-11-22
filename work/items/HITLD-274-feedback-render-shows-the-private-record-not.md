@@ -2,7 +2,7 @@
 id: HITLD-274
 title: Feedback render shows the private record, not the draft that will be filed
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ Evidence: core/lib/feedback/render.mjs:45-46 uses r.words and r.what_happened; f
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `feedback`, still present on main, confidence 0.75. Deterministic: draft a record, run render, compare with publish; touches the public-posting review step. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Promoted on 2026-11-22
+
+Promoted to rc.2 on the owner's decision (2026-11-22).
