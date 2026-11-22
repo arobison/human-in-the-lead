@@ -2,9 +2,10 @@
 id: HITLD-739
 title: A follow-up to an interactive executor is recorded as a dispatch of its own so its branch reaches the merge queue
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80E4QRXHZ70XB
 ---
 
 ## Why
