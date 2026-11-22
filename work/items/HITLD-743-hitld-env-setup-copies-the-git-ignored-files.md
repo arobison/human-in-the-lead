@@ -2,9 +2,10 @@
 id: HITLD-743
 title: hitld env setup copies the git-ignored files that .worktreeinclude lists into a worktree, and env check reports a missing one
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80K7ZVA06CP5T
 ---
 
 ## Why
