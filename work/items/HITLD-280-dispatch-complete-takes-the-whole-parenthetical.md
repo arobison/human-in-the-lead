@@ -2,9 +2,10 @@
 id: HITLD-280
 title: "Dispatch complete takes the whole parenthetical after commit: as the branch name"
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
+claimed_by: D-01M80FZPB9ANGFJG
 ---
 
 ## Why
