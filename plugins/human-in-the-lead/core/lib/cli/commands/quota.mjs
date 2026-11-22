@@ -35,6 +35,8 @@ import { schemas } from '../../schema/registry.mjs';
 import { executorSignal } from '../executor.mjs';
 import { workModel } from '../../dashboard/work.mjs';
 import { withholdClaims, withholdEntities, withholdGraph } from '../../dashboard/contract.mjs';
+import { VIEWS_PATH, loadViews, viewsModel } from '../../dashboard/panels.mjs';
+import { loadTrackerConfig } from '../../tracker/files/config.mjs';
 import { ownerDigest } from './rights.mjs';
 
 /**
@@ -87,6 +89,50 @@ const RETIRED = ['report.html'];
 
 /** @type {import('../table.mjs').Command[]} */
 export const commands = [
+  {
+    name: 'check views',
+    summary:
+      "Validate .human-in-the-lead/views.json, a project's own dashboard panels, against its schema, the dashboard data contract's fields and the fields tracker.json declares",
+    built_by: 'f',
+    args: [],
+    run: (_input, ctx) => {
+      const repoRoot = findRepoRoot(ctx.cwd);
+      if (!repoRoot) {
+        return {
+          ok: false,
+          error: 'usage',
+          message: 'not in a project: no .human-in-the-lead here',
+        };
+      }
+      const tracker = loadTrackerConfig({ repoRoot });
+      if (!tracker.config) {
+        return {
+          ok: false,
+          error: 'tracker',
+          message:
+            'tracker.json is invalid, so the declared fields are unknown; run hitld work check',
+          errors: tracker.errors,
+        };
+      }
+      const checked = loadViews(repoRoot, tracker.config.fields ?? []);
+      if (!checked) {
+        return {
+          ok: true,
+          path: null,
+          panels: [],
+          errors: [],
+          message: 'no views.json: the dashboard shows the built-in views alone',
+        };
+      }
+      return {
+        ok: checked.errors.length === 0,
+        path: VIEWS_PATH,
+        title: checked.title,
+        panels: checked.panels.map((p) => ({ id: p.id, type: p.type, title: p.title })),
+        errors: checked.errors,
+      };
+    },
+  },
   {
     name: 'quota status',
     summary: 'Each quota with its headroom and forecast, and what the dispatch gate says now',
@@ -280,6 +326,8 @@ export const commands = [
       const warnings = [];
       /** @type {import('../../dashboard/work.mjs').WorkModel | null} */
       let work = null;
+      /** @type {import('../../dashboard/panels.mjs').ViewsModel | null} */
+      let views = null;
       if (g.repoRoot) {
         const repoRoot = g.repoRoot;
         try {
@@ -320,6 +368,15 @@ export const commands = [
               `the work views are left out: ${e instanceof Error ? e.message : String(e)}`,
             );
           }
+          // The project's own panels (HITLD-692), checked against the contract's fields and the
+          // declared ones. A refused panel is named on the page and here, never shown empty.
+          const checked = loadViews(repoRoot, layout.fields);
+          views = viewsModel(checked, work);
+          if (checked?.errors.length) {
+            warnings.push(
+              `views.json: ${checked.errors.length} problem${checked.errors.length === 1 ? '' : 's'}; run hitld check views`,
+            );
+          }
         } catch (e) {
           warnings.push(
             `the milestone graph is left out: ${e instanceof Error ? e.message : String(e)}`,
@@ -333,6 +390,7 @@ export const commands = [
         now: g.now,
         milestones,
         work,
+        views,
       });
       const html = renderHtml(report, { fileBase: repositoryFileBase(g.repoRoot) });
       // The digest is the one `hitld rights digest` builds, with this report's quota lines. It is

@@ -81,8 +81,15 @@ export function parseReport(text) {
   const c = /^([0-9a-f]+)(?:\s+\((?:branch\s+)?([^)]+)\))?$/i.exec(raw.commit ?? '');
   if (raw.commit === undefined) report.commit = null;
   else if (NONE.test(raw.commit)) report.commit = null;
-  else if (c) report.commit = { sha: c[1], ...(c[2] ? { branch: c[2].trim() } : {}) };
-  else errors.push(`commit must be "<sha> (branch <name>)" or "none": ${raw.commit}`);
+  else if (c) {
+    const branch = c[2]?.trim();
+    const problem = branch === undefined ? null : branchNameProblem(branch);
+    if (problem) {
+      errors.push(
+        `commit names "${branch.slice(0, 80)}", which is not a valid branch name (${problem}): the line holds only "<sha> (branch <name>)"; a note about the branch goes under deviations`,
+      );
+    } else report.commit = { sha: c[1], ...(branch ? { branch } : {}) };
+  } else errors.push(`commit must be "<sha> (branch <name>)" or "none": ${raw.commit}`);
 
   for (const f of ['evidence', 'bench_runs', 'deviations', 'questions']) {
     /** @type {string[]} */
@@ -106,4 +113,32 @@ export function parseReport(text) {
     };
   }
   return { report, errors: [], warnings };
+}
+
+/**
+ * Why `name` is not a branch name, or null when it is one: git's rules for a ref name
+ * (git-check-ref-format), plus a leading "-", which git branch refuses, and ";", which git allows
+ * but no branch the system makes holds, and which shows a note was written into the name
+ * (HITLD-280).
+ * @param {string} name
+ * @returns {string | null}
+ */
+export function branchNameProblem(name) {
+  if (name === '') return 'it is empty';
+  if (name === '@') return 'it is "@"';
+  if (/[\x00-\x20\x7f]/.test(name)) return 'it holds a space or a control character';
+  const bad = /[~^:?*[\\;]/.exec(name);
+  if (bad) return `it holds "${bad[0]}"`;
+  if (name.startsWith('-')) return 'it starts with "-"';
+  if (name.startsWith('/') || name.endsWith('/') || name.includes('//')) {
+    return 'it has an empty part between slashes';
+  }
+  if (name.includes('..')) return 'it holds ".."';
+  if (name.includes('@{')) return 'it holds "@{"';
+  if (name.endsWith('.')) return 'it ends with "."';
+  for (const part of name.split('/')) {
+    if (part.startsWith('.')) return 'a part starts with "."';
+    if (part.endsWith('.lock')) return 'a part ends with ".lock"';
+  }
+  return null;
 }

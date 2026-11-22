@@ -6,7 +6,11 @@
   "description": "A fake executor hangs: it is dispatched and never makes progress or reports. The chief of staff's watchdog, a script with no model, sees the stall after the dispatch's stall time and says to wake the orchestrator, recording nothing itself. The orchestrator climbs the ladder with hitld dispatch watch --act: it pokes the same agent, then interrupts it and continues it as a follow-up on the same agent, then abandons that and the item is planned afresh. The fresh executor reports done, so the system recovers without the owner: no question is asked, and every step is in the ledger and the measures.",
   "mode": "offline",
   "steps": [
-    { "id": "consumer", "action": "orchestrator.consumer", "with": {} },
+    {
+      "id": "consumer",
+      "action": "orchestrator.consumer",
+      "with": { "branches": ["hitld/W-1-add-numbers"] }
+    },
     {
       "id": "reading",
       "action": "orchestrator.statusline",

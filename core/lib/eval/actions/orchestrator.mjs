@@ -250,6 +250,12 @@ export const actions = {
           description:
             "Policy sections over the fixture's own, such as orchestrator or merge (merged at the top level)",
         },
+        branches: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            "Branches made at main, as the executors' branches the scenario's reports name (dispatch complete asks again for a branch the repository does not have)",
+        },
         setup: {
           type: 'boolean',
           description:
@@ -261,6 +267,7 @@ export const actions = {
     run: (input, ctx) => {
       const root = buildConsumer(join(ctx.sandbox, 'consumer'), {
         ...(input.policy ? { policy: input.policy } : {}),
+        ...(input.branches ? { branches: input.branches } : {}),
       });
       const env = {
         XDG_DATA_HOME: join(ctx.sandbox, 'data'),
