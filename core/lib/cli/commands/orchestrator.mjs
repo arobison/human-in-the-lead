@@ -102,7 +102,7 @@ import {
 } from '../../merge/pull-request.mjs';
 import { duplicateIds } from '../../tracker/files/check.mjs';
 import { closeByTrailer } from '../../tracker/files/closing.mjs';
-import { loadWorkTree } from '../../tracker/files/tree.mjs';
+import { git, loadWorkTree } from '../../tracker/files/tree.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import {
   PRESENTED_KEY,
@@ -803,6 +803,25 @@ function securitySentBack(x, main) {
 
 /** The token sources that are measured by the harness, not typed by hand (HITLD-438). */
 const MEASURED_SOURCES = ['session-record', 'result-file', 'notification'];
+
+/**
+ * Whether a done report's branch is missing from the repository, by the test the local merge
+ * queue rejects it with (`missing`), so that `dispatch complete` asks for the report again instead
+ * of queueing a branch the merge cannot find (HITLD-280). With merge.via pull-request the branch
+ * lives on the remote and the merge fetches it, so nothing is checked here.
+ * @param {{ repoRoot: string, policy: Record<string, any> }} p
+ * @param {{ sha: string, branch?: string }} commit
+ * @param {{ branch: string }} entry
+ */
+function missingBranch(p, commit, entry) {
+  if (p.policy.merge?.via === 'pull-request') return false;
+  const branch = commit.branch ?? entry.branch;
+  return (
+    git(p.repoRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], {
+      allowFail: true,
+    }) === ''
+  );
+}
 
 /**
  * What `dispatch complete` says about a completion's tokens: the figure recorded and where it came
@@ -1742,6 +1761,14 @@ const table = [
           out.deviations = r.deviations;
           if (r.item !== entry.item) {
             out.next = `the report is about ${r.item}, not ${entry.item}: follow up`;
+          } else if (r.result === 'done' && r.commit && missingBranch(p, r.commit, entry)) {
+            // The merge would reject the branch as missing and tell no one, so the executor is
+            // asked now (HITLD-280).
+            const branch = r.commit.branch ?? entry.branch;
+            out.report_errors = [
+              `commit names ${branch}, which is not a branch in the repository: give the branch the work is on`,
+            ];
+            out.next = `the report names a branch that does not exist: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report again with the branch the work is on, naming the error>"`;
           } else if (r.result === 'done' && r.commit) {
             const branch = r.commit.branch ?? entry.branch;
             run.record({
