@@ -11,8 +11,9 @@
 //                                   the private store from its remote, and its SessionEnd hook,
 //                                   which pushes it (design 0003, section 8); both do nothing
 //                                   until a store remote is configured
-//   .git/hooks/pre-commit           the commit guard (design part 10.3): runs this hitld's
-//                                   `check classification --staged`; shared by every worktree
+//   .git/hooks/pre-commit           the commit guard (design part 10.3): runs
+//                                   `check classification --staged` with the hitld it finds when
+//                                   it runs (HITLD-741); shared by every worktree
 //   .git/hooks/commit-msg           the commit message guard (design part 10.3, rule 7): runs
 //                                   `check commit-message` on the message; shared the same way
 //
@@ -67,45 +68,182 @@ function writeJson(path, data) {
 const shq = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
 /**
- * The pre-commit hook's text. It runs the hitld at `hitld` (the one that ran install) and nothing
- * else: no command in it comes from the repository's data.
- * @param {string} hitld an absolute path to hitld.mjs
+ * The resolver every commit guard hook runs (HITLD-741): it finds hitld when the hook runs, not
+ * when install wrote it, so a moved or removed checkout does not stop commits. In order:
+ *
+ *   1. `hitld` on the PATH;
+ *   2. the bundled executable of the plugin version the project pins in .claude/settings.json
+ *      (a `v<version>` ref, or the version of the pinned directory's plugin), in Claude Code's
+ *      plugin cache under CLAUDE_CONFIG_DIR, or ~/.claude when that is unset;
+ *   3. the hitld.mjs recorded at install.
+ *
+ * The one it finds is asked its version; a version other than the pin is reported, and the check
+ * still runs with it. When none is found the hook warns, says how to fix it, and lets the commit
+ * through: the merge runs the same checks, so nothing reaches main unchecked.
+ *
+ * Trust boundary: the text is fixed here. The repository's data only picks a version string, which
+ * must look like one (no path separators), under the user's own Claude Code plugin cache; nothing
+ * from the repository is run.
+ * @param {string} recorded an absolute path to hitld.mjs @param {string[]} args the check to run
  */
-export function hookScript(hitld) {
+function resolverScript(recorded, args) {
+  return `const { spawnSync } = require('node:child_process');
+const { readFileSync, statSync } = require('node:fs');
+const { delimiter, join } = require('node:path');
+const { homedir } = require('node:os');
+const RECORDED = ${JSON.stringify(recorded)};
+const ARGS = ${JSON.stringify(args)}.concat(process.argv.slice(2));
+const PLUGIN = 'human-in-the-lead';
+const win = process.platform === 'win32';
+const say = (m) => process.stderr.write('hitld commit guard: ' + m + '\\n');
+const isFile = (p) => {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+};
+const readJson = (p) => {
+  try {
+    return JSON.parse(readFileSync(p, 'utf8'));
+  } catch {
+    return null;
+  }
+};
+// The version .claude/settings.json pins, or null when it pins none that can be read.
+const pinned = () => {
+  const s = readJson(join('.claude', 'settings.json'))?.extraKnownMarketplaces?.[PLUGIN]?.source;
+  let v = null;
+  if (s?.source === 'github' && typeof s.ref === 'string') v = s.ref.replace(/^v/, '');
+  if (s?.source === 'directory' && typeof s.path === 'string') {
+    v = readJson(join(s.path, 'plugins', PLUGIN, '.claude-plugin', 'plugin.json'))?.version;
+  }
+  return typeof v === 'string' && /^\\d+\\.\\d+\\.\\d+([-+][0-9A-Za-z.-]+)?$/.test(v) ? v : null;
+};
+const onPath = () => {
+  const exts = win ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').concat('') : [''];
+  for (const dir of (process.env.PATH || '').split(delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) if (isFile(join(dir, 'hitld' + ext))) return join(dir, 'hitld' + ext);
+  }
+  return null;
+};
+const inCache = (v) => {
+  if (!v) return null;
+  const config = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  const p = join(config, 'plugins', 'cache', PLUGIN, PLUGIN, v, 'core', 'bin', 'hitld.mjs');
+  return isFile(p) ? p : null;
+};
+// A file on PATH runs as it is (through cmd.exe for a .cmd shim); a hitld.mjs runs under node.
+const run = (c, args, opts) => {
+  if (!c.direct) return spawnSync(process.execPath, [c.file].concat(args), opts);
+  if (win && /\\.(cmd|bat)$/i.test(c.file)) {
+    const line = [c.file].concat(args).map((a) => '"' + a + '"').join(' ');
+    return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', '"' + line + '"'], {
+      ...opts,
+      windowsVerbatimArguments: true,
+    });
+  }
+  return spawnSync(c.file, args, opts);
+};
+const want = pinned();
+const path = onPath();
+const cached = path ? null : inCache(want);
+const found = path
+  ? { file: path, direct: true, from: 'on PATH' }
+  : cached
+    ? { file: cached, direct: false, from: 'the pinned plugin' }
+    : isFile(RECORDED)
+      ? { file: RECORDED, direct: false, from: 'recorded at install' }
+      : null;
+if (!found) {
+  say(
+    'no hitld found, so this commit is not checked here (the merge still checks it). Looked for ' +
+      'hitld on PATH, ' +
+      (want ? 'the pinned plugin ' + want + ' in the Claude Code plugin cache, ' : '') +
+      'and ' + RECORDED + ' (recorded at install, now gone). To fix it, put hitld on PATH, ' +
+      'install the pinned plugin, or run hitld install again from the hitld you use.',
+  );
+  process.exit(0);
+}
+if (want) {
+  const r = run(found, ['version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  let got = null;
+  try {
+    got = JSON.parse(r.stdout).version;
+  } catch {}
+  if (got !== want) {
+    say(
+      'the hitld ' + found.from + ' (' + found.file + ') is ' +
+        (typeof got === 'string' ? 'version ' + got : 'of an unknown version') +
+        ', but the project pins ' + want + '; checking with it anyway. ' +
+        'Install hitld ' + want + ' to check with the pinned rules.',
+    );
+  }
+}
+const r = run(found, ARGS, { stdio: ['ignore', 'inherit', 'inherit'] });
+if (r.status === null) {
+  say('could not run ' + found.file + (r.error ? ': ' + r.error.message : ''));
+  process.exit(1);
+}
+process.exit(r.status);
+`;
+}
+
+/**
+ * A commit guard hook: a POSIX shell preamble that hands the resolver to node. Without node no
+ * hitld can run, so the hook warns and lets the commit through, as when no hitld is found.
+ * @param {string[]} about the comment lines that say what the hook refuses
+ * @param {string} recorded @param {string[]} args
+ */
+function guardHook(about, recorded, args) {
+  const js = resolverScript(recorded, args);
+  if (/^HITLD_GUARD$/m.test(js)) throw new Error('the resolver holds its own end marker');
   return [
     '#!/bin/sh',
-    `${HOOK_MARK} v1. Written by hitld install, which rewrites it; edit a copy under another name.`,
-    "# Refuses a commit that adds a file above the repository's classification ceiling (design",
-    '# part 10.3). The merge checks the same rule, so skipping this hook does not get a file to main.',
-    `HITLD=${shq(hitld)}`,
-    'if [ ! -f "$HITLD" ]; then',
-    '  echo "hitld commit guard: $HITLD is gone; run hitld install again to point this hook at the hitld you use" >&2',
-    '  exit 1',
+    `${HOOK_MARK} v2. Written by hitld install, which rewrites it; edit a copy under another name.`,
+    ...about,
+    '# It finds hitld when it runs: on PATH, then the pinned plugin, then the path recorded at',
+    '# install. When none is found it warns and lets the commit through.',
+    'if ! command -v node >/dev/null 2>&1; then',
+    '  echo "hitld commit guard: node is not on PATH, so this commit is not checked here (the merge still checks it)" >&2',
+    '  exit 0',
     'fi',
-    'exec node "$HITLD" check classification --staged',
+    `exec node - "$@" <<'HITLD_GUARD'`,
+    js.replace(/\n$/, ''),
+    'HITLD_GUARD',
     '',
   ].join('\n');
 }
 
 /**
- * The commit-msg hook's text: the private term check on the message git hands it. Like the
- * pre-commit hook, it runs the hitld at `hitld` and nothing else.
- * @param {string} hitld an absolute path to hitld.mjs
+ * The pre-commit hook's text: the classification check over the staged files.
+ * @param {string} hitld an absolute path to hitld.mjs, the last place the hook looks
+ */
+export function hookScript(hitld) {
+  return guardHook(
+    [
+      "# Refuses a commit that adds a file above the repository's classification ceiling (design",
+      '# part 10.3). The merge checks the same rule, so skipping this hook does not get a file to main.',
+    ],
+    hitld,
+    ['check', 'classification', '--staged'],
+  );
+}
+
+/**
+ * The commit-msg hook's text: the private term check on the message git hands it.
+ * @param {string} hitld an absolute path to hitld.mjs, the last place the hook looks
  */
 export function messageHookScript(hitld) {
-  return [
-    '#!/bin/sh',
-    `${HOOK_MARK} v1. Written by hitld install, which rewrites it; edit a copy under another name.`,
-    '# Refuses a commit message that holds a term from the private term list (design part 10.3,',
-    "# rule 7). The merge checks each commit's message too, so skipping this hook gains nothing.",
-    `HITLD=${shq(hitld)}`,
-    'if [ ! -f "$HITLD" ]; then',
-    '  echo "hitld commit guard: $HITLD is gone; run hitld install again to point this hook at the hitld you use" >&2',
-    '  exit 1',
-    'fi',
-    'exec node "$HITLD" check commit-message "$1"',
-    '',
-  ].join('\n');
+  return guardHook(
+    [
+      '# Refuses a commit message that holds a term from the private term list (design part 10.3,',
+      "# rule 7). The merge checks each commit's message too, so skipping this hook gains nothing.",
+    ],
+    hitld,
+    ['check', 'commit-message'],
+  );
 }
 
 /** The hooks install writes: the name, its text, and the line to add to a hook that is not ours. */
@@ -185,7 +323,8 @@ function installHook(hook, text, line, name) {
   }
   mkdirSync(dirname(hook), { recursive: true });
   // Trust boundary: the hook's text is fixed here, and the one path in it is this checkout's own
-  // hitld.mjs (from import.meta.url), shell-quoted; nothing comes from the repository or input.
+  // hitld.mjs (from import.meta.url), as a JSON string in a quoted here-document; nothing from the
+  // repository or input is run (see resolverScript).
   writeFileSync(hook, text, st ? {} : { flag: 'wx' });
   chmodSync(hook, 0o755);
   return { done: st ? 'updated' : 'installed' };
