@@ -2,9 +2,10 @@
 id: HITLD-737
 title: The watchdog marks an executor stalled when its orchestrator process exits, and names the claims that hold uncommitted work
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80EPF8HN3E4YB
 ---
 
 ## Why
