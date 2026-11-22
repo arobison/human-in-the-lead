@@ -6,6 +6,7 @@ state: in-progress
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80ZP7SCPSCAFX
+release_note: An executor at its token cap (its start estimate times dispatch.report_at_budget_multiple) is told by its hooks to commit, push and report, and every tool call but those closing steps is refused; `hitld dispatch reconcile` stops one its hook missed, from the harness record, with the new `hitld dispatch stop`.
 ---
 
 ## Why

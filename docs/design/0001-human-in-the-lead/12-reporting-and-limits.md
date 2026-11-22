@@ -121,7 +121,7 @@ What a vendor exposes decides how much the system must estimate. Four kinds of s
 | Source | Gives | Limits |
 |---|---|---|
 | **A harness feed** | Where the harness hands a per-session command its own usage (a status line input, for example), the used share of each window and its reset time | Per session, not an API; present only after a first request; percentages with no published token equivalent |
-| **Telemetry** | Tokens and cost per request, by model, exported to a local collector or file; headless runs report their own cost | Costs are client-side estimates at list price. Session transcript files are not parsed: their format is not a stable interface |
+| **Telemetry** | Tokens and cost per request, by model, exported to a local collector or file; headless runs report their own cost | Costs are client-side estimates at list price. Session transcript files are not parsed: their format is not a stable interface. The one written exception is the executor's budget hook (below), which reads token counts only |
 | **A vendor usage API** | Usage and spend per key, organization or user, at a stated granularity and delay | Often excludes subscription use; may need an admin credential |
 | **Nothing machine-readable** | A figure shown on screen only | Declared by the person |
 
@@ -157,6 +157,15 @@ Quotas are **constraints for the controllers**. As built, the budget controller 
 - **The owner's reserve is never spent by autonomous work.** The default reserve is 25% of each window, set in the person file ([13.4](13-operations.md#134-settings-in-four-layers)); it stays available so autonomous work never locks the owner out of their own interactive use; no budget and no escalation spends it (decided: [Q11](22-open-questions.md#q11-how-large-is-the-owners-reserve-on-each-account-limit)).
 - **Threshold notifications** at `quota.notify_used` levels go into the digest; a projected exhaustion before reset, or reaching the reserve, is an interrupt.
 - **Hard budgets need a yes.** Limits that cost money are hard: before any action that would exceed one (paid overage, API spend), the system asks the person and waits. Plan windows are soft, with the reserve (decided: [Q12](22-open-questions.md#q12-which-limits-are-hard)).
+
+### An executor's budget
+
+**An executor stops itself near its cap, and the reconcile pass stops it if that fails** (decided by the owner, HITLD-786; built in HITLD-782). The model has no meter of its own, so a hook inside the executor keeps one. The cap is the figure the brief asks the executor to report at: its dispatch's start estimate, as the ledger reads it, times `dispatch.report_at_budget_multiple`.
+
+- **The meter.** After each tool call, a PostToolUse hook sums the executor's usage since its dispatch started (output plus fresh input, never cache reads, as a completion counts it) from the per-message usage in the executor's own transcript and its subagents'. At the cap it tells the executor `budget reached: commit, push, report`.
+- **The refusal.** Past the cap, the PreToolUse guard refuses every tool call but the closing steps: a commit, a push of its branch, `hitld work close`, `hitld publish check`, the git reads a report needs, and the message that sends the report.
+- **The backstop.** The reconcile pass (`hitld dispatch reconcile`, HITLD-780) reads the harness's own usage record (an interactive session's result events, a headless run's result file, a background agent's completion notice). An executor with no closing report that the record shows past its cap by more than a closing allowance (a tenth of the cap) is one the hook missed, where hooks did not run or could not read the cap, and the pass stops it with `hitld dispatch stop`: the dispatch is recorded `interrupted` with its commits kept on its branch, and the orchestrator stops the executor through its harness. No wall-clock time stops an executor.
+- **The transcript exception.** The hook may read the executor's transcript file, the one narrow written exception to the rule that transcripts are never parsed ([22](22-open-questions.md)): counts only, never content. It keeps nothing of a line but its usage numbers, its time and its message ID, and nothing it prints, records or logs is text from the transcript; a test puts a marker string in a transcript and finds it in none of them. A format change makes the meter read low or nothing, and the backstop still holds.
 
 ### Pausing and resuming
 

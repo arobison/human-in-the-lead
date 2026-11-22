@@ -4,7 +4,11 @@
 // agent ID (the harness reference hitld dispatch handle recorded), a headless run by HITLD_DISPATCH.
 // Anyone else's tool calls are not recorded, and the hook never fails or delays a tool call: on
 // any problem it writes nothing.
+//
+// It is also the executor's budget meter (HITLD-782): at its dispatch's cap it tells the executor
+// to close (budget.mjs), and the guard refuses all but the closing steps from then on.
 
+import { readBudget } from './budget.mjs';
 import { isExecutor, readHookInput } from './input.mjs';
 import { DISPATCH_ID } from '../../../lib/ledger/ids.mjs';
 
@@ -42,5 +46,17 @@ if (isExecutor(input, process.env)) {
     }
   } catch {
     // A progress signal is never worth failing a tool call for.
+  }
+  const budget = await readBudget(input, process.env);
+  if (budget?.reached) {
+    const { BUDGET_REACHED } = await import('../../../lib/dispatch/budget.mjs');
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `human-in-the-lead: ${BUDGET_REACHED}. ${budget.dispatch} has used ${budget.tokens} of its ${budget.cap} tokens: commit what you have, push your branch, run hitld work close, and send your report now; every other tool call is refused.`,
+        },
+      }) + '\n',
+    );
   }
 }
