@@ -2,9 +2,10 @@
 id: HITLD-732
 title: Reword HITLD-693, 694 and 695 to the shared React app design
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80WXHQHVMC0X0
 ---
 
 ## Why

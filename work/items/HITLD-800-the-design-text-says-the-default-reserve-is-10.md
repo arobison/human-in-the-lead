@@ -8,10 +8,6 @@ project: HITLD-15
 needs: [HITLD-799]
 ---
 
-## Done when
-
-
-
 ## Why
 
 HITLD-799 changes the package default for the quota reserve from 25 percent to 10 percent on the owner's decision (2026-11-22). Part 12.5 of the design and Q11 in the open questions say 25 percent, and `docs/` changes only through the curator job and a design PR.
