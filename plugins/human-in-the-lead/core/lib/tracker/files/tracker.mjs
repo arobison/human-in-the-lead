@@ -22,6 +22,7 @@ import {
 } from './claims.mjs';
 import { checkItems, findCollisions, unplacedWork } from './check.mjs';
 import { mainMismatches } from './closing.mjs';
+import { descriptionWarnings } from './descriptions.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { LEVELS, checkTree, problemLines } from '../../guard/classification.mjs';
 import { writeStored } from './edit.mjs';
@@ -832,7 +833,7 @@ export function openTracker({
         }
         if (inflight) problems.push(...findOrphans(found, inflight));
       }
-      const warnings = unplacedWork(items);
+      const warnings = [...unplacedWork(items), ...descriptionWarnings(items)];
       if (!consistency) return { problems, files: items.length, warnings };
       /** @type {Consistency} */
       const found = onMain

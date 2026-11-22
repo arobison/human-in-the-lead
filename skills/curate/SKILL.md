@@ -34,7 +34,7 @@ For each open item, look for:
 
 ## 3. Route each finding by decision rights
 
-- **A wording fix inside the item's facts** (a renamed name, a stale path, a typo, a sentence the merged work made untrue without changing what the item asks for): fix it in the item file on your branch. Your branch goes through the merge like any other change, so the fix is a pull request, not an edit made in place.
+- **A wording fix inside the item's facts** (a renamed name, a stale path, a typo, a sentence the merged work made untrue without changing what the item asks for): fix it in the item file on your branch. Your branch goes through the merge like any other change, so the fix is a pull request, not an edit made in place. Word it as the `describe` skill sets out, and clear the `description (<rule>)` warnings `hitld work check` gives for the items you touch.
 - **A change to scope, a plan, a placement or a release** (closing an item as done, merging duplicates, moving an item to another release or milestone, changing what it asks for): do not make it. List it under `questions` in your report, one per finding, with the item, what you saw, the change you recommend and why. The orchestrator asks the owner; the attention budget and the digest carry it.
 - **Anything else** (a finding with no change you can name): list it under `questions` as information for the orchestrator, which re-plans from it.
 
