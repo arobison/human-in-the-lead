@@ -107,7 +107,7 @@ import { CodedError } from '../../cli/errors.mjs';
  *   against beyond this clone (store-counter, origin or local)
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
- * @property {(id: string, options?: { commit?: boolean }) => ReturnType<typeof closeItem>} close
+ * @property {(id: string, options?: { commit?: boolean, report?: string }) => ReturnType<typeof closeItem>} close
  * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[], consistency?: boolean }) => { problems: string[], files: number, warnings: string[], consistency?: Consistency }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
@@ -778,8 +778,10 @@ export function openTracker({
     ) => unclaimItem(root, layout, id, reason, { branch }),
 
     /** Set an item to done in the working tree and commit the file. */
-    close: (/** @type {string} */ id, /** @type {{ commit?: boolean } | undefined} */ options) =>
-      closeItem(root, layout, id, options),
+    close: (
+      /** @type {string} */ id,
+      /** @type {{ commit?: boolean, report?: string } | undefined} */ options,
+    ) => closeItem(root, layout, id, options),
 
     /**
      * The batch check. `branches` adds ID collisions across every worktree and branch and

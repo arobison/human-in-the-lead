@@ -1,10 +1,12 @@
 ---
 id: HITLD-746
-title: "Print-mode executors are durable and their completion is observed, so ending an orchestrator's turn loses nothing"
+title: Print-mode executors are durable and their completion is observed, so ending an orchestrator's turn loses nothing
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80ZP66B9MVPVB
+release_note: A headless executor, at any tier with `hitld dispatch start --mode headless`, runs as a durable process that outlives a print-mode orchestrator's turn and is recorded by `hitld dispatch reconcile`; `hitld work close --report-file` puts the report in the closing commit, and an executor may push its own claim branch.
 ---
 
 ## Why

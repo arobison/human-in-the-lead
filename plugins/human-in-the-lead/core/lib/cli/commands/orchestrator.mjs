@@ -128,6 +128,7 @@ import { securityGate } from '../../merge/security.mjs';
 import { CAPABILITIES, MATRIX } from '../../../harness/claude-code/capabilities.mjs';
 import { followUpInstruction, instructionFor } from '../../../harness/claude-code/instructions.mjs';
 import { completionOf } from '../../../harness/claude-code/adapter.mjs';
+import { headlessCompletion } from '../../../harness/claude-code/completion.mjs';
 import { SESSION_ID_PATTERN } from '../../../harness/claude-code/session.mjs';
 import { install } from '../../install/install.mjs';
 import { dispatchedOn, reportVersion } from '../../install/drift.mjs';
@@ -1456,7 +1457,8 @@ const table = [
       {
         name: 'mode',
         type: 'string',
-        description: 'For tier 3: headless or interactive (default policy dispatch.tier3_mode)',
+        description:
+          'For tier 3: headless or interactive (default policy dispatch.tier3_mode). At tier 1 or 2, headless runs the executor as a durable process of its own instead of a background agent: what a print-mode orchestrator passes for every executor, so ending its turn loses nothing (HITLD-746)',
       },
       {
         name: 'by-hand',
@@ -1522,11 +1524,21 @@ const table = [
         const dispatch = nextDispatchId(readLedger(p.store).events);
         const wanted = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
         const tier = planned.tier;
-        // Tier 3 cuts its own worktree. An earlier dispatch of the item, abandoned, may have left
-        // its branch behind (HITLD-194): settle the name now, so the ledger and the brief carry
-        // the branch the worktree gets. A branch with unmerged commits is never touched.
+        // A durable headless process below tier 3 (HITLD-746, HITLD-768): asked for with
+        // --mode headless, never from the tier-3 default.
+        if (tier < 3 && input.mode !== undefined && input.mode !== 'headless') {
+          throw new Refusal(
+            'usage',
+            `--mode at tier ${tier} is headless (a durable process) or not given (a background agent); ${String(input.mode)} is for tier 3`,
+          );
+        }
+        const durable = tier < 3 && input.mode === 'headless';
+        // Tier 3, and a durable run, cut their own worktree. An earlier dispatch of the item,
+        // abandoned, may have left its branch behind (HITLD-194): settle the name now, so the
+        // ledger and the brief carry the branch the worktree gets. A branch with unmerged commits
+        // is never touched.
         const env =
-          tier === 3
+          tier === 3 || durable
             ? openEnv({
                 repoRoot: p.repoRoot,
                 store: p.store,
@@ -1572,7 +1584,7 @@ const table = [
         const xenv = executorEnv(dispatch, p.policy.project.id);
         const briefPath = join(p.store.root, briefKey(dispatch));
         const resultPath = join(p.store.root, resultKey(dispatch));
-        const isolation = tier <= 2 ? 'worktree' : 'none';
+        const isolation = tier <= 2 && !durable ? 'worktree' : 'none';
         const sizing = planned.sizing;
         const touches = planned.touches;
         // What the brief says about overlapping work: the dispatches in flight on the same paths,
@@ -1634,7 +1646,7 @@ const table = [
             : {}),
           ...(sizing.areas[0] ? { area: sizing.areas[0] } : {}),
           host: run.host,
-          ...(tier === 3 ? { mode } : {}),
+          ...(tier === 3 || durable ? { mode } : {}),
           ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
         });
 
@@ -1727,7 +1739,7 @@ const table = [
             briefPath,
             resultPath,
             pidPath: join(p.store.root, pidKey(dispatch)),
-            tier3Mode: mode,
+            ...(tier === 3 || durable ? { tier3Mode: mode } : {}),
             permissionMode: p.policy.dispatch.headless_permission_mode,
             env: xenv,
           },
@@ -1735,7 +1747,9 @@ const table = [
         const then =
           call.tool === 'session'
             ? `ask the chief of staff to start a session in ${worktree} with the brief in ${briefPath} (when you are both, start it yourself; without a way to start sessions, ask the owner); then hitld dispatch handle --dispatch ${dispatch} --harness-ref <the session's reference>`
-            : `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the ${call.tool === 'Agent' ? 'agent ID' : 'background task ID'} the call returns>`;
+            : call.tool === 'Bash'
+              ? `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the pid the call prints>. The run is a durable process: nothing waits for it, and you may end your turn`
+              : `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the agent ID the call returns>`;
         return {
           ok: true,
           dispatch,
@@ -1757,7 +1771,7 @@ const table = [
           then,
           on_complete:
             call.tool === 'Bash'
-              ? `hitld dispatch complete --dispatch ${dispatch} --result-file ${resultPath}`
+              ? `nothing to wait for: hitld dispatch reconcile, at any later turn, records it once its process has ended with its result and its branch head is its closing commit with the report; by hand, once it has ended: hitld dispatch complete --dispatch ${dispatch} --result-file ${resultPath}`
               : call.tool === 'session'
                 ? `save the session's record, its result events (the event list of kind result), to a file; hitld dispatch complete --dispatch ${dispatch} --session-record <file> [--report-file <the report, when it came apart>]. Only when the record is not available: --report-file <file> --tokens N, which the ledger records as typed`
                 : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-calls N --duration-ms N], --tokens only when the notification shows no usage block`,
@@ -1917,9 +1931,10 @@ const table = [
         } else {
           let sessionId = null;
           let worktree = null;
-          if (tier >= 3) {
+          if (tier >= 3 || first.mode === 'headless') {
             try {
-              sessionId = JSON.parse(p.store.read(resultKey(from)) ?? 'null')?.session_id ?? null;
+              const stored = p.store.read(resultKey(from));
+              sessionId = stored === null ? null : headlessCompletion(stored).sessionId;
             } catch {
               sessionId = null;
             }
@@ -1950,6 +1965,7 @@ const table = [
             harnessRef: started.harness_ref,
             message,
             tier,
+            mode: first.mode ?? null,
             dispatch,
             worktree,
             sessionId,

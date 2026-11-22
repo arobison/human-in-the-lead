@@ -4,12 +4,15 @@
 // `hitld dispatch complete` record what came back.
 
 import { MODEL_CLASSES } from './capabilities.mjs';
+import { LAUNCHER } from './launch.mjs';
 
 /**
  * @typedef {import('../interface.mjs').DispatchRequest} DispatchRequest
  *
  * @typedef {{ tool: 'Agent', input: Record<string, unknown> }} AgentCall
- * @typedef {{ tool: 'Bash', input: { command: string, description: string, run_in_background: true } }} BashCall
+ * @typedef {{ tool: 'Bash', input: { command: string, description: string, run_in_background: boolean } }} BashCall
+ *   a headless run is started by the launcher (launch.mjs), which returns at once: the call runs in
+ *   the foreground and prints the run's process ID
  * @typedef {{ tool: 'SendMessage', input: { to: string, message: string, summary: string } }} SendCall
  * @typedef {{ tool: 'session', input: { cwd: string, brief_file: string, model: string, effort: string } }} SessionCall
  * @typedef {{ tool: 'say', input: { text: string, urgency: string } }} SayCall a message to the owner in the main session
@@ -23,7 +26,9 @@ import { MODEL_CLASSES } from './capabilities.mjs';
  * @property {string} [resultPath] where a headless run writes its JSON result
  * @property {string} [pidPath] where a headless run writes its process ID, so the watchdog can
  *   tell whether it is still running (design part 5.2)
- * @property {'headless' | 'interactive'} [tier3Mode]
+ * @property {'headless' | 'interactive'} [tier3Mode] how a tier-3 dispatch runs; `headless` also
+ *   runs a tier-1 or tier-2 dispatch as a durable process instead of a background agent, which
+ *   is how a print-mode orchestrator starts every executor (HITLD-768)
  * @property {string} [permissionMode] for a headless run
  * @property {Record<string, string>} [env] the executor's environment (HITLD_DISPATCH, HITLD_PROJECT_ID, HITLD_ROLE)
  */
@@ -55,7 +60,7 @@ const envWords = (env) =>
 export function instructionFor(request, place = {}) {
   const model = modelName(request.model);
   const effort = request.effort === 'own' ? undefined : request.effort;
-  if (request.tier <= 2) {
+  if (request.tier <= 2 && place.tier3Mode !== 'headless') {
     return {
       tool: 'Agent',
       input: {
@@ -71,7 +76,7 @@ export function instructionFor(request, place = {}) {
     };
   }
   if (!place.worktree || !place.briefPath)
-    throw new Error('a tier-3 dispatch needs its worktree and brief file');
+    throw new Error('a tier-3 or headless dispatch needs its worktree and brief file');
   if (place.tier3Mode === 'interactive') {
     return {
       tool: 'session',
@@ -83,34 +88,65 @@ export function instructionFor(request, place = {}) {
       },
     };
   }
-  if (!place.resultPath) throw new Error('a headless dispatch needs its result file');
+  if (!place.resultPath || !place.pidPath) {
+    throw new Error('a headless dispatch needs its result and pid files');
+  }
   const words = [
     'claude',
     '-p',
-    '--output-format',
-    'json',
+    ...STREAM,
     ...(model ? ['--model', model] : []),
     ...(effort ? ['--effort', effort] : []),
     '--permission-mode',
     place.permissionMode ?? 'acceptEdits',
   ];
-  const env = envWords({ HITLD_DISPATCH: request.dispatch, ...(place.env ?? {}) });
-  const command = `cd ${shq(place.worktree)} && ${pidWord(place.pidPath)}${env} ${words.map(shq).join(' ')} < ${shq(place.briefPath)} > ${shq(place.resultPath)}`;
   return {
     tool: 'Bash',
     input: {
-      command,
-      description: `Run ${request.dispatch} (${request.item}) headless`,
-      run_in_background: true,
+      command: durableCommand({
+        worktree: place.worktree,
+        env: { HITLD_DISPATCH: request.dispatch, ...(place.env ?? {}) },
+        briefPath: place.briefPath,
+        resultPath: place.resultPath,
+        pidPath: place.pidPath,
+        words,
+      }),
+      description: `Start ${request.dispatch} (${request.item}) as a durable headless process`,
+      run_in_background: false,
     },
   };
 }
 
 /**
- * The words that record the shell's process ID before a headless run: the shell waits for the run,
- * so the ID is alive exactly as long as the run is. @param {string | undefined} pidPath
+ * A headless run's output: every event as a JSON line (stream-json needs --verbose in print mode),
+ * so the result file shows the run's progress while it runs and its result event once it ends.
  */
-const pidWord = (pidPath) => (pidPath ? `echo $$ > ${shq(pidPath)} && ` : '');
+const STREAM = ['--output-format', 'stream-json', '--verbose'];
+
+/**
+ * The command line that starts a headless run as a durable process (launch.mjs): its own process
+ * group, its brief on standard input, its events in the result file and its process ID in the pid
+ * file, all in the store. It returns at once, printing the process ID.
+ * @param {{ worktree: string, env: Record<string, string>, briefPath: string, resultPath: string,
+ *   pidPath: string, words: string[] }} r
+ */
+export function durableCommand(r) {
+  const launch = [
+    'node',
+    LAUNCHER,
+    '--pid',
+    r.pidPath,
+    '--in',
+    r.briefPath,
+    '--out',
+    r.resultPath,
+    '--err',
+    r.resultPath.replace(/\.json$/, '') + '.stderr',
+    '--',
+    ...r.words,
+  ];
+  return `cd ${shq(r.worktree)} && ${envWords(r.env)} ${launch.map(shq).join(' ')}`;
+}
 
 /**
  * The call that continues an executor with its context.
@@ -128,20 +164,39 @@ export function followUpInstruction(r) {
       input: { session: r.harnessRef, dispatch: r.dispatch, message: r.message },
     };
   }
-  if (r.tier <= 2) {
+  if (r.tier <= 2 && r.mode !== 'headless') {
     return {
       tool: 'SendMessage',
       input: { to: r.harnessRef, message: r.message, summary: `follow-up ${r.dispatch}` },
     };
   }
-  if (!r.sessionId || !r.worktree || !r.briefPath || !r.resultPath) {
+  if (!r.sessionId || !r.worktree || !r.briefPath || !r.resultPath || !r.pidPath) {
     throw new Error(
-      'a headless follow-up needs the earlier run session ID, its worktree, the message file and a result file',
+      'a headless follow-up needs the earlier run session ID, its worktree, the message file, a result file and a pid file',
     );
   }
-  const command = `cd ${shq(r.worktree)} && ${pidWord(r.pidPath)}${envWords({ HITLD_DISPATCH: r.dispatch, ...(r.env ?? {}) })} claude -p --output-format json --permission-mode ${shq(r.permissionMode ?? 'acceptEdits')} --resume ${shq(r.sessionId)} < ${shq(r.briefPath)} > ${shq(r.resultPath)}`;
+  const command = durableCommand({
+    worktree: r.worktree,
+    env: { HITLD_DISPATCH: r.dispatch, ...(r.env ?? {}) },
+    briefPath: r.briefPath,
+    resultPath: r.resultPath,
+    pidPath: r.pidPath,
+    words: [
+      'claude',
+      '-p',
+      ...STREAM,
+      '--permission-mode',
+      r.permissionMode ?? 'acceptEdits',
+      '--resume',
+      r.sessionId,
+    ],
+  });
   return {
     tool: 'Bash',
-    input: { command, description: `Follow up ${r.dispatch} headless`, run_in_background: true },
+    input: {
+      command,
+      description: `Follow up ${r.dispatch} as a durable headless process`,
+      run_in_background: false,
+    },
   };
 }

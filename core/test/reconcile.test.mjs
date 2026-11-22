@@ -113,7 +113,7 @@ test('a closing commit: its item, its dispatch trailer and the report in its bod
   assert.equal(c.dispatch, 'D-9');
   assert.match(/** @type {string} */ (c.report), /^item: W-4\n/);
   assert.doesNotMatch(/** @type {string} */ (c.report), /Dispatch:/);
-  // The close commit `hitld work close` makes today carries no report.
+  // The close commit `hitld work close` makes without --report-file carries no report.
   assert.equal(parseClosing('close: W-4\n\nWork-Item: W-4\nDispatch: D-9').report, null);
   assert.equal(parseClosing('work on W-4').item, null);
   // The commit line names the head it was read from; none stays none.
@@ -186,7 +186,11 @@ test('reconcile records an ended executor from its closing commit, once, and sho
   assert.match(state['W-6'].why, /for D-999, not /);
   assert.equal(state['W-6'].evidence.heads[0].dispatch, 'D-999');
   assert.equal(state['W-7'].state, 'dead');
-  assert.deepEqual(state['W-7'].evidence.process, { alive: false, output_bytes: 0 });
+  assert.deepEqual(state['W-7'].evidence.process, {
+    alive: false,
+    output_bytes: 0,
+    result: false,
+  });
   assert.equal(state['W-8'].state, 'running');
   assert.equal(state['W-8'].evidence.process.alive, true);
   assert.equal(typeof state['W-8'].evidence.quiet_seconds, 'number');

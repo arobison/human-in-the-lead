@@ -168,9 +168,12 @@ test('only work whose notice reaches this session holds a hand-over up', () => {
   });
   run.record({ event: 'dispatched', dispatch: 'D-3', item: 'W-3', tier: 3, mode: 'headless' });
   run.record({ event: 'dispatched', dispatch: 'D-4', item: 'W-4', tier: 2, host: 'desktop' });
+  run.record({ event: 'dispatched', dispatch: 'D-5', item: 'W-5', tier: 2, mode: 'headless' });
+  // A headless run, at any tier, is a durable process: any later session's reconcile pass
+  // records it, so it does not hold a hand-over up (HITLD-746).
   assert.deepEqual(
     reportingHere(run.state, 'example-laptop').map((d) => d.dispatch),
-    ['D-1', 'D-3'],
+    ['D-1'],
   );
   assert.equal(
     run.state.in_flight.find((/** @type {any} */ d) => d.dispatch === 'D-2').mode,

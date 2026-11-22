@@ -13,7 +13,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { realPath } from '../env/fsx.mjs';
 
@@ -262,9 +262,12 @@ export function worktreeSignal(entry, { cwd, mainBranch = 'main', snapshot }) {
 /**
  * A headless run's liveness and output, as a process progress signal: its process is the one whose
  * ID the run's command wrote to `pidFile`, and its output is what it has written to `outputFile`.
- * Null when there is no process ID on file (the run never started, or its command did not record one).
+ * `result`: whether the output ends with the run's result event, which a run writes only as it
+ * ends (`--output-format stream-json` writes events as JSON lines while it runs, so output alone
+ * does not say it finished, HITLD-746). Null when there is no process ID on file (the run never
+ * started, or its command did not record one).
  * @param {{ pidFile: string, outputFile: string }} files
- * @returns {{ source: 'process', alive: boolean, output_bytes: number } | null}
+ * @returns {{ source: 'process', alive: boolean, output_bytes: number, result: boolean } | null}
  */
 export function processSignal({ pidFile, outputFile }) {
   let pid;
@@ -287,5 +290,48 @@ export function processSignal({ pidFile, outputFile }) {
   } catch {
     output = 0;
   }
-  return { source: 'process', alive, output_bytes: output };
+  return {
+    source: 'process',
+    alive,
+    output_bytes: output,
+    result: output > 0 && endsWithResult(outputFile, output),
+  };
+}
+
+/** How much of the end of a run's output is read for its last event. */
+const TAIL_BYTES = 1 << 20;
+
+/**
+ * Whether a run's output ends with a result event: its last JSON line, or the one document
+ * `--output-format json` writes, has type `result`. Only the end of the file is read.
+ * @param {string} file @param {number} size
+ */
+function endsWithResult(file, size) {
+  let text;
+  try {
+    const fd = openSync(file, 'r');
+    try {
+      const length = Math.min(size, TAIL_BYTES);
+      const buf = Buffer.alloc(length);
+      readSync(fd, buf, 0, length, size - length);
+      text = buf.toString('utf8');
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+  /** @param {string} t @param {boolean} whole the one document, which is the result unless it says otherwise */
+  const isResult = (t, whole) => {
+    try {
+      const v = JSON.parse(t);
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+      return v.type === 'result' || (whole && v.type === undefined);
+    } catch {
+      return false;
+    }
+  };
+  if (size <= TAIL_BYTES && isResult(text, true)) return true;
+  const last = text.trimEnd().split('\n').at(-1) ?? '';
+  return isResult(last, false);
 }

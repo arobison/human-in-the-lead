@@ -26,6 +26,10 @@
 // reset, was cut off by the limit: it is continued as a follow-up (reason limit), which is not a
 // failure and does not count on the ladder.
 //
+// A headless run is a durable process (HITLD-746): while its process is alive no timer stops it,
+// neither its stall time nor its deadline; it is shown with its evidence and its budget is its cap
+// (HITLD-782). Its process ending without its result event is the stall, and is abandoned.
+//
 // An interactive session that ended its turn without sending its report (HITLD-147) is not a stall
 // to wait out: the harness shows its session ended or idle while its dispatch is still in flight.
 // Only the harness knows that, so the caller passes the sessions it shows so (`ended`), and each
@@ -215,9 +219,18 @@ export function watchDispatches(r) {
       });
     }
     const proc = entry.mode === 'headless' ? lastProcess(signals) : null;
-    if (proc && proc.alive === false && (proc.output_bytes ?? 0) > 0) {
+    // Ended with its result. A sample from before the result field (HITLD-746) has only its size.
+    if (proc && proc.alive === false && (proc.result ?? (proc.output_bytes ?? 0) > 0)) {
       return verdict('finished', {
-        why: 'its process has ended and written its result: record its completion',
+        why: 'its process has ended and written its result: hitld dispatch reconcile records its completion',
+      });
+    }
+    // A durable process that is alive is never stopped by a timer (HITLD-746): its budget is its
+    // cap (HITLD-782). However long it is quiet, or past its deadline, it is shown with the
+    // evidence and nothing acts on it; only its process ending without a result is a stall.
+    if (proc && proc.alive === true) {
+      return verdict('progressing', {
+        why: `its process is alive (output ${proc.output_bytes ?? 0} bytes, quiet for ${quiet}s${overdue ? `, past its deadline of ${iso(deadlineAt)}` : ''}): a durable executor is not stopped by a timer; nothing acts on it`,
       });
     }
     const exited = Boolean(proc && proc.alive === false) || orphaned;

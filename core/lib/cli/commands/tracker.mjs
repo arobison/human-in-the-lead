@@ -415,11 +415,33 @@ export const commands = [
     args: [
       idArg,
       { name: 'no-commit', type: 'boolean', description: 'Change the file but do not commit it' },
+      {
+        name: 'report-file',
+        type: 'string',
+        description:
+          "A file holding the executor's report in the fixed shape: it becomes the closing commit's message body, before its Work-Item and Dispatch trailers, so the commit is the report (HITLD-746). Its commit line names the branch, since a commit cannot name its own hash; hitld dispatch reconcile fills in the head it read",
+      },
       ...where,
     ],
     run(input, ctx) {
       const t = open(input, ctx);
-      const done = t.close(idOf(input), { commit: !input['no-commit'] });
+      const file = input['report-file'];
+      let report;
+      if (typeof file === 'string') {
+        if (input['no-commit']) {
+          throw new CodedError(
+            'usage',
+            '--report-file goes into the closing commit: drop --no-commit',
+          );
+        }
+        const path = isAbsolute(file) ? file : resolve(ctx.cwd, file);
+        report = readFileSync(path, 'utf8');
+        if (!report.trim()) throw new CodedError('usage', `${file} is empty: it holds no report`);
+      }
+      const done = t.close(idOf(input), {
+        commit: !input['no-commit'],
+        ...(report !== undefined ? { report } : {}),
+      });
       return { ok: true, id: idOf(input), ...done };
     },
   },

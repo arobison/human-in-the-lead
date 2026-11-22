@@ -79,7 +79,7 @@ export const MATRIX = Object.freeze([
   },
   {
     function: 'hooks',
-    how: 'Plugin hooks: SessionStart (puts hitld on PATH, prints the plugin path and version), SubagentStop and Stop (report shape check for executors), PreToolUse (guard: executors never push), PostToolUse (each executor tool call is a progress signal for the watchdog)',
+    how: 'Plugin hooks: SessionStart (puts hitld on PATH, prints the plugin path and version), SubagentStop and Stop (report shape check for executors), PreToolUse (guard: executors push only their own claim branch), PostToolUse (each executor tool call is a progress signal for the watchdog)',
     source: 'documented',
     notes:
       'Plugin agents cannot carry their own hooks, so the hooks identify executors by agent_type or HITLD_DISPATCH',
