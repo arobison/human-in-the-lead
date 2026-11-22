@@ -2,6 +2,7 @@
 // A migration is a named step (see ../migrate.mjs for the contract). A name never changes once
 // released.
 
+import { constraintsOnItems } from './constraints-on-items.mjs';
 import { milestoneEntities } from './milestone-entities.mjs';
 import { namesAndStates } from './names-and-states.mjs';
 import { retirePriority } from './retire-priority.mjs';
@@ -13,4 +14,5 @@ export const MIGRATIONS = Object.freeze([
   retirePriority,
   namesAndStates,
   trackerStructure,
+  constraintsOnItems,
 ]);
