@@ -6,6 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37]
+constraint_of: [HITLD-65 c1]
 claimed_by: D-40
 release_note: "A machine-wide registry counts live executors from every project against the person's and the machine's caps, shares usage readings per account, and locks the merge queue per repository."
 ---

@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-22
 project: HITLD-15
+constraint_of: [HITLD-67 c1]
 claimed_by: D-01M80RZ0C9CT77ZY
 release_note: `hitld dispatch reconcile` records each in-flight dispatch whose branch head is its closing commit with a report and whose executor has ended, once, with the harness record's tokens, and shows the rest (unreported, dead, closing, running) with their evidence.
 ---

@@ -6,6 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37, HITLD-38]
+constraint_of: [HITLD-65 c1]
 claimed_by: D-39
 release_note: "First-run setup in the orchestrator skill; autonomous dispatch waits until the person and machine files exist (`dispatch start --by-hand` runs one named item meanwhile)."
 ---

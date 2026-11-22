@@ -5,6 +5,7 @@ kind: external
 state: planned
 created: 2026-11-16
 project: HITLD-15
+constraint_of: [HITLD-67 c1]
 waiting_on: owner
 ---
 

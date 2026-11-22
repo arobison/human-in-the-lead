@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-15
 project: HITLD-15
+constraint_of: [HITLD-101 c3]
 claimed_by: D-102
 release_note: "The private store's export format is version 2, encrypted to one or more age X25519 recipients (`hitld store export --recipient`). Version 1 files still import; nothing writes version 1, and `store export` no longer takes `--passphrase-fd`."
 ---

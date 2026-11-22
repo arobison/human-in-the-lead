@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-21
 project: HITLD-15
+constraint_of: [HITLD-67 c4]
 claimed_by: D-01M80AVF73N1P94X
 release_note: hitld dashboard --json returns one versioned data contract (api_version 2, schemas/dashboard-data.schema.json) with declared fields, claims, state history, usage and labels; the quota forecast's before_reset is now reserve_before_reset
 ---

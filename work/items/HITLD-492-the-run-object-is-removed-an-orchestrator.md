@@ -6,6 +6,7 @@ state: planned
 created: 2026-11-18
 project: HITLD-15
 needs: [HITLD-74, HITLD-323]
+constraint_of: [HITLD-190 c2]
 ---
 
 ## Done when

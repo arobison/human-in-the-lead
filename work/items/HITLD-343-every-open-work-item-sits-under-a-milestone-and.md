@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-16
 project: HITLD-15
+constraint_of: [HITLD-192 c1]
 claimed_by: D-29
 release_note: `hitld work check` warns, without failing, on each open work item that no milestone holds as a constraint or contribution; release items are left out.
 ---

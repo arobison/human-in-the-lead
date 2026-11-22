@@ -5,6 +5,7 @@ kind: work
 state: proposed
 created: 2026-11-14
 project: HITLD-53
+constraint_of: [HITLD-409 c1]
 ---
 
 ## Why

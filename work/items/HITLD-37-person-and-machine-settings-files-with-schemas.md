@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-14
 project: HITLD-15
+constraint_of: [HITLD-65 c1]
 claimed_by: D-37
 release_note: "Person and machine settings files, outside any repository, with `hitld config explain`, `config write` and `config migrate`; caps and limits take the strictest layer."
 ---

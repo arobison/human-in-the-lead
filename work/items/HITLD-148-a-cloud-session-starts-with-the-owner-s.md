@@ -6,6 +6,7 @@ state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-142]
+constraint_of: [HITLD-67 c1, HITLD-190 c1]
 claimed_by: D-42
 release_note: "The owner's settings travel in each project's private store: `hitld config write` puts the executor cap, the quota and the attention budget (and the owner's answers about a kind of machine) there for `hitld store push`, a fresh cloud session reads them after a pull that reached the remote, and when the store cannot be read it runs on conservative defaults and says why (`setup.from_store`, `setup.conservative`)."
 ---

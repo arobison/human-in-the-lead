@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-15
 project: HITLD-15
+constraint_of: [HITLD-67 c2]
 claimed_by: D-13
 release_note: `hitld work sweep` lists stale tracker items (orphaned claims, old proposed items, resolved blockers, items merged but still open, overlapping release needs, missing release notes); `hitld cadence due` lists the sweep after merges, the digest shows its findings, and the curate skill does the curator's pass over work items
 ---

@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-16
 project: HITLD-15
+constraint_of: [HITLD-67 c3]
 claimed_by: D-44
 release_note: `hitld rights record` and `rights ask` record a question with no areas, paths, tags or triggers, and check its trust event before writing anything (new error `invalid-trust-event`). The files tracker refuses an `opened_from` link that `tracker.json` does not turn on instead of dropping it.
 ---

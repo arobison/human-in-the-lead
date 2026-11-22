@@ -5,6 +5,7 @@ kind: decision
 state: done
 created: 2026-11-22
 project: HITLD-15
+constraint_of: [HITLD-67 c1]
 decider: owner
 answer: B
 answered_at: 2026-11-22T01:26:39.228Z

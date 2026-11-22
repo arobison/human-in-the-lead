@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-15
 project: HITLD-15
+constraint_of: [HITLD-67 c2]
 claimed_by: D-4
 release_note: "Session identity is read from the environment without flags, and a lease mismatch says what differs."
 ---
