@@ -8,8 +8,6 @@ project: HITLD-15
 needs: [HITLD-254]
 ---
 
-## Done when
-
 ## Why
 
 The owner decided (HITLD-803, 2026-11-22) how their decisions reach the orchestrator: standing allow rules plus a signed decision check. On 2026-11-22 orch-6's harness refused `dispatch start` because the owner's list came through the chief of staff and not through a message typed in its own session, and the run's cap of 2 (HITLD-204) could not be raised without the owner typing in that session. The owner wants never to talk to the orchestrator.
