@@ -51,6 +51,8 @@ import { MIGRATIONS } from './migrations/index.mjs';
  * @property {string} summary one sentence: what changes
  * @property {(tree: MigrationTree) => FileChange[]} plan the changes needed; none when the
  *   tracker is already in the new format. Reads nothing but `tree`.
+ * @property {boolean} [warns] the old form is still read while this step has work left, so the
+ *   check warns about it (its own warning) rather than naming each file as a problem
  *
  * @typedef {object} PlannedFile
  * @property {string} path
@@ -321,6 +323,7 @@ export function pendingMigrationProblems(root, layout, { migrations = MIGRATIONS
   /** @type {string[]} */
   const out = [];
   for (const m of migrations) {
+    if (m.warns) continue;
     for (const f of apply(files, layout, m.name, m.plan(treeOf(files, layout)))) {
       if (f.action === 'create') {
         out.push(`migration "${m.name}" would create a file (run hitld work migrate)`);
