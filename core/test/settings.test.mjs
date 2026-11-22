@@ -951,3 +951,28 @@ test('fillWildcards replaces every wildcard in a renamed path, in order', async 
   );
   assert.equal(fillWildcards('plain.key', 'plain.new_key', ['plain', 'key']), 'plain.new_key');
 });
+
+test('orchestrator handover thresholds: the project sets them, else the defaults', () => {
+  const set = layers({
+    raw: { orchestrator: { handover_context_share: 0.3, handover_after_completions: 8 } },
+  });
+  assert.deepEqual(entry(set, 'orchestrator.handover_context_share'), {
+    key: 'orchestrator.handover_context_share',
+    value: 0.3,
+    layer: 'project',
+    overridden: [],
+  });
+  assert.equal(entry(set, 'orchestrator.handover_after_completions').value, 8);
+  const unset = layers({});
+  const d = policyDefaults().orchestrator;
+  assert.equal(entry(unset, 'orchestrator.handover_context_share').value, d.handover_context_share);
+  assert.equal(entry(unset, 'orchestrator.handover_after_completions').layer, 'default');
+});
+
+test("this repository's policy hands an orchestrator over at 0.3 or 8 completions", () => {
+  const raw = JSON.parse(
+    readFileSync(resolve(import.meta.dirname, '../../.human-in-the-lead/policy.json'), 'utf8'),
+  );
+  assert.equal(raw.orchestrator.handover_context_share, 0.3);
+  assert.equal(raw.orchestrator.handover_after_completions, 8);
+});
