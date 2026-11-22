@@ -7,6 +7,7 @@ created: 2026-11-21
 project: HITLD-15
 needs: [HITLD-691]
 claimed_by: D-01M80GWJHV5RXDWK
+release_note: A project can declare its own dashboard panels (table, board, bar, line, timeline, graph) in .human-in-the-lead/views.json, checked by hitld check views and shown in their own tab; the data contract gains views (api_version stays 2)
 ---
 
 ## Why

@@ -16,6 +16,7 @@ import { renderFlow } from '../dashboard/flow.mjs';
 import { pageScript, scriptData } from '../dashboard/script.mjs';
 import { fewestCrossings } from '../dashboard/layout.mjs';
 import { releaseStages } from '../dashboard/stages.mjs';
+import { PANELS_CSS, renderPanelsView } from '../dashboard/panels-html.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
 import {
@@ -118,6 +119,8 @@ export const tokensPerItem = (ledger) =>
  * @param {MilestoneGraph | null} [input.milestones] the milestone graph, or null without a tracker
  * @param {import('../dashboard/work.mjs').WorkModel | null} [input.work] the work model, or null
  *   without a tracker
+ * @param {import('../dashboard/panels.mjs').ViewsModel | null} [input.views] the project's own
+ *   panels from views.json, resolved, or null without one (HITLD-692)
  */
 export function buildReport({
   policy,
@@ -127,6 +130,7 @@ export function buildReport({
   runStartedAt = null,
   milestones = null,
   work = null,
+  views = null,
 }) {
   // The gate for a non-critical item, and for a critical one, so the report shows both outcomes.
   const gate = dispatchGate(
@@ -171,6 +175,7 @@ export function buildReport({
     waiting_for_owner: ownerWaiting(policy, ledger, now),
     milestones,
     work,
+    views,
   };
 }
 
@@ -980,6 +985,16 @@ ${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>$
         ]
       : []),
     { id: 'spend', label: 'Quota and spend', html: spend },
+    // A project's own panels come last, in a tab it names; the built-in views do not change.
+    ...(r.views
+      ? [
+          {
+            id: 'panels',
+            label: r.views.title,
+            html: renderPanelsView(r.views, r.work, { fileBase }),
+          },
+        ]
+      : []),
   ]);
   // The one inline script, with the work views only; the page is complete without it.
   const script = r.work ? pageScript(scriptData(r.work, r.milestones)) : null;
@@ -1042,7 +1057,7 @@ thead th{font-size:.8rem;color:var(--muted);font-weight:600}tr.binding{backgroun
 @media (max-width:1099px){body:has(.drill:target) .drawer-backdrop{background:#00000066}.mg,.mg-props a{z-index:auto}}
 .track{fill:var(--track)}.reserve{fill:var(--reserve)}.used{fill:var(--used)}.mark{stroke:var(--mark);stroke-width:1}.stop{stroke:var(--stop);stroke-width:2}
 ul{margin:.25rem 0;padding-left:1.2rem}
-${r.milestones ? milestoneSectionCss(r.milestones) : ''}
+${r.milestones ? milestoneSectionCss(r.milestones) : ''}${r.views ? `\n${PANELS_CSS}` : ''}
 ${tabs.css}
 </style>
 </head>
