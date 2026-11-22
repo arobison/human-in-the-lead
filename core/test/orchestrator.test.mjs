@@ -795,15 +795,26 @@ test('dispatch complete asks again for a report whose branch is not a branch nam
     assert.match(done.result.next, new RegExp(`dispatch follow-up --dispatch ${d}`));
   };
 
-  // A note written inside the parenthetical, as in the issue.
-  await asksAgain(
-    'W-1',
-    (branch) =>
-      report({ item: 'W-1', sha, branch }).replace(
-        `(branch ${branch})`,
-        `(branch worktree-agent-a1; NOT renamed to ${branch}, because the hook refused it.)`,
-      ),
-    /not a valid branch name.*deviations/,
+  // A note written inside the parenthetical, as in the issue, is a parse error: refused before
+  // anything is recorded (HITLD-748), naming the same fix.
+  const start = await c.hitld(['dispatch', 'start', 'W-1']);
+  const d1 = start.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'agent-W-1']);
+  const note1 = join(c.base, 'W-1.txt');
+  writeFileSync(
+    note1,
+    report({ item: 'W-1', sha, branch: start.result.branch }).replace(
+      `(branch ${start.result.branch})`,
+      `(branch worktree-agent-a1; NOT renamed to ${start.result.branch}, because the hook refused it.)`,
+    ),
+  );
+  const refused = await c.hitld(['dispatch', 'complete', '--dispatch', d1, '--report-file', note1]);
+  assert.equal(refused.result.error, 'report-shape', JSON.stringify(refused.result));
+  assert.ok(
+    refused.result.report_errors.some((/** @type {string} */ e) =>
+      /not a valid branch name.*deviations/.test(e),
+    ),
+    JSON.stringify(refused.result),
   );
   // A well-formed name that no branch in the repository has: the merge would reject it as
   // missing and tell no one. (The end-to-end test above queues a branch that exists.)
@@ -812,6 +823,61 @@ test('dispatch complete asks again for a report whose branch is not a branch nam
     () => report({ item: 'W-2', sha, branch: 'hitld/W-2-no-such-branch' }),
     /hitld\/W-2-no-such-branch, which is not a branch in the repository/,
   );
+});
+
+test('dispatch complete refuses a report with parse errors and records nothing, then records the corrected one once (HITLD-748)', async () => {
+  const c = makeConsumer();
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+  const sha = git(c.root, 'rev-parse', 'HEAD');
+  const s = await c.hitld(['dispatch', 'start', 'W-1']);
+  assert.equal(s.exit, 0, JSON.stringify(s.result));
+  const d = s.result.dispatch;
+  const branch = s.result.branch;
+  git(c.root, 'branch', branch, sha);
+  await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1']);
+  const ledger = () =>
+    readLedger(openStore(join(c.data, 'human-in-the-lead/orch-fixture'))).events.filter(
+      (e) => e.dispatch === d,
+    );
+  const note = join(c.base, 'note-748.txt');
+  const complete = (/** @type {string} */ text) => {
+    writeFileSync(note, text);
+    return c.hitld(['dispatch', 'complete', '--dispatch', d, '--report-file', note]);
+  };
+  const good = report({ item: 'W-1', sha, branch });
+
+  // The three shapes seen in the first self-hosting run: each refused, naming the line to fix,
+  // with nothing recorded, so the dispatch stays in flight and can still be completed.
+  for (const [bad, re] of /** @type {[string, RegExp][]} */ ([
+    [good.replace(`(branch ${branch})`, `(branch ${branch}) after close`), /commit must be/],
+    [good.replace('  - node --test', '- node --test'), /unexpected line: - node --test/],
+    [`## Report\n\n${good}`, /unexpected line: ## Report/],
+  ])) {
+    const refused = await complete(bad);
+    assert.notEqual(refused.exit, 0, JSON.stringify(refused.result));
+    assert.equal(refused.result.error, 'report-shape', JSON.stringify(refused.result));
+    assert.ok(
+      refused.result.report_errors.some((/** @type {string} */ e) => re.test(e)),
+      JSON.stringify(refused.result),
+    );
+    assert.match(refused.result.message, re);
+    assert.match(refused.result.next, new RegExp(`dispatch complete --dispatch ${d} again`));
+    assert.deepEqual(
+      ledger().map((e) => e.event),
+      ['dispatched', 'started'],
+      'nothing recorded',
+    );
+  }
+
+  // The executor resends: recorded once, as today, and queued.
+  const done = await complete(good);
+  assert.equal(done.exit, 0, JSON.stringify(done.result));
+  assert.equal(done.result.queued_to_merge, branch, JSON.stringify(done.result));
+  assert.equal(ledger().filter((e) => e.event === 'reported').length, 1);
+  const again = await complete(good);
+  assert.equal(again.result.already, true, JSON.stringify(again.result));
+  assert.equal(ledger().filter((e) => e.event === 'reported').length, 1);
 });
 
 test('dispatch start takes any ready item a free slot allows; finished work awaits merge (HITLD-153)', async () => {

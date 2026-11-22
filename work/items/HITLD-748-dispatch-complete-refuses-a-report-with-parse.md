@@ -6,6 +6,7 @@ state: in-progress
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80SRYS55FYBF2
+release_note: `hitld dispatch complete` refuses a report that does not parse (`report-shape`, with `report_errors` naming each line to fix) and records nothing, so the executor resends and the same dispatch is completed with the corrected report; a headless run's report is still recorded and asked again by a follow-up.
 ---
 
 ## Why
