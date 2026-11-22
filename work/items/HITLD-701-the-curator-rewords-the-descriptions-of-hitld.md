@@ -2,10 +2,11 @@
 id: HITLD-701
 title: The curator rewords the descriptions of HITLD-15, HITLD-28 and HITLD-64 to the description guide
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-75]
+claimed_by: D-01M80C9CAE417SB8
 ---
 
 ## Why

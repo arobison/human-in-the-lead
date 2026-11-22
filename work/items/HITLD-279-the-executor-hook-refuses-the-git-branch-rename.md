@@ -24,3 +24,7 @@ Evidence: core/harness/claude-code/hooks/guard.mjs:25-26 hitldCalls matches \bhi
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `dispatch`, still present on main, confidence 0.85. Exact piped reproduction given; the fix edits a guard, so review it as security-sensitive. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Added on 2026-11-22 (GitHub issue 432)
+
+The `git branch -m` refusal reported in issue 432 comes from the harness's own permission layer, not from the guard, so the brief should not ask the executor to rename its branch. The missing `rights who` and `precedent match` commands in issue 432 are HITLD-740.
