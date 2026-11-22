@@ -12,6 +12,7 @@ import { readLedger, lifecycleId } from '../../ledger/ledger.mjs';
 import { absorb } from '../../run/state.mjs';
 import { gitSnapshot, processSignal, worktreeSignal } from '../../run/reality.mjs';
 import { isNews, readProgress, recordProgress } from '../../dispatch/progress.mjs';
+import { exitedParents } from '../../dispatch/parent.mjs';
 import {
   chaseStep,
   continueMessage,
@@ -84,14 +85,33 @@ const shown = (v) => ({
   stall_after_seconds: v.stall_after_seconds,
   deadline_at: v.deadline_at,
   steps_taken: v.steps_taken,
+  ...(v.parent_exited ? { parent_exited: true, uncommitted_files: v.uncommitted_files } : {}),
   why: v.why,
 });
+
+/**
+ * The claims of dispatches whose parent has exited, each with where its work sits and how much of
+ * it is uncommitted (HITLD-737): what the orchestrator or the chief of staff recovers before the
+ * worktree is removed.
+ * @param {Verdict[]} verdicts @param {(branch: string) => string | null} worktreeOf
+ */
+const orphanedClaims = (verdicts, worktreeOf) =>
+  verdicts
+    .filter((v) => v.parent_exited)
+    .map((v) => ({
+      dispatch: v.dispatch,
+      item: v.item,
+      branch: v.branch,
+      worktree: v.worktree ?? (v.branch ? worktreeOf(v.branch) : null),
+      uncommitted_files: v.uncommitted_files,
+    }));
 
 /**
  * Sample what can be seen of each executor on this machine without asking it, and record what is
  * new: its branch and worktree, and a headless run's process and output.
  * @param {ReturnType<typeof project>} p @param {InFlight[]} inFlight @param {string} host
  * @param {Ctx} ctx
+ * @returns {(branch: string) => string | null} the worktree that has a branch checked out
  */
 function sample(p, inFlight, host, ctx) {
   const mainBranch = p.policy.merge?.main_branch ?? 'main';
@@ -118,6 +138,7 @@ function sample(p, inFlight, host, ctx) {
       }
     }
   }
+  return (branch) => snapshot().worktreeOf(branch);
 }
 
 /** @param {string} pidFile @param {ReturnType<typeof project>} p */
@@ -171,7 +192,13 @@ export const commands = [
         // The ledger may hold events the run state has not absorbed yet: read them, change nothing.
         const before = readLedger(p.store).events;
         const state = absorb(structuredClone(p.state), before).state;
-        sample(p, state.in_flight, host, ctx);
+        const worktreeOf = sample(p, state.in_flight, host, ctx);
+        // Background agents die with the session that started them: whose has exited (HITLD-737).
+        const parentExited = exitedParents(
+          p.store,
+          state.in_flight.filter((/** @type {InFlight} */ e) => !e.host || e.host === host),
+          host,
+        );
         // Finished worktrees go (env/teardown.mjs), and free disk is checked against the floor.
         const torn = await tearDown(
           openEnv({
@@ -227,10 +254,13 @@ export const commands = [
               pause: active,
               timedPause: lastTimedPause(events),
               ended,
+              parentExited,
             }),
           };
         };
         const { active, verdicts } = judge();
+        const orphaned = orphanedClaims(verdicts, worktreeOf);
+        const uncommitted = orphaned.filter((c) => c.uncommitted_files > 0);
         const gate = pauseGate({
           policy: p.policy,
           store: p.store,
@@ -282,6 +312,8 @@ export const commands = [
             at: new Date(now).toISOString(),
             dispatches: verdicts.map(shown),
             ...(unreported.length ? { unreported } : {}),
+            ...(orphaned.length ? { parent_exited: orphaned } : {}),
+            ...(uncommitted.length ? { uncommitted } : {}),
             due: due.map((v) => ({
               dispatch: v.dispatch,
               item: v.item,
@@ -297,6 +329,11 @@ export const commands = [
             next: [
               ...(unreported.length
                 ? ['chase each dispatch in unreported yourself, as its next says']
+                : []),
+              ...(uncommitted.length
+                ? [
+                    `the orchestrator that started ${uncommitted.map((c) => c.dispatch).join(', ')} has exited, and their worktrees hold uncommitted work (uncommitted names each claim): recover it before the worktree is removed`,
+                  ]
                 : []),
               parts.length
                 ? `wake the session holding the lease (hitld run status names wake_to) with wake_message; it runs hitld dispatch watch --act`
@@ -408,6 +445,14 @@ export const commands = [
             item: v.item,
             notes: `after abandoning ${v.dispatch}`,
           });
+          // Its orchestrator exited with work uncommitted in its worktree: save that first.
+          const claim = uncommitted.find((c) => c.dispatch === v.dispatch);
+          const recover = claim
+            ? {
+                uncommitted: claim,
+                recover: `its worktree ${claim.worktree ?? `on ${claim.branch}`} holds ${claim.uncommitted_files} uncommitted ${claim.uncommitted_files === 1 ? 'file' : 'files'}: commit them on ${claim.branch ?? 'its branch'} before anything else (the teardown that removes the worktree saves them there as a commit if no one does), and build the next dispatch of ${v.item} on that branch`,
+              }
+            : {};
           if (v.step === 'abandon') {
             actions.push({
               step: 'abandon',
@@ -415,7 +460,8 @@ export const commands = [
               item: v.item,
               reason: v.reason,
               stop,
-              then: `stop the agent if it still runs; give up its claim, if its branch made one, with hitld work unclaim ${v.item} --reason '<why>' (HITLD-194); ${v.item} is ready again and the refill below dispatches it afresh`,
+              ...recover,
+              then: `${claim ? 'first do what recover says; then ' : ''}stop the agent if it still runs; give up its claim, if its branch made one, with hitld work unclaim ${v.item} --reason '<why>' (HITLD-194); ${v.item} is ready again and the refill below dispatches it afresh`,
             });
           } else {
             const question = stallQuestion(v, p.policy, now, {
@@ -429,6 +475,7 @@ export const commands = [
               item: v.item,
               reason: v.reason,
               stop,
+              ...recover,
               question,
               then: `stop the agent if it still runs; hitld rights ask --question '<question as JSON>' and add the decision to ${v.item}'s needs, so it is not dispatched again until the owner answers. hitld rights pending says when it goes to the owner`,
             });

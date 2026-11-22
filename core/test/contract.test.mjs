@@ -171,6 +171,56 @@ test('parseReport refuses departures from the shape, each named', () => {
   bad('', /is missing/);
 });
 
+test('a commit line whose parenthetical is not a branch name is an error that points to deviations (HITLD-280)', () => {
+  // The line from the report in the issue: a note inside the parenthetical became the branch.
+  const noted = GOOD.replace(
+    'commit: 3f9c2a1 (branch hitld/W-214-response-cache)',
+    'commit: 3f9c2a1 (branch worktree-agent-a1; NOT renamed to hitld/W-214-response-cache, because the hook refused it. Claim commit 9e8d7c6 is the first commit on the branch.)',
+  );
+  const r = parseReport(noted);
+  assert.equal(r.report, null);
+  assert.ok(
+    r.errors.some((e) => /not a valid branch name/.test(e) && /deviations/.test(e)),
+    JSON.stringify(r.errors),
+  );
+  for (const name of [
+    'two words',
+    'a;b',
+    '-lead',
+    'a..b',
+    'a/',
+    '/a',
+    'a//b',
+    'a.',
+    'a.lock',
+    'a/.b',
+    'a@{1}',
+    '@',
+    'a~1',
+    'a^',
+    'a:b',
+    'a?',
+    'a*',
+    'a[b',
+    'a\\b',
+  ]) {
+    const bad = parseReport(GOOD.replace('hitld/W-214-response-cache', name));
+    assert.equal(bad.report, null, name);
+    assert.ok(
+      bad.errors.some((e) => /not a valid branch name/.test(e)),
+      `${name}: ${JSON.stringify(bad.errors)}`,
+    );
+  }
+  // Names git allows still parse, with or without the word "branch".
+  for (const name of ['hitld/W-214-response-cache', 'worktree-agent-a1', 'feat/x.y_z-1', 'a@b']) {
+    const ok = parseReport(GOOD.replace('hitld/W-214-response-cache', name));
+    assert.deepEqual(ok.errors, [], name);
+    assert.deepEqual(ok.report?.commit, { sha: '3f9c2a1', branch: name });
+  }
+  const bare = parseReport(GOOD.replace('(branch hitld/', '(hitld/'));
+  assert.equal(bare.report?.commit.branch, 'hitld/W-214-response-cache');
+});
+
 test('a report in the names before HITLD-82 (status, runs) parses, with a warning', () => {
   const old = GOOD.replace('result: done', 'status: done').replace('bench_runs:', 'runs:');
   const { report, errors, warnings } = parseReport(old);

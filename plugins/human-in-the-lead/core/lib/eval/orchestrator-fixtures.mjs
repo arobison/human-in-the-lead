@@ -90,9 +90,10 @@ export function itemFile(fields, body = ITEM_BODY) {
 
 /**
  * A consumer repository on main, committed: a tracker with three items (W-3 needs W-1), a tiny
- * source with a test, and a policy whose full suite runs it.
+ * source with a test, and a policy whose full suite runs it. Each of `branches` is made at main,
+ * as an executor's branch the scenario reports.
  * @param {string} root an absent or empty directory
- * @param {{ policy?: Record<string, unknown>, files?: Record<string, string> }} [options]
+ * @param {{ policy?: Record<string, unknown>, files?: Record<string, string>, branches?: string[] }} [options]
  */
 export function buildConsumer(root, options = {}) {
   initRepo(root);
@@ -141,6 +142,7 @@ export function buildConsumer(root, options = {}) {
     ...(options.files ?? {}),
   });
   commitAll(root, 'fixture');
+  for (const branch of options.branches ?? []) fixtureGit(root, 'branch', branch);
   return root;
 }
 

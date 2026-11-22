@@ -22,10 +22,13 @@ const unquoted = command.replace(/['"\\]/g, '');
 /**
  * The hitld subcommands an executor may run (claim, close, read, check, its own leases), and
  * `publish check` on text it writes for others to read. The private term list itself is not
- * among them: `private add | list | remove` are the owner's.
+ * among them: `private add | list | remove` are the owner's. Of the decision commands, only the
+ * two read-only ones the executor contract has it run before it lists a question (HITLD-87):
+ * `rights who` and `precedent match`. Every other `rights` and `precedent` subcommand stays
+ * refused; asking, answering and recording are the orchestrator's or the owner's.
  */
 const EXECUTOR_HITLD =
-  /^\s+(work\s+(claim|close|show|query|check|claims)|check\s+(contract|policy|quarantine|classification|commit-message)|publish\s+check|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|--help|--version)\b/;
+  /^\s+(work\s+(claim|close|show|query|check|claims)|check\s+(contract|policy|quarantine|classification|commit-message)|publish\s+check|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|rights\s+who|precedent\s+match|--help|--version)\b/;
 /** What follows each call of hitld in a command. @param {string} text */
 const hitldCalls = (text) =>
   [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
