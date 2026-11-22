@@ -51,6 +51,17 @@ export function isExecutor(input, env) {
  * @param {string} dir
  */
 function holdsExecutorClaim(dir) {
+  const d = claimedDispatches(dir);
+  return d === null || d.length > 0;
+}
+
+/**
+ * The dispatches the claim commits on HEAD (and on no main branch) name, newest first; null when
+ * git cannot answer. For the budget hook (budget.mjs), which needs the dispatch of a session started
+ * without HITLD_DISPATCH.
+ * @param {string} dir @returns {string[] | null}
+ */
+export function claimedDispatches(dir) {
   /** @param {string[]} args */
   const run = (args) =>
     spawnSync('git', ['-C', dir, ...args], {
@@ -67,8 +78,8 @@ function holdsExecutorClaim(dir) {
     'refs/remotes/*/main',
     'refs/remotes/origin/HEAD',
   ]);
-  if (refs.error) return true;
-  if (refs.status !== 0) return !/not a git repository/i.test(refs.stderr ?? '');
+  if (refs.error) return null;
+  if (refs.status !== 0) return /not a git repository/i.test(refs.stderr ?? '') ? [] : null;
   const bases = new Set();
   for (const line of refs.stdout.split('\n')) {
     const [name, target] = line.split('\t');
@@ -85,15 +96,13 @@ function holdsExecutorClaim(dir) {
     '--grep=^claim: ',
     '--format=%B%x1e',
   ]);
-  if (log.error || log.status !== 0) return true;
-  return log.stdout.split('\x1e').some((message) => {
+  if (log.error || log.status !== 0) return null;
+  return log.stdout.split('\x1e').flatMap((message) => {
     const lines = message.trim().split('\n');
-    return (
-      /^claim: \S+$/.test(lines[0] ?? '') &&
-      lines.some((l) => {
-        const m = /^Dispatch: (\S+)\s*$/.exec(l);
-        return m !== null && DISPATCH_ID.test(m[1]);
-      })
-    );
+    if (!/^claim: \S+$/.test(lines[0] ?? '')) return [];
+    return lines.flatMap((l) => {
+      const m = /^Dispatch: (\S+)\s*$/.exec(l);
+      return m !== null && DISPATCH_ID.test(m[1]) ? [m[1]] : [];
+    });
   });
 }
