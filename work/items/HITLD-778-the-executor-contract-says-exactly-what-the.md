@@ -2,11 +2,11 @@
 id: HITLD-778
 title: The executor contract says exactly what the commit line of a report may hold
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
-release_note: "The executor contract says the report's commit line is exactly `commit: <full sha> (branch <name>)`, with branch notes under `deviations`."
 claimed_by: D-01M80T9RYAVSGCGX
+release_note: "The executor contract says the report's commit line is exactly `commit: <full sha> (branch <name>)`, with branch notes under `deviations`."
 ---
 
 ## Why
