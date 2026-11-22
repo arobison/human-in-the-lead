@@ -2,10 +2,14 @@
 id: HITLD-709
 title: How long a recorded store pull stays fresh enough to read the store's settings
 kind: decision
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-22T03:55:31.356Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question

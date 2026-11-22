@@ -2,7 +2,7 @@
 id: HITLD-745
 title: Find out why the planner offers an item again after it was claimed and finished
 kind: work
-state: proposed
+state: planned
 created: 2026-11-22
 project: HITLD-15
 ---
@@ -20,3 +20,7 @@ Reported as GitHub issue 431: the planner offers an item again after it was clai
 ## Notes
 
 Proposed, not in a milestone: reproduce before anything is built. Related: HITLD-278 (the planner's scope), HITLD-710 (the watchdog and a claim it leaves), HITLD-194 (the unclaim command).
+
+## Promoted on 2026-11-22
+
+Promoted to planned: reproduce first. Evidence from the first run: the planner kept proposing HITLD-30 (the PR that delivered it never closed it) and HITLD-167, and consumers report the repeat after every completion (issues 151, 159, 431).
