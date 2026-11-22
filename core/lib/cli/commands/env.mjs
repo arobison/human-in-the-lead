@@ -13,7 +13,12 @@ import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { readPrimaryCheckout } from '../../env/primary.mjs';
 import { openEnv } from '../../env/manager.mjs';
 import { splitCommand } from '../../env/secrets.mjs';
-import { INCLUDE_FILE, missingIncluded } from '../../env/include.mjs';
+import {
+  INCLUDE_FILE,
+  checkTemplates,
+  missingIncluded,
+  templateValues,
+} from '../../env/include.mjs';
 
 /**
  * Open the manager for the project at the working directory.
@@ -271,7 +276,7 @@ export const commands = [
   {
     name: 'env check',
     summary:
-      'Check a worktree has what it needs: each git-ignored file .worktreeinclude lists, named by path (contents are never read out)',
+      'Check a worktree has what it needs: each git-ignored file .worktreeinclude lists, and each template it marks rendered with the leased port, named by path (contents are never read out)',
     built_by: 'c',
     args: [
       {
@@ -281,9 +286,10 @@ export const commands = [
       },
     ],
     run: withEnv(async (input, env, ctx, repoRoot) => {
+      const registry = env.registry();
       let worktree;
       if (input.dispatch) {
-        const lease = env.registry().worktrees[String(input.dispatch)];
+        const lease = registry.worktrees[String(input.dispatch)];
         if (!lease) {
           return {
             ok: false,
@@ -300,17 +306,48 @@ export const commands = [
         }).trim();
       }
       const include = await missingIncluded({ primary: repoRoot, worktree });
-      const ok = include.missing.length === 0;
+      // A template renders with the leased port of the holder whose worktree this is.
+      const here = realPath(worktree);
+      const holder = Object.values(registry.worktrees).find((l) => {
+        try {
+          return realPath(l.path) === here;
+        } catch {
+          return false;
+        }
+      })?.holder;
+      const port =
+        holder === undefined
+          ? undefined
+          : Object.values(registry.ports).find((p) => p.holder === holder)?.port;
+      const templates = await checkTemplates({
+        primary: repoRoot,
+        worktree,
+        values: templateValues(port),
+      });
+      const missing = [...include.missing, ...templates.missing];
+      const ok = missing.length === 0 && templates.failed.length === 0;
       return {
         ok,
         ...(ok
           ? {}
           : {
+              // One code for both: either way the worktree lacks a file the list provides
+              // (design part 16.2 lists the codes; a template's reason is in templates.failed).
               error: 'include-missing',
-              message: `the worktree lacks ${include.missing.length} file(s) ${INCLUDE_FILE} lists: ${include.missing.join(', ')}; hitld env setup copies them`,
+              message: [
+                missing.length
+                  ? `the worktree lacks ${missing.length} file(s) ${INCLUDE_FILE} lists: ${missing.join(', ')}; hitld env setup copies or renders them`
+                  : '',
+                templates.failed.length
+                  ? `${templates.failed.length} template(s) ${INCLUDE_FILE} marks do not render: ${templates.failed.map((f) => `${f.template} (${f.reason}: ${f.detail})`).join('; ')}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join('; '),
             }),
-        worktree: realPath(worktree),
+        worktree: here,
         include,
+        templates: { ...templates, ...(port === undefined ? {} : { port }) },
       };
     }),
   },

@@ -27,6 +27,7 @@ import { withMutex } from '../lib/env/mutex.mjs';
 import { createRedactor, splitCommand } from '../lib/env/secrets.mjs';
 import { gitBash, programSpec, shellSpec, spawnOptions } from '../lib/env/shell.mjs';
 import { taskEnv } from '../lib/env/tasks.mjs';
+import { renderTemplate } from '../lib/env/template.mjs';
 import { hostname } from 'node:os';
 import { Run, startRun } from '../lib/run/run.mjs';
 import { loadState } from '../lib/run/checkpoint.mjs';
@@ -2294,6 +2295,246 @@ test('hitld env setup copies the listed files and hitld env check names one that
   // The primary checkout has every file it lists.
   assert.equal((await hitld(['env', 'check'])).code, 0);
   assert.equal((await hitld(['env', 'check', '--dispatch', 'D-9'])).json.error, 'no-worktree');
+  assert.equal(
+    (await hitld(['env', 'cleanup', '--dispatch', 'D-1', '--result', 'merged'])).code,
+    0,
+  );
+});
+
+// ---------------------------------------------------------------------------------------------
+// Templates .worktreeinclude marks, rendered with the leased port (HITLD-744)
+
+const OWNER_SECRET = 'owner-only-entry-must-never-reach-a-worktree';
+const MAIN_PORT = '3999';
+
+const LAUNCH_TEMPLATE = `{
+  "port": \${HITLD_PORT},
+  "cwd": "\${workspaceFolder}",
+  // hitld:owner-only-begin
+  "token": "${OWNER_SECRET}",
+  "debugPort": \${HITLD_DEBUG_PORT},
+  // hitld:owner-only-end
+  "url": "http://localhost:\${HITLD_PORT}/"
+}
+`;
+const launchFor = (/** @type {number} */ port) => `{
+  "port": ${port},
+  "cwd": "\${workspaceFolder}",
+  "url": "http://localhost:${port}/"
+}
+`;
+
+/**
+ * A repository whose .worktreeinclude marks a tracked template for .vscode/launch.json and also
+ * lists .vscode/ plainly, while the primary checkout has its own launch.json with its own port and
+ * an owner-only token.
+ */
+function makeTemplateRepo() {
+  const repoRoot = makeRepo();
+  writeFileSync(
+    join(repoRoot, '.gitignore'),
+    'setup.txt\nready.txt\nadopted.txt\n.vscode/launch.json\n.env.local\n',
+  );
+  writeFileSync(
+    join(repoRoot, '.worktreeinclude'),
+    '.env.local\n.vscode/\n# hitld:template .vscode/launch.json.template\n',
+  );
+  mkdirSync(join(repoRoot, '.vscode'));
+  writeFileSync(join(repoRoot, '.vscode', 'launch.json.template'), LAUNCH_TEMPLATE);
+  git(['add', '.'], repoRoot);
+  git(['commit', '-q', '-m', 'template'], repoRoot);
+  writeFileSync(
+    join(repoRoot, '.vscode', 'launch.json'),
+    `{"port": ${MAIN_PORT}, "token": "${OWNER_SECRET}"}\n`,
+  );
+  writeFileSync(join(repoRoot, '.env.local'), `${INCLUDED_SECRET}\n`);
+  return repoRoot;
+}
+
+test('a template renders only HITLD placeholders, drops owner-only lines, and fails on a missing value or an unbalanced block', () => {
+  const values = { HITLD_PORT: '4123' };
+  const ok = renderTemplate(LAUNCH_TEMPLATE, values);
+  assert.deepEqual(ok, { ok: true, text: launchFor(4123) });
+  assert.deepEqual(renderTemplate('a: 1 # hitld:owner-only\nb: ${HITLD_PORT}', values), {
+    ok: true,
+    text: 'b: 4123',
+  });
+  const missing = renderTemplate('host: ${HITLD_HOST}\nport: ${HITLD_PORT}\n', values);
+  assert.deepEqual(missing, {
+    ok: false,
+    reason: 'missing-value',
+    detail: 'no value for HITLD_HOST',
+  });
+  const noPort = renderTemplate('port: ${HITLD_PORT}\n', {});
+  assert.equal(noPort.ok, false);
+  assert.match(
+    /** @type {any} */ (noPort).detail,
+    /HITLD_PORT \(the worktree has no leased port\)/,
+  );
+  for (const [text, reason] of [
+    [`x\n# hitld:owner-only-begin\n${OWNER_SECRET}\n`, 'owner-only-unclosed'],
+    [`x\n# hitld:owner-only-end\n`, 'owner-only-unopened'],
+    [`# hitld:owner-only-begin\n# hitld:owner-only-begin\n${OWNER_SECRET}\n`, 'owner-only-nested'],
+  ]) {
+    const out = renderTemplate(text, values);
+    assert.equal(out.ok, false);
+    assert.equal(/** @type {any} */ (out).reason, reason);
+    assert.equal(JSON.stringify(out).includes(OWNER_SECRET), false);
+  }
+});
+
+test("setup renders a marked template with the leased port, leaves out owner-only entries, and never copies the primary checkout's own file", async () => {
+  const repoRoot = makeTemplateRepo();
+  const { env, store } = await makeEnv({ repoRoot });
+  const { lease } = await env.createWorktree({ holder: 'D-1', itemId: 'W-1' });
+  const setup = await env.runSetup({ holder: 'D-1' });
+  assert.ok(setup.ok);
+  const port = Object.values(env.registry().ports).find((p) => p.holder === 'D-1')?.port;
+  assert.equal(typeof port, 'number');
+  const templates = /** @type {import('../lib/env/include.mjs').TemplateResult} */ (
+    setup.templates
+  );
+  assert.deepEqual(templates, { rendered: ['.vscode/launch.json'], failed: [], skipped: [], port });
+  const launch = readFileSync(join(lease.path, '.vscode', 'launch.json'), 'utf8');
+  assert.equal(launch, launchFor(/** @type {number} */ (port)));
+  assert.equal(launch.includes(MAIN_PORT), false);
+  assert.equal(launch.includes(OWNER_SECRET), false);
+  // The plain list (.vscode/) still copies, but never the file a template renders.
+  assert.deepEqual(/** @type {any} */ (setup.included).copied, ['.env.local']);
+  // A server leased later gets the same port; the rendered file stays ignored and uncommitted.
+  assert.equal((await env.leasePort({ holder: 'D-1' })).lease.port, port);
+  assert.equal(git(['status', '--porcelain'], lease.path), '');
+  // Paths only: no rendered text in the result, the registry or the event log.
+  assert.equal(JSON.stringify(setup).includes(OWNER_SECRET), false);
+  for (const key of ['env/holders.json', 'env/events.jsonl']) {
+    const text = readFileSync(join(store.root, key), 'utf8');
+    assert.equal(text.includes(OWNER_SECRET), false);
+    assert.equal(text.includes('localhost'), false);
+  }
+  // A second setup leaves the rendered file as it is.
+  const again = await env.runSetup({ holder: 'D-1' });
+  assert.deepEqual(/** @type {any} */ (again.templates).skipped, [
+    { path: '.vscode/launch.json', reason: 'exists' },
+  ]);
+  await env.releaseWorktree({ holder: 'D-1', result: 'merged' });
+  await env.releasePort({ holder: 'D-1' });
+});
+
+test('setup records a template that does not render and drops a rendered file the worktree would not ignore', async () => {
+  const repoRoot = makeRepo();
+  writeFileSync(
+    join(repoRoot, '.worktreeinclude'),
+    [
+      '#hitld:template app.env.template',
+      '#hitld:template served.env.template',
+      '#hitld:template gone.conf.template',
+      '#hitld:template ../escape.template',
+      '#hitld:template no-suffix.conf',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(join(repoRoot, '.gitignore'), 'setup.txt\nready.txt\nadopted.txt\napp.env\n');
+  writeFileSync(join(repoRoot, 'app.env.template'), 'HOST=${HITLD_HOST}\nPORT=${HITLD_PORT}\n');
+  writeFileSync(join(repoRoot, 'served.env.template'), 'PORT=${HITLD_PORT}\n');
+  git(['add', '.'], repoRoot);
+  git(['commit', '-q', '-m', 'templates'], repoRoot);
+  const { env } = await makeEnv({ repoRoot });
+  const { lease } = await env.createWorktree({ holder: 'D-4', itemId: 'W-4' });
+  const setup = await env.runSetup({ holder: 'D-4' });
+  assert.ok(setup.ok, 'a template that fails does not fail setup');
+  const templates = /** @type {import('../lib/env/include.mjs').TemplateResult} */ (
+    setup.templates
+  );
+  assert.deepEqual(templates.rendered, []);
+  assert.deepEqual(
+    templates.failed.map((f) => [f.template, f.reason]),
+    [
+      ['app.env.template', 'missing-value'],
+      ['gone.conf.template', 'template-missing'],
+      ['../escape.template', 'bad-template-path'],
+      ['no-suffix.conf', 'bad-template-path'],
+    ],
+  );
+  assert.match(templates.failed[0].detail, /HITLD_HOST/);
+  // served.env renders but nothing ignores it in the worktree, so it is removed, as a copy is.
+  assert.deepEqual(templates.skipped, [{ path: 'served.env', reason: 'not-ignored-in-worktree' }]);
+  for (const f of ['app.env', 'served.env', 'gone.conf']) {
+    assert.equal(existsSync(join(lease.path, f)), false, f);
+  }
+  assert.equal(existsSync(join(dirname(lease.path), 'escape')), false);
+  assert.equal(git(['status', '--porcelain'], lease.path), '');
+  await env.releaseWorktree({ holder: 'D-4', result: 'merged' });
+  await env.releasePort({ holder: 'D-4' });
+});
+
+test('hitld env setup renders a template and hitld env check reports one that does not render, never its contents', async () => {
+  const repoRoot = makeTemplateRepo();
+  mkdirSync(join(repoRoot, '.human-in-the-lead'));
+  writeFileSync(
+    join(repoRoot, '.human-in-the-lead', 'policy.json'),
+    JSON.stringify({
+      schema_version: 1,
+      project: { id: 'template-fixture', key: 'W' },
+      env: { port_range: await freeRange(5) },
+    }),
+    { mode: 0o600 },
+  );
+  git(['add', '-f', '.human-in-the-lead/policy.json'], repoRoot);
+  git(['commit', '-q', '-m', 'policy'], repoRoot);
+  const xdg = dir('xdg');
+  const env = { ...process.env, XDG_DATA_HOME: xdg, XDG_CONFIG_HOME: xdg };
+  /** @param {string[]} argv @param {string} [cwd] */
+  const hitld = async (argv, cwd = repoRoot) => {
+    let out = '';
+    const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env });
+    return { code, out, json: JSON.parse(out) };
+  };
+  const setup = await hitld(['env', 'setup', '--dispatch', 'D-1', '--item', 'W-1']);
+  assert.equal(setup.code, 0, setup.out);
+  assert.deepEqual(setup.json.setup.templates.rendered, ['.vscode/launch.json']);
+  const port = setup.json.setup.templates.port;
+  for (const secret of [OWNER_SECRET, INCLUDED_SECRET, 'localhost']) {
+    assert.equal(setup.out.includes(secret), false, secret);
+  }
+  const wt = setup.json.path;
+  assert.equal(readFileSync(join(wt, '.vscode', 'launch.json'), 'utf8'), launchFor(port));
+
+  for (const [argv, cwd] of [
+    [['env', 'check', '--dispatch', 'D-1'], repoRoot],
+    [['env', 'check'], wt],
+  ]) {
+    const check = await hitld(/** @type {string[]} */ (argv), /** @type {string} */ (cwd));
+    assert.equal(check.code, 0, check.out);
+    assert.equal(check.json.templates.port, port);
+  }
+
+  rmSync(join(wt, '.vscode', 'launch.json'));
+  const gone = await hitld(['env', 'check', '--dispatch', 'D-1']);
+  assert.equal(gone.code, 1, gone.out);
+  assert.equal(gone.json.error, 'include-missing');
+  assert.deepEqual(gone.json.templates.missing, ['.vscode/launch.json']);
+
+  // The template now names a placeholder with no value: check names it, never the text.
+  overwrite(
+    join(repoRoot, '.vscode', 'launch.json.template'),
+    LAUNCH_TEMPLATE.replace('"cwd"', '"host": "${HITLD_HOST}", "cwd"'),
+  );
+  const broken = await hitld(['env', 'check'], wt);
+  assert.equal(broken.code, 1, broken.out);
+  assert.equal(broken.json.error, 'include-missing');
+  assert.deepEqual(
+    broken.json.templates.failed.map((/** @type {any} */ f) => [f.template, f.reason]),
+    [['.vscode/launch.json.template', 'missing-value']],
+  );
+  assert.match(
+    broken.json.message,
+    /\.vscode\/launch\.json\.template \(missing-value: no value for HITLD_HOST\)/,
+  );
+  for (const secret of [OWNER_SECRET, 'localhost', 'workspaceFolder']) {
+    assert.equal(broken.out.includes(secret), false, secret);
+  }
+  // The primary checkout's own files are the owner's: check does not render there.
+  assert.equal((await hitld(['env', 'check'])).code, 0);
   assert.equal(
     (await hitld(['env', 'cleanup', '--dispatch', 'D-1', '--result', 'merged'])).code,
     0,
