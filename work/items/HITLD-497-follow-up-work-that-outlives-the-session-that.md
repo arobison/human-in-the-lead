@@ -2,7 +2,7 @@
 id: HITLD-497
 title: Follow-up work that outlives the session that dispatched it is reached, or re-briefed from what is durable
 kind: work
-state: proposed
+state: planned
 created: 2026-11-18
 project: HITLD-15
 ---
@@ -30,3 +30,7 @@ HITLD-314 (a follow-up refused for an interactive dispatch) is folded into this 
 ## Promoted in part on 2026-11-22 (HITLD-736, HITLD-735)
 
 The narrow part, a relayed follow-up to an interactive executor recorded as a dispatch of its own so its branch reaches the merge queue, is promoted to rc.2 as HITLD-739. This item stays proposed for the rest.
+
+## Promoted on 2026-11-22
+
+Promoted to planned by the owner's decision HITLD-779: re-briefing an executor from durable state (the branch, the report, the queue's evidence) becomes the normal path. It keeps its place in milestone HITLD-404.
