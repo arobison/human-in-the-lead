@@ -1002,6 +1002,104 @@ const table = [
         };
       }),
   },
+  {
+    name: 'run context',
+    summary:
+      "Record the share of its context the orchestrator holding the lease has used, as the chief of staff read it from the harness's record of that session. Past policy orchestrator.handover_context_share its hand-over is due and hitld dispatch start refuses. The chief of staff's, at each wake and check-in",
+    built_by: 'h',
+    args: [
+      {
+        name: 'holder',
+        type: 'string',
+        required: true,
+        description:
+          'The orchestrator session measured: the lease holder, by its session ID or its harness_ref, as hitld run status names it',
+      },
+      {
+        name: 'percent',
+        type: 'integer',
+        required: true,
+        description:
+          "The percentage of its context window that session has used, from the harness's record of it",
+      },
+      SESSION,
+      HOST,
+      STORE,
+    ],
+    run: (input, ctx) =>
+      guarded(() => {
+        const why = executorSignal(ctx.env, ctx.cwd);
+        if (why) {
+          return {
+            ok: false,
+            error: 'not-permitted',
+            message: `hitld run context is the chief of staff's, run in the primary checkout (${why}); an executor reports in its final message`,
+          };
+        }
+        const percent = /** @type {number} */ (input.percent);
+        if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
+          return {
+            ok: false,
+            error: 'usage',
+            message: '--percent must be a whole number from 0 to 100',
+          };
+        }
+        const s = setup(input, ctx);
+        const loaded = loadState(s.store);
+        if (!loaded.state) {
+          return {
+            ok: false,
+            error: 'no-run',
+            message: `no run state (${loaded.problems.join('; ')}); nothing holds the lease to measure`,
+          };
+        }
+        const events = readLedger(s.store).events;
+        const state = absorb(structuredClone(loaded.state), events).state;
+        const l = state.lease;
+        const holder = String(input.holder);
+        // A measurement of a session that no longer holds the lease would make its successor's
+        // hand-over due: it is refused, and the chief of staff measures the session that holds it.
+        if (holder !== l.session && holder !== l.harness_ref) {
+          return {
+            ok: false,
+            error: 'lease-held',
+            message: `the lease on run ${state.run.id} is held by session ${l.harness_ref ?? l.session}, not ${holder}: measure the session hitld run status names`,
+          };
+        }
+        if (l.released) {
+          return {
+            ok: false,
+            error: 'lease-released',
+            message: `session ${holder} released the lease (${l.released.reason}): nothing to measure; start a successor`,
+          };
+        }
+        const by = who(input, ctx, s.store);
+        const { event } = appendEvent(
+          s.store,
+          {
+            event: 'context-measured',
+            run: state.run.id,
+            session: l.session,
+            host: l.host,
+            context_share: percent / 100,
+            by: by.session,
+          },
+          ctx.now ? { now: ctx.now } : {},
+        );
+        const handover = handoverDue(state, [...events, event], {
+          afterCompletions: s.orchestrator.handover_after_completions,
+          contextShare: s.orchestrator.handover_context_share,
+        });
+        return {
+          ok: true,
+          event,
+          handover,
+          next: handover.due
+            ? `its hand-over is due (${handover.reasons.join('; ')}): tell ${l.harness_ref ?? `session ${l.session}`} to hand over now (start nothing new; hitld handover once the work it started has reported); hitld dispatch start refuses with handover-due until it does`
+            : `below the hand-over threshold (${Math.round(handover.context_share * 100)}%): nothing to send for it`,
+        };
+      }),
+  },
   ...[
     /** @type {const} */ ({
       what: 'heard',
@@ -1077,5 +1175,5 @@ const table = [
   },
 ];
 
-/** `run checkpoint` and `run retire` end by pushing the store (design 0003, section 8). */
-export const commands = pushingAfter(table, ['run checkpoint', 'run retire']);
+/** `run checkpoint`, `run retire` and `run context` end by pushing the store (design 0003, section 8). */
+export const commands = pushingAfter(table, ['run checkpoint', 'run retire', 'run context']);
