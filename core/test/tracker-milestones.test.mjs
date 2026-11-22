@@ -961,10 +961,10 @@ test('the dashboard counts tokens spent from the ledger, with corrections, again
     milestones: t.milestoneGraph({ tokens: tokensPerItem(ledger) }),
   });
   assert.equal(report.milestones?.nodes[1].tokens_spent, 150);
-  assert.match(renderHtml(report, /** @type {any} */ (policy)), />150 of 1000 tokens</);
+  assert.match(renderHtml(report), />150 of 1000 tokens</);
   // No tracker: no section.
   assert.doesNotMatch(
-    renderHtml(buildReport({ policy: /** @type {any} */ (policy) }), /** @type {any} */ (policy)),
+    renderHtml(buildReport({ policy: /** @type {any} */ (policy) })),
     /id="milestones"/,
   );
 });

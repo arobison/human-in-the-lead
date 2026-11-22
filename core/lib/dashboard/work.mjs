@@ -31,6 +31,17 @@ import { byId } from './layout.mjs';
  * @property {string | null} decider
  * @property {string | null} waiting_on an outside wait's party
  * @property {string[]} scopes the projects, milestones and long outcomes it belongs to
+ * @property {string} classification its label, or the project's default
+ * @property {string} owner
+ * @property {Record<string, unknown>} fields the project's declared fields it sets, typed
+ * @property {boolean} redacted withheld for its label: the title is the ID, no path or fields
+ *
+ * @typedef {object} DeclaredField a field declared in tracker.json `fields`
+ * @property {string} name
+ * @property {'string' | 'integer' | 'number' | 'boolean'} type
+ * @property {boolean} [list]
+ * @property {string[]} [values]
+ * @property {string} description
  */
 
 const DAY = 86_400_000;
@@ -67,6 +78,8 @@ export function stageOf(e, stateOf) {
  * @param {number} input.now
  * @param {{ commit: string | null, branch: string | null, shallow?: boolean }} [input.source] where
  *   the tracker was read, and whether the clone's history is cut
+ * @param {DeclaredField[]} [input.fields] the project's declared fields (tracker.json `fields`)
+ * @param {string} [input.defaultClassification] the label of an entity that has none
  */
 export function workModel({
   entities,
@@ -75,7 +88,15 @@ export function workModel({
   ledger = [],
   now,
   source = { commit: null, branch: null },
+  fields = [],
+  defaultClassification = 'public',
 }) {
+  const labelOf = (/** @type {Entity} */ e) => String(e.classification ?? defaultClassification);
+  /** The declared fields an entity sets. @param {Entity} e */
+  const declared = (e) =>
+    Object.fromEntries(
+      fields.filter((f) => e[f.name] !== undefined).map((f) => [f.name, e[f.name]]),
+    );
   const g = buildGraph(entities.map(asNode));
   const byIdMap = new Map(entities.map((e) => [String(e.id), e]));
   const stateOf = (/** @type {string} */ id) => byIdMap.get(id)?.state;
@@ -140,22 +161,41 @@ export function workModel({
             ...ms.flatMap((m) => outcomesOf.get(m) ?? []),
           ]),
         ],
+        classification: labelOf(e),
+        owner: String(e.owner ?? 'owner'),
+        fields: declared(e),
+        redacted: e.redacted === true,
       };
     })
     .sort((a, b) => byId(a.id, b.id));
   const projects = entities
     .filter((e) => e.kind === 'project')
-    .map((e) => ({ id: String(e.id), title: String(e.title ?? e.id), state: String(e.state) }))
+    .map((e) => ({
+      id: String(e.id),
+      title: String(e.title ?? e.id),
+      state: String(e.state),
+      classification: labelOf(e),
+      redacted: e.redacted === true,
+    }))
     .sort((a, b) => byId(a.id, b.id));
   return {
     read_at: new Date(now).toISOString(),
     source,
+    fields: fields.map((f) => ({
+      name: f.name,
+      type: f.type,
+      list: f.list === true,
+      ...(f.values ? { values: [...f.values] } : {}),
+      description: f.description,
+    })),
     projects,
     milestones: milestones
       .map((m) => ({
         id: String(m.id),
         title: String(m.title ?? m.id),
         state: String(m.state),
+        classification: labelOf(m),
+        redacted: m.redacted === true,
         long_outcome: !m.parent,
         scopes: [
           ...new Set([
@@ -168,6 +208,30 @@ export function workModel({
       .sort((a, b) => byId(a.id, b.id)),
     critical_path: path,
     items,
+    claims: claims.map((c) => ({
+      id: c.id,
+      title: c.title,
+      double: c.double,
+      claims: c.claims.map((x) => ({
+        claimant: x.claimant,
+        branch: x.branch,
+        ref: x.ref,
+        commit: x.commit,
+        at: x.at,
+        source: x.source,
+      })),
+    })),
+    history: [...histories]
+      .map(([id, changes]) => ({
+        id,
+        changes: changes.map((c) => ({
+          at: c.at,
+          from: c.from ?? null,
+          to: c.to,
+          commit: c.ref?.commit ?? null,
+        })),
+      }))
+      .sort((a, b) => byId(a.id, b.id)),
     move: yourMove(items, claims, ledger, now),
     flow: flowModel(items, histories, ledger, now),
   };

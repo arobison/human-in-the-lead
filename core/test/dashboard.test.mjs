@@ -521,5 +521,148 @@ test('a page without a tracker has no script and no policy tag', async () => {
   const policy = /** @type {any} */ (
     resolvePolicy({ schema_version: 1, project: { id: 'x', key: 'W' } })
   ).policy;
-  assertPageSafe(renderHtml(buildReport({ policy }), policy), { scripted: false });
+  assertPageSafe(renderHtml(buildReport({ policy })), { scripted: false });
+});
+
+/**
+ * The fixture with a declared field (team, points) set on W-13, and a confidential item W-50 that
+ * W-13's neighbor W-51 needs: a ceiling of confidential and classification turned on.
+ */
+function contractFixture() {
+  const root = fixture();
+  put(root, {
+    '.human-in-the-lead/policy.json': JSON.stringify({
+      schema_version: 1,
+      project: { id: 'fixture', key: 'W', classification_ceiling: 'confidential' },
+    }),
+    '.human-in-the-lead/tracker.json': JSON.stringify({
+      schema_version: 1,
+      optional_keys: ['classification'],
+      default_classification: 'internal',
+      fields: [
+        {
+          name: 'team',
+          type: 'string',
+          values: ['core', 'web'],
+          description: 'The team that does it.',
+        },
+        { name: 'points', type: 'integer', description: 'Its size in points.' },
+      ],
+    }),
+    ...item('W-13', 'Diamond bottom', { needs: ['W-11', 'W-12'], team: 'web', points: '3' }),
+    ...item('W-50', 'The acquisition target', {
+      classification: 'confidential',
+      team: 'core',
+      decider: 'owner',
+    }),
+    ...item('W-51', 'After the deal', { needs: ['W-50'], classification: 'public' }),
+  });
+  chmodSync(join(root, '.human-in-the-lead', 'policy.json'), 0o644);
+  commitAt(root, 'contract fixture', '2026-11-15T12:00:00Z');
+  return root;
+}
+
+test('the data contract: --json and --no-write return one versioned report that validates against its schema', async () => {
+  const { schemas } = await import('../lib/schema/registry.mjs');
+  const root = contractFixture();
+  const { report } = await dashboard(root);
+  const r = await hitld(['dashboard', '--json', '--no-write', '--now', NOW], root);
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  assert.equal(r.json.html, undefined);
+  assert.deepEqual(r.json.report, report, '--no-write returns the same contract as --json');
+  assert.equal(report.api_version, 2);
+  assert.equal(report.metrics_schema_version, report.api_version);
+  assert.deepEqual(schemas().validate('dashboard-data', report), []);
+  // Claims and the committed state history are in it, not only the figures drawn from them.
+  const w = report.work;
+  assert.deepEqual(
+    w.history
+      .find((/** @type {any} */ h) => h.id === 'W-10')
+      .changes.map((/** @type {any} */ c) => c.to),
+    ['planned', 'done'],
+  );
+  assert.ok(
+    w.history.every((/** @type {any} */ h) =>
+      h.changes.every((/** @type {any} */ c) => /^[0-9a-f]{7,}$/.test(c.commit)),
+    ),
+  );
+  assert.ok(Array.isArray(w.claims));
+  // The schema is strict: a field it does not describe is caught here, so adding one documents it.
+  const extra = schemas().validate('dashboard-data', { ...report, surprise: 1 });
+  assert.deepEqual(extra, [{ path: 'surprise', message: 'is not a known key' }]);
+});
+
+test("the data contract: a project's declared fields appear, typed, on the items that set them", async () => {
+  const { report } = await dashboard(contractFixture());
+  assert.deepEqual(report.work.fields, [
+    {
+      name: 'team',
+      type: 'string',
+      list: false,
+      values: ['core', 'web'],
+      description: 'The team that does it.',
+    },
+    { name: 'points', type: 'integer', list: false, description: 'Its size in points.' },
+  ]);
+  const byId = new Map(report.work.items.map((/** @type {any} */ it) => [it.id, it]));
+  assert.deepEqual(byId.get('W-13').fields, { team: 'web', points: 3 });
+  assert.deepEqual(byId.get('W-12').fields, {});
+});
+
+test('the data contract: each entity carries its label, and nothing confidential is in it', async () => {
+  const { report, html } = await dashboard(contractFixture());
+  const byId = new Map(report.work.items.map((/** @type {any} */ it) => [it.id, it]));
+  assert.equal(byId.get('W-51').classification, 'public');
+  assert.equal(byId.get('W-12').classification, 'internal', "the project's default label");
+  assert.equal(byId.get('W-12').redacted, false);
+  const secret = byId.get('W-50');
+  assert.deepEqual(
+    {
+      title: secret.title,
+      path: secret.path,
+      fields: secret.fields,
+      decider: secret.decider,
+      classification: secret.classification,
+      redacted: secret.redacted,
+      state: secret.state,
+    },
+    {
+      title: 'W-50',
+      path: null,
+      fields: {},
+      decider: null,
+      classification: 'confidential',
+      redacted: true,
+      state: 'planned',
+    },
+  );
+  // The links between IDs stay, so what waits on it still shows.
+  assert.deepEqual(byId.get('W-51').open_needs, ['W-50']);
+  // The ledger summary and the usage readings are from the private store: labeled internal.
+  assert.equal(report.ledger.classification, 'internal');
+  assert.equal(report.usage.classification, 'internal');
+  for (const text of [JSON.stringify(report), html]) {
+    assert.doesNotMatch(text, /acquisition|the-acquisition-target/i);
+  }
+});
+
+test('the built-in views read only the data contract: the page is drawn again from the JSON alone', async () => {
+  const root = contractFixture();
+  const { report, html } = await dashboard(root);
+  const { renderHtml } = await import('../lib/quota/report.mjs');
+  assert.equal(renderHtml(JSON.parse(JSON.stringify(report))), html);
+  // No view module reads the tracker, the ledger, the store or the policy around the contract.
+  const { readdirSync } = await import('node:fs');
+  const dir = new URL('../lib/dashboard/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.mjs'))) {
+    const text = readFileSync(new URL(f, dir), 'utf8');
+    const imports = [...text.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
+    for (const from of imports) {
+      assert.doesNotMatch(
+        from,
+        /tracker\/files\/(tracker|claims|tree)\.mjs|\/store\/|\/ledger\/|policy\.mjs|settings\//,
+        `${f} imports ${from}`,
+      );
+    }
+  }
 });
