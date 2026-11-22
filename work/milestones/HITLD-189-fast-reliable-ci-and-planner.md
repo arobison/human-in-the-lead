@@ -9,7 +9,7 @@ outcome: The owner is not held up by slow checks or by a planner that cannot sta
 done_when:
   - "c1: The CI and eval gates give the same answer on every run, and checks an executor cannot run locally are run before it reports."
   - "c2: The planner offers only items that can start and that the owner allows, and says why it holds the others."
-constraints: [HITLD-185 c1, HITLD-201 c1, HITLD-241 c1, HITLD-293 c1, HITLD-290 c1, HITLD-296 c1, HITLD-315 c1, HITLD-235 c2, HITLD-253 c2, HITLD-278 c2, HITLD-353 c2, HITLD-165 c2, HITLD-445 c1, HITLD-464 c1, HITLD-298 c2]
+constraints: [HITLD-185 c1, HITLD-201 c1, HITLD-241 c1, HITLD-293 c1, HITLD-290 c1, HITLD-296 c1, HITLD-315 c1, HITLD-235 c2, HITLD-253 c2, HITLD-278 c2, HITLD-353 c2, HITLD-165 c2, HITLD-445 c1, HITLD-464 c1, HITLD-298 c2, HITLD-705 c1, HITLD-716 c1]
 check: demo a week of CI and eval runs on main with no flaky failure, and a dispatch plan that offers only startable items and names the reason for each one it holds, run by the owner
 ---
 
@@ -26,3 +26,5 @@ The planning pass HITLD-343 also placed HITLD-355 (an item the owner asks for st
 ## Changed on 2026-11-20 (HITLD-602)
 
 Five items left this milestone on the owner's decision HITLD-602: HITLD-441 and HITLD-154 to milestone HITLD-566, HITLD-509 and HITLD-355 to milestone HITLD-567, and HITLD-511 to milestone HITLD-408.
+
+On 2026-11-22, filed from the first self-hosting run's follow-ups: HITLD-705 (the residual lock hole in the mutex) and HITLD-716 (the intermittent lease scenario in CI) join clause c1: both are causes of a CI or eval run that does not give the same answer every time.
