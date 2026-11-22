@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { askedKey, checkCode, recordChoice } from '../lib/rights/flow.mjs';
 import { pendingDecisions } from '../lib/rights/pending.mjs';
@@ -278,6 +279,8 @@ test("rights record is refused outside the owner's turn, and writes nothing", as
     spawnSync(process.execPath, [join(HOOKS, 'guard.mjs')], {
       input: JSON.stringify(hookInput),
       encoding: 'utf8',
+      // Outside any checkout: the guard also reads the checkout for a claim (HITLD-781).
+      cwd: tmpdir(),
       env: { PATH: process.env.PATH },
     }).stdout;
   for (const command of [

@@ -18,6 +18,7 @@ import { commands as quota } from './commands/quota.mjs';
 import { commands as evals } from './commands/eval.mjs';
 import { commands as orchestrator } from './commands/orchestrator.mjs';
 import { commands as watchdog } from './commands/watchdog.mjs';
+import { commands as reconcile } from './commands/reconcile.mjs';
 import { commands as release } from './commands/release.mjs';
 import { commands as store } from './commands/store.mjs';
 import { commands as security } from './commands/security.mjs';
@@ -104,6 +105,7 @@ export const COMMANDS = Object.freeze([
   ...evals,
   ...orchestrator,
   ...watchdog,
+  ...reconcile,
   ...release,
   ...store,
   ...privateTerms,
