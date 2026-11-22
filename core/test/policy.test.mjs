@@ -60,7 +60,7 @@ test('defaults: the concurrency cap with its bounds', () => {
 
 test("defaults: quotas keep the owner's reserve; plan windows are soft", () => {
   const { quota } = policyDefaults();
-  assert.equal(quota.reserve, 0.25);
+  assert.equal(quota.reserve, 0.1);
   assert.ok(quota.critical_below < quota.economize_below);
   assert.deepEqual(
     quota.limits.map((/** @type {any} */ l) => [l.id, l.window, l.hard]),

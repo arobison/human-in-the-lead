@@ -21,7 +21,7 @@
 // (design part 22). Nothing here pushes.
 
 import { applyPatch } from './format.mjs';
-import { findEntry, writeStored } from './edit.mjs';
+import { findEntry, writeKeys, writeStored } from './edit.mjs';
 import { git, idNumber, loadPlaces, refPlaces } from './tree.mjs';
 import { CodedError } from '../../cli/errors.mjs';
 import { DISPATCH_ID } from '../../ledger/ids.mjs';
@@ -329,8 +329,9 @@ export function closeItem(root, layout, id, { commit = true, report } = {}) {
       `close ${id} in the branch that does the work, not on ${layout.mainBranch}`,
     );
   }
+  // Only the state line changes; the other keys stay where the file has them (HITLD-261).
   const stored = applyPatch(entry.data, { state: 'done' }, layout);
-  const version = writeStored(root, layout, entry.path, stored, entry.body);
+  const version = writeKeys(root, layout, entry.path, stored, ['state']);
   const claimant = String(d.claimed_by ?? '');
   // The report rides in the closing commit's body, before its trailers (HITLD-746): the commit
   // is the report, which `hitld dispatch reconcile` reads from the branch head (HITLD-780).

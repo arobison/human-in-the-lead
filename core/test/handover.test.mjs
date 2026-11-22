@@ -4,14 +4,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { memoryStore } from './helpers/memory-store.mjs';
-import { readLedger } from '../lib/ledger/ledger.mjs';
+import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { loadState } from '../lib/run/checkpoint.mjs';
 import { LeaseError } from '../lib/run/lease.mjs';
 import {
+  HANDOVER_DEFAULTS,
   handoverDue,
   leaseStatus,
   releaseLease,
@@ -278,4 +280,101 @@ test('commands: after enough completions the refill is held, the hand-over waits
   // The successor counts from its own lease: W-3 is refused only for not being ready yet.
   const next = await c.hitld(['dispatch', 'start', 'W-3'], orch2);
   assert.equal(next.result.error, 'not-planned');
+});
+
+test('the package defaults hand over at 30% of the context or 8 completions (HITLD-794)', () => {
+  const schema = JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL('../../schemas/policy/orchestrator.schema.json', import.meta.url)),
+      'utf8',
+    ),
+  );
+  assert.equal(schema.properties.handover_context_share.default, 0.3);
+  assert.equal(schema.properties.handover_after_completions.default, 8);
+  assert.deepEqual(HANDOVER_DEFAULTS, { afterCompletions: 8, contextShare: 0.3 });
+  const store = memoryStore();
+  const run = startRun(store, { ...A, now: clock() });
+  const due = handoverDue(run.state, readLedger(store).events);
+  assert.equal(due.after_completions, 8);
+  assert.equal(due.context_share, 0.3);
+});
+
+test("the chief of staff's measured share makes the hand-over due past the threshold; a lower self-report does not undo it", () => {
+  const store = memoryStore();
+  const run = startRun(store, { ...A, now: clock() });
+  const measure = (/** @type {number} */ share, holder = A) =>
+    appendEvent(store, {
+      event: 'context-measured',
+      run: run.state.run.id,
+      ...holder,
+      context_share: share,
+      by: COS.session,
+    });
+  const events = () => readLedger(store).events;
+  measure(0.25);
+  const below = handoverDue(run.state, events(), { contextShare: 0.3 });
+  assert.equal(below.due, false);
+  assert.equal(below.context_used, 0.25);
+  assert.equal(below.context_source, 'measured');
+  measure(0.34);
+  const past = handoverDue(run.state, events(), { contextShare: 0.3, contextUsed: 0.1 });
+  assert.equal(past.due, true);
+  assert.equal(past.context_used, 0.34, 'the measurement stands over a lower self-report');
+  assert.match(past.reasons[0], /34% of the context used, as the chief of staff measured it/);
+  const higher = handoverDue(run.state, events(), { contextShare: 0.3, contextUsed: 0.5 });
+  assert.equal(higher.context_source, 'reported');
+
+  // A measurement of another session, or of this one before its successor took over, counts for no one else.
+  measure(0.9, B);
+  releaseLease(store, { ...A, reason: 'handover' });
+  const next = takeLease(store, { ...B, expirySeconds: EXPIRY }).run;
+  const fresh = handoverDue(next.state, events(), { contextShare: 0.3 });
+  assert.equal(fresh.due, false);
+  assert.equal(fresh.context_used, null);
+  assert.throws(
+    () =>
+      appendEvent(store, {
+        event: 'logged',
+        text: 'x',
+        context_share: 0.5,
+      }),
+    /context_share is only for context-measured/,
+  );
+});
+
+test('commands: the chief of staff records a measured share past the threshold and dispatch start refuses with handover-due', async () => {
+  const c = makeConsumer();
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  const orch1 = { env: { HITLD_SESSION: 'orch-1' } };
+  const cos = { env: { HITLD_SESSION: 'cos' } };
+  assert.equal((await c.hitld(['run', 'start', '--harness-ref', 'cloud-orch-1'], orch1)).exit, 0);
+  assert.equal((await c.hitld(['dispatch', 'start', 'W-1'], orch1)).exit, 0);
+
+  const low = await c.hitld(['run', 'context', '--holder', 'cloud-orch-1', '--percent', '20'], cos);
+  assert.equal(low.exit, 0, JSON.stringify(low.result));
+  assert.equal(low.result.handover.due, false);
+  assert.equal(low.result.handover.context_share, 0.3, 'the package default');
+
+  const wrong = await c.hitld(['run', 'context', '--holder', 'orch-9', '--percent', '90'], cos);
+  assert.equal(wrong.result.error, 'lease-held');
+  const executor = await c.hitld(['run', 'context', '--holder', 'orch-1', '--percent', '90'], {
+    env: { HITLD_SESSION: 'x', HITLD_ROLE: 'executor' },
+  });
+  assert.equal(executor.result.error, 'not-permitted');
+
+  const high = await c.hitld(['run', 'context', '--holder', 'orch-1', '--percent', '31'], cos);
+  assert.equal(high.exit, 0, JSON.stringify(high.result));
+  assert.equal(high.result.handover.due, true);
+  assert.equal(high.result.handover.context_source, 'measured');
+  assert.match(high.result.next, /tell cloud-orch-1 to hand over now/);
+
+  const status = await c.hitld(['run', 'status'], cos);
+  assert.equal(status.result.handover.due, true);
+  assert.match(status.result.next, /its hand-over is due/);
+  const refused = await c.hitld(['dispatch', 'start', 'W-2'], orch1);
+  assert.equal(refused.result.error, 'handover-due');
+  assert.match(
+    refused.result.message,
+    /31% of the context used, as the chief of staff measured it/,
+  );
 });

@@ -461,6 +461,16 @@ export function effectiveSettings(l) {
   values.push(ports, root, secrets);
   const attention = effectiveAttention(l, errors);
   values.push(...attention.entries);
+  // The orchestrator's handover thresholds live in the project only (HITLD-795).
+  for (const k of ['handover_context_share', 'handover_after_completions']) {
+    const set = get(l.raw, `orchestrator.${k}`);
+    values.push({
+      key: `orchestrator.${k}`,
+      value: set ?? l.project.orchestrator?.[k] ?? defaults.orchestrator[k],
+      layer: set === undefined ? 'default' : 'project',
+      overridden: [],
+    });
+  }
 
   const policy = structuredClone(l.project);
   const valueOf = (/** @type {string} */ key) => values.find((e) => e.key === key)?.value;

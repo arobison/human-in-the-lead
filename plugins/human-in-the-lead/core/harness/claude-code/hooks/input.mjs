@@ -89,6 +89,50 @@ export function ownClaimBranch(dir) {
 }
 
 /**
+ * Why a `git push origin <branch>` from `dir` might not go only to the project's remote, or might
+ * carry more than the branch named (HITLD-793); null when it goes as written. The project's
+ * remote is `origin` with the one URL it is configured with: a push URL of its own, an insteadOf
+ * or pushInsteadOf rewrite, or a second URL sends the push elsewhere. Configuration can also
+ * change what an explicit refspec pushes: `remote.origin.push` maps it to another ref (main, say),
+ * `remote.origin.mirror` and `push.followTags` push more refs, and submodule recursion pushes
+ * other repositories. Anything git does not answer is a reason too: the guard fails closed.
+ * @param {string} dir @returns {string | null}
+ */
+export function originPushProblem(dir) {
+  /** @param {string[]} args */
+  const run = (args) =>
+    spawnSync('git', ['-C', dir, ...args], {
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+      env: { ...process.env, LC_ALL: 'C' },
+    });
+  /** @param {ReturnType<typeof run>} r */
+  const lines = (r) => r.stdout.split('\n').filter((l) => l !== '');
+  const configured = run(['config', '--get-all', 'remote.origin.url']);
+  const pushTo = run(['remote', 'get-url', '--push', '--all', 'origin']);
+  if (configured.error || pushTo.error || configured.status !== 0 || pushTo.status !== 0) {
+    return 'git cannot tell where origin is';
+  }
+  const urls = lines(configured);
+  if (urls.length !== 1 || lines(pushTo).join('\n') !== urls[0]) {
+    return 'origin pushes somewhere other than its one configured URL (a push URL, a URL rewrite or a second URL)';
+  }
+  const set = run([
+    'config',
+    '--name-only',
+    '--get-regexp',
+    '^(remote\\.origin\\.(push|pushurl|mirror)|push\\.(followtags|recursesubmodules)|submodule\\.recurse)$',
+  ]);
+  // Status 1 is git's "no such key"; anything else but 0 is git not answering.
+  if (set.error || (set.status !== 0 && set.status !== 1)) {
+    return 'git cannot tell how a push is configured';
+  }
+  const keys = lines(set);
+  return keys.length ? `git configuration changes what the push sends: ${keys.join(', ')}` : null;
+}
+
+/**
  * What the checkout at `dir` holds: the dispatches its claim commits name (null when git cannot
  * answer, empty outside a repository or with no claim), the main branches read, and the way git
  * was run there.

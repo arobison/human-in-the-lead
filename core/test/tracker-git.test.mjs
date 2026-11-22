@@ -923,6 +923,44 @@ test('hitld work new, claim, close, claims and unclaim walk the lifecycle', asyn
   assert.equal(parsed.json.commit, null);
 });
 
+test('hitld work close changes only the state line, leaving keys in a non-canonical order where they are (HITLD-261)', async () => {
+  // claimed_by sits above project and needs, not in the canonical order, and a list is a block list.
+  const before = [
+    '---',
+    'id: W-4',
+    'title: Second step',
+    'kind: work',
+    'state: in-progress',
+    'claimed_by: D-9',
+    'created: 2026-01-02',
+    'needs:',
+    '  - W-3',
+    'project: W-2',
+    '---',
+    '',
+    '## Why',
+    '',
+    'A reason.',
+    '',
+  ].join('\n');
+  const root = makeRepo({ files: { 'work/items/W-4-second-step.md': before } });
+  settings(root);
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'settings');
+  git(root, 'checkout', '-q', '-b', 'exec/w-4');
+  const closed = await hitld(['work', 'close', 'W-4', '--no-commit'], root);
+  assert.equal(closed.code, 0, closed.out);
+  assert.equal(closed.json.commit, null);
+  const after = readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8');
+  assert.equal(after, before.replace('state: in-progress', 'state: done'));
+  assert.equal(
+    git(root, 'diff', '--numstat').trim(),
+    '1\t1\twork/items/W-4-second-step.md',
+    'the closing diff is the one state line',
+  );
+  assert.equal(open(root).get('W-4').state, 'done');
+});
+
 test('--repo and --config read a tracker with its settings kept outside it, writing nothing there', async () => {
   const root = makeRepo();
   const cfg = tempDir('hitld-cfg-');

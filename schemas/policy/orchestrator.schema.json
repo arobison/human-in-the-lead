@@ -5,17 +5,17 @@
   "type": "object",
   "properties": {
     "handover_context_share": {
-      "description": "The share of its context window the orchestrator may use before it checkpoints and hands over to a fresh session, measured from its own usage.",
+      "description": "The share of its context window the orchestrator may use before it checkpoints and hands over to a fresh session. The chief of staff measures it from the harness's record of the session at each wake and check-in and records it with hitld run context; past it, hitld dispatch start refuses with handover-due.",
       "type": "number",
       "exclusiveMinimum": 0,
       "maximum": 1,
-      "default": 0.7
+      "default": 0.3
     },
     "handover_after_completions": {
       "description": "How many completions an orchestrator session processes before it hands over to a fresh session, whatever its context says. Short-lived sessions keep each context small.",
       "type": "integer",
       "minimum": 1,
-      "default": 20
+      "default": 8
     },
     "silent_after_seconds": {
       "description": "How long an orchestrator started by a chief of staff may stay quiet, after a wake or recorded work, with no message reaching the chief of staff, before hitld dispatch watch reports it as silent: its turn ended without the end-of-turn message.",
