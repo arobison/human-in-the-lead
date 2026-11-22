@@ -28,7 +28,9 @@ const INCOMING = 'refs/hitld/incoming';
  * the run state and its checkpoints are rebuilt from the ledger (design part 13.1); the primary
  * checkout record, worktree records and usage snapshots describe this machine; the digest cursor
  * is what this machine has shown; the ledger writer names this machine's own ledger file, so a
- * store moved elsewhere writes a file of its own there (ledger/writer.mjs).
+ * store moved elsewhere writes a file of its own there (ledger/writer.mjs); the executor worktrees
+ * (env/config.mjs puts them under the store unless the machine file names another root) are
+ * checkouts on this machine, which git would commit as gitlinks another machine cannot import.
  */
 export const MACHINE_LOCAL = Object.freeze([
   'index.sqlite*',
@@ -39,6 +41,7 @@ export const MACHINE_LOCAL = Object.freeze([
   'usage/',
   'rights/digest.json',
   'ledger-writer.json',
+  'worktrees/',
 ]);
 
 const GITIGNORE = [
@@ -148,12 +151,23 @@ export function head(root) {
 }
 
 /**
- * Commit everything that syncs, if anything changed. Returns the head after.
+ * Commit everything that syncs, if anything changed. Returns the head after. A gitlink (another
+ * checkout under the store) is refused, naming its path, and nothing is committed.
  * @param {string} root @param {string} message
  */
 export function snapshot(root, message) {
   ensureRepo(root);
-  git(root, ['add', '-A']);
+  stage(root);
+  const gitlinks = staged(root)
+    .filter((e) => e.mode === GITLINK)
+    .map((e) => e.path);
+  if (gitlinks.length) {
+    throw new StoreGitError(
+      'store-gitlink',
+      `the store holds another git checkout at ${gitlinks.join(', ')}, which would be committed as a gitlink (mode ${GITLINK}) that no other machine imports; move it out of the store; nothing was committed`,
+      { paths: gitlinks },
+    );
+  }
   const before = head(root);
   const clean =
     before !== null && git(root, ['diff', '--cached', '--quiet'], { allowFail: true }).ok;
@@ -167,9 +181,45 @@ export function snapshot(root, message) {
  */
 export function hasText(root) {
   ensureRepo(root);
+  stage(root);
+  return head(root) !== null || staged(root).some((e) => e.path !== '.gitignore');
+}
+
+/** The mode git gives a directory that is another repository's checkout. */
+const GITLINK = '160000';
+
+/**
+ * Stage everything that syncs. The .gitignore keeps machine-local paths out of `add`, but not out
+ * of an index that already tracks them (a store an earlier version committed them in, such as its
+ * executor worktrees): those are dropped from the index, so the next commit removes them from the
+ * history's head and leaves the files on disk.
+ * @param {string} root
+ */
+function stage(root) {
   git(root, ['add', '-A']);
-  const staged = git(root, ['ls-files', '-z']).stdout.toString('utf8').split('\0').filter(Boolean);
-  return head(root) !== null || staged.some((p) => p !== '.gitignore');
+  const local = staged(root)
+    .map((e) => e.path)
+    .filter(isMachineLocal);
+  if (local.length) {
+    git(root, ['update-index', '-z', '--force-remove', '--stdin'], {
+      input: local.map((p) => `${p}\0`).join(''),
+    });
+  }
+}
+
+/**
+ * What the index holds, with each entry's mode.
+ * @param {string} root @returns {{ mode: string, path: string }[]}
+ */
+function staged(root) {
+  return git(root, ['ls-files', '-s', '-z'])
+    .stdout.toString('utf8')
+    .split('\0')
+    .filter(Boolean)
+    .map((rec) => {
+      const tab = rec.indexOf('\t');
+      return { mode: rec.slice(0, rec.indexOf(' ')), path: rec.slice(tab + 1) };
+    });
 }
 
 /**

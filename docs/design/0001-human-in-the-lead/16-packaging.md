@@ -271,6 +271,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `cannot-open`: The file does not open: the passphrase is wrong, or the file was changed or damaged.
 - `damaged`: The file is damaged.
 - `git-failed`: A git command failed inside the store.
+- `store-gitlink`: The store holds another git checkout that would be committed as a gitlink; nothing was committed.
 - `bad-bundle`: The bundle does not verify or does not match its manifest.
 - `bad-path`: The export file is inside the store.
 - `another-project`: The file is from another project.
