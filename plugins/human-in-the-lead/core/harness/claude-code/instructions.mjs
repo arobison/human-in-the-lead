@@ -13,7 +13,9 @@ import { MODEL_CLASSES } from './capabilities.mjs';
  * @typedef {{ tool: 'SendMessage', input: { to: string, message: string, summary: string } }} SendCall
  * @typedef {{ tool: 'session', input: { cwd: string, brief_file: string, model: string, effort: string } }} SessionCall
  * @typedef {{ tool: 'say', input: { text: string, urgency: string } }} SayCall a message to the owner in the main session
- * @typedef {AgentCall | BashCall | SendCall | SessionCall | SayCall} Instruction
+ * @typedef {{ tool: 'relay', input: { session: string, dispatch: string, message: string } }} RelayCall a
+ *   message for a tier-3 interactive session, which the chief of staff sends (the orchestrator, when it is both)
+ * @typedef {AgentCall | BashCall | SendCall | SessionCall | SayCall | RelayCall} Instruction
  *
  * @typedef {object} PlaceOptions where things are for this dispatch
  * @property {string} [worktree] the worktree hitld env prepared (tier 3)
@@ -112,11 +114,20 @@ const pidWord = (pidPath) => (pidPath ? `echo $$ > ${shq(pidPath)} && ` : '');
 
 /**
  * The call that continues an executor with its context.
- * @param {{ harnessRef: string, message: string, tier: number, worktree?: string | null, sessionId?: string | null,
- *   briefPath?: string, resultPath?: string, pidPath?: string, dispatch: string, permissionMode?: string, env?: Record<string, string> }} r
+ * A tier-3 interactive session is continued by a relayed message (HITLD-739): it needs no worktree,
+ * result file or process ID of its own.
+ * @param {{ harnessRef: string, message: string, tier: number, mode?: 'headless' | 'interactive' | null,
+ *   worktree?: string | null, sessionId?: string | null, briefPath?: string, resultPath?: string,
+ *   pidPath?: string, dispatch: string, permissionMode?: string, env?: Record<string, string> }} r
  * @returns {Instruction}
  */
 export function followUpInstruction(r) {
+  if (r.tier >= 3 && r.mode === 'interactive') {
+    return {
+      tool: 'relay',
+      input: { session: r.harnessRef, dispatch: r.dispatch, message: r.message },
+    };
+  }
   if (r.tier <= 2) {
     return {
       tool: 'SendMessage',

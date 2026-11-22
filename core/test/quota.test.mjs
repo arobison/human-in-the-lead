@@ -285,6 +285,13 @@ test('headroom and forecast from snapshots: burn, band, and reserve time', () =>
   assert.equal(f.reserve_at, iso(T0 + 1.75 * HOUR));
   assert.equal(f.before_reset, true);
   assert.equal(five.resets_at, iso(T0 + 3 * HOUR));
+  // The data contract names it reserve_before_reset (HITLD-691); the digest and the page still say it.
+  const report = buildReport({ policy: policyWith(), snapshots: snaps, now: T0 });
+  const inReport = fiveOf(report.quotas).forecast;
+  assert.equal(inReport.reserve_before_reset, true);
+  assert.equal('before_reset' in inReport, false);
+  assert.match(renderDigest(report), /claude-five-hour: burning .*, before the window resets/);
+  assert.match(renderHtml(report), /<small>before the window resets/);
 });
 
 test('the forecast band spans the recent rate and the window average', () => {
@@ -549,7 +556,7 @@ test('the report: the digest and page state the gate, forecast and ledger, and t
   assert.match(digest, /Dispatch: Economize\./);
   assert.match(digest, /reserve reached about/);
   assert.ok(digest.split('\n').length < 25, 'a phone screen');
-  const html = renderHtml(report, policy);
+  const html = renderHtml(report);
   assert.match(html, /<!doctype html>/);
   assert.doesNotMatch(html, /<script|https?:\/\/|@import|url\(/i);
   assert.match(html, /prefers-color-scheme:dark/);
@@ -618,7 +625,9 @@ test('hitld dashboard writes dashboard.html and digest.txt, and --json gives the
   const r = await hitld(['dashboard', '--out', 'out', '--json', '--now', iso(T0)], p);
   assert.equal(r.code, 0);
   assert.equal(r.json.mode, 'stop');
-  assert.equal(r.json.report.metrics_schema_version, 1);
+  assert.equal(r.json.report.api_version, 2);
+  assert.equal(r.json.report.metrics_schema_version, 2);
+  assert.deepEqual(schemas().validate('dashboard-data', r.json.report), []);
   assert.ok(existsSync(join(out, 'dashboard.html')));
   assert.match(readFileSync(join(out, 'digest.txt'), 'utf8'), /Dispatch: Stopped at the reserve\./);
   // Without --out the report goes under the private store, not the repository.
@@ -735,7 +744,8 @@ test('hitld dashboard --no-write returns the data contract and writes no files',
   const out = join(p.repo, 'nowrite');
   const r = await hitld(['dashboard', '--out', 'nowrite', '--no-write', '--now', iso(T0)], p);
   assert.equal(r.code, 0);
-  assert.equal(r.json.report.metrics_schema_version, 1);
+  assert.equal(r.json.report.api_version, 2);
+  assert.deepEqual(schemas().validate('dashboard-data', r.json.report), []);
   assert.equal(existsSync(out), false);
   assert.equal(r.json.html, undefined);
   assert.equal(existsSync(join(p.store.root, 'reports', 'dashboard.html')), false);
