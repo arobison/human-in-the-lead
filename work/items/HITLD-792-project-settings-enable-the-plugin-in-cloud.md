@@ -37,3 +37,15 @@ Only the hooks come this way: a cloud session does not load the plugin's skills 
 
 - **Project hooks reach a running session at once.** When this item's executor wrote the settings file, Claude Code loaded its hooks into the session that was already running. That session had no copy yet, and the first version refused rather than making one, so every tool call was refused. The session came back only when it resumed and its SessionStart hook made the copy. The lazy copy above is the fix: a session that pulls the file mid-session is guarded, not locked out.
 - **The same goes the other way.** An executor can change its own hooks mid-session in two ways: by editing `.claude/settings.json`, or by deleting the copy after committing an edited guard. The guard today checks only Bash commands. Closing that is a guard change, raised in this dispatch's report as a question.
+
+## Verified in a fresh cloud session
+
+On 2026-11-22 this item's executor pushed its claim branch, with the claim commit and the change, and started a new cloud session on it with `create_session`, in the same environment and with no other set-up. That session ran only a probe and changed nothing. From its own transcript (nothing from its environment was printed):
+
+- **The settings hooks ran, the plugin did not install.** At startup the session reported `human-in-the-lead 0.1.0-rc.1 loaded from` the copy under `~/.claude`. Its init record lists the hooks as coming from the project settings, and it lists no human-in-the-lead plugin, as the documentation says.
+- **The guard runs and knows the executor by its checkout.** `git push --dry-run origin main` was refused by the PreToolUse hook: "executors push only their own claim branch, alone: …; never main, another branch, or with force". The dry run was chosen so that nothing would be pushed even if the guard had not run. A shell command naming `hitld` was refused too ("executors run only the hitld commands for claiming, closing, reading and checking"), and the report check on Stop held the probe's last message to the fixed report shape.
+- **The budget hook can run there but has nothing to read.** Its reading (`readBudget` from the copy, run in that session) was `null`, and the session's private store held 0 ledger events. The hook finds no ledger entry for the dispatch, so nothing is enforced. What is missing: the cloud container's private store does not hold the dispatch's `dispatched` event and start estimate, because the SessionStart store pull skips executors and a fresh container starts with an empty store. Until a cloud executor's store holds its dispatch, the reconcile pass (HITLD-780) is the only budget check for cloud executors.
+
+The executor's own session showed the same once it resumed: the guard refused its dry-run push to main and let its own claim branch be pushed (HITLD-791).
+
+Not verified: the SessionEnd store push and the PostToolUse progress hook's output at the cap, since neither has anything to act on without a ledger entry.
