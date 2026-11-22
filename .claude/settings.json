@@ -1,0 +1,68 @@
+{
+  "$comment": "Runs the human-in-the-lead plugin hooks in cloud sessions, which do not install plugins (HITLD-792; scripts/cloud-plugin-start.mjs). Outside the cloud every hook here exits at once. core/test/cloud-plugin.test.mjs keeps it matched to plugins/human-in-the-lead/hooks/hooks.json.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] || exit 0; exec node \"$CLAUDE_PROJECT_DIR/scripts/cloud-plugin-start.mjs\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] || exit 0; p=\"$HOME/.claude/human-in-the-lead-cloud\"; [ -f \"$p/hooks/hooks.json\" ] || node \"$CLAUDE_PROJECT_DIR/scripts/cloud-plugin-start.mjs\" --copy; [ -f \"$p/hooks/hooks.json\" ] || { echo \"human-in-the-lead: this cloud session has no copy of the plugin, so its hooks cannot run\" >&2; exit 2; }; CLAUDE_PLUGIN_ROOT=\"$p\" exec node \"$p/core/harness/claude-code/hooks/guard.mjs\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] || exit 0; p=\"$HOME/.claude/human-in-the-lead-cloud\"; [ -f \"$p/hooks/hooks.json\" ] || node \"$CLAUDE_PROJECT_DIR/scripts/cloud-plugin-start.mjs\" --copy; [ -f \"$p/hooks/hooks.json\" ] || { echo \"human-in-the-lead: this cloud session has no copy of the plugin, so its hooks cannot run\" >&2; exit 1; }; CLAUDE_PLUGIN_ROOT=\"$p\" exec node \"$p/core/harness/claude-code/hooks/progress.mjs\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] || exit 0; p=\"$HOME/.claude/human-in-the-lead-cloud\"; [ -f \"$p/hooks/hooks.json\" ] || node \"$CLAUDE_PROJECT_DIR/scripts/cloud-plugin-start.mjs\" --copy; [ -f \"$p/hooks/hooks.json\" ] || { echo \"human-in-the-lead: this cloud session has no copy of the plugin, so its hooks cannot run\" >&2; exit 1; }; CLAUDE_PLUGIN_ROOT=\"$p\" exec node \"$p/core/harness/claude-code/hooks/report-check.mjs\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] || exit 0; p=\"$HOME/.claude/human-in-the-lead-cloud\"; [ -f \"$p/hooks/hooks.json\" ] || node \"$CLAUDE_PROJECT_DIR/scripts/cloud-plugin-start.mjs\" --copy; [ -f \"$p/hooks/hooks.json\" ] || { echo \"human-in-the-lead: this cloud session has no copy of the plugin, so its hooks cannot run\" >&2; exit 1; }; CLAUDE_PLUGIN_ROOT=\"$p\" exec node \"$p/core/harness/claude-code/hooks/report-check.mjs\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] || exit 0; p=\"$HOME/.claude/human-in-the-lead-cloud\"; [ -f \"$p/hooks/hooks.json\" ] || node \"$CLAUDE_PROJECT_DIR/scripts/cloud-plugin-start.mjs\" --copy; [ -f \"$p/hooks/hooks.json\" ] || { echo \"human-in-the-lead: this cloud session has no copy of the plugin, so its hooks cannot run\" >&2; exit 1; }; CLAUDE_PLUGIN_ROOT=\"$p\" exec node \"$p/core/harness/claude-code/hooks/store-sync.mjs\" push",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
