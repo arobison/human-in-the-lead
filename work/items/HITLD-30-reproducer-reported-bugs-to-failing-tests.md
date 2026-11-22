@@ -2,7 +2,7 @@
 id: HITLD-30
 title: "Reproducer: reported bugs to failing tests"
 kind: work
-state: in-progress
+state: done
 created: 2026-11-14
 project: HITLD-28
 claimed_by: D-01M80D8A59G1WFY7
