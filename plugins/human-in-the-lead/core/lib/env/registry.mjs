@@ -27,6 +27,8 @@ import { withMutex } from './mutex.mjs';
  * @property {{ path: string, target: string }[]} [links_out] links that point outside the worktree
  * @property {import('./include.mjs').IncludeResult} [included] the git-ignored files
  *   `.worktreeinclude` lists, copied from the primary checkout (paths only)
+ * @property {import('./include.mjs').TemplateResult} [templates] the templates `.worktreeinclude`
+ *   marks, rendered with the holder's leased port (paths only)
  *
  * @typedef {object} WorktreeLease
  * @property {string} holder

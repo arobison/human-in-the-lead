@@ -2,9 +2,11 @@
 id: HITLD-767
 title: "Design: milestone constraints and notes merge cleanly when two tracker pull requests edit the same milestone"
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80ZP4HMQ4AGDX
+release_note: "An item names the milestone clauses it serves as `constraint_of: [<milestone ID> c<n>]` (`hitld work new --constraint-of`), and a milestone's constraints are derived from its items, so two pull requests that file items into one milestone no longer conflict. `hitld work migrate constraints-on-items` moves a tracker's milestone-side `constraints` lines into the items; until then both forms are read (the item side wins) and `hitld work check` warns. The milestone-side form is read until rc.3."
 ---
 
 ## Why
@@ -19,6 +21,6 @@ The link between an item and a milestone clause lives on the item, as `constrain
 
 - An item's `constraint_of` names a milestone and a clause that exists; `hitld work check` refuses one that does not, and derives each milestone's constraints, clause coverage and release closure from the items.
 - While a milestone still has a `constraints:` line, it is read as well, the item side wins, and `hitld work check` warns that it is retired.
-- `hitld work migrate constraints-on-items` moves every link into its item, deletes the milestone's `constraints:` line, and is idempotent; it is run on this repository in the same pull request.
+- `hitld work migrate constraints-on-items` moves every link into its item, deletes the milestone's `constraints:` line, and is idempotent. The migration command exists and is tested; running it on this repository is HITLD-842 (owner's decision, 2026-11-22: the orchestrator runs it on main after this pull request merges).
 - A test shows two branches each filing an item into the same milestone merging without a conflict, and a test covers the migration.
 - The design text (the data model's milestone part) is updated in the same pull request, which reaches main only with the owner's own yes. `npm run check`, the offline eval gate and `hitld work check` pass.

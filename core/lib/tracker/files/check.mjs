@@ -27,13 +27,16 @@ import {
   listKeys,
   toEntity,
 } from './format.mjs';
-import { ITEM_KINDS, buildGraph, findCycles } from './graph.mjs';
+import { ITEM_KINDS, buildGraph, findCycles, holdsLinks, list } from './graph.mjs';
 import { LEGACY_KINDS, LEGACY_KIND_NOTES, LEGACY_STATES, renamesFor } from './legacy.mjs';
 import {
   AUTHOR_ROLE,
   MILESTONE_KINDS,
+  UNLINKED,
+  isBad,
   isLearning,
   numberedName,
+  parseConstraintLink,
   passingCheck,
   readMilestone,
 } from './milestones.mjs';
@@ -85,6 +88,22 @@ export function unplacedWork(items) {
     .map(
       (it) =>
         `${it.path}: ${it.data.id} is open and under no milestone; make it a constraint of the milestone clause it serves`,
+    );
+}
+
+/**
+ * Warnings, not problems: each milestone that still holds a `constraints` line (HITLD-767). The
+ * link lives on the item as `constraint_of`; the line is read until rc.3, the item side winning,
+ * and `hitld work migrate constraints-on-items` moves it. One line each.
+ * @param {Entry[]} items @returns {string[]}
+ */
+export function retiredConstraintLines(items) {
+  return items
+    .filter((it) => it.data && MILESTONE_KINDS.includes(String(it.data.kind)))
+    .filter((it) => it.data && Object.hasOwn(it.data, 'constraints'))
+    .map(
+      (it) =>
+        `${it.path}: its constraints line is retired (HITLD-767): each item names the clause it serves as constraint_of; run hitld work migrate constraints-on-items (the line is read until rc.3, and an item's own constraint_of wins)`,
     );
 }
 
@@ -290,6 +309,39 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
           say(it, `needs ${n}, which was dropped; it can never be ${milestone ? 'met' : 'ready'}`);
         }
         if (n === d.id) say(it, 'needs itself');
+      }
+    }
+    // The link lives on the item (HITLD-767): each entry names a milestone and a clause it has.
+    if (holdsLinks(it)) {
+      const seen = new Set();
+      for (const s of list(d.constraint_of)) {
+        const l = parseConstraintLink(String(s));
+        if (isBad(l)) {
+          say(it, `constraint_of: ${l.error}`);
+          continue;
+        }
+        const key = `${l.milestone} ${l.clause ?? UNLINKED}`;
+        if (seen.has(key)) say(it, `constraint_of ${key} appears twice`);
+        seen.add(key);
+        const target = g.get(l.milestone);
+        if (!target) {
+          say(it, `constraint_of ${key}: ${l.milestone} doesn't exist`);
+          continue;
+        }
+        if (!g.isMilestone(target)) {
+          say(it, `constraint_of ${key}: ${l.milestone} is a ${target.data.kind}, not a milestone`);
+          continue;
+        }
+        const t = readMilestone(target.data);
+        if (l.clause !== null && !t.clauses.some((c) => c.id === l.clause)) {
+          say(it, `constraint_of ${key}: ${l.milestone} has no clause ${l.clause} in done_when`);
+        }
+        if (t.contributions.some((c) => c.id === d.id)) {
+          say(
+            it,
+            `constraint_of ${l.milestone}, which also lists it as a contribution; it is one or the other`,
+          );
+        }
       }
     }
     if (milestone) {

@@ -1,15 +1,16 @@
 // Milestones in the files backend (design part 3.2, Milestones and releases).
 //
-// A milestone is a setpoint: an outcome, "done when" clauses, constraints (`constraints`, each
-// linked to a clause), contributions (`contributions`, with a value and a confidence), a share of
+// A milestone is a setpoint: an outcome, "done when" clauses, constraints (each linked to a
+// clause; derived from the items' `constraint_of` since HITLD-767, see graph.mjs), contributions (`contributions`, with a value and a confidence), a share of
 // its project's appetite, an optional external deadline and an independent check. There is one
 // milestone kind, `milestone`. A learning milestone is one whose check is a study: derived, never
 // stored. A milestone with no project is a long outcome; its constraints are other milestones. The front matter holds strings and lists of strings
 // only (frontmatter.mjs), so each structured entry is one line of text in a fixed form:
 //
 //   done_when:     "c1: <text>"
-//   constraints:   "<ID> c1"          a constraint linked to clause c1
-//                  "<ID> c?"          a constraint still to be linked to a clause at shaping
+//   constraints:   "<ID> c1"          a constraint linked to clause c1 (retired by HITLD-767:
+//                  "<ID> c?"          still read until rc.3; c? is still to be linked at shaping)
+//   constraint_of: "<milestone ID> c1" on an item (or a milestone): the clause it is a constraint of
 //   contributions:        "<ID> value=<number above 0> confidence=<0 to 1>"
 //                  value is in the project's value units (design part 2), as a project's is;
 //                  1, 2, 3, 5, 8 and 13 are quick choices, not the only values
@@ -18,8 +19,9 @@
 //   deadline:      "<YYYY-MM-DD> <source>"
 //
 // This module parses and writes those lines, and computes the derived fields: unmet_clauses, check_due,
-// scope, tokens_spent, cost_of_delay_rate and to_shape for a milestone; constraint_of and
-// contributes_to for an item. Derived fields are computed on every read and never written.
+// scope, tokens_spent, cost_of_delay_rate and to_shape for a milestone, given its derived
+// constraints (the graph's milestoneData); the milestones an item serves, for the read API's
+// constraint_of and contributes_to. Derived fields are computed on every read and never written.
 
 export const MILESTONE_KINDS = ['milestone'];
 export const MILESTONE_STATES = ['proposed', 'planned', 'done', 'dropped'];
@@ -65,6 +67,22 @@ export function parseConstraint(s) {
   }
   return { id: m[1], clause: m[2] === UNLINKED ? null : m[2] };
 }
+
+/**
+ * One entry of an item's `constraint_of` (HITLD-767): the milestone and the clause the item is a
+ * constraint of, "<milestone ID> c<n>" or "<milestone ID> c?".
+ * @typedef {{ milestone: string, clause: string | null }} ConstraintLink
+ * @param {string} s @returns {ConstraintLink | Bad}
+ */
+export function parseConstraintLink(s) {
+  const c = parseConstraint(s);
+  if (isBad(c))
+    return { error: `"${s}" isn't "<milestone ID> c<n>" or "<milestone ID> ${UNLINKED}"` };
+  return { milestone: c.id, clause: c.clause };
+}
+
+/** @param {ConstraintLink} l */
+export const formatConstraintLink = (l) => `${l.milestone} ${l.clause ?? UNLINKED}`;
 
 /** @param {string} s @returns {Contribution | Bad} */
 export function parseContribution(s) {

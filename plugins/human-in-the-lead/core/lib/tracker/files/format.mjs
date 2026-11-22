@@ -43,6 +43,7 @@ const MILESTONE_KEYS = [
   'outcome',
   'done_when',
   'constraints',
+  'constraint_of',
   'contributions',
   'appetite_tokens',
   'deadline',
@@ -72,17 +73,28 @@ export const DECISION_ANSWER_KEYS = [
  * `owner`, who is accountable for it; without one, that is the owner.
  */
 export const KEYS = /** @type {Record<string, string[]>} */ ({
-  work: [...COMMON_KEYS, 'project', 'owner', 'needs', 'claimed_by', 'reason', 'release', 'package'],
+  work: [
+    ...COMMON_KEYS,
+    'project',
+    'owner',
+    'needs',
+    'constraint_of',
+    'claimed_by',
+    'reason',
+    'release',
+    'package',
+  ],
   decision: [
     ...COMMON_KEYS,
     'project',
     'owner',
     'needs',
+    'constraint_of',
     'reason',
     'decider',
     ...DECISION_ANSWER_KEYS,
   ],
-  external: [...COMMON_KEYS, 'project', 'owner', 'needs', 'reason', 'waiting_on'],
+  external: [...COMMON_KEYS, 'project', 'owner', 'needs', 'constraint_of', 'reason', 'waiting_on'],
   project: [...COMMON_KEYS, 'owner', 'plan', ...SHAPING_KEYS, 'reason'],
   milestone: MILESTONE_KEYS,
 });
@@ -125,6 +137,7 @@ const OPTIONAL_LISTS = ['opened_from', 'touches', 'serial', 'credit'];
 /** Stored keys that hold a list, whatever the settings. */
 const LIST_KEYS = [
   'needs',
+  'constraint_of',
   'done_when',
   'constraints',
   'contributions',

@@ -2,7 +2,13 @@
 // blocked, open needs, progress. Derived values are computed here from the stored fields and
 // never written to a file.
 
-import { MILESTONE_KINDS, constraintIds, readMilestone } from './milestones.mjs';
+import {
+  MILESTONE_KINDS,
+  formatConstraint,
+  isBad,
+  parseConstraintLink,
+  readMilestone,
+} from './milestones.mjs';
 import { idNumber } from './tree.mjs';
 
 /**
@@ -30,10 +36,84 @@ import { idNumber } from './tree.mjs';
  * @property {(projectId: string) => Node[]} milestonesOf milestones under a project
  * @property {() => Node[]} longOutcomes milestones with no project: long outcomes
  * @property {(id: string) => Node[]} constraintOf milestones whose constraints name `id`
+ * @property {(m: Node) => import('./milestones.mjs').Constraint[]} constraintsOf a milestone's
+ *   constraints, derived from the items (HITLD-767; see `constraintLinks`)
+ * @property {(m: Node) => Record<string, unknown>} milestoneData a milestone's stored keys with
+ *   `constraints` replaced by the derived list: for reading only, never for writing
  * @property {(id: string) => Node[]} contributesTo milestones whose contributions name `id`
  */
 
 export const ITEM_KINDS = ['work', 'decision', 'external'];
+
+/**
+ * Whether an entry carries its own `constraint_of`.
+ * @param {{ data?: Record<string, unknown> | null }} it
+ */
+export const holdsLinks = (it) => Boolean(it.data && Object.hasOwn(it.data, 'constraint_of'));
+
+/**
+ * The milestones an entry's own `constraint_of` names, parsed entries only.
+ * @param {{ data?: Record<string, unknown> | null }} it @returns {Set<string>}
+ */
+export const linkedMilestones = (it) =>
+  new Set(
+    holdsLinks(it)
+      ? list(it.data?.constraint_of).flatMap((s) => {
+          const l = parseConstraintLink(String(s));
+          return isBad(l) ? [] : [l.milestone];
+        })
+      : [],
+  );
+
+/**
+ * Every constraint link, by milestone ID (HITLD-767). The link lives on the item, as its
+ * `constraint_of` ("<milestone ID> c<n>"), so a pull request that files an item edits only the
+ * item's file. Until a tracker is migrated (`hitld work migrate constraints-on-items`), a
+ * milestone's retired `constraints` line is read as well, and the item side wins: the line's
+ * entries for an item whose own `constraint_of` names that milestone are not read. Entries that do
+ * not parse are left out; the check names them. Each list is in ID order, then clause order.
+ * @param {Node[]} all @param {Map<string, Node>} byId
+ * @param {(it: Node) => boolean} isMilestone
+ * @returns {Map<string, import('./milestones.mjs').Constraint[]>}
+ */
+function constraintLinks(all, byId, isMilestone) {
+  /** @type {Map<string, import('./milestones.mjs').Constraint[]>} */
+  const out = new Map();
+  const add = (
+    /** @type {string} */ m,
+    /** @type {string} */ id,
+    /** @type {string | null} */ clause,
+  ) => {
+    const links = out.get(m) ?? [];
+    if (!links.some((c) => c.id === id && c.clause === clause)) links.push({ id, clause });
+    out.set(m, links);
+  };
+  for (const it of all) {
+    if (!holdsLinks(it)) continue;
+    for (const s of list(it.data.constraint_of)) {
+      const l = parseConstraintLink(String(s));
+      if (!isBad(l)) add(l.milestone, String(it.data.id), l.clause);
+    }
+  }
+  for (const m of all) {
+    if (!isMilestone(m)) continue;
+    const id = String(m.data.id);
+    for (const c of readMilestone(m.data).constraints) {
+      const target = byId.get(c.id);
+      if (!target || !linkedMilestones(target).has(id)) add(id, c.id, c.clause);
+    }
+  }
+  const order = (/** @type {string} */ id) => idNumber(id);
+  for (const links of out.values()) {
+    links.sort(
+      (a, b) =>
+        order(a.id) - order(b.id) ||
+        a.id.localeCompare(b.id) ||
+        String(a.clause ?? '~').localeCompare(String(b.clause ?? '~'), 'en', { numeric: true }),
+    );
+  }
+  return out;
+}
 
 /** @param {unknown} v @returns {string[]} */
 export function list(v) {
@@ -62,6 +142,12 @@ export function buildGraph(entries) {
   const all = [...byId.values()].sort(
     (a, b) => idNumber(String(a.data.id)) - idNumber(String(b.data.id)),
   );
+  /** @type {Map<string, import('./milestones.mjs').Constraint[]> | undefined} */
+  let links;
+  const linksOf = (/** @type {Node} */ m) => {
+    links ??= constraintLinks(all, byId, (it) => MILESTONE_KINDS.includes(String(it.data.kind)));
+    return links.get(String(m.data.id)) ?? [];
+  };
   /** @type {Graph} */
   const g = {
     byId,
@@ -72,7 +158,7 @@ export function buildGraph(entries) {
     milestones: [],
     get: (id) => byId.get(id),
     needs: (it) =>
-      g.isMilestone(it) ? constraintIds(readMilestone(it.data)) : list(it.data.needs),
+      g.isMilestone(it) ? [...new Set(linksOf(it).map((c) => c.id))] : list(it.data.needs),
     isItem: (it) => ITEM_KINDS.includes(String(it.data.kind)),
     isMilestone: (it) => MILESTONE_KINDS.includes(String(it.data.kind)),
     isOpen: (it) => !['done', 'dropped'].includes(String(it.data.state)),
@@ -84,6 +170,12 @@ export function buildGraph(entries) {
     milestonesOf: (projectId) => g.milestones.filter((m) => m.data.project === projectId),
     longOutcomes: () => g.milestones.filter((m) => !m.data.project),
     constraintOf: (id) => g.milestones.filter((m) => g.needs(m).includes(id)),
+    constraintsOf: (m) => linksOf(m),
+    milestoneData: (m) => {
+      const derived = linksOf(m).map(formatConstraint);
+      const { constraints: _, ...rest } = m.data;
+      return derived.length ? { ...rest, constraints: derived } : rest;
+    },
     contributesTo: (id) =>
       g.milestones.filter((m) => readMilestone(m.data).contributions.some((c) => c.id === id)),
   };
