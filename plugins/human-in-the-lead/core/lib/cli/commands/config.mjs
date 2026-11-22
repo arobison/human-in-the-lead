@@ -273,7 +273,7 @@ export const commands = [
         return {
           ok: false,
           error: 'not-permitted',
-          message: `executors never write settings: ${refusal}`,
+          message: refusal,
         };
       }
       const data = dataInput(input, ctx);
@@ -423,7 +423,7 @@ export const commands = [
         return {
           ok: false,
           error: 'not-permitted',
-          message: `executors never write settings: ${refusal}`,
+          message: refusal,
         };
       }
       const opts = { env: ctx.env, cwd: ctx.cwd };

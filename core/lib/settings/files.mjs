@@ -21,6 +21,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeSync,
@@ -126,6 +127,41 @@ export function managedProjectOf(dir) {
     }
     if (dirname(d) === d) return null;
   }
+}
+
+/**
+ * What marks `project` as managed, and the fix when it should not be, for refusals (HITLD-258): a
+ * stray .human-in-the-lead/ in the home folder made home a managed project, and the refusal did not
+ * say which entry did it. Names the marker, what it holds, and the variable that moves the file.
+ * @param {string} project from managedProjectOf @param {SettingsKind} kind
+ * @param {LocationOptions} options
+ * @returns {string}
+ */
+function managedProjectHelp(project, kind, options) {
+  const marker = join(project, '.human-in-the-lead');
+  let what = marker;
+  try {
+    const st = lstatSync(marker);
+    if (st.isDirectory()) {
+      const names = readdirSync(marker, { withFileTypes: true })
+        .map((d) => (d.isDirectory() ? `${d.name}/` : d.name))
+        .sort();
+      const shown = names.slice(0, 5).join(', ');
+      const more = names.length > 5 ? ` and ${names.length - 5} more` : '';
+      what = names.length ? `${marker}/ (it holds ${shown}${more})` : `${marker}/ (empty)`;
+    } else {
+      what = `${marker} (${st.isSymbolicLink() ? 'a symbolic link' : st.isFile() ? 'a file' : 'not a folder'})`;
+    }
+  } catch {
+    // gone since managedProjectOf saw it: name it alone
+  }
+  const where = project === (options.home ?? homedir()) ? `${project}, the home folder,` : project;
+  const variable = kind === 'person' ? 'XDG_CONFIG_HOME' : 'XDG_DATA_HOME';
+  return (
+    `${what} marks ${where} as a project HITLd manages, and settings files never live in a managed ` +
+    `project. If ${project} is not a project, move or remove ${marker}; otherwise set ${variable} ` +
+    `to a directory outside ${project}`
+  );
 }
 
 const O_NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0;
@@ -300,7 +336,7 @@ export function loadSettingsFile(kind, options = {}) {
   if (project) {
     out.errors.push({
       path: loc.path,
-      message: `is inside ${project}, a project HITLd manages; settings files never live in a managed project, so it is not read`,
+      message: `is inside ${project}: ${managedProjectHelp(project, kind, options)}; it is not read`,
     });
     return out;
   }
@@ -339,16 +375,27 @@ export function loadSettingsFile(kind, options = {}) {
 }
 
 /**
- * Why this process may not write settings, or null. Executors never write them (design part 13.4,
- * first run): `config write` refuses when HITLD_ROLE=executor or HITLD_DISPATCH is set, as answers
- * do, and when the process runs in a linked worktree (see executorSignal).
+ * The refusal when this process may not write settings, or null. Executors never write them
+ * (design part 13.4, first run): `config write` refuses when HITLD_ROLE=executor or HITLD_DISPATCH
+ * is set, as answers do, and when the process runs in a linked worktree (see executorSignal). A
+ * linked worktree is where executors work, but the person in one may be the owner, so that refusal
+ * says where to run the setup instead of calling them an executor (HITLD-258).
  * @param {NodeJS.ProcessEnv | undefined} env @param {string} cwd
- * @returns {string | null}
+ * @returns {string | null} the whole message
  */
 export function writerRefusal(env, cwd) {
-  if (env?.HITLD_ROLE === 'executor') return 'HITLD_ROLE is executor';
-  if (env?.HITLD_DISPATCH) return 'HITLD_DISPATCH is set, so this process runs for a dispatch';
-  return executorSignal(env, cwd);
+  if (env?.HITLD_ROLE === 'executor')
+    return 'executors never write settings: HITLD_ROLE is executor';
+  if (env?.HITLD_DISPATCH) {
+    return 'executors never write settings: HITLD_DISPATCH is set, so this process runs for a dispatch';
+  }
+  // With neither variable set, the only signal left is a linked worktree.
+  const signal = executorSignal(env, cwd);
+  if (!signal) return null;
+  return (
+    `settings are not written from a linked worktree, where executors work: ${signal}. ` +
+    'Run the setup from the primary checkout, or from outside any repository'
+  );
 }
 
 /**
@@ -365,14 +412,14 @@ export function writerRefusal(env, cwd) {
  */
 export function writeSettingsFile(kind, data, options = {}) {
   const refusal = writerRefusal(options.env ?? process.env, options.cwd ?? process.cwd());
-  if (refusal) throw new Error(`executors never write settings: ${refusal}`);
+  if (refusal) throw new Error(refusal);
   const registry = options.registry ?? schemas();
   const loc = settingsLocation(kind, options);
   const uid = options.uid ?? currentUid();
   const project = managedProjectOf(nearestExisting(loc.dir));
   if (project) {
     throw new Error(
-      `${loc.path} is inside ${project}, a project HITLd manages; settings files never live in a managed project`,
+      `${loc.path} is inside ${project}: ${managedProjectHelp(project, kind, options)}`,
     );
   }
   /** @type {import('node:fs').Stats | null} */
@@ -422,7 +469,9 @@ export function writeSettingsFile(kind, data, options = {}) {
   }
   const realProject = managedProjectOf(realDir);
   if (realProject) {
-    throw new Error(`${realDir} is inside ${realProject}, a project HITLd manages; not written`);
+    throw new Error(
+      `${realDir} is inside ${realProject}: ${managedProjectHelp(realProject, kind, options)}; not written`,
+    );
   }
   if (POSIX) {
     for (let d = realDir; ; d = dirname(d)) {
