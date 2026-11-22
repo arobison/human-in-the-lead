@@ -257,3 +257,60 @@ test("the block's example uses the project's key, and the check compares against
   assert.equal(compareBlock(text, VERSION, 'APP').status, 'current');
   assert.equal(compareBlock(text, VERSION, 'W').status, 'modified');
 });
+
+// HITLD-256 (GitHub issue 113): the block as written is already formatter-stable, the check
+// ignores differences in blank lines, and a new AGENTS.md starts with a top-level heading.
+test('prettier leaves an installed block as written, and the check still says current (HITLD-256)', async () => {
+  const prettier = await import('prettier');
+  const own = '# Mine\n\nBuild with npm.\n';
+  const created = dir();
+  installBlock(created);
+  const appended = dir();
+  writeFileSync(join(appended, 'AGENTS.md'), own);
+  installBlock(appended);
+  for (const d of [created, appended]) {
+    const text = readFileSync(join(d, 'AGENTS.md'), 'utf8');
+    const formatted = await prettier.format(text, { parser: 'markdown' });
+    assert.equal(formatted, text, 'prettier changes nothing in the file install wrote');
+    assert.equal(compareBlock(formatted).status, 'current');
+  }
+});
+
+test('the check and install ignore differences in blank lines inside the block (HITLD-256)', () => {
+  const d = dir();
+  writeFileSync(join(d, 'AGENTS.md'), '# Mine\n\nBuild with npm.\n');
+  installBlock(d);
+  const text = readFileSync(join(d, 'AGENTS.md'), 'utf8');
+  const spaced = text
+    .replace(/(<!-- hitld:contract begin [^\n]*\n)\n*/, '$1\n\n')
+    .replace('\n\n1. **Claim.**', '\n1. **Claim.**')
+    .replace(/\n*(<!-- hitld:contract end -->)/, '\n\n\n$1');
+  assert.notEqual(spaced, text);
+  assert.equal(compareBlock(spaced).status, 'current');
+  writeFileSync(join(d, 'AGENTS.md'), spaced);
+  assert.deepEqual(checkContract(d).errors, []);
+  assert.equal(installBlock(d).action, 'unchanged', 'install does not fight the formatter');
+  assert.equal(readFileSync(join(d, 'AGENTS.md'), 'utf8'), spaced);
+  // A changed word is still an edit.
+  assert.equal(compareBlock(spaced.replace('Scope.', 'Scope (loosened).')).status, 'modified');
+});
+
+test('the block passes markdownlint MD040 and a new AGENTS.md passes MD041 (HITLD-256)', () => {
+  const block = renderBlock();
+  const fences = block.split('\n').filter((l) => /^```/.test(l));
+  assert.ok(fences.length >= 2 && fences.length % 2 === 0);
+  fences.forEach((f, i) => {
+    if (i % 2 === 0) assert.match(f, /^```[a-z]+$/, `an opening fence names its language: ${f}`);
+  });
+  const lines = block.split('\n');
+  assert.equal(lines[1], '', 'a blank line after the begin marker');
+  assert.equal(lines[lines.length - 3], '', 'a blank line before the end marker');
+  for (const seed of [null, '', '\n\n']) {
+    const d = dir();
+    if (seed !== null) writeFileSync(join(d, 'AGENTS.md'), seed);
+    installBlock(d);
+    const text = readFileSync(join(d, 'AGENTS.md'), 'utf8');
+    assert.match(text.split('\n')[0], /^# \S/, 'the first line is a top-level heading');
+    assert.equal(compareBlock(text).status, 'current');
+  }
+});
