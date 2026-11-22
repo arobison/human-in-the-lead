@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-19
 project: HITLD-15
-constraint_of: [HITLD-67 c2, HITLD-566 c1]
+constraint_of: [HITLD-566 c1]
 ---
 
 ## Why
@@ -37,3 +37,7 @@ On migration the engine records today's standing delegations (tracker-only merge
 ## Moved into rc.2 on 2026-11-22 (HITLD-809)
 
 The owner asked why they are asked to approve every code pull request, and decided that the merging trust engine is built in rc.2. This item is planned and also joins milestone HITLD-67 (second clause); it stays in milestone HITLD-566 too. No kind unlocks until it meets the bar (15 merges aged 7 days from 8 distinct items); skills, hooks, contracts, schemas, guards, public interface and policy never unlock.
+
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.

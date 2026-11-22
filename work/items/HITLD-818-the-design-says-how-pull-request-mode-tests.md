@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-814]
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-189 c?]
 ---
 
 ## Done when
@@ -20,3 +20,6 @@ HITLD-814 is settled by the owner (HITLD-815, 816, 817): the pull-request merge 
 - Part 14.2 says the batch, how it lands (with the fallbacks), the bisect on failure and that approvals hold for the branches that land.
 - The design PR reaches main only with the owner's own yes. `npm run check` and `hitld work check` pass.
 
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.

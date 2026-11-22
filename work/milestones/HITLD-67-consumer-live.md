@@ -76,3 +76,7 @@ On 2026-11-22, four items from the run join this milestone: HITLD-838, HITLD-839
 On the owner's decision (2026-11-22), three items join the fourth clause: HITLD-846, HITLD-847, HITLD-848 (the usage and dollars of each session reach the ledger; the dashboard and quota report show dollars beside tokens; the design of dollar budgets).
 
 On 2026-11-22, HITLD-853 and HITLD-854 join the second clause: the report parser refuses a (one-way) call line the contract allows, and this repository needs `release migrate` applied before the rc.2 release.
+
+## Frozen on 2026-11-22 (HITLD-874)
+
+On the owner's decision HITLD-874 the constraint set is frozen: new friction goes to the next release by default, and changing a constraint is a decision. The trust engine core and merging (HITLD-552, 553), batching and its design (HITLD-814, 818), the dollar and dashboard work (HITLD-846, 847, 848, 693, 694), the executor ceiling command (HITLD-204) and the hand-merge command (HITLD-429) left this milestone for later ones; the owner's earlier decision to keep them (HITLD-850) is reversed.

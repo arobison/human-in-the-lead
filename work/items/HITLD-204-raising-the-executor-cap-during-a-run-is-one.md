@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-16
 project: HITLD-15
-constraint_of: [HITLD-65 c2, HITLD-67 c2]
+constraint_of: [HITLD-65 c2]
 ---
 
 ## Why
@@ -37,3 +37,6 @@ There is no run layer in the cap any more. `max_executors` is a hard ceiling the
 
 The run layer is still in the code: orch-6's run record fixed the cap at 2 while the owner's person and project settings said 4 and 5, and the owner could not raise it without typing in the orchestrator's session. The item joins milestone HITLD-67 (second clause); with HITLD-804 the raise is one owner decision and no visit to the orchestrator.
 
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.
