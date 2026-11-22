@@ -2,9 +2,10 @@
 id: HITLD-744
 title: Design how a copied file's port and server entries follow the worktree's leased port
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80ZP9FNCKPRJX
 ---
 
 ## Why
