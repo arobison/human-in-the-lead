@@ -29,3 +29,8 @@ The owner talks only to the chief of staff. In the first self-hosted run, they c
 ## Moved on 2026-11-20 (HITLD-607)
 
 On the owner's decision HITLD-607, this item moved from milestone HITLD-407 (c1) to milestone HITLD-404 (c4). It still needs a design walk-through (HITLD-135) before it is built, so it is not ready.
+
+## Settled on 2026-11-22 (HITLD-803)
+
+The owner chose standing allow rules plus a signed decision check. The build is HITLD-804 and the design text HITLD-805. This item also joins milestone HITLD-67 (second clause) because the owner never wants to type in the orchestrator's session, and it stays proposed only until the design PR for HITLD-805 is approved.
+
