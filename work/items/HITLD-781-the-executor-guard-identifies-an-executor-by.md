@@ -2,9 +2,10 @@
 id: HITLD-781
 title: The executor guard identifies an executor by its claim branch, so cloud executor sessions are guarded and metered
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80Q97GEKK8RZ9
 ---
 
 ## Why
