@@ -2,7 +2,7 @@
 id: HITLD-692
 title: A project declares extra panels in a views file, and HITLD renders them with no script
 kind: work
-state: in-progress
+state: done
 created: 2026-11-21
 project: HITLD-15
 needs: [HITLD-691]
