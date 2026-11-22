@@ -2,9 +2,10 @@
 id: HITLD-765
 title: The execute skill says an executor may push its own branch to open its pull request
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80WTA5XNBY3DH
 ---
 
 ## Why
