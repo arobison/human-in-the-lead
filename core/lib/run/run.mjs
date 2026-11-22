@@ -296,16 +296,19 @@ export function releaseLease(store, options) {
 }
 
 /**
- * Whether the session holding the lease should hand over to a fresh one (design part 13.1): after
+ * Whether the session holding the lease should hand over (design part 13.1): after
  * `afterCompletions` completions since it took the lease, or once the share of its context it has
- * used (which only the session itself can read from its harness) reaches `contextShare`.
+ * used reaches `contextShare`. The share is the larger of what the chief of staff last measured
+ * from the harness's record of the session (a `context-measured` event since the lease was taken,
+ * HITLD-794) and what the session itself reports (`contextUsed`): a lower self-report never undoes
+ * a measurement.
  * @param {RunState} state @param {LedgerEntry[]} events
  * @param {{ afterCompletions?: number, contextShare?: number, contextUsed?: number | null }} [limits]
  */
 export function handoverDue(state, events, limits = {}) {
-  const after = limits.afterCompletions ?? 20;
-  const share = limits.contextShare ?? 0.7;
-  const used = typeof limits.contextUsed === 'number' ? limits.contextUsed : null;
+  const after = limits.afterCompletions ?? HANDOVER_DEFAULTS.afterCompletions;
+  const share = limits.contextShare ?? HANDOVER_DEFAULTS.contextShare;
+  const reported = typeof limits.contextUsed === 'number' ? limits.contextUsed : null;
   const l = state.lease;
   const took = events.findLastIndex(
     (e) =>
@@ -313,10 +316,23 @@ export function handoverDue(state, events, limits = {}) {
       e.session === l.session &&
       e.host === l.host,
   );
+  const since = events.slice(took + 1);
   // A correction of a completion's figure (hitld ledger correct-tokens) is not a completion.
-  const completions = events
-    .slice(took + 1)
-    .filter((e) => e.event === 'reported' && e.corrects === undefined).length;
+  const completions = since.filter(
+    (e) => e.event === 'reported' && e.corrects === undefined,
+  ).length;
+  const measurement = since.findLast(
+    (e) =>
+      e.event === 'context-measured' &&
+      e.session === l.session &&
+      e.host === l.host &&
+      typeof e.context_share === 'number',
+  );
+  const measured = measurement ? /** @type {number} */ (measurement.context_share) : null;
+  const used =
+    measured === null ? reported : reported === null ? measured : Math.max(measured, reported);
+  const source =
+    used === null ? null : measured !== null && used === measured ? 'measured' : 'reported';
   /** @type {string[]} */
   const reasons = [];
   if (completions >= after) {
@@ -324,7 +340,7 @@ export function handoverDue(state, events, limits = {}) {
   }
   if (used !== null && used >= share) {
     reasons.push(
-      `${Math.round(used * 100)}% of the context used (limit ${Math.round(share * 100)}%)`,
+      `${Math.round(used * 100)}% of the context used, ${source === 'measured' ? 'as the chief of staff measured it' : 'as the session reported it'} (limit ${Math.round(share * 100)}%)`,
     );
   }
   return {
@@ -333,9 +349,14 @@ export function handoverDue(state, events, limits = {}) {
     completions,
     after_completions: after,
     context_used: used,
+    context_source: source,
+    context_measured_at: measurement?.at ?? null,
     context_share: share,
   };
 }
+
+/** The package defaults for policy orchestrator.handover_* (HITLD-794). */
+export const HANDOVER_DEFAULTS = Object.freeze({ afterCompletions: 8, contextShare: 0.3 });
 
 /**
  * The dispatches whose completion notice reaches only the session that dispatched them: background
