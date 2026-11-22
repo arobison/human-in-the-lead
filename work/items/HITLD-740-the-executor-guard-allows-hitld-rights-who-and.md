@@ -2,9 +2,10 @@
 id: HITLD-740
 title: The executor guard allows hitld rights who and hitld precedent match
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80FDV0FQTXR6K
 ---
 
 ## Why
