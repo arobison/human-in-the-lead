@@ -1,8 +1,10 @@
-// Releases (design parts 2.7, 3.2 and 16.5): `hitld release propose` reads the interface delta
-// since the last full release and proposes the bump; `hitld release make` writes the release
-// record and the tag. The work is in core/lib/release/.
+// Releases (design parts 2.7, 3.2 and 16.5; HITLD-752): `hitld release propose` reads a release
+// package's interface delta since its last full release and proposes the bump; `hitld release
+// make` writes the release records and the tags; `hitld release migrate` moves the releases from
+// before packages into the package main. The work is in core/lib/release/.
 
 import { makeRelease } from '../../release/make.mjs';
+import { applyMigration, planMigration } from '../../release/migrate.mjs';
 import { proposeRelease } from '../../release/propose.mjs';
 import { executorSignal } from '../executor.mjs';
 import { open, where } from './tracker.mjs';
@@ -19,6 +21,22 @@ const preArg = {
 };
 
 /** @type {import('../args.mjs').ArgSpec} */
+const packageArg = {
+  name: 'package',
+  type: 'string',
+  description:
+    'The release package, one declared in policy.json release.packages; may be left out when exactly one is declared. A package in a lockstep group is released with its whole group',
+};
+
+/** @type {import('../args.mjs').ArgSpec} */
+const trainArg = {
+  name: 'train',
+  type: 'string',
+  description:
+    "A release train: the item whose needs are several packages' release items, released together at their versions in one approval",
+};
+
+/** @type {import('../args.mjs').ArgSpec} */
 const itemArg = {
   name: 'item',
   type: 'string',
@@ -29,10 +47,15 @@ const itemArg = {
 /** The top-level fields `release propose` prints, for the interface delta. */
 const PROPOSAL_FIELDS = [
   'ok',
+  'package',
+  'group',
+  'train',
   'last_tag',
   'base',
   'base_version',
   'first_release',
+  'surface',
+  'interface_measured',
   'interface_delta',
   'bump',
   'breaking',
@@ -47,9 +70,27 @@ const PROPOSAL_FIELDS = [
   'release_item',
   'gates',
   'milestones',
+  'depends',
+  'dependents',
+  'releases',
   'unreleased',
   'package_version',
   'warnings',
+];
+
+/** The top-level fields `release migrate` prints. */
+const MIGRATE_FIELDS = [
+  'ok',
+  'needed',
+  'applied',
+  'declared',
+  'package',
+  'policy',
+  'moves',
+  'tags_kept',
+  'problems',
+  'commit',
+  'next',
 ];
 
 /** @type {import('../table.mjs').Command[]} */
@@ -57,10 +98,12 @@ export const commands = [
   {
     name: 'release propose',
     summary:
-      'Propose a release: the interface delta since the last full release, the bump it proposes, draft notes, missing changelog lines and unmet gates',
+      'Propose a release of a package: the interface delta from its surface file since its last full release, the bump it proposes, draft notes, missing changelog lines, dependency pins, the packages that depend on a breaking change, and unmet gates',
     built_by: 'first-release',
     output: PROPOSAL_FIELDS,
     args: [
+      packageArg,
+      trainArg,
       preArg,
       itemArg,
       {
@@ -74,6 +117,8 @@ export const commands = [
     async run(input, ctx) {
       const t = open(input, ctx, { readOnly: true });
       const p = await proposeRelease(t, {
+        package: typeof input.package === 'string' ? input.package : undefined,
+        train: typeof input.train === 'string' ? input.train : undefined,
         pre: typeof input.pre === 'string' ? input.pre : undefined,
         item: typeof input.item === 'string' ? input.item : undefined,
       });
@@ -83,10 +128,12 @@ export const commands = [
   {
     name: 'release make',
     summary:
-      "Make a release: write the release record and an annotated tag on main, or with --branch the record alone on a release branch; never pushing (the owner's, from the main session)",
+      "Make a release of a package (with its lockstep group) or a release train: write the release records and annotated tags on main, or with --branch one record alone on a release branch; never pushing (the owner's, from the main session)",
     built_by: 'first-release',
     mcp: false,
     args: [
+      packageArg,
+      trainArg,
       {
         name: 'version',
         type: 'string',
@@ -123,6 +170,8 @@ export const commands = [
       }
       const t = open(input, ctx);
       const made = await makeRelease(t, {
+        package: typeof input.package === 'string' ? input.package : undefined,
+        train: typeof input.train === 'string' ? input.train : undefined,
         version: typeof input.version === 'string' ? input.version : undefined,
         pre: typeof input.pre === 'string' ? input.pre : undefined,
         decision: typeof input.decision === 'string' ? input.decision : undefined,
@@ -130,6 +179,67 @@ export const commands = [
         branch: typeof input.branch === 'string' ? input.branch : undefined,
       });
       return { ok: true, ...made };
+    },
+  },
+  {
+    name: 'release migrate',
+    summary:
+      "Move the releases from before release packages into a package named main: report the plan, or with --apply (the owner's, from the main session) declare main in policy.json and move the records, keeping every tag as it is",
+    built_by: 'first-release',
+    mcp: false,
+    output: MIGRATE_FIELDS,
+    args: [
+      {
+        name: 'surface',
+        type: 'string',
+        description: 'The committed surface file to declare for main, when there is one',
+      },
+      {
+        name: 'apply',
+        type: 'boolean',
+        description:
+          "Write policy.json and the moved records in one commit (the owner's, in the main session); without it nothing is written",
+      },
+      ...repoArg,
+    ],
+    async run(input, ctx) {
+      const apply = input.apply === true;
+      if (apply) {
+        // Changing how every release is found is the owner's, as making one is.
+        const why = executorSignal(ctx.env, ctx.cwd);
+        if (why || ctx.interactive !== true) {
+          return {
+            ok: false,
+            error: 'not-permitted',
+            message: `release migrate --apply is the owner's, through the main session in the primary checkout (${why ?? 'not the human command line'}); without --apply it only reports the plan`,
+          };
+        }
+      }
+      const t = open(input, ctx, { readOnly: !apply });
+      const plan = planMigration(t, {
+        surface: typeof input.surface === 'string' ? input.surface : undefined,
+      });
+      if (!apply || !plan.needed) {
+        return {
+          ok: true,
+          ...plan,
+          applied: false,
+          commit: null,
+          next: plan.needed
+            ? plan.problems.length
+              ? `Fix the problems first; then the owner runs hitld release migrate${typeof input.surface === 'string' ? ` --surface ${input.surface}` : ''} --apply`
+              : `Nothing was written. The owner runs hitld release migrate${typeof input.surface === 'string' ? ` --surface ${input.surface}` : ''} --apply in the main session to make this change`
+            : 'Nothing to migrate: a release package is declared',
+        };
+      }
+      const done = applyMigration(t, plan);
+      return {
+        ok: true,
+        ...plan,
+        applied: true,
+        commit: done.commit,
+        next: 'Nothing was pushed. Check the commit (hitld work check), then push it or open a pull request from it',
+      };
     },
   },
 ];

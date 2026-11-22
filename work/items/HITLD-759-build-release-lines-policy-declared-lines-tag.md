@@ -2,9 +2,11 @@
 id: HITLD-759
 title: "Build release packages: policy-declared packages, tag templates, surface-file deltas, --package, dependencies, groups, trains, channels and migration"
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M810MFACNEE1X8
+release_note: "Release packages: policy.json `release.packages` declares each package (tag template, owned paths, surface file, version source, `depends_on` ranges, lockstep group, channels); `release propose` and `release make` take `--package` and `--train`, records live under `work/releases/<package>/<version>.md` and pin their dependencies, and `hitld release migrate` moves repository-wide releases into the package main, keeping every tag."
 ---
 
 ## Why

@@ -3,11 +3,15 @@
 //
 // A release arrives on main as the squash commit of a release pull request (`hitld release make
 // --branch`). The check refuses unless:
-//   - the commit adds exactly one record under <work dir>/releases/ (none: nothing to release);
+//   - the commit adds exactly one record under <work dir>/releases/<package>/ (none: nothing to
+//     release); a record directly under <work dir>/releases/ is from before release packages;
 //   - the record parses and passes the tracker's checks and the release schema;
 //   - its tag does not exist yet;
-//   - its version is the one `release propose` gives at the commit's parent, for the same
-//     pre-release label or for a full release, and its `previous` is that proposal's base;
+//   - its version is the one `release propose --package <its package>` gives at the commit's
+//     parent (for a package with no surface file, which gets no proposal: any version above its
+//     last full release), for the same pre-release label or for a full release, its `previous` is that
+//     proposal's base, and that release is of this package alone (a lockstep group or a train is
+//     made on main, where `release make` tags each record);
 //   - the commit is on main, has one parent, and its subject ends with the pull request number
 //     GitHub's squash merge adds, "(#N)"; given the pull requests GitHub links the commit to, N
 //     must be one of them.
@@ -25,7 +29,7 @@ import { openTracker } from '../tracker/files/tracker.mjs';
 import { git } from '../tracker/files/tree.mjs';
 import { describeGates, tagMessage } from './make.mjs';
 import { proposeRelease } from './propose.mjs';
-import { isPrerelease, parseVersion } from './semver.mjs';
+import { bumpBetween, isPrerelease, parseVersion } from './semver.mjs';
 
 /**
  * @typedef {object} RecordCheck
@@ -119,7 +123,10 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
     .split('\n')
     .map((f) => f.trim())
     .filter(
-      (f) => f.startsWith(`${dir}/`) && f.endsWith('.md') && !f.slice(dir.length + 1).includes('/'),
+      (f) =>
+        f.startsWith(`${dir}/`) &&
+        f.endsWith('.md') &&
+        f.slice(dir.length + 1).split('/').length <= 2,
     );
   if (!added.length) {
     out.ok = true;
@@ -139,6 +146,13 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
   }
   const path = added[0];
   out.record = path;
+  const pkg = path.slice(dir.length + 1).split('/').length === 2 ? path.split('/').at(-2) : null;
+  if (pkg === null) {
+    problems.push(
+      `${path} is a repository-wide record from before release packages; a release adds <work dir>/releases/<package>/<version>.md`,
+    );
+    return out;
+  }
 
   // The record: it parses, and passes the tracker's checks and the schema.
   const entry = t.releases().find((r) => r.path === path);
@@ -200,12 +214,27 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
   const wt = mkdtempSync(join(tmpdir(), 'hitld-release-check-'));
   try {
     git(root, ['worktree', 'add', '-q', '--detach', wt, parents[0]]);
-    const p = await proposeRelease(openAt(wt), label ? { pre: label } : {});
+    const p = await proposeRelease(openAt(wt), {
+      package: pkg,
+      version,
+      ...(label ? { pre: label } : {}),
+    });
+    if (p.releases.length > 1) {
+      problems.push(
+        `${pkg} is released with its lockstep group (${p.releases.map((r) => r.package).join(', ')}); a release of several packages is made on main with hitld release make, which tags each record`,
+      );
+    }
     out.proposed = p.version;
     out.warnings.push(...p.warnings);
-    if (p.version !== version) {
+    if (!p.interface_measured) {
+      // No surface file: no version is proposed, and the owner named it (HITLD-752, Q39). It
+      // must still be above the last full release.
+      if (!bumpBetween(p.base_version, version)) {
+        problems.push(`${tag} is not above ${pkg}'s last full release, ${p.base_version}`);
+      }
+    } else if (p.version !== version) {
       problems.push(
-        `${tag} is not the next release: at the parent, release propose${label ? ` --pre ${label}` : ''} gives ${p.version} (${p.reason})`,
+        `${tag} is not the next release: at the parent, release propose --package ${pkg}${label ? ` --pre ${label}` : ''} gives ${p.version} (${p.reason})`,
       );
     }
     if (p.release_item && p.gates.length) {

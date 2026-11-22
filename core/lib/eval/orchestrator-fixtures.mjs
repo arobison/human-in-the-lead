@@ -251,7 +251,7 @@ export const MERGE_SETTINGS = Object.freeze({
  *   merged-but-open        W-8 has a merged commit with its Work-Item and Dispatch trailers, and
  *                          W-10 a ledger merged event, both still planned; W-9 likewise, but done
  *   release-needs-overlap  W-11 (0.1.0) and W-13 (0.2.0) both need W-12
- *   missing-release-note   W-14 changed a schema with no release_note; W-15 did, with one
+ *   missing-release-note   W-14 changed the surface file with no release_note; W-15 did, with one
  * The ledger goes in the private store under dataHome (XDG_DATA_HOME). Judge it at 2026-11-16.
  * @param {string} root an absent or empty directory @param {string} dataHome
  * @returns {{ root: string, project: string, now: string }}
@@ -275,6 +275,9 @@ export function buildSweepConsumer(root, dataHome) {
         schema_version: 1,
         project: { id: project, key: 'W' },
         sweep: { proposed_max_age: 30 },
+        release: {
+          packages: [{ name: 'main', tag: 'v{version}', paths: ['**'], surface: 'surface.txt' }],
+        },
       },
       null,
       2,
@@ -284,6 +287,7 @@ export function buildSweepConsumer(root, dataHome) {
       optional_keys: ['release_note'],
     }),
     'package.json': '{ "type": "module" }\n',
+    'surface.txt': 'schema thing\n',
     ...item('W-1', 'Claimed then abandoned'),
     ...item('W-2', 'Claimed and running'),
     ...item('W-3', 'An old proposal', { state: 'proposed', created: '2026-09-01' }),
@@ -314,9 +318,11 @@ export function buildSweepConsumer(root, dataHome) {
   commit('Merged work (W-9)', 'Work-Item: W-9\nDispatch: D-4', { 'src/nine.js': 'export {};\n' });
   commit('A schema field (W-14)', 'Work-Item: W-14', {
     'schemas/thing.schema.json': '{ "$id": "thing", "type": "object" }\n',
+    'surface.txt': 'schema thing\nschema thing id: string, optional\n',
   });
   commit('Another schema field (W-15)', 'Work-Item: W-15', {
     'schemas/other.schema.json': '{ "$id": "other", "type": "object" }\n',
+    'surface.txt': 'schema thing\nschema thing id: string, optional\nschema other\n',
   });
   // Claims live on branches: W-1 by D-1, which has reported; W-2 by D-2, still in flight.
   for (const [id, dispatch] of [

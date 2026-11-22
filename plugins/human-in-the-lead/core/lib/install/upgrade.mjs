@@ -86,32 +86,40 @@ export function recordDirs(options = {}) {
 const list = (v) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
 
 /**
- * Read the release records in a directory. A record is data: front matter and its notes. Files that
- * are not regular files, or do not parse as a record, are skipped.
+ * Read the release records in a directory: HITLD's own, in the folder of its package, main
+ * (<dir>/main/<version>.md, tagged v<version>), and any from before release packages, directly in
+ * <dir> and named by their tag. A record is data: front matter and its notes. Files that are not
+ * regular files, or do not parse as a record, are skipped.
  * @param {string} dir
  * @returns {ReleaseRecord[]}
  */
 export function loadRecords(dir) {
-  if (!existsSync(dir)) return [];
-  /** @type {ReleaseRecord[]} */
-  const out = [];
-  for (const file of readdirSync(dir).sort()) {
-    if (!TAG.test(file.replace(/\.md$/, '')) || !file.endsWith('.md')) continue;
-    const path = join(dir, file);
-    if (!lstatSync(path).isFile()) continue;
-    const { data, body, errors } = parseItem(readFileSync(path, 'utf8'));
-    if (!data || errors.length || typeof data.version !== 'string') continue;
-    if (`v${data.version}.md` !== file) continue;
-    out.push({
-      tag: `v${data.version}`,
-      version: data.version,
-      bump: typeof data.bump === 'string' ? data.bump : null,
-      interface_delta: list(data.interface_delta).map(String),
-      notes: notesOf(body),
-      file: path,
-    });
-  }
-  return out.sort((a, b) => compareVersions(a.version, b.version));
+  /** @type {Map<string, ReleaseRecord>} */
+  const out = new Map();
+  /** @param {string} folder @param {(file: string, version: string) => boolean} named */
+  const read = (folder, named) => {
+    if (!existsSync(folder) || !lstatSync(folder).isDirectory()) return;
+    for (const file of readdirSync(folder).sort()) {
+      if (!file.endsWith('.md')) continue;
+      const path = join(folder, file);
+      if (!lstatSync(path).isFile()) continue;
+      const { data, body, errors } = parseItem(readFileSync(path, 'utf8'));
+      if (!data || errors.length || typeof data.version !== 'string') continue;
+      const tag = `v${data.version}`;
+      if (!TAG.test(tag) || data.id !== tag || !named(file, data.version) || out.has(tag)) continue;
+      out.set(tag, {
+        tag,
+        version: data.version,
+        bump: typeof data.bump === 'string' ? data.bump : null,
+        interface_delta: list(data.interface_delta).map(String),
+        notes: notesOf(body),
+        file: path,
+      });
+    }
+  };
+  read(join(dir, 'main'), (file, version) => file === `${version}.md`);
+  read(dir, (file, version) => file === `v${version}.md`);
+  return [...out.values()].sort((a, b) => compareVersions(a.version, b.version));
 }
 
 /** The bullet lines under a record's `## Notes`. @param {string} body */

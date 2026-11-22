@@ -14,9 +14,11 @@
 // A part a checkout does not have is empty, so a repository with none of these files has an empty
 // surface, and every change to it is internal.
 //
-// Run as a script (`node surface.mjs <dir>`), it prints the surface of <dir> as JSON. That is how
-// the surface of an earlier release is read: its own files, extracted from git, read by its own
-// copy of this module (release/propose.mjs).
+// `node core/bin/surface.mjs` prints or writes the surface file (`npm run surface`).
+//
+// HITLD's own release package, main, measures its interface from a committed surface file
+// (HITLD-755): `npm run surface` writes it from this surface, one line per element
+// (surfaceLines), and `release propose` diffs that file between releases.
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -206,7 +208,47 @@ export async function surfaceOf(dir) {
   };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const dir = process.argv[2] ?? process.cwd();
-  process.stdout.write(`${JSON.stringify(await surfaceOf(dir))}\n`);
+/**
+ * The surface as the lines of a committed surface file (HITLD-755): one line per public interface
+ * element, sorted, so `release propose` can diff the file between releases. Lines only added
+ * propose minor; a removed or changed line proposes major. The contract's wording is left out:
+ * its report keys and trailers are the interface, not its prose.
+ * @param {Surface} s
+ * @returns {string[]}
+ */
+export function surfaceLines(s) {
+  /** @type {string[]} */
+  const out = [];
+  for (const [id, schema] of Object.entries(s.schemas)) {
+    out.push(`schema ${id}`);
+    for (const [path, f] of Object.entries(schema.fields)) {
+      out.push(
+        `schema ${id} ${path}: ${f.type}, ${f.required ? 'required' : 'optional'}${f.values ? `, one of ${f.values.join(' | ')}` : ''}`,
+      );
+    }
+  }
+  for (const [name, c] of Object.entries(s.cli)) {
+    out.push(`cli hitld ${name}`);
+    for (const [arg, a] of Object.entries(c.args)) {
+      out.push(
+        `cli hitld ${name} ${a.positional ? `<${arg}>` : `--${arg}`}: ${a.type}, ${a.required ? 'required' : 'optional'}`,
+      );
+    }
+    for (const alias of c.aliases) out.push(`cli hitld ${name} alias ${alias}`);
+    for (const field of c.output ?? []) out.push(`cli hitld ${name} json ${field}`);
+  }
+  for (const k of s.report) out.push(`report ${k}`);
+  for (const k of s.trailers) out.push(`trailer ${k}`);
+  if (s.read_api !== null) out.push(`read-api version ${s.read_api}`);
+  return [...new Set(out)].sort();
+}
+
+/** The text of the surface file for a checkout. @param {string} dir */
+export async function surfaceFileText(dir) {
+  return [
+    '# The public interface of this checkout, one element per line, written by',
+    '# `npm run surface` (core/bin/surface.mjs). Commit it with the change that changes it.',
+    ...surfaceLines(await surfaceOf(dir)),
+    '',
+  ].join('\n');
 }

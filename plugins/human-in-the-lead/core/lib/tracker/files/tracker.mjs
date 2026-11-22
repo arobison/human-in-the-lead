@@ -61,6 +61,7 @@ import {
   releaseEntity,
   releasedIn,
 } from './releases.mjs';
+import { checkPackages } from '../../release/packages.mjs';
 import { allocate, assertOrchestrator } from './ids.mjs';
 import { sharedIds } from './shared-ids.mjs';
 import { parseItem, renderItem, slugify } from './frontmatter.mjs';
@@ -118,7 +119,7 @@ import { CodedError } from '../../cli/errors.mjs';
  *   committed state changes, oldest first, from one read of the work directory's history
  * @property {(options?: { only?: string, dryRun?: boolean, commit?: boolean, migrations?: readonly import('./migrate.mjs').Migration[] }) => ReturnType<typeof migrateTracker>} migrate
  *   apply the registered format migrations to every file (idempotent; dryRun shows the diff)
- * @property {() => Entry[]} releases the release records
+ * @property {() => import('./releases.mjs').Entry[]} releases the release records
  * @property {(ids: string[]) => Set<string>} authorRoles the roles that wrote the named items
  * @typedef {TrackerAdapter & FilesExtras} FilesTracker
  */
@@ -799,6 +800,7 @@ export function openTracker({
       const g = buildGraph(items);
       const problems = [
         ...checkItems(items, layout, { root, onMain, authorRoles }),
+        ...checkPackages(layout.packages ?? [], { root }),
         ...checkReleases(releases(), layout, (id) => g.get(id)?.data),
         ...pendingMigrationProblems(root, layout),
       ];

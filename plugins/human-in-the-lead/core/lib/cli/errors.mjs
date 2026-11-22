@@ -173,6 +173,12 @@ export const ERROR_CODES = Object.freeze({
   'release-gates-open':
     'The release item for this version still needs an item or milestone that is not done or dropped.',
   'release-item-mismatch': 'The release item named is the release item for another version.',
+  'no-packages': 'No release package is declared in policy.json release.packages.',
+  'package-required': 'Several release packages are declared, and the command names none.',
+  'unknown-package': 'No release package by that name is declared.',
+  'dependency-out-of-range':
+    'A package this release depends on has no release in the range the package declares.',
+  'not-a-train': "The item named is not a release train: it needs no two packages' release items.",
 
   // Security and quarantine
   security: 'The security command stopped on an error; the message says what.',

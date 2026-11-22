@@ -1,7 +1,7 @@
 {
   "$id": "release",
   "title": "Release record",
-  "description": "The record of what reached users, written by `hitld release make` when the owner makes a release (design part 3.2, Milestones and releases): one file per release, work/releases/<tag>.md, named by its tag. The body holds the notes. In the files backend each interface_delta entry is one line of text, \"<impact> <surface>: <what>\"; this schema covers the entity as the read API returns it.",
+  "description": "The record of what reached users, written by `hitld release make` when the owner makes a release (design part 3.2, Milestones and releases; HITLD-752): one file per release of a package, work/releases/<package>/<version>.md. A record directly under work/releases/, named by its v-tag, is a repository-wide record from before release packages, which `hitld release migrate` moves into the package named main. The body holds the notes. In the files backend each interface_delta entry is one line of text, \"<impact> <surface>: <what>\", and each depends entry \"<package>@<version>\"; this schema covers the entity as the read API returns it.",
   "x-hitld-schema-version": 1,
   "type": "object",
   "properties": {
@@ -9,15 +9,20 @@
       "$ref": "common#/$defs/schemaVersion"
     },
     "id": {
-      "description": "The tag: v and the version, such as v0.4.0 or v0.4.0-rc.1.",
+      "description": "The tag, from the package's tag template, such as core@1.2.0, core/v1.2.0 or v0.1.0-rc.1.",
       "$ref": "#/$defs/tag"
+    },
+    "package": {
+      "description": "The release package, one declared in policy.json release.packages. Absent only on a record from before release packages.",
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
     },
     "version": {
       "description": "A semantic version. A pre-release version carries a hyphen and identifiers, such as 0.4.0-rc.1.",
       "$ref": "#/$defs/version"
     },
     "previous": {
-      "description": "The last full release before this one, which the interface delta and the bump are measured from. Absent for the first release. A pre-release is never the base of a bump.",
+      "description": "The last full release of the same package before this one, which the interface delta and the bump are measured from. Absent for the package's first release. A pre-release is never the base of a bump.",
       "$ref": "#/$defs/tag"
     },
     "bump": {
@@ -25,18 +30,49 @@
       "enum": ["major", "minor", "patch"]
     },
     "interface_delta": {
-      "description": "The changes to the public interface since previous that justify the bump (design part 16.5).",
+      "description": "The changes to the public interface since previous that justify the bump (design part 16.5): for a package with a surface file, its lines added (additive) and removed (breaking), under surface.",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "impact": { "enum": ["breaking", "additive", "fix"] },
-          "surface": {
-            "enum": ["schemas", "cli", "contract", "report", "trailers", "read-api", "adapters"]
+          "impact": {
+            "enum": ["breaking", "additive", "fix"]
           },
-          "what": { "$ref": "common#/$defs/text" }
+          "surface": {
+            "enum": [
+              "surface",
+              "schemas",
+              "cli",
+              "contract",
+              "report",
+              "trailers",
+              "read-api",
+              "adapters"
+            ]
+          },
+          "what": {
+            "$ref": "common#/$defs/text"
+          }
         },
         "required": ["impact", "surface", "what"],
+        "additionalProperties": false
+      }
+    },
+    "depends": {
+      "description": "The exact versions of the packages this release was built against: one for each package its depends_on names, the version that package was released at or is released at in the same train.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string",
+            "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+          },
+          "version": {
+            "$ref": "#/$defs/version"
+          }
+        },
+        "required": ["package", "version"],
         "additionalProperties": false
       }
     },
@@ -44,6 +80,10 @@
       "description": "The decision or the precedent under which it was made: a tracker ID, a precedent ID, or owner when the owner made it directly in the main session.",
       "type": "string",
       "pattern": "^(owner|[A-Z][A-Z0-9]*-[1-9][0-9]*)$"
+    },
+    "train": {
+      "description": "The release train item this release was made under, with the other packages' releases it needs, in one owner approval.",
+      "$ref": "common#/$defs/id"
     },
     "items": {
       "description": "Items closed since previous, written into the record when it is made so readers need no git.",
@@ -66,7 +106,7 @@
     },
     "tag": {
       "type": "string",
-      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+      "pattern": "^[A-Za-z0-9._@/-]*(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
     }
   }
 }

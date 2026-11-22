@@ -14,14 +14,14 @@
 //                          a ledger `merged` event names it, or a commit on the main branch carries
 //                          its Work-Item and a Dispatch trailer
 //   release-needs-overlap  two release items whose needs include the same item
-//   missing-release-note   an item whose commits since the last full release changed public surface,
-//                          with no `release_note`
+//   missing-release-note   an item whose commits since a package's last full release changed its
+//                          surface file, with no `release_note`
 //
 // A kind that cannot be checked is listed under `skipped` with the reason, never reported clean.
 
 import { inflight } from '../../ledger/inflight.mjs';
 import { DISPATCH_ID } from '../../ledger/ids.mjs';
-import { releaseTags, surfaceTouches } from '../../release/propose.mjs';
+import { itemFiles, packageTags } from '../../release/propose.mjs';
 import { isPrerelease } from '../../release/semver.mjs';
 import { findClaims, mainRef, unclaimedClaims } from './claims.mjs';
 import { allowedKeys } from './format.mjs';
@@ -237,21 +237,44 @@ export function sweepTracker(t, { events, policy, now }) {
       why: 'release_note is not turned on for this tracker (optional_keys in tracker.json)',
     });
   } else {
-    checked.push('missing-release-note');
-    const base =
-      [...releaseTags(root)].reverse().find((tag) => !isPrerelease(tag.slice(1))) ?? null;
-    const touches = surfaceTouches(root, base);
-    for (const [id, files] of [...touches].sort(([a], [b]) => idNumber(a) - idNumber(b))) {
-      const it = g.get(id);
-      if (!it || it.data.kind !== 'work' || it.data.release_note) continue;
-      const list = [...files].sort();
-      findings.push({
+    const packages = (layout.packages ?? []).filter((p) => p.surface);
+    if (!packages.length) {
+      skipped.push({
         kind: 'missing-release-note',
-        item: id,
-        title: titleOf(id),
-        why: `its commits${base ? ` since ${base}` : ''} changed public surface (${list.slice(0, 3).join(', ')}${list.length > 3 ? ', ...' : ''}), and it has no release_note`,
-        files: list,
+        why: (layout.packages ?? []).length
+          ? 'no release package declares a surface file (policy.json release.packages)'
+          : 'no release package is declared (policy.json release.packages)',
       });
+    } else {
+      checked.push('missing-release-note');
+      // Per package: the items whose commits since its last full release changed its surface file.
+      /** @type {Map<string, { files: Set<string>, since: string[] }>} */
+      const found = new Map();
+      for (const p of packages) {
+        const base =
+          [...packageTags(root, p)].reverse().find((x) => !isPrerelease(x.version))?.tag ?? null;
+        for (const [id, files] of itemFiles(root, base)) {
+          if (!files.has(/** @type {string} */ (p.surface))) continue;
+          const f = found.get(id) ?? { files: new Set(), since: [] };
+          f.files.add(/** @type {string} */ (p.surface));
+          if (base) f.since.push(base);
+          found.set(id, f);
+        }
+      }
+      for (const [id, { files, since }] of [...found].sort(
+        ([a], [b]) => idNumber(a) - idNumber(b),
+      )) {
+        const it = g.get(id);
+        if (!it || it.data.kind !== 'work' || it.data.release_note) continue;
+        const list = [...files].sort();
+        findings.push({
+          kind: 'missing-release-note',
+          item: id,
+          title: titleOf(id),
+          why: `its commits${since.length ? ` since ${since.join(', ')}` : ''} changed a package's surface file (${list.join(', ')}), and it has no release_note`,
+          files: list,
+        });
+      }
     }
   }
 

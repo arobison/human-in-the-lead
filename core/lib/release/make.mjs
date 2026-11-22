@@ -1,48 +1,55 @@
-// `hitld release make` (design parts 2.7, 3.2 and 16.5): write the release record, and either tag
-// it on main or put it on a release branch for a release pull request.
+// `hitld release make` (design parts 2.7, 3.2 and 16.5; HITLD-752): write the release records of
+// a package (with its lockstep group) or of a release train, and either tag them on main or put
+// them on a release branch for a release pull request.
 //
 // Minor and major releases are the owner's (a one-way door for the public interface), so the
 // command line refuses this outside the owner's own turn, as it refuses decision answers
 // (core/lib/cli/commands/release.mjs). Here: the release is made from the main branch, from a
 // clean working tree, at the proposed version or above it (never below what the delta proposes),
-// and only when the release item's gates are met. The record goes to <work dir>/releases/<tag>.md
-// in one commit. Nothing is pushed.
+// only when the release item's gates are met, and only when every package it depends on is at a
+// version inside the range it declares. Each record goes to <work dir>/releases/<package>/
+// <version>.md and pins the exact versions of the packages it depends on; all of one release go
+// in one commit, so a lockstep group or a train is one owner approval. Nothing is pushed.
 //
 // Two ways (design 16.5):
-//   on main    the commit lands on main and an annotated tag marks it, for a person at a terminal
-//              who then pushes both.
+//   on main    the commit lands on main and an annotated tag marks each record, for a person at a
+//              terminal who then pushes them.
 //   --branch   the commit goes on a new branch made from main, and main is checked out again;
 //              nothing is tagged. Squash-merging the release pull request, with the owner's
 //              sign-off, is the release decision; the release workflow tags that squash commit
-//              once the owner approves the run (core/lib/release/check.mjs).
+//              once the owner approves the run (core/lib/release/check.mjs). The workflow tags
+//              one record, so a release of several packages is made on main.
 
 import { existsSync, rmSync } from 'node:fs';
 import { CodedError } from '../cli/errors.mjs';
 import { renderItem } from '../tracker/files/frontmatter.mjs';
-import { RELEASE_KEYS, formatDeltaEntry, releasesDir } from '../tracker/files/releases.mjs';
+import { RELEASE_KEYS, formatDeltaEntry, packageReleasesDir } from '../tracker/files/releases.mjs';
 import { createExclusive, insidePath, mkdirInside } from '../tracker/files/safe.mjs';
 import { git } from '../tracker/files/tree.mjs';
-import { proposeRelease } from './propose.mjs';
-import { SEMVER, atLeast, bumpBetween, coreOf, isPrerelease } from './semver.mjs';
+import { proposeRelease, recordFor } from './propose.mjs';
+import { SEMVER, atLeast, bumpBetween, bumpVersion, coreOf, isPrerelease } from './semver.mjs';
+import { proposeBump } from './delta.mjs';
 
 /**
  * @typedef {import('../tracker/files/tracker.mjs').FilesTracker} FilesTracker
  * @typedef {import('../tracker/files/config.mjs').Layout} Layout
  * @typedef {import('./propose.mjs').Proposal} Proposal
+ * @typedef {import('./propose.mjs').PackageRelease} PackageRelease
  */
 
 /**
  * Make a release.
  * @param {FilesTracker} t
- * @param {{ version?: string, pre?: string, decision?: string, item?: string, branch?: string }} options
- *   version: the version to make (default: the proposed one); pre: a pre-release label, such as
- *   rc; decision: the decision or precedent it is made under (default owner); item: the release
- *   item whose gates must be met; branch: put the record on this new branch, made from main, and
- *   tag nothing
+ * @param {{ package?: string, version?: string, pre?: string, decision?: string, item?: string, branch?: string, train?: string }} options
+ *   package: the package (default: the only one declared); version: the version to make (default:
+ *   the proposed one); pre: a pre-release channel, such as rc; decision: the decision or precedent
+ *   it is made under (default owner); item: the release item whose gates must be met; branch: put
+ *   the record on this new branch, made from main, and tag nothing; train: a release train item,
+ *   whose packages' releases are made together at their release items' versions
  */
 export async function makeRelease(
   t,
-  { version, pre, decision = 'owner', item, branch: onto } = {},
+  { package: name, version, pre, decision = 'owner', item, branch: onto, train } = {},
 ) {
   const root = t.root();
   const layout = t.layout();
@@ -62,96 +69,171 @@ export async function makeRelease(
   }
   if (version !== undefined && pre !== undefined)
     throw new Error('give --version or --pre, not both');
-  if (onto !== undefined) checkNewBranch(root, onto, layout.mainBranch);
-  const p = await proposeRelease(t, { pre, item, version });
-  const made = version ?? p.version;
-  if (!SEMVER.test(made)) throw new Error(`"${made}" is not a semantic version`);
-  const bump = bumpBetween(p.base_version, made);
-  if (!bump) throw new Error(`${made} is not above the last full release, ${p.base_version}`);
-  if (!atLeast(bump, p.bump)) {
+  if (
+    train !== undefined &&
+    (name !== undefined || version !== undefined || pre !== undefined || item !== undefined)
+  ) {
     throw new Error(
-      `${made} is a ${bump} release, but the interface delta proposes ${p.bump} (${p.reason}); make ${coreOf(p.version)} or above`,
+      "--train releases each package at its release item's version; give no --package, --version, --pre or --item with it",
     );
   }
-  const tag = `v${made}`;
-  if (git(root, ['tag', '--list', tag]).trim()) throw new Error(`tag ${tag} already exists`);
-  const path = `${releasesDir(layout)}/${tag}.md`;
-  if (existsSync(insidePath(root, path))) throw new Error(`${path} already exists`);
+  if (onto !== undefined) checkNewBranch(root, onto, layout.mainBranch);
+  const p = await proposeRelease(t, { package: name, pre, item, version, train });
+  if (train === undefined && version === undefined && p.version === null) {
+    // No surface file: no version is proposed, so the owner names it (HITLD-752, Q39).
+    throw new Error(
+      `${p.reason}; give --version, such as ${p.base ? bumpVersion(p.base_version, 'patch') : '0.1.0'}${pre !== undefined ? ` (or ${p.base ? bumpVersion(p.base_version, 'patch') : '0.1.0'}-${pre}.1 for a pre-release)` : ''}`,
+    );
+  }
+  const made = train === undefined ? (version ?? /** @type {string} */ (p.version)) : null;
+  if (made !== null && !SEMVER.test(made)) throw new Error(`"${made}" is not a semantic version`);
+  /** @type {import('./propose.mjs').NamedRelease[]} */
+  const releases = /** @type {any[]} */ (p.releases);
+  if (onto !== undefined && releases.length > 1) {
+    throw new Error(
+      `this release writes ${releases.length} records (${releases.map((r) => r.tag).join(', ')}); the release workflow tags one record per pull request, so make a release of several packages on ${layout.mainBranch}, without --branch`,
+    );
+  }
+  // The version: above each package's last full release, and never below what the delta proposes.
+  if (made !== null) {
+    const bump = bumpBetween(p.base_version, made);
+    if (!bump) throw new Error(`${made} is not above the last full release, ${p.base_version}`);
+    if (p.bump !== null && !atLeast(bump, p.bump)) {
+      throw new Error(
+        `${made} is a ${bump} release, but the interface delta proposes ${p.bump} (${p.reason}); make ${coreOf(/** @type {string} */ (p.version))} or above`,
+      );
+    }
+  }
+  for (const r of releases) {
+    const bump = bumpBetween(r.base_version, r.version);
+    if (!bump) {
+      throw new Error(
+        `${r.package} ${r.version} is not above its last full release, ${r.base_version}`,
+      );
+    }
+    const own = proposeBump(r.interface_delta, r.base_version);
+    if (r.surface !== null && !atLeast(bump, own.bump)) {
+      throw new Error(
+        `${r.package} ${r.version} is a ${bump} release, but its interface delta proposes ${own.bump} (${own.reason}); make ${own.version} or above`,
+      );
+    }
+    if (git(root, ['tag', '--list', r.tag]).trim()) throw new Error(`tag ${r.tag} already exists`);
+    const path = recordFor(t, r);
+    if (existsSync(insidePath(root, path))) throw new Error(`${path} already exists`);
+    for (const pin of r.depends) {
+      if (!pin.satisfied) {
+        throw new CodedError(
+          'dependency-out-of-range',
+          `${r.package} depends on ${pin.package} ${pin.range}, but ${pin.package} is ${pin.version === null ? 'not released yet' : `at ${pin.version}`}; release ${pin.package} first, in a release train with it, or change the range`,
+        );
+      }
+    }
+  }
   if (p.release_item) assertGatesMet(p);
-  const data = {
-    id: tag,
-    version: made,
-    previous: p.base ?? undefined,
-    bump,
-    interface_delta: p.interface_delta.map(formatDeltaEntry),
-    decision,
-    items: p.items,
-    milestones: p.milestones,
-    classification: layout.defaultClassification,
-  };
-  const notes = p.notes.length ? p.notes.map((n) => `- ${n}`).join('\n') : 'No release notes.';
-  const body = [
-    '',
-    '## Notes',
-    '',
-    notes,
-    '',
-    ...(p.breaking
-      ? [
-          '## Breaking',
-          '',
-          ...p.interface_delta
-            .filter((e) => e.impact === 'breaking')
-            .map((e) => `- ${e.surface}: ${e.what}`),
-          '',
-        ]
-      : []),
-  ].join('\n');
-  const text = renderItem(data, RELEASE_KEYS, body);
+  /** @type {{ r: import('./propose.mjs').NamedRelease, path: string, text: string, notes: string }[]} */
+  const written = releases.map((r) => {
+    const bump = /** @type {import('./semver.mjs').Bump} */ (
+      bumpBetween(r.base_version, r.version)
+    );
+    const data = {
+      id: r.tag,
+      package: r.package,
+      version: r.version,
+      previous: r.base ?? undefined,
+      bump,
+      interface_delta: r.interface_delta.map(formatDeltaEntry),
+      depends: r.depends.map((d) => `${d.package}@${d.version}`),
+      decision,
+      train: p.train ?? undefined,
+      items: r.items,
+      milestones: r.milestones,
+      classification: layout.defaultClassification,
+    };
+    const notes = r.notes.length ? r.notes.map((n) => `- ${n}`).join('\n') : 'No release notes.';
+    const breaking = r.interface_delta.filter((e) => e.impact === 'breaking');
+    const body = [
+      '',
+      '## Notes',
+      '',
+      notes,
+      '',
+      ...(breaking.length
+        ? ['## Breaking', '', ...breaking.map((e) => `- ${e.surface}: ${e.what}`), '']
+        : []),
+    ].join('\n');
+    return { r, path: recordFor(t, r), text: renderItem(data, RELEASE_KEYS, body), notes };
+  });
+  const tags = written.map((w) => w.r.tag);
   const message = [
     '-m',
-    `release record: ${tag}`,
+    `release record: ${tags.join(', ')}`,
     '-m',
-    `Written by hitld release make, under the decision of ${decision === 'owner' ? 'the owner' : decision}.`,
+    `Written by hitld release make, under the decision of ${decision === 'owner' ? 'the owner' : decision}${p.train ? `, for the release train ${p.train}` : ''}.`,
   ];
+  const first = written[0];
   if (onto !== undefined) {
-    const commit = commitOnBranch(root, layout, onto, path, text, message);
+    const commit = commitOnBranch(root, layout, onto, written, message);
     return {
-      tag,
-      version: made,
-      prerelease: isPrerelease(made),
-      bump,
-      record: path,
+      tag: first.r.tag,
+      tags,
+      package: first.r.package,
+      version: first.r.version,
+      prerelease: isPrerelease(first.r.version),
+      bump: bumpBetween(first.r.base_version, first.r.version),
+      record: first.path,
+      records: written.map((w) => w.path),
       commit,
       branch: onto,
       tagged: false,
       pushed: false,
-      pr: pullRequest(p, { tag, made, bump, path, notes }),
+      pr: pullRequest(p, { r: first.r, path: first.path, notes: first.notes }),
       warnings: p.warnings,
-      next: `Nothing was pushed or tagged. Push the branch (git push origin ${onto}) and open a pull request from it to ${layout.mainBranch} with pr.title and pr.body. Squash-merging it with the owner's Signed-off-by is the release: the release workflow tags ${tag} on the squash commit once the owner approves the run in the release environment.`,
+      next: `Nothing was pushed or tagged. Push the branch (git push origin ${onto}) and open a pull request from it to ${layout.mainBranch} with pr.title and pr.body. Squash-merging it with the owner's Signed-off-by is the release: the release workflow tags ${first.r.tag} on the squash commit once the owner approves the run in the release environment.`,
     };
   }
-  mkdirInside(root, releasesDir(layout));
-  createExclusive(insidePath(root, path), text);
-  git(root, ['add', '--', path]);
+  writeRecords(root, layout, written);
   // Signed off with the git identity of whoever runs it, which is the owner: release make runs
   // only in the owner's own turn (the guard in cli/commands/release.mjs). The DCO check on main
   // (HITLD-59) needs a person's sign-off on every commit pushed there.
-  git(root, ['commit', '--no-verify', '--signoff', ...message, '--', path]);
+  git(root, [
+    'commit',
+    '--no-verify',
+    '--signoff',
+    ...message,
+    '--',
+    ...written.map((w) => w.path),
+  ]);
   const commit = git(root, ['rev-parse', 'HEAD']).trim();
-  git(root, ['tag', '-a', tag, '-m', tagMessage(tag, notes), commit]);
+  for (const w of written)
+    git(root, ['tag', '-a', w.r.tag, '-m', tagMessage(w.r.tag, w.notes), commit]);
   return {
-    tag,
-    version: made,
-    prerelease: isPrerelease(made),
-    bump,
-    record: path,
+    tag: first.r.tag,
+    tags,
+    package: first.r.package,
+    version: first.r.version,
+    prerelease: isPrerelease(first.r.version),
+    bump: bumpBetween(first.r.base_version, first.r.version),
+    record: first.path,
+    records: written.map((w) => w.path),
     commit,
     tagged: true,
     pushed: false,
     warnings: p.warnings,
-    next: `Nothing was pushed. When ready: git push origin ${layout.mainBranch} ${tag}`,
+    next: `Nothing was pushed. When ready: git push origin ${layout.mainBranch} ${tags.join(' ')}`,
   };
+}
+
+/**
+ * Write and stage each record.
+ * @param {string} root @param {Layout} layout
+ * @param {{ r: import('./propose.mjs').NamedRelease, path: string, text: string }[]} written
+ */
+function writeRecords(root, layout, written) {
+  for (const w of written) {
+    mkdirInside(root, packageReleasesDir(layout, w.r.package));
+    createExclusive(insidePath(root, w.path), w.text);
+    git(root, ['add', '--', w.path]);
+  }
 }
 
 /**
@@ -199,27 +281,34 @@ function checkNewBranch(root, name, mainBranch) {
 }
 
 /**
- * Commit the record on a new branch made from main, then check out main again. On a failure the
+ * Commit the records on a new branch made from main, then check out main again. On a failure the
  * new branch is removed and main is checked out, as it was.
- * @param {string} root @param {Layout} layout @param {string} name @param {string} path
- * @param {string} text @param {string[]} message
+ * @param {string} root @param {Layout} layout @param {string} name
+ * @param {{ r: import('./propose.mjs').NamedRelease, path: string, text: string }[]} written @param {string[]} message
  * @returns {string} the commit
  */
-function commitOnBranch(root, layout, name, path, text, message) {
+function commitOnBranch(root, layout, name, written, message) {
   git(root, ['switch', '-q', '-c', name]);
   try {
-    mkdirInside(root, releasesDir(layout));
-    createExclusive(insidePath(root, path), text);
-    git(root, ['add', '--', path]);
+    writeRecords(root, layout, written);
     // Signed off by whoever runs it (the owner's own turn), so the branch passes the pull request
     // DCO check; the squash commit on main carries the owner's sign-off as the one who merges.
-    git(root, ['commit', '--no-verify', '--signoff', ...message, '--', path]);
+    git(root, [
+      'commit',
+      '--no-verify',
+      '--signoff',
+      ...message,
+      '--',
+      ...written.map((w) => w.path),
+    ]);
     const commit = git(root, ['rev-parse', 'HEAD']).trim();
     git(root, ['switch', '-q', layout.mainBranch]);
     return commit;
   } catch (e) {
-    git(root, ['reset', '-q', '--', path], { allowFail: true });
-    rmSync(insidePath(root, path), { force: true });
+    for (const w of written) {
+      git(root, ['reset', '-q', '--', w.path], { allowFail: true });
+      rmSync(insidePath(root, w.path), { force: true });
+    }
     git(root, ['switch', '-q', '-f', layout.mainBranch], { allowFail: true });
     git(root, ['branch', '-D', name], { allowFail: true });
     throw e;
@@ -230,20 +319,31 @@ function commitOnBranch(root, layout, name, path, text, message) {
  * The release pull request's title and body: the version, the bump, the notes and the interface
  * delta, for the owner to review before merging.
  * @param {Proposal} p
- * @param {{ tag: string, made: string, bump: string, path: string, notes: string }} r
+ * @param {{ r: import('./propose.mjs').NamedRelease, path: string, notes: string }} w
  */
-function pullRequest(p, { tag, made, bump, path, notes }) {
-  const delta = p.interface_delta.length
-    ? p.interface_delta.map((e) => `- ${formatDeltaEntry(e)}`).join('\n')
+function pullRequest(p, { r, path, notes }) {
+  const tag = r.tag;
+  const made = r.version;
+  const bump = bumpBetween(r.base_version, made);
+  const delta = r.interface_delta.length
+    ? r.interface_delta.map((e) => `- ${formatDeltaEntry(e)}`).join('\n')
     : 'None.';
   const pre = isPrerelease(made);
   const body = [
-    `The release record for **${tag}**: \`${path}\`.`,
+    `The release record for **${tag}** (package ${r.package}): \`${path}\`.`,
     '',
     `- Version: ${made}${pre ? ' (a pre-release)' : ''}`,
-    `- Bump: ${bump}${p.breaking ? ', breaking' : ''}, from ${p.base ?? 'no release yet (0.0.0)'}`,
+    `- Bump: ${bump}${r.breaking ? ', breaking' : ''}, from ${r.base ?? 'no release yet (0.0.0)'}`,
     `- Reason: ${p.reason}`,
-    `- Items: ${p.items.length ? p.items.join(', ') : 'none'}`,
+    `- Items: ${r.items.length ? r.items.join(', ') : 'none'}`,
+    ...(r.depends.length
+      ? [`- Built against: ${r.depends.map((d) => `${d.package} ${d.version}`).join(', ')}`]
+      : []),
+    ...(p.dependents.length
+      ? [
+          `- Depends on a breaking change: ${p.dependents.map((d) => `${d.package} (${d.range} on ${d.depends_on}${d.in_range ? '' : ', out of range'})`).join(', ')}`,
+        ]
+      : []),
     '',
     '## Notes',
     '',
