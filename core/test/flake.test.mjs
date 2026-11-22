@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
@@ -724,6 +725,8 @@ const guard = (command, executor = true) =>
       tool_input: { command },
     }),
     encoding: 'utf8',
+    // Outside any checkout: the guard also reads the checkout for a claim (HITLD-781).
+    cwd: tmpdir(),
     env: { PATH: process.env.PATH },
   }).stdout;
 
