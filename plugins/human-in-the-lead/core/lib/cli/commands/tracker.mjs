@@ -238,6 +238,12 @@ export const commands = [
           'Comma-separated IDs that must be done first (items and milestones). For a milestone, its constraints: each is linked to a clause in its file ("<ID> c1")',
       },
       {
+        name: 'constraint-of',
+        type: 'string',
+        description:
+          'Comma-separated milestone clauses this is a constraint of, each "<milestone ID> c<n>" (or c? to link at shaping). The link lives on the item, so filing it edits no milestone file',
+      },
+      {
         name: 'outcome',
         type: 'string',
         description:
@@ -271,6 +277,7 @@ export const commands = [
         parent: input.parent,
         state: input.state,
         needs: csv(input.needs),
+        constraint_of: csv(input['constraint-of']),
         outcome: input.outcome,
         decider: input.decider,
         waiting_on: input['waiting-on'],
@@ -445,6 +452,13 @@ export const commands = [
     built_by: 'a',
     args: [
       {
+        name: 'name',
+        type: 'string',
+        positional: true,
+        description:
+          'Run only the migration with this name, such as constraints-on-items (the same as --only)',
+      },
+      {
         name: 'dry-run',
         type: 'boolean',
         description: 'Show what would change, as a diff, and write nothing',
@@ -462,7 +476,12 @@ export const commands = [
       const t = open(input, ctx, { readOnly: dryRun });
       const done = t.migrate({
         dryRun,
-        only: typeof input.only === 'string' ? input.only : undefined,
+        only:
+          typeof input.name === 'string'
+            ? input.name
+            : typeof input.only === 'string'
+              ? input.only
+              : undefined,
         commit: !input['no-commit'],
       });
       return {

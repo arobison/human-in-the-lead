@@ -416,7 +416,11 @@ test('migrate tracker-structure: initiatives, milestone kinds, project parents a
   );
   assert.deepEqual(open(root).check().problems, []);
   const head = git(root, 'rev-parse', 'HEAD');
-  assert.equal(open(root).migrate().changed, 0, 'a second run changes nothing');
+  assert.equal(
+    open(root).migrate({ only: 'tracker-structure' }).changed,
+    0,
+    'a second run changes nothing',
+  );
   assert.equal(git(root, 'rev-parse', 'HEAD'), head);
   assert.equal(trackerStructure.name, 'tracker-structure');
 });

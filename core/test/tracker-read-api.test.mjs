@@ -424,6 +424,7 @@ test('work migrate on a tracker already in the format changes nothing', async ()
     'retire-priority',
     'names-and-states',
     'tracker-structure',
+    'constraints-on-items',
   ]);
   assert.equal(out.json.summary, 'nothing to migrate');
   const real = await hitld(['work', 'migrate'], root);

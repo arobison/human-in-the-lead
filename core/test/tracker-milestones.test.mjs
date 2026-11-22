@@ -534,13 +534,14 @@ test('migrate: project milestones and item milestone keys become milestone files
   assert.equal(done.code, 0, JSON.stringify(done.json));
   assert.match(
     git(root, 'log', '-1', '--format=%s').trim(),
-    /^migrate: milestone-entities, retire-priority, names-and-states, tracker-structure$/,
+    /^migrate: milestone-entities, retire-priority, names-and-states, tracker-structure, constraints-on-items$/,
   );
   assert.equal(git(root, 'status', '--porcelain'), '');
   const alpha = readFileSync(join(root, 'work/milestones/W-7-alpha.md'), 'utf8');
   assert.match(
     alpha,
-    /^---\nid: W-7\ntitle: Alpha\nkind: milestone\nstate: planned\ncreated: 2026-11-01\nproject: W-2\nconstraints: \[W-4 c\?, W-5 c\?\]\n---\n/,
+    /^---\nid: W-7\ntitle: Alpha\nkind: milestone\nstate: planned\ncreated: 2026-11-01\nproject: W-2\nconstraint_of: \[W-1 c\?\]\n---\n/,
+    'its constraints moved to its items (constraints-on-items), and it is a constraint of W-1',
   );
   assert.match(alpha, /From W-2:\n\n- \*\*alpha\*\* \(capability\)\. Outcome: it starts\./);
   assert.ok(existsSync(join(root, 'work/milestones/W-8-beta-two.md')));
@@ -552,14 +553,19 @@ test('migrate: project milestones and item milestone keys become milestone files
   assert.equal(existsSync(join(root, 'work/initiatives/W-1-goal.md')), false);
   assert.match(
     readFileSync(join(root, 'work/milestones/W-1-goal.md'), 'utf8'),
-    /^---\nid: W-1\ntitle: The goal\nkind: milestone\nstate: planned\nowner: owner\nconstraints: \[W-7 c\?, W-8 c\?\]\n---\n\n## Goal\n\nIt all works\.\n\n## Notes\n\nMade by `hitld work migrate` \(tracker-structure\) from the initiative W-1/,
+    /^---\nid: W-1\ntitle: The goal\nkind: milestone\nstate: planned\nowner: owner\n---\n\n## Goal\n\nIt all works\.\n\n## Notes\n\nMade by `hitld work migrate` \(tracker-structure\) from the initiative W-1/,
   );
   assert.ok(project.includes('title: "The project"'), 'other lines are left as they were');
   assert.ok(project.includes('\nstate: planned\n') && project.includes('\nowner: owner\n'));
   const item = readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8');
   assert.equal(item.includes('milestone:'), false);
   assert.equal(item.includes('priority:'), false);
+  assert.ok(item.includes('\nconstraint_of: [W-7 c?]\n'), 'the link lives on the item');
   const t = open(root);
+  assert.deepEqual(t.get('W-1').constraints, [
+    { id: 'W-7', clause: null },
+    { id: 'W-8', clause: null },
+  ]);
   assert.deepEqual(t.check().problems, []);
   assert.deepEqual(t.get('W-7').to_shape, [
     'outcome',

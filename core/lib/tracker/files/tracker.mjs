@@ -20,7 +20,7 @@ import {
   findOrphans,
   unclaimItem,
 } from './claims.mjs';
-import { checkItems, findCollisions, unplacedWork } from './check.mjs';
+import { checkItems, findCollisions, retiredConstraintLines, unplacedWork } from './check.mjs';
 import { mainMismatches } from './closing.mjs';
 import { descriptionWarnings } from './descriptions.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
@@ -296,7 +296,8 @@ export function openTracker({
    * @param {Map<string, number>} [tokens] tokens spent per item, from the ledger
    */
   const derivedOf = (ctx, it, tokens) => {
-    const d = /** @type {Record<string, unknown>} */ (it.data ?? {});
+    // The constraints are derived from the items (HITLD-767), not read from the file alone.
+    const d = ctx.g.milestoneData(/** @type {any} */ (it));
     return milestoneDerived(d, {
       get: (id) => ctx.g.get(id)?.data,
       authorRoles: milestoneRoles(ctx, it),
@@ -348,7 +349,10 @@ export function openTracker({
    */
   function entityOf(it, ctx = contextOf()) {
     const d = /** @type {Record<string, unknown>} */ (it.data ?? {});
-    const { schema_version: _, ...entity } = toEntity(d, layout);
+    const keys = MILESTONE_KINDS.includes(String(d.kind))
+      ? ctx.g.milestoneData(/** @type {any} */ (it))
+      : d;
+    const { schema_version: _, ...entity } = toEntity(keys, layout);
     for (const k of NATIVE_EXTRAS) if (d[k] !== undefined) entity[k] = d[k];
     const id = String(d.id);
     if (MILESTONE_KINDS.includes(String(d.kind))) Object.assign(entity, derivedOf(ctx, it));
@@ -690,6 +694,7 @@ export function openTracker({
         parent: draft.parent,
         needs: isMilestone ? undefined : list(draft.needs),
         constraints: isMilestone ? list(draft.constraints ?? draft.needs) : undefined,
+        constraint_of: list(draft.constraint_of),
         outcome: isMilestone ? draft.outcome : undefined,
         appetite_tokens:
           isMilestone || kind === 'project' ? (draft.appetite_tokens ?? undefined) : undefined,
@@ -782,7 +787,8 @@ export function openTracker({
      * The batch check. `branches` adds ID collisions across every worktree and branch and
      * double claims; `inflight` (dispatch IDs from the ledger) adds the orphaned-claim check;
      * `terms` (from the private store) adds the private term rule to the classification check.
-     * `warnings` names each open work item under no milestone (a warning, not a problem).
+     * `warnings` names each open work item under no milestone and each milestone that still holds
+     * the retired `constraints` line (warnings, not problems).
      * `consistency` adds, on the main branch only, the mismatches between main's commit trailers
      * and its items (closing.mjs), as warnings and under `consistency`.
      * @param {{ branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[], consistency?: boolean }} [options]
@@ -835,7 +841,11 @@ export function openTracker({
         }
         if (inflight) problems.push(...findOrphans(found, inflight));
       }
-      const warnings = [...unplacedWork(items), ...descriptionWarnings(items)];
+      const warnings = [
+        ...unplacedWork(items),
+        ...descriptionWarnings(items),
+        ...retiredConstraintLines(items),
+      ];
       if (!consistency) return { problems, files: items.length, warnings };
       /** @type {Consistency} */
       const found = onMain
