@@ -10,6 +10,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import { policyDefaults, resolvePolicy } from '../lib/policy/policy.mjs';
@@ -677,6 +678,116 @@ test('config write refuses a location inside a managed project, and keeps a syml
     () => writeSettingsFile('person', { schema_version: 1 }, { env: linked.env, cwd }),
     /symbolic link/,
   );
+});
+
+// HITLD-258 (issue #115): a stray .human-in-the-lead/ in the home folder made home look like a
+// managed project, and the refusal did not say which folder did it or how to fix it.
+test('a refusal for a managed project names the marker, what it holds, and the fix', async () => {
+  const cwd = tempDir('hitld-settings-cwd-');
+  const { base, env } = home();
+  const marker = join(base, '.human-in-the-lead');
+  mkdirSync(marker);
+  writeFileSync(join(marker, 'notes.txt'), 'left from early development');
+  mkdirSync(join(marker, 'old'));
+  for (const kind of /** @type {const} */ (['person', 'machine'])) {
+    const write = /** @type {Error} */ (
+      (() => {
+        try {
+          writeSettingsFile(kind, { schema_version: 1 }, { env, cwd });
+        } catch (e) {
+          return e;
+        }
+        assert.fail(`${kind}: written inside a managed project`);
+      })()
+    );
+    assert.ok(write.message.includes(marker), write.message);
+    assert.match(write.message, /holds notes\.txt, old\//);
+    assert.match(write.message, /move or remove/);
+    assert.match(write.message, kind === 'person' ? /XDG_CONFIG_HOME/ : /XDG_DATA_HOME/);
+    assert.equal(existsSync(settingsLocation(kind, { env }).path), false);
+  }
+  const cli = await hitld(
+    ['config', 'write', 'person', '--data', '{"schema_version":1}'],
+    cwd,
+    env,
+  );
+  assert.equal(cli.code, 1);
+  assert.ok(cli.result.message.includes(marker), cli.result.message);
+  plant(env, 'person', { schema_version: 1 });
+  const read = loadSettingsFile('person', { env });
+  assert.equal(read.data, null);
+  assert.ok(read.errors[0].message.includes(marker), read.errors[0].message);
+  assert.match(read.errors[0].message, /move or remove/);
+});
+
+test('a marker that is empty, or a file, is described as such', () => {
+  const cwd = tempDir('hitld-settings-cwd-');
+  const empty = home();
+  mkdirSync(join(empty.base, '.human-in-the-lead'));
+  assert.throws(
+    () => writeSettingsFile('person', { schema_version: 1 }, { env: empty.env, cwd }),
+    /\.human-in-the-lead\/ \(empty\)/,
+  );
+  const file = home();
+  writeFileSync(join(file.base, '.human-in-the-lead'), '');
+  assert.throws(
+    () => writeSettingsFile('person', { schema_version: 1 }, { env: file.env, cwd }),
+    /\.human-in-the-lead \(a file\)/,
+  );
+});
+
+// HITLD-258 (issue #115): from a linked worktree, the owner running the first-run setup was told
+// that executors never write settings.
+test('from a linked worktree, config write is refused without calling the person an executor', async () => {
+  const root = tempDir('hitld-settings-primary-');
+  const git = (/** @type {string[]} */ ...args) =>
+    execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+  git('init', '-q', '-b', 'main');
+  git(
+    '-c',
+    'user.name=t',
+    '-c',
+    'user.email=t@example.invalid',
+    'commit',
+    '-q',
+    '--allow-empty',
+    '-m',
+    'init',
+  );
+  const tree = join(tempDir('hitld-settings-linked-'), 'tree');
+  git('worktree', 'add', '-q', '-b', 'linked', tree);
+  const { env } = home();
+  const data = '{"schema_version":1}';
+  for (const argv of [
+    ['config', 'write', 'person', '--data', data],
+    ['config', 'write', 'machine', '--data', data],
+    ['machine', 'detect', '--write'],
+  ]) {
+    const r = await hitld(argv, tree, env);
+    assert.equal(r.code, 1, argv.join(' '));
+    assert.equal(r.result.error, 'not-permitted');
+    assert.doesNotMatch(r.result.message, /executor(s)? never/);
+    assert.match(r.result.message, /linked worktree/);
+    assert.match(r.result.message, /primary checkout/);
+    assert.match(r.result.message, /outside any repository/);
+  }
+  assert.throws(
+    () => writeSettingsFile('person', JSON.parse(data), { env, cwd: tree }),
+    (e) =>
+      e instanceof Error &&
+      /primary checkout/.test(e.message) &&
+      !/executors never/.test(e.message),
+  );
+  // An executor in the same worktree is still told it is one.
+  const as = await hitld(['config', 'write', 'person', '--data', data], tree, {
+    ...env,
+    HITLD_ROLE: 'executor',
+  });
+  assert.match(as.result.message, /executors never write settings/);
+  // The primary checkout writes.
+  const primary = await hitld(['config', 'write', 'person', '--data', data], root, env);
+  assert.equal(primary.code, 0, JSON.stringify(primary.result));
+  assert.equal(existsSync(settingsLocation('machine', { env }).path), false);
 });
 
 // config migrate

@@ -125,11 +125,12 @@ function schemaFiles(dir) {
 }
 
 /**
- * The contract template's report keys, trailer names and a hash of the rest.
+ * The contract template's report keys, trailer names and a hash of the rest. The report fence may
+ * name a language (`text`, for markdownlint MD040; HITLD-256).
  * @param {string} text
  */
 export function contractShape(text) {
-  const fence = /```\n([\s\S]*?)\n```/.exec(text);
+  const fence = /```[a-z]*\n([\s\S]*?)\n```/.exec(text);
   const report = fence ? [...fence[1].matchAll(/^([a-z_]+):/gm)].map((m) => m[1]) : [];
   const line = /^Commit trailers:.*$/m.exec(text)?.[0] ?? '';
   const trailers = [...line.matchAll(/`([A-Za-z-]+):`/g)].map((m) => m[1]);

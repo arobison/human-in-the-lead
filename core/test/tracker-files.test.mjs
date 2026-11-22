@@ -103,6 +103,46 @@ test('front matter: a list member with a comma or a leading star is quoted so it
   assert.deepEqual(parseItem(text).data?.touches, ['src/**', 'a,b', '*.md']);
 });
 
+test('front matter: a list that Prettier wrapped over several lines reads as a list (issue 112)', () => {
+  // The two forms Prettier writes for a long front-matter list, as in the issue, and the
+  // hand-written form that opens on the key's line.
+  const { data, errors } = parseItem(
+    [
+      '---',
+      'id: M-1',
+      'constraints:',
+      '  [',
+      '    W-39 c?,',
+      '    W-40 c?,',
+      '  ]',
+      'needs:',
+      '  [A-1 c1, A-2 c1]',
+      'touches: [',
+      '    "a, b",',
+      "    'x]',",
+      '    src/**',
+      ']',
+      'title: after',
+      '---',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(errors, []);
+  assert.deepEqual(data, {
+    id: 'M-1',
+    constraints: ['W-39 c?', 'W-40 c?'],
+    needs: ['A-1 c1', 'A-2 c1'],
+    touches: ['a, b', 'x]', 'src/**'],
+    title: 'after',
+  });
+});
+
+test('front matter: a wrapped list with no closing bracket is named, and the next key still reads', () => {
+  const { data, errors } = parseItem('---\nneeds:\n  [\n    W-1,\ntitle: t\n---\n');
+  assert.deepEqual(errors, ['frontmatter line 3: a list opened with "[" has no closing "]"']);
+  assert.equal(data?.title, 't');
+});
+
 test('slugify follows the reference format: lower case ASCII, at most 48 characters', () => {
   assert.equal(
     slugify('Cache `response` entries by request key!'),
