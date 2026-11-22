@@ -2,10 +2,11 @@
 id: HITLD-261
 title: Work close reorders front-matter keys
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-403 c2]
+claimed_by: D-01M8168F74XSDRZ0
 ---
 
 ## Why
