@@ -30,3 +30,7 @@ Raised by the owner in the chief of staff session. Settled by the owner in a wal
 ## Affected by a decision (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (508,492): session ending, relay verbs. The decisions since then are the ledger and no-run decisions (HITLD-484 to 490); stay in the harness and answers by proof (HITLD-540, 515). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.
+
+## Restated by the owner on 2026-11-22
+
+The owner told the chief of staff: archive completed sessions when the handoff is complete. The chief of staff now does this by hand: a finished executor session is archived once its pull request has merged, and an orchestrator session once its successor holds the run lease. Eleven executor sessions were archived on 2026-11-22 under this rule. This item should make it a command and a line in the chief-of-staff skill; it stays in the routine-jobs milestone and stays out of the orchestrator's start list until the owner names it.
