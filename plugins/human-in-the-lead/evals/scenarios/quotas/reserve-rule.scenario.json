@@ -17,6 +17,7 @@
       "action": "quota.gate",
       "with": {
         "quota": {
+          "reserve": 0.25,
           "limits": [
             {
               "id": "project-tokens",
@@ -101,6 +102,7 @@
       "action": "quota.gate",
       "with": {
         "quota": {
+          "reserve": 0.25,
           "limits": [
             {
               "id": "project-tokens",
@@ -185,6 +187,7 @@
       "action": "quota.gate",
       "with": {
         "quota": {
+          "reserve": 0.25,
           "limits": [
             {
               "id": "project-tokens",
@@ -273,6 +276,7 @@
       "action": "quota.gate",
       "with": {
         "quota": {
+          "reserve": 0.25,
           "limits": [
             {
               "id": "project-tokens",
@@ -361,6 +365,7 @@
       "action": "quota.gate",
       "with": {
         "quota": {
+          "reserve": 0.25,
           "limits": [
             {
               "id": "project-tokens",
@@ -449,6 +454,7 @@
       "action": "quota.report",
       "with": {
         "quota": {
+          "reserve": 0.25,
           "limits": [
             {
               "id": "project-tokens",
@@ -534,6 +540,7 @@
       "action": "quota.report",
       "with": {
         "quota": {
+          "reserve": 0.25,
           "limits": [
             {
               "id": "project-tokens",
