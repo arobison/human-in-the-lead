@@ -2,10 +2,14 @@
 id: HITLD-718
 title: "HITLD-691: rename the quota forecast key before_reset in the dashboard data contract?"
 kind: decision
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 decider: owner
+answer: A
+answered_at: 2026-11-22T01:01:21.112Z
+answered_via: question-tool
+answered_by: owner
 opened_from: [HITLD-691]
 ---
 
