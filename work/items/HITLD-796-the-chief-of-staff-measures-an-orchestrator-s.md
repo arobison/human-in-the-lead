@@ -2,10 +2,11 @@
 id: HITLD-796
 title: The chief of staff measures an orchestrator's context from its session record and sets handover-due, and the default handover thresholds drop to 0.3 and 8
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M814Y2YD67VCWT
 ---
 
 ## Why
