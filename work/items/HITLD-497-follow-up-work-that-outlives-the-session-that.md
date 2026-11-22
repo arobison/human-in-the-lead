@@ -26,3 +26,7 @@ Triaged 2026-11-18: proposed, one cause (work that outlives the session or run t
 ## Folded in on 2026-11-20 (HITLD-604)
 
 HITLD-314 (a follow-up refused for an interactive dispatch) is folded into this item. Its substance: `dispatch follow-up` must work for an interactive dispatch by recording the follow-up on the ledger (a new dispatch ID on the same agent) with no worktree or result file, or say plainly which dispatch kinds it supports; its headless-only check must come before any ledger event is written, so a refused follow-up leaves no phantom dispatch holding an executor slot; and a re-opened dispatch must be able to report again, not return the earlier report. A test covers an interactive dispatch.
+
+## Promoted in part on 2026-11-22 (HITLD-736, HITLD-735)
+
+The narrow part, a relayed follow-up to an interactive executor recorded as a dispatch of its own so its branch reaches the merge queue, is promoted to rc.2 as HITLD-739. This item stays proposed for the rest.

@@ -2,7 +2,7 @@
 id: HITLD-280
 title: "Dispatch complete takes the whole parenthetical after commit: as the branch name"
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ Evidence: core/lib/contract/report.mjs:81 regex takes [^)]+ as branch; orchestra
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `dispatch`, still present on main, confidence 0.85. Exact report line and regex given; a parser test reproduces it. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Promoted on 2026-11-22 (HITLD-736)
+
+The owner put the rc.2 bug list in HITLD-67 (HITLD-736): this item is planned and a constraint of its second clause, because the merge rejects the verified entry. This is GitHub issue 430, the same report as the issue named above. The tracker lets one item serve several milestones, so it also stays a constraint of HITLD-404 (clause c1).
