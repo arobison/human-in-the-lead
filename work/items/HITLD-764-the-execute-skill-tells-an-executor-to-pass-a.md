@@ -2,9 +2,11 @@
 id: HITLD-764
 title: The execute skill tells an executor to pass a question to hitld with --file, not inline JSON the guard reads as words
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80W9Z9BF8E8HQ
+release_note: The executor contract says to pass a question to `hitld rights who` and `hitld precedent match` as a JSON file with `--file`, not inline JSON.
 ---
 
 ## Why
