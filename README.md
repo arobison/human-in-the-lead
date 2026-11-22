@@ -195,15 +195,16 @@ Each gives the commands, what to commit, how to check it worked and how to undo 
 
 The first release candidate is the tag `v0.1.0-rc.1`. To try an unreleased checkout instead, see [the development loop](docs/design/0001-human-in-the-lead/16-packaging.md#the-development-loop).
 
-This repository is its own Claude Code plugin marketplace. `hitld install` writes the pin for you. `hitld` itself is not published to a package registry, so clone the tag once, anywhere outside your project, and run it from there:
+This repository is its own Claude Code plugin marketplace. `hitld install` writes the pin for you. Each release ships `hitld` in its plugin bundle, the file `human-in-the-lead-plugin-<tag>.tgz` on the release page, so there is nothing to clone: unpack the bundle once, anywhere outside your project, and run `hitld` from there. Publishing `hitld` to a package registry is separate work, with no date set.
 
 ```bash
-git clone --branch v0.1.0-rc.1 --depth 1 https://github.com/arobison/human-in-the-lead.git
+mkdir hitld-v0.1.0-rc.1
+curl -fsSL https://github.com/arobison/human-in-the-lead/releases/download/v0.1.0-rc.1/human-in-the-lead-plugin-v0.1.0-rc.1.tgz | tar -xz -C hitld-v0.1.0-rc.1
 cd your-project
-node ../human-in-the-lead/core/bin/hitld.mjs install --key W --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead
+node ../hitld-v0.1.0-rc.1/human-in-the-lead/core/bin/hitld.mjs install --key W --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead
 ```
 
-`--key` is your project's tracker ID key (for example `W`); it is needed the first time, when there is no `.human-in-the-lead/policy.json` yet. If you have `hitld` on your path, the command is `hitld install --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead` (plus `--key` the first time). The commit guard hooks that install writes find `hitld` each time they run: `hitld` on your path first, then the pinned plugin's own copy once Claude Code has installed it, then the clone install ran from. Each says when the one it found is not the pinned version, and when none is found it warns and lets the commit through, since the merge runs the same checks.
+`--key` is your project's tracker ID key (for example `W`); it is needed the first time, when there is no `.human-in-the-lead/policy.json` yet. If you have `hitld` on your path (the bundle's `human-in-the-lead/bin/hitld` runs it), the command is `hitld install --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead` (plus `--key` the first time). The commit guard hooks that install writes find `hitld` each time they run: `hitld` on your path first, then the pinned plugin's own copy once Claude Code has installed it, then the unpacked bundle install ran from. Each says when the one it found is not the pinned version, and when none is found it warns and lets the commit through, since the merge runs the same checks.
 
 Install writes the project's committed `.claude/settings.json`, pinned to the tag, so the marketplace needs no separate `claude plugin marketplace add`:
 
