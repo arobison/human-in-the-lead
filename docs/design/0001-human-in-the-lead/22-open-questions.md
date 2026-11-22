@@ -217,17 +217,21 @@ Ordering is derived (cost of delay over size), and milestones split work into co
 
 ### Q38. What tag template does this repository's `main` package take? (affects HITLD-759 and the next release)
 
-*Not decided.* The owner chose to move the repository-wide releases into a named package, `main` (HITLD-757), and the default template is `{name}@{version}` (HITLD-754). This repository's `v0.1.0-rc.1` is published and pinned by consuming projects, and the tag ruleset and immutable releases keep it from being deleted or moved, so the migration keeps it either way ([16.5, Migrating to release packages](16-packaging.md#migrating-to-release-packages)).
+*Decided: `v{version}`, as recommended (the owner, 2026-11-22, HITLD-843).* No tag is renamed: `v0.1.0-rc.1` already matches the template, and the `v*` tag ruleset and consumers' refs keep their meaning. The next release is `v0.1.0-rc.2`.
 
-- **Recommend: `v{version}`.** The migration moves the records into `work/releases/main/` and adds no tag: `v0.1.0-rc.1` already matches the template, and the next release is `v0.1.0-rc.2`. The `v*` tag ruleset, the plugin's `version` equal to its tag ([16.3](16-packaging.md#163-how-a-consuming-project-gets-the-plugin)) and every consumer's `ref` keep their meaning. There is still one model, a named package with a template; HITLD-757's renaming then applies to the records, not the tags.
-- **Alternative: the default, `main@{version}`.** The tags have the shape every other repository's default gives. The migration adds `main@0.1.0-rc.1` on the same commit with `v0.1.0-rc.1` kept beside it, the tag ruleset adds `main@*`, and each consumer moves its `ref` to the new shape at its next upgrade. A tag such as `main@0.1.0` also reads like git's `main@{...}` reflog syntax next to the branch `main`.
+The owner chose to move the repository-wide releases into a named package, `main` (HITLD-757), and the default template is `{name}@{version}` (HITLD-754). This repository's `v0.1.0-rc.1` is published and pinned by consuming projects, and the tag ruleset and immutable releases keep it from being deleted or moved, so the migration keeps it either way ([16.5, Migrating to release packages](16-packaging.md#migrating-to-release-packages)).
+
+- **Taken: `v{version}`.** The migration moves the records into `work/releases/main/` and adds no tag: `v0.1.0-rc.1` already matches the template, and the next release is `v0.1.0-rc.2`. The `v*` tag ruleset, the plugin's `version` equal to its tag ([16.3](16-packaging.md#163-how-a-consuming-project-gets-the-plugin)) and every consumer's `ref` keep their meaning. There is still one model, a named package with a template; HITLD-757's renaming then applies to the records, not the tags.
+- **Alternative not taken: the default, `main@{version}`.** The tags have the shape every other repository's default gives. The migration adds `main@0.1.0-rc.1` on the same commit with `v0.1.0-rc.1` kept beside it, the tag ruleset adds `main@*`, and each consumer moves its `ref` to the new shape at its next upgrade. A tag such as `main@0.1.0` also reads like git's `main@{...}` reflog syntax next to the branch `main`.
 
 ### Q39. How is a package with no surface file bumped? (affects HITLD-759)
 
-*Not decided.* The interface is measured from a committed surface file (HITLD-755), and HITLD-759's tests include a package that declares none: a new module, or a project whose tool does not write one yet.
+*Decided: no proposed version, as recommended (the owner, 2026-11-22, HITLD-844).* `release propose` proposes no version for a package with no surface file, and the owner names it with `--version`, a patch included, because a change that cannot be measured is never taken for a fix.
 
-- **Recommend: no surface file, no proposed bump.** `release propose` says the interface is not measured and proposes no version; `release make` takes the version from the owner's own turn (`--version`), a patch included, and no patch precedent applies. A change that cannot be measured is never taken for a fix (principle 10).
-- **Alternative: patch unless the owner names another bump.** Less to do for a package with no public interface, but a breaking change ships as a patch whenever no one looks.
+The interface is measured from a committed surface file (HITLD-755), and HITLD-759's tests include a package that declares none: a new module, or a project whose tool does not write one yet.
+
+- **Taken: no surface file, no proposed bump.** `release propose` says the interface is not measured and proposes no version; `release make` takes the version from the owner's own turn (`--version`), a patch included, and no patch precedent applies. A change that cannot be measured is never taken for a fix (principle 10).
+- **Alternative not taken: patch unless the owner names another bump.** Less to do for a package with no public interface, but a breaking change ships as a patch whenever no one looks.
 
 ## Before later milestones
 
