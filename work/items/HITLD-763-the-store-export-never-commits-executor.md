@@ -2,7 +2,7 @@
 id: HITLD-763
 title: The store export never commits executor worktrees and refuses any gitlink
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80W9Y26QC0ZY5
