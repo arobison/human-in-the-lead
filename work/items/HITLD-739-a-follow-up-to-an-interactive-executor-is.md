@@ -6,6 +6,7 @@ state: in-progress
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80E4QRXHZ70XB
+release_note: "`hitld dispatch follow-up` continues a tier-3 interactive session as a new dispatch: it prints a `relay` for the chief of staff, the second report is completed under the new ID and queues the branch, and a refused follow-up records nothing."
 ---
 
 ## Why
