@@ -12,7 +12,7 @@ done_when:
   - "c3: Every dispatched item has an executable check written before it starts."
   - "c4: One area has an adversarial pass on every change."
   - "c5: The end-to-end eval runner drives a reported bug to a merge on a fixture repository, so the check can run."
-constraints: [HITLD-29 c1, HITLD-30 c2, HITLD-31 c3, HITLD-32 c4, HITLD-57 c5]
+constraints: [HITLD-29 c1, HITLD-30 c2, HITLD-31 c3, HITLD-32 c4, HITLD-57 c5, HITLD-711 c4, HITLD-712 c4, HITLD-713 c4, HITLD-714 c4, HITLD-715 c4]
 check: demo the end-to-end eval (check 1 of design 21.1) on a fixture repository, run in the end-to-end eval runner
 ---
 
@@ -27,3 +27,5 @@ From HITLD-28:
 Shaped by the planning pass HITLD-343 (2026-11-16). Stage: after v0.1.0.
 
 The check runs in the end-to-end eval runner (HITLD-57), so the planning pass HITLD-343 added it as a constraint, with c5 for it: a milestone constraint must name a clause, and none of c1 to c4 covers the runner.
+
+On 2026-11-22, filed from the first self-hosting run's follow-ups: The follow-ups of the first adversarial pass on the core area (HITLD-32, PR 397) join clause c4: HITLD-711 and HITLD-712 (the pass's shrinking cost and how it counts a known break), HITLD-713 (who may record a break), and the fixes HITLD-714 and HITLD-715 for the breaks it found.

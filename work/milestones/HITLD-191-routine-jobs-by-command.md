@@ -10,7 +10,7 @@ done_when:
   - "c1: Reversible tracker edits land without a per-change approval and can be reversed by command."
   - "c2: Merges, publishes, claims and closes follow one written routine and carry the full trailers."
   - "c3: Finished sessions, published refs and stale items are cleaned up by command."
-constraints: [HITLD-143 c1, HITLD-288 c1, HITLD-218 c2, HITLD-297 c2, HITLD-202 c2, HITLD-228 c2, HITLD-203 c2, HITLD-49 c2, HITLD-76 c2, HITLD-167 c3, HITLD-252 c3, HITLD-386 c2, HITLD-429 c2]
+constraints: [HITLD-143 c1, HITLD-288 c1, HITLD-218 c2, HITLD-297 c2, HITLD-202 c2, HITLD-228 c2, HITLD-203 c2, HITLD-49 c2, HITLD-76 c2, HITLD-167 c3, HITLD-252 c3, HITLD-386 c2, HITLD-429 c2, HITLD-704 c2]
 check: demo a run's tracker edits, merges, publishes, claims, closes and clean-up done by hitld commands with no per-change prompt, one edit reversed by command, run by the owner
 ---
 
@@ -25,3 +25,5 @@ HITLD-76 and HITLD-220 were proposed as contributions and are constraints instea
 ## Changed on 2026-11-20 (HITLD-603)
 
 HITLD-472 and HITLD-507, decided design items, left this milestone on the owner's decision HITLD-603; they close when the design-docs update (HITLD-572) merges. HITLD-76 (stacked pull requests) stays.
+
+On 2026-11-22, filed from the first self-hosting run's follow-ups: HITLD-704 (close by trailer on the pull-request merge path) joins clause c2, with HITLD-49.
