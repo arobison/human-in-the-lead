@@ -6,6 +6,7 @@ state: in-progress
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80K7ZVA06CP5T
+release_note: "`hitld env setup` copies the git-ignored files `.worktreeinclude` lists into the worktree, under Claude Code's rules (matched and git-ignored, never tracked, never outside the repository, never over an existing file), and the new `hitld env check` names a listed file a worktree lacks, by path only."
 ---
 
 ## Why

@@ -7,6 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { CodedError } from '../cli/errors.mjs';
 import { checkHolder, worktreeRoot } from './config.mjs';
 import { git, gitOk } from './git.mjs';
+import { INCLUDE_FILE, copyIncluded } from './include.mjs';
 import { findOutsideLinks, unlinkOutsideLinks } from './links.mjs';
 import { logEvent, readRegistry, updateRegistry } from './registry.mjs';
 import { realPath } from './fsx.mjs';
@@ -292,6 +293,18 @@ export async function runSetup(ctx, request) {
   const commands = ctx.settings.worktreeSetup;
   /** @type {SetupResult} */
   const result = { ok: true, steps: [] };
+  // The git-ignored files `.worktreeinclude` lists, before the commands, which may need them.
+  // Paths only are recorded; a file's contents never reach the result or the log.
+  try {
+    result.included = await copyIncluded({ primary: lease.repo_root, worktree: lease.path });
+  } catch (e) {
+    result.included = {
+      listed: false,
+      copied: [],
+      skipped: [],
+      note: `the files ${INCLUDE_FILE} lists could not be copied: ${/** @type {Error} */ (e).message}`,
+    };
+  }
   for (const command of commands) {
     const step = await runStep(
       command,
@@ -321,6 +334,7 @@ export async function runSetup(ctx, request) {
       ok: result.ok,
       steps: result.steps.length,
       links_out: result.links_out?.map((x) => x.path) ?? [],
+      included: result.included?.copied ?? [],
     });
   });
   return result;

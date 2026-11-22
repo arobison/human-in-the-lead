@@ -43,6 +43,9 @@ export const ERROR_CODES = Object.freeze({
   'no-eval-run': 'No stored eval run has that ID, or none is stored yet.',
   'invalid-eval-run': 'A stored eval run is not a valid eval result.',
   'setup-failed': "The worktree's setup commands failed.",
+  'no-worktree': 'The dispatch named holds no worktree.',
+  'include-missing':
+    'A worktree lacks a git-ignored file its .worktreeinclude lists; hitld env setup copies them.',
   'branch-names-taken':
     "An item's branch name and its fresh names (<name>-2 to <name>-99) are all taken, so no worktree was cut.",
   'version-not-pinned':

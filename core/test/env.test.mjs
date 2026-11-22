@@ -2142,3 +2142,160 @@ test('hitld env lock takes the capacity from the machine profile and a weight pe
     assert.equal((await hitld(['env', 'unlock', '--resource', r, '--dispatch', d])).code, 0);
   }
 });
+
+// ---------------------------------------------------------------------------------------------
+// Git-ignored files .worktreeinclude lists (HITLD-743)
+
+const INCLUDED_SECRET = 'included-file-contents-must-never-be-printed';
+
+/**
+ * A repository whose .worktreeinclude lists an ignored file, an ignored directory, a tracked file,
+ * an untracked file git does not ignore and (where links to files are allowed) an ignored link to a
+ * file outside the repository.
+ */
+function makeIncludeRepo() {
+  const repoRoot = makeRepo();
+  writeFileSync(
+    join(repoRoot, '.gitignore'),
+    'setup.txt\nready.txt\nadopted.txt\n.env.local\nlocal/\nlinked.env\n',
+  );
+  writeFileSync(
+    join(repoRoot, '.worktreeinclude'),
+    '.env.local\nlocal/\nconfig.json\nloose.txt\nlinked.env\n',
+  );
+  writeFileSync(join(repoRoot, 'config.json'), '{"tracked":true}\n');
+  git(['add', '.gitignore', '.worktreeinclude', 'config.json'], repoRoot);
+  git(['commit', '-q', '-m', 'include list'], repoRoot);
+  writeFileSync(join(repoRoot, '.env.local'), `${INCLUDED_SECRET}\n`, { mode: 0o600 });
+  mkdirSync(join(repoRoot, 'local'));
+  writeFileSync(join(repoRoot, 'local', 'settings.json'), `{"k":"${INCLUDED_SECRET}"}\n`);
+  writeFileSync(join(repoRoot, 'loose.txt'), 'untracked and not ignored\n');
+  const outside = join(dir('outside'), 'outside.env');
+  writeFileSync(outside, `${INCLUDED_SECRET}\n`);
+  if (canLinkFiles) symlinkSync(outside, join(repoRoot, 'linked.env'));
+  return repoRoot;
+}
+
+test('setup copies the git-ignored files .worktreeinclude lists, and skips tracked, unignored and outside ones', async () => {
+  const repoRoot = makeIncludeRepo();
+  const { env, store } = await makeEnv({ repoRoot });
+  const { lease } = await env.createWorktree({ holder: 'D-1', itemId: 'W-1' });
+  const setup = await env.runSetup({ holder: 'D-1' });
+  assert.ok(setup.ok);
+  const included = /** @type {import('../lib/env/include.mjs').IncludeResult} */ (setup.included);
+  assert.equal(included.listed, true);
+  assert.deepEqual(included.copied, ['.env.local', 'local/settings.json']);
+  const reasons = Object.fromEntries(included.skipped.map((s) => [s.path, s.reason]));
+  assert.equal(reasons['config.json'], 'tracked');
+  assert.equal(reasons['loose.txt'], 'not-ignored');
+  if (canLinkFiles) assert.equal(reasons['linked.env'], 'outside');
+  assert.equal(existsSync(join(lease.path, 'loose.txt')), false);
+  assert.equal(existsSync(join(lease.path, 'linked.env')), false);
+  assert.equal(readFileSync(join(lease.path, 'config.json'), 'utf8'), '{"tracked":true}\n');
+  assert.equal(
+    readFileSync(join(lease.path, '.env.local'), 'utf8'),
+    readFileSync(join(repoRoot, '.env.local'), 'utf8'),
+  );
+  if (!WIN) assert.equal(lstatSync(join(lease.path, '.env.local')).mode & 0o777, 0o600);
+  // The copies stay git-ignored, so nothing (cleanup's git add -A included) commits them.
+  assert.equal(git(['status', '--porcelain'], lease.path), '');
+  // Paths only: no contents in the result, the registry or the event log.
+  assert.equal(JSON.stringify(setup).includes(INCLUDED_SECRET), false);
+  for (const key of ['env/holders.json', 'env/events.jsonl']) {
+    assert.equal(readFileSync(join(store.root, key), 'utf8').includes(INCLUDED_SECRET), false);
+  }
+  // Removing the worktree saves uncommitted work to its branch; the copies are not in it.
+  const released = await env.releaseWorktree({ holder: 'D-1', result: 'abandoned' });
+  assert.equal(released.saved_uncommitted, false);
+  assert.equal(git(['log', '--format=%H', `main..${lease.branch}`], repoRoot), '');
+});
+
+test('setup never overwrites a file the worktree has, never writes through a link, and drops a copy the worktree does not ignore', async () => {
+  const repoRoot = makeIncludeRepo();
+  const { env } = await makeEnv({ repoRoot });
+  const path = join(dir('harness'), 'wt');
+  git(['worktree', 'add', '-q', '-b', 'harness/include', path, 'main'], repoRoot);
+  writeFileSync(join(path, '.env.local'), 'the harness copied this one already\n');
+  const elsewhere = dir('elsewhere');
+  dirLink(elsewhere, join(path, 'local'));
+  await env.adoptWorktree({ holder: 'D-2', path });
+  const included = /** @type {any} */ ((await env.runSetup({ holder: 'D-2' })).included);
+  const reasons = Object.fromEntries(
+    included.skipped.map((/** @type {any} */ s) => [s.path, s.reason]),
+  );
+  assert.deepEqual(included.copied, []);
+  assert.equal(reasons['.env.local'], 'exists');
+  assert.equal(reasons['local/settings.json'], 'unsafe-destination');
+  assert.equal(
+    readFileSync(join(path, '.env.local'), 'utf8'),
+    'the harness copied this one already\n',
+  );
+  assert.deepEqual(readdirSync(elsewhere), []);
+  rmSync(join(path, 'local'));
+  git(['worktree', 'remove', '--force', path], repoRoot);
+
+  // The primary checkout ignores .env.local only in its uncommitted .gitignore; a worktree cut
+  // from main does not, so the copy would be committable there and is removed.
+  const other = makeRepo();
+  writeFileSync(join(other, '.worktreeinclude'), '.env.local\n');
+  git(['add', '.worktreeinclude'], other);
+  git(['commit', '-q', '-m', 'include list'], other);
+  writeFileSync(join(other, '.gitignore'), 'setup.txt\nready.txt\nadopted.txt\n.env.local\n');
+  writeFileSync(join(other, '.env.local'), `${INCLUDED_SECRET}\n`);
+  const second = await makeEnv({ repoRoot: other });
+  const { lease } = await second.env.createWorktree({ holder: 'D-3', itemId: 'W-3' });
+  const dropped = /** @type {any} */ ((await second.env.runSetup({ holder: 'D-3' })).included);
+  assert.deepEqual(dropped.copied, []);
+  assert.deepEqual(dropped.skipped, [{ path: '.env.local', reason: 'not-ignored-in-worktree' }]);
+  assert.equal(existsSync(join(lease.path, '.env.local')), false);
+  await second.env.releaseWorktree({ holder: 'D-3', result: 'merged' });
+});
+
+test('hitld env setup copies the listed files and hitld env check names one that is missing, never its contents', async () => {
+  const repoRoot = makeIncludeRepo();
+  mkdirSync(join(repoRoot, '.human-in-the-lead'));
+  writeFileSync(
+    join(repoRoot, '.human-in-the-lead', 'policy.json'),
+    JSON.stringify({ schema_version: 1, project: { id: 'include-fixture', key: 'W' } }),
+    { mode: 0o600 },
+  );
+  git(['add', '-f', '.human-in-the-lead/policy.json'], repoRoot);
+  git(['commit', '-q', '-m', 'policy'], repoRoot);
+  const xdg = dir('xdg');
+  const env = { ...process.env, XDG_DATA_HOME: xdg, XDG_CONFIG_HOME: xdg };
+  /** @param {string[]} argv @param {string} [cwd] */
+  const hitld = async (argv, cwd = repoRoot) => {
+    let out = '';
+    const code = await main(argv, { out: (t) => (out += t), err: () => {}, cwd, env });
+    return { code, out, json: JSON.parse(out) };
+  };
+  const setup = await hitld(['env', 'setup', '--dispatch', 'D-1', '--item', 'W-1']);
+  assert.equal(setup.code, 0, setup.out);
+  assert.deepEqual(setup.json.setup.included.copied, ['.env.local', 'local/settings.json']);
+  assert.equal(setup.out.includes(INCLUDED_SECRET), false);
+  const wt = setup.json.path;
+
+  const whole = await hitld(['env', 'check', '--dispatch', 'D-1']);
+  assert.equal(whole.code, 0, whole.out);
+  assert.deepEqual(whole.json.include.missing, []);
+
+  rmSync(join(wt, 'local', 'settings.json'));
+  for (const [argv, cwd] of [
+    [['env', 'check', '--dispatch', 'D-1'], repoRoot],
+    [['env', 'check'], join(wt, 'local')],
+  ]) {
+    const check = await hitld(/** @type {string[]} */ (argv), /** @type {string} */ (cwd));
+    assert.equal(check.code, 1, check.out);
+    assert.equal(check.json.error, 'include-missing');
+    assert.deepEqual(check.json.include.missing, ['local/settings.json']);
+    assert.match(check.json.message, /local\/settings\.json/);
+    assert.equal(check.out.includes(INCLUDED_SECRET), false);
+  }
+  // The primary checkout has every file it lists.
+  assert.equal((await hitld(['env', 'check'])).code, 0);
+  assert.equal((await hitld(['env', 'check', '--dispatch', 'D-9'])).json.error, 'no-worktree');
+  assert.equal(
+    (await hitld(['env', 'cleanup', '--dispatch', 'D-1', '--result', 'merged'])).code,
+    0,
+  );
+});
