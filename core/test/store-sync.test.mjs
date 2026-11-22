@@ -20,7 +20,15 @@ import { schemas } from '../lib/schema/registry.mjs';
 import { exportStore, importStore, syncStore } from '../lib/store/sync.mjs';
 import { formatOf, open, seal } from '../lib/store/sealed.mjs';
 import { generateIdentity, parseHeader } from '../lib/store/age.mjs';
-import { git, head, isMachineLocal, mergeAppendOnly, snapshot } from '../lib/store/git.mjs';
+import {
+  createBundle,
+  git,
+  head,
+  isMachineLocal,
+  mergeAppendOnly,
+  snapshot,
+} from '../lib/store/git.mjs';
+import { VERSION } from '../lib/version.mjs';
 import { INDEX_FILE, readIndex, rebuildIndex } from '../lib/store/index-db.mjs';
 import { sealFormat1 } from './helpers/format1.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -449,6 +457,46 @@ test('a conflict stops the import with nothing written: the same event ID twice 
   assert.equal(c.read('precedents/P-1.json'), '{"v":2}\n');
 });
 
+/**
+ * A repository outside the store with one commit, and a worktree of it at `at`, as
+ * `hitld dispatch start` makes an executor's (HITLD-763).
+ * @param {string} dir @param {string} at
+ */
+function checkout(dir, at) {
+  const repo = join(dir, 'repo');
+  const run = (/** @type {string[]} */ args) => {
+    const r = spawnSync('git', args, {
+      cwd: repo,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@localhost',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@localhost',
+      },
+    });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  if (!existsSync(join(repo, '.git'))) {
+    mkdirSync(repo, { recursive: true });
+    run(['init', '-q', '--initial-branch=main']);
+    writeFileSync(join(repo, 'README.md'), 'code\n');
+    run(['add', 'README.md']);
+    run(['commit', '-q', '-m', 'first']);
+  }
+  run(['worktree', 'add', '-q', '-b', `b-${at.length}-${Date.now()}`, at]);
+}
+
+/** @param {string} root @returns {string[]} the paths at the head of the store's history */
+const committed = (root) =>
+  git(root, ['ls-tree', '-r', '--name-only', '-z', 'HEAD'])
+    .stdout.toString('utf8')
+    .split('\0')
+    .filter(Boolean);
+
 test('a machine-local file that arrives in a bundle is refused', async () => {
   const { dir, file } = fixture();
   const a = openStore(join(dir, 'a'));
@@ -457,11 +505,84 @@ test('a machine-local file that arrives in a bundle is refused', async () => {
   a.write('run-state.json', '{}\n');
   git(a.root, ['add', '-f', 'run-state.json']);
   git(a.root, ['commit', '-q', '-m', 'force a machine-local file in']);
-  exportStore(opts(a.root, file));
+  // This version's export drops it from the index (HITLD-763), so the bundle is sealed by hand,
+  // as an earlier version, or another program, could have written it.
+  const manifest = {
+    project: 'fixture',
+    schema_versions: versions(),
+    head: /** @type {string} */ (head(a.root)),
+    branch: 'main',
+    created_at: at(2),
+    hitld_version: VERSION,
+    recipients: [DEVICE.recipient],
+  };
+  writeFileSync(file, seal(manifest, createBundle(a.root), [DEVICE.recipient]));
   const r = await importStore(opts(join(dir, 'b'), file));
   assert.equal(r.ok, false);
   assert.equal(r.conflicts?.[0].path, 'run-state.json');
   assert.equal(existsSync(join(dir, 'b', 'run-state.json')), false);
+  // The next export leaves it out of the history's head, and the file stays on this machine.
+  exportStore(opts(a.root, file));
+  assert.equal(committed(a.root).includes('run-state.json'), false);
+  assert.equal(a.read('run-state.json'), '{}\n');
+});
+
+test('an executor worktree under the store is machine-local: the export never commits it, and another store imports the export', async () => {
+  const { dir, file } = fixture();
+  const a = openStore(join(dir, 'a'));
+  question(a, 'E-1', 1);
+  checkout(dir, join(a.root, 'worktrees', 'D-1'));
+  assert.equal(isMachineLocal('worktrees/D-1'), true);
+  exportStore(opts(a.root, file));
+  assert.equal(
+    committed(a.root).some((p) => p.startsWith('worktrees/')),
+    false,
+  );
+  const r = await importStore(opts(join(dir, 'b'), file));
+  assert.equal(r.ok, true);
+  assert.equal(existsSync(join(dir, 'b', 'worktrees')), false);
+  // The worktree is still there on this machine.
+  assert.equal(readFileSync(join(a.root, 'worktrees', 'D-1', 'README.md'), 'utf8'), 'code\n');
+});
+
+test('a worktree an earlier version committed as a gitlink leaves the next export, and the files stay', async () => {
+  const { dir, file } = fixture();
+  const a = openStore(join(dir, 'a'));
+  question(a, 'E-1', 1);
+  snapshot(a.root, 'first');
+  checkout(dir, join(a.root, 'worktrees', 'D-1'));
+  git(a.root, ['add', '-f', 'worktrees/D-1']);
+  git(a.root, ['commit', '-q', '-m', 'an earlier version committed the worktree']);
+  assert.ok(
+    git(a.root, ['ls-tree', 'HEAD', 'worktrees/D-1']).stdout.toString().startsWith('160000'),
+  );
+  exportStore(opts(a.root, file));
+  assert.equal(
+    committed(a.root).some((p) => p.startsWith('worktrees/')),
+    false,
+  );
+  assert.equal(existsSync(join(a.root, 'worktrees', 'D-1', 'README.md')), true);
+  const r = await importStore(opts(join(dir, 'b'), file));
+  assert.equal(r.ok, true);
+});
+
+test('the export refuses a gitlink anywhere else in the store, naming the path, and commits nothing', () => {
+  const { dir, file } = fixture();
+  const a = openStore(join(dir, 'a'));
+  question(a, 'E-1', 1);
+  const before = snapshot(a.root, 'first');
+  checkout(dir, join(a.root, 'elsewhere', 'D-2'));
+  question(a, 'E-2', 2);
+  assert.throws(
+    () => exportStore(opts(a.root, file)),
+    (/** @type {any} */ e) =>
+      e.code === 'store-gitlink' &&
+      e.message.includes('elsewhere/D-2') &&
+      e.message.includes('160000') &&
+      e.detail.paths.length === 1,
+  );
+  assert.equal(head(a.root), before);
+  assert.equal(existsSync(file), false);
 });
 
 test('append-only merge: the same result from either side; a removed line is a conflict', () => {

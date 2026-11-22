@@ -6,6 +6,7 @@ state: in-progress
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80W9Y26QC0ZY5
+release_note: The store export never commits the executor worktrees under the store (worktrees/ is machine-local), drops machine-local paths an earlier version committed, and refuses any other gitlink with the new error code store-gitlink, naming its path
 ---
 
 ## Why
