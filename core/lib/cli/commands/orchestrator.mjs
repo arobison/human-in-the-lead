@@ -1126,6 +1126,253 @@ async function pullRequestMerge(o) {
   };
 }
 
+/**
+ * `hitld dispatch complete`: record a completion, check its report, queue its branch to merge and
+ * plan the refill. `given` is a notification the caller has already built, in place of the files
+ * the input names: `hitld dispatch reconcile` builds it from the closing commit and the harness's
+ * record (HITLD-780).
+ * @param {Record<string, unknown>} input @param {Ctx} ctx
+ * @param {import('../../../harness/claude-code/adapter.mjs').Notification | null} [given]
+ * @returns {Result}
+ */
+export function completeDispatch(input, ctx, given = null) {
+  const p = project(ctx);
+  const run = runOf(p, input, ctx);
+  const d = String(input.dispatch);
+  const entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
+  if (!entry) {
+    const done = readLedger(p.store).events.find((e) => e.dispatch === d && e.event === 'reported');
+    if (done) {
+      // Its report stands. A follow-up continues it as a dispatch of its own, whose report
+      // is completed under that ID (HITLD-739): name it, so the second report lands there.
+      const next = readLedger(p.store)
+        .events.filter((e) => e.event === 'dispatched' && e.notes === `${FOLLOW_UP_OF}${d}`)
+        .at(-1);
+      return {
+        ok: true,
+        dispatch: d,
+        already: true,
+        event: done,
+        ...(next
+          ? {
+              continued_as: next.dispatch,
+              next: `${d}'s report is already recorded, and ${next.dispatch} continues it as a follow-up: complete that report with hitld dispatch complete --dispatch ${next.dispatch}`,
+            }
+          : {}),
+      };
+    }
+    throw new Refusal('not-in-flight', `${d} is not in flight`);
+  }
+  const typedTokens = /** @type {number | undefined} */ (input.tokens);
+  const measuredFrom = ['result-file', 'session-record'].find((k) => typeof input[k] === 'string');
+  if (typedTokens !== undefined && measuredFrom) {
+    throw new Refusal(
+      'usage',
+      `--tokens is for a figure typed by hand when the harness record is not available; --${measuredFrom} is measured, and its figure is recorded`,
+    );
+  }
+  const dispatchedEvent = readLedger(p.store).events.find(
+    (e) => e.event === 'dispatched' && e.dispatch === d,
+  );
+  /** @type {import('../../../harness/claude-code/adapter.mjs').Notification} */
+  let n;
+  if (given) {
+    n = given;
+  } else if (typeof input['session-record'] === 'string') {
+    n = {
+      kind: 'session',
+      record: readInput(input['session-record'], ctx),
+      ...(typeof input['report-file'] === 'string'
+        ? { text: readInput(input['report-file'], ctx) }
+        : {}),
+      since: dispatchedEvent?.at ?? null,
+    };
+  } else if (typeof input['result-file'] === 'string') {
+    n = { kind: 'headless', json: readInput(input['result-file'], ctx) };
+  } else if (typeof input['report-file'] === 'string') {
+    n = {
+      kind: 'subagent',
+      text: readInput(input['report-file'], ctx),
+      usage: {
+        tokens: typedTokens ?? null,
+        toolCalls: /** @type {number | undefined} */ (input['tool-calls']) ?? null,
+        durationMs: /** @type {number | undefined} */ (input['duration-ms']) ?? null,
+      },
+    };
+  } else {
+    const stored = p.store.read(resultKey(d));
+    if (stored === null)
+      throw new Refusal('usage', 'give --session-record, --result-file or --report-file');
+    n = { kind: 'headless', json: stored };
+  }
+  /** @type {ReturnType<typeof completionOf>} */
+  let completion;
+  try {
+    completion = completionOf(d, n);
+  } catch (e) {
+    if (n.kind === 'subagent') throw e;
+    throw new Refusal(
+      'usage',
+      `${n.kind === 'session' ? '--session-record' : 'the headless result'}: ${/** @type {Error} */ (e).message}`,
+    );
+  }
+  // A figure far above the estimate is most often a cache-read total, which would stand as the
+  // item's cost and set the estimate of the next items (HITLD-436): refused before anything
+  // is recorded or released, so the same command can run again with the right figure. A
+  // measured figure (HITLD-438) leaves cache reads out by construction, so it is recorded
+  // whatever its size, with a note.
+  // Read capped and corrected (HITLD-450): a poisoned start estimate cannot raise the bar.
+  const estimate = startEstimate(readLedger(p.store).events, d, entry.item, p.policy.dispatch);
+  const tokens = completion.usage?.tokens;
+  const measured = MEASURED_SOURCES.includes(completion.tokensSource ?? '');
+  if (!measured && farAboveEstimate(tokens, estimate) && input['tokens-over-estimate'] !== true) {
+    throw new Refusal(
+      'tokens-over-estimate',
+      `${d} would record ${tokens} tokens, ${Math.floor(/** @type {number} */ (tokens) / /** @type {number} */ (estimate))} times its estimate of ${estimate} (refused at ${TOKENS_FAR_ABOVE_ESTIMATE} times). A completion's tokens are output plus fresh input (uncached input and cache writes), never cache reads: run this again with that figure, or add --tokens-over-estimate if the run really cost ${tokens}`,
+    );
+  }
+  releaseExecutor(p.machineRoot, p.policy.project.id, d);
+  const parsed = parseReport(completion.report);
+  const commit = parsed.report?.commit?.sha;
+  // A completion whose permission_denials show the contract's commands refused is blocked
+  // by permissions, never a missing report shape: a follow-up would meet the same refusal
+  // (HITLD-141). A report that only mentions a refusal is a warning, never a hold.
+  const refused = refusedCommands(completion.permissionDenials);
+  const mentioned = refused.length
+    ? []
+    : mentionedRefusals({
+        report: completion.report,
+        done: parsed.report?.result === 'done',
+      });
+  const notes = [
+    ...(refused.length ? [refusedNote(refused)] : []),
+    ...(completion.usageSource === 'observed'
+      ? ['usage from the completion notification (observed; undocumented)']
+      : []),
+    ...(farAboveEstimate(tokens, estimate)
+      ? [
+          measured
+            ? `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, measured`
+            : `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, confirmed with --tokens-over-estimate`,
+        ]
+      : []),
+    ...(completion.tokensSource === 'typed'
+      ? ['tokens typed by hand: the harness record was not given']
+      : []),
+  ];
+  run.record({
+    ...reportedEvent(
+      entry,
+      { ...completion, ...(commit ? { commit } : {}) },
+      readLedger(p.store).events,
+      p.policy.dispatch,
+    ),
+    ...(notes.length ? { notes: notes.join('; ') } : {}),
+    ...(refused.length ? { result: 'blocked', reason: PERMISSIONS_REASON } : {}),
+  });
+
+  /** @type {Result} */
+  const out = {
+    ok: true,
+    dispatch: d,
+    item: entry.item,
+    tokens: tokensOut(completion, dispatchedEvent),
+  };
+  // An executor dispatched on an earlier release reports to a successor on the new one: its
+  // report is accepted within the same minor (design part 16.5, Upgrades).
+  const executor = reportVersion(dispatchedOn(readLedger(p.store).events, d));
+  if (executor) out.executor_version = executor;
+  if (mentioned.length) {
+    out.permission_warning = {
+      commands: mentioned,
+      note: `the report mentions ${mentioned.join(', ')} next to a refusal. Only a harness's recorded permission denials hold dispatch, so nothing is held: read the report, and if the executor was refused the contract's commands, tell the owner rather than following up into the same refusal`,
+    };
+  }
+  if (refused.length) {
+    out.result = 'blocked';
+    out.blocked_by = PERMISSIONS_REASON;
+    out.refused_commands = refused;
+    out.next = `the executor's permission mode ${refusedNote(refused)}, which the contract requires: recorded as blocked by permissions. Send no follow-up, which would meet the same refusal. For the rest of this run, the plan dispatches no item this way on this harness: it uses the other tier-3 mode, or holds the item (reason ${PERMISSIONS_REASON}); tell the owner`;
+  } else if (!parsed.report) {
+    out.report_errors = parsed.errors;
+    out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;
+  } else {
+    const r = parsed.report;
+    out.result = r.result;
+    if (parsed.warnings.length) out.report_warnings = parsed.warnings;
+    out.questions = r.questions;
+    out.calls = r.calls.map((/** @type {any} */ c) => c.text);
+    out.deviations = r.deviations;
+    if (r.item !== entry.item) {
+      out.next = `the report is about ${r.item}, not ${entry.item}: follow up`;
+    } else if (r.result === 'done' && r.commit && missingBranch(p, r.commit, entry)) {
+      // The merge would reject the branch as missing and tell no one, so the executor is
+      // asked now (HITLD-280).
+      const branch = r.commit.branch ?? entry.branch;
+      out.report_errors = [
+        `commit names ${branch}, which is not a branch in the repository: give the branch the work is on`,
+      ];
+      out.next = `the report names a branch that does not exist: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report again with the branch the work is on, naming the error>"`;
+    } else if (r.result === 'done' && r.commit) {
+      const branch = r.commit.branch ?? entry.branch;
+      run.record({
+        id: `verified-${d}`,
+        event: 'verified',
+        item: entry.item,
+        result: 'pass',
+        branch,
+        commit: r.commit.sha,
+        notes: 'report shape and branch checked; acceptance checks run as merge fast checks',
+      });
+      out.queued_to_merge = branch;
+      // The release-note rule: a change to the public interface needs the item's
+      // release_note. Flagged for a follow-up; the branch is still queued.
+      const missing = missingReleaseNote({
+        repoRoot: p.repoRoot,
+        main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
+        commit: r.commit.sha,
+        itemPath: itemPathOf(p, ctx, entry.item),
+        publicGlobs: p.policy.merge?.public_globs ?? [],
+      });
+      if (missing) {
+        out.release_note_missing = {
+          files: missing.files,
+          next: `the change touches the public interface but ${entry.item} has no release_note: hitld dispatch follow-up --dispatch ${d} --message "<ask for a one-line release_note on the item>"`,
+        };
+      }
+      // The evidence goes in the body of the branch's pull request (merge.via pull-request).
+      p.store.write(
+        reportEvidenceKey(entry.item),
+        JSON.stringify({ dispatch: d, evidence: r.evidence }),
+      );
+    }
+    if (r.questions.length) {
+      out.question_protocol =
+        'for each question: if it is your call (ordering, scope inside the project, which in-plan approach), answer it with hitld dispatch follow-up; otherwise write a question file and run hitld rights ask (precedent first, then a decision item and a message to the decider)';
+    }
+  }
+  const fresh = project(ctx);
+  const refill = planWithPause(plan(fresh, ctx), notePause(fresh, ctx, run));
+  out.refill = refill;
+  // A session whose hand-over is due starts nothing new: it lets what it started report to
+  // it, then hands over, and its successor refills the slots (design part 13.1).
+  const due = dueFor(run, p.policy, input);
+  out.handover = due;
+  if (due.due) {
+    const waiting = reportingHere(run.state, run.host).map((x) => x.dispatch);
+    out.refill = {
+      ...refill,
+      start: [],
+      inline: [],
+      held_for_handover: [...refill.start.map((x) => x.item), ...refill.inline],
+      next: waiting.length
+        ? `the hand-over is due (${due.reasons.join('; ')}): start nothing new; process the completions of ${waiting.join(', ')}, then hitld handover`
+        : `the hand-over is due (${due.reasons.join('; ')}): hitld handover now`,
+    };
+  }
+  return out;
+}
+
 /** @type {import('../table.mjs').Command[]} */
 const table = [
   {
@@ -1579,255 +1826,7 @@ const table = [
       SESSION,
       HOST,
     ],
-    run: (input, ctx) =>
-      guarded(() => {
-        const p = project(ctx);
-        const run = runOf(p, input, ctx);
-        const d = String(input.dispatch);
-        const entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
-        if (!entry) {
-          const done = readLedger(p.store).events.find(
-            (e) => e.dispatch === d && e.event === 'reported',
-          );
-          if (done) {
-            // Its report stands. A follow-up continues it as a dispatch of its own, whose report
-            // is completed under that ID (HITLD-739): name it, so the second report lands there.
-            const next = readLedger(p.store)
-              .events.filter((e) => e.event === 'dispatched' && e.notes === `${FOLLOW_UP_OF}${d}`)
-              .at(-1);
-            return {
-              ok: true,
-              dispatch: d,
-              already: true,
-              event: done,
-              ...(next
-                ? {
-                    continued_as: next.dispatch,
-                    next: `${d}'s report is already recorded, and ${next.dispatch} continues it as a follow-up: complete that report with hitld dispatch complete --dispatch ${next.dispatch}`,
-                  }
-                : {}),
-            };
-          }
-          throw new Refusal('not-in-flight', `${d} is not in flight`);
-        }
-        const typedTokens = /** @type {number | undefined} */ (input.tokens);
-        const measuredFrom = ['result-file', 'session-record'].find(
-          (k) => typeof input[k] === 'string',
-        );
-        if (typedTokens !== undefined && measuredFrom) {
-          throw new Refusal(
-            'usage',
-            `--tokens is for a figure typed by hand when the harness record is not available; --${measuredFrom} is measured, and its figure is recorded`,
-          );
-        }
-        const dispatchedEvent = readLedger(p.store).events.find(
-          (e) => e.event === 'dispatched' && e.dispatch === d,
-        );
-        /** @type {import('../../../harness/claude-code/adapter.mjs').Notification} */
-        let n;
-        if (typeof input['session-record'] === 'string') {
-          n = {
-            kind: 'session',
-            record: readInput(input['session-record'], ctx),
-            ...(typeof input['report-file'] === 'string'
-              ? { text: readInput(input['report-file'], ctx) }
-              : {}),
-            since: dispatchedEvent?.at ?? null,
-          };
-        } else if (typeof input['result-file'] === 'string') {
-          n = { kind: 'headless', json: readInput(input['result-file'], ctx) };
-        } else if (typeof input['report-file'] === 'string') {
-          n = {
-            kind: 'subagent',
-            text: readInput(input['report-file'], ctx),
-            usage: {
-              tokens: typedTokens ?? null,
-              toolCalls: /** @type {number | undefined} */ (input['tool-calls']) ?? null,
-              durationMs: /** @type {number | undefined} */ (input['duration-ms']) ?? null,
-            },
-          };
-        } else {
-          const stored = p.store.read(resultKey(d));
-          if (stored === null)
-            throw new Refusal('usage', 'give --session-record, --result-file or --report-file');
-          n = { kind: 'headless', json: stored };
-        }
-        /** @type {ReturnType<typeof completionOf>} */
-        let completion;
-        try {
-          completion = completionOf(d, n);
-        } catch (e) {
-          if (n.kind === 'subagent') throw e;
-          throw new Refusal(
-            'usage',
-            `${n.kind === 'session' ? '--session-record' : 'the headless result'}: ${/** @type {Error} */ (e).message}`,
-          );
-        }
-        // A figure far above the estimate is most often a cache-read total, which would stand as the
-        // item's cost and set the estimate of the next items (HITLD-436): refused before anything
-        // is recorded or released, so the same command can run again with the right figure. A
-        // measured figure (HITLD-438) leaves cache reads out by construction, so it is recorded
-        // whatever its size, with a note.
-        // Read capped and corrected (HITLD-450): a poisoned start estimate cannot raise the bar.
-        const estimate = startEstimate(
-          readLedger(p.store).events,
-          d,
-          entry.item,
-          p.policy.dispatch,
-        );
-        const tokens = completion.usage?.tokens;
-        const measured = MEASURED_SOURCES.includes(completion.tokensSource ?? '');
-        if (
-          !measured &&
-          farAboveEstimate(tokens, estimate) &&
-          input['tokens-over-estimate'] !== true
-        ) {
-          throw new Refusal(
-            'tokens-over-estimate',
-            `${d} would record ${tokens} tokens, ${Math.floor(/** @type {number} */ (tokens) / /** @type {number} */ (estimate))} times its estimate of ${estimate} (refused at ${TOKENS_FAR_ABOVE_ESTIMATE} times). A completion's tokens are output plus fresh input (uncached input and cache writes), never cache reads: run this again with that figure, or add --tokens-over-estimate if the run really cost ${tokens}`,
-          );
-        }
-        releaseExecutor(p.machineRoot, p.policy.project.id, d);
-        const parsed = parseReport(completion.report);
-        const commit = parsed.report?.commit?.sha;
-        // A completion whose permission_denials show the contract's commands refused is blocked
-        // by permissions, never a missing report shape: a follow-up would meet the same refusal
-        // (HITLD-141). A report that only mentions a refusal is a warning, never a hold.
-        const refused = refusedCommands(completion.permissionDenials);
-        const mentioned = refused.length
-          ? []
-          : mentionedRefusals({
-              report: completion.report,
-              done: parsed.report?.result === 'done',
-            });
-        const notes = [
-          ...(refused.length ? [refusedNote(refused)] : []),
-          ...(completion.usageSource === 'observed'
-            ? ['usage from the completion notification (observed; undocumented)']
-            : []),
-          ...(farAboveEstimate(tokens, estimate)
-            ? [
-                measured
-                  ? `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, measured`
-                  : `tokens ${TOKENS_FAR_ABOVE_ESTIMATE} or more times the estimate, confirmed with --tokens-over-estimate`,
-              ]
-            : []),
-          ...(completion.tokensSource === 'typed'
-            ? ['tokens typed by hand: the harness record was not given']
-            : []),
-        ];
-        run.record({
-          ...reportedEvent(
-            entry,
-            { ...completion, ...(commit ? { commit } : {}) },
-            readLedger(p.store).events,
-            p.policy.dispatch,
-          ),
-          ...(notes.length ? { notes: notes.join('; ') } : {}),
-          ...(refused.length ? { result: 'blocked', reason: PERMISSIONS_REASON } : {}),
-        });
-
-        /** @type {Result} */
-        const out = {
-          ok: true,
-          dispatch: d,
-          item: entry.item,
-          tokens: tokensOut(completion, dispatchedEvent),
-        };
-        // An executor dispatched on an earlier release reports to a successor on the new one: its
-        // report is accepted within the same minor (design part 16.5, Upgrades).
-        const executor = reportVersion(dispatchedOn(readLedger(p.store).events, d));
-        if (executor) out.executor_version = executor;
-        if (mentioned.length) {
-          out.permission_warning = {
-            commands: mentioned,
-            note: `the report mentions ${mentioned.join(', ')} next to a refusal. Only a harness's recorded permission denials hold dispatch, so nothing is held: read the report, and if the executor was refused the contract's commands, tell the owner rather than following up into the same refusal`,
-          };
-        }
-        if (refused.length) {
-          out.result = 'blocked';
-          out.blocked_by = PERMISSIONS_REASON;
-          out.refused_commands = refused;
-          out.next = `the executor's permission mode ${refusedNote(refused)}, which the contract requires: recorded as blocked by permissions. Send no follow-up, which would meet the same refusal. For the rest of this run, the plan dispatches no item this way on this harness: it uses the other tier-3 mode, or holds the item (reason ${PERMISSIONS_REASON}); tell the owner`;
-        } else if (!parsed.report) {
-          out.report_errors = parsed.errors;
-          out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;
-        } else {
-          const r = parsed.report;
-          out.result = r.result;
-          if (parsed.warnings.length) out.report_warnings = parsed.warnings;
-          out.questions = r.questions;
-          out.calls = r.calls.map((/** @type {any} */ c) => c.text);
-          out.deviations = r.deviations;
-          if (r.item !== entry.item) {
-            out.next = `the report is about ${r.item}, not ${entry.item}: follow up`;
-          } else if (r.result === 'done' && r.commit && missingBranch(p, r.commit, entry)) {
-            // The merge would reject the branch as missing and tell no one, so the executor is
-            // asked now (HITLD-280).
-            const branch = r.commit.branch ?? entry.branch;
-            out.report_errors = [
-              `commit names ${branch}, which is not a branch in the repository: give the branch the work is on`,
-            ];
-            out.next = `the report names a branch that does not exist: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report again with the branch the work is on, naming the error>"`;
-          } else if (r.result === 'done' && r.commit) {
-            const branch = r.commit.branch ?? entry.branch;
-            run.record({
-              id: `verified-${d}`,
-              event: 'verified',
-              item: entry.item,
-              result: 'pass',
-              branch,
-              commit: r.commit.sha,
-              notes: 'report shape and branch checked; acceptance checks run as merge fast checks',
-            });
-            out.queued_to_merge = branch;
-            // The release-note rule: a change to the public interface needs the item's
-            // release_note. Flagged for a follow-up; the branch is still queued.
-            const missing = missingReleaseNote({
-              repoRoot: p.repoRoot,
-              main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
-              commit: r.commit.sha,
-              itemPath: itemPathOf(p, ctx, entry.item),
-              publicGlobs: p.policy.merge?.public_globs ?? [],
-            });
-            if (missing) {
-              out.release_note_missing = {
-                files: missing.files,
-                next: `the change touches the public interface but ${entry.item} has no release_note: hitld dispatch follow-up --dispatch ${d} --message "<ask for a one-line release_note on the item>"`,
-              };
-            }
-            // The evidence goes in the body of the branch's pull request (merge.via pull-request).
-            p.store.write(
-              reportEvidenceKey(entry.item),
-              JSON.stringify({ dispatch: d, evidence: r.evidence }),
-            );
-          }
-          if (r.questions.length) {
-            out.question_protocol =
-              'for each question: if it is your call (ordering, scope inside the project, which in-plan approach), answer it with hitld dispatch follow-up; otherwise write a question file and run hitld rights ask (precedent first, then a decision item and a message to the decider)';
-          }
-        }
-        const fresh = project(ctx);
-        const refill = planWithPause(plan(fresh, ctx), notePause(fresh, ctx, run));
-        out.refill = refill;
-        // A session whose hand-over is due starts nothing new: it lets what it started report to
-        // it, then hands over, and its successor refills the slots (design part 13.1).
-        const due = dueFor(run, p.policy, input);
-        out.handover = due;
-        if (due.due) {
-          const waiting = reportingHere(run.state, run.host).map((x) => x.dispatch);
-          out.refill = {
-            ...refill,
-            start: [],
-            inline: [],
-            held_for_handover: [...refill.start.map((x) => x.item), ...refill.inline],
-            next: waiting.length
-              ? `the hand-over is due (${due.reasons.join('; ')}): start nothing new; process the completions of ${waiting.join(', ')}, then hitld handover`
-              : `the hand-over is due (${due.reasons.join('; ')}): hitld handover now`,
-          };
-        }
-        return out;
-      }),
+    run: (input, ctx) => guarded(() => completeDispatch(input, ctx)),
   },
   {
     name: 'dispatch follow-up',
