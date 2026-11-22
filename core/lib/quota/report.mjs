@@ -18,10 +18,20 @@ import { fewestCrossings } from '../dashboard/layout.mjs';
 import { releaseStages } from '../dashboard/stages.mjs';
 import { tokensByItem } from '../tracker/files/milestones.mjs';
 import { STATE_LABELS } from '../tracker/files/format.mjs';
+import {
+  API_VERSION,
+  PRIVATE_STORE_LABEL,
+  contractQuota,
+  usageSummary,
+} from '../dashboard/contract.mjs';
 
 /** @typedef {import('../tracker/files/views.mjs').MilestoneGraph} MilestoneGraph */
 
-export const METRICS_SCHEMA_VERSION = 1;
+/**
+ * The contract's version under its name before HITLD-691. It is the same number as `api_version`,
+ * kept so callers that read it keep working until the next minor release.
+ */
+export const METRICS_SCHEMA_VERSION = API_VERSION;
 
 /** @param {Record<string, any>[]} entries @returns {Record<string, any>} */
 function ledgerSummary(entries) {
@@ -46,6 +56,7 @@ function ledgerSummary(entries) {
   }
   const merged = new Set(live.filter((e) => e.event === 'merged').map((e) => e.item));
   return {
+    classification: PRIVATE_STORE_LABEL,
     entries: live.length,
     events,
     tokens,
@@ -131,6 +142,7 @@ export function buildReport({
     { now, ledger, runStartedAt },
   );
   return {
+    api_version: API_VERSION,
     metrics_schema_version: METRICS_SCHEMA_VERSION,
     generated_at: new Date(now).toISOString(),
     project: policy.project.id,
@@ -145,9 +157,17 @@ export function buildReport({
       refresh: gate.refresh,
       unread: gate.unread,
     },
-    quotas: gate.quotas,
+    quotas: gate.quotas.map(contractQuota),
     thresholds: thresholds(gate.quotas, policy.quota.notify_used),
     ledger: ledgerSummary(ledger),
+    usage: usageSummary(snapshots),
+    // The settings the page's views draw with, so no view reads the policy around the contract.
+    settings: {
+      economize_below: policy.quota.economize_below,
+      critical_below: policy.quota.critical_below,
+      dashboard_plan_states: policy.reports?.dashboard_plan_states ?? null,
+      dashboard_plan_max_items: policy.reports?.dashboard_plan_max_items ?? null,
+    },
     waiting_for_owner: ownerWaiting(policy, ledger, now),
     milestones,
     work,
@@ -202,7 +222,11 @@ export function renderDigest(r) {
     lines.push(
       `- ${s.id} (${s.window}${s.hard ? ', hard' : ', soft'}): ${used}${head}; confidence ${s.confidence}`,
     );
-    lines.push(`  ${forecastLine(s)}`);
+    // The gate's line, from the gate's name for the field the contract renames.
+    const { reserve_before_reset, ...forecast } = s.forecast;
+    lines.push(
+      `  ${forecastLine({ ...s, forecast: { ...forecast, before_reset: reserve_before_reset } })}`,
+    );
   }
   if (r.thresholds.length) lines.push('', ...r.thresholds.map((t) => `Threshold: ${t}.`));
   const l = r.ledger;
@@ -230,7 +254,7 @@ const esc = (v) =>
       })[c],
   );
 
-/** A bar: used, the reserve zone, and the economize and critical marks. @param {import('./quota.mjs').QuotaState} s @param {Record<string, any>} q */
+/** A bar: used, the reserve zone, and the economize and critical marks. @param {import('../dashboard/contract.mjs').ContractQuota} s @param {Record<string, any>} q */
 function bar(s, q) {
   if (s.used == null || !s.limit) return '<span class="muted">no reading</span>';
   const W = 320;
@@ -839,8 +863,19 @@ function readNote(r) {
   const tracker = r.work
     ? ` from the tracker in this repository${at?.commit ? ` at commit ${at.commit}` : ''}${at?.branch ? ` on ${at.branch}` : ''},`
     : '';
-  return `Read ${r.generated_at}${tracker} and from the ledger and quotas in the private store on the machine that generated it. Metrics schema ${r.metrics_schema_version}. Local data only.`;
+  return `Read ${r.generated_at}${tracker} and from the ledger and quotas in the private store on the machine that generated it. Data contract version ${r.api_version}. Local data only.`;
 }
+
+/**
+ * The plan view's settings from the contract's, leaving out those the policy does not set.
+ * @param {Report['settings']} s
+ */
+const planSettings = (s) => ({
+  ...(s.dashboard_plan_states ? { dashboard_plan_states: s.dashboard_plan_states } : {}),
+  ...(s.dashboard_plan_max_items != null
+    ? { dashboard_plan_max_items: s.dashboard_plan_max_items }
+    : {}),
+});
 
 /**
  * The views as tabs that need no script: one radio input per view, before the header, and a label
@@ -873,12 +908,13 @@ export function viewTabs(views) {
 }
 
 /**
- * The static report page. @param {Report} r @param {Record<string, any>} policy
+ * The static report page, drawn from the data contract alone: no view reads the tracker, the
+ * ledger or the policy around it (HITLD-691). @param {Report} r
  * @param {{ fileBase?: string | null }} [where] the forge's address for the repository's files, for
  *   the links to tracker files
  * @returns {string}
  */
-export function renderHtml(r, policy, { fileBase = null } = {}) {
+export function renderHtml(r, { fileBase = null } = {}) {
   const rows = r.quotas
     .map((s) => {
       const f = s.forecast;
@@ -888,10 +924,10 @@ export function renderHtml(r, policy, { fileBase = null } = {}) {
           : `${esc(show(s.unit, s.used))} of ${s.limit == null ? '?' : esc(show(s.unit, s.limit))}`;
       return `<tr${s.id === r.gate.binding ? ' class="binding"' : ''}>
 <th scope="row">${esc(s.id)}<small>${esc(s.window)}, ${s.hard ? 'hard' : 'soft'}, ${esc(s.source)}</small></th>
-<td>${bar(s, policy.quota)}<small>${used}${s.headroom == null ? '' : `; ${Math.round(s.headroom * 100)}% above the ${Math.round(s.reserve_share * 100)}% reserve`}</small></td>
+<td>${bar(s, r.settings)}<small>${used}${s.headroom == null ? '' : `; ${Math.round(s.headroom * 100)}% above the ${Math.round(s.reserve_share * 100)}% reserve`}</small></td>
 <td>${esc(s.confidence)}<small>${esc(s.used_from ?? 'none')}${s.as_of ? `, as of ${esc(s.as_of)}` : ''}</small></td>
 <td>${f.burn_per_hour == null ? '—' : `${esc(show(s.unit, f.burn_per_hour))}/h`}<small>${esc(f.burn_basis ?? '')}</small></td>
-<td>${f.reserve_at ? esc(f.reserve_at) : '—'}<small>${f.before_reset == null ? '' : f.before_reset ? 'before the window resets' : 'after the window resets'}${f.reserve_band ? `<br>band ${esc(f.reserve_band[0])} to ${esc(f.reserve_band[1] ?? 'never')}` : ''}</small></td>
+<td>${f.reserve_at ? esc(f.reserve_at) : '—'}<small>${f.reserve_before_reset == null ? '' : f.reserve_before_reset ? 'before the window resets' : 'after the window resets'}${f.reserve_band ? `<br>band ${esc(f.reserve_band[0])} to ${esc(f.reserve_band[1] ?? 'never')}` : ''}</small></td>
 </tr>`;
     })
     .join('\n');
@@ -933,7 +969,7 @@ ${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>$
           {
             id: 'plan',
             label: 'Plan',
-            html: renderPlan(r.work, policy.reports ?? {}, { fileBase }),
+            html: renderPlan(r.work, planSettings(r.settings), { fileBase }),
           },
           { id: 'proposals', label: 'Proposals', html: renderProposals(r.work, { fileBase }) },
           {

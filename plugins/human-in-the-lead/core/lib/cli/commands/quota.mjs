@@ -34,6 +34,7 @@ import { resetsAtMs } from '../../quota/window.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { executorSignal } from '../executor.mjs';
 import { workModel } from '../../dashboard/work.mjs';
+import { withholdClaims, withholdEntities, withholdGraph } from '../../dashboard/contract.mjs';
 import { ownerDigest } from './rights.mjs';
 
 /**
@@ -254,13 +255,13 @@ export const commands = [
         name: 'json',
         type: 'boolean',
         description:
-          'Also return the report data (the metrics data contract); the files are still written unless --no-write is given',
+          'Also return the report data (the dashboard data contract, schemas/dashboard-data.schema.json); the files are still written unless --no-write is given',
       },
       {
         name: 'no-write',
         type: 'boolean',
         description:
-          'Write no files: return the report data (the metrics data contract) and the digest text only',
+          'Write no files: return the report data (the dashboard data contract) and the digest text only',
       },
       {
         name: 'now',
@@ -283,18 +284,31 @@ export const commands = [
         const repoRoot = g.repoRoot;
         try {
           const tracker = openTracker({ repoRoot, policy: g.policy, env: ctx.env });
-          milestones = tracker.milestoneGraph({ tokens: tokensPerItem(g.ledger) });
+          // The data contract withholds what is labeled confidential or secret (HITLD-691).
+          const layout = tracker.layout();
+          const { entities, withheld } = withholdEntities(
+            tracker.query({}).map((e) => ({
+              ...e,
+              classification: e.classification ?? layout.defaultClassification,
+            })),
+          );
+          milestones = withholdGraph(
+            tracker.milestoneGraph({ tokens: tokensPerItem(g.ledger) }),
+            withheld,
+          );
           // The work views read the tracker's read API: the entities, the claims and the
           // committed state history (HITLD-152).
           try {
             const read = (/** @type {string[]} */ args) =>
               git(repoRoot, args, { allowFail: true }).trim() || null;
             work = workModel({
-              entities: tracker.query({}).map((e) => /** @type {Record<string, any>} */ (e)),
-              claims: tracker.claims(),
+              entities,
+              claims: withholdClaims(tracker.claims(), withheld),
               histories: tracker.histories(),
               ledger: g.ledger,
               now: g.now,
+              fields: layout.fields,
+              defaultClassification: layout.defaultClassification,
               source: {
                 commit: read(['rev-parse', '--short', 'HEAD']),
                 branch: read(['branch', '--show-current']),
@@ -320,7 +334,7 @@ export const commands = [
         milestones,
         work,
       });
-      const html = renderHtml(report, g.policy, { fileBase: repositoryFileBase(g.repoRoot) });
+      const html = renderHtml(report, { fileBase: repositoryFileBase(g.repoRoot) });
       // The digest is the one `hitld rights digest` builds, with this report's quota lines. It is
       // only read here: the cursor does not move. A project whose decisions cannot be read gets
       // the quota lines alone.

@@ -1,0 +1,807 @@
+{
+  "$id": "dashboard-data",
+  "title": "Dashboard data contract",
+  "description": "The data HITLD's dashboard is drawn from, and the one versioned surface a project's own views read (design part 12.4, decision HITLD-683): the `report` that `hitld dashboard --json` and `--json --no-write` return. HITLD's built-in views read only this. api_version stays the same when a field is added and goes up when a field is removed, renamed or given another type; a caller reads api_version first and ignores fields it does not know. Classification: each tracker entity carries its label (its own, or tracker.json default_classification); an entity labeled confidential or secret is a stub with redacted true (its title is its ID, and it has no path, fields, decider or outside party), so nothing confidential is in the contract. The ledger summary and the usage readings come from the private store and are labeled internal. Not a stored file: it carries api_version, not schema_version.",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "description": "The contract's version: 2. Version 1 was under metrics_schema_version alone; version 2 renamed the quota forecast's before_reset to reserve_before_reset.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "metrics_schema_version": {
+      "description": "The same number as api_version, under its name before HITLD-691. Kept until the next minor release; read api_version.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "generated_at": { "$ref": "common#/$defs/timestamp" },
+    "project": { "description": "The project ID in policy.json.", "type": "string" },
+    "gate": { "$ref": "#/$defs/gate" },
+    "quotas": { "type": "array", "items": { "$ref": "#/$defs/quota" } },
+    "thresholds": {
+      "description": "One line for each limit past a notify level.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "ledger": { "$ref": "#/$defs/ledger" },
+    "usage": { "$ref": "#/$defs/usage" },
+    "settings": { "$ref": "#/$defs/settings" },
+    "waiting_for_owner": {
+      "description": "In owner merge mode, the branches that passed verification and wait for the owner's merge.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/waiting" }
+    },
+    "milestones": {
+      "description": "The milestone graph (design part 12.1.2), or null in a repository with no tracker or when it could not be read.",
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/milestoneGraph" }]
+    },
+    "work": {
+      "description": "The tracker's items, claims and committed state history, and the work views' figures, or null in a repository with no tracker or when it could not be read.",
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/work" }]
+    }
+  },
+  "required": [
+    "api_version",
+    "metrics_schema_version",
+    "generated_at",
+    "project",
+    "gate",
+    "quotas",
+    "thresholds",
+    "ledger",
+    "usage",
+    "settings",
+    "waiting_for_owner",
+    "milestones",
+    "work"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "label": {
+      "description": "A classification label (design part 3).",
+      "$ref": "common#/$defs/classification"
+    },
+    "idOrNull": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+    "stringOrNull": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+    "numberOrNull": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+    "ids": { "type": "array", "items": { "type": "string" } },
+    "counts": { "type": "object", "additionalProperties": { "type": "number" } },
+    "gate": {
+      "description": "What the dispatch gate says now. Match on fields, not on the text of reason or forecast.",
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["normal", "economize", "critical_path_only", "stop"] },
+        "allow_ordinary": { "type": "boolean" },
+        "allow_critical_path": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "binding": { "$ref": "#/$defs/stringOrNull" },
+        "forecast": { "$ref": "#/$defs/stringOrNull" },
+        "ask_owner": { "type": "boolean" },
+        "refresh": {
+          "description": "The limits whose owner-declared figure the owner is asked to refresh, and why.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "limit": { "type": "string" }, "why": { "type": "string" } },
+            "required": ["limit", "why"],
+            "additionalProperties": false
+          }
+        },
+        "unread": { "description": "Limits with no reading.", "$ref": "#/$defs/ids" }
+      },
+      "required": [
+        "mode",
+        "allow_ordinary",
+        "allow_critical_path",
+        "reason",
+        "binding",
+        "forecast",
+        "ask_owner",
+        "refresh",
+        "unread"
+      ],
+      "additionalProperties": false
+    },
+    "quota": {
+      "description": "One limit as the gate reads it.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "unit": { "type": "string" },
+        "window": { "type": "string" },
+        "source": { "type": "string" },
+        "hard": { "type": "boolean" },
+        "limit": { "$ref": "#/$defs/numberOrNull" },
+        "reserve_share": { "type": "number" },
+        "reserve": { "$ref": "#/$defs/numberOrNull" },
+        "used": { "$ref": "#/$defs/numberOrNull" },
+        "used_from": { "enum": ["snapshot", "declared", "ledger", null] },
+        "declared": {
+          "description": "The owner's figure an estimate starts from, when used_from is declared.",
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "properties": {
+                "used": { "type": "number" },
+                "at": { "type": "string" },
+                "burn_per_hour": { "$ref": "#/$defs/numberOrNull" }
+              },
+              "required": ["used", "at", "burn_per_hour"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "refresh": { "$ref": "#/$defs/stringOrNull" },
+        "as_of": { "$ref": "#/$defs/stringOrNull" },
+        "resets_at": { "$ref": "#/$defs/stringOrNull" },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "headroom": { "$ref": "#/$defs/numberOrNull" },
+        "forecast": {
+          "type": "object",
+          "properties": {
+            "burn_per_hour": { "$ref": "#/$defs/numberOrNull" },
+            "burn_basis": { "enum": ["recent", "window average", null] },
+            "burn_band": {
+              "anyOf": [
+                { "type": "null" },
+                { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+              ]
+            },
+            "reserve_at": { "$ref": "#/$defs/stringOrNull" },
+            "reserve_band": {
+              "anyOf": [
+                { "type": "null" },
+                {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/stringOrNull" },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              ]
+            },
+            "limit_at": { "$ref": "#/$defs/stringOrNull" },
+            "reserve_before_reset": {
+              "description": "Whether the reserve is reached before the window resets; null with no forecast. Named before_reset in version 1.",
+              "type": ["boolean", "null"]
+            }
+          },
+          "required": [
+            "burn_per_hour",
+            "burn_basis",
+            "burn_band",
+            "reserve_at",
+            "reserve_band",
+            "limit_at",
+            "reserve_before_reset"
+          ],
+          "additionalProperties": false
+        },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": [
+        "id",
+        "unit",
+        "window",
+        "source",
+        "hard",
+        "limit",
+        "reserve_share",
+        "reserve",
+        "used",
+        "used_from",
+        "declared",
+        "refresh",
+        "as_of",
+        "resets_at",
+        "confidence",
+        "headroom",
+        "forecast",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "ledger": {
+      "description": "Counts from the ledger, corrections applied. Labeled internal: the ledger is in the private store.",
+      "type": "object",
+      "properties": {
+        "classification": { "$ref": "#/$defs/label" },
+        "entries": { "type": "integer", "minimum": 0 },
+        "events": { "description": "A count for each event kind.", "$ref": "#/$defs/counts" },
+        "tokens": { "type": "number", "minimum": 0 },
+        "tokens_by_model": { "$ref": "#/$defs/counts" },
+        "tokens_by_tier": { "$ref": "#/$defs/counts" },
+        "items_merged": { "type": "integer", "minimum": 0 },
+        "tokens_per_merged_item": { "$ref": "#/$defs/numberOrNull" }
+      },
+      "required": [
+        "classification",
+        "entries",
+        "events",
+        "tokens",
+        "tokens_by_model",
+        "tokens_by_tier",
+        "items_merged",
+        "tokens_per_merged_item"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "description": "The usage snapshots the gate read (the project's and the machine registry's): how many, and the latest from each source, without the session that fed it. Labeled internal: usage never leaves the machine by default.",
+      "type": "object",
+      "properties": {
+        "classification": { "$ref": "#/$defs/label" },
+        "snapshots": { "type": "integer", "minimum": 0 },
+        "latest": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "at": { "$ref": "common#/$defs/timestamp" },
+              "source": { "type": "string" },
+              "rate_limits": { "$ref": "usage-snapshot#/properties/rate_limits" },
+              "readings": { "$ref": "usage-snapshot#/properties/readings" }
+            },
+            "required": ["at", "source"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["classification", "snapshots", "latest"],
+      "additionalProperties": false
+    },
+    "settings": {
+      "description": "The settings the page's views draw with, from the effective policy: the quota bar's marks and the plan view's states and size.",
+      "type": "object",
+      "properties": {
+        "economize_below": { "type": "number" },
+        "critical_below": { "type": "number" },
+        "dashboard_plan_states": {
+          "anyOf": [{ "type": "null" }, { "type": "array", "items": { "type": "string" } }]
+        },
+        "dashboard_plan_max_items": { "anyOf": [{ "type": "null" }, { "type": "integer" }] }
+      },
+      "required": [
+        "economize_below",
+        "critical_below",
+        "dashboard_plan_states",
+        "dashboard_plan_max_items"
+      ],
+      "additionalProperties": false
+    },
+    "waiting": {
+      "type": "object",
+      "properties": {
+        "item": { "type": "string" },
+        "branch": { "$ref": "#/$defs/stringOrNull" },
+        "result": { "$ref": "#/$defs/stringOrNull" },
+        "fast_check": { "enum": ["passed", "not run"] },
+        "waiting_since": { "$ref": "#/$defs/stringOrNull" },
+        "waited_ms": { "$ref": "#/$defs/numberOrNull" }
+      },
+      "required": ["item", "branch", "result", "fast_check", "waiting_since", "waited_ms"],
+      "additionalProperties": false
+    },
+    "fieldValue": {
+      "description": "A declared field's value, typed as declared: a string, a number, a boolean, or a list of one of them.",
+      "anyOf": [
+        { "type": ["string", "number", "boolean"] },
+        { "type": "array", "items": { "type": ["string", "number", "boolean"] } }
+      ]
+    },
+    "work": {
+      "type": "object",
+      "properties": {
+        "read_at": { "$ref": "common#/$defs/timestamp" },
+        "source": {
+          "description": "Where the tracker was read, and whether the clone's history is cut.",
+          "type": "object",
+          "properties": {
+            "commit": { "$ref": "#/$defs/stringOrNull" },
+            "branch": { "$ref": "#/$defs/stringOrNull" },
+            "shallow": { "type": "boolean" }
+          },
+          "required": ["commit", "branch"],
+          "additionalProperties": false
+        },
+        "fields": {
+          "description": "The project's declared fields, as tracker.json declares them. An item's values are under its fields.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "$ref": "tracker#/$defs/field/properties/name" },
+              "type": { "$ref": "tracker#/$defs/field/properties/type" },
+              "list": { "type": "boolean" },
+              "values": { "$ref": "tracker#/$defs/field/properties/values" },
+              "description": { "type": "string" }
+            },
+            "required": ["name", "type", "list", "description"],
+            "additionalProperties": false
+          }
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "common#/$defs/id" },
+              "title": { "type": "string" },
+              "state": { "type": "string" },
+              "classification": { "$ref": "#/$defs/label" },
+              "redacted": { "type": "boolean" }
+            },
+            "required": ["id", "title", "state", "classification", "redacted"],
+            "additionalProperties": false
+          }
+        },
+        "milestones": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "common#/$defs/id" },
+              "title": { "type": "string" },
+              "state": { "type": "string" },
+              "classification": { "$ref": "#/$defs/label" },
+              "redacted": { "type": "boolean" },
+              "long_outcome": {
+                "description": "A milestone with no project.",
+                "type": "boolean"
+              },
+              "scopes": { "$ref": "#/$defs/ids" }
+            },
+            "required": [
+              "id",
+              "title",
+              "state",
+              "classification",
+              "redacted",
+              "long_outcome",
+              "scopes"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "critical_path": {
+          "description": "The item critical path, first first.",
+          "$ref": "#/$defs/ids"
+        },
+        "items": {
+          "description": "Every work, decision and external item, in ID order.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/item" }
+        },
+        "claims": {
+          "description": "The claimed items, claims in other worktrees and fetched bundles included until they merge.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "common#/$defs/id" },
+              "title": { "type": "string" },
+              "double": {
+                "description": "More than one claimant, or one claimant on more than one branch.",
+                "type": "boolean"
+              },
+              "claims": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "claimant": { "type": "string" },
+                    "branch": { "type": "string" },
+                    "ref": { "type": "string" },
+                    "commit": { "$ref": "#/$defs/stringOrNull" },
+                    "at": { "$ref": "#/$defs/stringOrNull" },
+                    "source": { "enum": ["local", "remote", "bundle"] }
+                  },
+                  "required": ["claimant", "branch", "ref", "commit", "at", "source"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["id", "title", "double", "claims"],
+            "additionalProperties": false
+          }
+        },
+        "history": {
+          "description": "Each entity's committed state changes, oldest first, in ID order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "common#/$defs/id" },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "at": { "$ref": "common#/$defs/timestamp" },
+                    "from": { "$ref": "#/$defs/stringOrNull" },
+                    "to": { "type": "string" },
+                    "commit": { "$ref": "#/$defs/stringOrNull" }
+                  },
+                  "required": ["at", "from", "to", "commit"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["id", "changes"],
+            "additionalProperties": false
+          }
+        },
+        "move": { "$ref": "#/$defs/move" },
+        "flow": { "$ref": "#/$defs/flow" }
+      },
+      "required": [
+        "read_at",
+        "source",
+        "fields",
+        "projects",
+        "milestones",
+        "critical_path",
+        "items",
+        "claims",
+        "history",
+        "move",
+        "flow"
+      ],
+      "additionalProperties": false
+    },
+    "item": {
+      "description": "A work, decision or external item with its derived stage.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "common#/$defs/id" },
+        "kind": { "enum": ["work", "decision", "external"] },
+        "title": { "type": "string" },
+        "state": { "$ref": "common#/$defs/itemState" },
+        "stage": {
+          "description": "Its state, with planned split into ready (every need done) and blocked.",
+          "enum": ["proposed", "blocked", "ready", "in-progress", "done", "dropped"]
+        },
+        "project": { "$ref": "#/$defs/idOrNull" },
+        "needs": { "$ref": "#/$defs/ids" },
+        "open_needs": { "description": "Its needs that are not done.", "$ref": "#/$defs/ids" },
+        "path": {
+          "description": "Its file, repository-relative; null when redacted.",
+          "$ref": "#/$defs/stringOrNull"
+        },
+        "created": { "$ref": "#/$defs/stringOrNull" },
+        "critical": { "description": "On the item critical path.", "type": "boolean" },
+        "waiting_on_it": {
+          "description": "Open items that wait on it, directly or through other items.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "decider": { "$ref": "#/$defs/stringOrNull" },
+        "waiting_on": {
+          "description": "An outside wait's party.",
+          "$ref": "#/$defs/stringOrNull"
+        },
+        "scopes": {
+          "description": "The projects, milestones and long outcomes it belongs to.",
+          "$ref": "#/$defs/ids"
+        },
+        "classification": { "$ref": "#/$defs/label" },
+        "owner": { "type": "string" },
+        "fields": {
+          "description": "The project's declared fields this item sets, by name, typed as declared.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/fieldValue" }
+        },
+        "redacted": {
+          "description": "Withheld for its label (confidential or secret): the title is the ID, and path, fields, decider and waiting_on are left out.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "state",
+        "stage",
+        "project",
+        "needs",
+        "open_needs",
+        "path",
+        "created",
+        "critical",
+        "waiting_on_it",
+        "decider",
+        "waiting_on",
+        "scopes",
+        "classification",
+        "owner",
+        "fields",
+        "redacted"
+      ],
+      "additionalProperties": false
+    },
+    "brief": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "common#/$defs/id" },
+        "title": { "type": "string" },
+        "path": { "$ref": "#/$defs/stringOrNull" },
+        "waiting_on_it": { "type": "integer", "minimum": 0 },
+        "critical": { "type": "boolean" },
+        "age_days": { "$ref": "#/$defs/numberOrNull" },
+        "first_needs": { "$ref": "#/$defs/ids" },
+        "waiting_on": { "$ref": "#/$defs/stringOrNull" }
+      },
+      "required": ["id", "title", "path", "waiting_on_it", "critical"],
+      "additionalProperties": false
+    },
+    "move": {
+      "description": "Your move: decisions waiting on the owner, what is ready, what is in progress, branches waiting on checks, and outside waits, each with its age in days.",
+      "type": "object",
+      "properties": {
+        "decisions": { "type": "array", "items": { "$ref": "#/$defs/brief" } },
+        "ready": { "type": "array", "items": { "$ref": "#/$defs/brief" } },
+        "in_progress": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "common#/$defs/id" },
+              "title": { "type": "string" },
+              "path": { "$ref": "#/$defs/stringOrNull" },
+              "by": { "$ref": "#/$defs/stringOrNull" },
+              "branch": { "$ref": "#/$defs/stringOrNull" },
+              "claims": { "type": "integer", "minimum": 0 },
+              "age_days": { "$ref": "#/$defs/numberOrNull" },
+              "doing": {
+                "description": "What its dispatch last did, from the ledger.",
+                "anyOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "event": { "type": "string" },
+                      "age_days": { "type": "number" }
+                    },
+                    "required": ["event", "age_days"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "waiting_on_it": { "type": "integer", "minimum": 0 }
+            },
+            "required": [
+              "id",
+              "title",
+              "path",
+              "by",
+              "branch",
+              "claims",
+              "age_days",
+              "doing",
+              "waiting_on_it"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "path": { "$ref": "#/$defs/stringOrNull" },
+              "branch": { "$ref": "#/$defs/stringOrNull" },
+              "age_days": { "type": "number" }
+            },
+            "required": ["id", "title", "path", "branch", "age_days"],
+            "additionalProperties": false
+          }
+        },
+        "outside": { "type": "array", "items": { "$ref": "#/$defs/brief" } }
+      },
+      "required": ["decisions", "ready", "in_progress", "checks", "outside"],
+      "additionalProperties": false
+    },
+    "flow": {
+      "description": "Flow (design part 11.1): each day's count of items in each stage, from the committed state history, and the measures beside their pairs.",
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "day": { "type": "string" },
+              "done": { "type": "integer", "minimum": 0 },
+              "in-progress": { "type": "integer", "minimum": 0 },
+              "ready": { "type": "integer", "minimum": 0 },
+              "blocked": { "type": "integer", "minimum": 0 },
+              "proposed": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["day", "done", "in-progress", "ready", "blocked", "proposed"],
+            "additionalProperties": false
+          }
+        },
+        "measures": {
+          "type": "object",
+          "properties": {
+            "done_last_7_days": { "type": "integer", "minimum": 0 },
+            "done_previous_7_days": { "type": "integer", "minimum": 0 },
+            "lead_time_median_days": { "$ref": "#/$defs/numberOrNull" },
+            "lead_time_items": { "type": "integer", "minimum": 0 },
+            "merged": { "type": "integer", "minimum": 0 },
+            "reverted": { "type": "integer", "minimum": 0 },
+            "verified": { "type": "integer", "minimum": 0 },
+            "first_pass": { "type": "integer", "minimum": 0 },
+            "in_progress": { "type": "integer", "minimum": 0 },
+            "blocked": { "type": "integer", "minimum": 0 }
+          },
+          "required": [
+            "done_last_7_days",
+            "done_previous_7_days",
+            "lead_time_median_days",
+            "lead_time_items",
+            "merged",
+            "reverted",
+            "verified",
+            "first_pass",
+            "in_progress",
+            "blocked"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": ["days", "measures"],
+      "additionalProperties": false
+    },
+    "graphItem": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "state": { "type": "string" },
+        "role": { "enum": ["constraint", "contribution"] },
+        "critical": { "type": "boolean" },
+        "path": { "$ref": "#/$defs/stringOrNull" }
+      },
+      "required": ["id", "title", "state", "role", "critical", "path"],
+      "additionalProperties": false
+    },
+    "milestoneGraph": {
+      "description": "The milestone graph (design part 12.1.2): nodes in ID order, the waits between them, the milestone critical path, the board's lanes and the release gates.",
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "path": { "$ref": "#/$defs/stringOrNull" },
+              "state": { "type": "string" },
+              "outcome": { "$ref": "#/$defs/stringOrNull" },
+              "project": { "$ref": "#/$defs/idOrNull" },
+              "constraints": {
+                "type": "object",
+                "properties": {
+                  "done": { "type": "integer", "minimum": 0 },
+                  "total": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["done", "total"],
+                "additionalProperties": false
+              },
+              "tokens_spent": { "$ref": "#/$defs/numberOrNull" },
+              "appetite_tokens": { "$ref": "#/$defs/numberOrNull" },
+              "check": { "enum": ["passed", "due", "not yet due"] },
+              "remaining_tokens": { "type": "number", "minimum": 0 },
+              "critical": { "type": "boolean" },
+              "layer": { "type": "integer" },
+              "stage": { "enum": ["proposed", "waiting", "ready", "in-flight", "done", "dropped"] },
+              "in_progress": { "type": "integer", "minimum": 0 },
+              "holds": {
+                "type": "object",
+                "properties": {
+                  "decisions": { "$ref": "#/$defs/ids" },
+                  "owner_decisions": { "$ref": "#/$defs/ids" },
+                  "external": { "$ref": "#/$defs/ids" }
+                },
+                "required": ["decisions", "owner_decisions", "external"],
+                "additionalProperties": false
+              },
+              "waits": { "$ref": "#/$defs/ids" },
+              "waiting_on_it": { "type": "integer", "minimum": 0 },
+              "in_cycle": { "type": "boolean" },
+              "items": { "type": "array", "items": { "$ref": "#/$defs/graphItem" } }
+            },
+            "required": [
+              "id",
+              "title",
+              "path",
+              "state",
+              "outcome",
+              "project",
+              "constraints",
+              "tokens_spent",
+              "appetite_tokens",
+              "check",
+              "remaining_tokens",
+              "critical",
+              "layer",
+              "stage",
+              "in_progress",
+              "holds",
+              "waits",
+              "waiting_on_it",
+              "in_cycle",
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "critical": { "type": "boolean" },
+              "items": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["from", "to", "critical", "items"],
+            "additionalProperties": false
+          }
+        },
+        "critical_path": { "$ref": "#/$defs/ids" },
+        "lanes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "#/$defs/idOrNull" },
+              "title": { "type": "string" },
+              "state": { "$ref": "#/$defs/stringOrNull" }
+            },
+            "required": ["id", "title", "state"],
+            "additionalProperties": false
+          }
+        },
+        "releases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "release": { "type": "string" },
+              "state": { "type": "string" },
+              "layer": { "type": "integer" },
+              "milestones": { "$ref": "#/$defs/ids" },
+              "path": { "$ref": "#/$defs/stringOrNull" },
+              "needs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "title": { "type": "string" },
+                    "state": { "type": "string" },
+                    "path": { "$ref": "#/$defs/stringOrNull" }
+                  },
+                  "required": ["id", "title", "state", "path"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["id", "title", "release", "state", "layer", "milestones", "path", "needs"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["nodes", "edges", "critical_path", "lanes", "releases"],
+      "additionalProperties": false
+    }
+  }
+}
