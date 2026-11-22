@@ -76,7 +76,7 @@ export const actions = {
         ledger: input.ledger ?? [],
         now: Date.parse(input.now),
       });
-      const html = renderHtml(report, policy);
+      const html = renderHtml(report);
       const digest = renderDigest(report);
       writeSandboxFile(sandboxPath(ctx.sandbox, `${input.dir}/dashboard.html`), html);
       writeSandboxFile(sandboxPath(ctx.sandbox, `${input.dir}/digest.txt`), digest);
