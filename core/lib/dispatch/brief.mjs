@@ -139,6 +139,9 @@ export function renderBrief({
     '',
     'Follow the executor contract in AGENTS.md and the execute skill: claim first, close in the same',
     'change, measure through the benchmark tool, report in the fixed shape.',
+    'The commit line is exactly `commit: <full sha> (branch <name>)`, with nothing after the closing',
+    'bracket; a note about the branch goes under `deviations`. Every list line is indented two spaces',
+    'under its heading.',
     '',
     ...(reportTo ? [reportBlock(reportTo), ''] : []),
   ].join('\n');
