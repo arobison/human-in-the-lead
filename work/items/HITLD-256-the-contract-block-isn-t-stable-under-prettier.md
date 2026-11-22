@@ -2,7 +2,7 @@
 id: HITLD-256
 title: The contract block isn't stable under prettier or markdownlint
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-402 c2]
