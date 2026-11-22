@@ -2,10 +2,12 @@
 id: HITLD-256
 title: The contract block isn't stable under prettier or markdownlint
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-402 c2]
+claimed_by: D-01M815RN365X1Q2B
+release_note: The AGENTS.md contract block is stable under prettier and passes markdownlint MD040 and MD041; hitld check contract ignores blank-line differences.
 ---
 
 ## Why
