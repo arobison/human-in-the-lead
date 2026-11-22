@@ -471,8 +471,8 @@ test('a quota pause records why and when the window resets; after the reset the 
   const d = (await c.hitld(['dispatch', 'start', 'W-1'])).result.dispatch;
   await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'agent-1']);
 
-  // The five-hour window reaches the reserve; it resets 3000 seconds after the start.
-  c.status(80, 3000);
+  // The five-hour window reaches the default reserve of 10%; it resets 3000 seconds after the start.
+  c.status(92, 3000);
   c.at(60);
   const plan = await c.hitld(['dispatch', 'plan']);
   assert.equal(plan.result.gate.mode, 'stop');
@@ -538,7 +538,8 @@ test('a raised budget through config write re-plans at once, before the reset', 
   const c = clocked();
   c.status(10, 72000);
   await c.hitld(['run', 'start']);
-  c.status(80, 72000);
+  // Past the default reserve of 10%.
+  c.status(92, 72000);
   const plan = await c.hitld(['dispatch', 'plan']);
   assert.equal(plan.result.gate.mode, 'stop');
   assert.ok(plan.result.paused);
@@ -562,7 +563,7 @@ test('a raised budget through config write re-plans at once, before the reset', 
     'person',
     '--merge',
     '--data',
-    '{"quota":{"reserve":0.1}}',
+    '{"quota":{"reserve":0.05}}',
   ]);
   assert.equal(raised.exit, 0, JSON.stringify(raised.result));
   assert.equal(raised.result.replan.lifts, true);

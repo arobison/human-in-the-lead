@@ -25,7 +25,8 @@ test('policy: the run and orchestrator sections have documented defaults', () =>
   const p = policyDefaults();
   assert.equal(p.run.checkpoints_kept, 5);
   assert.equal(p.run.lease_expiry_seconds, 1800);
-  assert.equal(p.orchestrator.handover_context_share, 0.7);
+  assert.equal(p.orchestrator.handover_context_share, 0.3);
+  assert.equal(p.orchestrator.handover_after_completions, 8);
   assert.deepEqual(
     schemas()
       .validateEntity('policy', {

@@ -18,6 +18,20 @@ const END = /^<!-- hitld:contract end -->[ \t]*$/;
 export const DEFAULT_KEY = 'W';
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 
+/** The first line of an AGENTS.md that install creates: markdownlint MD041 wants a top-level heading. */
+export const NEW_FILE_HEADING = '# Agent instructions';
+
+/**
+ * A block with its blank lines dropped: formatters such as prettier add or remove blank lines
+ * around the markers and between blocks, and that is not an edit (HITLD-256).
+ * @param {string} body
+ */
+const withoutBlankLines = (body) =>
+  body
+    .split('\n')
+    .filter((l) => l.trim() !== '')
+    .join('\n');
+
 /**
  * The block for a plugin version and project key: markers included, one trailing newline.
  * @param {string} [version]
@@ -100,7 +114,7 @@ export function compareBlock(text, version = VERSION, key = DEFAULT_KEY) {
     };
   }
   const want = renderBlock(version, key);
-  if (found.body === want)
+  if (withoutBlankLines(found.body) === withoutBlankLines(want))
     return { status: 'current', found: found.version, expected: version, message: 'current' };
   const have = new Set(found.body.split('\n'));
   const wanted = new Set(want.split('\n'));
@@ -125,8 +139,9 @@ export function compareBlock(text, version = VERSION, key = DEFAULT_KEY) {
 
 /**
  * Write or update the block in `<dir>/AGENTS.md`. Text outside the markers is never changed: a
- * missing block is appended after one blank line; a present one is replaced in place. A file with
- * broken markers is refused.
+ * missing block is appended after one blank line; a present one is replaced in place, unless it
+ * differs from the plugin's only in blank lines. A new or empty file starts with a top-level
+ * heading. A file with broken markers is refused.
  * @param {string} dir
  * @param {string} [version]
  * @param {string} [key]
@@ -135,8 +150,9 @@ export function compareBlock(text, version = VERSION, key = DEFAULT_KEY) {
 export function installBlock(dir, version = VERSION, key = DEFAULT_KEY) {
   const path = join(dir, 'AGENTS.md');
   const block = renderBlock(version, key);
+  const fresh = `${NEW_FILE_HEADING}\n\n${block}`;
   if (!existsSync(path)) {
-    writeFileSync(path, block);
+    writeFileSync(path, fresh);
     return { ok: true, action: 'created', path };
   }
   const text = readFileSync(path, 'utf8');
@@ -144,9 +160,16 @@ export function installBlock(dir, version = VERSION, key = DEFAULT_KEY) {
   if (found.state === 'malformed') {
     return { ok: false, action: 'refused', path, message: found.problem };
   }
+  if (
+    found.state === 'found' &&
+    found.version === version &&
+    withoutBlankLines(found.body) === withoutBlankLines(block)
+  ) {
+    return { ok: true, action: 'unchanged', path };
+  }
   let next;
   if (found.state === 'missing') {
-    next = text.trim() === '' ? block : text.replace(/\n*$/, '\n\n') + block;
+    next = text.trim() === '' ? fresh : text.replace(/\n*$/, '\n\n') + block;
   } else {
     const lines = text.split('\n');
     next = [

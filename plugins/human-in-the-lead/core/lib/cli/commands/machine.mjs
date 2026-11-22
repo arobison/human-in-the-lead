@@ -76,7 +76,7 @@ export const commands = [
         return {
           ok: false,
           error: 'not-permitted',
-          message: `executors never write settings: ${refusal}`,
+          message: refusal,
           ...base,
           written: false,
         };

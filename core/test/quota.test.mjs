@@ -54,12 +54,19 @@ const T0 = Date.parse('2026-11-14T12:00:00Z');
 const HOUR = 3_600_000;
 const iso = (/** @type {number} */ ms) => new Date(ms).toISOString();
 
+/**
+ * The reserve these tests' arithmetic is written against: a quarter, so the bands sit apart. The
+ * package default (0.10, HITLD-799) is checked in policy.test.mjs and by the commands below,
+ * whose policy sets no reserve.
+ */
+const RESERVE = 0.25;
+
 /** @param {Record<string, any>} [quota] */
 const policyWith = (quota = {}) => {
   const { policy, errors } = resolvePolicy({
     schema_version: 1,
     project: { id: 'quota-test', key: 'W' },
-    quota,
+    quota: { reserve: RESERVE, ...quota },
   });
   assert.deepEqual(errors, []);
   return /** @type {Record<string, any>} */ (policy);
@@ -604,11 +611,12 @@ async function hitld(argv, p) {
 
 test('hitld quota status reads the store; a snapshot near the reserve limits dispatch', async () => {
   const p = project();
-  p.store.append('usage/snapshots.jsonl', `${JSON.stringify(snap(T0 - 60_000, 70))}\nbroken\n`);
+  p.store.append('usage/snapshots.jsonl', `${JSON.stringify(snap(T0 - 60_000, 80))}\nbroken\n`);
   const status = await hitld(['quota', 'status', '--now', iso(T0)], p);
   assert.equal(status.code, 0);
   assert.equal(status.json.skipped_snapshots, 1);
-  // 100 - 70 - 25 = 5% above the reserve: below the critical threshold.
+  // The policy sets no reserve, so the package default applies (0.10, HITLD-799):
+  // 100 - 80 - 10 = 10% above the reserve: below the critical threshold.
   assert.equal(status.json.mode, 'critical_path_only');
   assert.equal(status.json.allow, false);
   assert.equal(status.json.binding, 'claude-five-hour');
@@ -620,7 +628,8 @@ test('hitld quota status reads the store; a snapshot near the reserve limits dis
 
 test('hitld dashboard writes dashboard.html and digest.txt, and --json gives the data', async () => {
   const p = project();
-  p.store.append('usage/snapshots.jsonl', `${JSON.stringify(snap(T0 - 60_000, 80))}\n`);
+  // 92% used is past the default reserve of 10% (HITLD-799).
+  p.store.append('usage/snapshots.jsonl', `${JSON.stringify(snap(T0 - 60_000, 92))}\n`);
   const out = join(p.repo, 'out');
   const r = await hitld(['dashboard', '--out', 'out', '--json', '--now', iso(T0)], p);
   assert.equal(r.code, 0);

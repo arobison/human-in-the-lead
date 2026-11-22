@@ -145,8 +145,8 @@ test('the client reads a contract, and refuses another version or a non-contract
   assert.equal(fieldValue(c, /** @type {any} */ (itemOf(c, 'W-7')), 'fields.points'), 5);
   assert.equal(fieldValue(c, /** @type {any} */ (itemOf(c, 'W-7')), 'reached.done'), '2026-11-13');
   assert.throws(
-    () => fieldValue(c, /** @type {any} */ (itemOf(c, 'W-7')), 'colour'),
-    (e) => e instanceof ContractError && e.code === 'no-field' && /"colour"/.test(e.message), // spelling-ok
+    () => fieldValue(c, /** @type {any} */ (itemOf(c, 'W-7')), 'color'),
+    (e) => e instanceof ContractError && e.code === 'no-field' && /"color"/.test(e.message),
   );
   assert.throws(
     () => readContract({ ...fixture.contract, api_version: 3 }),
@@ -376,9 +376,9 @@ test('theme variables restyle the panels, and an unsafe value is refused', () =>
     /^<div class="hitld" style="--hitld-accent:#b00020;--hitld-stop-bg:rgb\(255, 240, 240\);--hitld-font:&#x27;Inter&#x27;, sans-serif">/,
   );
   assert.throws(
-    () => themeStyle(/** @type {any} */ ({ colour: '#000' })),
-    /"colour" is not a theme variable/,
-  ); // spelling-ok
+    () => themeStyle(/** @type {any} */ ({ color: '#000' })),
+    /"color" is not a theme variable/,
+  );
   for (const bad of ['url(https://x.example/a.png)', 'red;}body{display:none', 'red\\0']) {
     assert.throws(() => themeStyle({ accent: bad }), /takes a color or a font list/);
   }
