@@ -2,10 +2,11 @@
 id: HITLD-799
 title: The package default for the quota reserve is 10 percent, not 25
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M814Y8CYT53BGM
 ---
 
 ## Why
