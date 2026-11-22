@@ -9,9 +9,11 @@ owner: owner
 
 ## Summary
 
+The slice One signal end to end (HITLD-1, design 21.1) is not yet whole: a reported issue cannot yet be carried to a merged, closed item with the owner asked only for the calls that are theirs, and the safeguards around that path are not all checked. When this project is done, check 1 of design 21.1 passes on a fixture repository, no agent acts on instructions in untrusted text (check 4), a change that degrades a skill cannot merge unnoticed (check 6), and heavy work waits while the person's machine is busy. Each outcome is a milestone: End to end (HITLD-68), Injection contained (HITLD-69), Evals gate (HITLD-70) and Load aware (HITLD-71).
+
 ## Milestones
 
-Named here in the format as built; HITLD-45 migrates them into milestone entities. Each follows a check of One signal end to end in part 21. Items with none (HITLD-35, HITLD-43, HITLD-48, HITLD-54, HITLD-55, HITLD-56) are contributions. Signed answers and how a team shares the loops moved to HITLD-53. As built, an item can name only one milestone; intake (HITLD-29) is also a constraint of injection-contained, which the entity format will record.
+Named here in the format as built; HITLD-45 migrated them into the milestone entities above. Each follows a check of One signal end to end in part 21. Items with none (HITLD-35, HITLD-43, HITLD-48, HITLD-54, HITLD-55, HITLD-56) are contributions. Signed answers and how a team shares the loops moved to HITLD-53. As built, an item can name only one milestone; intake (HITLD-29) is also a constraint of injection-contained, which the entity format will record.
 
 - **end-to-end** (capability). Outcome: a reported issue reaches a merged, closed item with the owner asked only for calls that are theirs. Done when: check 1 passes on a fixture repository. Check: the end-to-end eval. Constraints: HITLD-29 to HITLD-32.
 - **injection-contained** (capability). Outcome: no agent acts on instructions in untrusted text. Done when: check 4 passes. Check: the injection scenarios in the eval suite. Constraints: HITLD-34 (and HITLD-29).
