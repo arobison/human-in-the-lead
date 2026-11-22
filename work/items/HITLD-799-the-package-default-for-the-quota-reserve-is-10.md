@@ -7,6 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M814Y8CYT53BGM
+release_note: "The package default for `quota.reserve` is 0.10 (10 percent of each limit kept for the owner's own use), not 0.25. A person file, project or limit that sets its own reserve is unchanged; set `quota.reserve` to 0.25 to keep the old behavior."
 ---
 
 ## Why
