@@ -2,10 +2,11 @@
 id: HITLD-792
 title: Project settings enable the plugin in cloud executor sessions, and a fresh cloud session proves the guard runs
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
+claimed_by: D-01M8157D3BBKPMS2
 ---
 
 ## Why
