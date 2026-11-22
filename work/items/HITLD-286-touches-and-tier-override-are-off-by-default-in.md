@@ -33,3 +33,7 @@ Discrete tiers are being replaced by an execution mode, a cost-ordered cascade a
 ## Promoted on 2026-11-22
 
 Promoted to rc.2 on the owner's decision (2026-11-22).
+
+## Seen in the consumer walkthrough (2026-11-22)
+
+The Fable consumer walkthrough (2026-11-22, C2) hit this as a blocker: `touches`, which the tracker page and the contract rely on, is refused by default and the error does not name `optional_keys`; the second error line ('must be a single value') is false and the commit guard lets the broken file be committed. It stays in Consumer live (HITLD-67) clause c2 and should land in rc.2; decision HITLD-932.
