@@ -21,3 +21,7 @@ Reported as GitHub issue 553 (https://github.com/arobison/human-in-the-lead/issu
 ## Notes
 
 On the owner's word of 2026-11-22 (decision HITLD-878), the design is needed for rc.2. The design is this item; the builds it names are not automatically rc.2 (that is for the owner to decide after the walk-through). The narrow fixes already planned (HITLD-879, the walk skip) and the release version-source reading are the first candidates.
+
+## Walk-through of 2026-11-22
+
+Decided one at a time: HITLD-886 (data profiles, commands only in policy), 910 (a section of policy.json), 911 (explicit mapping), 912 (version sources in the profile), 913 (JSON, TOML, properties, tags), 914 (monorepos: read versions only), 915 (tool shares caches), 916 (exit status decides), 917 (Node on the machine in rc.2), 918 (the rc.2 slice) and 919 (reproduce issue 549 first). The builds are HITLD-920 to 928; the design text is HITLD-924, which closes this item.
