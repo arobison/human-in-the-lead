@@ -338,16 +338,18 @@ export function handoverDue(state, events, limits = {}) {
 }
 
 /**
- * The dispatches whose completion notice reaches the session that dispatched them: background
- * agents and headless runs, on this host. A session that hands over waits for these first, since
- * no successor would hear of them. An interactive tier-3 session reports through the chief of
- * staff, which started it, so it does not hold a hand-over up.
+ * The dispatches whose completion notice reaches only the session that dispatched them: background
+ * agents, on this host. A session that hands over waits for these first, since no successor would
+ * hear of them. An interactive tier-3 session reports through the chief of staff, which started
+ * it, and a headless run is a durable process whose completion any later session's
+ * `hitld dispatch reconcile` observes (HITLD-746), so neither holds a hand-over up.
  * @param {RunState} state @param {string} host
  * @returns {InFlight[]}
  */
 export const reportingHere = (state, host) =>
   state.in_flight.filter(
-    (/** @type {InFlight} */ d) => d.mode !== 'interactive' && (d.host === null || d.host === host),
+    (/** @type {InFlight} */ d) =>
+      d.mode !== 'interactive' && d.mode !== 'headless' && (d.host === null || d.host === host),
   );
 
 /**

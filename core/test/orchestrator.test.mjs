@@ -17,6 +17,7 @@ import { createFakeAdapter, FAKE_PROFILES } from '../harness/fake/fake.mjs';
 import { checkHarnessAdapter } from '../harness/interface.mjs';
 import { ContractCall, createClaudeCodeAdapter } from '../harness/claude-code/adapter.mjs';
 import { instructionFor } from '../harness/claude-code/instructions.mjs';
+import { LAUNCHER } from '../harness/claude-code/launch.mjs';
 import { headlessCompletion, subagentCompletion } from '../harness/claude-code/completion.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { staleFiles } from '../lib/packaging/build.mjs';
@@ -403,14 +404,17 @@ test('the Claude Code adapter: a valid adapter whose calls are instructions for 
       worktree: '/w/D 3',
       briefPath: '/s/b.md',
       resultPath: '/s/r.json',
+      pidPath: '/s/r.pid',
       env: { HITLD_PROJECT_ID: 'p', HITLD_ROLE: 'executor' },
     },
   );
   assert.equal(headless.tool, 'Bash');
-  assert.match(
+  // A durable process (HITLD-746): the launcher starts it in its own process group.
+  assert.equal(
     String(headless.input.command),
-    /^cd '\/w\/D 3' && HITLD_DISPATCH=D-3 HITLD_PROJECT_ID=p HITLD_ROLE=executor claude -p --output-format json --model opus --effort high --permission-mode acceptEdits < \/s\/b.md > \/s\/r.json$/,
+    `cd '/w/D 3' && HITLD_DISPATCH=D-3 HITLD_PROJECT_ID=p HITLD_ROLE=executor node ${LAUNCHER} --pid /s/r.pid --in /s/b.md --out /s/r.json --err /s/r.stderr -- claude -p --output-format stream-json --verbose --model opus --effort high --permission-mode acceptEdits`,
   );
+  assert.equal(headless.input.run_in_background, false);
 
   /** @type {string[]} */
   const said = [];
@@ -1119,7 +1123,9 @@ test('tier 3 runs headless in a worktree from hitld env; its JSON result complet
   const d = start.result.dispatch;
   assert.match(
     start.result.instruction.input.command,
-    new RegExp(`HITLD_DISPATCH=${d} HITLD_PROJECT_ID=orch-fixture HITLD_ROLE=executor claude -p`),
+    new RegExp(
+      `HITLD_DISPATCH=${d} HITLD_PROJECT_ID=orch-fixture HITLD_ROLE=executor node \\S+launch\\.mjs .* -- claude -p`,
+    ),
   );
   await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'bash-7']);
   const resultFile = start.result.on_complete.split('--result-file ')[1];

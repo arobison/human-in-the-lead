@@ -57,6 +57,10 @@
       "description": "On process: the size of the run's output so far.",
       "type": "integer",
       "minimum": 0
+    },
+    "result": {
+      "description": "On process: whether the run's output ends with its result event, which a run writes only as it ends. A durable run writes its events as JSON lines while it runs, so output alone does not say it finished.",
+      "type": "boolean"
     }
   },
   "required": ["schema_version", "at", "source"],

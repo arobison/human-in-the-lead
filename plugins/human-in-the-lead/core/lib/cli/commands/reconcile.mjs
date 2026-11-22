@@ -298,13 +298,16 @@ export const commands = [
               pidFile: join(p.store.root, pidKey(entry.dispatch)),
               outputFile: join(p.store.root, resultKey(entry.dispatch)),
             });
+            // Ended: its process has exited and its output ends with its result event. A durable
+            // run writes events while it runs (HITLD-746), so output without a result is a run
+            // that was stopped: gone.
             return {
-              ended: Boolean(proc && !proc.alive && proc.output_bytes > 0),
-              gone: Boolean(proc && !proc.alive && proc.output_bytes === 0),
+              ended: Boolean(proc && !proc.alive && proc.result),
+              gone: Boolean(proc && !proc.alive && !proc.result),
               evidence: {
                 ...progress,
                 process: proc
-                  ? { alive: proc.alive, output_bytes: proc.output_bytes }
+                  ? { alive: proc.alive, output_bytes: proc.output_bytes, result: proc.result }
                   : 'no process ID on file',
               },
             };
