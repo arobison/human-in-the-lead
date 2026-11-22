@@ -1,7 +1,8 @@
 // The front-matter reader and writer for the files backend (design part 3.4, "File format").
 //
 // The front matter is data only: `key: value` lines, inline lists `[A-1, A-2]` and block lists
-// (`- A-1` lines under a key). It is a small subset of YAML read by this module alone, which
+// (`- A-1` lines under a key). An inline list may run over several indented lines or start on the
+// line after its key, as Prettier wraps a long one (GitHub issue 112). It is a small subset of YAML read by this module alone, which
 // refuses anchors, aliases, tags, block strings and maps. Nothing read from a file is executed,
 // evaluated or imported. The format is the reference format, unchanged, so existing files read and
 // write without conversion (design part 16.7).
@@ -27,9 +28,19 @@ export function parseItem(text) {
   const data = {};
   /** @type {string | null} */
   let listKey = null;
-  for (const [n, line] of m[1].split('\n').entries()) {
+  const lines = m[1].split('\n');
+  for (let n = 0; n < lines.length; n++) {
+    const line = lines[n];
     const at = `frontmatter line ${n + 2}`;
     if (line.trim() === '') continue;
+    if (listKey && data[listKey].length === 0 && /^\s+\[/.test(line)) {
+      // `key:` and then the list on the next line, as Prettier writes one too long for its key's line.
+      const flow = flowList(lines, n, line.trim(), at, errors);
+      n = flow.end;
+      setOwn(data, listKey, flow.members);
+      listKey = null;
+      continue;
+    }
     const item = line.match(/^\s+-\s+(.*)$/);
     if (item) {
       if (!listKey) errors.push(`${at}: a list entry with no key above it`);
@@ -50,15 +61,9 @@ export function parseItem(text) {
       setOwn(data, key, []);
       listKey = key;
     } else if (v.startsWith('[')) {
-      if (!v.endsWith(']')) errors.push(`${at}: an inline list must end on its line`);
-      setOwn(
-        data,
-        key,
-        splitList(v.slice(1, -1))
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .map((s) => scalar(s, at, errors)),
-      );
+      const flow = flowList(lines, n, v, at, errors);
+      n = flow.end;
+      setOwn(data, key, flow.members);
     } else {
       setOwn(data, key, scalar(v, at, errors));
     }
@@ -73,6 +78,30 @@ export function parseItem(text) {
  */
 function setOwn(data, key, value) {
   Object.defineProperty(data, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/**
+ * Read an inline list that opens on line `start` with `first`. The list may run on over the lines
+ * after it while they are indented (or blank, or the closing `]`); they join with a space, as YAML
+ * folds a flow collection. A list that never closes is named, and reading goes on at the first line
+ * that is not part of it.
+ * @param {string[]} lines @param {number} start @param {string} first
+ * @param {string} at @param {string[]} errors
+ */
+function flowList(lines, start, first, at, errors) {
+  let text = first;
+  let end = start;
+  while (!text.endsWith(']') && end + 1 < lines.length && /^(\s|\]|$)/.test(lines[end + 1])) {
+    end++;
+    text = `${text} ${lines[end].trim()}`.trim();
+  }
+  const closed = text.endsWith(']');
+  if (!closed) errors.push(`${at}: a list opened with "[" has no closing "]"`);
+  const members = splitList(text.slice(1, closed ? -1 : undefined))
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => scalar(s, at, errors));
+  return { end, members };
 }
 
 /** Split an inline list on commas that are not inside double quotes. @param {string} s */
