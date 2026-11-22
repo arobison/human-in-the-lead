@@ -2,7 +2,7 @@
 id: HITLD-789
 title: core/test/views.test.mjs uses British spellings that the spelling check rejects
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
