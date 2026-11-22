@@ -2,7 +2,7 @@
 id: HITLD-256
 title: The contract block isn't stable under prettier or markdownlint
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ Evidence: templates/AGENTS.contract.md:1-2 heading right after the begin marker,
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `install`, still present on main, confidence 0.8. Exact lint errors and the prettier change are given; template and check fix are testable. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Promoted on 2026-11-22
+
+Promoted to rc.2 on the owner's decision (2026-11-22).

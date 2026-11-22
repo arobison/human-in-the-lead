@@ -2,7 +2,7 @@
 id: HITLD-286
 title: Touches and tier_override are off by default in tracker.json, so work check refuses them, but sizing and merge evidence depend on touches
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -28,3 +28,7 @@ Triage record (design part 2.2, quarantined triager; evidence is the triager's a
 ## Note on 2026-11-20 (HITLD-581)
 
 Discrete tiers are being replaced by an execution mode, a cost-ordered cascade and a measured budget (HITLD-561). This item stays an independent small fix of a default; where it says "tier", read the profile that replaces it.
+
+## Promoted on 2026-11-22
+
+Promoted to rc.2 on the owner's decision (2026-11-22).
