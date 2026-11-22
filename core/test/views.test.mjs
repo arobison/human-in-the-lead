@@ -305,7 +305,7 @@ test('a panel naming an undeclared field, or a value that does not exist, is ref
         title: 'Bad filter',
         type: 'table',
         columns: ['title'],
-        where: [{ field: 'colour', is: 'red' }],
+        where: [{ field: 'color', is: 'red' }],
       },
       {
         id: 'bad-value',
@@ -334,7 +334,7 @@ test('a panel naming an undeclared field, or a value that does not exist, is ref
     [
       'bad-filter',
       'panels[2].where[0].field',
-      'panel "bad-filter": "colour" is not a field of the dashboard data contract or one tracker.json declares',
+      'panel "bad-filter": "color" is not a field of the dashboard data contract or one tracker.json declares',
     ],
     [
       'bad-value',
