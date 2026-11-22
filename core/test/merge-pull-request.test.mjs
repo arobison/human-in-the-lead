@@ -474,6 +474,177 @@ test('an approval does not hold once the branch gets a commit the queue did not 
   }
 });
 
+/**
+ * A tracker change merged on main out of band from the queue, as the owner merges one.
+ * @param {ReturnType<typeof setup>} t @param {Record<string, string>} files
+ */
+function trackerMerge(t, files) {
+  git(t.root, 'fetch', '-q', 'origin', 'main');
+  git(t.root, 'merge', '-q', '--ff-only', 'origin/main');
+  put(t.root, files);
+  git(t.root, 'add', '-A');
+  git(t.root, 'commit', '-q', '-m', 'Tracker: file and reword items');
+  git(t.root, 'push', '-q', 'origin', 'main');
+}
+
+/**
+ * Branches presented to the owner in owner mode and approved, all of them.
+ * @param {ReturnType<typeof setup>} t @param {import('../lib/merge/queue.mjs').Entry[]} entries
+ */
+async function presentedAndApproved(t, entries) {
+  const first = await t.pass(entries, { mode: 'owner' });
+  assert.deepEqual(
+    first.awaiting_owner.map((x) => x.item),
+    entries.map((e) => e.item),
+  );
+  const ok = approvePulls({
+    state: first.state,
+    all: true,
+    signedOffBy: OWNER,
+    by: 'cos',
+    at: '2026-11-22T10:00:00Z',
+    heads: t.remoteTip,
+  });
+  assert.equal(ok.refused, null);
+  return first.state;
+}
+
+test('a presented branch merges while tracker-only merges land on main, not updated or checked again; a code change landing updates the next (HITLD-777)', async () => {
+  const t = setup();
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'b.txt': 'b\n' });
+    const aHead = t.remoteTip(a.branch);
+    const bHead = t.remoteTip(b.branch);
+    const state = await presentedAndApproved(t, [a, b]);
+    // Tracker merges land on main while the approved pull requests wait, one after another.
+    trackerMerge(t, { 'work/notes.md': 'a note\n' });
+    trackerMerge(t, {
+      'work/items/W-4.md': itemText('W-4', 'planned'),
+      'work/notes.md': 'a note, reworded\n',
+    });
+    // W-1 merges as it is, with the owner's sign-off: its head the one approved and checked.
+    const second = await t.pass([a, b], { mode: 'owner', state });
+    assert.equal(second.incident, null);
+    assert.deepEqual(
+      second.merged.map((x) => [x.item, x.signed_off]),
+      [['W-1', true]],
+    );
+    assert.equal(t.remoteTip(a.branch), aHead, 'W-1 was not brought up to date');
+    assert.equal(git(t.remote, 'show', 'main:a.txt'), 'a');
+    assert.equal(git(t.remote, 'show', 'main:work/notes.md'), 'a note, reworded');
+    // W-1 changed code: W-2, now behind main outside work/, is brought up to date and checked again.
+    assert.deepEqual(
+      second.updated.map((x) => x.item),
+      ['W-2'],
+    );
+    assert.notEqual(t.remoteTip(b.branch), bHead);
+    // Another tracker merge lands while its checks run: W-2 merges on the head the queue made,
+    // without a second update.
+    const updated = t.remoteTip(b.branch);
+    trackerMerge(t, { 'work/notes.md': 'a third note\n' });
+    const third = await t.pass([b], { mode: 'owner', state: second.state });
+    assert.deepEqual(
+      third.merged.map((x) => [x.item, x.signed_off]),
+      [['W-2', true]],
+    );
+    assert.deepEqual(third.updated, []);
+    assert.equal(t.remoteTip(b.branch), updated);
+    assert.equal(git(t.remote, 'show', 'main:work/notes.md'), 'a third note');
+    assert.equal(git(t.remote, 'show', 'main:b.txt'), 'b');
+  } finally {
+    t.done();
+  }
+});
+
+test('a tracker merge that changes a work/ file the branch also changes still brings the branch up to date (HITLD-777)', async () => {
+  const t = setup();
+  try {
+    const c = t.branch('W-3', { 'c.txt': 'c\n' });
+    const cHead = t.remoteTip(c.branch);
+    const state = await presentedAndApproved(t, [c]);
+    // The branch closes W-3; main rewords it, apart from the state line.
+    trackerMerge(t, { 'work/items/W-3.md': `${itemText('W-3', 'planned')}- W-3 is reworded.\n` });
+    const second = await t.pass([c], { mode: 'owner', state });
+    assert.deepEqual(second.merged, []);
+    assert.deepEqual(
+      second.updated.map((x) => x.item),
+      ['W-3'],
+    );
+    const now = t.remoteTip(c.branch);
+    assert.notEqual(now, cHead);
+    git(t.remote, 'merge-base', '--is-ancestor', t.remoteTip('main'), now);
+    // The approval holds across the queue's own update: the next pass merges it, signed off.
+    const third = await t.pass([c], { mode: 'owner', state: second.state });
+    assert.deepEqual(
+      third.merged.map((x) => [x.item, x.signed_off]),
+      [['W-3', true]],
+    );
+    assert.match(git(t.remote, 'show', 'main:work/items/W-3.md'), /state: done[^]*reworded/);
+  } finally {
+    t.done();
+  }
+});
+
+test('a branch left behind main by tracker changes that GitHub will not merge is brought up to date on the next pass (HITLD-777)', async () => {
+  const t = setup();
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const aHead = t.remoteTip(a.branch);
+    trackerMerge(t, { 'work/notes.md': 'a note\n' });
+    // A protected main that requires a branch up to date refuses the merge of one behind it.
+    const strict = {
+      ...t.github,
+      /** @type {typeof t.github.mergePull} */
+      mergePull(number, p) {
+        const main = t.remoteTip('main');
+        const behind = git(t.remote, 'merge-base', main, p.sha) !== main;
+        return behind
+          ? { merged: false, message: 'Head branch is not up to date with the base branch' }
+          : t.github.mergePull(number, p);
+      },
+    };
+    const pass = (/** @type {any} */ state) =>
+      runPullRequestQueue({
+        repoRoot: t.root,
+        entries: [a],
+        settings: {
+          mainBranch: 'main',
+          remote: 'origin',
+          checks: ['test'],
+          checkTimeoutMinutes: 60,
+          generated: [],
+          itemAt,
+        },
+        policy: { merge: { mode: 'queue' } },
+        github: strict,
+        state,
+      });
+    const first = await pass(emptyPullState());
+    assert.deepEqual(first.merged, []);
+    assert.deepEqual(first.updated, []);
+    assert.deepEqual(
+      first.pending.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.equal(first.state.branches[a.branch].refused_behind, aHead);
+    // Refused once for this head: brought up to date as before, then merged.
+    const second = await pass(first.state);
+    assert.deepEqual(
+      second.updated.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.equal(second.state.branches[a.branch].refused_behind, undefined);
+    const third = await pass(second.state);
+    assert.deepEqual(
+      third.merged.map((x) => x.item),
+      ['W-1'],
+    );
+  } finally {
+    t.done();
+  }
+});
+
 test('stageAll: a file that differs only in line endings is no change to commit', () => {
   const root = realpathSync(tempDir('hitld-stage-'));
   git(root, 'init', '-q', '-b', 'main');
@@ -576,39 +747,33 @@ test('owner paths: a tracker-only pull request merges without asking, with the d
     assert.equal(first.state.owner_signoff, OWNER);
     assert.equal(first.state.branches['hitld/W-2'].approval?.as_presented, false);
 
-    // W-1 merges without asking; W-2 (approved) waits behind it and is brought up to date; W-3
-    // still waits for the owner.
+    // W-1 merges without asking. W-2 (approved) is then behind main only by W-1's tracker change,
+    // which it leaves alone (HITLD-777): it merges as it is, with the owner's own sign-off and no
+    // delegation trailer, its checks not run again. W-3 still waits for the owner.
     const second = await t.pass([tracker, code, both], { ...DELEGATED, state: first.state });
     assert.deepEqual(
-      second.merged.map((x) => [x.item, x.signed_off, x.delegated_by, x.approval]),
-      [['W-1', true, 'W-159', null]],
+      second.merged.map((x) => [x.item, x.signed_off, x.delegated_by]),
+      [
+        ['W-1', true, 'W-159'],
+        ['W-2', true, null],
+      ],
     );
-    const message = git(t.remote, 'log', '-1', '--format=%B', 'main');
+    assert.equal(second.merged[0].approval, null);
+    const message = git(t.remote, 'log', '-1', '--format=%B', 'main~1');
     assert.match(
       message,
       /^Signed-off-by: Owner Person <owner@example\.com>\nDelegated-by: W-159$/m,
     );
     assert.match(message, /^Work-Item: W-1$/m);
-    assert.deepEqual(
-      second.awaiting_owner.map((x) => x.item),
-      ['W-3'],
-    );
-    assert.deepEqual(
-      second.updated.map((x) => x.item),
-      ['W-2'],
-    );
-    // The approved one merges with the owner's own sign-off, and no delegation trailer.
-    const third = await t.pass([code, both], { ...DELEGATED, state: second.state });
-    assert.deepEqual(
-      third.merged.map((x) => [x.item, x.signed_off, x.delegated_by]),
-      [['W-2', true, null]],
-    );
+    assert.deepEqual(second.updated, []);
     const approvedMessage = git(t.remote, 'log', '-1', '--format=%B', 'main');
     assert.match(approvedMessage, /^Signed-off-by: Owner Person <owner@example\.com>$/m);
     assert.doesNotMatch(approvedMessage, /Delegated-by/);
-    assert.equal(third.merged[0].approval?.as_presented, false);
+    assert.equal(git(t.remote, 'show', 'main:work/notes.md'), 'a note');
+    assert.equal(git(t.remote, 'show', 'main:a.txt'), 'a');
+    assert.equal(second.merged[1].approval?.as_presented, false);
     assert.deepEqual(
-      third.awaiting_owner.map((x) => x.item),
+      second.awaiting_owner.map((x) => x.item),
       ['W-3'],
     );
   } finally {
