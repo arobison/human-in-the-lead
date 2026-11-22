@@ -1,0 +1,168 @@
+{
+  "$id": "invariants",
+  "title": "Invariant registry",
+  "description": "One area's invariant registry (design 6.3, the adversarial loop): the properties that must always hold, each in a form the adversarial pass can attack with generated inputs. It lives in the knowledge base at kb/areas/<area>/invariants.json, or where the area's invariants pointer in policy.json says. Plain data: it names exports of the area's own modules, which the pass calls in a separate process, and never a command.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": { "$ref": "common#/$defs/schemaVersion" },
+    "area": {
+      "description": "The area in policy.json (rights.areas) this registry belongs to.",
+      "$ref": "common#/$defs/name"
+    },
+    "tests_dir": {
+      "description": "Where a break's regression test is written, repository-relative: a directory the area's test suite runs.",
+      "type": "string",
+      "minLength": 1
+    },
+    "fix_parent": {
+      "description": "The project a break's fix item is filed under, unless the command names another.",
+      "$ref": "common#/$defs/id"
+    },
+    "invariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/invariant" }
+    }
+  },
+  "required": ["schema_version", "area", "tests_dir", "invariants"],
+  "additionalProperties": false,
+  "$defs": {
+    "invariant": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Unique in the registry; names the regression tests of its breaks.",
+          "$ref": "common#/$defs/name"
+        },
+        "statement": {
+          "description": "The property in one sentence, as a person would say it.",
+          "$ref": "common#/$defs/text"
+        },
+        "checked": {
+          "description": "When a person last confirmed the invariant still states what matters (design 6.3, step 1).",
+          "type": "string",
+          "format": "timestamp"
+        },
+        "form": {
+          "description": "How the pass attacks it. round-trip: inverse(target(x)) equals x. idempotent: target(target(x)) equals target(x). differential: target agrees with oracle. order-independent: reordering the first argument, a list, changes nothing. total: target never throws. holds: target is a property the area wrote, and returns true.",
+          "enum": [
+            "round-trip",
+            "idempotent",
+            "differential",
+            "order-independent",
+            "total",
+            "holds"
+          ]
+        },
+        "module": {
+          "description": "The module that exports target, repository-relative.",
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "description": "The export under attack (for holds, the property).",
+          "type": "string",
+          "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$"
+        },
+        "inverse": {
+          "description": "round-trip only: the export that undoes target.",
+          "type": "string",
+          "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$"
+        },
+        "oracle": {
+          "description": "differential only: the export target must agree with, such as a simple slow version or the previous implementation.",
+          "type": "string",
+          "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$"
+        },
+        "oracle_module": {
+          "description": "differential only: the oracle's module, when it is not module.",
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "description": "One generator per argument of target.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/generator" }
+        },
+        "runs": {
+          "description": "How many argument lists the pass tries (default 300).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20000
+        }
+      },
+      "required": ["id", "statement", "checked", "form", "module", "target", "args"],
+      "additionalProperties": false
+    },
+    "generator": {
+      "description": "What values an argument takes.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "integer" },
+            "min": { "type": "integer" },
+            "max": { "type": "integer" }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "type": { "const": "boolean" } },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "string" },
+            "chars": {
+              "description": "The characters drawn from (default: printable ASCII).",
+              "type": "string",
+              "minLength": 1
+            },
+            "min_length": { "type": "integer", "minimum": 0 },
+            "max_length": { "type": "integer", "minimum": 0, "maximum": 1000 }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "enum" },
+            "values": { "type": "array", "minItems": 1 }
+          },
+          "required": ["type", "values"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "array" },
+            "items": { "$ref": "#/$defs/generator" },
+            "min_items": { "type": "integer", "minimum": 0 },
+            "max_items": { "type": "integer", "minimum": 0, "maximum": 200 }
+          },
+          "required": ["type", "items"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "object" },
+            "properties": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/generator" }
+            }
+          },
+          "required": ["type", "properties"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

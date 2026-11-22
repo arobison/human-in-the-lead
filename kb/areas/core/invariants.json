@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "area": "core",
+  "tests_dir": "core/test/adversary",
+  "invariants": [
+    {
+      "id": "glob-matches-like-its-rules",
+      "statement": "globMatch agrees with a slow matcher written from its documented rules, for every glob and path.",
+      "checked": "2026-11-20",
+      "form": "differential",
+      "module": "core/lib/precedent/glob.mjs",
+      "target": "globMatch",
+      "oracle": "slowGlobMatch",
+      "oracle_module": "core/test/adversary/properties.mjs",
+      "args": [
+        { "type": "string", "chars": "ab*?/.", "min_length": 0, "max_length": 10 },
+        { "type": "string", "chars": "ab/.", "min_length": 0, "max_length": 10 }
+      ],
+      "runs": 2000
+    },
+    {
+      "id": "glob-double-star-covers-star",
+      "statement": "Every path a dir/* glob matches, the dir/** glob matches too, whatever characters the file name holds.",
+      "checked": "2026-11-20",
+      "form": "holds",
+      "module": "core/test/adversary/properties.mjs",
+      "target": "doubleStarCoversStar",
+      "args": [
+        { "type": "string", "chars": "abc", "min_length": 1, "max_length": 3 },
+        { "type": "string", "chars": "ab.-_ \t\n\r\u000b", "min_length": 0, "max_length": 8 }
+      ],
+      "runs": 500
+    },
+    {
+      "id": "safe-path-stays-inside",
+      "statement": "A path safePath accepts names a place inside the repository, and reads the same when given again.",
+      "checked": "2026-11-20",
+      "form": "holds",
+      "module": "core/test/adversary/properties.mjs",
+      "target": "safePathStaysInside",
+      "args": [{ "type": "string", "chars": "a./\\:C", "min_length": 0, "max_length": 12 }],
+      "runs": 2000
+    },
+    {
+      "id": "code-key-spelling-agrees",
+      "statement": "Whether a data key names code to run does not depend on its spelling: snake_case, kebab-case, camelCase and UPPER_CASE agree.",
+      "checked": "2026-11-20",
+      "form": "holds",
+      "module": "core/test/adversary/properties.mjs",
+      "target": "codeKeySpellingAgrees",
+      "args": [
+        {
+          "type": "array",
+          "min_items": 1,
+          "max_items": 3,
+          "items": {
+            "type": "enum",
+            "values": [
+              "on",
+              "pre",
+              "post",
+              "before",
+              "after",
+              "status",
+              "merge",
+              "run",
+              "command",
+              "commands",
+              "cmd",
+              "exec",
+              "script",
+              "scripts",
+              "shell",
+              "hook",
+              "hooks",
+              "spawn",
+              "name",
+              "value",
+              "x1"
+            ]
+          }
+        }
+      ],
+      "runs": 2000
+    },
+    {
+      "id": "front-matter-round-trip",
+      "statement": "Front matter written by renderItem reads back as the same title and needs with parseItem.",
+      "checked": "2026-11-20",
+      "form": "holds",
+      "module": "core/test/adversary/properties.mjs",
+      "target": "frontMatterRoundTrip",
+      "args": [
+        { "type": "string", "chars": "ab :#-'\"[],|>&*!{\t\\", "min_length": 1, "max_length": 12 },
+        {
+          "type": "array",
+          "max_items": 3,
+          "items": { "type": "string", "chars": "ab-1 ,]'\"#", "min_length": 1, "max_length": 6 }
+        }
+      ],
+      "runs": 2000
+    }
+  ]
+}

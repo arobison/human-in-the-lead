@@ -30,6 +30,7 @@ import { commands as quarantine } from './commands/quarantine.mjs';
 import { commands as upgrade } from './commands/upgrade.mjs';
 import { commands as privateTerms } from './commands/private.mjs';
 import { commands as friction } from './commands/friction.mjs';
+import { commands as adversary } from './commands/adversary.mjs';
 import { commands as kb } from './commands/kb.mjs';
 import { commands as reproduce } from './commands/reproduce.mjs';
 
@@ -107,6 +108,7 @@ export const COMMANDS = Object.freeze([
   ...store,
   ...privateTerms,
   ...security,
+  ...adversary,
   ...config,
   ...feedback,
   ...friction,

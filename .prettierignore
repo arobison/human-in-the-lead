@@ -5,3 +5,5 @@ signals/
 evals/baselines/
 # The generated plugin copy: the build test proves it is an exact copy of formatted sources.
 plugins/human-in-the-lead/
+# Regression tests the adversarial pass writes (hitld adversary record): generated, kept as written.
+core/test/adversary/adversary-*.test.mjs

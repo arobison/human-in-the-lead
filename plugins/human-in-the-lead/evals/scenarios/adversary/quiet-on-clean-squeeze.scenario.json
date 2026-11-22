@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "id": "adversary/quiet-on-clean-squeeze",
+  "suite": "adversary",
+  "category": "adversarial-loop",
+  "description": "A clean change in the area (squeeze rewritten as a loop) gets the adversarial pass, which raises nothing and records nothing.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {}
+  },
+  "steps": [
+    {
+      "id": "repo",
+      "action": "adversary.repo",
+      "with": {
+        "variant": "clean-squeeze"
+      }
+    },
+    {
+      "id": "due",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": ["adversary", "due", "--base", "main"]
+      }
+    },
+    {
+      "id": "pass",
+      "action": "adversary.hitld",
+      "with": {
+        "argv": ["adversary", "attack", "--base", "main", "--record"]
+      }
+    },
+    {
+      "id": "after",
+      "action": "adversary.inspect",
+      "with": {}
+    }
+  ],
+  "graders": [
+    {
+      "id": "pass-due",
+      "grader": "equals",
+      "with": {
+        "path": "steps.due.result.due[0].area",
+        "value": "text"
+      }
+    },
+    {
+      "id": "ok",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pass.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "every-invariant-attacked",
+      "grader": "equals",
+      "with": {
+        "path": "steps.pass.result.areas[0].invariants",
+        "value": 5
+      }
+    },
+    {
+      "id": "no-break",
+      "grader": "count",
+      "with": {
+        "path": "steps.pass.result.breaks",
+        "equals": 0
+      }
+    },
+    {
+      "id": "nothing-recorded",
+      "grader": "count",
+      "with": {
+        "path": "steps.pass.result.recorded",
+        "equals": 0
+      }
+    },
+    {
+      "id": "no-test",
+      "grader": "count",
+      "with": {
+        "path": "steps.after.tests",
+        "equals": 0
+      }
+    },
+    {
+      "id": "only-the-change",
+      "grader": "count",
+      "with": {
+        "path": "steps.after.commits",
+        "equals": 1
+      }
+    }
+  ]
+}
