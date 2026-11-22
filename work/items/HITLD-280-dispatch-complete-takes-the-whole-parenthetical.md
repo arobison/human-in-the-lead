@@ -2,11 +2,11 @@
 id: HITLD-280
 title: "Dispatch complete takes the whole parenthetical after commit: as the branch name"
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 claimed_by: D-01M80FZPB9ANGFJG
-release_note: "`hitld dispatch complete` asks for the report again, under `report_errors`, when the commit line's branch is not a valid branch name (a note written inside the parenthetical) or, with the local merge queue, is not a branch in the repository; notes about the branch go under `deviations`."
+release_note: `hitld dispatch complete` asks for the report again, under `report_errors`, when the commit line's branch is not a valid branch name (a note written inside the parenthetical) or, with the local merge queue, is not a branch in the repository; notes about the branch go under `deviations`.
 ---
 
 ## Why
