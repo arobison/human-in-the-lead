@@ -8,7 +8,8 @@
 //   - the record parses and passes the tracker's checks and the release schema;
 //   - its tag does not exist yet;
 //   - its version is the one `release propose --package <its package>` gives at the commit's
-//     parent, for the same pre-release label or for a full release, its `previous` is that
+//     parent (for a package with no surface file, which gets no proposal: any version above its
+//     last full release), for the same pre-release label or for a full release, its `previous` is that
 //     proposal's base, and that release is of this package alone (a lockstep group or a train is
 //     made on main, where `release make` tags each record);
 //   - the commit is on main, has one parent, and its subject ends with the pull request number
@@ -28,7 +29,7 @@ import { openTracker } from '../tracker/files/tracker.mjs';
 import { git } from '../tracker/files/tree.mjs';
 import { describeGates, tagMessage } from './make.mjs';
 import { proposeRelease } from './propose.mjs';
-import { isPrerelease, parseVersion } from './semver.mjs';
+import { bumpBetween, isPrerelease, parseVersion } from './semver.mjs';
 
 /**
  * @typedef {object} RecordCheck
@@ -213,7 +214,11 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
   const wt = mkdtempSync(join(tmpdir(), 'hitld-release-check-'));
   try {
     git(root, ['worktree', 'add', '-q', '--detach', wt, parents[0]]);
-    const p = await proposeRelease(openAt(wt), { package: pkg, ...(label ? { pre: label } : {}) });
+    const p = await proposeRelease(openAt(wt), {
+      package: pkg,
+      version,
+      ...(label ? { pre: label } : {}),
+    });
     if (p.releases.length > 1) {
       problems.push(
         `${pkg} is released with its lockstep group (${p.releases.map((r) => r.package).join(', ')}); a release of several packages is made on main with hitld release make, which tags each record`,
@@ -221,7 +226,13 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
     }
     out.proposed = p.version;
     out.warnings.push(...p.warnings);
-    if (p.version !== version) {
+    if (!p.interface_measured) {
+      // No surface file: no version is proposed, and the owner named it (HITLD-752, Q39). It
+      // must still be above the last full release.
+      if (!bumpBetween(p.base_version, version)) {
+        problems.push(`${tag} is not above ${pkg}'s last full release, ${p.base_version}`);
+      }
+    } else if (p.version !== version) {
       problems.push(
         `${tag} is not the next release: at the parent, release propose --package ${pkg}${label ? ` --pre ${label}` : ''} gives ${p.version} (${p.reason})`,
       );

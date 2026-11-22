@@ -27,7 +27,7 @@ import { RELEASE_KEYS, formatDeltaEntry, packageReleasesDir } from '../tracker/f
 import { createExclusive, insidePath, mkdirInside } from '../tracker/files/safe.mjs';
 import { git } from '../tracker/files/tree.mjs';
 import { proposeRelease, recordFor } from './propose.mjs';
-import { SEMVER, atLeast, bumpBetween, coreOf, isPrerelease } from './semver.mjs';
+import { SEMVER, atLeast, bumpBetween, bumpVersion, coreOf, isPrerelease } from './semver.mjs';
 import { proposeBump } from './delta.mjs';
 
 /**
@@ -79,10 +79,16 @@ export async function makeRelease(
   }
   if (onto !== undefined) checkNewBranch(root, onto, layout.mainBranch);
   const p = await proposeRelease(t, { package: name, pre, item, version, train });
+  if (train === undefined && version === undefined && p.version === null) {
+    // No surface file: no version is proposed, so the owner names it (HITLD-752, Q39).
+    throw new Error(
+      `${p.reason}; give --version, such as ${p.base ? bumpVersion(p.base_version, 'patch') : '0.1.0'}${pre !== undefined ? ` (or ${p.base ? bumpVersion(p.base_version, 'patch') : '0.1.0'}-${pre}.1 for a pre-release)` : ''}`,
+    );
+  }
   const made = train === undefined ? (version ?? /** @type {string} */ (p.version)) : null;
   if (made !== null && !SEMVER.test(made)) throw new Error(`"${made}" is not a semantic version`);
-  /** @type {PackageRelease[]} */
-  const releases = p.releases;
+  /** @type {import('./propose.mjs').NamedRelease[]} */
+  const releases = /** @type {any[]} */ (p.releases);
   if (onto !== undefined && releases.length > 1) {
     throw new Error(
       `this release writes ${releases.length} records (${releases.map((r) => r.tag).join(', ')}); the release workflow tags one record per pull request, so make a release of several packages on ${layout.mainBranch}, without --branch`,
@@ -92,7 +98,7 @@ export async function makeRelease(
   if (made !== null) {
     const bump = bumpBetween(p.base_version, made);
     if (!bump) throw new Error(`${made} is not above the last full release, ${p.base_version}`);
-    if (!atLeast(bump, p.bump)) {
+    if (p.bump !== null && !atLeast(bump, p.bump)) {
       throw new Error(
         `${made} is a ${bump} release, but the interface delta proposes ${p.bump} (${p.reason}); make ${coreOf(/** @type {string} */ (p.version))} or above`,
       );
@@ -106,7 +112,7 @@ export async function makeRelease(
       );
     }
     const own = proposeBump(r.interface_delta, r.base_version);
-    if (!atLeast(bump, own.bump)) {
+    if (r.surface !== null && !atLeast(bump, own.bump)) {
       throw new Error(
         `${r.package} ${r.version} is a ${bump} release, but its interface delta proposes ${own.bump} (${own.reason}); make ${own.version} or above`,
       );
@@ -124,7 +130,7 @@ export async function makeRelease(
     }
   }
   if (p.release_item) assertGatesMet(p);
-  /** @type {{ r: PackageRelease, path: string, text: string, notes: string }[]} */
+  /** @type {{ r: import('./propose.mjs').NamedRelease, path: string, text: string, notes: string }[]} */
   const written = releases.map((r) => {
     const bump = /** @type {import('./semver.mjs').Bump} */ (
       bumpBetween(r.base_version, r.version)
@@ -220,7 +226,7 @@ export async function makeRelease(
 /**
  * Write and stage each record.
  * @param {string} root @param {Layout} layout
- * @param {{ r: PackageRelease, path: string, text: string }[]} written
+ * @param {{ r: import('./propose.mjs').NamedRelease, path: string, text: string }[]} written
  */
 function writeRecords(root, layout, written) {
   for (const w of written) {
@@ -278,7 +284,7 @@ function checkNewBranch(root, name, mainBranch) {
  * Commit the records on a new branch made from main, then check out main again. On a failure the
  * new branch is removed and main is checked out, as it was.
  * @param {string} root @param {Layout} layout @param {string} name
- * @param {{ r: PackageRelease, path: string, text: string }[]} written @param {string[]} message
+ * @param {{ r: import('./propose.mjs').NamedRelease, path: string, text: string }[]} written @param {string[]} message
  * @returns {string} the commit
  */
 function commitOnBranch(root, layout, name, written, message) {
@@ -313,7 +319,7 @@ function commitOnBranch(root, layout, name, written, message) {
  * The release pull request's title and body: the version, the bump, the notes and the interface
  * delta, for the owner to review before merging.
  * @param {Proposal} p
- * @param {{ r: PackageRelease, path: string, notes: string }} w
+ * @param {{ r: import('./propose.mjs').NamedRelease, path: string, notes: string }} w
  */
 function pullRequest(p, { r, path, notes }) {
   const tag = r.tag;

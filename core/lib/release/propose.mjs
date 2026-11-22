@@ -57,14 +57,14 @@ import { atLeast, bumpBetween, compareVersions, isPrerelease, nextPrerelease } f
  *
  * @typedef {object} PackageRelease one record `release make` writes
  * @property {string} package
- * @property {string} tag
- * @property {string} version
+ * @property {string | null} tag null when no version is named (a package with no surface file)
+ * @property {string | null} version
  * @property {string | null} last_tag the package's latest tag reachable from HEAD, pre-releases included
  * @property {string | null} base the package's last full release, which its delta is measured from
  * @property {string} base_version 0.0.0 when there is no base
  * @property {string | null} surface the surface file, or null when none is declared
  * @property {DeltaEntry[]} interface_delta
- * @property {Bump} bump the bump the package's own delta proposes
+ * @property {Bump | null} bump the bump the package's own delta proposes; null with no surface file
  * @property {boolean} breaking
  * @property {Pin[]} depends
  * @property {string[]} items work items closed since the base that belong to the package
@@ -74,6 +74,9 @@ import { atLeast, bumpBetween, compareVersions, isPrerelease, nextPrerelease } f
  * @property {string | null} release_item
  * @property {Gate[]} gates
  * @property {string | null} package_version the version in the package's version source
+ *
+ * @typedef {PackageRelease & { version: string, tag: string }} NamedRelease a release whose
+ *   version is named: what `release make` writes
  *
  * @typedef {object} Proposal
  * @property {string | null} package the package named (null for a train)
@@ -86,10 +89,11 @@ import { atLeast, bumpBetween, compareVersions, isPrerelease, nextPrerelease } f
  * @property {string | null} surface
  * @property {boolean} interface_measured false when the package declares no surface file
  * @property {DeltaEntry[]} interface_delta
- * @property {Bump} bump
+ * @property {Bump | null} bump null when no version is proposed (a package with no surface file)
  * @property {boolean} breaking
  * @property {string} reason why this bump
- * @property {string | null} version the proposed version (null for a train: each release has its own)
+ * @property {string | null} version the proposed version: null for a train (each release has its
+ *   own) and for a package with no surface file, whose version the owner names with --version
  * @property {string | null} tag
  * @property {boolean} prerelease
  * @property {string} prerelease_rule how pre-releases are treated
@@ -302,7 +306,7 @@ function measure(ctx, p, warnings) {
     delta = surfaceDelta(before, after, p.surface);
   } else {
     warnings.push(
-      `${p.name} declares no surface file, so its interface delta is not measured and patch is proposed; make a minor or major release with --version`,
+      `${p.name} declares no surface file, so its interface is not measured and no version is proposed; the owner names it with --version (a patch included)`,
     );
   }
 
@@ -425,7 +429,7 @@ function dependentsFor(ctx, releases) {
       if (here.has(d.package) || seen.has(d.package)) continue;
       seen.add(d.package);
       const made = releases.find((x) => x.package === d.depends_on)?.version;
-      out.push({ ...d, in_range: made !== undefined ? satisfies(made, d.range) : true });
+      out.push({ ...d, in_range: typeof made === 'string' ? satisfies(made, d.range) : true });
     }
   }
   return out;
@@ -433,14 +437,15 @@ function dependentsFor(ctx, releases) {
 
 /**
  * The releases of one unit (a package, or its lockstep group) at one version.
- * @param {Context} ctx @param {Measured[]} parts @param {string} version
+ * @param {Context} ctx @param {Measured[]} parts
+ * @param {string | null} version null: none named yet (a package with no surface file)
  * @param {{ named?: Package, item?: string, making?: Map<string, string>, warnings: string[] }} options
  * @returns {PackageRelease[]}
  */
 function releasesOf(ctx, parts, version, { named, item, making = new Map(), warnings }) {
   const { g } = ctx;
   const versions = new Map(making);
-  for (const m of parts) versions.set(m.p.name, version);
+  if (version !== null) for (const m of parts) versions.set(m.p.name, version);
   return parts.map((m) => {
     // The release item: --item names one for the named package; else the one for this package
     // and version.
@@ -449,7 +454,7 @@ function releasesOf(ctx, parts, version, { named, item, making = new Map(), warn
       const it = g.items.find((x) => x.data.id === item);
       if (!it) warnings.push(`${item} is not an item in the tracker`);
       const own = it?.data.release;
-      if (own !== undefined && own !== version) {
+      if (own !== undefined && version !== null && own !== version) {
         throw new CodedError(
           'release-item-mismatch',
           `${item} is the release item for ${own}, but this release is ${version}; name an item whose release is ${version}, or none`,
@@ -464,20 +469,20 @@ function releasesOf(ctx, parts, version, { named, item, making = new Map(), warn
       }
       chosen = it ?? null;
     } else {
-      chosen = releaseItemFor(ctx, m.p, version) ?? null;
+      chosen = version === null ? null : (releaseItemFor(ctx, m.p, version) ?? null);
     }
-    const bump = proposeBump(m.delta, m.base_version);
+    const bump = m.p.surface ? proposeBump(m.delta, m.base_version) : null;
     return {
       package: m.p.name,
-      tag: tagFor(m.p, version),
+      tag: version === null ? null : tagFor(m.p, version),
       version,
       last_tag: m.last_tag,
       base: m.base,
       base_version: m.base_version,
       surface: m.p.surface,
       interface_delta: m.delta,
-      bump: bump.bump,
-      breaking: bump.breaking,
+      bump: bump?.bump ?? null,
+      breaking: bump?.breaking ?? false,
       depends: pinsOf(ctx, m.p, versions),
       items: m.items,
       notes: m.notes,
@@ -522,11 +527,19 @@ export async function proposeRelease(t, { package: name, pre, item, version: mak
     );
   }
   const delta = parts.flatMap((m) => m.delta);
+  // A package with no surface file has no measured interface, so no version is proposed: the
+  // owner names it with --version, a patch included (HITLD-752, Q39). A lockstep group with such
+  // a package shares that.
+  const measured = unit.every((q) => q.surface !== null);
   const proposed = proposeBump(delta, baseVersion);
   const allVersions = parts.flatMap((m) =>
     packageTags(ctx.root, m.p, { all: true }).map((x) => x.version),
   );
-  const version = pre ? nextPrerelease(proposed.version, pre, allVersions) : proposed.version;
+  const version = !measured
+    ? null
+    : pre
+      ? nextPrerelease(proposed.version, pre, allVersions)
+      : proposed.version;
   const releases = releasesOf(ctx, parts, making ?? version, { named: p, item, warnings });
   // Without a release item, the milestones the open items that need one wait for.
   const own = /** @type {PackageRelease} */ (releases.find((r) => r.package === p.name));
@@ -537,7 +550,7 @@ export async function proposeRelease(t, { package: name, pre, item, version: mak
       ? gatesOf(ctx, [])
       : [];
   for (const r of releases) {
-    if (r.package_version !== null && r.package_version !== version) {
+    if (version !== null && r.package_version !== null && r.package_version !== version) {
       const src = /** @type {Package} */ (unit.find((q) => q.name === r.package)).version_source;
       warnings.push(
         `${src} says ${r.package_version}; set it to ${version} before ${r.package} is released`,
@@ -556,9 +569,12 @@ export async function proposeRelease(t, { package: name, pre, item, version: mak
     }
   }
   const first = own.base === null;
-  const reason = own.base
-    ? `${proposed.reason}, since ${own.base}`
-    : `no release of ${p.name} yet, so its whole surface is new, counted from 0.0.0: ${proposed.reason}`;
+  const unmeasured = unit.filter((q) => q.surface === null).map((q) => q.name);
+  const reason = !measured
+    ? `${unmeasured.join(', ')} declare${unmeasured.length === 1 ? 's' : ''} no surface file, so no version is proposed: name it with --version (a patch included)${own.base ? `, above ${own.base}` : ''}`
+    : own.base
+      ? `${proposed.reason}, since ${own.base}`
+      : `no release of ${p.name} yet, so its whole surface is new, counted from 0.0.0: ${proposed.reason}`;
   return {
     package: p.name,
     group: p.group,
@@ -568,14 +584,14 @@ export async function proposeRelease(t, { package: name, pre, item, version: mak
     base_version: baseVersion,
     first_release: first,
     surface: p.surface,
-    interface_measured: unit.every((q) => q.surface !== null),
+    interface_measured: measured,
     interface_delta: delta,
-    bump: proposed.bump,
-    breaking: proposed.breaking,
+    bump: measured ? proposed.bump : null,
+    breaking: measured && proposed.breaking,
     reason: unit.length > 1 ? `group ${p.group}: ${reason}` : reason,
     version,
-    tag: tagFor(p, version),
-    prerelease: isPrerelease(version),
+    tag: version === null ? null : tagFor(p, version),
+    prerelease: version !== null && isPrerelease(version),
     prerelease_rule: PRERELEASE_RULE,
     items: [...new Set(releases.flatMap((r) => r.items))],
     notes: [...new Set(releases.flatMap((r) => r.notes))],
@@ -638,7 +654,7 @@ function proposeTrain(ctx, id, warnings) {
     );
   }
   const making = new Map([...byPackage].map(([n, x]) => [n, x.version]));
-  /** @type {PackageRelease[]} */
+  /** @type {NamedRelease[]} */
   const releases = [];
   for (const [n, { item, version }] of byPackage) {
     const p = /** @type {Package} */ (packages.find((x) => x.name === n));
@@ -648,7 +664,7 @@ function proposeTrain(ctx, id, warnings) {
       making,
       warnings,
     });
-    releases.push(r);
+    releases.push(/** @type {NamedRelease} */ (r));
   }
   const trainGates = gatesOf(ctx, [train], {
     skip: new Set(needed.map((n) => String(/** @type {any} */ (n).data.id))),
@@ -663,14 +679,16 @@ function proposeTrain(ctx, id, warnings) {
       }
     }
     const proposed = proposeBump(r.interface_delta, r.base_version);
-    if (!atLeast(bumpBetween(r.base_version, r.version) ?? 'patch', proposed.bump)) {
+    if (r.surface && !atLeast(bumpBetween(r.base_version, r.version) ?? 'patch', proposed.bump)) {
       warnings.push(
         `${r.package} ${r.version} is below what its delta proposes (${proposed.version}, ${proposed.reason})`,
       );
     }
   }
   const delta = releases.flatMap((r) => r.interface_delta);
-  const bump = highest(releases.map((r) => r.bump));
+  const bump = highest(
+    releases.map((r) => r.bump ?? bumpBetween(r.base_version, r.version) ?? 'patch'),
+  );
   return {
     package: null,
     group: null,
@@ -705,4 +723,4 @@ function proposeTrain(ctx, id, warnings) {
 }
 
 /** Where make writes each record. @param {FilesTracker} t @param {PackageRelease} r */
-export const recordFor = (t, r) => recordPath(t.layout(), r.package, r.version);
+export const recordFor = (t, r) => recordPath(t.layout(), r.package, String(r.version));

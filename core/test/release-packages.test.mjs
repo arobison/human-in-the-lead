@@ -20,6 +20,7 @@ import {
   versionOfTag,
 } from '../lib/release/packages.mjs';
 import { loadRecords } from '../lib/install/upgrade.mjs';
+import { checkReleaseCommit } from '../lib/release/check.mjs';
 import { commitAll, git, itemText, makeRepo, put } from './tracker-fixture.mjs';
 
 /** @param {string[]} argv @param {string} cwd @param {NodeJS.ProcessEnv} [env] */
@@ -303,18 +304,61 @@ test('two packages in one repository: own templates, own tags, own records, item
   assert.equal(shown.json.entity.package, 'core');
 });
 
-test('a package with no surface file: the interface is not measured, patch is proposed, and the owner may make more', async () => {
+test('a package with no surface file gets no proposed version; the owner names it, a patch included', async () => {
   const root = repo([{ name: 'tool', paths: ['**'] }]);
   const p = await hitld(['release', 'propose'], root);
+  assert.equal(p.code, 0, JSON.stringify(p.json));
   assert.equal(p.json.package, 'tool', '--package may be left out with one package');
   assert.equal(p.json.surface, null);
   assert.equal(p.json.interface_measured, false);
   assert.deepEqual(p.json.interface_delta, []);
-  assert.equal(p.json.version, '0.0.1');
-  assert.match(p.json.warnings.join('\n'), /tool declares no surface file/);
+  assert.equal(p.json.version, null);
+  assert.equal(p.json.tag, null);
+  assert.equal(p.json.bump, null);
+  assert.match(p.json.reason, /tool declares no surface file, so no version is proposed/);
+  assert.deepEqual(p.json.items, ['W-3'], 'the items and notes are still drafted');
+  const rc = await hitld(['release', 'propose', '--pre', 'rc'], root);
+  assert.equal(rc.json.version, null, 'no pre-release is proposed either');
+  const unnamed = await hitld(['release', 'make'], root);
+  assert.equal(unnamed.code, 1);
+  assert.match(
+    unnamed.json.message,
+    /no version is proposed: name it with --version.*such as 0\.1\.0/,
+  );
+  assert.equal(git(root, 'tag', '--list').trim(), '');
   const made = await hitld(['release', 'make', '--version', '0.1.0'], root);
   assert.equal(made.code, 0, JSON.stringify(made.json));
   assert.equal(made.json.tag, 'tool@0.1.0');
+  const patch = await hitld(['release', 'make', '--version', '0.1.1'], root);
+  assert.equal(patch.code, 0, JSON.stringify(patch.json));
+  assert.equal(patch.json.tag, 'tool@0.1.1', 'a patch, named by the owner');
+  const below = await hitld(['release', 'make', '--version', '0.1.1'], root);
+  assert.match(below.json.message, /not above the last full release, 0\.1\.1/);
+  const pre = await hitld(['release', 'make', '--version', '0.2.0-rc.1', '--branch', 'rel'], root);
+  assert.equal(pre.code, 0, JSON.stringify(pre.json));
+  assert.deepEqual((await hitld(['work', 'check'], root)).json.problems, []);
+});
+
+test('the record-to-tag check accepts the version the owner named for a package with no surface file', async () => {
+  const root = repo([{ name: 'tool', tag: 'v{version}', paths: ['**'] }]);
+  assert.equal(
+    (await hitld(['release', 'make', '--version', '0.3.0', '--branch', 'rel'], root)).code,
+    0,
+  );
+  git(root, 'merge', '-q', '--squash', 'rel');
+  git(
+    root,
+    'commit',
+    '-q',
+    '-m',
+    'Release v0.3.0 (#4)',
+    '-m',
+    'Signed-off-by: Owner <owner@example.invalid>',
+  );
+  const r = await checkReleaseCommit({ root, prs: [4] });
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.tag, 'v0.3.0');
+  assert.equal(r.record, 'work/releases/tool/0.3.0.md');
 });
 
 // --- Dependencies and the dependents list -----------------------------------------------------

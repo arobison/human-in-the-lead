@@ -28,7 +28,7 @@
             "minItems": 1
           },
           "surface": {
-            "description": "The committed surface file the project's own tool writes: one line per public interface element. `release propose` diffs it between the last full release and now: lines only added propose minor, a removed or changed line proposes major (minor while 0.y.z), no change proposes patch. With none, the interface is not measured and patch is proposed.",
+            "description": "The committed surface file the project's own tool writes: one line per public interface element. `release propose` diffs it between the last full release and now: lines only added propose minor, a removed or changed line proposes major (minor while 0.y.z), no change proposes patch. With none, the interface is not measured and no version is proposed: the owner names it with --version, a patch included.",
             "type": "string",
             "minLength": 1
           },
