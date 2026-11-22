@@ -2,7 +2,7 @@
 id: HITLD-746
 title: Print-mode executors are durable and their completion is observed, so ending an orchestrator's turn loses nothing
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80ZP66B9MVPVB
