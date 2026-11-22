@@ -10,10 +10,11 @@ You can also ask Claude Code to do all of this: the `adopt` skill inspects the r
 
 Work on a branch, so nothing reaches `main` before you have read it.
 
-1. **Get the tag** once, outside your project:
+1. **Get the release bundle** once, outside your project (see [Before any of them](README.md#before-any-of-them)):
 
    ```bash
-   git clone --branch v0.1.0-rc.1 --depth 1 https://github.com/arobison/human-in-the-lead.git
+   mkdir hitld-v0.1.0-rc.1
+   curl -fsSL https://github.com/arobison/human-in-the-lead/releases/download/v0.1.0-rc.1/human-in-the-lead-plugin-v0.1.0-rc.1.tgz | tar -xz -C hitld-v0.1.0-rc.1
    ```
 
 2. **Make a branch** in your project:

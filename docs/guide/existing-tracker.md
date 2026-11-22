@@ -34,10 +34,11 @@ needs: [APP-2]
 
 Install nothing yet. Describe your tracker to `hitld` in a scratch directory outside the repository, and compare. This changes no file in your project.
 
-1. **Get the tag** once, outside your project:
+1. **Get the release bundle** once, outside your project (see [Before any of them](README.md#before-any-of-them)):
 
    ```bash
-   git clone --branch v0.1.0-rc.1 --depth 1 https://github.com/arobison/human-in-the-lead.git
+   mkdir hitld-v0.1.0-rc.1
+   curl -fsSL https://github.com/arobison/human-in-the-lead/releases/download/v0.1.0-rc.1/human-in-the-lead-plugin-v0.1.0-rc.1.tgz | tar -xz -C hitld-v0.1.0-rc.1
    ```
 
 2. **Write the two settings files in a scratch directory.** `key` is your tracker ID key. `work_dir` is the folder that holds your item folders (default `work`); name `folders` too if yours are not `items`, `projects` and `milestones`:
