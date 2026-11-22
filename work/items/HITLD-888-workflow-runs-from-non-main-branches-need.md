@@ -23,3 +23,7 @@ CI and the code-scanning workflow run on `pull_request` from same-repository bra
 ## Notes
 
 Finding S2 (high, likely: depends on the repository's settings, which the reviewer could not see) of the second Fable security pass (2026-11-22), decision HITLD-885. HITLD-867 covers forge protection in general but not Actions or the tag job. The repository settings themselves are the owner's to apply; the item lists exactly which.
+
+## Decided on 2026-11-22
+
+Decided in the owner's forge walk-through (2026-11-22): the by-hand `tagged` job is removed (HITLD-948), the release App creates the tag with its key only in the release environment (HITLD-949), and `scripts/release-environment.mjs` also verifies the tag ruleset and fails when it is missing, inactive, lacks restrict-creations or has a bypass actor other than the release App. The workflow change must merge before the tag ruleset (HITLD-952 step 10).

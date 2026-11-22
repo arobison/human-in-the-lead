@@ -23,3 +23,7 @@ The Fable trust-boundary review (2026-11-22) found that no guard here binds an e
 ## Notes
 
 Findings T2, T3 and T4 of the review, and decision HITLD-866. Build this before the hook fixes: HITLD-856 and HITLD-857 follow it and become polish. Owner-side steps (the forge settings) are listed in the item when built.
+
+## Decided on 2026-11-22
+
+Decided in the owner's forge walk-through (2026-11-22): HITLD-944 to 951. The settings are HITLD-952; the check is HITLD-953; the queue App is HITLD-954; local executors in a sandbox are HITLD-955. This item is done when the proof in HITLD-952 step 12 is recorded.
