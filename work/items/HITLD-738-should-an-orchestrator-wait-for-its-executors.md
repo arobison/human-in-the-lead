@@ -2,10 +2,14 @@
 id: HITLD-738
 title: Should an orchestrator wait for its executors before ending its turn, or should executors outlive it
 kind: decision
-state: proposed
+state: done
 created: 2026-11-22
 project: HITLD-15
 decider: owner
+answer: B
+answered_at: 2026-11-22T01:26:39.228Z
+answered_via: question-tool
+answered_by: owner
 ---
 
 ## Question
