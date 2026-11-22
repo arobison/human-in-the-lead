@@ -2,9 +2,10 @@
 id: HITLD-745
 title: Find out why the planner offers an item again after it was claimed and finished
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M810DRE9WHD3YD
 ---
 
 ## Why
