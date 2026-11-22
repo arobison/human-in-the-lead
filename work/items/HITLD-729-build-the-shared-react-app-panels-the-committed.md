@@ -2,10 +2,11 @@
 id: HITLD-729
 title: "Build the shared React app: panels, the committed bundle and its CI check"
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-691]
+claimed_by: D-01M80WW9X15NK1FB
 ---
 
 ## Why
