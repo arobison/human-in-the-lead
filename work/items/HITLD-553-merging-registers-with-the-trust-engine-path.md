@@ -2,7 +2,7 @@
 id: HITLD-553
 title: "Merging registers with the trust engine: path-rule kinds, never-unlock kinds, a mechanical verifiability gate"
 kind: work
-state: proposed
+state: planned
 created: 2026-11-19
 project: HITLD-15
 needs: [HITLD-552]
@@ -28,3 +28,7 @@ The owner decided how merging earns self-merge standing (HITLD-472, 473 to 482, 
 ## Notes
 
 Needs the trust engine core. Design is settled in the cited decisions; code, skill, schema and policy changes need the owner's own yes to merge. Placement is the chief of staff's, a proposal for the owner to move.
+
+## Moved into rc.2 on 2026-11-22 (HITLD-809)
+
+The owner asked why they are asked to approve every code pull request, and decided that the merging trust engine is built in rc.2. This item is planned and also joins milestone HITLD-67 (second clause); it stays in milestone HITLD-566 too. No kind unlocks until it meets the bar (15 merges aged 7 days from 8 distinct items); skills, hooks, contracts, schemas, guards, public interface and policy never unlock.

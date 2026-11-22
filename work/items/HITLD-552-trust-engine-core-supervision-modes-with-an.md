@@ -2,7 +2,7 @@
 id: HITLD-552
 title: "Trust engine core: supervision modes with an order, a derived record, re-lock and unlock proposals"
 kind: work
-state: proposed
+state: planned
 created: 2026-11-19
 project: HITLD-15
 ---
@@ -32,3 +32,7 @@ Built with merging and commitment together (HITLD-528). Related: HITLD-507 (the 
 ## Initial grants (HITLD-576)
 
 On migration the engine records today's standing delegations (tracker-only merges and reversible tracker edits by the chief of staff and orchestrator, HITLD-143 and 218) as the owner's initial grants: kinds already unlocked, each by a decision the owner signs dated at migration and citing the standing rule.
+
+## Moved into rc.2 on 2026-11-22 (HITLD-809)
+
+The owner asked why they are asked to approve every code pull request, and decided that the merging trust engine is built in rc.2. This item is planned and also joins milestone HITLD-67 (second clause); it stays in milestone HITLD-566 too. No kind unlocks until it meets the bar (15 merges aged 7 days from 8 distinct items); skills, hooks, contracts, schemas, guards, public interface and policy never unlock.
