@@ -61,7 +61,7 @@ Keep the messages short and self-contained, so they can be answered from a phone
    3. `memory_ceiling_mb`. Source: proposed from the detected memory.
    4. `max_executors` for this machine. Source: proposed.
    5. How many agents at once across all their projects (`max_executors` in the person file). Source: the machine's `max_executors`.
-   6. The reserve: the share of each limit kept for the owner's own use (`quota.reserve`). Source: default, 0.25.
+   6. The reserve: the share of each limit kept for the owner's own use (`quota.reserve`). Source: default, 0.10.
    7. Their account and plan, only if they want limits declared instead of measured. Source: none; leave it out unless they ask. Without the status-line capture (below), limits are declared and estimated.
 
    End the message with: "Reply `yes to all`, or `change N to X` for any number of them." Take either form. When the owner changes values, apply them and show the changed lines only, then ask for `yes to all` again if a change needs a check. Do not ask the values again one at a time.
