@@ -2,9 +2,10 @@
 id: HITLD-741
 title: The git hooks that install writes find hitld at run time and do not block commits when the install moves
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80GAJH32FSRJ3
 ---
 
 ## Why
