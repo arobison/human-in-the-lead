@@ -76,6 +76,12 @@ test('sizing: an owner-review area asks for a review pack and does not force tie
     isolation: 'worktree',
   });
   assert.match(brief, /Owner review: the owner reviews ui in person\. Prepare a review pack/);
+  // HITLD-764: inline question JSON holds words the executor guard reads as commands.
+  assert.match(
+    brief,
+    /hitld rights who and hitld precedent match as a JSON file with --file <path>/,
+  );
+  assert.match(brief, /never as inline JSON/);
   const other = sizeItem(
     { ...base, area: 'api', id: 'W-2', touches: ['src/a.js'], body: BODY1 },
     p,
