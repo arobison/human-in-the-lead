@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-21
 project: HITLD-15
 needs: [HITLD-692, HITLD-729]
-constraint_of: [HITLD-67 c4]
+constraint_of: [HITLD-192 c?]
 ---
 
 ## Why
@@ -22,3 +22,7 @@ Reworded for the shared UI kit (HITLD-721, 724 to 728): the page is one React ap
 - The command that produces fragments is declared as an executing property that the owner approves; a views file or fragment that names code, a component or a script is refused, and a fragment cannot add a panel type.
 - A fragment carries a source and the time it was read, shown on the panel, and a stale fragment is marked.
 - Tests cover a valid fragment rendered by its panel component, a missing label, a label too narrow for the page, a command not approved, a fragment naming an unknown panel type or code, and a hostile value in a fragment rendered as text, not markup. `npm run check`, the offline eval gate and `hitld work check` pass.
+
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.

@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c4]
+constraint_of: [HITLD-192 c3]
 ---
 
 
@@ -18,3 +18,7 @@ Budgets today are tokens (the run scope's `budget_tokens`, the per-dispatch cap 
 - The owner decides, in a design walk-through one question at a time: whether dollars are a budget or only a report; the scopes (run, item, project, week); hard or soft; how dollars relate to the plan-percent gate and the reserve; and what happens at a limit.
 - The answers are recorded as decisions, and design part 12 and the policy schema say them through the curator job; build items follow, each under a milestone.
 - `hitld work check` passes.
+
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.

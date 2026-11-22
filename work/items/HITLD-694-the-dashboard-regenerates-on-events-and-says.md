@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-21
 project: HITLD-15
 needs: [HITLD-691, HITLD-729]
-constraint_of: [HITLD-67 c4]
+constraint_of: [HITLD-192 c?]
 ---
 
 ## Why
@@ -22,3 +22,7 @@ Reworded for the shared UI kit (HITLD-721, 725, 727): the page is now the shared
 - A page generated from a container shows that container's store until the stores sync, and says so.
 - No server and no network request is introduced; the page stays one self-contained HTML file with the app and its data inside.
 - Tests cover regeneration on a change, no regeneration without one, the inlined data matching the contract at the time of writing, and the read-time stamps. `npm run check`, the offline eval gate and `hitld work check` pass.
+
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.

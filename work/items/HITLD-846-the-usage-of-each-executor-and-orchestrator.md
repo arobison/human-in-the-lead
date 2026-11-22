@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c4]
+constraint_of: [HITLD-192 c3]
 ---
 
 
@@ -18,3 +18,7 @@ On 2026-11-22 the owner asked whether dollars can be shown beside tokens. The le
 - `hitld dispatch complete` accepts a usage block (`--usage <file or JSON>`: input, output, cache write and cache read tokens, and `cost_usd` when known) and records it as measured (`tokens_source: session-record`); the chief-of-staff skill says to read an executor's session usage when its report arrives and pass it to the orchestrator in the relay line, and to read the orchestrator's own usage at handover and record it as run overhead.
 - A price table in policy (`pricing.models.<model>`: input, output, cache write and cache read per million tokens) turns tokens into dollars only when the harness gives no `cost_usd`; every entry says `cost_source: reported` or `computed`.
 - Tests cover a completion with a usage block, one without, a computed cost and a reported one. A ledger, policy and skill change reaches main only with the owner's own yes. `npm run check`, the offline eval gate and `hitld work check` pass.
+
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.

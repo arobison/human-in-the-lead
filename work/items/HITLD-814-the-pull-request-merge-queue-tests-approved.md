@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-189 c?]
 ---
 
 ## Done when
@@ -35,3 +35,7 @@ Related: HITLD-76 (stacked pull requests, proposed, rc.3), HITLD-777 (tracker-on
 - **On failure (HITLD-817):** bisect the failing branch out and land the rest: rerun once, check main for an incident, find the first failing branch, send it back to its executor, rebuild without it and test again. The other approved branches' approvals hold.
 
 The curator item for design part 14.2 is HITLD-818. A queue change reaches main only with the owner's own yes.
+
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.

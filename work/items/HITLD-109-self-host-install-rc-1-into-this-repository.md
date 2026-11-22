@@ -17,7 +17,7 @@ HITLd is built to run itself. Once v0.1.0-rc.1 is tagged, this repository instal
 
 - After rc.1 is published, `hitld install --ref v0.1.0-rc.1` runs in this repository through its own PR: the contract block in `AGENTS.md`, `.claude/settings.json` pinned to the tag, and `policy.json` kept. The owner merges it.
 - `AGENTS.md` holds a "Project rules" section outside the contract markers, proposed by the `adopt` skill from this repository's conventions (zero runtime dependencies, never hand-editing `plugins/` but running `npm run build`, the gates, the commit trailers and DCO, the writing rules) and accepted by the owner.
-- The store remote is set up for this project: a private store repository, `store.remote.url` in `policy.json`, and this cloud environment enrolled as a device through a merged `store-devices.json`.
+- The store remote is set up for this project as the built store design says (docs/guide/store-remote.md, design 0003): a private store repository whose address is in the person file or a cloud environment's variable, never in the repository (`policy.json` holds only `store.remote.required`, and `hitld check policy` refuses a `store.remote.url` there), and this cloud environment enrolled as a device through `hitld store device init` and the owner's own answer, the device list living in the store repository.
 - From a fresh cloud session, the chief of staff starts an orchestrator, `hitld check contract` and `hitld work check` pass, and one item is dispatched, merged and closed through the installed rc.1.
 - The commit and commit-message hooks are installed in each environment's sessions for this repository.
 - Moving the pin to a later release is a one-line PR the owner merges; the guide for this repository says so.
@@ -27,3 +27,7 @@ Sequenced after HITLD-243 (landing the Windows pull request) on the owner's inst
 ## Affected by a decision (reconciliation, HITLD-578)
 
 The audit of 2026-11-19 found that an open design touches this item (333,470/492,508): self-host install: store enrollment device, CoS-run, orchestrator dispatch. The decisions since then are the trust engine decisions (HITLD-518 to 529, 547, 548; builds HITLD-552 to 556); the ledger and no-run decisions (HITLD-484 to 490); stay in the harness and answers by proof (HITLD-540, 515); answers, proof and contributors (HITLD-515 to 517). The item stays `planned`; a builder reads those decisions first, and the item is reworded if they change what it builds.
+
+## Reworded and put first on 2026-11-22
+
+The Fable plan review found the store bullet contradicted the built store design, so the item could not close; it is reworded to that design. On the owner's decision HITLD-875 it is the first thing in the order: without the install, 'Consumer live' (HITLD-67) is unproven and every merged guard or queue change alters the tools mid-run. The owner-side steps are HITLD-349.

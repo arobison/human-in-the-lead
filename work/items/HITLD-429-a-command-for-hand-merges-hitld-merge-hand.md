@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-16
 project: HITLD-15
-constraint_of: [HITLD-67 c2, HITLD-191 c2]
+constraint_of: [HITLD-191 c2]
 ---
 
 ## Done when
@@ -36,3 +36,6 @@ The audit of 2026-11-19 found that an open design touches this item (74/489,472)
 
 The item also joins milestone HITLD-67 (second clause). Two more points from the session: the queue opened a second and a third pull request (502, 504) for a branch the chief of staff had merged directly, so the queue skips a branch whose item is already done on main or already has a merged event; and the command refuses a merge while a required check run is still in progress, which is the mistake made with pull request 509.
 
+## Moved out of rc.2 on 2026-11-22
+
+Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.
