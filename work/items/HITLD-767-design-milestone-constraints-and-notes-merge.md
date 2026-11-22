@@ -2,9 +2,10 @@
 id: HITLD-767
 title: "Design: milestone constraints and notes merge cleanly when two tracker pull requests edit the same milestone"
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80ZP4HMQ4AGDX
 ---
 
 ## Why
