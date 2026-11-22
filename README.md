@@ -204,7 +204,7 @@ cd your-project
 node ../hitld-v0.1.0-rc.1/human-in-the-lead/core/bin/hitld.mjs install --key W --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead
 ```
 
-`--key` is your project's tracker ID key (for example `W`); it is needed the first time, when there is no `.human-in-the-lead/policy.json` yet. If you have `hitld` on your path (the bundle's `human-in-the-lead/bin/hitld` runs it), the command is `hitld install --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead` (plus `--key` the first time). Keep the unpacked bundle: the pre-commit commit guard that install writes runs the `hitld` it was installed from, so install again from the new release's bundle when you upgrade.
+`--key` is your project's tracker ID key (for example `W`); it is needed the first time, when there is no `.human-in-the-lead/policy.json` yet. If you have `hitld` on your path (the bundle's `human-in-the-lead/bin/hitld` runs it), the command is `hitld install --ref v0.1.0-rc.1 --repo arobison/human-in-the-lead` (plus `--key` the first time). The commit guard hooks that install writes find `hitld` each time they run: `hitld` on your path first, then the pinned plugin's own copy once Claude Code has installed it, then the unpacked bundle install ran from. Each says when the one it found is not the pinned version, and when none is found it warns and lets the commit through, since the merge runs the same checks.
 
 Install writes the project's committed `.claude/settings.json`, pinned to the tag, so the marketplace needs no separate `claude plugin marketplace add`:
 

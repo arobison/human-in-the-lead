@@ -38,6 +38,10 @@
     "work": {
       "description": "The tracker's items, claims and committed state history, and the work views' figures, or null in a repository with no tracker or when it could not be read.",
       "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/work" }]
+    },
+    "views": {
+      "description": "The project's own panels (HITLD-692): what .human-in-the-lead/views.json declares, checked against the contract's fields and tracker.json's declared fields, each resolved into what it shows from work. Null when the project has no views.json. A panel that names a field or value that does not exist is not here: it is under errors, named. HITLD's page draws these in a tab named by title; a project's own app reads them the same way.",
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/views" }]
     }
   },
   "required": [
@@ -53,7 +57,8 @@
     "settings",
     "waiting_for_owner",
     "milestones",
-    "work"
+    "work",
+    "views"
   ],
   "additionalProperties": false,
   "$defs": {
@@ -801,6 +806,144 @@
         }
       },
       "required": ["nodes", "edges", "critical_path", "lanes", "releases"],
+      "additionalProperties": false
+    },
+    "panelValue": {
+      "description": "A value as a panel shows it: a field's value, a list of them, or null for none.",
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/fieldValue" }]
+    },
+    "views": {
+      "type": "object",
+      "properties": {
+        "path": { "description": "The file, repository-relative.", "type": "string" },
+        "title": {
+          "description": "The tab's name, from the file (Project panels when the file is refused).",
+          "type": "string"
+        },
+        "panels": {
+          "description": "The panels that passed the check, in the file's order.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/panel" }
+        },
+        "errors": {
+          "description": "Why a panel, or the whole file (panel null), was refused.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "panel": { "$ref": "#/$defs/stringOrNull" },
+              "path": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "required": ["panel", "path", "message"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["path", "title", "panels", "errors"],
+      "additionalProperties": false
+    },
+    "panel": {
+      "description": "One panel, resolved. Every panel has id, title, type, description, where and matched (the items its filters keep); the rest depends on its type. table: columns, sort, order, rows (each an ID and a cell per column) and more (rows cut by its limit). board: group_by and columns (each a value, its IDs and how many more). bar: group_by and bars (each a value and its count). line: date, interval, cumulative, points (each the start of an interval and its count), undated and cut (the earliest intervals left out). timeline: date, end, entries (each an ID, a start and an end or null), undated and more. graph: relation, nodes (IDs), edges ([from, to]: to links to from), outside (links to items not in the panel) and more. A value of null in a group is the items with none.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "$ref": "views#/$defs/panel/properties/type" },
+        "description": { "$ref": "#/$defs/stringOrNull" },
+        "where": { "type": "array", "items": { "$ref": "views#/$defs/filter" } },
+        "matched": { "type": "integer", "minimum": 0 },
+        "columns": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "properties": {
+                  "value": { "$ref": "#/$defs/panelValue" },
+                  "ids": { "$ref": "#/$defs/ids" },
+                  "more": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["value", "ids", "more"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "sort": { "type": "string" },
+        "order": { "enum": ["ascending", "descending"] },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "common#/$defs/id" },
+              "cells": { "type": "array", "items": { "$ref": "#/$defs/panelValue" } }
+            },
+            "required": ["id", "cells"],
+            "additionalProperties": false
+          }
+        },
+        "more": { "type": "integer", "minimum": 0 },
+        "group_by": { "type": "string" },
+        "bars": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": { "$ref": "#/$defs/panelValue" },
+              "count": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["value", "count"],
+            "additionalProperties": false
+          }
+        },
+        "date": { "type": "string" },
+        "end": { "$ref": "#/$defs/stringOrNull" },
+        "interval": { "enum": ["day", "week", "month"] },
+        "cumulative": { "type": "boolean" },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "at": { "type": "string" },
+              "count": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["at", "count"],
+            "additionalProperties": false
+          }
+        },
+        "undated": { "type": "integer", "minimum": 0 },
+        "cut": { "type": "integer", "minimum": 0 },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "$ref": "common#/$defs/id" },
+              "start": { "type": "string" },
+              "end": { "$ref": "#/$defs/stringOrNull" }
+            },
+            "required": ["id", "start", "end"],
+            "additionalProperties": false
+          }
+        },
+        "relation": { "type": "string" },
+        "nodes": { "$ref": "#/$defs/ids" },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "$ref": "common#/$defs/id" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "outside": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["id", "title", "type", "description", "where", "matched"],
       "additionalProperties": false
     }
   }

@@ -22,7 +22,7 @@ Whichever you start from, read [Moving the private store between machines and cl
   curl -fsSL https://github.com/arobison/human-in-the-lead/releases/download/v0.1.0-rc.1/human-in-the-lead-plugin-v0.1.0-rc.1.tgz | tar -xz -C hitld-v0.1.0-rc.1
   ```
 
-  In the commands on these pages, `hitld` stands for `node <path to that directory>/human-in-the-lead/core/bin/hitld.mjs`. If you put a `hitld` on your path (the bundle's `human-in-the-lead/bin/hitld` runs it), use that instead. Keep the unpacked bundle: the commit guard that `hitld install` writes runs the `hitld` it was installed from. Publishing `hitld` to a package registry is separate work, with no date set.
+  In the commands on these pages, `hitld` stands for `node <path to that directory>/human-in-the-lead/core/bin/hitld.mjs`. If you put a `hitld` on your path (the bundle's `human-in-the-lead/bin/hitld` runs it), use that instead. The commit guard that `hitld install` writes finds `hitld` each time it runs: on your path first, then the pinned plugin's own copy once Claude Code has installed it, then the unpacked bundle install ran from. Publishing `hitld` to a package registry is separate work, with no date set.
 - Every `hitld` command prints JSON, and `ok` says whether it worked. A failed command has `ok: false` and an `error` code (the list is in [design part 16.2](../design/0001-human-in-the-lead/16-packaging.md#failed-commands-and-their-error-codes)). Exit codes: 0 worked, 1 the command found a problem, 2 usage error, 3 not built yet.
 
 ## What `hitld install` does

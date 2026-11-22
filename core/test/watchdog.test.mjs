@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,12 +17,14 @@ import { historyFromLedger } from '../lib/dispatch/sizing.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { progressTimes } from '../lib/dispatch/progress.mjs';
 import { stallLimits, watchDispatches } from '../lib/dispatch/watch.mjs';
+import { exitedParents, parentKey, readParent } from '../lib/dispatch/parent.mjs';
 import { silentOrchestrator } from '../lib/run/messages.mjs';
 import { pauseTransition } from '../lib/quota/pause.mjs';
 import { evaluateQuotas } from '../lib/quota/quota.mjs';
 import { declaredReset } from '../lib/quota/window.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { git, item, makeConsumer, put } from './orchestrator-fixture.mjs';
+import { tempDir } from './helpers/tmp.mjs';
 
 const HOOKS = resolve(fileURLToPath(new URL('../harness/claude-code/hooks/', import.meta.url)));
 
@@ -1063,4 +1065,186 @@ test('abandoned after its claim, the item waits until it is unclaimed on main; t
   );
   assert.notEqual(d1, d2);
   assert.equal(git(c.root, 'rev-parse', first.branch).length, 40, 'the old branch is still there');
+});
+
+// --- An executor whose orchestrator exited (HITLD-737) ------------------------------------------
+
+test('a background agent whose parent exited is stalled at once and names its uncommitted work; one whose parent lives, or that reported, is not', () => {
+  const { t, at, entry, events } = synthetic();
+  const p = policy();
+  const dirty = [{ at: at(30), source: 'worktree', head: 'a'.repeat(40), commits: 0, dirty: 3 }];
+  /** @param {Partial<Parameters<typeof watchDispatches>[0]>} over */
+  const judge = (over = {}) =>
+    watchDispatches({
+      inFlight: [entry],
+      events,
+      signals: () => dirty,
+      policy: p,
+      now: t + 60_000,
+      parentExited: new Set(['D-1']),
+      ...over,
+    })[0];
+
+  // A minute in, far inside its stall time: its parent has exited, so it is stalled now.
+  const gone = judge();
+  assert.equal(gone.state, 'stalled');
+  assert.equal(gone.reason, 'exited');
+  assert.equal(gone.step, 'abandon', 'no agent is left to poke or continue');
+  assert.equal(gone.parent_exited, true);
+  assert.equal(gone.uncommitted_files, 3);
+  assert.equal(gone.branch, 'hitld/W-1-x');
+  assert.ok(gone.quiet_seconds < gone.stall_after_seconds);
+  assert.match(gone.why, /its orchestrator\) has exited.*3 uncommitted files/);
+
+  // Its parent still runs: the ordinary clock.
+  const alive = judge({ parentExited: new Set() });
+  assert.equal(alive.state, 'progressing');
+  assert.equal(alive.step, null);
+  assert.equal(alive.parent_exited, false);
+
+  // It has reported: not this rule's.
+  const reported = judge({
+    events: [
+      ...events,
+      { id: 'E-2', event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done', at: at(50) },
+    ],
+  });
+  assert.equal(reported.parent_exited, false);
+  assert.notEqual(reported.state, 'stalled');
+
+  // A quota pause does not hold it: it did not hit a limit, it is gone.
+  const paused = judge({
+    pause: /** @type {any} */ ({ limit: 'five_hour', resets_at: at(7200), at: at(10) }),
+  });
+  assert.equal(paused.state, 'stalled');
+  assert.equal(paused.step, 'abandon');
+
+  // After an earlier abandonment, the next is a question for the owner, as on any ladder.
+  const again = judge({
+    events: [
+      ...events,
+      {
+        id: 'E-3',
+        event: 'stalled',
+        dispatch: 'D-0',
+        item: 'W-1',
+        reason: 'no_progress',
+        step: 'abandon',
+        at: at(-10),
+      },
+    ],
+  });
+  assert.equal(again.step, 'ask');
+
+  // A headless run or an interactive session lives in its own process: the rule does not apply.
+  for (const mode of /** @type {const} */ (['headless', 'interactive'])) {
+    const own = watchDispatches({
+      inFlight: [{ ...entry, tier: 3, mode }],
+      events,
+      signals: () => dirty,
+      policy: p,
+      now: t + 60_000,
+      parentExited: new Set(['D-1']),
+    })[0];
+    assert.equal(own.parent_exited, false, mode);
+    assert.equal(own.state, 'progressing', mode);
+  }
+});
+
+test('exitedParents: a parent that is gone, or whose ID now names a later process, has exited; a live one or a doubt has not', () => {
+  const store = openStore(tempDir('hitld-parent-'));
+  const host = 'here';
+  /** @param {string} d @param {Record<string, unknown>} r */
+  const put = (d, r) => store.write(parentKey(d), JSON.stringify(r));
+  put('D-1', { pid: 101, start: 'Mon 1', host, recorded_at: 'x' });
+  put('D-2', { pid: 102, start: 'Mon 1', host, recorded_at: 'x' });
+  put('D-3', { pid: 103, start: 'Mon 1', host, recorded_at: 'x' });
+  put('D-4', { pid: 104, start: 'Mon 1', host, recorded_at: 'x' });
+  put('D-5', { pid: 105, start: 'Mon 1', host: 'elsewhere', recorded_at: 'x' });
+  store.write(parentKey('D-6'), 'not json');
+  const entries = ['D-1', 'D-2', 'D-3', 'D-4', 'D-5', 'D-6', 'D-7'].map((dispatch) => ({
+    dispatch,
+  }));
+  const out = exitedParents(store, entries, host, {
+    alive: (pid) => pid !== 101 && pid !== 105,
+    // 102 is the same process, 103 a later one with the same ID, 104's start cannot be read.
+    starts: () =>
+      new Map([
+        [102, 'Mon 1'],
+        [103, 'Tue 2'],
+      ]),
+  });
+  assert.deepEqual([...out].sort(), ['D-1', 'D-3']);
+});
+
+test('the watch names the claim an exited orchestrator left with uncommitted work, and abandons it with --act; a dispatch whose orchestrator runs is untouched', async () => {
+  const c = clocked();
+  c.status(10, 72000);
+  await c.hitld(['run', 'start']);
+  // Two orchestrator processes stand in for the sessions that start the executors.
+  const spawnParent = () =>
+    spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
+  const dying = spawnParent();
+  const living = spawnParent();
+  try {
+    const s1 = await c.hitld(['dispatch', 'start', 'W-1'], { CLAUDE_PID: String(dying.pid) });
+    assert.equal(s1.exit, 0, JSON.stringify(s1.result));
+    const d1 = s1.result.dispatch;
+    await c.hitld(['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'agent-1']);
+    const s2 = await c.hitld(['dispatch', 'start', 'W-2'], { CLAUDE_PID: String(living.pid) });
+    assert.equal(s2.exit, 0, JSON.stringify(s2.result));
+    const d2 = s2.result.dispatch;
+    await c.hitld(['dispatch', 'handle', '--dispatch', d2, '--harness-ref', 'agent-2']);
+    assert.equal(readParent(c.store, d1)?.pid, dying.pid);
+
+    // W-1's executor left two files uncommitted on its branch.
+    git(c.root, 'switch', '-q', '-c', s1.result.branch);
+    put(c.root, { 'src/half.js': 'export const half = 1;\n', 'src/other.js': '// wip\n' });
+
+    c.at(60);
+    const before = await c.hitld(['dispatch', 'watch'], { HITLD_SESSION: 'cos' });
+    assert.equal(before.result.wake, false, JSON.stringify(before.result));
+    assert.equal(before.result.uncommitted, undefined);
+
+    await new Promise((done) => {
+      dying.once('exit', done);
+      dying.kill('SIGKILL');
+    });
+    c.at(120);
+    const seen = await c.hitld(['dispatch', 'watch'], { HITLD_SESSION: 'cos' });
+    assert.equal(seen.exit, 0, JSON.stringify(seen.result));
+    const v1 = seen.result.dispatches.find((/** @type {any} */ v) => v.dispatch === d1);
+    const v2 = seen.result.dispatches.find((/** @type {any} */ v) => v.dispatch === d2);
+    assert.equal(v1.state, 'stalled');
+    assert.equal(v1.reason, 'exited');
+    assert.equal(v1.parent_exited, true);
+    assert.equal(v2.state, 'progressing', 'its orchestrator still runs');
+    assert.equal(v2.parent_exited, undefined);
+    assert.deepEqual(seen.result.uncommitted, [
+      {
+        dispatch: d1,
+        item: 'W-1',
+        branch: s1.result.branch,
+        worktree: c.root,
+        uncommitted_files: 2,
+      },
+    ]);
+    assert.equal(seen.result.wake_message, `watch: ${d1} stalled (abandon)`);
+    assert.match(seen.result.next, /uncommitted work .*recover it before the worktree is removed/);
+
+    const acted = await c.hitld(['dispatch', 'watch', '--act']);
+    assert.equal(acted.exit, 0, JSON.stringify(acted.result));
+    assert.equal(acted.result.actions.length, 1);
+    const a = acted.result.actions[0];
+    assert.equal(a.step, 'abandon');
+    assert.equal(a.dispatch, d1);
+    assert.equal(a.uncommitted.uncommitted_files, 2);
+    assert.match(a.recover, /2 uncommitted files: commit them on /);
+    assert.match(a.then, /^first do what recover says/);
+    assert.ok(c.events().some((e) => e.event === 'abandoned' && e.dispatch === d1));
+    assert.ok(!c.events().some((e) => e.event === 'abandoned' && e.dispatch === d2));
+  } finally {
+    dying.kill('SIGKILL');
+    living.kill('SIGKILL');
+  }
 });

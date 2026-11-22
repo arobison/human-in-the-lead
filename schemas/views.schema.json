@@ -1,0 +1,151 @@
+{
+  "$id": "views",
+  "title": "views.json",
+  "description": "The extra panels a project adds to its dashboard, in .human-in-the-lead/views.json beside tracker.json (decisions HITLD-684, 685 and 687). A panel is data only: a named filter over the fields of the dashboard data contract (schemas/dashboard-data.schema.json), and one panel type from a closed set (table, board, bar, line, timeline, graph). No key names code to run, and nothing in the file is drawn as markup: every value is shown as text. A field is named as the contract's item names it (id, kind, title, state, stage, project, needs, open_needs, created, critical, waiting_on_it, decider, waiting_on, scopes, classification, owner, redacted), as reached.<state> (the date an item first reached that state, from the committed state history), or as a field tracker.json declares, by its name or as fields.<name> (a bare name is the contract's own first). hitld check views and hitld dashboard refuse a panel that names a field or a value that does not exist, naming the field and the panel. The project's panels show in their own tab, named by title; the built-in views do not change.",
+  "x-hitld-schema-version": 1,
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "common#/$defs/schemaVersion"
+    },
+    "title": {
+      "description": "The name of the project's tab on the dashboard.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "panels": {
+      "description": "The panels, in the order they show.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/panel" },
+      "minItems": 1,
+      "maxItems": 40
+    }
+  },
+  "required": ["schema_version", "title", "panels"],
+  "additionalProperties": false,
+  "$defs": {
+    "field": {
+      "description": "A field of the contract's items, reached.<state>, or a declared field (by name or as fields.<name>).",
+      "type": "string",
+      "pattern": "^(fields\\.|reached\\.)?[a-z][a-z0-9_-]{0,39}$"
+    },
+    "scalar": {
+      "description": "A value to compare with: text, a number or true or false. A date is text, YYYY-MM-DD.",
+      "type": ["string", "number", "boolean"],
+      "maxLength": 200
+    },
+    "filter": {
+      "description": "One condition on a field; a panel shows the items that meet every one. Give the field and exactly one test. On a field that holds a list, is means the list holds the value, in that it holds any of them, and set that it is not empty. at_least and at_most compare numbers, and dates as YYYY-MM-DD text.",
+      "type": "object",
+      "properties": {
+        "field": { "$ref": "#/$defs/field" },
+        "is": { "$ref": "#/$defs/scalar" },
+        "not": { "$ref": "#/$defs/scalar" },
+        "in": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/scalar" },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "not_in": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/scalar" },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "set": {
+          "description": "true: the item has a value (a list that is not empty); false: it has none.",
+          "type": "boolean"
+        },
+        "at_least": { "type": ["string", "number"], "maxLength": 40 },
+        "at_most": { "type": ["string", "number"], "maxLength": 40 }
+      },
+      "required": ["field"],
+      "minProperties": 2,
+      "maxProperties": 2,
+      "additionalProperties": false
+    },
+    "panel": {
+      "description": "One panel. Which keys apply depends on type: table takes columns (and sort, order, limit); board takes group_by (and limit); bar takes group_by; line takes date (and interval, cumulative); timeline takes date (and end, limit); graph takes relation (default needs). A key the type does not take is refused.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The panel's name in the file and on the page: lower case, digits and hyphens. Unique in the file.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,39}$"
+        },
+        "title": {
+          "description": "The panel's heading.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "description": {
+          "description": "One sentence under the heading.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "type": {
+          "description": "The panel type, from the closed set (decision HITLD-685).",
+          "enum": ["table", "board", "bar", "line", "timeline", "graph"]
+        },
+        "where": {
+          "description": "The conditions an item meets to be in the panel; none means every work, decision and external item.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/filter" },
+          "maxItems": 20
+        },
+        "columns": {
+          "description": "table: the fields shown, in order. The item's ID always comes first.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/field" },
+          "minItems": 1,
+          "maxItems": 12,
+          "uniqueItems": true
+        },
+        "sort": {
+          "description": "table: the field the rows are ordered by. Default: the ID.",
+          "$ref": "#/$defs/field"
+        },
+        "order": {
+          "description": "table: ascending (default) or descending.",
+          "enum": ["ascending", "descending"]
+        },
+        "group_by": {
+          "description": "board: the field whose values are the columns; bar: the field whose values are counted. An item whose field holds a list counts under each value.",
+          "$ref": "#/$defs/field"
+        },
+        "date": {
+          "description": "line: the date counted over time; timeline: the date an item is placed at. created, reached.<state>, or a declared text field that holds YYYY-MM-DD dates.",
+          "$ref": "#/$defs/field"
+        },
+        "end": {
+          "description": "timeline: a second date where an item's span ends.",
+          "$ref": "#/$defs/field"
+        },
+        "interval": {
+          "description": "line: how the dates are counted. Default: week (weeks start on Monday).",
+          "enum": ["day", "week", "month"]
+        },
+        "cumulative": {
+          "description": "line: count every item up to each date, not only those in it.",
+          "type": "boolean"
+        },
+        "relation": {
+          "description": "graph: the field that links an item to the items it waits on: needs (default), open_needs, or a declared list field that holds IDs.",
+          "$ref": "#/$defs/field"
+        },
+        "limit": {
+          "description": "table, board and timeline: the most items shown; the panel says how many more there are. Default 200.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      },
+      "required": ["id", "title", "type"],
+      "additionalProperties": false
+    }
+  }
+}
