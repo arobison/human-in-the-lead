@@ -23,3 +23,7 @@ Decision HITLD-855 let the chief of staff approve merge-queue pull requests on i
 ## Notes
 
 Operating-model review O1; decision HITLD-865. Until this lands, the chief of staff applies the scoped rule by hand: it asks the owner for guard, policy, rights and skill changes and stops for an independent read of any delegated code merge.
+
+## Built on the review skill (2026-11-22)
+
+The independent reviewer's read is the review skill's independent-read brief (HITLD-930); the owner chose to build review into the system (HITLD-929).
