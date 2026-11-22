@@ -3,7 +3,7 @@
 // change it has not seen (optimistic concurrency, design part 3.3).
 
 import { keyOrder } from './format.mjs';
-import { renderItem } from './frontmatter.mjs';
+import { renderItem, setKeys } from './frontmatter.mjs';
 import { insidePath, readNoFollow, writeNoFollow } from './safe.mjs';
 import { loadWorkTree, versionOf } from './tree.mjs';
 
@@ -41,5 +41,21 @@ export function readEntryFile(root, entry) {
 export function writeStored(root, layout, path, stored, body) {
   const text = renderItem(stored, keyOrder(String(stored.kind), layout), body);
   writeNoFollow(insidePath(root, path), text);
+  return versionOf(text);
+}
+
+/**
+ * Write only the given keys of an entry's file, in place, leaving every other line where it is
+ * (HITLD-261), so the diff is the keys that changed.
+ * @param {string} root @param {Layout} layout @param {string} path repository-relative
+ * @param {Record<string, unknown>} stored the item's stored keys after the change
+ * @param {string[]} keys the keys that changed
+ * @returns {string} the new version
+ */
+export function writeKeys(root, layout, path, stored, keys) {
+  const full = insidePath(root, path);
+  const values = Object.fromEntries(keys.map((k) => [k, stored[k]]));
+  const text = setKeys(readNoFollow(full), values, keyOrder(String(stored.kind), layout));
+  writeNoFollow(full, text);
   return versionOf(text);
 }

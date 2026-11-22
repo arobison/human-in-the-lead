@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { schemas } from '../lib/schema/registry.mjs';
-import { parseItem, renderItem, slugify } from '../lib/tracker/files/frontmatter.mjs';
+import { parseItem, renderItem, setKeys, slugify } from '../lib/tracker/files/frontmatter.mjs';
 import { checkBlocks, loadTrackerConfig, resolveLayout } from '../lib/tracker/files/config.mjs';
 import { keyOrder } from '../lib/tracker/files/format.mjs';
 import { checkItems, unplacedWork } from '../lib/tracker/files/check.mjs';
@@ -735,4 +735,33 @@ test('the tracker schema validates its own defaults and rejects what it should',
   const s = schemas();
   assert.deepEqual(s.validateEntity('tracker', { schema_version: 1 }), []);
   assert.equal(s.validateEntity('tracker', { schema_version: 1, backend: 'linear' }).length, 1);
+});
+
+test('setKeys changes only the keys it is given, leaving the other lines where they are (HITLD-261)', () => {
+  const order = ['id', 'title', 'kind', 'state', 'project', 'needs', 'claimed_by', 'reason'];
+  const text =
+    '---\nid: W-1\nkind: work\nclaimed_by: D-1\nneeds:\n  - W-2\n  - W-3\nstate: planned\n---\n\nBody.\n';
+  // Replace in place, a block list included; the body is untouched.
+  assert.equal(
+    setKeys(text, { state: 'done', needs: ['W-4'] }, order),
+    '---\nid: W-1\nkind: work\nclaimed_by: D-1\nneeds: [W-4]\nstate: done\n---\n\nBody.\n',
+  );
+  // An empty value removes the line and the block-list lines under it.
+  assert.equal(
+    setKeys(text, { claimed_by: null, needs: [] }, order),
+    '---\nid: W-1\nkind: work\nstate: planned\n---\n\nBody.\n',
+  );
+  // A new key goes before the first key that follows it in the order, else last.
+  assert.equal(
+    setKeys(text, { title: 'A: b', reason: 'why' }, order),
+    '---\nid: W-1\ntitle: "A: b"\nkind: work\nclaimed_by: D-1\nneeds:\n  - W-2\n  - W-3\nstate: planned\nreason: why\n---\n\nBody.\n',
+  );
+  // An empty value for a key that is not there changes nothing; nor does a file with no front matter.
+  assert.equal(setKeys(text, { reason: '' }, order), text);
+  assert.equal(setKeys('no front matter\n', { state: 'done' }, order), 'no front matter\n');
+  // Line endings are read as \n, as parseItem reads them.
+  assert.equal(
+    setKeys('---\r\nid: W-1\r\nstate: planned\r\n---\r\nBody.\r\n', { state: 'done' }, order),
+    '---\nid: W-1\nstate: done\n---\nBody.\n',
+  );
 });

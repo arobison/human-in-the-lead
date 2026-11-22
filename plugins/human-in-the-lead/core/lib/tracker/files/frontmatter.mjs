@@ -130,17 +130,55 @@ export function renderItem(data, order, body = '') {
   const keys = [...new Set([...order, ...Object.keys(data)])];
   const lines = ['---'];
   for (const key of keys) {
-    const v = data[key];
-    if (v === undefined || v === null || v === '') continue;
-    if (Array.isArray(v)) {
-      if (v.length) lines.push(`${key}: [${v.map(listMember).join(', ')}]`);
-    } else {
-      const s = String(v);
-      lines.push(`${key}: ${needsQuotes(s) ? quote(s) : s}`);
-    }
+    const line = renderLine(key, data[key]);
+    if (line !== null) lines.push(line);
   }
   lines.push('---', '');
   return `${lines.join('\n')}${body.replace(/^\n+/, '\n')}`;
+}
+
+/**
+ * One key's front-matter line, as renderItem writes it, or null for an empty value.
+ * @param {string} key @param {unknown} v
+ * @returns {string | null}
+ */
+function renderLine(key, v) {
+  if (v === undefined || v === null || v === '') return null;
+  if (Array.isArray(v)) return v.length ? `${key}: [${v.map(listMember).join(', ')}]` : null;
+  const s = String(v);
+  return `${key}: ${needsQuotes(s) ? quote(s) : s}`;
+}
+
+/**
+ * Set some keys in an item file's front matter in place, keeping every other line as it is
+ * (HITLD-261): a key that is there has its line (and any block-list lines under it) replaced, or
+ * removed for an empty value; a key that is not there goes before the first key that follows it
+ * in `order`, else last. The body is untouched. A file with no front matter is returned as is.
+ * @param {string} text @param {Record<string, unknown>} values the keys to set, as stored
+ * @param {string[]} order the canonical key order, for placing a new key
+ */
+export function setKeys(text, values, order) {
+  const normalized = text.replace(/\r\n/g, '\n');
+  const m = normalized.match(/^---\n([\s\S]*?)\n---(\n|$)/);
+  if (!m) return text;
+  const lines = m[1].split('\n');
+  const keyOf = (/** @type {string} */ l) => /^([A-Za-z_][\w-]*):(?:\s|$)/.exec(l)?.[1];
+  for (const [key, v] of Object.entries(values)) {
+    const line = renderLine(key, v);
+    const at = lines.findIndex((l) => keyOf(l) === key);
+    if (at >= 0) {
+      let end = at + 1;
+      while (end < lines.length && /^\s+-\s/.test(lines[end])) end++;
+      lines.splice(at, end - at, ...(line === null ? [] : [line]));
+      continue;
+    }
+    if (line === null) continue;
+    const later = new Set(order.includes(key) ? order.slice(order.indexOf(key) + 1) : []);
+    const before = lines.findIndex((l) => later.has(keyOf(l) ?? ''));
+    if (before >= 0) lines.splice(before, 0, line);
+    else lines.push(line);
+  }
+  return `---\n${lines.join('\n')}\n---${m[2]}${normalized.slice(m[0].length)}`;
 }
 
 /** @param {unknown} m */
