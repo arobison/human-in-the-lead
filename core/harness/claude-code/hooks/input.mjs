@@ -62,6 +62,41 @@ function holdsExecutorClaim(dir) {
  * @param {string} dir @returns {string[] | null}
  */
 export function claimedDispatches(dir) {
+  return readClaims(dir).dispatches;
+}
+
+/**
+ * The branch an executor's checkout at `dir` is on, when it is its own claim branch: HEAD is on a
+ * branch (not detached), git answers, HEAD holds an executor's claim commit no main branch holds,
+ * and the branch is not a main branch. Else null. Unlike `holdsExecutorClaim`, which fails closed
+ * to guard, this fails closed to refuse: anything git does not answer gives null (HITLD-746).
+ * @param {string} dir @returns {string | null}
+ */
+export function ownClaimBranch(dir) {
+  const c = readClaims(dir);
+  if (!c.dispatches?.length) return null;
+  const head = c.run(['symbolic-ref', '--short', '-q', 'HEAD']);
+  const branch = !head.error && head.status === 0 ? head.stdout.trim() || null : null;
+  if (
+    !branch ||
+    branch === 'main' ||
+    c.bases.has(`refs/heads/${branch}`) ||
+    [...c.bases].some((b) => b.replace(/^refs\/remotes\/[^/]+\//, '') === branch)
+  ) {
+    return null;
+  }
+  return branch;
+}
+
+/**
+ * What the checkout at `dir` holds: the dispatches its claim commits name (null when git cannot
+ * answer, empty outside a repository or with no claim), the main branches read, and the way git
+ * was run there.
+ * @param {string} dir
+ */
+function readClaims(dir) {
+  /** @type {Set<string>} */
+  const bases = new Set();
   /** @param {string[]} args */
   const run = (args) =>
     spawnSync('git', ['-C', dir, ...args], {
@@ -71,6 +106,8 @@ export function claimedDispatches(dir) {
       // Untranslated, so "not a git repository" reads the same in every locale.
       env: { ...process.env, LC_ALL: 'C' },
     });
+  /** @param {string[] | null} dispatches */
+  const out = (dispatches) => ({ dispatches, bases, run });
   const refs = run([
     'for-each-ref',
     '--format=%(refname)%09%(symref)',
@@ -78,9 +115,8 @@ export function claimedDispatches(dir) {
     'refs/remotes/*/main',
     'refs/remotes/origin/HEAD',
   ]);
-  if (refs.error) return null;
-  if (refs.status !== 0) return /not a git repository/i.test(refs.stderr ?? '') ? [] : null;
-  const bases = new Set();
+  if (refs.error) return out(null);
+  if (refs.status !== 0) return out(/not a git repository/i.test(refs.stderr ?? '') ? [] : null);
   for (const line of refs.stdout.split('\n')) {
     const [name, target] = line.split('\t');
     if (name === 'refs/remotes/origin/HEAD') {
@@ -96,13 +132,15 @@ export function claimedDispatches(dir) {
     '--grep=^claim: ',
     '--format=%B%x1e',
   ]);
-  if (log.error || log.status !== 0) return null;
-  return log.stdout.split('\x1e').flatMap((message) => {
-    const lines = message.trim().split('\n');
-    if (!/^claim: \S+$/.test(lines[0] ?? '')) return [];
-    return lines.flatMap((l) => {
-      const m = /^Dispatch: (\S+)\s*$/.exec(l);
-      return m !== null && DISPATCH_ID.test(m[1]) ? [m[1]] : [];
-    });
-  });
+  if (log.error || log.status !== 0) return out(null);
+  return out(
+    log.stdout.split('\x1e').flatMap((message) => {
+      const lines = message.trim().split('\n');
+      if (!/^claim: \S+$/.test(lines[0] ?? '')) return [];
+      return lines.flatMap((l) => {
+        const m = /^Dispatch: (\S+)\s*$/.exec(l);
+        return m !== null && DISPATCH_ID.test(m[1]) ? [m[1]] : [];
+      });
+    }),
+  );
 }

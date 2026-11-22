@@ -29,7 +29,7 @@ export const PROGRESS_DIR = 'dispatch/progress/';
 const sample = (s) =>
   s.source === 'worktree'
     ? JSON.stringify([s.head ?? null, s.commits ?? 0, s.dirty ?? 0, s.changed ?? null])
-    : JSON.stringify([s.alive ?? null, s.output_bytes ?? 0]);
+    : JSON.stringify([s.alive ?? null, s.output_bytes ?? 0, s.result ?? null]);
 
 /** Whether a first sampled line already shows work. @param {Signal} s */
 const showsWork = (s) =>

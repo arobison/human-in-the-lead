@@ -139,6 +139,8 @@ export function renderBrief({
     '',
     'Follow the executor contract in AGENTS.md and the execute skill: claim first, close in the same',
     'change, measure through the benchmark tool, report in the fixed shape.',
+    `Close last with ${prefix} hitld work close ${id} --report-file <file holding your report>: the`,
+    'closing commit is your report, and it is what is recorded; any message you send is only a wake.',
     'Pass a question to hitld rights who and hitld precedent match as a JSON file with --file <path>,',
     'never as inline JSON: the guard reads words in inline JSON as commands.',
     'The commit line is exactly `commit: <full sha> (branch <name>)`, with nothing after the closing',
