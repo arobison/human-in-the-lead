@@ -2,10 +2,11 @@
 id: HITLD-798
 title: This repository's policy lets up to 5 executors run at once
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M814XZFEY9BTHX
 ---
 
 ## Why
