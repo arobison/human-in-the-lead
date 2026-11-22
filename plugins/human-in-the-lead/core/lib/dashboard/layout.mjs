@@ -1,8 +1,9 @@
 // The layered layout the dashboard's graphs use (design part 12.1.2, HITLD-307): written here, with
 // no layout library (design part 16). Columns by longest path; crossing reduction by barycenter
 // sweeps, with a dummy node wherever an edge spans more than one column; linked nodes grouped (a
-// chosen group first); unlinked nodes in a grid. It runs when the page is generated, never in the
-// reader's browser. Deterministic: the same graph gives the same layout.
+// chosen group first); unlinked nodes in a grid. It runs when the page is generated, and in the
+// reader's browser for the shared React app's graph panel (HITLD-729), which bundles this file: it
+// imports nothing. Deterministic: the same graph gives the same layout.
 
 /**
  * @typedef {[string, string]} Edge `[from, to]`: `to` comes after `from` (it needs `from`)

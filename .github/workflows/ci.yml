@@ -89,6 +89,30 @@ jobs:
         if: ${{ (success() || failure()) && steps.changes.outputs.code == 'true' }}
         run: node scripts/test-skips.mjs "$RUNNER_TEMP/skips.jsonl"
 
+  # The shared React app's bundle is committed (HITLD-729, decision HITLD-727): this fails when
+  # core/lib/ui/dist/app.js is not what its source in core/lib/ui/ builds, with the pinned React
+  # and esbuild from the lockfile. Fix it with npm run build:ui and commit the bundle.
+  ui-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out GitHub's merge commit; its first parent is the base, which
+          # scripts/ci-changes.mjs diffs against.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - id: changes
+        run: node scripts/ci-changes.mjs
+      - run: npm ci
+        if: steps.changes.outputs.code == 'true'
+      - name: The UI bundle matches its source
+        run: npm run check:ui
+        if: steps.changes.outputs.code == 'true'
+
   evals:
     # Fails when no baseline is committed in evals/baselines/ for these settings, or a scenario
     # that passed in it regresses. A scenario the baseline has not seen is only a note. The evals
@@ -152,7 +176,7 @@ jobs:
   # steps were skipped for a work/-only pull request succeeded too), and fails otherwise.
   check:
     if: always()
-    needs: [typecheck, format, tests, evals, tracker, reproduce-floor]
+    needs: [typecheck, format, tests, ui-bundle, evals, tracker, reproduce-floor]
     runs-on: ubuntu-latest
     steps:
       - name: Every check job succeeded
