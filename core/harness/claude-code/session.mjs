@@ -29,3 +29,23 @@ export function sessionIdOf(env) {
   }
   return null;
 }
+
+/**
+ * The variable that holds the process ID of the Claude Code process a shell command runs under:
+ * the session's own process, in which its background agents run. Observed in a cloud session on
+ * 2026-11-22 (it matched the parent of the command's shell); not documented.
+ */
+export const PROCESS_VARIABLE = 'CLAUDE_PID';
+
+/**
+ * The process ID of the session that runs this command, or null outside Claude Code. The watchdog
+ * marks the session's background agents stalled once it has exited (core/lib/dispatch/parent.mjs).
+ * @param {NodeJS.ProcessEnv | undefined} env
+ * @returns {number | null}
+ */
+export function sessionProcessOf(env) {
+  const v = env?.[PROCESS_VARIABLE];
+  if (typeof v !== 'string' || !/^[1-9][0-9]{0,9}$/.test(v)) return null;
+  const pid = Number(v);
+  return pid > 1 ? pid : null;
+}

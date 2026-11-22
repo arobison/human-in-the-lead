@@ -209,8 +209,8 @@ test('install writes the pre-commit hook; it refuses a confidential commit, nami
   const hook = join(c.root, '.git', 'hooks', 'pre-commit');
   const text = readFileSync(hook, 'utf8');
   assert.ok(text.includes(HOOK_MARK));
-  assert.ok(text.includes(join(CHECKOUT, 'core/bin/hitld.mjs')));
-  assert.match(text, /exec node "\$HITLD" check classification --staged\n$/);
+  assert.ok(text.includes(JSON.stringify(join(CHECKOUT, 'core/bin/hitld.mjs'))));
+  assert.ok(text.includes('const ARGS = ["check","classification","--staged"]'));
   // Windows has no executable bit to set or read (git there runs a hook by its #! line).
   if (process.platform !== 'win32') assert.equal(statSync(hook).mode & 0o111, 0o111);
   assert.equal((await c.hitld(['install'])).result.done.commit_guard, 'unchanged');

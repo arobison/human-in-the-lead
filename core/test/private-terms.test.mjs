@@ -314,7 +314,10 @@ test('the hooks install writes refuse a staged file and a commit message that ho
   const installed = await c.hitld(['install', '--marketplace', CHECKOUT]);
   assert.equal(installed.result.done.message_guard, 'installed');
   const hook = readFileSync(join(c.root, '.git', 'hooks', 'commit-msg'), 'utf8');
-  assert.match(hook, /exec node "\$HITLD" check commit-message "\$1"\n$/);
+  assert.ok(
+    hook.includes('const ARGS = ["check","commit-message"].concat(process.argv.slice(2));'),
+  );
+  assert.match(hook, /exec node - "\$@" <<'HITLD_GUARD'\n/);
   assert.equal((await c.hitld(['install'])).result.done.message_guard, 'unchanged');
   git(c.root, 'add', '-A');
   assert.equal(commit(c, ['-m', 'install']).status, 0);

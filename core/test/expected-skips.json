@@ -24,6 +24,12 @@
     },
     {
       "platforms": ["win32"],
+      "reason": "the hooks run under POSIX sh",
+      "why": "the commit guard hook tests run the hook text under /bin/sh with a PATH that links node by a symbolic link",
+      "files": ["core/test/install-hooks.test.mjs"]
+    },
+    {
+      "platforms": ["win32"],
       "reason": "the stand-in tools are shell scripts",
       "why": "the keychain tests stand in for the keychain tools with shell scripts",
       "files": ["core/test/store-devices.test.mjs"]
