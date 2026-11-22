@@ -26,7 +26,9 @@
 //   6. update    a green branch behind main is brought up to date: main merged in (never a rebase,
 //                never a force-push), generated files rebuilt and committed, pushed, and checked
 //                again; a conflict goes back to the executor. An approval holds across the queue's
-//                own updates, and no other new commit
+//                own updates, and no other new commit. A branch main moved past only under work/,
+//                in files the branch leaves alone, is not updated and its checks are not run again
+//                (HITLD-777): tracker merges would otherwise restart them without end
 //   7. merge     squash-merge through the API, only while the head is the commit checked, with a
 //                message carrying the item's trailers and, when the owner approved, their sign-off;
 //                then the next waiting branch is brought up to date (step 6)
@@ -85,6 +87,8 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  * @property {string} since when that head was first seen: the check timeout runs from here
  * @property {string[]} updates the commits the queue itself added to the branch (main merged in, rebuilt files)
  * @property {Approval} [approval]
+ * @property {string} [refused_behind] a head GitHub would not merge while it was behind main only
+ *   by tracker changes: the next pass brings it up to date
  *
  * @typedef {object} PullQueueState kept in the private store at PULL_STATE_KEY
  * @property {1} schema_version
@@ -240,6 +244,23 @@ function gitOk(cwd, args) {
 
 /** @param {string} cwd @param {string} a @param {string} b whether a is an ancestor of b */
 const isAncestor = (cwd, a, b) => git(cwd, ['merge-base', '--is-ancestor', a, b]).ok;
+
+/** The tracker's directory: a change only under it never makes a branch behind main (HITLD-777). */
+export const TRACKER_PREFIX = 'work/';
+
+/**
+ * Whether main moved past a branch only by tracker changes the branch leaves alone: every file
+ * main changed since the branch's base is under work/, and the branch changes none of them. Such
+ * a branch is not brought up to date: the owner merges tracker changes out of band, and each one
+ * would otherwise restart the checks of every waiting pull request.
+ * @param {string} dir @param {string} base the merge base of main and the branch
+ * @param {string} main @param {string[]} branchChanged the files the branch changes against main
+ */
+export function trackerOnlyBehind(dir, base, main, branchChanged) {
+  const moved = changedFiles(dir, base, main).paths;
+  const mine = new Set(branchChanged);
+  return moved.every((p) => p.startsWith(TRACKER_PREFIX) && !mine.has(p));
+}
 
 /** The text of one `## <heading>` section of an item body. @param {string} body @param {string} heading */
 function section(body, heading) {
@@ -542,6 +563,7 @@ export async function runPullRequestQueue(r) {
             : now().toISOString(),
         updates: known?.number === pr.number ? known.updates : [],
         ...(known?.approval ? { approval: known.approval } : {}),
+        ...(known?.refused_behind === head ? { refused_behind: head } : {}),
       };
       state.branches[e.branch] = ps;
       const info = {
@@ -620,7 +642,12 @@ export async function runPullRequestQueue(r) {
       }
       if (held) continue;
 
-      if (!isAncestor(dir, main, head)) {
+      // Behind main only by tracker changes the branch does not touch: merged as it is, its
+      // checks not run again (HITLD-777), unless GitHub refused that once for this head.
+      const behind =
+        !isAncestor(dir, main, head) &&
+        !(ps.refused_behind !== head && trackerOnlyBehind(dir, base, main, changed));
+      if (behind) {
         // Behind main: merge main in, rebuild, push, and check again.
         const merged = git(dir, [
           'merge',
@@ -687,8 +714,9 @@ export async function runPullRequestQueue(r) {
         }
         gitOk(r.repoRoot, ['fetch', '--quiet', remote, `+refs/heads/${e.branch}:${branchRef}`]);
         head = fresh;
+        const { refused_behind: _, ...kept } = ps;
         state.branches[e.branch] = {
-          ...ps,
+          ...kept,
           head,
           since: now().toISOString(),
           updates: [...ps.updates, ...added],
@@ -724,6 +752,10 @@ export async function runPullRequestQueue(r) {
         }),
       });
       if (!done.merged) {
+        // One left behind main that GitHub would not merge (a protected main can require it up
+        // to date) is brought up to date on the next pass, as before.
+        if (!isAncestor(dir, main, head))
+          state.branches[e.branch] = { ...ps, refused_behind: head };
         result.pending.push({ ...info, head, checks: [], waited_ms: 0 });
         held = true;
         continue;
