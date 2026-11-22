@@ -2,7 +2,7 @@
 id: HITLD-814
 title: The pull-request merge queue tests approved branches together in a batch, so one merge does not restart every other branch's checks
 kind: work
-state: proposed
+state: planned
 created: 2026-11-22
 project: HITLD-15
 ---
@@ -26,3 +26,11 @@ GitHub's stacked pull requests (HITLD-76) are not that: a stack is ordered layer
 ## Notes
 
 Related: HITLD-76 (stacked pull requests, proposed, rc.3), HITLD-777 (tracker-only moves on main no longer restart queued branches, merged), HITLD-552 and HITLD-553 (the trust engine, rc.2).
+
+## Settled by the owner on 2026-11-22 (walk-through: HITLD-815, 816, 817)
+
+- **How (HITLD-815):** hitld builds a batch branch. It merges the approved branches into one temporary branch, runs the named checks once on it, and lands the branches from it, as the local queue does (`merge.batch_max`, default 4). GitHub's own merge queue and skipping the rerun were not chosen.
+- **How it lands (HITLD-816):** the batch is one pull request of per-branch squash commits, one commit per branch carrying its Closes line and the owner's sign-off, landed with Rebase and merge so each item reverts on its own and history stays linear. If the repository does not allow rebase merging the build falls back to a merge commit, and failing that to one squash commit, and tells the owner which repository setting would enable the better one. The first build step is a spike that finds which of the three the repository allows.
+- **On failure (HITLD-817):** bisect the failing branch out and land the rest: rerun once, check main for an incident, find the first failing branch, send it back to its executor, rebuild without it and test again. The other approved branches' approvals hold.
+
+The curator item for design part 14.2 is HITLD-818. A queue change reaches main only with the owner's own yes.
