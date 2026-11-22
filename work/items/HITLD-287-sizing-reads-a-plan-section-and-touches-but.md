@@ -33,3 +33,7 @@ The owner decided that this item describes the old sizing model, which HITLD-561
 ## Moved on 2026-11-20 (HITLD-592)
 
 On the owner's approval of the nine roadmap moves (HITLD-592), this item moved from milestone HITLD-403 (c4) to milestone HITLD-567 (c3), where HITLD-561, which replaces the old sizing model and folds this item in (HITLD-575), already sits.
+
+## Seen in the consumer walkthrough (2026-11-22)
+
+Hit again by the Fable consumer walkthrough (2026-11-22, C6): every new item sizes as tier 3. See HITLD-940, decision HITLD-932.

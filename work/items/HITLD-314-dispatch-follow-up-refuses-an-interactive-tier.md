@@ -28,3 +28,7 @@ Evidence added 2026-11-16 (third part, from the orchestrator's report on D-30, H
 ## Folded on 2026-11-20 (HITLD-604)
 
 The owner decided that this item is folded into HITLD-497 (follow-up work that outlives the session that dispatched it), which now carries its substance. It closes when HITLD-497 lands and is not built separately.
+
+## Seen in the consumer walkthrough (2026-11-22)
+
+Hit by the Fable consumer walkthrough (2026-11-22, C4); see HITLD-935, decision HITLD-932.
