@@ -7,7 +7,7 @@ created: 2026-11-14
 project: HITLD-15
 outcome: Anyone can read the public repository, its history and its issues, and nothing in them should not be there.
 done_when:
-  - "c1: The confidentiality pass and the guided design review are finished."
+  - "c1: The confidentiality pass finds nothing open, and the owner has finished the guided design review (HITLD-22, HITLD-23)."
   - "c2: Confidential decisions and feedback drafts never reach the public tracker or an issue unseen."
   - "c3: The public-text checks fail closed when the private term list cannot be read."
 constraints: [HITLD-22 c1, HITLD-23 c1, HITLD-77 c2, HITLD-282 c2, HITLD-274 c2, HITLD-187 c3]

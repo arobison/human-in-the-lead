@@ -9,9 +9,11 @@ owner: owner
 
 ## Summary
 
+A project that wants to run its work through HITLd cannot yet pin a released version, and the checks that keep private text out of the public repository, its history and its issues are not all in place. When this project is done, the public repository and its history hold nothing that should not be there, two projects on one machine share the person's limits, a consuming project pins a released version that has the milestone and release format, and a real consuming project runs its work through HITLd. Each outcome is a milestone: Safe to publish (HITLD-64), Settings hold (HITLD-65), First release (HITLD-66) and Consumer live (HITLD-67).
+
 ## Milestones
 
-Named here in the format as built; HITLD-45 migrates them into milestone entities (design 3.2, "Milestones and releases"). Items marked with a milestone are its constraints. Items with none (HITLD-19 to HITLD-21, HITLD-27) are contributions.
+Named here in the format as built; HITLD-45 migrated them into the milestone entities above (design 3.2, "Milestones and releases"). Items marked with a milestone are its constraints. Items with none (HITLD-19 to HITLD-21, HITLD-27) are contributions.
 
 - **safe-to-publish** (capability). Outcome: anyone can read the public repository, and nothing in it or its history should not be there. Done when: the confidentiality pass finds nothing open, and the owner has finished the guided design review. Check: an independent scan of the repository and its history. Constraints: HITLD-22, HITLD-23.
 - **settings-hold** (capability). Outcome: two projects on one machine share the person's limits without stepping on each other. Done when: check 11 of One signal end to end (part 21) passes on fixture projects. Check: that integration test. Constraints: HITLD-37 to HITLD-40.
