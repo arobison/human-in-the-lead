@@ -4,8 +4,25 @@
 // that text. Every value a project supplies is escaped and shown as text, never as markup or a
 // link: only an item's ID links to its file, as in the built-in views.
 
-import { count, cut, esc, fileLink } from './html.mjs';
+import { esc, fileLink } from './html.mjs';
 import { fewestCrossings } from './layout.mjs';
+import {
+  CELL_MAX,
+  LABEL_MAX,
+  TIMELINE_ROWS,
+  TITLE_MAX,
+  count,
+  cut,
+  daysBetween,
+  groupName,
+  holds,
+  moreText,
+  valueText,
+} from '../ui/text.mjs';
+
+// The words and the styles are the shared UI kit's, so the React panels say the same (HITLD-729).
+export { PANELS_CSS } from '../ui/theme.mjs';
+export { valueText };
 
 /**
  * @typedef {import('./panels.mjs').ViewsModel} ViewsModel
@@ -13,59 +30,6 @@ import { fewestCrossings } from './layout.mjs';
  * @typedef {import('./work.mjs').WorkModel} WorkModel
  * @typedef {Record<string, any>} Item
  */
-
-/** The longest value a cell shows. */
-const CELL_MAX = 200;
-/** The longest title a list shows. */
-const TITLE_MAX = 120;
-/** The longest label a picture shows. */
-const LABEL_MAX = 24;
-/** The most rows a timeline's picture draws; its list has every entry. */
-const TIMELINE_ROWS = 60;
-
-/** The CSS the panels add to the page, only when a project has panels. */
-export const PANELS_CSS = `.pn{margin:1.5rem 0 2rem}.pn h3{font-size:1rem;margin:0 0 .25rem}.pn-refused{border-left-color:var(--stop);background:var(--stop-bg)}
-.pn-board{display:flex;gap:.75rem;overflow-x:auto;align-items:flex-start}.pn-col{flex:1 0 12rem;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.5rem .6rem}.pn-col h4{font-size:.9rem;margin:0 0 .25rem}.pn-col ul{list-style:none;padding:0}.pn-col li{padding:.2rem 0;border-bottom:1px solid var(--line);font-size:.9rem}
-svg.pn-svg{display:block;width:100%;max-width:720px;height:auto;font:11px system-ui,sans-serif}.pn-svg text{fill:var(--muted)}.pn-line{fill:none;stroke:var(--used);stroke-width:2}.pn-dot{fill:var(--used)}.pn-axis{stroke:var(--line)}.pn-node rect{fill:var(--card);stroke:var(--mark)}.pn-node text{fill:var(--fg)}.pn-edge{stroke:var(--mark);fill:none}.pn-span{fill:var(--used)}
-svg.pn-bar{display:block;width:12rem;height:.8rem}table.pn-table{min-width:0}.pn caption{text-align:left}`;
-
-/** A value as text: none as a dash, a list joined, true and false as yes and no. @param {unknown} v @returns {string} */
-export function valueText(v) {
-  if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '—';
-  if (Array.isArray(v)) return v.map(valueText).join(', ');
-  if (typeof v === 'boolean') return v ? 'yes' : 'no';
-  return String(v);
-}
-
-/** A group's name: none as "(none)". @param {unknown} v */
-const groupName = (v) => (v == null ? '(none)' : valueText(v));
-
-/** One filter in words. @param {Record<string, any>} w */
-function filterText(w) {
-  const [test, v] = /** @type {[string, any]} */ (Object.entries(w).find(([k]) => k !== 'field'));
-  const list = () => (Array.isArray(v) ? v : [v]).map(valueText).join(' or ');
-  const said =
-    test === 'is'
-      ? `is ${valueText(v)}`
-      : test === 'not'
-        ? `is not ${valueText(v)}`
-        : test === 'in'
-          ? `is ${list()}`
-          : test === 'not_in'
-            ? `is not ${list()}`
-            : test === 'set'
-              ? v
-                ? 'is set'
-                : 'is not set'
-              : `is ${test === 'at_least' ? 'at least' : 'at most'} ${valueText(v)}`;
-  return `${w.field} ${said}`;
-}
-
-/** What a panel holds, in a sentence. @param {ResolvedPanel} p */
-function holds(p) {
-  const where = p.where.length ? ` where ${p.where.map(filterText).join(', and ')}` : '';
-  return `${count(p.matched, 'item')}${where}.`;
-}
 
 /**
  * The page's tab of the project's panels: a heading named by the project, the panels in order, and
@@ -118,7 +82,7 @@ ${body}
 }
 
 /** "and 3 more not shown", or nothing. @param {number} n */
-const more = (n) => (n ? `<p class="meta">And ${count(n, 'more item')} not shown.</p>` : '');
+const more = (n) => (n ? `<p class="meta">${moreText(n)}</p>` : '');
 
 /** @param {{ columns: string[], rows: { id: string, cells: unknown[] }[], more: number, sort: string, order: string }} p @param {(id: string) => string} link */
 function table(p, link) {
@@ -197,9 +161,6 @@ function line(p) {
 ${svg}
 <details><summary>The counts as a table</summary><div class="wrap"><table class="pn-table"><thead><tr><th scope="col">${esc(p.interval)} from</th><th scope="col">Items</th></tr></thead><tbody>${rows}</tbody></table></div></details>${notes ? `<p class="meta">${esc(notes)}</p>` : ''}`;
 }
-
-/** Days between two dates. @param {string} a @param {string} b */
-const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
 
 /** @param {{ date: string, end: string | null, entries: { id: string, start: string, end: string | null }[], undated: number, more: number }} p @param {(id: string) => string} label */
 function timeline(p, label) {

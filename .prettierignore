@@ -7,3 +7,5 @@ evals/baselines/
 plugins/human-in-the-lead/
 # Regression tests the adversarial pass writes (hitld adversary record): generated, kept as written.
 core/test/adversary/adversary-*.test.mjs
+# The shared React app's bundle, built by scripts/build-ui.mjs; CI checks it matches its source.
+core/lib/ui/dist/

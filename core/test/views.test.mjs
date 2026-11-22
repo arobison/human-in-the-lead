@@ -11,7 +11,7 @@ import { main } from '../lib/cli/main.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { checkViews } from '../lib/dashboard/panels.mjs';
 import { git, isolatedEnv, itemText, makeRepo, put } from './tracker-fixture.mjs';
-import { assertPageSafe, scriptElements } from './helpers/page-safety.mjs';
+import { APP_BUNDLE, assertPageSafe, scriptElements } from './helpers/page-safety.mjs';
 
 const HOME = isolatedEnv();
 const NOW = '2026-11-16T12:00:00Z';
@@ -464,11 +464,16 @@ test('nothing a project supplies is drawn as markup: hostile values stay escaped
   });
   const { report, html } = await dashboard(root);
   assert.deepEqual(report.views.errors, []);
-  // The page holds HITLD's one inline script and no other; no script from data.
+  // The page holds HITLD's page script, the data and the app's committed bundle, and no other;
+  // no script from data.
   const scripts = scriptElements(html);
-  assert.equal(scripts.length, 1);
-  // Item titles reach the script only as JSON with < escaped, so they cannot end it.
+  assert.equal(scripts.length, 3);
+  assert.equal(scripts[1].attrs, ' type="application/json" id="hitld-contract"');
+  assert.ok(scripts[2].code === APP_BUNDLE, 'the app is the committed bundle, byte for byte');
+  // Item titles reach the scripts only as JSON with < escaped, so they cannot end them.
   assert.doesNotMatch(scripts[0].code, /<\/?script/i);
+  assert.doesNotMatch(scripts[1].code, /</);
+  const page = html.replace(scripts[1].code, '').replace(scripts[2].code, '');
   for (const raw of [
     '<script>alert',
     '<script>tab',
@@ -477,7 +482,7 @@ test('nothing a project supplies is drawn as markup: hostile values stay escaped
     'href="javascript:',
     'href="https://evil',
   ]) {
-    assert.ok(!html.includes(raw), `the page holds ${raw} as markup`);
+    assert.ok(!page.includes(raw), `the page holds ${raw} as markup`);
   }
   assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), 'the value shows as text');
   assert.ok(html.includes('&lt;img src=x onerror=alert(2)&gt;'), 'the description shows as text');
@@ -485,7 +490,7 @@ test('nothing a project supplies is drawn as markup: hostile values stay escaped
     html.includes('&lt;/h3&gt;&lt;script&gt;alert(&quot;title&quot;)'),
     'the title shows as text',
   );
-  assert.ok(!html.includes(long), 'very long text is cut');
+  assert.ok(!page.includes(long), 'very long text is cut on the page (the data keeps it whole)');
   assert.ok(html.includes(`${'x'.repeat(100)}`) && html.includes('…'), 'and ends with an ellipsis');
   // The values stay data in the contract.
   const notes = resolved(report, 'notes');

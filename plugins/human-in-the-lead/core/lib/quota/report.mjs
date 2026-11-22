@@ -13,7 +13,9 @@ import { renderYourMove } from '../dashboard/move.mjs';
 import { renderPlan } from '../dashboard/plan.mjs';
 import { renderProposals } from '../dashboard/proposals.mjs';
 import { renderFlow } from '../dashboard/flow.mjs';
-import { pageScript, scriptData } from '../dashboard/script.mjs';
+import { pagePolicy, pageScript, scriptData } from '../dashboard/script.mjs';
+import { appScripts } from '../ui/bundle.mjs';
+import { readNote } from '../ui/text.mjs';
 import { fewestCrossings } from '../dashboard/layout.mjs';
 import { releaseStages } from '../dashboard/stages.mjs';
 import { PANELS_CSS, renderPanelsView } from '../dashboard/panels-html.mjs';
@@ -859,19 +861,6 @@ ${releaseDrawers}`,
 }
 
 /**
- * When and where the page's data was read: the tracker (at a commit, on a branch) and the private
- * store on this machine. A page generated in one container shows that container's store.
- * @param {Report} r
- */
-function readNote(r) {
-  const at = r.work?.source;
-  const tracker = r.work
-    ? ` from the tracker in this repository${at?.commit ? ` at commit ${at.commit}` : ''}${at?.branch ? ` on ${at.branch}` : ''},`
-    : '';
-  return `Read ${r.generated_at}${tracker} and from the ledger and quotas in the private store on the machine that generated it. Data contract version ${r.api_version}. Local data only.`;
-}
-
-/**
  * The plan view's settings from the contract's, leaving out those the policy does not set.
  * @param {Report['settings']} s
  */
@@ -991,17 +980,22 @@ ${r.thresholds.length ? `<h2>Thresholds</h2><ul>${r.thresholds.map((t) => `<li>$
           {
             id: 'panels',
             label: r.views.title,
-            html: renderPanelsView(r.views, r.work, { fileBase }),
+            // The shared React app draws this part again from the contract (HITLD-729); this
+            // is what the page shows with no script.
+            html: `<div data-hitld-mount="panels">\n${renderPanelsView(r.views, r.work, { fileBase })}\n</div>`,
           },
         ]
       : []),
   ]);
-  // The one inline script, with the work views only; the page is complete without it.
+  // The inline scripts, with the work views only; the page is complete without them: the page
+  // script, and the shared React app with the contract data (HITLD-729).
   const script = r.work ? pageScript(scriptData(r.work, r.milestones)) : null;
+  const app = r.work ? appScripts(r, { fileBase }) : null;
+  const policy = script && app ? pagePolicy([script.hash, app.hash]) : null;
   return `<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">${script ? `\n${script.csp}` : ''}
+<meta charset="utf-8">${policy ? `\n${policy}` : ''}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>${esc(r.project)}: ${r.work ? 'work, quotas and spend' : 'quotas and spend'}</title>
@@ -1065,14 +1059,14 @@ ${tabs.css}
 ${tabs.inputs}
 <header class="top">
 <h1>${esc(r.project)}: work, quotas and spend</h1>
-<div class="muted">${esc(readNote(r))}</div>
+<div class="muted"${app ? ' data-hitld-mount="read"' : ''}>${esc(readNote(r))}</div>
 <div class="status ${esc(r.gate.mode)}"><strong>${esc(MODE_LABEL[r.gate.mode])}</strong>${esc(r.gate.reason)}${r.gate.forecast ? `<small>Forecast that triggered it: ${esc(r.gate.forecast)}</small>` : ''}<small>Ordinary items: ${r.gate.allow_ordinary ? 'dispatch' : 'wait'}. Critical-path items: ${r.gate.allow_critical_path ? 'dispatch' : 'wait'}.${r.gate.ask_owner ? ' The owner is asked before this hard limit is passed.' : ''}</small></div>
 ${tabs.nav}
 </header>
 <main>
 ${tabs.sections}
 </main>
-${roadmap.drawers}${script ? `\n${script.tag}` : ''}
+${roadmap.drawers}${script ? `\n${script.tag}` : ''}${app ? `\n${app.data}\n${app.tag}` : ''}
 </body>
 </html>
 `;

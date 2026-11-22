@@ -137,12 +137,16 @@ export const scriptJson = (data) =>
 export function pageScript(data) {
   const code = CODE.replace('__DATA__', () => scriptJson(data));
   const hash = `sha256-${createHash('sha256').update(code, 'utf8').digest('base64')}`;
-  return {
-    hash,
-    csp: `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '${hash}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`,
-    tag: `<script>${code}</script>`,
-  };
+  return { hash, csp: pagePolicy([hash]), tag: `<script>${code}</script>` };
 }
+
+/**
+ * The Content-Security-Policy tag that allows the page's inline scripts by their hashes alone, and
+ * nothing from elsewhere: no script, style, font, image or connection.
+ * @param {string[]} hashes each `sha256-<base64>`
+ */
+export const pagePolicy = (hashes) =>
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${hashes.map((x) => `'${x}'`).join(' ')}; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`;
 
 /**
  * The script's data from the work model and the milestone graph.
