@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { sizeItem } from '../lib/dispatch/sizing.mjs';
@@ -464,6 +465,8 @@ const hook = (script, input, env = {}) =>
   spawnSync(process.execPath, [join(HOOKS, script)], {
     input: JSON.stringify(input),
     encoding: 'utf8',
+    // Outside any checkout: the guard also reads the checkout for a claim (HITLD-781).
+    cwd: tmpdir(),
     env: { PATH: process.env.PATH, ...env },
   });
 
