@@ -49,6 +49,7 @@ const MILESTONE_KEYS = [
   'check',
   'check_results',
   'reason',
+  'package',
 ];
 
 /**
@@ -71,7 +72,7 @@ export const DECISION_ANSWER_KEYS = [
  * `owner`, who is accountable for it; without one, that is the owner.
  */
 export const KEYS = /** @type {Record<string, string[]>} */ ({
-  work: [...COMMON_KEYS, 'project', 'owner', 'needs', 'claimed_by', 'reason', 'release'],
+  work: [...COMMON_KEYS, 'project', 'owner', 'needs', 'claimed_by', 'reason', 'release', 'package'],
   decision: [
     ...COMMON_KEYS,
     'project',
@@ -280,6 +281,7 @@ export function toEntity(d, layout) {
   }
   if (d.decider !== undefined) e.decider = d.decider;
   if (kind === 'work' && d.release !== undefined) e.release = d.release;
+  if ((kind === 'work' || milestone) && d.package !== undefined) e.package = d.package;
   if (kind === 'decision') {
     for (const k of DECISION_ANSWER_KEYS) if (d[k] !== undefined) e[k] = d[k];
   }

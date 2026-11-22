@@ -1,0 +1,63 @@
+{
+  "$id": "policy/release",
+  "title": "policy.json: release",
+  "description": "Release packages (design part 16.5, HITLD-752): each package has its own version, tags, release records and interface delta. Every repository declares at least one; `hitld install` declares the first, and `hitld release migrate` moves a repository's earlier, repository-wide releases into a package named main. `hitld work check` refuses tag templates that could match the same tag, a dependency on a package that is not declared, and dependency cycles.",
+  "type": "object",
+  "properties": {
+    "packages": {
+      "description": "The release packages. `release propose` and `release make` take --package, which may be left out only when exactly one is declared.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "The package's name: lower-case letters, digits, dots, hyphens and underscores. Its records are under <work dir>/releases/<name>/.",
+            "type": "string",
+            "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+          },
+          "tag": {
+            "description": "The tag template (default {name}@{version}): letters, digits and . _ - @ /, with {name} at most once and {version} once, at the end. Other shapes: {name}-v{version}, {name}/v{version}, v{version}.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._@/{}-]*\\{version\\}$",
+            "maxLength": 128
+          },
+          "paths": {
+            "description": "The paths the package owns, as globs (* within a segment, ** across segments). An item belongs to every package whose paths hold a file it touches; when several packages' globs match one file, the most specific glob wins.",
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1
+          },
+          "surface": {
+            "description": "The committed surface file the project's own tool writes: one line per public interface element. `release propose` diffs it between the last full release and now: lines only added propose minor, a removed or changed line proposes major (minor while 0.y.z), no change proposes patch. With none, the interface is not measured and patch is proposed.",
+            "type": "string",
+            "minLength": 1
+          },
+          "version_source": {
+            "description": "A JSON file whose `version` key holds the package's version, such as package.json; `release propose` warns when it differs from the proposed version.",
+            "type": "string",
+            "minLength": 1
+          },
+          "depends_on": {
+            "description": "Other packages this one is built against, each with a version range: an exact version, ^x.y.z, ~x.y.z, a comparison (>=, >, <=, <) or several joined by spaces, or *. A release record pins the exact version of each.",
+            "type": "object",
+            "additionalProperties": { "type": "string", "minLength": 1 }
+          },
+          "group": {
+            "description": "A lockstep group: every package in it shares one version and is released together.",
+            "$ref": "common#/$defs/name"
+          },
+          "channels": {
+            "description": "The pre-release channels `--pre` may name (default alpha, beta and rc). Each channel keeps its own counter per package and version.",
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z]+$" },
+            "uniqueItems": true
+          }
+        },
+        "required": ["name", "paths"],
+        "additionalProperties": false
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}

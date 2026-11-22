@@ -4,7 +4,7 @@
 /** A semantic version, with an optional pre-release part. */
 export const SEMVER =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
-/** A release tag: v and a semantic version. */
+/** A release tag from before release packages: v and a semantic version. */
 export const TAG =
   /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 /** A pre-release label: lower-case letters, such as rc, beta or alpha. */
@@ -87,17 +87,19 @@ const RANK = { patch: 0, minor: 1, major: 2 };
 export const atLeast = (a, b) => RANK[a] >= RANK[b];
 
 /**
- * The next pre-release of a version under a label: `<version>-<label>.<n>`, one above the highest
- * number already tagged for that version and label.
- * @param {string} version a full version @param {string} label @param {string[]} tags existing tags
+ * The next pre-release of a version under a label (a channel): `<version>-<label>.<n>`, one above
+ * the highest number already released for that version and label. Each channel keeps its own
+ * counter: rc.3 and beta.1 of one version do not share a number.
+ * @param {string} version a full version @param {string} label
+ * @param {string[]} versions the versions already released, of the package or its lockstep group
  */
-export function nextPrerelease(version, label, tags) {
+export function nextPrerelease(version, label, versions) {
   if (!PRE_LABEL.test(label)) {
     throw new Error(`pre-release label "${label}" must be lower-case letters, such as rc`);
   }
-  const prefix = `v${version}-${label}.`;
-  const taken = tags
-    .filter((t) => t.startsWith(prefix) && /^\d+$/.test(t.slice(prefix.length)))
-    .map((t) => Number(t.slice(prefix.length)));
+  const prefix = `${version}-${label}.`;
+  const taken = versions
+    .filter((v) => v.startsWith(prefix) && /^\d+$/.test(v.slice(prefix.length)))
+    .map((v) => Number(v.slice(prefix.length)));
   return `${version}-${label}.${Math.max(0, ...taken) + 1}`;
 }

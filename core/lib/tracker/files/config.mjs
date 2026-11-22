@@ -5,6 +5,7 @@
 import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTrustedPolicy } from '../../policy/policy.mjs';
+import { declaredPackages } from '../../release/packages.mjs';
 import { schemas } from '../../schema/registry.mjs';
 import { reservedFieldNames } from './format.mjs';
 
@@ -34,6 +35,8 @@ import { reservedFieldNames } from './format.mjs';
  * @property {string} classificationCeiling policy.project.classification_ceiling
  * @property {string[]} privatePaths policy.project.private_paths: globs never public (design part 10.3)
  * @property {{ name: string, from: number, to: number | null }[]} blocks reserved ID blocks
+ * @property {import('../../release/packages.mjs').Package[]} packages policy.release.packages,
+ *   the release packages, with their defaults filled in
  */
 
 /** A relative path of plain segments. */
@@ -292,6 +295,7 @@ export function resolveLayout(config, policy) {
     classificationCeiling: policy.project.classification_ceiling ?? 'public',
     privatePaths: policy.project.private_paths ?? [],
     blocks,
+    packages: declaredPackages(policy),
   };
 }
 

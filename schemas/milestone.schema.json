@@ -40,6 +40,11 @@
       "description": "One sentence: the state for users, or the question answered.",
       "$ref": "common#/$defs/text"
     },
+    "package": {
+      "description": "The release package the milestone is released in, one declared in policy.json release.packages. Optional: with one package declared, it is that one; a milestone that names none is in no package's release records when several are declared.",
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+    },
     "done_when": {
       "description": "Clauses, each with a short ID. Stored as \"c1: <text>\".",
       "type": "array",

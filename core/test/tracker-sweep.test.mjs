@@ -72,7 +72,7 @@ test('the sweep lists each finding kind, in order, and nothing beside them', asy
   assert.match(by('W-10').evidence[0], /^ledger E-[0-9A-HJKMNP-TV-Z]{16}$/);
   assert.equal(by('W-11').other, 'W-13');
   assert.deepEqual(by('W-11').shared, ['W-12']);
-  assert.deepEqual(by('W-14').files, ['schemas/thing.schema.json']);
+  assert.deepEqual(by('W-14').files, ['surface.txt']);
 
   // It changes nothing, and asking twice gives the same answer.
   assert.equal(git(f.root, 'status', '--porcelain'), '');

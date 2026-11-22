@@ -33,7 +33,8 @@
     "check:fast": "node scripts/check-fast.mjs",
     "build": "node core/lib/packaging/build.mjs",
     "build:ui": "node scripts/build-ui.mjs",
-    "check:ui": "node scripts/build-ui.mjs --check"
+    "check:ui": "node scripts/build-ui.mjs --check",
+    "surface": "node core/bin/surface.mjs --write release/surface.txt"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

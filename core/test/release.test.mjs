@@ -10,7 +10,12 @@ import { fileURLToPath } from 'node:url';
 import { main } from '../lib/cli/main.mjs';
 import { commands as releaseCommands } from '../lib/cli/commands/release.mjs';
 import { diffSurface, emptySurface, proposeBump } from '../lib/release/delta.mjs';
-import { contractShape, schemaFields, surfaceOf } from '../lib/release/surface.mjs';
+import {
+  contractShape,
+  schemaFields,
+  surfaceFileText,
+  surfaceOf,
+} from '../lib/release/surface.mjs';
 import {
   bumpBetween,
   bumpVersion,
@@ -21,14 +26,31 @@ import {
 import { proposeRelease } from '../lib/release/propose.mjs';
 import { checkReleaseCommit } from '../lib/release/check.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
-import { commitAll, git, itemText, makeRepo, policyFor, put } from './tracker-fixture.mjs';
+import { loadPolicy } from '../lib/policy/policy.mjs';
+import { commitAll, git, itemText, makeRepo, put } from './tracker-fixture.mjs';
 import { removeAtExit, tempDir } from './helpers/tmp.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const SURFACE_SOURCE = readFileSync(join(ROOT, 'core/lib/release/surface.mjs'), 'utf8');
 
-const open = (/** @type {string} */ root, env = {}) =>
-  openTracker({ repoRoot: root, policy: policyFor(), env });
+/** The tracker of a fixture, under the fixture's own policy.json. @param {string} root */
+const open = (root, env = {}) =>
+  openTracker({
+    repoRoot: root,
+    policy: /** @type {any} */ (loadPolicy({ cwd: root }).policy),
+    env,
+  });
+
+/** The fixture's one release package: main, tagged v<version>, measured from surface.txt. */
+const MAIN = {
+  name: 'main',
+  tag: 'v{version}',
+  paths: ['**'],
+  surface: 'surface.txt',
+  version_source: 'package.json',
+};
+/** The fixture's first surface file. */
+const SURFACE =
+  'schema thing\nschema thing id: string, required\nschema thing name: string, optional\n';
 
 /** @param {string[]} argv @param {string} cwd @param {NodeJS.ProcessEnv} [env] */
 async function hitld(argv, cwd, env = {}) {
@@ -48,8 +70,8 @@ const schema = (properties, required = ['id']) =>
   });
 
 /**
- * A fixture repository with settings, a schema and its own copy of the surface reader, so a tag
- * of it can be read back.
+ * A fixture repository with settings declaring one release package, main, and its committed
+ * surface file.
  */
 function releaseRepo(/** @type {Record<string, string>} */ extra = {}) {
   const root = makeRepo({
@@ -58,9 +80,9 @@ function releaseRepo(/** @type {Record<string, string>} */ extra = {}) {
       '.human-in-the-lead/policy.json': JSON.stringify({
         schema_version: 1,
         project: { id: 'fixture', key: 'W' },
+        release: { packages: [MAIN] },
       }),
-      'schemas/thing.schema.json': schema({ id: { type: 'string' }, name: { type: 'string' } }),
-      'core/lib/release/surface.mjs': SURFACE_SOURCE,
+      'surface.txt': SURFACE,
       'package.json': '{ "version": "0.0.0" }\n',
     },
     commit: false,
@@ -92,9 +114,10 @@ test('versions order as semver does, pre-releases first', () => {
   assert.equal(bumpBetween('0.1.0', '0.1.0'), null);
   assert.equal(isPrerelease('0.1.0-rc.1'), true);
   assert.equal(
-    nextPrerelease('0.1.0', 'rc', ['v0.1.0-rc.1', 'v0.1.0-rc.2', 'v0.0.9-rc.7']),
+    nextPrerelease('0.1.0', 'rc', ['0.1.0-rc.1', '0.1.0-rc.2', '0.0.9-rc.7', '0.1.0-beta.4']),
     '0.1.0-rc.3',
   );
+  assert.equal(nextPrerelease('0.1.0', 'beta', ['0.1.0-rc.1', '0.1.0-rc.2']), '0.1.0-beta.1');
   assert.equal(nextPrerelease('0.1.0', 'rc', []), '0.1.0-rc.1');
   assert.throws(() => nextPrerelease('0.1.0', 'RC1', []), /lower-case letters/);
 });
@@ -129,6 +152,34 @@ test('the surface reads schemas, built commands, the report shape, trailers and 
   assert.deepEqual([c.report, c.trailers], [['item', 'status'], ['Work-Item']]);
   const fields = schemaFields(JSON.parse(schema({ id: { type: 'string' } })));
   assert.deepEqual(fields, { id: { type: 'string', required: true } });
+});
+
+test('the surface file lists the interface one element per line, sorted; the committed file is current', async () => {
+  const text = await surfaceFileText(ROOT);
+  const lines = text.split('\n').filter((l) => l && !l.startsWith('#'));
+  assert.deepEqual(lines, [...lines].sort());
+  assert.ok(lines.includes('cli hitld release propose --package: string, optional'));
+  assert.ok(lines.includes('cli hitld release propose json dependents'));
+  assert.ok(lines.includes('report bench_runs'));
+  assert.ok(lines.includes('trailer Work-Item'));
+  assert.ok(lines.includes('read-api version 3'));
+  assert.ok(lines.some((l) => l.startsWith('schema release package: string, optional')));
+  assert.equal(
+    lines.some((l) => l.startsWith('contract')),
+    false,
+    'the contract prose is not interface',
+  );
+  // Once this repository's package declares the file (hitld release migrate --surface), it must
+  // be written again with every change to the interface: npm run surface.
+  const loaded = loadPolicy({ cwd: ROOT }).policy;
+  for (const p of loaded?.release?.packages ?? []) {
+    if (p.surface !== 'release/surface.txt') continue;
+    assert.equal(
+      readFileSync(join(ROOT, p.surface), 'utf8'),
+      text,
+      'release/surface.txt is stale: run npm run surface and commit it',
+    );
+  }
 });
 
 /** A surface with one schema and one command. @param {Partial<import('../lib/release/surface.mjs').Surface>} [over] */
@@ -237,15 +288,29 @@ test('with no tag yet, propose says so and treats the whole surface as initial',
   assert.equal(p.json.first_release, true);
   assert.equal(p.json.version, '0.1.0');
   assert.equal(p.json.tag, 'v0.1.0');
-  assert.match(
-    p.json.reason,
-    /^no release tag yet, so the whole public interface is the initial surface/,
-  );
-  assert.ok(p.json.interface_delta.every((/** @type {any} */ e) => e.impact === 'additive'));
+  assert.equal(p.json.package, 'main');
+  assert.equal(p.json.surface, 'surface.txt');
+  assert.equal(p.json.interface_measured, true);
+  assert.match(p.json.reason, /^no release of main yet, so its whole surface is new/);
+  assert.deepEqual(p.json.interface_delta, [
+    { impact: 'additive', surface: 'surface', what: 'surface.txt: added schema thing' },
+    {
+      impact: 'additive',
+      surface: 'surface',
+      what: 'surface.txt: added schema thing id: string, required',
+    },
+    {
+      impact: 'additive',
+      surface: 'surface',
+      what: 'surface.txt: added schema thing name: string, optional',
+    },
+  ]);
   assert.deepEqual(p.json.items, ['W-3']);
   assert.deepEqual(p.json.warnings, [
-    'package.json says 0.0.0; set it to 0.1.0 before the release is made',
+    'package.json says 0.0.0; set it to 0.1.0 before main is released',
   ]);
+  assert.equal(p.json.releases.length, 1);
+  assert.equal(p.json.releases[0].tag, 'v0.1.0');
   const rc = await hitld(['release', 'propose', '--pre', 'rc'], root);
   assert.equal(rc.json.version, '0.1.0-rc.1');
   assert.equal(rc.json.prerelease, true);
@@ -301,10 +366,10 @@ test('release make writes the record and the tag, never pushes, and the record i
     'signed off by the person who ran it (DCO)',
   );
   assert.equal(git(remote, 'tag', '--list').trim(), '', 'never pushed');
-  const record = readFileSync(join(root, 'work/releases/v0.1.0-rc.1.md'), 'utf8');
+  const record = readFileSync(join(root, 'work/releases/main/0.1.0-rc.1.md'), 'utf8');
   assert.match(
     record,
-    /^---\nid: v0\.1\.0-rc\.1\nversion: 0\.1\.0-rc\.1\nbump: minor\ninterface_delta: \[/,
+    /^---\nid: v0\.1\.0-rc\.1\npackage: main\nversion: 0\.1\.0-rc\.1\nbump: minor\ninterface_delta: \[/,
   );
   assert.match(record, /\ndecision: owner\nitems: \[W-3\]\nclassification: public\n---\n/);
   let t = open(root);
@@ -329,9 +394,10 @@ test('release make writes the record and the tag, never pushes, and the record i
   assert.equal(shown.json.entity.prerelease, false);
   assert.deepEqual(shown.json.entity.interface_delta[0], {
     impact: 'additive',
-    surface: 'schemas',
-    what: 'schema thing added',
+    surface: 'surface',
+    what: 'surface.txt: added schema thing',
   });
+  assert.equal(shown.json.entity.package, 'main');
   const listed = await hitld(['work', 'query', '--kind', 'release', '--json'], root);
   assert.deepEqual(listed.json.entities.map((/** @type {any} */ e) => e.id).sort(), [
     'v0.1.0',
@@ -342,37 +408,42 @@ test('release make writes the record and the tag, never pushes, and the record i
   assert.match(again.json.message, /not above the last full release, 0\.1\.0/);
 });
 
-test('after a release, the delta is read against the tag’s own surface', async () => {
+test('after a release, the delta is the surface file between the last full release and now', async () => {
   const root = releaseRepo();
   assert.equal((await hitld(['release', 'make'], root)).code, 0);
-  put(root, {
-    'schemas/thing.schema.json': schema({
-      id: { type: 'string' },
-      name: { type: 'string' },
-      note: { type: 'string' },
-    }),
-  });
+  put(root, { 'surface.txt': `${SURFACE}schema thing note: string, optional\n` });
   commitAll(root, 'an optional field');
   const additive = await hitld(['release', 'propose'], root);
   assert.equal(additive.json.base, 'v0.1.0');
   assert.deepEqual(additive.json.interface_delta, [
-    { impact: 'additive', surface: 'schemas', what: 'thing: note added' },
+    {
+      impact: 'additive',
+      surface: 'surface',
+      what: 'surface.txt: added schema thing note: string, optional',
+    },
   ]);
   assert.equal(additive.json.version, '0.2.0');
-  put(root, { 'schemas/thing.schema.json': schema({ id: { type: 'string' } }) });
-  commitAll(root, 'remove a field');
+  // A changed line is a removed line and an added one: breaking.
+  put(root, { 'surface.txt': SURFACE.replace('name: string, optional', 'name: string, required') });
+  commitAll(root, 'make a field required');
   const breaking = await hitld(['release', 'propose'], root);
-  assert.equal(breaking.json.bump, 'minor');
+  assert.equal(breaking.json.bump, 'minor', 'minor while 0.y.z');
   assert.equal(breaking.json.breaking, true);
-  assert.deepEqual(breaking.json.interface_delta, [
-    { impact: 'breaking', surface: 'schemas', what: 'thing: name removed' },
-  ]);
+  assert.deepEqual(
+    breaking.json.interface_delta.map((/** @type {any} */ e) => [e.impact, e.what]),
+    [
+      ['breaking', 'surface.txt: removed schema thing name: string, optional'],
+      ['additive', 'surface.txt: added schema thing name: string, required'],
+    ],
+  );
+  // Blank lines, comments and order do not count.
   put(root, {
-    'schemas/thing.schema.json': schema({ id: { type: 'string' }, name: { type: 'string' } }),
+    'surface.txt': `# a comment\n\n${SURFACE.split('\n').reverse().join('\n')}\n`,
     'src/x.js': 'x\n',
   });
   commitAll(root, 'internal only');
   const internal = await hitld(['release', 'propose'], root);
+  assert.deepEqual(internal.json.interface_delta, []);
   assert.equal(internal.json.bump, 'patch');
   assert.equal(internal.json.version, '0.1.1');
 });
@@ -383,7 +454,9 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
       '.human-in-the-lead/policy.json': JSON.stringify({
         schema_version: 1,
         project: { id: 'fixture', key: 'W' },
+        release: { packages: [MAIN] },
       }),
+      'surface.txt': SURFACE,
       '.human-in-the-lead/tracker.json': JSON.stringify({
         schema_version: 1,
         optional_keys: ['release_note'],
@@ -418,7 +491,7 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
   for (const f of ['policy.json', 'tracker.json'])
     chmodSync(join(root, '.human-in-the-lead', f), 0o644);
   commitAll(root, 'fixture');
-  put(root, { 'schemas/thing.schema.json': schema({ id: { type: 'string' } }) });
+  put(root, { 'surface.txt': 'schema thing\n' });
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'a schema', '-m', 'Work-Item: W-3');
   const t = open(root);
@@ -434,7 +507,7 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
     },
   ]);
   assert.deepEqual(p.notes, ['Config errors name the key. (W-9)']);
-  assert.deepEqual(p.missing_release_note, [{ item: 'W-3', files: ['schemas/thing.schema.json'] }]);
+  assert.deepEqual(p.missing_release_note, [{ item: 'W-3', files: ['surface.txt'] }]);
   const refused = await hitld(['release', 'make', '--item', 'W-8'], root);
   assert.equal(refused.code, 1);
   assert.match(
@@ -571,7 +644,7 @@ test('the release item is found by the version proposed or made; --item override
   assert.match(wrongMake.json.message, /release item for 0\.2\.0, but this release is 0\.3\.0/);
 });
 
-test('work check refuses two release items for one version and a release that is not a version', async () => {
+test('work check refuses two release items for one package and version and a release that is not a version', async () => {
   const root = releaseRepo({
     ...itemFile('W-8', { release: '0.1.0' }),
     ...itemFile('W-9', { release: '0.1.0' }),
@@ -581,7 +654,10 @@ test('work check refuses two release items for one version and a release that is
   const checked = await hitld(['work', 'check'], root);
   assert.equal(checked.code, 1);
   const problems = checked.json.problems.join('\n');
-  assert.match(problems, /release 0\.1\.0: set on W-8 and W-9; one release item per version/);
+  assert.match(
+    problems,
+    /release main@0\.1\.0: set on W-8 and W-9; one release item per package and version/,
+  );
   assert.match(problems, /W-10-thing\.md: release "v0\.2" isn't a version/);
   assert.doesNotMatch(problems, /W-11/);
 });
@@ -621,7 +697,10 @@ test('release make --branch puts the record on a new branch, tags nothing and re
   assert.equal(made.json.pushed, false);
   assert.equal(made.json.pr.title, 'Release v0.1.0');
   assert.match(made.json.pr.body, /- Bump: minor, from no release yet/);
-  assert.match(made.json.pr.body, /## Interface delta\n\n- additive schemas: schema thing added/);
+  assert.match(
+    made.json.pr.body,
+    /## Interface delta\n\n- additive surface: surface\.txt: added schema thing\n/,
+  );
   assert.match(made.json.pr.body, /Squash-merge this pull request with your `Signed-off-by:`/);
   assert.match(made.json.next, /git push origin release/);
   assert.equal(git(root, 'tag', '--list').trim(), '', 'nothing was tagged');
@@ -630,7 +709,10 @@ test('release make --branch puts the record on a new branch, tags nothing and re
   assert.equal(git(root, 'status', '--porcelain').trim(), '');
   assert.equal(git(root, 'rev-parse', 'release~1').trim(), before, 'the branch is made from main');
   assert.equal(made.json.commit, git(root, 'rev-parse', 'release').trim());
-  assert.match(git(root, 'show', 'release:work/releases/v0.1.0.md'), /^---\nid: v0\.1\.0\n/);
+  assert.match(
+    git(root, 'show', 'release:work/releases/main/0.1.0.md'),
+    /^---\nid: v0\.1\.0\npackage: main\n/,
+  );
   assert.match(git(root, 'log', '-1', '--format=%B', 'release'), /^Signed-off-by: Fixture/m);
 
   const again = await hitld(['release', 'make', '--branch', 'release'], root);
@@ -659,7 +741,7 @@ test('the record-to-tag check passes a squash-merged release pull request', asyn
   assert.equal(r.prerelease, false);
   assert.equal(r.pr, 7);
   assert.equal(r.proposed, '0.1.0');
-  assert.equal(r.record, 'work/releases/v0.1.0.md');
+  assert.equal(r.record, 'work/releases/main/0.1.0.md');
   assert.equal(r.message, 'v0.1.0\n\nNo release notes.');
   assert.equal(git(root, 'worktree', 'list').trim().split('\n').length, 1, 'no worktree left');
 
@@ -688,7 +770,7 @@ test('the record-to-tag check passes the next pre-release', async () => {
 test('the record-to-tag check refuses an existing tag, a wrong version and a commit not from a pull request', async () => {
   const root = releaseRepo();
   assert.equal((await hitld(['release', 'make', '--branch', 'release'], root)).code, 0);
-  const record = git(root, 'show', 'release:work/releases/v0.1.0.md');
+  const record = git(root, 'show', 'release:work/releases/main/0.1.0.md');
   squash(root);
   git(root, 'tag', '-a', 'v0.1.0', '-m', 'by hand', 'HEAD~1');
   const tagged = await checkReleaseCommit({ root });
@@ -698,7 +780,7 @@ test('the record-to-tag check refuses an existing tag, a wrong version and a com
   // A record whose version is not the one release propose gives at the parent.
   const wrong = releaseRepo();
   put(wrong, {
-    'work/releases/v0.2.0.md': record
+    'work/releases/main/0.2.0.md': record
       .replace('id: v0.1.0', 'id: v0.2.0')
       .replace('version: 0.1.0', 'version: 0.2.0'),
   });
@@ -709,12 +791,12 @@ test('the record-to-tag check refuses an existing tag, a wrong version and a com
   assert.deepEqual(r.problems.length, 1);
   assert.match(
     r.problems[0],
-    /^v0\.2\.0 is not the next release: at the parent, release propose gives 0\.1\.0 /,
+    /^v0\.2\.0 is not the next release: at the parent, release propose --package main gives 0\.1\.0 /,
   );
 
   // The right record, pushed straight to main rather than merged from a pull request.
   const direct = releaseRepo();
-  put(direct, { 'work/releases/v0.1.0.md': record });
+  put(direct, { 'work/releases/main/0.1.0.md': record });
   commitAll(direct, 'release record: v0.1.0');
   const d = await checkReleaseCommit({ root: direct });
   assert.equal(d.ok, false);
@@ -723,18 +805,18 @@ test('the record-to-tag check refuses an existing tag, a wrong version and a com
   // A commit that is not on main.
   const side = releaseRepo();
   git(side, 'switch', '-q', '-c', 'side');
-  put(side, { 'work/releases/v0.1.0.md': record });
+  put(side, { 'work/releases/main/0.1.0.md': record });
   commitAll(side, 'Release v0.1.0 (#7)');
   const s = await checkReleaseCommit({ root: side, main: 'main' });
   assert.match(s.problems.join('\n'), /is not on main/);
 
   // A record that does not pass the release checks.
   const broken = releaseRepo();
-  put(broken, { 'work/releases/v0.1.0.md': record.replace('bump: minor', 'bump: huge') });
+  put(broken, { 'work/releases/main/0.1.0.md': record.replace('bump: minor', 'bump: huge') });
   commitAll(broken, 'Release v0.1.0 (#7)');
   const b = await checkReleaseCommit({ root: broken });
   assert.equal(b.ok, false);
-  assert.match(b.problems[0], /^record work\/releases\/v0\.1\.0\.md: /);
+  assert.match(b.problems[0], /^record work\/releases\/main\/0\.1\.0\.md: /);
 });
 
 test('the release-check script prints the result and writes the workflow files', async () => {
@@ -759,12 +841,12 @@ test('the release-check script prints the result and writes the workflow files',
   assert.equal(JSON.parse(ok.stdout).tag, 'v0.1.0');
   assert.equal(
     readFileSync(join(dir, 'out'), 'utf8'),
-    'tag=v0.1.0\nversion=0.1.0\nprerelease=false\nrecord=work/releases/v0.1.0.md\n',
+    'tag=v0.1.0\nversion=0.1.0\nprerelease=false\nrecord=work/releases/main/0.1.0.md\n',
   );
   assert.equal(readFileSync(join(dir, 'msg'), 'utf8'), 'v0.1.0\n\nNo release notes.\n');
   assert.match(
     readFileSync(join(dir, 'notes'), 'utf8'),
-    /Release record: `work\/releases\/v0\.1\.0\.md`/,
+    /Release record: `work\/releases\/main\/0\.1\.0\.md`/,
   );
   const refused = run(['--pr', '8']);
   assert.equal(refused.status, 1);

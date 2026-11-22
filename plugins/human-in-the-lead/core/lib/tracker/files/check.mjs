@@ -222,9 +222,25 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
   }
 
   const g = buildGraph(items);
-  // A release item carries the version it makes; one release item per version.
+  // A release item carries the version it makes and names its package (HITLD-760); one release
+  // item per package and version. A milestone may name its package too. Every package named must
+  // be declared in policy.json release.packages.
+  const packages = layout.packages ?? [];
+  const declared = new Set(packages.map((p) => p.name));
   /** @type {Map<string, string[]>} */
   const releaseItems = new Map();
+  for (const it of [...g.items, ...g.milestones]) {
+    const pkg = it.data.package;
+    if (pkg === undefined || Array.isArray(pkg)) continue;
+    if (!declared.has(String(pkg))) {
+      say(
+        it,
+        `package ${pkg} is not declared in policy.json release.packages${declared.size ? ` (declared: ${[...declared].join(', ')})` : ''}`,
+      );
+    } else if (it.data.kind === 'work' && it.data.release === undefined) {
+      say(it, 'package is set on a work item with no release; only release items name a package');
+    }
+  }
   for (const it of g.items) {
     const v = it.data.release;
     if (v === undefined || Array.isArray(v)) continue;
@@ -232,12 +248,20 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
       say(it, `release "${v}" isn't a version (such as 0.1.0 or 0.1.0-rc.1)`);
       continue;
     }
-    releaseItems.set(String(v), [...(releaseItems.get(String(v)) ?? []), String(it.data.id)]);
+    if (packages.length > 1 && it.data.package === undefined) {
+      say(
+        it,
+        `release ${v} names no package; ${packages.length} release packages are declared (${[...declared].join(', ')}), so a release item names its package`,
+      );
+    }
+    const pkg = String(it.data.package ?? (packages.length === 1 ? packages[0].name : ''));
+    const key = pkg ? `${pkg}@${v}` : String(v);
+    releaseItems.set(key, [...(releaseItems.get(key) ?? []), String(it.data.id)]);
   }
   for (const [version, ids] of releaseItems) {
     if (ids.length > 1) {
       problems.push(
-        `release ${version}: set on ${ids.join(' and ')}; one release item per version`,
+        `release ${version}: set on ${ids.join(' and ')}; one release item per package and version`,
       );
     }
   }

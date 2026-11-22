@@ -70,9 +70,14 @@
       "$ref": "common#/$defs/text"
     },
     "release": {
-      "description": "On a release item: the version it makes, such as 0.1.0-rc.1 (design part 3.2, Release). One release item per version. Milestones are never named by version.",
+      "description": "On a release item: the version it makes, such as 0.1.0-rc.1 (design part 3.2, Release). One release item per package and version. Milestones are never named by version.",
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "package": {
+      "description": "On a release item: the release package it releases, one declared in policy.json release.packages. Required when more than one package is declared; with one, it is that one. Other items belong to packages by the files they touch, never by this key.",
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
     },
     "credit": {
       "type": "array",

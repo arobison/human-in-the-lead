@@ -380,6 +380,22 @@ export function install(input, ctx) {
             .slice(0, 64) || 'project';
     const policy = JSON.parse(readFileSync(TEMPLATE, 'utf8'));
     policy.project = { ...policy.project, id, key };
+    // Every repository declares at least one release package (HITLD-783): the first owns every
+    // path and is named after the project, with the default tag template {name}@{version}.
+    const name =
+      id
+        .replace(/[^a-z0-9]+$/, '')
+        .slice(0, 64)
+        .replace(/[^a-z0-9]+$/, '') || 'main';
+    policy.release = {
+      packages: [
+        {
+          name,
+          paths: ['**'],
+          ...(existsSync(join(root, 'package.json')) ? { version_source: 'package.json' } : {}),
+        },
+      ],
+    };
     writeJson(policyPath, policy);
     done.policy = 'created';
   }

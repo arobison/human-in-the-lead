@@ -663,6 +663,11 @@ test('install --statusline sets up a consumer: policy, contract, settings, statu
   });
   assert.equal(r.exit, 0, JSON.stringify(r.result));
   assert.equal(r.result.done.policy, 'created');
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(fresh, '.human-in-the-lead/policy.json'), 'utf8')).release,
+    { packages: [{ name: 'fresh', paths: ['**'] }] },
+    'setup declares the first release package (HITLD-783)',
+  );
   assert.equal(r.result.done.claude_md, 'import added');
   const settings = JSON.parse(readFileSync(join(fresh, '.claude/settings.json'), 'utf8'));
   assert.deepEqual(settings.extraKnownMarketplaces['human-in-the-lead'].source, {
