@@ -51,42 +51,52 @@ export function isExecutor(input, env) {
  * @param {string} dir
  */
 function holdsExecutorClaim(dir) {
-  return claimIn(dir).state !== 'none';
+  const d = claimedDispatches(dir);
+  return d === null || d.length > 0;
+}
+
+/**
+ * The dispatches the claim commits on HEAD (and on no main branch) name, newest first; null when
+ * git cannot answer. For the budget hook (budget.mjs), which needs the dispatch of a session started
+ * without HITLD_DISPATCH.
+ * @param {string} dir @returns {string[] | null}
+ */
+export function claimedDispatches(dir) {
+  return readClaims(dir).dispatches;
 }
 
 /**
  * The branch an executor's checkout at `dir` is on, when it is its own claim branch: HEAD is on a
  * branch (not detached), git answers, HEAD holds an executor's claim commit no main branch holds,
  * and the branch is not a main branch. Else null. Unlike `holdsExecutorClaim`, which fails closed
- * to guard, this fails closed to refuse: anything git does not answer gives null.
+ * to guard, this fails closed to refuse: anything git does not answer gives null (HITLD-746).
  * @param {string} dir @returns {string | null}
  */
 export function ownClaimBranch(dir) {
-  const c = claimIn(dir);
-  if (c.state !== 'claim' || !c.branch) return null;
-  const ref = `refs/heads/${c.branch}`;
+  const c = readClaims(dir);
+  if (!c.dispatches?.length) return null;
+  const head = c.run(['symbolic-ref', '--short', '-q', 'HEAD']);
+  const branch = !head.error && head.status === 0 ? head.stdout.trim() || null : null;
   if (
-    c.branch === 'main' ||
-    c.bases.has(ref) ||
-    [...c.bases].some((b) => b.replace(/^refs\/remotes\/[^/]+\//, '') === c.branch)
+    !branch ||
+    branch === 'main' ||
+    c.bases.has(`refs/heads/${branch}`) ||
+    [...c.bases].some((b) => b.replace(/^refs\/remotes\/[^/]+\//, '') === branch)
   ) {
     return null;
   }
-  return c.branch;
+  return branch;
 }
 
 /**
- * What the checkout at `dir` holds: `claim` (an executor's claim commit), `none` (no claim, or
- * not a repository), or `unknown` (git did not answer). With the branch HEAD is on and the main
- * branches read.
+ * What the checkout at `dir` holds: the dispatches its claim commits name (null when git cannot
+ * answer, empty outside a repository or with no claim), the main branches read, and the way git
+ * was run there.
  * @param {string} dir
- * @returns {{ state: 'claim' | 'none' | 'unknown', branch: string | null, bases: Set<string> }}
  */
-function claimIn(dir) {
+function readClaims(dir) {
   /** @type {Set<string>} */
   const bases = new Set();
-  /** @param {'claim' | 'none' | 'unknown'} state @param {string | null} [branch] */
-  const out = (state, branch = null) => ({ state, branch, bases });
   /** @param {string[]} args */
   const run = (args) =>
     spawnSync('git', ['-C', dir, ...args], {
@@ -96,6 +106,8 @@ function claimIn(dir) {
       // Untranslated, so "not a git repository" reads the same in every locale.
       env: { ...process.env, LC_ALL: 'C' },
     });
+  /** @param {string[] | null} dispatches */
+  const out = (dispatches) => ({ dispatches, bases, run });
   const refs = run([
     'for-each-ref',
     '--format=%(refname)%09%(symref)',
@@ -103,10 +115,8 @@ function claimIn(dir) {
     'refs/remotes/*/main',
     'refs/remotes/origin/HEAD',
   ]);
-  if (refs.error) return out('unknown');
-  if (refs.status !== 0) {
-    return out(/not a git repository/i.test(refs.stderr ?? '') ? 'none' : 'unknown');
-  }
+  if (refs.error) return out(null);
+  if (refs.status !== 0) return out(/not a git repository/i.test(refs.stderr ?? '') ? [] : null);
   for (const line of refs.stdout.split('\n')) {
     const [name, target] = line.split('\t');
     if (name === 'refs/remotes/origin/HEAD') {
@@ -122,19 +132,15 @@ function claimIn(dir) {
     '--grep=^claim: ',
     '--format=%B%x1e',
   ]);
-  if (log.error || log.status !== 0) return out('unknown');
-  const claimed = log.stdout.split('\x1e').some((message) => {
-    const lines = message.trim().split('\n');
-    return (
-      /^claim: \S+$/.test(lines[0] ?? '') &&
-      lines.some((l) => {
+  if (log.error || log.status !== 0) return out(null);
+  return out(
+    log.stdout.split('\x1e').flatMap((message) => {
+      const lines = message.trim().split('\n');
+      if (!/^claim: \S+$/.test(lines[0] ?? '')) return [];
+      return lines.flatMap((l) => {
         const m = /^Dispatch: (\S+)\s*$/.exec(l);
-        return m !== null && DISPATCH_ID.test(m[1]);
-      })
-    );
-  });
-  if (!claimed) return out('none');
-  const head = run(['symbolic-ref', '--short', '-q', 'HEAD']);
-  const branch = !head.error && head.status === 0 ? head.stdout.trim() || null : null;
-  return out('claim', branch);
+        return m !== null && DISPATCH_ID.test(m[1]) ? [m[1]] : [];
+      });
+    }),
+  );
 }

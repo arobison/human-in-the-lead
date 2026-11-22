@@ -10,7 +10,11 @@
 // The reproducer agent's rules run in this same process, for every tool (reproducer-rules.mjs):
 // hooks.json sends every tool call here, and anything that is neither an executor's Bash call nor
 // the reproducer's passes through at once.
+//
+// Past its dispatch's token cap, an executor may take only the closing steps (HITLD-782): every
+// other tool call, of any tool, is refused (budget.mjs reads the cap and the usage).
 
+import { readBudget } from './budget.mjs';
 import { isExecutor, ownClaimBranch, readHookInput } from './input.mjs';
 import { isReproducer, reproducerRefusal } from './reproducer-rules.mjs';
 
@@ -52,9 +56,10 @@ const ownBranchPush = (text, dir) => {
 /** @type {string | null} */
 let why = null;
 const bash = input.tool_name === undefined || input.tool_name === 'Bash';
+const executor = !isReproducer(input) && isExecutor(input, process.env);
 if (isReproducer(input)) {
   why = reproducerRefusal(input);
-} else if (bash && isExecutor(input, process.env)) {
+} else if (bash && executor) {
   if (/\bgit\b[^\n;&|]*\bpush\b/.test(command)) {
     const dir = typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
     if (!ownBranchPush(command, dir)) {
@@ -94,6 +99,13 @@ if (isReproducer(input)) {
     why = "making a release is the owner's, from the main session; propose it in your report";
   } else if (hitldCalls(unquoted).some((rest) => !EXECUTOR_HITLD.test(rest))) {
     why = 'executors run only the hitld commands for claiming, closing, reading and checking';
+  }
+}
+if (!why && executor) {
+  const budget = await readBudget(input, process.env);
+  if (budget?.reached) {
+    const { budgetReason, isClosingStep } = await import('../../../lib/dispatch/budget.mjs');
+    if (!isClosingStep(input)) why = budgetReason(budget);
   }
 }
 if (why) {

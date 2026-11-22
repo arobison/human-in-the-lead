@@ -1,5 +1,6 @@
 // Completions from Claude Code, as the orchestrator hands them to `hitld dispatch complete`
-// (design part 15.4). Session transcript files are never parsed.
+// (design part 15.4). Session transcript files are never parsed here; the executor's budget hook
+// reads their token counts only, the one written exception (core/lib/dispatch/budget.mjs).
 //
 //   subagent  the background-agent notification: the agent's final message, and the token,
 //             tool-use and duration counts the desktop app was observed to include (undocumented,
