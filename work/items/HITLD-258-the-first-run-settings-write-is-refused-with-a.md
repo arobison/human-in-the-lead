@@ -2,10 +2,11 @@
 id: HITLD-258
 title: The first-run settings write is refused with a misleading reason
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c1, HITLD-402 c3]
+claimed_by: D-01M81644XG5J7PF4
 ---
 
 ## Why
