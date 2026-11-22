@@ -416,6 +416,20 @@ const examples = {
       categories: { policy: { score: 1, scenarios: 1 } },
     },
   },
+  views: {
+    schema_version: 1,
+    title: 'Team board',
+    panels: [
+      { id: 'by-team', title: 'Open work by team', type: 'bar', group_by: 'team' },
+      {
+        id: 'sized',
+        title: 'Sized work',
+        type: 'table',
+        columns: ['title', 'points'],
+        where: [{ field: 'state', in: ['planned', 'in-progress'] }],
+      },
+    ],
+  },
 };
 
 test('every stand-alone schema has a valid example here', () => {
