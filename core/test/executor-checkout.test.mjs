@@ -139,3 +139,51 @@ test('when it cannot tell, the checkout guard fails closed', () => {
   writeFileSync(notDir, '');
   assert.equal(decide('git push', { cwd: notDir }), 'deny', 'cwd is not a directory');
 });
+
+test('an executor may push its own claim branch, alone, and nothing else (HITLD-746, HITLD-765)', () => {
+  const root = repo();
+  for (const allowed of [
+    'git push -u origin hitld/W-1-fix',
+    'git push --set-upstream origin hitld/W-1-fix',
+    'git push origin hitld/W-1-fix',
+  ]) {
+    assert.equal(decide(allowed, { cwd: root }), '', allowed);
+    // Known by its variable as well as by its checkout.
+    assert.equal(decide(allowed, { cwd: root }, { HITLD_DISPATCH: 'D-01KAH2Q7RS4XV9TB' }), '');
+  }
+  for (const refused of [
+    'git push origin main',
+    'git push origin HEAD',
+    'git push',
+    'git push -u origin hitld/W-1-fix:main',
+    'git push -f origin hitld/W-1-fix',
+    'git push --force-with-lease origin hitld/W-1-fix',
+    'git push origin +hitld/W-1-fix',
+    'git push origin hitld/W-1-fix main',
+    'git push --all origin',
+    'git push --tags origin hitld/W-1-fix',
+    'git push --delete origin hitld/W-1-fix',
+    'git push elsewhere hitld/W-1-fix',
+    'git push origin hitld/W-2-other',
+    'git push origin hitld/W-1-fix && git push origin main',
+    'git push origin hitld/W-1-fix; git push origin main',
+    'git push origin hitld/W-1-fix\ngit push origin main',
+    'git -C .. push origin hitld/W-1-fix',
+    'cd .. && git push origin hitld/W-1-fix',
+  ]) {
+    assert.equal(decide(refused, { cwd: root }), 'deny', refused);
+  }
+  // Another local branch: not the one checked out, so not its own.
+  git(root, 'branch', 'other');
+  assert.equal(decide('git push origin other', { cwd: root }), 'deny');
+  // An executor known only by its variable, in a checkout with no claim, pushes nothing.
+  const bare = repo();
+  git(bare, 'switch', '-q', '-c', 'plain', 'main');
+  assert.equal(
+    decide('git push -u origin plain', { cwd: bare }, { HITLD_DISPATCH: 'D-01KAH2Q7RS4XV9TB' }),
+    'deny',
+  );
+  // Detached HEAD: no branch is its own.
+  git(root, 'switch', '-q', '--detach');
+  assert.equal(decide('git push -u origin hitld/W-1-fix', { cwd: root }), 'deny', 'detached');
+});

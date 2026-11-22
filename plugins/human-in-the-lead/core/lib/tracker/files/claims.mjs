@@ -301,10 +301,11 @@ export function claimItem(root, layout, id, claimant, { branch } = {}) {
 /**
  * Set an item to done in the working tree, and commit that one file unless told not to.
  * @param {string} root @param {Layout} layout @param {string} id
- * @param {{ commit?: boolean }} [options]
+ * @param {{ commit?: boolean, report?: string }} [options] report: the executor's report in the
+ *   fixed shape, written into the closing commit's message body
  * @returns {{ commit: string | null, branch: string | null, path: string, version: string }}
  */
-export function closeItem(root, layout, id, { commit = true } = {}) {
+export function closeItem(root, layout, id, { commit = true, report } = {}) {
   const entry = findEntry(root, layout, id);
   if (!entry?.data) throw new CodedError('not-found', `${id} is not in this working tree`);
   const d = entry.data;
@@ -331,8 +332,14 @@ export function closeItem(root, layout, id, { commit = true } = {}) {
   const stored = applyPatch(entry.data, { state: 'done' }, layout);
   const version = writeStored(root, layout, entry.path, stored, entry.body);
   const claimant = String(d.claimed_by ?? '');
+  // The report rides in the closing commit's body, before its trailers (HITLD-746): the commit
+  // is the report, which `hitld dispatch reconcile` reads from the branch head (HITLD-780).
+  const told = typeof report === 'string' ? report.replace(/\r\n?/g, '\n').trim() : '';
   const sha = commit
-    ? commitOnly(root, [entry.path], { subject: `close: ${id}`, body: trailers(id, claimant) })
+    ? commitOnly(root, [entry.path], {
+        subject: `close: ${id}`,
+        body: told ? `${told}\n\n${trailers(id, claimant)}` : trailers(id, claimant),
+      })
     : null;
   return { commit: sha, branch: here, path: entry.path, version };
 }

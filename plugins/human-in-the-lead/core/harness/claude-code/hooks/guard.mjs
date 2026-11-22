@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// PreToolUse on Bash: executors never push, never move main, never run the orchestrator's
+// PreToolUse on Bash: executors push only their own claim branch (HITLD-746, HITLD-765: so the
+// closing commit, which is the report, reaches the remote and a pull request has a head), never
+// move main, never run the orchestrator's
 // commands, never touch the security baseline, verdicts or accepted risks (design 10.5), and
 // never write the quarantine file (design 14.7; reading it is how they learn what is quarantined).
 // The system never pushes on its
@@ -9,7 +11,7 @@
 // hooks.json sends every tool call here, and anything that is neither an executor's Bash call nor
 // the reproducer's passes through at once.
 
-import { isExecutor, readHookInput } from './input.mjs';
+import { isExecutor, ownClaimBranch, readHookInput } from './input.mjs';
 import { isReproducer, reproducerRefusal } from './reproducer-rules.mjs';
 
 const input = readHookInput();
@@ -32,14 +34,34 @@ const EXECUTOR_HITLD =
 /** What follows each call of hitld in a command. @param {string} text */
 const hitldCalls = (text) =>
   [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
+/**
+ * The one push an executor may make: `git push [-u | --set-upstream] origin <branch>`, alone on
+ * the command line, where the branch is the one its checkout is on and that branch holds its claim
+ * (`ownClaimBranch`). No force, no other refspec, remote, option or command beside it: the whole
+ * line is matched, so nothing can be chained to it.
+ * @param {string} text the command @param {string} dir where it runs
+ */
+const ownBranchPush = (text, dir) => {
+  const m = /^\s*git\s+push\s+(?:(?:-u|--set-upstream)\s+)?origin\s+([A-Za-z0-9._/-]+)\s*$/.exec(
+    text,
+  );
+  if (!m) return false;
+  const branch = ownClaimBranch(dir);
+  return branch !== null && m[1] === branch;
+};
 /** @type {string | null} */
 let why = null;
 const bash = input.tool_name === undefined || input.tool_name === 'Bash';
 if (isReproducer(input)) {
   why = reproducerRefusal(input);
 } else if (bash && isExecutor(input, process.env)) {
-  if (/\bgit\b[^\n;&|]*\bpush\b/.test(command)) why = 'executors never push; the owner pushes';
-  else if (/\bgit\b[^\n;&|]*\bupdate-ref\b[^\n;&|]*\brefs\/heads\/main\b/.test(command)) {
+  if (/\bgit\b[^\n;&|]*\bpush\b/.test(command)) {
+    const dir = typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
+    if (!ownBranchPush(command, dir)) {
+      why =
+        'executors push only their own claim branch, alone: git push -u origin <the branch you are on>; never main, another branch, or with force';
+    }
+  } else if (/\bgit\b[^\n;&|]*\bupdate-ref\b[^\n;&|]*\brefs\/heads\/main\b/.test(command)) {
     why = 'only the merge queue moves main';
   } else if (
     /\bhitld(\.mjs)?\s+(merge|dispatch|run|handover|install|ledger\s+append)\b/.test(command)

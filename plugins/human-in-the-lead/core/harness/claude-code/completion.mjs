@@ -157,18 +157,67 @@ const usd = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? roun
 export const tokensOfParts = (p) => add([p.input_tokens, p.output_tokens, p.cache_write_tokens]);
 
 /**
- * A headless run's JSON result.
+ * The events of a headless run's output: one JSON document (`--output-format json`), an array of
+ * events, or JSON lines (`--output-format stream-json`, how a durable run writes it, HITLD-746).
+ * A line that is not JSON, such as one cut short when the process was stopped, is skipped.
+ * @param {string} text @returns {Record<string, any>[] | null} null when nothing in it is JSON
+ */
+export function headlessEvents(text) {
+  try {
+    const one = JSON.parse(text);
+    return (Array.isArray(one) ? one : [one]).filter((x) => x && typeof x === 'object');
+  } catch {
+    // JSON lines
+  }
+  /** @type {Record<string, any>[]} */
+  const out = [];
+  for (const line of String(text).split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const v = JSON.parse(line);
+      if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v);
+    } catch {
+      // not an event
+    }
+  }
+  return out.length ? out : null;
+}
+
+/**
+ * A headless run's result: its result event. Output with no result event (a run that has not
+ * ended, or was stopped) gives an empty report and no tokens; the transcript's other events are
+ * never read for usage, only for the session ID a follow-up resumes.
  * @param {string} text the file claude -p wrote
  * @returns {ParsedCompletion}
  */
 export function headlessCompletion(text) {
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`the headless result is not JSON: ${/** @type {Error} */ (e).message}`);
+  const events = headlessEvents(text);
+  if (!events) {
+    let why = 'no JSON in it';
+    try {
+      JSON.parse(text);
+    } catch (e) {
+      why = /** @type {Error} */ (e).message;
+    }
+    throw new Error(`the headless result is not JSON: ${why}`);
   }
-  if (Array.isArray(data)) data = data.findLast((m) => m && m.type === 'result') ?? {};
+  // One document is the result itself (`--output-format json`); among events, the result event.
+  /** @type {unknown} */
+  let whole = null;
+  try {
+    whole = JSON.parse(text);
+  } catch {
+    whole = null;
+  }
+  /** @type {Record<string, any>} */
+  let data =
+    whole && typeof whole === 'object' && !Array.isArray(whole)
+      ? /** @type {Record<string, any>} */ (whole)
+      : (events.findLast((m) => m.type === 'result') ?? {});
+  if (typeof data.session_id !== 'string') {
+    const sid = events.find((m) => typeof m.session_id === 'string')?.session_id;
+    if (sid) data = { ...data, session_id: sid };
+  }
   const counts = partsOfUsage(data.usage ?? {});
   // cache_read_input_tokens is kept apart, never counted in the tokens (see the head of this file).
   const tokens = tokensOfParts(counts);
