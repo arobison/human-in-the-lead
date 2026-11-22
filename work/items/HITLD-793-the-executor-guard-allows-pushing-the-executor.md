@@ -2,7 +2,7 @@
 id: HITLD-793
 title: The executor guard allows pushing the executor's own claim branch and nothing else
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
