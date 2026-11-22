@@ -2,12 +2,12 @@
 id: HITLD-796
 title: The chief of staff measures an orchestrator's context from its session record and sets handover-due, and the default handover thresholds drop to 0.3 and 8
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M814Y2YD67VCWT
-release_note: "The chief of staff records the context share it measures from an orchestrator's session record with `hitld run context`, and past `orchestrator.handover_context_share` `hitld dispatch start` refuses with `handover-due`; the package defaults for the hand-over drop to 0.3 of the context and 8 completions."
+release_note: The chief of staff records the context share it measures from an orchestrator's session record with `hitld run context`, and past `orchestrator.handover_context_share` `hitld dispatch start` refuses with `handover-due`; the package defaults for the hand-over drop to 0.3 of the context and 8 completions.
 ---
 
 ## Why
