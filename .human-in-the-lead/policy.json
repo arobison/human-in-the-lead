@@ -141,6 +141,10 @@
       }
     ]
   },
+  "orchestrator": {
+    "handover_context_share": 0.3,
+    "handover_after_completions": 8
+  },
   "sweep": {
     "proposed_max_age": 30
   },
