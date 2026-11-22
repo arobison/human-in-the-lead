@@ -83,6 +83,8 @@ export const ERROR_CODES = Object.freeze({
     'An executor that reports by message (an interactive session) would get a brief without the communication block, because no session ID it could send its report to is known: pass --session or set HITLD_SESSION, or run in a harness that gives one.',
   'tokens-over-estimate':
     "The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.",
+  'report-shape':
+    "The executor's report does not have the fixed shape; nothing was recorded and the dispatch is still in flight. Send the executor report_errors, then complete the same dispatch with its corrected report.",
   'unknown-dispatch': 'The dispatch has no recorded harness reference, so it cannot be continued.',
   'still-running': 'The dispatch is still running; its completion notice comes first.',
   'cannot-follow-up':
@@ -203,6 +205,8 @@ export const ERROR_CODES = Object.freeze({
     'The file does not open: the passphrase is wrong, or the file was changed or damaged.',
   damaged: 'The file is damaged.',
   'git-failed': 'A git command failed inside the store.',
+  'store-gitlink':
+    'The store holds another git checkout that would be committed as a gitlink; nothing was committed.',
   'bad-bundle': 'The bundle does not verify or does not match its manifest.',
   'bad-path': 'The export file is inside the store.',
   'another-project': 'The file is from another project.',

@@ -1231,13 +1231,29 @@ export function completeDispatch(input, ctx, given = null) {
       `${d} would record ${tokens} tokens, ${Math.floor(/** @type {number} */ (tokens) / /** @type {number} */ (estimate))} times its estimate of ${estimate} (refused at ${TOKENS_FAR_ABOVE_ESTIMATE} times). A completion's tokens are output plus fresh input (uncached input and cache writes), never cache reads: run this again with that figure, or add --tokens-over-estimate if the run really cost ${tokens}`,
     );
   }
-  releaseExecutor(p.machineRoot, p.policy.project.id, d);
   const parsed = parseReport(completion.report);
   const commit = parsed.report?.commit?.sha;
   // A completion whose permission_denials show the contract's commands refused is blocked
   // by permissions, never a missing report shape: a follow-up would meet the same refusal
   // (HITLD-141). A report that only mentions a refusal is a warning, never a hold.
   const refused = refusedCommands(completion.permissionDenials);
+  // A report that does not parse is refused before anything is recorded or released
+  // (HITLD-748): a dispatch completes once, so a recorded bad shape would stand. Its executor
+  // can still be messaged and resends; a headless run has ended, so its report is recorded
+  // and asked again by a follow-up, as before.
+  if (!parsed.report && !refused.length && n.kind !== 'headless') {
+    throw new Refusal(
+      'report-shape',
+      `${d}'s report does not have the fixed shape, so nothing was recorded and it is still in flight: ${parsed.errors.join('; ')}`,
+      {
+        dispatch: d,
+        item: entry.item,
+        report_errors: parsed.errors,
+        next: `send the executor report_errors by the way it reports (SendMessage to the agent, or a message to its session), asking it to fix each and send the whole report again; then run hitld dispatch complete --dispatch ${d} again with the corrected report`,
+      },
+    );
+  }
+  releaseExecutor(p.machineRoot, p.policy.project.id, d);
   const mentioned = refused.length
     ? []
     : mentionedRefusals({

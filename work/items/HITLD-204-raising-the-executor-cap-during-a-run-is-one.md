@@ -31,3 +31,8 @@ Reported by orch-1 and filed by the chief of staff under HITLD-181. Related to H
 ## Rewritten on 2026-11-19 (reconciliation, HITLD-573)
 
 There is no run layer in the cap any more. `max_executors` is a hard ceiling the owner sets; the count follows measured headroom, the project's pace and the merge queue (HITLD-534, 558, 559). The plan names which of these limits it. One command raises the ceiling.
+
+## Moved into rc.2 on 2026-11-22
+
+The run layer is still in the code: orch-6's run record fixed the cap at 2 while the owner's person and project settings said 4 and 5, and the owner could not raise it without typing in the orchestrator's session. The item joins milestone HITLD-67 (second clause); with HITLD-804 the raise is one owner decision and no visit to the orchestrator.
+
