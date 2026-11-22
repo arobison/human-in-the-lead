@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-22
 project: HITLD-15
+constraint_of: [HITLD-67 c2]
 claimed_by: D-01M80ZP4HMQ4AGDX
 release_note: "An item names the milestone clauses it serves as `constraint_of: [<milestone ID> c<n>]` (`hitld work new --constraint-of`), and a milestone's constraints are derived from its items, so two pull requests that file items into one milestone no longer conflict. `hitld work migrate constraints-on-items` moves a tracker's milestone-side `constraints` lines into the items; until then both forms are read (the item side wins) and `hitld work check` warns. The milestone-side form is read until rc.3."
 ---

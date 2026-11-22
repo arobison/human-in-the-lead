@@ -6,6 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-37]
+constraint_of: [HITLD-65 c1]
 claimed_by: D-38
 release_note: "`hitld machine detect` proposes a machine profile from local probes; items can name `resources`, and dispatch waits when this machine lacks one."
 ---

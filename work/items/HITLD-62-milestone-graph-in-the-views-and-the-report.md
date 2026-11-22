@@ -6,6 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-45]
+constraint_of: [HITLD-67 c4]
 claimed_by: D-20
 release_note: `hitld work views` writes milestones.md as a milestone graph (mermaid) with a table, and `hitld dashboard` shows the milestones as a board in inline SVG (lanes by project, steps across), each milestone opening to its items.
 ---

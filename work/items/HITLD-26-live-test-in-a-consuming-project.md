@@ -6,6 +6,7 @@ state: planned
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-128, HITLD-109, HITLD-46, HITLD-47, HITLD-60]
+constraint_of: [HITLD-67 c1]
 waiting_on: owner
 ---
 

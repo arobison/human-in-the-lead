@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-14
 project: HITLD-15
+constraint_of: [HITLD-67 c1]
 claimed_by: D-46
 release_note: "`hitld feedback` records feedback about HITLd, with its context, in the project's private store."
 ---

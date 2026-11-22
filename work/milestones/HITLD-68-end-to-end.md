@@ -12,7 +12,7 @@ done_when:
   - "c3: Every dispatched item has an executable check written before it starts."
   - "c4: One area has an adversarial pass on every change."
   - "c5: The end-to-end eval runner drives a reported bug to a merge on a fixture repository, so the check can run."
-constraints: [HITLD-29 c1, HITLD-30 c2, HITLD-31 c3, HITLD-32 c4, HITLD-57 c5, HITLD-711 c4, HITLD-712 c4, HITLD-713 c4, HITLD-714 c4, HITLD-715 c4]
+constraint_of: [HITLD-1 c1]
 check: demo the end-to-end eval (check 1 of design 21.1) on a fixture repository, run in the end-to-end eval runner
 ---
 

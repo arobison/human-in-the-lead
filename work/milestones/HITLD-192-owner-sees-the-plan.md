@@ -11,7 +11,6 @@ done_when:
   - "c2: Every link in the page opens in a browser, or says where it cannot."
   - "c3: The owner sees where the project's tokens went by role."
   - "c4: Reading the plan stays fast as the tracker and the ledger grow, with a cost budget for the read commands checked as an eval."
-constraints: [HITLD-343 c1, HITLD-342 c1, HITLD-267 c1, HITLD-268 c1, HITLD-378 c1, HITLD-320 c2, HITLD-339 c2, HITLD-421 c1, HITLD-412 c1, HITLD-448 c2, HITLD-510 c1, HITLD-565 c1, HITLD-585 c3, HITLD-599 c2, HITLD-600 c4]
 check: demo opening dashboard.html, finding every open item under a milestone and following each kind of link, run by the owner
 ---
 

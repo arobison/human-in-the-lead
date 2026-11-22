@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-16
 project: HITLD-15
+constraint_of: [HITLD-67 c2]
 claimed_by: D-30
 release_note: "A new project's default quota limits hold only `claude-weekly`. The `claude-five-hour` limit is no longer a default: the gate adds it while the account's status line reports a five-hour window that has not reset or the person file declares a limit on that window (some plans have it; Ultra and usage-based plans do not; a Team or Enterprise seat may need to declare it by hand). The `rolling_5h` window value and the usage snapshot's `five_hour` field stay."
 ---

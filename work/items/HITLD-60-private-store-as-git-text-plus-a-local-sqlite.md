@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-14
 project: HITLD-15
+constraint_of: [HITLD-67 c1]
 claimed_by: D-60
 release_note: "`hitld store export`, `import` and `sync` move the private store between machines as one encrypted file; Node 22.13 or later is required."
 ---

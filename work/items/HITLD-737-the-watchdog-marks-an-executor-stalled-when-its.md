@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-22
 project: HITLD-15
+constraint_of: [HITLD-67 c1]
 claimed_by: D-01M80EPF8HN3E4YB
 release_note: `hitld dispatch watch` marks a background executor stalled as soon as the orchestrator process that started it has exited, without waiting for its stall time, and lists under `uncommitted` each claim whose worktree holds uncommitted work so it can be recovered.
 ---

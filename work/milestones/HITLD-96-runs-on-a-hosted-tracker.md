@@ -13,7 +13,6 @@ done_when:
   - "c4: The tracker injection scenarios pass at 100%, and the no-native-tools scenario passes."
   - "c5: After a run, hitld work reconcile finds no gap; with gaps seeded by hand (an item closed in the tracker, a merge reverted, a keyword that never fired), it finds each one."
   - "c6: A fixture project on a hosted tracker is imported and switched to the files backend, and hitld work check passes on the result."
-constraints: [HITLD-97 c6, HITLD-98 c6, HITLD-99 c6]
 check: demo a script, run by someone other than the items' authors, that drives c1, c2 and c5 against each sandbox workspace and records the result with its evidence
 ---
 

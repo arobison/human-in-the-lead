@@ -10,7 +10,7 @@ done_when:
   - "c1: Check 11 of design 21.1 passes on fixture projects."
   - "c2: The executor cap is a person setting, the plan names the layer and placement that decided it, and the owner raises it with one command."
   - "c3: The owner can move the recorded primary checkout."
-constraints: [HITLD-37 c1, HITLD-38 c1, HITLD-39 c1, HITLD-40 c1, HITLD-204 c2, HITLD-145 c2, HITLD-50 c3]
+constraint_of: [HITLD-1 c4]
 check: integration-test check 11 of design 21.1 on fixture projects, with a cloud placement case
 ---
 

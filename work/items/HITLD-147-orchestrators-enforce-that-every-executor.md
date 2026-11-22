@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-16
 project: HITLD-15
+constraint_of: [HITLD-67 c1]
 claimed_by: D-41
 release_note: An interactive executor's brief now ends with a communication block naming the orchestrator's session, and the executor sends its report there at the end of every turn; `hitld dispatch start` refuses one it cannot address (`no-report-block`), and `hitld dispatch watch --ended <sessions>` lists a session that ended with no report under `unreported`, to chase.
 ---

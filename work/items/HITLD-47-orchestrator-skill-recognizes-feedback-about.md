@@ -6,6 +6,7 @@ state: done
 created: 2026-11-14
 project: HITLD-15
 needs: [HITLD-46]
+constraint_of: [HITLD-67 c1]
 claimed_by: D-47
 release_note: "The orchestrator recognizes feedback about HITLd in the person's own turns and files a generalized version only after the person approves it."
 ---

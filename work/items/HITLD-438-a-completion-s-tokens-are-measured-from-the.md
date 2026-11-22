@@ -6,6 +6,7 @@ state: done
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-436]
+constraint_of: [HITLD-408 c1]
 claimed_by: D-35
 release_note: "`hitld dispatch complete --session-record <file>` reads an interactive dispatch's tokens, cache reads and cost from the harness's own record of the executor's session; a headless result's cache reads and cost are kept too. Each completion in the ledger says where its figure came from (`tokens_source`: measured or typed by hand) and keeps the harness's counts apart (`usage`); `--tokens` is refused beside a record. What an executor's report says it cost is kept apart as `self_reported_tokens`, a guess never read as the cost, and the estimator weighs measured figures over typed ones."
 ---

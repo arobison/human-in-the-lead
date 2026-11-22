@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-14
 project: HITLD-15
+constraint_of: [HITLD-66 c1]
 claimed_by: D-18
 release_note: "`hitld work show` and `work query` take `--json` with `api_version`; projects can declare their own fields in tracker.json; `hitld work migrate` applies tracker format migrations."
 ---

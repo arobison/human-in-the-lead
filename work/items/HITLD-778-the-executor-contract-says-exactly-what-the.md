@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-22
 project: HITLD-15
+constraint_of: [HITLD-67 c2]
 claimed_by: D-01M80T9RYAVSGCGX
 release_note: "The executor contract says the report's commit line is exactly `commit: <full sha> (branch <name>)`, with branch notes under `deviations`."
 ---

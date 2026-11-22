@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-16
 project: HITLD-15
+constraint_of: [HITLD-67 c1, HITLD-193 c1]
 claimed_by: D-17
 release_note: An orchestrator started by a chief of staff sends its end-of-turn message with the harness's message tool every turn. New `hitld run woke` and `hitld run heard` record the chief of staff's wakes and the messages that reach it, and `hitld dispatch watch` reports `orchestrator_silent` when an orchestrator was woken or recorded work and no message followed within policy `orchestrator.silent_after_seconds` (default 900). It counts the wakes since the last message heard and sets `escalate_to_owner` at policy `orchestrator.escalate_after_wakes` (default 3), and the chief of staff then tells the owner.
 ---

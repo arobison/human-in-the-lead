@@ -10,7 +10,6 @@ done_when:
   - "c1: The store lives under `%LOCALAPPDATA%`, and the device key is protected with DPAPI."
   - "c2: The store's git ignores the global ignore and attributes files on every platform."
   - "c3: The suite passes with short-name paths."
-constraints: [HITLD-249 c1, HITLD-250 c1, HITLD-251 c2, HITLD-294 c3, HITLD-295 c3]
 check: demo the owner's recorded Windows run of `npm test` and of store device init, push and pull
 ---
 

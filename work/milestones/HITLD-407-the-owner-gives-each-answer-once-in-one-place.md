@@ -12,7 +12,6 @@ done_when:
   - "c3: Commits and sign-offs carry the agreed identity."
   - "c4: Device approvals verify by signature."
   - "c5: An answer counts by a proof the system can check, whatever channel carries it."
-constraints: [HITLD-126 c1, HITLD-180 c1, HITLD-291 c1, HITLD-179 c3, HITLD-333 c4, HITLD-564 c5]
 check: demo the owner answers a held question through two channels that each carry a checkable proof, the orchestrator's command runs with no prompt in its own session, and an answer without a proof is refused
 ---
 

@@ -8,7 +8,6 @@ project: HITLD-15
 outcome: The owner's questions, events and wake-ups survive any one harness session, and the chief of staff and orchestrators can run in any harness, on any provider.
 done_when:
   - "c1: The study says whether a service is worth building, what it would host, and how cloud sessions reach it, and the owner has decided."
-constraints: [HITLD-508 c1]
 check: study whether a service is worth building, what it would host and how cloud sessions reach it, decided by the owner
 ---
 

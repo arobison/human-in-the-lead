@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-20
 project: HITLD-15
+constraint_of: [HITLD-403 c5]
 claimed_by: D-39
 release_note: "Friction signals: `hitld friction scan --session-record <file>` records the friction in a session record as `friction` events in the ledger (a class, a source, an evidence reference and the decision count), once per sighting; `--classified` adds an independent reader's semantic classes that pass the checks, and `hitld friction messages` gives the reader its input. `hitld ledger append` takes a `friction` event, marked self-recognized."
 ---

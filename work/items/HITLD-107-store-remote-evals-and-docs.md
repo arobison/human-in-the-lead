@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-15
 project: HITLD-15
+constraint_of: [HITLD-101 c5]
 claimed_by: D-107
 needs: [HITLD-102, HITLD-103, HITLD-104, HITLD-105, HITLD-106]
 release_note: "A guide, `docs/guide/store-remote.md`, sets up the private store remote: the store repository, its address, a local device, a cloud environment device, approval by the owner's answer, removal and undo. After an approval or a removal, the next push re-seals the store to the approved devices (`store status` reports `push_reason`). Offline eval scenarios cover two devices taking turns, a removed device, a discarded session, an unreleased lease and a remote with no plain text."

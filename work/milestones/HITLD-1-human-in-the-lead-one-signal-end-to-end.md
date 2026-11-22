@@ -12,7 +12,6 @@ done_when:
   - "c3: The eval suite gates changes (check 6)."
   - "c4: Settings hold, and heavy work waits on a busy machine (checks 8, 9 and 11)."
   - "c5: It installs from a release and runs a real consumer (checks 7 and 10)."
-constraints: [HITLD-68 c1, HITLD-64 c2, HITLD-69 c2, HITLD-70 c3, HITLD-65 c4, HITLD-71 c4, HITLD-66 c5, HITLD-67 c5, HITLD-138 c5]
 check: demo the eleven checks of design 21.1 run on fixture repositories by someone other than the authors, each result recorded
 ---
 

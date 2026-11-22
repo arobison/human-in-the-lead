@@ -5,6 +5,7 @@ kind: work
 state: done
 created: 2026-11-15
 project: HITLD-15
+constraint_of: [HITLD-67 c3]
 claimed_by: D-6
 release_note: "`hitld rights record` files a choice the owner made in conversation as a decision."
 ---
