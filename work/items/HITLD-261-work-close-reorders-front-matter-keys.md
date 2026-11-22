@@ -2,7 +2,7 @@
 id: HITLD-261
 title: Work close reorders front-matter keys
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ Evidence: core/lib/tracker/files/claims.mjs:285-286 closeItem uses applyPatch an
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `tracker`, still present on main, confidence 0.8. A file with non-canonical key order and work close --no-commit shows it. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Promoted on 2026-11-22
+
+Promoted to rc.2 on the owner's decision (2026-11-22).
