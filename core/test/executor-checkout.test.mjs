@@ -140,8 +140,20 @@ test('when it cannot tell, the checkout guard fails closed', () => {
   assert.equal(decide('git push', { cwd: notDir }), 'deny', 'cwd is not a directory');
 });
 
+/**
+ * Give `root` an `origin`: a bare repository beside it, as a clone would have.
+ * @param {string} root @returns {string} the remote's URL
+ */
+const withOrigin = (root) => {
+  const url = join(realpathSync(tempDir('hitld-793-origin-')), 'r.git');
+  git(dirname(url), 'init', '-q', '--bare', url);
+  git(root, 'remote', 'add', 'origin', url);
+  return url;
+};
+
 test('an executor may push its own claim branch, alone, and nothing else (HITLD-746, HITLD-765)', () => {
   const root = repo();
+  withOrigin(root);
   for (const allowed of [
     'git push -u origin hitld/W-1-fix',
     'git push --set-upstream origin hitld/W-1-fix',
@@ -186,4 +198,130 @@ test('an executor may push its own claim branch, alone, and nothing else (HITLD-
   // Detached HEAD: no branch is its own.
   git(root, 'switch', '-q', '--detach');
   assert.equal(decide('git push -u origin hitld/W-1-fix', { cwd: root }), 'deny', 'detached');
+});
+
+test('the claim branch push goes only to the project remote, and every other push is refused (HITLD-791, HITLD-793)', () => {
+  const root = repo();
+  const url = withOrigin(root);
+  git(root, 'branch', 'hitld/W-2-other');
+  git(root, 'tag', '-a', 'v1', '-m', 'v1');
+  const allowed = 'git push -u origin hitld/W-1-fix';
+  assert.equal(decide(allowed, { cwd: root }), '', allowed);
+  const refused = {
+    main: ['git push origin main', 'git push -u origin main', 'git push origin HEAD:main'],
+    'another branch': [
+      'git push origin hitld/W-2-other',
+      'git push origin hitld/W-1-fix hitld/W-2-other',
+    ],
+    'a refspec naming another ref': [
+      'git push origin hitld/W-1-fix:main',
+      'git push origin hitld/W-1-fix:refs/heads/main',
+      'git push origin hitld/W-1-fix:hitld/W-1-fix',
+      'git push origin HEAD',
+      'git push origin refs/heads/hitld/W-1-fix',
+      'git push origin',
+      'git push',
+    ],
+    force: [
+      'git push --force origin hitld/W-1-fix',
+      'git push -f origin hitld/W-1-fix',
+      'git push --force-with-lease origin hitld/W-1-fix',
+      'git push --force-if-includes origin hitld/W-1-fix',
+      'git push origin +hitld/W-1-fix',
+    ],
+    'ref-deleting forms': [
+      'git push --delete origin hitld/W-1-fix',
+      'git push -d origin hitld/W-1-fix',
+      'git push origin :hitld/W-1-fix',
+      'git push origin --delete hitld/W-1-fix',
+      'git push --prune origin hitld/W-1-fix',
+    ],
+    'mirror and all': ['git push --mirror origin', 'git push --all origin'],
+    tags: [
+      'git push --tags origin hitld/W-1-fix',
+      'git push --follow-tags origin hitld/W-1-fix',
+      'git push origin v1',
+      'git push origin refs/tags/v1',
+      'git push origin tag v1',
+    ],
+    'another remote': [
+      'git push elsewhere hitld/W-1-fix',
+      `git push ${url} hitld/W-1-fix`,
+      'git push --repo=elsewhere origin hitld/W-1-fix',
+    ],
+    'git options before push': [
+      'git -c remote.origin.push=refs/heads/hitld/W-1-fix:refs/heads/main push origin hitld/W-1-fix',
+      'git -C . push origin hitld/W-1-fix',
+    ],
+    'remote rewiring': [
+      'git remote set-url origin https://example.com/other.git',
+      'git remote set-url --push origin https://example.com/other.git',
+      'git remote add elsewhere https://example.com/other.git',
+      'git remote rename origin old',
+      'git remote remove origin',
+      'git remote rm origin',
+      'git remote set-head origin hitld/W-1-fix',
+    ],
+  };
+  for (const [what, commands] of Object.entries(refused)) {
+    for (const c of commands) assert.equal(decide(c, { cwd: root }), 'deny', `${what}: ${c}`);
+  }
+  // Reading the remotes stays open.
+  assert.equal(decide('git remote -v', { cwd: root }), '');
+  assert.equal(decide('git remote get-url origin', { cwd: root }), '');
+
+  // Configuration that sends the same words elsewhere, or sends more than the branch.
+  for (const [key, value] of [
+    ['remote.origin.push', 'refs/heads/hitld/W-1-fix:refs/heads/main'],
+    ['remote.origin.pushurl', 'https://example.com/other.git'],
+    ['remote.origin.mirror', 'true'],
+    [`url.https://example.com/other.git.insteadOf`, url],
+    [`url.https://example.com/other.git.pushInsteadOf`, url],
+    ['push.followTags', 'true'],
+    ['push.recurseSubmodules', 'on-demand'],
+    ['submodule.recurse', 'true'],
+  ]) {
+    git(root, 'config', key, value);
+    assert.equal(decide(allowed, { cwd: root }), 'deny', `${key}=${value}`);
+    git(root, 'config', '--unset', key);
+  }
+  git(root, 'config', '--add', 'remote.origin.url', 'https://example.com/other.git');
+  assert.equal(decide(allowed, { cwd: root }), 'deny', 'a second URL');
+  git(root, 'config', '--unset', 'remote.origin.url', 'example');
+
+  // Not a hitld/ branch: even holding the claim and checked out, it is not a claim branch.
+  git(root, 'branch', '-m', 'hitld/W-1-fix', 'work-1');
+  assert.equal(decide('git push -u origin work-1', { cwd: root }), 'deny', 'not hitld/');
+  git(root, 'branch', '-m', 'work-1', 'hitld/W-1-fix');
+
+  // The allowed push, run: the remote gets that branch and nothing else.
+  assert.equal(decide(allowed, { cwd: root }), '', 'clean again');
+  git(root, 'push', '-q', '-u', 'origin', 'hitld/W-1-fix');
+  assert.equal(git(url, 'for-each-ref', '--format=%(refname)'), 'refs/heads/hitld/W-1-fix');
+});
+
+test('the claim branch push fails closed when the guard cannot tell the branch or the remote (HITLD-793)', () => {
+  const allowed = 'git push -u origin hitld/W-1-fix';
+  // No origin: no project remote to push to.
+  const noOrigin = repo();
+  assert.equal(decide(allowed, { cwd: noOrigin }), 'deny', 'no origin');
+  // git answers about the branch but not about the remote or its configuration.
+  const root = repo();
+  withOrigin(root);
+  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const shim = realpathSync(tempDir('hitld-793-shim-'));
+  writeFileSync(
+    join(shim, 'git'),
+    `#!/bin/sh\ncase "$3" in remote|config) exit 128;; esac\nexec ${realGit} "$@"\n`,
+    { mode: 0o755 },
+  );
+  const PATH = `${shim}:${process.env.PATH ?? ''}`;
+  assert.equal(decide('git status', { cwd: root }, { PATH }), '', 'the shim answers the rest');
+  assert.equal(decide(allowed, { cwd: root }, { PATH }), 'deny', 'git cannot tell the remote');
+  // git cannot be started: neither the branch nor the remote is known.
+  const noGit = realpathSync(tempDir('hitld-793-nogit-'));
+  assert.equal(decide(allowed, { cwd: root }, { PATH: noGit }), 'deny', 'no git');
+  // Detached HEAD: no branch to call its own.
+  git(root, 'switch', '-q', '--detach');
+  assert.equal(decide(allowed, { cwd: root }), 'deny', 'detached');
 });

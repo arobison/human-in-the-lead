@@ -15,7 +15,7 @@
 // other tool call, of any tool, is refused (budget.mjs reads the cap and the usage).
 
 import { readBudget } from './budget.mjs';
-import { isExecutor, ownClaimBranch, readHookInput } from './input.mjs';
+import { isExecutor, originPushProblem, ownClaimBranch, readHookInput } from './input.mjs';
 import { isReproducer, reproducerRefusal } from './reproducer-rules.mjs';
 
 const input = readHookInput();
@@ -38,20 +38,27 @@ const EXECUTOR_HITLD =
 /** What follows each call of hitld in a command. @param {string} text */
 const hitldCalls = (text) =>
   [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
+const PUSH_RULE =
+  'executors push only their own claim branch, alone: git push -u origin <the hitld/ branch you are on>; never main, another branch, a tag, a delete, another remote, or with force';
 /**
- * The one push an executor may make: `git push [-u | --set-upstream] origin <branch>`, alone on
- * the command line, where the branch is the one its checkout is on and that branch holds its claim
- * (`ownClaimBranch`). No force, no other refspec, remote, option or command beside it: the whole
- * line is matched, so nothing can be chained to it.
- * @param {string} text the command @param {string} dir where it runs
+ * The one push an executor may make (HITLD-746, HITLD-791, HITLD-793): `git push [-u |
+ * --set-upstream] origin hitld/<item>`, alone on the command line, where the branch is the one its
+ * checkout is on and that branch holds its claim (`ownClaimBranch`), and nothing in git's
+ * configuration sends it elsewhere or widens it (`originPushProblem`). No force, no other refspec,
+ * remote, option or command beside it: the whole line is matched, so nothing can be chained to it.
+ * Null when the push may go, else why not.
+ * @param {string} text the command @param {string} dir where it runs @returns {string | null}
  */
-const ownBranchPush = (text, dir) => {
-  const m = /^\s*git\s+push\s+(?:(?:-u|--set-upstream)\s+)?origin\s+([A-Za-z0-9._/-]+)\s*$/.exec(
-    text,
-  );
-  if (!m) return false;
+const ownBranchPushRefusal = (text, dir) => {
+  const m =
+    /^\s*git\s+push\s+(?:(?:-u|--set-upstream)\s+)?origin\s+(hitld\/[A-Za-z0-9._/-]+)\s*$/.exec(
+      text,
+    );
+  if (!m) return PUSH_RULE;
   const branch = ownClaimBranch(dir);
-  return branch !== null && m[1] === branch;
+  if (branch === null || m[1] !== branch) return PUSH_RULE;
+  const problem = originPushProblem(dir);
+  return problem && `${problem}; ${PUSH_RULE}`;
 };
 /** @type {string | null} */
 let why = null;
@@ -62,10 +69,11 @@ if (isReproducer(input)) {
 } else if (bash && executor) {
   if (/\bgit\b[^\n;&|]*\bpush\b/.test(command)) {
     const dir = typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
-    if (!ownBranchPush(command, dir)) {
-      why =
-        'executors push only their own claim branch, alone: git push -u origin <the branch you are on>; never main, another branch, or with force';
-    }
+    why = ownBranchPushRefusal(command, dir);
+  } else if (/\bgit\b[^\n;&|]*\bremote\s+(add|set-url|set-head|rename|remove|rm)\b/.test(command)) {
+    // origin is the project's remote only while it points where it was cloned from, and its HEAD
+    // names the main branch the claim is read against (input.mjs).
+    why = "executors do not add or rewire remotes; push only to the project's remote, origin";
   } else if (/\bgit\b[^\n;&|]*\bupdate-ref\b[^\n;&|]*\brefs\/heads\/main\b/.test(command)) {
     why = 'only the merge queue moves main';
   } else if (
