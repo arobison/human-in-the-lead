@@ -31,6 +31,15 @@
 // Only the harness knows that, so the caller passes the sessions it shows so (`ended`), and each
 // such dispatch is `unreported`: the chief of staff reads its final state and relays the report,
 // or pokes it to send one. It is chased, not waited on, and takes no step of the ladder.
+//
+// A background agent runs inside the session that started it (its parent, the orchestrator), and
+// dies with it (HITLD-737). Once that process has exited and the dispatch has not reported, it is
+// stalled at once (reason exited), without waiting for its stall time or a quota reset: there is
+// no agent left to poke or continue, so its step is to abandon it (or ask). The caller passes the
+// dispatches whose recorded parent has exited (`parentExited`, core/lib/dispatch/parent.mjs). A
+// headless run or an interactive session lives in its own process, judged by its own liveness, so
+// the rule does not apply to them. Each such verdict names the uncommitted work its worktree
+// holds, from its last worktree sample, so it can be saved before the worktree is removed.
 
 import { lastProcess, progressTimes } from './progress.mjs';
 import { startEstimate } from '../ledger/ledger.mjs';
@@ -58,6 +67,10 @@ import { startEstimate } from '../ledger/ledger.mjs';
  * @property {number} stall_after_seconds
  * @property {string} deadline_at
  * @property {Step[]} steps_taken the ladder so far, since the item's last report
+ * @property {boolean} parent_exited the process that started it has exited, and it ran inside it
+ * @property {string | null} branch
+ * @property {string | null} worktree as recorded at dispatch; null when the harness made its own
+ * @property {number} uncommitted_files files its worktree held uncommitted at the last sample
  * @property {string} why
  */
 
@@ -114,9 +127,11 @@ export function rungsFor(entry) {
  *   pause?: Pause | null,
  *   timedPause?: Pause | null,
  *   ended?: ReadonlySet<string>,
+ *   parentExited?: ReadonlySet<string>,
  * }} r
  *   pause: the pause in force; timedPause: the latest pause that named its reset; ended: the
- *   interactive sessions the harness shows as ended or idle, by harness reference or dispatch ID
+ *   interactive sessions the harness shows as ended or idle, by harness reference or dispatch ID;
+ *   parentExited: the dispatches whose recorded parent process has exited
  * @returns {Verdict[]}
  */
 export function watchDispatches(r) {
@@ -153,6 +168,13 @@ export function watchDispatches(r) {
       itemEvents.findLastIndex((e) => e.event === 'reported') + 1,
     );
     const steps = sinceReport.filter((e) => e.event === 'stalled' && e.reason !== 'limit');
+    // Its parent has exited, it ran inside it, and it has not reported.
+    const orphaned =
+      Boolean(r.parentExited?.has(entry.dispatch)) &&
+      entry.mode !== 'headless' &&
+      entry.mode !== 'interactive' &&
+      !r.events.some((e) => e.event === 'reported' && e.dispatch === entry.dispatch);
+    const lastTree = signals.findLast((s) => s.source === 'worktree');
 
     /** @param {Verdict['state']} state @param {Partial<Verdict>} [more] @returns {Verdict} */
     const verdict = (state, more = {}) => ({
@@ -170,6 +192,10 @@ export function watchDispatches(r) {
       stall_after_seconds: limits.stall_after,
       deadline_at: iso(deadlineAt),
       steps_taken: steps.map((s) => /** @type {Step} */ (s.step)),
+      parent_exited: orphaned,
+      branch: entry.branch ?? null,
+      worktree: entry.worktree ?? null,
+      uncommitted_files: lastTree?.dirty ?? 0,
       why: '',
       ...more,
     });
@@ -194,13 +220,14 @@ export function watchDispatches(r) {
         why: 'its process has ended and written its result: record its completion',
       });
     }
-    const exited = Boolean(proc && proc.alive === false);
+    const exited = Boolean(proc && proc.alive === false) || orphaned;
     const quietTooLong = quiet >= limits.stall_after || exited;
 
-    // Paused at the quota gate, before the reset: a quiet executor may have hit the limit too.
+    // Paused at the quota gate, before the reset: a quiet executor may have hit the limit too. One
+    // whose parent has exited did not: it is gone, whatever the quota.
     const pausedNow =
       r.pause && (r.pause.resets_at === null || r.now < Date.parse(r.pause.resets_at));
-    if (pausedNow && (quietTooLong || overdue)) {
+    if (pausedNow && !orphaned && (quietTooLong || overdue)) {
       return verdict('waiting_for_reset', {
         why: `dispatch is paused at ${r.pause?.limit}${r.pause?.resets_at ? ` until ${r.pause.resets_at}` : ''}; a quiet executor may have hit the limit, so the ladder waits for the reset`,
       });
@@ -209,7 +236,7 @@ export function watchDispatches(r) {
     // After a reset: a background or interactive agent that went quiet during the pause and has not
     // progressed since the reset was cut off by the limit. Continue it; this is not a failure.
     const timed = r.timedPause;
-    if (timed?.resets_at && entry.harness_ref && entry.mode !== 'headless') {
+    if (timed?.resets_at && entry.harness_ref && entry.mode !== 'headless' && !orphaned) {
       const reset = Date.parse(timed.resets_at);
       const pausedAt = Date.parse(timed.at);
       const handled = r.events.some(
@@ -263,21 +290,24 @@ export function watchDispatches(r) {
           : `quiet for ${quiet}s of ${limits.stall_after}s; deadline ${iso(deadlineAt)}`,
       });
     }
-    const rungs = rungsFor(entry);
+    // No agent is left to poke or continue: abandon it.
+    const rungs = orphaned ? /** @type {Step[]} */ (['abandon']) : rungsFor(entry);
     /** @type {Step} */
     let step = rungs[Math.min(segment.length, rungs.length - 1)];
     // A step not open to this dispatch (it took one of a longer ladder before) moves to the next.
     if (segment.length >= rungs.length) step = 'abandon';
     if (step === 'abandon' && abandons >= maxRedispatch) step = 'ask';
-    return verdict(overdue ? 'overdue' : 'stalled', {
+    return verdict(overdue && !orphaned ? 'overdue' : 'stalled', {
       reason,
       step,
       why:
         reason === 'deadline'
           ? `past its deadline of ${iso(deadlineAt)}`
-          : reason === 'exited'
-            ? 'its process ended without a result'
-            : `no progress for ${quiet}s (its stall time is ${limits.stall_after}s)${segment.length ? ` since the ${segment[segment.length - 1].step}` : ''}`,
+          : orphaned
+            ? `the process that started it (its orchestrator) has exited, and it ran inside it without reporting${lastTree?.dirty ? `: its worktree holds ${lastTree.dirty} uncommitted ${lastTree.dirty === 1 ? 'file' : 'files'}` : ''}`
+            : reason === 'exited'
+              ? 'its process ended without a result'
+              : `no progress for ${quiet}s (its stall time is ${limits.stall_after}s)${segment.length ? ` since the ${segment[segment.length - 1].step}` : ''}`,
     });
   });
 }
