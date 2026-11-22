@@ -77,6 +77,7 @@ import {
   executorEnv,
   hasReportBlock,
   renderBrief,
+  reportBlock,
   reportsByMessage,
 } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
@@ -139,6 +140,9 @@ import { loadTerms } from '../../store/private-terms.mjs';
  * @typedef {import('../../merge/owner.mjs').QueueResult} QueueResult
  * @typedef {import('../../merge/owner.mjs').Presentation} Presentation
  */
+
+/** The notes of a follow-up's dispatched event; `dispatch complete` reads it to name the follow-up. */
+const FOLLOW_UP_OF = 'follow-up of ';
 
 /** @type {import('../args.mjs').ArgSpec} */
 const SESSION = {
@@ -1559,7 +1563,25 @@ const table = [
           const done = readLedger(p.store).events.find(
             (e) => e.dispatch === d && e.event === 'reported',
           );
-          if (done) return { ok: true, dispatch: d, already: true, event: done };
+          if (done) {
+            // Its report stands. A follow-up continues it as a dispatch of its own, whose report
+            // is completed under that ID (HITLD-739): name it, so the second report lands there.
+            const next = readLedger(p.store)
+              .events.filter((e) => e.event === 'dispatched' && e.notes === `${FOLLOW_UP_OF}${d}`)
+              .at(-1);
+            return {
+              ok: true,
+              dispatch: d,
+              already: true,
+              event: done,
+              ...(next
+                ? {
+                    continued_as: next.dispatch,
+                    next: `${d}'s report is already recorded, and ${next.dispatch} continues it as a follow-up: complete that report with hitld dispatch complete --dispatch ${next.dispatch}`,
+                  }
+                : {}),
+            };
+          }
           throw new Refusal('not-in-flight', `${d} is not in flight`);
         }
         const typedTokens = /** @type {number | undefined} */ (input.tokens);
@@ -1810,7 +1832,85 @@ const table = [
         if (!text) throw new Refusal('usage', 'give --message or --message-file');
         const dispatch = nextDispatchId(events);
         const xenv = executorEnv(dispatch, p.policy.project.id);
-        const message = `${text}\n\n(This is dispatch ${dispatch}: prefix hitld commands with ${envPrefix(xenv)}. End with the report in the fixed shape.)`;
+        const tier = first.tier ?? 1;
+        // An interactive session (HITLD-739) is continued by a message the chief of staff relays,
+        // as a poke is: it needs no worktree, result file or process ID of its own, and it reports
+        // by message, so the follow-up carries the communication block naming this session.
+        const byMessage = reportsByMessage({ tier, mode: first.mode });
+        let reportTo = null;
+        if (byMessage) {
+          const given = identityOf(p, input, ctx);
+          reportTo =
+            given.session && ['flag', 'env', 'harness'].includes(String(given.source))
+              ? given.session
+              : null;
+        }
+        const message = `${text}\n\n(This is dispatch ${dispatch}: prefix hitld commands with ${envPrefix(xenv)}. End with the report in the fixed shape.)${reportTo ? `\n\n${reportBlock(reportTo)}` : ''}`;
+        // Every refusal comes before anything is recorded (HITLD-739): a refused follow-up leaves
+        // no dispatch in the ledger or in flight, where it would hold an executor slot.
+        if (byMessage && !(reportTo && hasReportBlock(message, reportTo))) {
+          throw new Refusal(
+            'no-report-block',
+            `${from} runs as an interactive session, which reports by message, and this session's ID comes only from the run's record, not from --session, $HITLD_SESSION or the harness, so the follow-up could not name where to report. Pass --session <your harness session ID> or set HITLD_SESSION, then follow up again`,
+          );
+        }
+        const briefPath = join(p.store.root, briefKey(dispatch));
+        /** @type {import('../../../harness/claude-code/instructions.mjs').Instruction} */
+        let call;
+        if (byMessage) {
+          call = followUpInstruction({
+            harnessRef: started.harness_ref,
+            message,
+            tier,
+            dispatch,
+            mode: 'interactive',
+          });
+        } else {
+          let sessionId = null;
+          let worktree = null;
+          if (tier >= 3) {
+            try {
+              sessionId = JSON.parse(p.store.read(resultKey(from)) ?? 'null')?.session_id ?? null;
+            } catch {
+              sessionId = null;
+            }
+            worktree =
+              first.worktree ??
+              Object.values(
+                openEnv({
+                  repoRoot: p.repoRoot,
+                  store: p.store,
+                  policy: p.policy,
+                  env: ctx.env,
+                  capacity: p.capacity,
+                }).registry().worktrees,
+              ).find((w) => w.branch === first.branch)?.path ??
+              null;
+            const missing = [
+              ...(sessionId ? [] : [`the earlier run's session ID (no result file for ${from})`]),
+              ...(worktree ? [] : ['its worktree']),
+            ];
+            if (missing.length) {
+              throw new Refusal(
+                'cannot-follow-up',
+                `${from} ran headless, and a headless follow-up resumes its run, which needs ${missing.join(' and ')}. Nothing was recorded`,
+              );
+            }
+          }
+          call = followUpInstruction({
+            harnessRef: started.harness_ref,
+            message,
+            tier,
+            dispatch,
+            worktree,
+            sessionId,
+            briefPath,
+            resultPath: join(p.store.root, resultKey(dispatch)),
+            pidPath: join(p.store.root, pidKey(dispatch)),
+            permissionMode: p.policy.dispatch.headless_permission_mode,
+            env: xenv,
+          });
+        }
         run.record({
           id: lifecycleId('dispatched', dispatch),
           event: 'dispatched',
@@ -1831,7 +1931,7 @@ const table = [
           ...(first.touches
             ? { touches: first.touches, touches_source: first.touches_source }
             : {}),
-          notes: `follow-up of ${from}`,
+          notes: `${FOLLOW_UP_OF}${from}`,
         });
         run.record({
           id: lifecycleId('started', dispatch),
@@ -1843,44 +1943,19 @@ const table = [
           host: run.host,
         });
         p.store.write(briefKey(dispatch), message);
-        mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
-        let sessionId = null;
-        try {
-          sessionId = JSON.parse(p.store.read(resultKey(from)) ?? 'null')?.session_id ?? null;
-        } catch {
-          sessionId = null;
+        if (call.tool === 'Bash') {
+          mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
         }
-        const call = followUpInstruction({
-          harnessRef: started.harness_ref,
-          message,
-          tier: first.tier ?? 1,
-          dispatch,
-          worktree:
-            first.worktree ??
-            Object.values(
-              openEnv({
-                repoRoot: p.repoRoot,
-                store: p.store,
-                policy: p.policy,
-                env: ctx.env,
-                capacity: p.capacity,
-              }).registry().worktrees,
-            ).find((w) => w.branch === first.branch)?.path ??
-            null,
-          sessionId,
-          briefPath: join(p.store.root, briefKey(dispatch)),
-          resultPath: join(p.store.root, resultKey(dispatch)),
-          pidPath: join(p.store.root, pidKey(dispatch)),
-          permissionMode: p.policy.dispatch.headless_permission_mode,
-          env: xenv,
-        });
         return {
           ok: true,
           dispatch,
           follows: from,
           item: first.item,
           instruction: call,
-          then: `its completion notice goes to hitld dispatch complete --dispatch ${dispatch}`,
+          then:
+            call.tool === 'relay'
+              ? `with a chief of staff, put the relay in your message to it (relay: follow-up ${dispatch} to session ${started.harness_ref}, with the message); when you are both, send the message to that session yourself. Its report comes to this session: complete it as ${dispatch}, not ${from}, whose report is already recorded: save the session's result events to a file; hitld dispatch complete --dispatch ${dispatch} --session-record <file> [--report-file <the report>]`
+              : `its completion notice goes to hitld dispatch complete --dispatch ${dispatch}`,
         };
       }),
   },
