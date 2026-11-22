@@ -2,7 +2,7 @@
 id: HITLD-742
 title: The README and the guide say the release ships the CLI
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80JA52TF52ST3
