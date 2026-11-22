@@ -2,7 +2,7 @@
 id: HITLD-782
 title: An executor's budget hook sums its usage from its turn outputs and stops it near its cap
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 claimed_by: D-01M80ZP7SCPSCAFX
