@@ -195,7 +195,7 @@ Ordering is derived (cost of delay over size), and milestones split work into co
 
 ### Q32. Where does a release record live? (affects releases)
 
-*Decided: `work/releases/<tag>.md`, as recommended.*
+*Decided: `work/releases/<tag>.md`, as recommended. With release packages, a package's records live in its own folder, `work/releases/<package>/<tag>.md` (HITLD-756, [part 3](03-data-model.md#release-package)).*
 
 - **Recommend: one file per release in the tracker (`work/releases/v0.4.0.md`)**, named by the tag. The interface delta and the owner's decision do not fit in a tag, and the read API can return the file like any entity ([part 3](03-data-model.md#release)).
 - **Alternative: the annotated tag message holds the record.** Nothing new in the tracker, but readers need git, and the record cannot be validated with the other files.
@@ -214,6 +214,24 @@ Ordering is derived (cost of delay over size), and milestones split work into co
 - **Taken: the release pull request** (release-please, Changesets). The record is reviewed as a diff, the decision is a merge with a sign-off, and no long-lived token is stored.
 - **Alternative not taken: tag from the session with a stored token.** Simpler, but a session would hold a token that can push tags, and the tag push would start the release workflow outside the owner's approval.
 - **Alternative not taken: a second workflow started by the tag push.** A push made with the Actions token starts no workflow, so this needs a personal access token or a GitHub App key, which is a stored secret.
+
+### Q38. What tag template does this repository's `main` package take? (affects HITLD-759 and the next release)
+
+*Decided: `v{version}`, as recommended (the owner, 2026-11-22, HITLD-843).* No tag is renamed: `v0.1.0-rc.1` already matches the template, and the `v*` tag ruleset and consumers' refs keep their meaning. The next release is `v0.1.0-rc.2`.
+
+The owner chose to move the repository-wide releases into a named package, `main` (HITLD-757), and the default template is `{name}@{version}` (HITLD-754). This repository's `v0.1.0-rc.1` is published and pinned by consuming projects, and the tag ruleset and immutable releases keep it from being deleted or moved, so the migration keeps it either way ([16.5, Migrating to release packages](16-packaging.md#migrating-to-release-packages)).
+
+- **Taken: `v{version}`.** The migration moves the records into `work/releases/main/` and adds no tag: `v0.1.0-rc.1` already matches the template, and the next release is `v0.1.0-rc.2`. The `v*` tag ruleset, the plugin's `version` equal to its tag ([16.3](16-packaging.md#163-how-a-consuming-project-gets-the-plugin)) and every consumer's `ref` keep their meaning. There is still one model, a named package with a template; HITLD-757's renaming then applies to the records, not the tags.
+- **Alternative not taken: the default, `main@{version}`.** The tags have the shape every other repository's default gives. The migration adds `main@0.1.0-rc.1` on the same commit with `v0.1.0-rc.1` kept beside it, the tag ruleset adds `main@*`, and each consumer moves its `ref` to the new shape at its next upgrade. A tag such as `main@0.1.0` also reads like git's `main@{...}` reflog syntax next to the branch `main`.
+
+### Q39. How is a package with no surface file bumped? (affects HITLD-759)
+
+*Decided: no proposed version, as recommended (the owner, 2026-11-22, HITLD-844).* `release propose` proposes no version for a package with no surface file, and the owner names it with `--version`, a patch included, because a change that cannot be measured is never taken for a fix.
+
+The interface is measured from a committed surface file (HITLD-755), and HITLD-759's tests include a package that declares none: a new module, or a project whose tool does not write one yet.
+
+- **Taken: no surface file, no proposed bump.** `release propose` says the interface is not measured and proposes no version; `release make` takes the version from the owner's own turn (`--version`), a patch included, and no patch precedent applies. A change that cannot be measured is never taken for a fix (principle 10).
+- **Alternative not taken: patch unless the owner names another bump.** Less to do for a package with no public interface, but a breaking change ships as a patch whenever no one looks.
 
 ## Before later milestones
 
@@ -357,3 +375,4 @@ These are calls the design makes without asking. Each can be reversed cheaply no
 - Controllers move settings only inside owner-set bounds; anything else is a rule change ([part 11](11-metrics-and-control.md#112-who-moves-what)). Judgment weights are estimates, not settings, and have no owner bounds ([Q24](#q24-who-decides-a-change-to-a-persons-prior-weight-blocks-hl)).
 - New projects start in owner merge mode (`merge.mode: owner`): the owner decides each merge ([part 14](14-integration.md)).
 - For caps and limits, the strictest settings layer wins ([13.4](13-operations.md#precedence)).
+- Release packages ([part 3](03-data-model.md#release-package)), on the decisions of HITLD-752: a package's fields are `name`, `tag`, `paths`, `surface`, `version_from`, `depends_on`, `group` and `channels`, with `rc` the one channel when none is listed; a record whose tag holds a `/` is named with `-` in its place; a release train is a work item that needs several packages' release items and has no `release` key of its own, and a release it needs is not made alone while it is open; a dependency's pinned version is read from its `version_from` at the released commit; this repository's surface file is written by a script, and `npm run check` fails when it is stale ([16.5](16-packaging.md#165-releases-and-compatibility)).

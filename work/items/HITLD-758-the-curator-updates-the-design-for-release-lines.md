@@ -1,10 +1,11 @@
 ---
 id: HITLD-758
-title: "The curator updates the design for release packages"
+title: The curator updates the design for release packages
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M810EQ2VV1R1RE
 ---
 
 ## Why
