@@ -2,7 +2,7 @@
 id: HITLD-795
 title: This repository's policy hands an orchestrator over at 30 percent of its context or 8 completions
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
