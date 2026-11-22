@@ -2,9 +2,10 @@
 id: HITLD-691
 title: The dashboard data contract is one versioned surface that HITLD's page and a project's extensions read
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-21
 project: HITLD-15
+claimed_by: D-01M80AVF73N1P94X
 ---
 
 ## Why
