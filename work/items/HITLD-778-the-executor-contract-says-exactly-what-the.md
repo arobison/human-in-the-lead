@@ -2,9 +2,10 @@
 id: HITLD-778
 title: The executor contract says exactly what the commit line of a report may hold
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
+claimed_by: D-01M80T9RYAVSGCGX
 ---
 
 ## Why
