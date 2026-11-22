@@ -2,7 +2,7 @@
 id: HITLD-284
 title: A failed fast check's output is dropped, and the follow-up blames the branch
 kind: work
-state: proposed
+state: planned
 created: 2026-11-16
 project: HITLD-15
 ---
@@ -24,3 +24,7 @@ Evidence: core/lib/cli/commands/orchestrator.mjs:596-608 rejectedJson keeps outp
 ## Notes
 
 Triage record (design part 2.2, quarantined triager; evidence is the triager's and is not individually verified): route `auto-fix-candidate`, area `merge`, still present on main, confidence 0.8. Code pointers are precise; a failing fast check in a test shows the dropped output. Also hit in #177. It stays `proposed` until the owner confirms a precedent that allows auto-fix for its area, or commits it to `planned`.
+
+## Promoted on 2026-11-22
+
+Promoted to rc.2 on the owner's decision (2026-11-22).

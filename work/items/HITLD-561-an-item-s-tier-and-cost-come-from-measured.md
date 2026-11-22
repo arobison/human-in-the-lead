@@ -30,3 +30,7 @@ Dispatch routes work to a discrete tier by a file count (`dispatch.tier1_max_tou
 ## Notes
 
 Design: the shape is decided; the details (rungs, signals, override form) are walked through with the owner. Code and design: the owner's own yes to merge. Shape with HITLD-285 and 286 (the settings defaults sizing depends on). Folded items (HITLD-575): HITLD-287 and HITLD-500 are folded into this item and close when it lands; HITLD-285 and 286 stay as independent small fixes. Related: HITLD-532, 533, 559, 560, 581.
+
+## Decisions of 2026-11-22 (HITLD-768 to 774)
+
+The owner generalized the profile in a walk-through: an executor is described by capability dimensions (lifetime: in-process, detached process, own session; interaction: runs alone, asks, steered by a person; isolation: shared checkout, own worktree) plus runtime, provider, model, effort and budget. Cascade rungs are (runtime, provider, model, effort) entries declared in policy and ordered by cost, each declaring its data boundary and the guard enforcement it supports; an item's classification limits the rungs it may use; blast radius sets a floor on the starting rung. Tiers, `tier_override` and the tier settings are removed outright, with a one-time migration (`tier_override` becomes `profile_override`; ledger events keep reading old `tier` fields as history). Only the Claude Code adapter is built here; the working second adapter is HITLD-776. The design text is HITLD-775. HITLD-746 (detached executors) is the detached lifetime of this profile.
