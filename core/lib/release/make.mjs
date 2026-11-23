@@ -26,7 +26,8 @@ import { renderItem } from '../tracker/files/frontmatter.mjs';
 import { RELEASE_KEYS, formatDeltaEntry, packageReleasesDir } from '../tracker/files/releases.mjs';
 import { createExclusive, insidePath, mkdirInside } from '../tracker/files/safe.mjs';
 import { git } from '../tracker/files/tree.mjs';
-import { proposeRelease, recordFor } from './propose.mjs';
+import { channelProblem, openTrainsNeeding, proposeRelease, recordFor } from './propose.mjs';
+import { resolvePackage } from './packages.mjs';
 import { SEMVER, atLeast, bumpBetween, bumpVersion, coreOf, isPrerelease } from './semver.mjs';
 import { proposeBump } from './delta.mjs';
 
@@ -78,7 +79,14 @@ export async function makeRelease(
     );
   }
   if (onto !== undefined) checkNewBranch(root, onto, layout.mainBranch);
+  if (version !== undefined) {
+    // A version's pre-release label is one of the package's channels, as --pre's is (HITLD-898).
+    // A lockstep group's members share their channels (checkPackages).
+    const problem = channelProblem(resolvePackage(layout.packages ?? [], name), version);
+    if (problem) throw new CodedError('not-a-channel', problem);
+  }
   const p = await proposeRelease(t, { package: name, pre, item, version, train });
+  if (train === undefined) assertNoOpenTrain(t, p);
   if (train === undefined && version === undefined && p.version === null) {
     // No surface file: no version is proposed, so the owner names it (HITLD-752, Q39).
     throw new Error(
@@ -247,6 +255,33 @@ export function assertGatesMet(p) {
       `the release waits for its gates: ${describeGates(p.gates)}`,
     );
   }
+}
+
+/**
+ * Refuse a release that an open release train needs: while the train is open, its releases are
+ * made together, with --train (design 03, Release trains; HITLD-898).
+ * @param {FilesTracker} t @param {Pick<Proposal, 'releases'>} p
+ */
+export function assertNoOpenTrain(t, p) {
+  const message = trainProblem(t, p);
+  if (message) throw new CodedError('release-in-train', message);
+}
+
+/**
+ * Why a release may not be made alone, or null: the open trains that need its release items.
+ * @param {FilesTracker} t @param {Pick<Proposal, 'releases'>} p
+ * @returns {string | null}
+ */
+export function trainProblem(t, p) {
+  const items = [...new Set(p.releases.flatMap((r) => (r.release_item ? [r.release_item] : [])))];
+  const trains = openTrainsNeeding(t, items);
+  if (!trains.length) return null;
+  const tags = p.releases.map((r) => r.tag ?? r.package);
+  const held = trains
+    .map((x) => `the open release train ${x.train} needs ${x.release_items.join(', ')}`)
+    .join('; ');
+  const how = trains.map((x) => `hitld release make --train ${x.train}`).join(' or ');
+  return `${held} (${tags.join(', ')}); a release a train needs is not made alone: make it with ${how}, or finish or drop the train first`;
 }
 
 /** @param {import('./propose.mjs').Gate[]} gates */

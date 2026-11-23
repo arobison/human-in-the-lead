@@ -480,6 +480,94 @@ test('a release train makes several packages’ releases together, in one approv
   assert.deepEqual(checked.json.problems, []);
 });
 
+const TOOL = { name: 'tool', paths: ['tool/**'], surface: 'tool/surface.txt' };
+
+test('a release train that includes a lockstep group releases every member with the group’s release item (HITLD-898)', async () => {
+  const root = repo([{ ...CORE, group: 'sdk' }, { ...APP, group: 'sdk' }, TOOL], {
+    ...TWO,
+    'tool/surface.txt': 'opt verbose\n',
+    ...item('W-20', { release: '0.1.0', package: 'core', needs: ['W-3'] }),
+    ...item('W-21', { release: '0.1.0', package: 'tool', needs: ['W-3'] }),
+    ...item('W-22', { needs: ['W-20', 'W-21'] }),
+  });
+  const p = await hitld(['release', 'propose', '--train', 'W-22'], root);
+  assert.equal(p.code, 0, JSON.stringify(p.json));
+  assert.deepEqual(
+    p.json.releases.map((/** @type {any} */ r) => [r.tag, r.release_item]),
+    [
+      ['core@0.1.0', 'W-20'],
+      ['app/v0.1.0', 'W-20'],
+      ['tool@0.1.0', 'W-21'],
+    ],
+    'every member of the group is released under the one release item the group shares',
+  );
+  const made = await hitld(['release', 'make', '--train', 'W-22'], root);
+  assert.equal(made.code, 0, JSON.stringify(made.json));
+  assert.deepEqual(made.json.tags, ['core@0.1.0', 'app/v0.1.0', 'tool@0.1.0']);
+  const checked = await hitld(['work', 'check'], root);
+  assert.deepEqual(checked.json.problems, []);
+});
+
+test('while a train is open, a release it needs is not made alone: release make refuses and names the train (HITLD-898)', async () => {
+  const root = repo([{ ...CORE, group: 'sdk' }, { ...APP, group: 'sdk' }, TOOL], {
+    ...TWO,
+    'tool/surface.txt': 'opt verbose\n',
+    ...item('W-20', { release: '0.1.0', package: 'core', needs: ['W-3'] }),
+    ...item('W-21', { release: '0.1.0', package: 'tool', needs: ['W-3'] }),
+    ...item('W-22', { needs: ['W-20', 'W-21'] }),
+    // An open item that needs one release item is not a train, and holds nothing back.
+    ...item('W-23', { needs: ['W-21'] }),
+  });
+  for (const pkg of ['core', 'app', 'tool']) {
+    const alone = await hitld(['release', 'make', '--package', pkg], root);
+    assert.equal(alone.json.error, 'release-in-train', `${pkg}: ${JSON.stringify(alone.json)}`);
+    assert.match(alone.json.message, /the open release train W-22 needs/);
+    assert.match(alone.json.message, /hitld release make --train W-22/);
+  }
+  assert.equal(git(root, 'tag', '--list').trim(), '', 'nothing was tagged');
+  const branch = await hitld(['release', 'make', '--package', 'tool', '--branch', 'rel'], root);
+  assert.equal(branch.json.error, 'release-in-train');
+  // The record-to-tag check applies the same rule to a release pull request.
+  git(root, 'switch', '-q', '-c', 'by-hand');
+  put(root, {
+    'work/releases/tool/0.1.0.md': [
+      '---',
+      'id: tool@0.1.0',
+      'package: tool',
+      'version: 0.1.0',
+      'bump: minor',
+      'interface_delta: ["additive tool/surface.txt: opt verbose"]',
+      'depends: []',
+      'decision: owner',
+      'items: []',
+      'milestones: []',
+      'classification: public',
+      '---',
+      '',
+      '## Notes',
+      '',
+      'No release notes.',
+      '',
+    ].join('\n'),
+  });
+  commitAll(root, 'the record by hand');
+  git(root, 'switch', '-q', '-c', 'landed', 'main');
+  git(root, 'merge', '-q', '--squash', 'by-hand');
+  git(root, 'commit', '-q', '-m', 'Release tool@0.1.0 (#6)');
+  const check = await checkReleaseCommit({ root, main: 'landed', prs: [6] });
+  assert.equal(check.ok, false);
+  assert.ok(
+    check.problems.some((m) => /the open release train W-22 needs/.test(m)),
+    JSON.stringify(check.problems),
+  );
+  git(root, 'switch', '-q', 'main');
+  // Once the train is done, each release is the package's own again.
+  put(root, item('W-22', { needs: ['W-20', 'W-21'], state: 'dropped' }));
+  commitAll(root, 'the train is dropped');
+  const own = await hitld(['release', 'make', '--package', 'tool'], root);
+  assert.equal(own.code, 0, JSON.stringify(own.json));
+});
+
 // --- Pre-release channels ---------------------------------------------------------------------
 
 test('each pre-release channel keeps its own counter per package; a channel not declared is refused', async () => {
@@ -503,6 +591,54 @@ test('each pre-release channel keeps its own counter per package; a channel not 
   assert.match(
     appBeta.json.message,
     /beta is not a pre-release channel of app \(its channels: rc\)/,
+  );
+  assert.equal(appBeta.json.error, 'not-a-channel');
+});
+
+test('a --version whose pre-release label is not one of the package’s channels is refused, on main and on a release pull request (HITLD-898)', async () => {
+  const root = repo([CORE, { ...APP, channels: ['rc'] }], TWO);
+  for (const version of ['0.1.0-zeta.7', '0.1.0-beta.1', '0.1.0-rc', '0.1.0-rc.1.2']) {
+    const made = await hitld(['release', 'make', '--package', 'app', '--version', version], root);
+    assert.equal(made.json.error, 'not-a-channel', `${version}: ${JSON.stringify(made.json)}`);
+    assert.match(made.json.message, /its channels: rc/);
+  }
+  assert.equal(git(root, 'tag', '--list').trim(), '', 'nothing was tagged');
+  const rc = await hitld(['release', 'make', '--package', 'app', '--version', '0.1.0-rc.1'], root);
+  assert.equal(rc.code, 0, JSON.stringify(rc.json));
+  // A record by hand on a release pull request: the check reports it, rather than stopping.
+  git(root, 'switch', '-q', '-c', 'by-hand');
+  put(root, {
+    'work/releases/app/0.1.0-zeta.1.md': [
+      '---',
+      'id: app/v0.1.0-zeta.1',
+      'package: app',
+      'version: 0.1.0-zeta.1',
+      'bump: minor',
+      'interface_delta: ["additive app/surface.txt: cmd run"]',
+      'depends: []',
+      'decision: owner',
+      'items: []',
+      'milestones: []',
+      'classification: public',
+      '---',
+      '',
+      '## Notes',
+      '',
+      'No release notes.',
+      '',
+    ].join('\n'),
+  });
+  commitAll(root, 'the record by hand');
+  git(root, 'switch', '-q', 'main');
+  git(root, 'merge', '-q', '--squash', 'by-hand');
+  git(root, 'commit', '-q', '-m', 'Release app/v0.1.0-zeta.1 (#7)');
+  const check = await checkReleaseCommit({ root, prs: [7] });
+  assert.equal(check.ok, false);
+  assert.ok(
+    check.problems.some((m) =>
+      /zeta is not a pre-release channel of app \(its channels: rc\)/.test(m),
+    ),
+    JSON.stringify(check.problems),
   );
 });
 
