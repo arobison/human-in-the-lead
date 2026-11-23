@@ -48,6 +48,20 @@ export const TRACKER_CONFIG_PATH = join('.human-in-the-lead', 'tracker.json');
 /** tracker.json settings renamed by HITLD-82, read under the old name until the next minor. */
 const LEGACY_SETTINGS = /** @type {Record<string, string>} */ ({ lists_readme: 'lists_file' });
 
+/**
+ * Optional keys that are always on, whatever optional_keys lists: the executor contract, the
+ * sizer, the overlap rule and the merge evidence read `touches`, and the sizer honors
+ * `tier_override` as the owner's override, so a fresh project must be able to write them
+ * (HITLD-286). Listing them changes nothing.
+ */
+export const ALWAYS_ON_OPTIONAL_KEYS = ['touches', 'tier_override'];
+
+/**
+ * The names tracker.json optional_keys may turn on, from schemas/tracker.schema.json.
+ * @returns {string[]}
+ */
+export const optionalKeyNames = () => schemas().get('tracker').properties.optional_keys.items.enum;
+
 /** optional_keys names renamed by HITLD-82. */
 const LEGACY_OPTIONAL_KEYS = /** @type {Record<string, string>} */ ({
   tier_hint: 'tier_override',
@@ -199,8 +213,7 @@ export function loadTrackerConfig({ repoRoot, configDir }) {
 function fieldDeclarationErrors(config) {
   /** @type {ValidationError[]} */
   const errors = [];
-  const optional = schemas().get('tracker').properties.optional_keys.items.enum;
-  const reserved = reservedFieldNames(optional);
+  const reserved = reservedFieldNames(optionalKeyNames());
   const seen = new Set();
   for (const [i, f] of (config.fields ?? []).entries()) {
     const path = `fields[${i}]`;
@@ -289,7 +302,10 @@ export function resolveLayout(config, policy) {
     listsFile: config.lists_file,
     mainBranch: String(config.legacy_main_branch ?? policy.merge?.main_branch ?? 'main'),
     bundleRefs: config.bundle_refs,
-    optionalKeys: config.optional_keys,
+    optionalKeys: [
+      ...config.optional_keys,
+      ...ALWAYS_ON_OPTIONAL_KEYS.filter((k) => !config.optional_keys.includes(k)),
+    ],
     fields: config.fields ?? [],
     defaultClassification: config.default_classification,
     classificationCeiling: policy.project.classification_ceiling ?? 'public',
