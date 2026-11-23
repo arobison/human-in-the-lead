@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import {
@@ -21,6 +21,10 @@ import {
 } from '../lib/release/packages.mjs';
 import { loadRecords } from '../lib/install/upgrade.mjs';
 import { checkReleaseCommit } from '../lib/release/check.mjs';
+import { applyMigration, planMigration } from '../lib/release/migrate.mjs';
+import { loadPolicy } from '../lib/policy/policy.mjs';
+import { openTracker } from '../lib/tracker/files/tracker.mjs';
+import { compileTerms } from '../lib/guard/private-terms.mjs';
 import { commitAll, git, itemText, makeRepo, put } from './tracker-fixture.mjs';
 
 /** @param {string[]} argv @param {string} cwd @param {NodeJS.ProcessEnv} [env] */
@@ -751,4 +755,181 @@ test('once a package is declared, a record left outside a package folder is refu
     checked.json.problems.join('\n'),
     /v0\.1\.0-rc\.1\.md: is a repository-wide record from before release packages; hitld release migrate moves it/,
   );
+});
+
+// --- Upgrading to release packages (HITLD-899) ----------------------------------------------
+
+test('work check warns while no package is declared and records from before packages exist', async () => {
+  const root = repo(null, { 'work/releases/v0.1.0-rc.1.md': LEGACY });
+  const checked = await hitld(['work', 'check'], root);
+  assert.deepEqual(checked.json.problems, []);
+  assert.match(
+    checked.json.warnings.join('\n'),
+    /work\/releases\/v0\.1\.0-rc\.1\.md is a release record from before release packages, and no package is declared: release propose and release make refuse \(no-packages\) until the owner runs hitld release migrate --apply/,
+  );
+  // No record from before packages: nothing to migrate, nothing to warn about.
+  const fresh = await hitld(['work', 'check'], repo(null));
+  assert.doesNotMatch(fresh.json.warnings.join('\n'), /before release packages/);
+  // Once migrated, the warning is gone.
+  assert.equal((await hitld(['release', 'migrate', '--apply'], root)).code, 0);
+  const after = await hitld(['work', 'check'], root);
+  assert.deepEqual(after.json.problems, []);
+  assert.doesNotMatch(after.json.warnings.join('\n'), /before release packages/);
+});
+
+test('the record-to-tag check finds no release in the migration commit, applied or squash-merged', async () => {
+  const root = repo(null, { 'work/releases/v0.1.0-rc.1.md': LEGACY });
+  assert.equal((await hitld(['release', 'migrate', '--apply'], root)).code, 0);
+  const direct = await checkReleaseCommit({ root });
+  assert.deepEqual(direct.problems, []);
+  assert.equal(direct.ok, true);
+  assert.equal(direct.record, null, 'a moved record is not an added one');
+
+  // The same migration arriving on main as a pull request's squash commit.
+  const squashed = repo(null, { 'work/releases/v0.1.0-rc.1.md': LEGACY });
+  git(squashed, 'switch', '-q', '-c', 'migrate');
+  assert.equal((await hitld(['release', 'migrate', '--apply'], squashed)).code, 0);
+  git(squashed, 'switch', '-q', 'main');
+  git(squashed, 'merge', '-q', '--squash', 'migrate');
+  git(squashed, 'commit', '-q', '-m', 'Move the releases into main (#9)');
+  const merged = await checkReleaseCommit({ root: squashed, prs: [9] });
+  assert.deepEqual(merged.problems, []);
+  assert.equal(merged.ok, true);
+  assert.equal(merged.record, null);
+
+  // A commit that moves a record and adds a different one still has that one checked, and a
+  // refusal at the parent is a problem, not a throw.
+  const both = repo(null, { 'work/releases/v0.1.0-rc.1.md': LEGACY });
+  git(both, 'switch', '-q', '-c', 'migrate');
+  assert.equal((await hitld(['release', 'migrate', '--apply'], both)).code, 0);
+  put(both, {
+    'work/releases/main/0.1.0-rc.2.md': LEGACY.replaceAll('0.1.0-rc.1', '0.1.0-rc.2').replace(
+      'id: v0.1.0-rc.2\n',
+      'id: v0.1.0-rc.2\npackage: main\n',
+    ),
+  });
+  git(both, 'add', '-A');
+  git(both, 'commit', '-q', '-m', 'and a release');
+  git(both, 'switch', '-q', 'main');
+  git(both, 'merge', '-q', '--squash', 'migrate');
+  git(both, 'commit', '-q', '-m', 'Move and release (#10)');
+  const added = await checkReleaseCommit({ root: both, prs: [10] });
+  assert.equal(added.ok, false);
+  assert.equal(added.record, 'work/releases/main/0.1.0-rc.2.md');
+  assert.match(
+    added.problems.join('\n'),
+    /at the parent, release propose refuses: no release package is declared/,
+  );
+});
+
+test('release migrate plans the moves whenever records from before packages exist and main is declared', async () => {
+  const root = repo([{ name: 'main', tag: 'v{version}', paths: ['**'] }], {
+    'work/releases/v0.1.0-rc.1.md': LEGACY,
+  });
+  const policyBefore = readFileSync(join(root, '.human-in-the-lead/policy.json'), 'utf8');
+  const plan = await hitld(['release', 'migrate'], root);
+  assert.equal(plan.code, 0, JSON.stringify(plan.json));
+  assert.equal(plan.json.needed, true);
+  assert.equal(plan.json.package, null, 'main is declared already: policy.json is not changed');
+  assert.deepEqual(plan.json.declared, ['main']);
+  assert.deepEqual(plan.json.moves, [
+    {
+      from: 'work/releases/v0.1.0-rc.1.md',
+      to: 'work/releases/main/0.1.0-rc.1.md',
+      tag: 'v0.1.0-rc.1',
+    },
+  ]);
+  assert.deepEqual(plan.json.problems, []);
+  const applied = await hitld(['release', 'migrate', '--apply'], root);
+  assert.equal(applied.code, 0, JSON.stringify(applied.json));
+  assert.equal(applied.json.applied, true);
+  assert.equal(
+    readFileSync(join(root, '.human-in-the-lead/policy.json'), 'utf8'),
+    policyBefore,
+    'policy.json is left as it is',
+  );
+  assert.equal(git(root, 'status', '--porcelain').trim(), '', 'one commit');
+  assert.deepEqual((await hitld(['work', 'check'], root)).json.problems, []);
+  assert.equal((await hitld(['release', 'migrate'], root)).json.needed, false);
+  // --surface only declares main; with main declared, it is refused rather than dropped.
+  const again = repo([{ name: 'main', tag: 'v{version}', paths: ['**'] }], {
+    'work/releases/v0.1.0-rc.1.md': LEGACY,
+    'surface.txt': 'cli x\n',
+  });
+  const surfaced = await hitld(['release', 'migrate', '--surface', 'surface.txt'], again);
+  assert.match(surfaced.json.problems.join('\n'), /main is declared already/);
+});
+
+test('release migrate names what is missing when packages are declared but main is not, and so does the check', async () => {
+  const root = repo([{ name: 'tool', tag: 'tool@{version}', paths: ['**'] }], {
+    'work/releases/v0.1.0-rc.1.md': LEGACY,
+  });
+  const plan = await hitld(['release', 'migrate'], root);
+  assert.equal(plan.json.needed, true);
+  assert.deepEqual(plan.json.moves, []);
+  assert.match(plan.json.problems.join('\n'), /no package named main is declared/);
+  const applied = await hitld(['release', 'migrate', '--apply'], root);
+  assert.equal(applied.code, 1);
+  assert.match(
+    (await hitld(['work', 'check'], root)).json.problems.join('\n'),
+    /v0\.1\.0-rc\.1\.md: is a repository-wide record from before release packages; declare a package named main \(tag template v\{version\}\), then hitld release migrate moves it there/,
+  );
+  // main declared with another tag template: the record's tag would not be main's.
+  const other = repo([{ name: 'main', tag: 'main@{version}', paths: ['**'] }], {
+    'work/releases/v0.1.0-rc.1.md': LEGACY,
+  });
+  const p = await hitld(['release', 'migrate'], other);
+  assert.match(
+    p.json.problems.join('\n'),
+    /main's tag template \(main@\{version\}\) gives main@0\.1\.0-rc\.1, not v0\.1\.0-rc\.1/,
+  );
+});
+
+test('release migrate --apply commits through the hooks, and checks the private terms and the policy itself first', async () => {
+  // The hooks run: a pre-commit hook that refuses stops the commit, and the tree is put back.
+  const hooked = repo(null, { 'work/releases/v0.1.0-rc.1.md': LEGACY });
+  const hook = join(hooked, '.git/hooks/pre-commit');
+  writeFileSync(hook, '#!/bin/sh\necho refused by the hook >&2\nexit 1\n');
+  chmodSync(hook, 0o755);
+  const head = git(hooked, 'rev-parse', 'HEAD').trim();
+  const refused = await hitld(['release', 'migrate', '--apply'], hooked);
+  assert.equal(refused.code, 1, JSON.stringify(refused.json));
+  assert.equal(git(hooked, 'rev-parse', 'HEAD').trim(), head, 'nothing committed');
+  assert.equal(git(hooked, 'status', '--porcelain').trim(), '', 'the tree is put back');
+
+  // A private term in a moved record: refused before the commit, naming the kind, never the term.
+  const termed = repo(null, {
+    'work/releases/v0.1.0-rc.1.md': LEGACY.replace('- First (W-3)', '- First (W-3) for Zorblaxco'),
+  });
+  const t = openTracker({
+    repoRoot: termed,
+    policy: /** @type {any} */ (loadPolicy({ cwd: termed }).policy),
+    env: {},
+  });
+  const plan = planMigration(t);
+  assert.deepEqual(plan.problems, []);
+  assert.throws(
+    () => applyMigration(t, plan, { terms: compileTerms([{ term: 'Zorblaxco', kind: 'name' }]) }),
+    (/** @type {unknown} */ e) =>
+      /private term list/.test(String(e)) && !/Zorblaxco/.test(String(e)),
+  );
+  assert.equal(git(termed, 'status', '--porcelain').trim(), '');
+
+  // A moved record above the classification ceiling (policy.json's): refused the same way.
+  const above = repo(null, {
+    'work/releases/v0.1.0-rc.1.md': LEGACY.replace(
+      'classification: public',
+      'classification: internal',
+    ),
+  });
+  const u = openTracker({
+    repoRoot: above,
+    policy: /** @type {any} */ (loadPolicy({ cwd: above }).policy),
+    env: {},
+  });
+  assert.throws(
+    () => applyMigration(u, planMigration(u), { terms: [] }),
+    /not migrated: work\/releases\/main\/0\.1\.0-rc\.1\.md: classification "internal" .* above the repository's ceiling "public"/,
+  );
+  assert.equal(git(above, 'status', '--porcelain').trim(), '');
 });
