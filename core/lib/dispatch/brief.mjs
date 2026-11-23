@@ -144,8 +144,10 @@ export function renderBrief({
     'Pass a question to hitld rights who and hitld precedent match as a JSON file with --file <path>,',
     'never as inline JSON: the guard reads words in inline JSON as commands.',
     'The commit line is exactly `commit: <full sha> (branch <name>)`, with nothing after the closing',
-    'bracket; a note about the branch goes under `deviations`. Every list line is indented two spaces',
-    'under its heading.',
+    'bracket; a note about the branch goes under `deviations`. Each list item is its own line under',
+    'its heading, indented two spaces and starting with "- "; a line without the dash is refused:',
+    'calls:',
+    '  - <call> (reversible)',
     '',
     ...(reportTo ? [reportBlock(reportTo), ''] : []),
   ].join('\n');

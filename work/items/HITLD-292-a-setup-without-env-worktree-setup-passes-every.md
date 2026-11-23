@@ -2,10 +2,12 @@
 id: HITLD-292
 title: A setup without env.worktree_setup passes every check, then the merge queue's fresh worktree can't run the project's checks
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-404 c2]
+claimed_by: D-01M82WYSPH5GZ6M1
+release_note: "`hitld check policy`, `hitld config explain` and `hitld install` warn when the local merge queue has checks and `env.worktree_setup` is empty, naming the install for the lockfile found, and `hitld merge` stops with that reason, refusing no branch, when its fresh worktree has a lockfile but not the directory the install makes."
 ---
 
 ## Why

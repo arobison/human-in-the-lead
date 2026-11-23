@@ -118,13 +118,16 @@ test('update refuses a stale version, an unsupported field and a change that wou
   assert.notEqual(v1, v2);
   assert.equal(t.get('W-4').title, 'Second step, renamed');
   assert.throws(() => t.update('W-4', { title: 'Again' }, v1), /changed since it was read/);
-  assert.throws(() => t.update('W-4', { touches: ['x'] }, v2), /no key for touches/);
+  assert.throws(() => t.update('W-4', { area: 'x' }, v2), /no key for area/);
   assert.throws(() => t.update('W-4', { priority: 'high' }, v2), /no key for priority/);
   assert.throws(() => t.update('W-4', { kind: 'decision' }, v2), /kind cannot be changed/);
   assert.throws(() => t.update('W-4', { parent: 'W-99' }, v2), /project W-99 doesn't exist/);
   assert.throws(() => t.update('W-4', { state: 'Wip' }, v2), /state "Wip" isn't one of/);
-  t.update('W-4', { needs: null }, v2);
+  const v3 = t.update('W-4', { needs: null }, v2);
   assert.equal(t.get('W-4').needs, undefined);
+  // touches is on by default (HITLD-286), so a fresh tracker writes it.
+  t.update('W-4', { touches: ['src/**'] }, String(v3));
+  assert.deepEqual(t.get('W-4').touches, ['src/**']);
   assert.equal(
     readFileSync(join(root, 'work/items/W-4-second-step.md'), 'utf8').includes('needs'),
     false,

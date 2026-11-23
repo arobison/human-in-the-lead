@@ -2,11 +2,13 @@
 id: HITLD-806
 title: The executor contract and the brief say each report list line starts with a dash
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-764]
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M82WYTFJS1NN4X
+release_note: 'The executor contract and the brief say each report list item is its own line, indented two spaces and starting with "- ", with an example line; a line without the dash is refused. Run `hitld install` to update the contract block.'
 ---
 
 ## Done when
