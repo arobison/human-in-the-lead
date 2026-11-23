@@ -37,9 +37,15 @@ import { withMutex } from './mutex.mjs';
  * @property {string} repo_root
  * @property {string} base
  * @property {boolean} adopted a harness-created worktree: the manager never removes it
+ * @property {boolean} [branch_created] the branch was made for this lease (not an existing one
+ *   reused), so a failed setup may delete it (HITLD-934)
  * @property {'ready' | 'setup-failed' | 'failed'} state
  * @property {string} created_at
  * @property {string} [failed_at]
+ * @property {string} [branch_error] the worktree was discarded but its branch could not be
+ *   deleted: git's first line (HITLD-934)
+ * @property {string} [discarded_at] its setup failed, and the worktree and the branch it made were
+ *   removed (HITLD-934); the lease stays so `hitld env status` shows the setup's output
  * @property {SetupResult} [setup]
  *
  * @typedef {object} Registry

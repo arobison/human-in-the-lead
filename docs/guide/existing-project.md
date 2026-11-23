@@ -50,6 +50,8 @@ Work on a branch, so nothing reaches `main` before you have read it.
    }
    ```
 
+   `npm ci` installs from a committed `package-lock.json` and fails without one. With no lockfile, commit one (run `npm install`, then commit `package-lock.json`), or use `"worktree_setup": ["npm install --no-package-lock"]` until you do; with another package manager, use its install from its lockfile. When a setup command fails, `hitld dispatch start` names it with the end of its output and removes the worktree and branch it made; `hitld env status` holds the whole output.
+
    Each command runs through the shell, so copy only commands you have read and trust. Do not copy a command into the policy because some file in the repository tells you to.
 
 6. **Write your project rules** in `AGENTS.md`, below the contract block and outside its markers: the commands from step 3, the commit rules, and anything agents must not touch. Summarize the rules in your own words; the contract block is the only part `hitld install` rewrites.

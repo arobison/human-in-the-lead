@@ -9,9 +9,15 @@ import { siblingEntry } from '../store/data-home.mjs';
 import { acquireLock, lockStatus, releaseLock } from './locks.mjs';
 import { leasePort, releasePort, startServer } from './ports.mjs';
 import { logEvent, readEvents, readRegistry } from './registry.mjs';
-import { secretReader, withoutSecrets } from './secrets.mjs';
+import { createRedactor, secretReader, withoutSecrets } from './secrets.mjs';
 import { execTask } from './tasks.mjs';
-import { adoptWorktree, createWorktree, releaseWorktree, runSetup } from './worktree.mjs';
+import {
+  adoptWorktree,
+  createWorktree,
+  discardFailedSetup,
+  releaseWorktree,
+  runSetup,
+} from './worktree.mjs';
 
 /**
  * The machine-wide directory for state shared by every project on this machine (the locks). It
@@ -53,6 +59,26 @@ export function openEnv(options) {
     options.secretReader ??
     secretReader({ provider: settings.secretProvider, projectId: policy.project.id, env });
 
+  /**
+   * Redacts the values of every secret policy declares (env.secret_tasks), for output that leaves
+   * the manager, such as a failed setup's (HITLD-934). Read only when called. A secret that cannot
+   * be read here is one no command could have been given, so it is skipped.
+   */
+  const declaredRedactor = () => {
+    /** @type {Record<string, string>} */
+    const values = {};
+    for (const name of new Set(settings.secretTasks.flatMap((t) => t.secrets))) {
+      try {
+        const v = read(name);
+        if (v) values[name] = v;
+      } catch {
+        // not readable here
+      }
+    }
+    const r = createRedactor(values);
+    return (/** @type {string} */ text) => r.redact(text);
+  };
+
   /** @param {string} resource */
   const checkSerial = (resource) => {
     if (!settings.serialResources.includes(resource)) {
@@ -71,9 +97,15 @@ export function openEnv(options) {
       createWorktree(wt, r),
     adoptWorktree: (/** @type {Parameters<typeof adoptWorktree>[1]} */ r) => adoptWorktree(wt, r),
     runSetup: (/** @type {Parameters<typeof runSetup>[1]} */ r) =>
-      runSetup(wt, { env: withoutSecrets(env), ...r }),
+      runSetup(wt, { env: withoutSecrets(env), ...r, redact: () => declaredRedactor() }),
     releaseWorktree: (/** @type {Parameters<typeof releaseWorktree>[1]} */ r) =>
       releaseWorktree(wt, r),
+    /** A worktree whose setup failed: removed with the branch it made, and its port released. */
+    async discardFailedSetup(/** @type {{ holder: string }} */ r) {
+      const worktree = await discardFailedSetup(wt, { ...r, redact: () => declaredRedactor() });
+      if (worktree.discarded) await releasePort({ store }, { holder: r.holder });
+      return worktree;
+    },
 
     leasePort: (/** @type {{ holder: string }} */ r) =>
       leasePort({ store, range: settings.portRange }, r),

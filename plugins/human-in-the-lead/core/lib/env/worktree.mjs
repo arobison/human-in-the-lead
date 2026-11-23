@@ -2,8 +2,9 @@
 // declares, and cleaned up without ever losing uncommitted work.
 
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { CodedError } from '../cli/errors.mjs';
 import { checkHolder, worktreeRoot } from './config.mjs';
 import { git, gitOk } from './git.mjs';
@@ -15,10 +16,10 @@ import {
   templateValues,
 } from './include.mjs';
 import { leasePort } from './ports.mjs';
-import { findOutsideLinks, unlinkOutsideLinks } from './links.mjs';
+import { findOutsideLinks, scanWorktree, unlinkOutsideLinks } from './links.mjs';
 import { logEvent, readRegistry, updateRegistry } from './registry.mjs';
 import { realPath } from './fsx.mjs';
-import { killTree } from './proc.mjs';
+import { killTree, matchProcess } from './proc.mjs';
 import { shellSpec, spawnOptions } from './shell.mjs';
 
 /**
@@ -182,6 +183,9 @@ export async function createWorktree(ctx, request) {
       repo_root: realPath((await git(['rev-parse', '--show-toplevel'], ctx.repoRoot)).trim()),
       base,
       adopted: false,
+      // A name chooseBranch found free (new, or a fresh -N): this lease made the branch, so a
+      // failed setup may delete it. A reused branch existed before and is never deleted for it.
+      branch_created: choice.chose !== 'reuse',
       state: 'ready',
       created_at: new Date().toISOString(),
     };
@@ -233,6 +237,11 @@ export async function adoptWorktree(ctx, request) {
 }
 
 const TAIL = 2000;
+/**
+ * How much of a step's output is held until it is cut to TAIL: enough that any secret up to
+ * RAW_KEPT - TAIL characters long which reaches into the tail is whole when it is redacted.
+ */
+const RAW_KEPT = 64 * 1024;
 
 /**
  * Run one setup command through the shell in a directory: /bin/sh, or on Windows Git's bash
@@ -245,7 +254,8 @@ const TAIL = 2000;
  * policy that came through loadPolicy's trusted read (owner, mode, no link, inside the repository
  * root) in the primary checkout; runSetup takes no command from its caller.
  * @param {string} command @param {string} cwd @param {NodeJS.ProcessEnv} env @param {number} timeoutMs
- * @returns {Promise<{ exit_code: number | null, ms: number, output_tail: string }>}
+ * @returns {Promise<{ exit_code: number | null, ms: number, raw: string, note: string }>} raw: the
+ *   last RAW_KEPT characters of its output, which runSetup redacts (on failure) and cuts to TAIL
  */
 function runStep(command, cwd, env, timeoutMs) {
   return new Promise((resolveStep) => {
@@ -259,38 +269,47 @@ function runStep(command, cwd, env, timeoutMs) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const note = spec.note ? `note: ${spec.note}\n` : '';
-    /** @param {Buffer} d */
-    const take = (d) => {
-      out = (out + d.toString('utf8')).slice(-TAIL * 2);
+    // One decoder per stream: a character split across two reads is joined, not turned into
+    // U+FFFD, so a non-ASCII secret still matches the redactor (HITLD-934).
+    const decoders = { out: new StringDecoder('utf8'), err: new StringDecoder('utf8') };
+    /** @param {string} text */
+    const keep = (text) => {
+      out = (out + text).slice(-RAW_KEPT);
     };
-    child.stdout.on('data', take);
-    child.stderr.on('data', take);
+    child.stdout.on('data', (/** @type {Buffer} */ d) => keep(decoders.out.write(d)));
+    child.stderr.on('data', (/** @type {Buffer} */ d) => keep(decoders.err.write(d)));
     const timer = setTimeout(() => {
       if (process.platform === 'win32' && child.pid) killTree(child.pid);
       else child.kill('SIGTERM');
     }, timeoutMs);
     child.on('error', (e) => {
       clearTimeout(timer);
-      resolveStep({ exit_code: null, ms: Date.now() - started, output_tail: note + e.message });
+      resolveStep({ exit_code: null, ms: Date.now() - started, raw: e.message, note });
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolveStep({
-        exit_code: code,
-        ms: Date.now() - started,
-        output_tail: note + out.slice(-(TAIL - note.length)),
-      });
+      keep(decoders.out.end() + decoders.err.end());
+      resolveStep({ exit_code: code, ms: Date.now() - started, raw: out, note });
     });
   });
 }
+
+/** What a step records: its note, then the end of its output, TAIL characters in all. */
+const tailOf = (/** @type {string} */ note, /** @type {string} */ raw) =>
+  note + raw.slice(-(TAIL - note.length));
 
 /**
  * Run the project's declared setup in a holder's worktree and record the result. The first failing
  * command stops it. Setup gets no secrets: it runs with the environment it is given, which the
  * caller keeps free of them. The commands are policy's env.worktree_setup and nothing else: a
  * request cannot name its own.
+ *
+ * A failed setup's output goes into an error message and `hitld env status` (HITLD-934), so it
+ * passes through `redact` first: the manager's redactor for the secrets policy declares. Setup is
+ * never given them, so this only catches a value a command found on its own.
  * @param {WorktreeContext} ctx
- * @param {{ holder: string, env?: NodeJS.ProcessEnv, timeoutMs?: number }} request
+ * @param {{ holder: string, env?: NodeJS.ProcessEnv, timeoutMs?: number,
+ *   redact?: () => (text: string) => string }} request
  * @returns {Promise<SetupResult>}
  */
 export async function runSetup(ctx, request) {
@@ -317,18 +336,33 @@ export async function runSetup(ctx, request) {
   // starts later gets the same port. A template that fails is recorded and `hitld env check`
   // reports it; like a file that could not be copied, it does not fail setup.
   result.templates = await renderTemplates(ctx, holder, lease);
+  /** Each step's output before it is cut to its tail, and its note; never recorded. */
+  /** @type {string[]} */
+  const raws = [];
+  /** @type {string[]} */
+  const notes = [];
   for (const command of commands) {
-    const step = await runStep(
+    const { raw, note, ...step } = await runStep(
       command,
       lease.path,
       request.env ?? process.env,
       request.timeoutMs ?? 600_000,
     );
-    result.steps.push({ command, ...step });
+    raws.push(raw);
+    notes.push(note);
+    result.steps.push({ command, ...step, output_tail: tailOf(note, raw) });
     if (step.exit_code !== 0) {
       result.ok = false;
       break;
     }
+  }
+  // Redacted before the cut, so a value that straddles the start of the tail is still whole when
+  // the redactor looks for it, and no part of it is left in the tail (HITLD-934).
+  if (!result.ok && request.redact) {
+    const redact = request.redact();
+    result.steps.forEach((step, i) => {
+      step.output_tail = tailOf(notes[i] ?? '', redact(raws[i] ?? ''));
+    });
   }
   // Flag links that point out of the worktree, so the owner sees what cleanup will meet.
   try {
@@ -428,7 +462,10 @@ const realOr = (p) => {
  * Remove a worktree from disk, saving uncommitted work to its branch first. Returns what happened.
  * @param {WorktreeLease} lease
  * @param {boolean} deleteIfMerged
- * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam] tests fake a mount point
+ * A mount point at or under the worktree refuses the removal before anything is saved, so the
+ * mounted files are never committed to the branch (HITLD-934).
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats, mountinfo?: () => string }} [seam]
+ *   tests fake a mount point
  */
 export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
   // Never the primary checkout, whatever a lease says.
@@ -439,17 +476,22 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
   /** @type {{ saved: boolean, branch_deleted: boolean, branch: string, links_unlinked: string[] }} */
   const out = { saved: false, branch_deleted: false, branch: lease.branch, links_unlinked: [] };
   if (!gone) {
+    // Before the save: `git add -A` would commit what is mounted there into the branch.
+    const mounts = scanWorktree(lease.path, seam).mounts;
+    if (mounts.length) {
+      throw new Error(
+        `not removing ${lease.path}: ${mounts.join(', ')} is a mount point; nothing was saved or removed`,
+      );
+    }
     const saved = await saveUncommitted(lease);
     out.saved = saved.saved;
     out.branch = saved.branch;
     // Unlink every link that points outside the worktree first, so nothing below can reach a
     // target (design 13.2). Uncommitted work is already saved, so --force only lets git remove
     // what the unlinking changed (a tracked link) and the ignored files in the tree.
-    const links = unlinkOutsideLinks(lease.path, seam.lstat ? { lstat: seam.lstat } : undefined);
+    const links = unlinkOutsideLinks(lease.path, seam);
     if (links.mounts.length) {
-      throw new Error(
-        `not removing ${lease.path}: ${links.mounts.join(', ')} is a mount point (another device)`,
-      );
+      throw new Error(`not removing ${lease.path}: ${links.mounts.join(', ')} is a mount point`);
     }
     if (links.declined.length) {
       throw new Error(
@@ -472,6 +514,140 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
     }
   }
   return out;
+}
+
+/**
+ * Take back a worktree whose setup failed before anyone worked in it (HITLD-934): remove it from
+ * disk without saving (what is in it is setup's output, not work) and delete its branch when this
+ * lease created it (`branch_created`) and it holds nothing beyond the base, so a retry takes the
+ * same name instead of <name>-2. A branch the worktree reused (chooseBranch's `reuse`) existed
+ * before and stays. The lease stays, marked `discarded_at`, so `hitld env status` still shows the
+ * setup's steps and output; teardown drops it once its dispatch is abandoned.
+ *
+ * Nothing is removed (`discarded: false`, with the reason) when the lease is adopted (the
+ * harness's), its setup did not fail, another lease names the same directory, a server the manager
+ * started still runs in it, or a link out of it could not be safely unlinked or a mount point is
+ * inside it.
+ * @param {WorktreeContext} ctx
+ * @param {{ holder: string, redact?: () => (text: string) => string }} request redact: the
+ *   manager's redactor for declared secrets, for the git errors the result and the lease carry
+ * When the worktree is removed but its branch cannot be deleted, the lease is still marked and the
+ * result says so (`branch_error`): what is reported is what is left.
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats, mountinfo?: () => string,
+ *   unlink?: (root: string, rel: string) => boolean, git?: typeof git }} [seam] tests fake a mount
+ *   point, an unlink that declines, or a branch deletion that fails
+ * @returns {Promise<{ discarded: boolean, reason?: string, path?: string, branch?: string,
+ *   branch_deleted?: boolean, branch_error?: string, branch_note?: string }>} branch_note: why
+ *   the branch stays, when it does
+ */
+export async function discardFailedSetup(ctx, request, seam = {}) {
+  const holder = checkHolder(request.holder);
+  return updateRegistry(ctx.store, async (registry) => {
+    const lease = registry.worktrees[holder];
+    const redact = request.redact ? request.redact() : (/** @type {string} */ t) => t;
+    /** @param {string} reason */
+    const kept = (reason) => ({ discarded: false, reason: redact(reason) });
+    if (!lease) return kept(`${holder} has no worktree`);
+    if (lease.adopted) return kept('the worktree was adopted from the harness');
+    if (lease.state !== 'setup-failed') return kept('its setup did not fail');
+    if (lease.discarded_at) return kept('it was already removed');
+    const here = realOr(lease.path);
+    if (here === realOr(lease.repo_root)) return kept('it is the primary checkout');
+    const other = Object.values(registry.worktrees).find(
+      (l) => l.holder !== holder && !l.discarded_at && realOr(l.path) === here,
+    );
+    if (other) return kept(`${other.holder} also holds ${lease.path}`);
+    const inside = (/** @type {string} */ p) => p === here || p.startsWith(here + sep);
+    const server = Object.values(registry.ports).find(
+      (p) => p.server && inside(realOr(p.server.cwd)) && matchProcess(p.server) === 'match',
+    );
+    if (server?.server) {
+      return kept(`a server (pid ${server.server.pid}) still runs in ${lease.path}`);
+    }
+    if (existsSync(lease.path)) {
+      let links;
+      try {
+        links = unlinkOutsideLinks(lease.path, seam);
+      } catch (e) {
+        return kept(/** @type {Error} */ (e).message);
+      }
+      if (links.mounts.length) return kept(`${links.mounts.join(', ')} is a mount point`);
+      if (links.declined.length) {
+        return kept(`could not safely unlink ${links.declined.map((l) => l.path).join(', ')}`);
+      }
+      try {
+        await git(['worktree', 'remove', '--force', lease.path], lease.repo_root);
+      } catch (e) {
+        // What is left is reported as it is: kept while the directory is there, else removed.
+        if (existsSync(lease.path)) {
+          return kept(`removing it failed: ${/** @type {Error} */ (e).message}`);
+        }
+        await gitOk(['worktree', 'prune'], lease.repo_root);
+      }
+    } else {
+      await gitOk(['worktree', 'prune'], lease.repo_root);
+    }
+    // From here the worktree is gone, so the lease is marked whatever happens to the branch.
+    let branchDeleted = false;
+    /** @type {string | undefined} */
+    let branchError;
+    /** Why the branch stays, when it does: what a retry will meet. */
+    let branchNote;
+    try {
+      if (lease.branch === 'HEAD') {
+        branchNote = 'it had no branch';
+      } else if (lease.branch_created !== true) {
+        branchNote = `its branch ${lease.branch} existed before this dispatch and stays`;
+      } else if (
+        !(await gitOk(
+          ['rev-parse', '--verify', '--quiet', `refs/heads/${lease.branch}`],
+          lease.repo_root,
+        ))
+      ) {
+        branchNote = `its branch ${lease.branch} is already gone`;
+      } else if (
+        !(await gitOk(
+          ['rev-parse', '--verify', '--quiet', `${lease.base}^{commit}`],
+          lease.repo_root,
+        ))
+      ) {
+        branchNote = `its base ${lease.base} could not be resolved, so whether its branch ${lease.branch} holds anything beyond it is not known; it stays`;
+      } else if (
+        !(await gitOk(
+          ['merge-base', '--is-ancestor', `refs/heads/${lease.branch}`, lease.base],
+          lease.repo_root,
+        ))
+      ) {
+        branchNote = `its branch ${lease.branch} holds commits not in ${lease.base}, so it stays and a retry takes a fresh name`;
+      } else {
+        await (seam.git ?? git)(['branch', '-D', lease.branch], lease.repo_root);
+        branchDeleted = true;
+      }
+    } catch (e) {
+      // git's own words can carry anything a hook or a config printed: redacted like setup output.
+      branchError = redact(/** @type {Error} */ (e).message.trim().split('\n')[0] ?? '');
+      // It holds nothing beyond the base, so chooseBranch reuses it under the same name.
+      branchNote = `its branch ${lease.branch} could not be deleted (${branchError}); it holds nothing beyond ${lease.base}, so a retry reuses it under the same name`;
+    }
+    if (branchNote) branchNote = redact(branchNote);
+    lease.discarded_at = new Date().toISOString();
+    if (branchError) lease.branch_error = branchError;
+    logEvent(ctx.store, 'worktree_discarded', {
+      holder,
+      path: lease.path,
+      branch: lease.branch,
+      branch_deleted: branchDeleted,
+      ...(branchError ? { branch_error: branchError } : {}),
+    });
+    return {
+      discarded: true,
+      path: lease.path,
+      branch: lease.branch,
+      branch_deleted: branchDeleted,
+      ...(branchError ? { branch_error: branchError } : {}),
+      ...(branchNote ? { branch_note: branchNote } : {}),
+    };
+  });
 }
 
 /**

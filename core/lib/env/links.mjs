@@ -12,7 +12,7 @@
 //
 // What is left, a worktree with no outside link in it, is removed by `git worktree remove`.
 
-import { lstatSync, opendirSync, readlinkSync, unlinkSync } from 'node:fs';
+import { lstatSync, opendirSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs';
 import { realPath } from './fsx.mjs';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 
@@ -37,11 +37,44 @@ function isInside(root, real) {
 const isLink = (full) => lstatSync(full).isSymbolicLink();
 
 /**
+ * The mount points at or under a directory, from the kernel's table (/proc/self/mountinfo, field 5,
+ * with its octal escapes undone), relative to it with "/" separators ('.' for the directory
+ * itself). A same-device bind mount has the same st_dev as its parent, so only this table shows it
+ * (HITLD-934). Where there is no such table (macOS, Windows) it returns none, and the st_dev check
+ * in scanWorktree is what is left.
+ * @param {string} root a real path
+ * @param {() => string} [read] tests give their own table
+ * @returns {string[]}
+ */
+export function mountPointsUnder(root, read = () => readFileSync('/proc/self/mountinfo', 'utf8')) {
+  let table;
+  try {
+    table = read();
+  } catch {
+    return [];
+  }
+  /** @type {string[]} */
+  const out = [];
+  for (const line of table.split('\n')) {
+    const field = line.split(' ')[4];
+    if (!field) continue;
+    const point = field.replace(/\\([0-7]{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
+    if (!isAbsolute(point) || !isInside(root, point)) continue;
+    const rel = relative(root, point).split(sep).join('/') || '.';
+    if (!out.includes(rel)) out.push(rel);
+  }
+  return out.sort();
+}
+
+/**
  * Walk a worktree without following links and list the links that point outside it. A directory on
  * another device than the worktree's root is a mount point: it is not descended into and is listed
- * in `mounts`, since removing the tree would reach what is mounted there.
+ * in `mounts`, since removing the tree would reach what is mounted there. So is any mount point the
+ * kernel's table lists at or under the root (mountPointsUnder), which catches a same-device bind
+ * mount and a mount on the root itself.
  * @param {string} worktree
- * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam] tests replace lstat to fake a mount
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats, mountinfo?: () => string }} [seam]
+ *   tests replace lstat or the mount table to fake a mount
  * @returns {{ links: OutsideLink[], mounts: string[] }}
  */
 export function scanWorktree(worktree, seam = {}) {
@@ -94,6 +127,7 @@ export function scanWorktree(worktree, seam = {}) {
     }
   };
   walk('');
+  for (const m of mountPointsUnder(root, seam.mountinfo)) if (!mounts.includes(m)) mounts.push(m);
   return { links: found, mounts };
 }
 
@@ -130,7 +164,8 @@ export function unlinkLink(root, rel) {
  * Unlink every link in a worktree that points outside it, so removing the worktree cannot reach
  * what they point at. Refuses a worktree path that is itself a link or is not a real path.
  * @param {string} worktree
- * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam]
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats, mountinfo?: () => string,
+ *   unlink?: typeof unlinkLink }} [seam] tests fake a mount, or an unlink that declines
  * @returns {{ unlinked: OutsideLink[], declined: OutsideLink[], mounts: string[] }}
  */
 export function unlinkOutsideLinks(worktree, seam) {
@@ -145,7 +180,7 @@ export function unlinkOutsideLinks(worktree, seam) {
   // Nothing is unlinked when a mount is present: the caller refuses the removal.
   if (scan.mounts.length) return { unlinked, declined, mounts: scan.mounts };
   for (const link of scan.links) {
-    (unlinkLink(root, link.path) ? unlinked : declined).push(link);
+    ((seam?.unlink ?? unlinkLink)(root, link.path) ? unlinked : declined).push(link);
   }
   return { unlinked, declined, mounts: scan.mounts };
 }

@@ -2,10 +2,12 @@
 id: HITLD-934
 title: A failed worktree setup shows the failing command and its output and removes the worktree and branch it made
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
+release_note: "When a worktree's setup fails, `hitld dispatch start` names the failing command, its exit and the end of its output, points to `hitld env status` for the whole output, and removes the worktree and the branch it made, so a retry starts clean instead of leaving a worktree and a `-2` branch behind. The guide says `npm ci` needs a committed lockfile and shows `npm install --no-package-lock` for a project without one."
+claimed_by: D-01M82XZFCPQ2KP8P
 ---
 
 ## Why
