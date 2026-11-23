@@ -2,10 +2,11 @@
 id: HITLD-286
 title: Touches and tier_override are off by default in tracker.json, so work check refuses them, but sizing and merge evidence depend on touches
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-403 c4]
+claimed_by: D-01M82WYRTRT3CA43
 ---
 
 ## Why
