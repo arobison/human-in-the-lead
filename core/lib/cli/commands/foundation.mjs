@@ -3,6 +3,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { loadPolicy } from '../../policy/policy.mjs';
+import { worktreeSetupGap } from '../../env/setup-gap.mjs';
 import { DEVICES_MOVED } from '../../store/placement.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { schemas } from '../../schema/registry.mjs';
@@ -64,6 +65,11 @@ export const commands = [
       const warnings = result.policy
         ? loadEffectivePolicy({ env: ctx.env, policyResult: result }).warnings.map((w) => w.message)
         : [];
+      // Checks the merge queue would run in a worktree its setup leaves empty (HITLD-292).
+      const gap = result.path
+        ? worktreeSetupGap(result.policy, dirname(dirname(result.path)))
+        : null;
+      if (gap) warnings.push(gap);
       return {
         ok: result.errors.length === 0,
         path: result.path,
