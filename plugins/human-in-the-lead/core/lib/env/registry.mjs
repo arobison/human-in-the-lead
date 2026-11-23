@@ -40,6 +40,8 @@ import { withMutex } from './mutex.mjs';
  * @property {'ready' | 'setup-failed' | 'failed'} state
  * @property {string} created_at
  * @property {string} [failed_at]
+ * @property {string} [discarded_at] its setup failed, and the worktree and the branch it made were
+ *   removed (HITLD-934); the lease stays so `hitld env status` shows the setup's output
  * @property {SetupResult} [setup]
  *
  * @typedef {object} Registry

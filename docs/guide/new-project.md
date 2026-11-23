@@ -40,7 +40,7 @@ If you work from more than one machine, or from cloud sessions, read [Moving the
    }
    ```
 
-   `full_suite` runs once per batch of finished work. `fast_checks` run on each branch first (a linter, a type check). `worktree_setup` runs in every fresh worktree an agent works in (install from the lockfile). Each command runs through the shell, so write only commands you trust. A new project starts in owner merge mode (`merge.mode` is `owner`): the queue checks each finished branch and asks you before it merges.
+   `full_suite` runs once per batch of finished work. `fast_checks` run on each branch first (a linter, a type check). `worktree_setup` runs in every fresh worktree an agent works in (install from the lockfile). `npm ci` needs a committed `package-lock.json` and fails without one, which a new project often lacks: commit the lockfile (run `npm install` once, then commit `package-lock.json`), or until you do, write `"worktree_setup": ["npm install --no-package-lock"]`, which installs without reading or writing one. When a setup command fails, `hitld dispatch start` names it with the end of its output and removes the worktree and branch it made; `hitld env status` holds the whole output. Each command runs through the shell, so write only commands you trust. A new project starts in owner merge mode (`merge.mode` is `owner`): the queue checks each finished branch and asks you before it merges.
 
 5. **Write your project rules** in `AGENTS.md`, below the contract block and outside its markers: the test, lint and format commands, commit rules (a sign-off line, required trailers), and anything agents must not touch. A few lines are enough.
 

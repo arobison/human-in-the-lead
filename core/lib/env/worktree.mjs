@@ -475,6 +475,59 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
 }
 
 /**
+ * Take back a worktree whose setup failed before anyone worked in it (HITLD-934): remove it from
+ * disk without saving (what is in it is setup's output, not work) and delete the branch it was cut
+ * on when that branch holds nothing beyond the base, so a retry takes the same name instead of
+ * <name>-2. The lease stays, marked `discarded_at`, so `hitld env status` still shows the setup's
+ * steps and output; teardown drops it once its dispatch is abandoned. Only a lease this manager
+ * created and whose setup failed: an adopted worktree is the harness's.
+ * @param {WorktreeContext} ctx
+ * @param {{ holder: string }} request
+ * @returns {Promise<{ discarded: boolean, path?: string, branch?: string, branch_deleted?: boolean }>}
+ */
+export async function discardFailedSetup(ctx, request) {
+  const holder = checkHolder(request.holder);
+  return updateRegistry(ctx.store, async (registry) => {
+    const lease = registry.worktrees[holder];
+    if (!lease || lease.adopted || lease.state !== 'setup-failed' || lease.discarded_at) {
+      return { discarded: false };
+    }
+    if (realOr(lease.path) === realOr(lease.repo_root)) return { discarded: false };
+    if (existsSync(lease.path)) {
+      const links = unlinkOutsideLinks(lease.path);
+      if (links.mounts.length || links.declined.length) return { discarded: false };
+      await git(['worktree', 'remove', '--force', lease.path], lease.repo_root);
+    } else {
+      await git(['worktree', 'prune'], lease.repo_root);
+    }
+    let branchDeleted = false;
+    if (
+      lease.branch !== 'HEAD' &&
+      (await gitOk(
+        ['merge-base', '--is-ancestor', `refs/heads/${lease.branch}`, lease.base],
+        lease.repo_root,
+      ))
+    ) {
+      await git(['branch', '-D', lease.branch], lease.repo_root);
+      branchDeleted = true;
+    }
+    lease.discarded_at = new Date().toISOString();
+    logEvent(ctx.store, 'worktree_discarded', {
+      holder,
+      path: lease.path,
+      branch: lease.branch,
+      branch_deleted: branchDeleted,
+    });
+    return {
+      discarded: true,
+      path: lease.path,
+      branch: lease.branch,
+      branch_deleted: branchDeleted,
+    };
+  });
+}
+
+/**
  * Release a holder's worktree.
  * - merged: remove it and delete its branch (it is merged into the base).
  * - abandoned: remove it; the branch stays, since it holds unmerged work.

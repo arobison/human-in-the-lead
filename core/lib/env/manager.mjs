@@ -11,7 +11,13 @@ import { leasePort, releasePort, startServer } from './ports.mjs';
 import { logEvent, readEvents, readRegistry } from './registry.mjs';
 import { secretReader, withoutSecrets } from './secrets.mjs';
 import { execTask } from './tasks.mjs';
-import { adoptWorktree, createWorktree, releaseWorktree, runSetup } from './worktree.mjs';
+import {
+  adoptWorktree,
+  createWorktree,
+  discardFailedSetup,
+  releaseWorktree,
+  runSetup,
+} from './worktree.mjs';
 
 /**
  * The machine-wide directory for state shared by every project on this machine (the locks). It
@@ -74,6 +80,12 @@ export function openEnv(options) {
       runSetup(wt, { env: withoutSecrets(env), ...r }),
     releaseWorktree: (/** @type {Parameters<typeof releaseWorktree>[1]} */ r) =>
       releaseWorktree(wt, r),
+    /** A worktree whose setup failed: removed with the branch it made, and its port released. */
+    async discardFailedSetup(/** @type {{ holder: string }} */ r) {
+      const worktree = await discardFailedSetup(wt, r);
+      if (worktree.discarded) await releasePort({ store }, { holder: r.holder });
+      return worktree;
+    },
 
     leasePort: (/** @type {{ holder: string }} */ r) =>
       leasePort({ store, range: settings.portRange }, r),

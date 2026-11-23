@@ -364,6 +364,45 @@ test('setup failure is reported, stops at the first failing command, and keeps t
   await env.releaseHolder({ holder: 'D-9', result: 'abandoned' });
 });
 
+test('a failed setup is discarded with its branch, but never a branch with commits or an adopted worktree (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({
+    repoRoot,
+    env: { worktree_setup: ['echo dirt > dirt.txt; exit 1'] },
+  });
+  // Ready worktrees are not discarded.
+  assert.equal((await env.discardFailedSetup({ holder: 'D-0' })).discarded, false);
+  const a = await env.createWorktree({ holder: 'D-1', itemId: 'W-1' });
+  assert.equal((await env.runSetup({ holder: 'D-1' })).ok, false);
+  const gone = await env.discardFailedSetup({ holder: 'D-1' });
+  assert.deepEqual([gone.discarded, gone.branch_deleted], [true, true]);
+  assert.ok(!existsSync(a.lease.path), 'removed, dirt and all');
+  assert.equal(git(['branch', '--list', a.lease.branch], repoRoot).trim(), '');
+  assert.ok(env.registry().worktrees['D-1'].discarded_at, 'the record stays for env status');
+  assert.equal((await env.discardFailedSetup({ holder: 'D-1' })).discarded, false, 'once only');
+  // Teardown's release of the kept record finds nothing on disk and drops it.
+  await env.releaseHolder({ holder: 'D-1', result: 'abandoned' });
+  assert.equal(env.registry().worktrees['D-1'], undefined);
+
+  // A branch that holds a commit beyond the base stays.
+  const b = await env.createWorktree({ holder: 'D-2', itemId: 'W-2' });
+  writeFileSync(join(b.lease.path, 'kept.txt'), 'x\n');
+  git(['add', 'kept.txt'], b.lease.path);
+  git(['commit', '-q', '-m', 'kept'], b.lease.path);
+  assert.equal((await env.runSetup({ holder: 'D-2' })).ok, false);
+  const kept = await env.discardFailedSetup({ holder: 'D-2' });
+  assert.deepEqual([kept.discarded, kept.branch_deleted], [true, false]);
+  assert.notEqual(git(['branch', '--list', b.lease.branch], repoRoot).trim(), '');
+
+  // An adopted worktree is the harness's: never discarded.
+  const other = dir('adopted');
+  git(['worktree', 'add', '-q', '-b', 'harness-branch', other], repoRoot);
+  await env.adoptWorktree({ holder: 'D-3', path: other });
+  assert.equal((await env.runSetup({ holder: 'D-3' })).ok, false);
+  assert.equal((await env.discardFailedSetup({ holder: 'D-3' })).discarded, false);
+  assert.ok(existsSync(other));
+});
+
 test('setup runs only the commands policy declares; a request cannot add its own', async () => {
   const repoRoot = makeRepo();
   const { env } = await makeEnv({ repoRoot, env: { worktree_setup: ['echo owner > owner.txt'] } });

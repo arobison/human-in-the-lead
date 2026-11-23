@@ -231,6 +231,25 @@ export class Refusal extends Error {
 }
 
 /**
+ * Why a worktree's setup failed, in a sentence a first-time consumer can act on (HITLD-934): the
+ * failing command, its exit and the last lines of its output, what became of the worktree, and
+ * where the whole record is.
+ * @param {import('../../env/registry.mjs').SetupResult} setup @param {string} dispatch
+ * @param {boolean} discarded
+ */
+export function setupFailedMessage(setup, dispatch, discarded) {
+  const step = setup.steps.at(-1);
+  const where = `the full output is in hitld env status (worktree ${dispatch})`;
+  if (!step) return `the declared worktree setup failed; ${where}`;
+  const exit = step.exit_code === null ? 'did not finish' : `exited ${step.exit_code}`;
+  const tail = step.output_tail.trim().split('\n').slice(-5).join('\n').slice(-600);
+  const kept = discarded
+    ? 'The worktree and the branch it made were removed, so a retry starts clean'
+    : 'The worktree is kept';
+  return `the declared worktree setup failed: \`${step.command}\` ${exit}${tail ? `, ending:\n${tail}\n` : '. '}${kept}; ${where}`;
+}
+
+/**
  * Refuse an approval that does not pick out presented, unmoved branches (selectPresented), with
  * the reason: stale (a branch moved since it was shown), ambiguous, or not presented.
  * @param {NonNullable<ReturnType<typeof selectPresented>['refused']>} r
@@ -1697,7 +1716,16 @@ const table = [
             }
             worktree = made.lease.path;
             const setup = await env.runSetup({ holder: dispatch });
-            if (!setup.ok) throw new Error('the declared worktree setup failed');
+            if (!setup.ok) {
+              // Nobody has worked in it yet: take it back with its branch, so a retry starts clean
+              // (HITLD-934). The lease stays for `hitld env status`.
+              const gone = made.existing
+                ? { discarded: false }
+                : await env.discardFailedSetup({ holder: dispatch }).catch(() => ({
+                    discarded: false,
+                  }));
+              throw new Error(setupFailedMessage(setup, dispatch, gone.discarded));
+            }
           } catch (e) {
             run.record({
               id: lifecycleId('abandoned', dispatch),
