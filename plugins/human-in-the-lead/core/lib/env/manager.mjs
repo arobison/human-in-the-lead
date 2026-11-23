@@ -102,7 +102,7 @@ export function openEnv(options) {
       releaseWorktree(wt, r),
     /** A worktree whose setup failed: removed with the branch it made, and its port released. */
     async discardFailedSetup(/** @type {{ holder: string }} */ r) {
-      const worktree = await discardFailedSetup(wt, r);
+      const worktree = await discardFailedSetup(wt, { ...r, redact: () => declaredRedactor() });
       if (worktree.discarded) await releasePort({ store }, { holder: r.holder });
       return worktree;
     },

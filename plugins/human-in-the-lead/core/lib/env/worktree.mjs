@@ -529,7 +529,8 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
  * started still runs in it, or a link out of it could not be safely unlinked or a mount point is
  * inside it.
  * @param {WorktreeContext} ctx
- * @param {{ holder: string }} request
+ * @param {{ holder: string, redact?: () => (text: string) => string }} request redact: the
+ *   manager's redactor for declared secrets, for the git errors the result and the lease carry
  * When the worktree is removed but its branch cannot be deleted, the lease is still marked and the
  * result says so (`branch_error`): what is reported is what is left.
  * @param {{ lstat?: (path: string) => import('node:fs').Stats, mountinfo?: () => string,
@@ -543,8 +544,9 @@ export async function discardFailedSetup(ctx, request, seam = {}) {
   const holder = checkHolder(request.holder);
   return updateRegistry(ctx.store, async (registry) => {
     const lease = registry.worktrees[holder];
+    const redact = request.redact ? request.redact() : (/** @type {string} */ t) => t;
     /** @param {string} reason */
-    const kept = (reason) => ({ discarded: false, reason });
+    const kept = (reason) => ({ discarded: false, reason: redact(reason) });
     if (!lease) return kept(`${holder} has no worktree`);
     if (lease.adopted) return kept('the worktree was adopted from the harness');
     if (lease.state !== 'setup-failed') return kept('its setup did not fail');
@@ -598,6 +600,20 @@ export async function discardFailedSetup(ctx, request, seam = {}) {
         branchNote = `its branch ${lease.branch} existed before this dispatch and stays`;
       } else if (
         !(await gitOk(
+          ['rev-parse', '--verify', '--quiet', `refs/heads/${lease.branch}`],
+          lease.repo_root,
+        ))
+      ) {
+        branchNote = `its branch ${lease.branch} is already gone`;
+      } else if (
+        !(await gitOk(
+          ['rev-parse', '--verify', '--quiet', `${lease.base}^{commit}`],
+          lease.repo_root,
+        ))
+      ) {
+        branchNote = `its base ${lease.base} could not be resolved, so whether its branch ${lease.branch} holds anything beyond it is not known; it stays`;
+      } else if (
+        !(await gitOk(
           ['merge-base', '--is-ancestor', `refs/heads/${lease.branch}`, lease.base],
           lease.repo_root,
         ))
@@ -608,10 +624,12 @@ export async function discardFailedSetup(ctx, request, seam = {}) {
         branchDeleted = true;
       }
     } catch (e) {
-      branchError = /** @type {Error} */ (e).message.trim().split('\n')[0];
+      // git's own words can carry anything a hook or a config printed: redacted like setup output.
+      branchError = redact(/** @type {Error} */ (e).message.trim().split('\n')[0] ?? '');
       // It holds nothing beyond the base, so chooseBranch reuses it under the same name.
       branchNote = `its branch ${lease.branch} could not be deleted (${branchError}); it holds nothing beyond ${lease.base}, so a retry reuses it under the same name`;
     }
+    if (branchNote) branchNote = redact(branchNote);
     lease.discarded_at = new Date().toISOString();
     if (branchError) lease.branch_error = branchError;
     logEvent(ctx.store, 'worktree_discarded', {

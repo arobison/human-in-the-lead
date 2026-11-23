@@ -695,6 +695,106 @@ test('releasing a worktree with a bind mount in it refuses before saving anythin
   await env.releaseHolder({ holder: 'D-8', result: 'abandoned' });
 });
 
+test("git's error for a branch that cannot be deleted is redacted before the lease, the event and the message carry it (HITLD-934)", async () => {
+  const SECRET = 'S3CRETDIR934';
+  const repoRoot = makeRepo();
+  const { env, store } = await makeEnv({
+    repoRoot,
+    env: {
+      worktree_setup: ['exit 1'],
+      secret_tasks: [
+        { task: 'publish', roles: ['executor'], secrets: ['NPM_TOKEN'], argv: ['/bin/true'] },
+      ],
+    },
+    read: (name) => (name === 'NPM_TOKEN' ? SECRET : null),
+  });
+  // A branch whose name holds a declared secret: git names the branch in its error.
+  const { lease } = await env.createWorktree({
+    holder: 'D-1',
+    itemId: 'W-1',
+    branch: `hitld/W-1-${SECRET}`,
+  });
+  const setup = await env.runSetup({ holder: 'D-1' });
+  // A stale lock on the branch's ref: git refuses to delete it.
+  writeFileSync(join(repoRoot, '.git', 'refs', 'heads', `${lease.branch}.lock`), '');
+  const gone = await env.discardFailedSetup({ holder: 'D-1' });
+  assert.equal(gone.discarded, true);
+  assert.match(String(gone.branch_error), /could not remove reference/);
+  assert.match(String(gone.branch_error), /\[REDACTED:NPM_TOKEN\]/);
+  const event = env.events().findLast((e) => e.kind === 'worktree_discarded');
+  for (const [where, text] of [
+    ['the result', gone.branch_error],
+    ['the note', gone.branch_note],
+    ['the lease', env.registry().worktrees['D-1'].branch_error],
+    ['the event', event?.branch_error],
+    ['the message', setupFailedMessage(setup, 'D-1', gone)],
+  ]) {
+    assert.ok(text, `${where} carries it`);
+    assert.ok(!String(text).includes(SECRET), `${where} holds no secret`);
+  }
+  rmSync(join(repoRoot, '.git', 'refs', 'heads', `${lease.branch}.lock`));
+  await env.releaseHolder({ holder: 'D-1', result: 'abandoned' });
+  assert.ok(store);
+});
+
+test('a branch already gone, or a base that cannot be resolved, is named as that, not as commits beyond the base (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const { env, store } = await makeEnv({ repoRoot, env: { worktree_setup: ['exit 1'] } });
+  const a = await env.createWorktree({ holder: 'D-2', itemId: 'W-2' });
+  await env.runSetup({ holder: 'D-2' });
+  // Someone removed the worktree and its branch by hand first.
+  git(['worktree', 'remove', '--force', a.lease.path], repoRoot);
+  git(['branch', '-D', a.lease.branch], repoRoot);
+  const goneA = await env.discardFailedSetup({ holder: 'D-2' });
+  assert.deepEqual(
+    [goneA.discarded, goneA.branch_deleted, goneA.branch_note],
+    [true, false, `its branch ${a.lease.branch} is already gone`],
+  );
+
+  const b = await env.createWorktree({ holder: 'D-3', itemId: 'W-3' });
+  await env.runSetup({ holder: 'D-3' });
+  await updateRegistry(store, (r) => {
+    r.worktrees['D-3'].base = 'no-such-base';
+  });
+  const goneB = await env.discardFailedSetup({ holder: 'D-3' });
+  assert.equal(goneB.branch_deleted, false);
+  assert.match(String(goneB.branch_note), /its base no-such-base could not be resolved/);
+  assert.doesNotMatch(String(goneB.branch_note), /holds commits/);
+  assert.ok(git(['rev-parse', '--verify', `refs/heads/${b.lease.branch}`], repoRoot).trim());
+  await env.releaseHolder({ holder: 'D-2', result: 'abandoned' });
+  await env.releaseHolder({ holder: 'D-3', result: 'abandoned' });
+});
+
+test('a truncated multi-byte sequence at the end of the output is flushed as U+FFFD, and the secret before it stays redacted (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const SECRET = 'é'.repeat(8) + '-Kp4';
+  const script = join(dir('trunc'), 'trunc.cjs');
+  writeFileSync(
+    script,
+    [
+      `process.stderr.write('token=' + ${JSON.stringify(SECRET)} + ' then ');`,
+      // The first byte of a two-byte character, and then the program ends.
+      'process.stderr.write(Buffer.from([0xc3]));',
+      'process.exitCode = 1;',
+    ].join('\n'),
+  );
+  const { env } = await makeEnv({
+    repoRoot,
+    env: {
+      worktree_setup: [`"${process.execPath}" "${script}"`],
+      secret_tasks: [
+        { task: 'publish', roles: ['executor'], secrets: ['NPM_TOKEN'], argv: ['/bin/true'] },
+      ],
+    },
+    read: (name) => (name === 'NPM_TOKEN' ? SECRET : null),
+  });
+  await env.createWorktree({ holder: 'D-4', itemId: 'W-4' });
+  const setup = await env.runSetup({ holder: 'D-4' });
+  assert.equal(setup.ok, false);
+  assert.equal(setup.steps[0].output_tail, 'token=[REDACTED:NPM_TOKEN] then �');
+  await env.releaseHolder({ holder: 'D-4', result: 'abandoned' });
+});
+
 test('a non-ASCII secret split across two pipe reads is still redacted (HITLD-934)', async () => {
   const repoRoot = makeRepo();
   const SECRET = 'é'.repeat(19) + '-Zq9';
