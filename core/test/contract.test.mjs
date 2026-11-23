@@ -7,6 +7,7 @@ import { checkContract } from '../lib/contract/check.mjs';
 import { parseReport } from '../lib/contract/report.mjs';
 import { VERSION } from '../lib/version.mjs';
 import { main } from '../lib/cli/main.mjs';
+import { renderBrief } from '../lib/dispatch/brief.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
 const tmp = realpathSync(tempDir('hitld-contract-'));
@@ -313,4 +314,42 @@ test('the block passes markdownlint MD040 and a new AGENTS.md passes MD041 (HITL
     assert.match(text.split('\n')[0], /^# \S/, 'the first line is a top-level heading');
     assert.equal(compareBlock(text).status, 'current');
   }
+});
+
+// HITLD-806: an executor indented its list lines two spaces with no "- ", and every one was
+// refused as an unexpected line. The contract and the brief say the dash, with an example.
+test('the contract and the brief say each list line starts with "- ", and a report written so parses', () => {
+  const block = renderBlock();
+  const brief = renderBrief({
+    item: { id: 'W-1', title: 'x', path: 'work/items/W-1-x.md' },
+    sizing: /** @type {any} */ ({ areas: [], estimate_tokens: 100_000, owner_review: null }),
+    dispatch: 'D-1',
+    branch: 'hitld/W-1-x',
+    policy: { project: { id: 'p' } },
+    isolation: 'none',
+  });
+  for (const text of [block, brief]) {
+    assert.match(
+      text,
+      /Each list item is its own line under\s+its heading, indented two spaces and starting with "- "/,
+    );
+    assert.match(text, /a line without the dash is refused/);
+    assert.match(text, /\ncalls:\n {2}- <call> \(reversible\)\n/, 'an example list line');
+  }
+  // The contract's own example, its choices made, is a report that parses.
+  const shape = /```text\n([\s\S]*?)\n```/.exec(block)?.[1] ?? '';
+  const filled = shape
+    .replace('done | partial | blocked', 'done')
+    .replace('<sha> (branch <name>)', `${'a'.repeat(40)} (branch hitld/W-214-x)`)
+    .replace('<run ID> (<what>) | none', 'none')
+    .replace(/none \| <what>/g, 'none');
+  const ok = parseReport(filled);
+  assert.deepEqual(ok.errors, []);
+  assert.deepEqual(ok.report?.evidence, ['<command>: <result>']);
+  assert.deepEqual(ok.report?.calls, [{ text: '<call>', reversible: true }]);
+  // The same report with the dashes left off is refused, naming each line.
+  const bare = parseReport(filled.replace(/^ {2}- /gm, '  '));
+  assert.equal(bare.report, null);
+  assert.ok(bare.errors.includes('unexpected line: <command>: <result>'), bare.errors.join('\n'));
+  assert.ok(bare.errors.includes('unexpected line: <call> (reversible)'), bare.errors.join('\n'));
 });
