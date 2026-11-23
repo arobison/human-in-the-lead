@@ -30,9 +30,9 @@ import { parseItem } from '../tracker/files/frontmatter.mjs';
 import { releasesDir } from '../tracker/files/releases.mjs';
 import { openTracker } from '../tracker/files/tracker.mjs';
 import { git } from '../tracker/files/tree.mjs';
-import { describeGates, tagMessage } from './make.mjs';
-import { proposeRelease } from './propose.mjs';
-import { bumpBetween, isPrerelease, parseVersion } from './semver.mjs';
+import { describeGates, tagMessage, trainProblem } from './make.mjs';
+import { channelProblem, proposeRelease } from './propose.mjs';
+import { bumpBetween, isPrerelease, preLabelOf } from './semver.mjs';
 
 /**
  * @typedef {object} RecordCheck
@@ -62,16 +62,7 @@ function openAt(root) {
   return openTracker({ repoRoot: root, policy: loaded.policy, env: {} });
 }
 
-/**
- * The pre-release label `release propose --pre` takes for a version: rc for 0.1.0-rc.2. Null for
- * a full release; undefined for a pre-release part propose never gives.
- * @param {string} version @returns {string | null | undefined}
- */
-export function preLabelOf(version) {
-  const pre = parseVersion(version)?.pre;
-  if (pre == null) return null;
-  return /^([a-z]+)\.[1-9]\d*$/.exec(pre)?.[1];
-}
+export { preLabelOf };
 
 /** The text of a record body's "## Notes" section. @param {string} body */
 export function notesOf(body) {
@@ -219,6 +210,13 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
     problems.push(`${version}'s pre-release part is not <label>.<n>, which release propose gives`);
     return out;
   }
+  // The label is one of the package's channels, as the make command requires (HITLD-898).
+  const declared = (layout.packages ?? []).find((x) => x.name === pkg);
+  const channel = declared ? channelProblem(declared, version) : null;
+  if (channel) {
+    problems.push(channel);
+    return out;
+  }
   const wt = mkdtempSync(join(tmpdir(), 'hitld-release-check-'));
   try {
     git(root, ['worktree', 'add', '-q', '--detach', wt, parents[0]]);
@@ -261,6 +259,9 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
         `the release item ${p.release_item} for ${version} still waits for its gates: ${describeGates(p.gates)}`,
       );
     }
+    // While a train is open, a release it needs is not made alone (HITLD-898).
+    const train = trainProblem(openAt(wt), p);
+    if (train) problems.push(train);
     if ((d.previous ?? null) !== p.base) {
       problems.push(
         `previous is ${d.previous ?? 'not set'}, but the last full release is ${p.base ?? 'none'}`,
