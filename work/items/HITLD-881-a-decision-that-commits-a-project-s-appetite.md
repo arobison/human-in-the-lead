@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-407 c?]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ Reported as GitHub issue 545 (https://github.com/arobison/human-in-the-lead/issu
 ## Notes
 
 Joins Consumer live (HITLD-67) clause c2 on the owner's word of 2026-11-22 (decision HITLD-878).
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-403 c?]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ Reproduced: a done item with a `release_note` that touched only files outside ev
 ## Notes
 
 From the Fable independent read of the delegated merges (2026-11-22), finding R6 and R13; decision HITLD-897. Joins Consumer live (HITLD-67) clause c2 as a recorded exception to the freeze: it is a defect in the release path rc.2 depends on, and it should land before the owner applies `release migrate` (HITLD-854).
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

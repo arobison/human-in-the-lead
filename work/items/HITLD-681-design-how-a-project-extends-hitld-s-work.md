@@ -5,7 +5,7 @@ kind: work
 state: proposed
 created: 2026-11-21
 project: HITLD-15
-constraint_of: [HITLD-67 c4]
+constraint_of: [HITLD-192 c?]
 ---
 
 ## Done when
@@ -46,3 +46,5 @@ The owner wants all of this in rc.2 (HITLD-682), against the chief of staff's re
 - **Freshness (HITLD-689):** a static file regenerated on events and on demand, stating when and where its data was read. Build item HITLD-694.
 
 The design text is the curator's job (HITLD-695), for the owner's yes. This item stays open until HITLD-695 and the build items land.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-972 (2026-11-23).

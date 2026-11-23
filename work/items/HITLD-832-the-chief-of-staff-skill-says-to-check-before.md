@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-807]
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-405 c?]
 ---
 
 
@@ -23,3 +23,5 @@ On 2026-11-22 the chief of staff made six avoidable mistakes: it asked the owner
 ## Notes
 
 Filed on 2026-11-22 from the owner's request to propose tickets for the session's mistakes and friction.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

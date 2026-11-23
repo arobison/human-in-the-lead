@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c4]
+constraint_of: [HITLD-192 c?]
 ---
 
 ## Why
@@ -18,3 +18,5 @@ The owner noticed that milestones are never shown as in progress while some of t
 - A milestone is `in_progress` when at least one constraint is claimed or done and the milestone is not `check_due` or `done`; it is `not_started` otherwise.
 - HITLD's own views and the generated page show it, and `hitld work check` is unaffected.
 - A schema change to the contract raises or keeps the `api_version` by its own rule (an added field keeps it). Tests cover each state, a constraint claimed on a branch, and an item in two milestones. `npm run check`, the offline eval gate and `hitld work check` pass.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

@@ -29,3 +29,5 @@ Not a need of v0.1.0. What the harness reports limits the split: a completion no
 ## Note on 2026-11-20 (HITLD-584)
 
 The note above that per-turn usage is not reported is stale: the session record reports usage and cost per session and per turn through its result events, as for executor tokens (HITLD-438). A first slice, spend by role per session on the dashboard, is HITLD-585 in rc.3. This item keeps the fuller split by activity, area and model, the rework and overhead shares and the trends.
+
+Moved from rc.3 to rc.4 by the owner's cut-line decision HITLD-975 (2026-11-23).

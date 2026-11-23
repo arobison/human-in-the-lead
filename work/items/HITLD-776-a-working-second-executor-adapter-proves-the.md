@@ -16,3 +16,5 @@ The owner decided (HITLD-774) that the working second adapter that proves the ru
 - A second runtime adapter works end to end: an item is dispatched to it, its executor runs under the guard enforcement its capability row declares, and its result is recorded like any other.
 - An item whose classification needs a data boundary or guard enforcement the runtime lacks is refused for that runtime, and a test shows it.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
+
+Moved from rc.3 to rc.4 by the owner's cut-line decision HITLD-975 (2026-11-23).

@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c1]
+constraint_of: [HITLD-64 c?]
 ---
 
 ## Why
@@ -23,3 +23,5 @@ Lower-severity guard gaps from the trust-boundary review (T7 to T9): the budget 
 ## Notes
 
 Findings T7, T8 and T9. Do after HITLD-867 to 870.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-974 (2026-11-23).

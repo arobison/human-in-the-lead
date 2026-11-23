@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-404 c?]
 ---
 
 ## Why
@@ -23,3 +23,5 @@ The owner asked on 2026-11-22 whether GitHub issues are closed and linked to the
 ## Notes
 
 Joins Consumer live (HITLD-67) clause c2 on the owner's word of 2026-11-22. A command that posts to GitHub is outward-facing, so it needs the owner's own yes to merge.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

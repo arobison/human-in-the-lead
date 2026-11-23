@@ -39,3 +39,5 @@ The curator item for design part 14.2 is HITLD-818. A queue change reaches main 
 ## Moved out of rc.2 on 2026-11-22
 
 Moved from Consumer live (HITLD-67) on the owner's decision HITLD-874, after the plan review found rc.2 could not converge. It keeps its other milestone links.
+
+Moved from rc.3 to rc.4 by the owner's cut-line decision HITLD-975 (2026-11-23).

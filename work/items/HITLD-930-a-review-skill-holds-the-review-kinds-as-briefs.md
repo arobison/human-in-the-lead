@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-189 c?]
 ---
 
 ## Why
@@ -23,3 +23,5 @@ On 2026-11-22 independent model reviews (the Fable reviews) found a reproduced s
 ## Notes
 
 The rc.2 slice of decision HITLD-929; the independent reviewer on delegated merges is HITLD-872, which runs this skill's independent-read brief. The briefs used on 2026-11-22 are the starting text.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-971 (2026-11-23).
