@@ -2,7 +2,7 @@
 id: HITLD-898
 title: A release train that includes a lockstep group works, a release an open train needs is not made alone, and a version label is checked against the package's channels
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
