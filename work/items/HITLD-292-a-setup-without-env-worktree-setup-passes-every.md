@@ -2,7 +2,7 @@
 id: HITLD-292
 title: A setup without env.worktree_setup passes every check, then the merge queue's fresh worktree can't run the project's checks
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-404 c2]
