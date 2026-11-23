@@ -2,7 +2,7 @@
 id: HITLD-934
 title: A failed worktree setup shows the failing command and its output and removes the worktree and branch it made
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
