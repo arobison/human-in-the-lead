@@ -2,10 +2,12 @@
 id: HITLD-899
 title: Upgrading to release packages warns until a package is declared, release migrate plans the moves whenever legacy records exist, and the migration commit passes the release workflow's record check
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M82XJENG657677
+release_note: "`hitld work check` warns while release records from before packages exist and no package is declared; `hitld release migrate` also moves such records when the package main is already declared; the migration commit passes the release workflow's record check; and `--apply` commits through the repository's hooks after running the private-term and classification checks itself."
 ---
 
 ## Why

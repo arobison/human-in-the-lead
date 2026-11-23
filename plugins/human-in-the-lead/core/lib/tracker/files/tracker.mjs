@@ -57,6 +57,7 @@ import { SHAPING_KEYS, betBy } from './projects.mjs';
 import {
   checkReleases,
   isPrerelease,
+  legacyReleaseWarnings,
   loadReleases,
   releaseEntity,
   releasedIn,
@@ -789,7 +790,8 @@ export function openTracker({
      * double claims; `inflight` (dispatch IDs from the ledger) adds the orphaned-claim check;
      * `terms` (from the private store) adds the private term rule to the classification check.
      * `warnings` names each open work item under no milestone and each milestone that still holds
-     * the retired `constraints` line (warnings, not problems).
+     * the retired `constraints` line, and release records from before packages while no package
+     * is declared (warnings, not problems).
      * `consistency` adds, on the main branch only, the mismatches between main's commit trailers
      * and its items (closing.mjs), as warnings and under `consistency`.
      * @param {{ branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[], consistency?: boolean }} [options]
@@ -798,10 +800,11 @@ export function openTracker({
       const items = read();
       const onMain = currentBranch(root) === layout.mainBranch;
       const g = buildGraph(items);
+      const records = releases();
       const problems = [
         ...checkItems(items, layout, { root, onMain, authorRoles }),
         ...checkPackages(layout.packages ?? [], { root }),
-        ...checkReleases(releases(), layout, (id) => g.get(id)?.data),
+        ...checkReleases(records, layout, (id) => g.get(id)?.data),
         ...pendingMigrationProblems(root, layout),
       ];
       problems.push(...feedbackRecordsIn(root).map(feedbackProblem));
@@ -847,6 +850,7 @@ export function openTracker({
         ...unplacedWork(items),
         ...descriptionWarnings(items),
         ...retiredConstraintLines(items),
+        ...legacyReleaseWarnings(records, layout),
       ];
       if (!consistency) return { problems, files: items.length, warnings };
       /** @type {Consistency} */

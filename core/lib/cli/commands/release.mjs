@@ -6,6 +6,9 @@
 import { makeRelease } from '../../release/make.mjs';
 import { applyMigration, planMigration } from '../../release/migrate.mjs';
 import { proposeRelease } from '../../release/propose.mjs';
+import { loadPolicy } from '../../policy/policy.mjs';
+import { termsForProject } from '../../store/private-terms.mjs';
+import { CodedError } from '../errors.mjs';
 import { executorSignal } from '../executor.mjs';
 import { open, where } from './tracker.mjs';
 
@@ -90,6 +93,8 @@ const MIGRATE_FIELDS = [
   'tags_kept',
   'problems',
   'commit',
+  'private_terms_checked',
+  'warnings',
   'next',
 ];
 
@@ -229,15 +234,30 @@ export const commands = [
             ? plan.problems.length
               ? `Fix the problems first; then the owner runs hitld release migrate${typeof input.surface === 'string' ? ` --surface ${input.surface}` : ''} --apply`
               : `Nothing was written. The owner runs hitld release migrate${typeof input.surface === 'string' ? ` --surface ${input.surface}` : ''} --apply in the main session to make this change`
-            : 'Nothing to migrate: a release package is declared',
+            : 'Nothing to migrate: a release package is declared and no record from before packages is left',
         };
       }
-      const done = applyMigration(t, plan);
+      // The commit guard's private term check runs on the change before it is committed, as the
+      // hooks would (HITLD-899); a list that does not read refuses.
+      const loaded = loadPolicy({ cwd: t.root() });
+      let terms;
+      try {
+        terms = termsForProject({ policy: loaded.policy, env: ctx.env, repoRoot: t.root() });
+      } catch (e) {
+        const err = /** @type {{ code?: unknown, message: string }} */ (e);
+        if (err.code === 'private-list-invalid') {
+          throw new CodedError('private-list-invalid', `${err.message}; nothing was migrated`);
+        }
+        throw e;
+      }
+      const done = applyMigration(t, plan, { terms: terms.matchers });
       return {
         ok: true,
         ...plan,
         applied: true,
         commit: done.commit,
+        private_terms_checked: terms.list_found,
+        ...(terms.warnings.length ? { warnings: terms.warnings } : {}),
         next: 'Nothing was pushed. Check the commit (hitld work check), then push it or open a pull request from it',
       };
     },
