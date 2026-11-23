@@ -71,7 +71,7 @@ Proposed (nothing is changed until you answer):
  3. Tracker: <none, start empty | kept in place at <dir>, written to tracker.json | ...>.
  4. Full suite: `<command>`. Source: <file and line>.
  5. Fast checks: `<command>` | none. Source: <file>.
- 6. Worktree setup: `<command>`. Source: <lockfile>.
+ 6. Worktree setup: `<command>`. Source: <lockfile>. Also every command that makes the generated, uncommitted files items 4 and 5 import: the merge queue runs them in a fresh worktree that has only what git tracks and what this makes.
  7. Merge mode: owner (you approve each batch). The default for a new setup.
  8. Project rules, added to AGENTS.md below the contract block, outside its markers:
     <the three to eight rules, as they will be written>
