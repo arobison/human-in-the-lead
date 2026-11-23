@@ -215,7 +215,9 @@ export function checkReleases(records, layout, get) {
       // A record from before packages: a v-tag, in a file named by it.
       if (packages.length) {
         say(
-          'is a repository-wide record from before release packages; hitld release migrate moves it into the package named main',
+          byName.has('main')
+            ? 'is a repository-wide record from before release packages; hitld release migrate moves it into the package named main'
+            : 'is a repository-wide record from before release packages; declare a package named main (tag template v{version}), then hitld release migrate moves it there',
         );
       }
       if (d.package !== undefined)
@@ -282,6 +284,24 @@ export function checkReleases(records, layout, get) {
     if (errors.length) say(`schema: ${formatErrors(errors).split('\n').join('; ')}`);
   }
   return problems;
+}
+
+/**
+ * The warning while a repository is between release lines (HITLD-899): records from before
+ * packages exist and no package is declared, so `release propose` and `release make` refuse
+ * until the migration is applied. Once a package is declared, such a record is a problem instead
+ * (checkReleases).
+ * @param {Entry[]} records @param {Layout} layout
+ * @returns {string[]}
+ */
+export function legacyReleaseWarnings(records, layout) {
+  if ((layout.packages ?? []).length) return [];
+  const legacy = records.filter((r) => (r.package ?? null) === null);
+  if (!legacy.length) return [];
+  const more = legacy.length > 1 ? ` (and ${legacy.length - 1} more)` : '';
+  return [
+    `${legacy[0].path}${more} is a release record from before release packages, and no package is declared: release propose and release make refuse (no-packages) until the owner runs hitld release migrate --apply, which declares the package main and moves the records into it`,
+  ];
 }
 
 /**
