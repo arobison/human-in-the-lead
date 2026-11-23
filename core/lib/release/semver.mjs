@@ -21,6 +21,18 @@ export function parseVersion(v) {
   return m ? { major: +m[1], minor: +m[2], patch: +m[3], pre: m[4] ?? null } : null;
 }
 
+/**
+ * The pre-release label `release propose --pre` takes for a version: rc for 0.1.0-rc.2. Null for
+ * a full release (or a string that is not a version); undefined for a pre-release part propose
+ * never gives (not <label>.<n>).
+ * @param {string} version @returns {string | null | undefined}
+ */
+export function preLabelOf(version) {
+  const pre = parseVersion(version)?.pre;
+  if (pre == null) return null;
+  return /^([a-z]+)\.[1-9]\d*$/.exec(pre)?.[1];
+}
+
 /** Whether a version is a pre-release. @param {string} version */
 export const isPrerelease = (version) => parseVersion(version)?.pre != null;
 

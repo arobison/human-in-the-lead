@@ -40,7 +40,14 @@ import {
   tagFor,
   versionOfTag,
 } from './packages.mjs';
-import { atLeast, bumpBetween, compareVersions, isPrerelease, nextPrerelease } from './semver.mjs';
+import {
+  atLeast,
+  bumpBetween,
+  compareVersions,
+  isPrerelease,
+  nextPrerelease,
+  preLabelOf,
+} from './semver.mjs';
 
 /**
  * @typedef {import('../tracker/files/tracker.mjs').FilesTracker} FilesTracker
@@ -460,8 +467,11 @@ function releasesOf(ctx, parts, version, { named, item, making = new Map(), warn
           `${item} is the release item for ${own}, but this release is ${version}; name an item whose release is ${version}, or none`,
         );
       }
+      // A lockstep group shares one release item, so it names any one of its members
+      // (HITLD-898).
       const pkg = it?.data.package;
-      if (own !== undefined && pkg !== undefined && pkg !== m.p.name) {
+      const unit = releasedWith(ctx.packages, m.p).map((q) => q.name);
+      if (own !== undefined && pkg !== undefined && !unit.includes(String(pkg))) {
         throw new CodedError(
           'release-item-mismatch',
           `${item} is the release item for ${pkg}, but this release is of ${m.p.name}`,
@@ -511,7 +521,8 @@ export async function proposeRelease(t, { package: name, pre, item, version: mak
   if (train !== undefined) return proposeTrain(ctx, train, warnings);
   const p = resolvePackage(ctx.packages, name);
   if (pre !== undefined && !p.channels.includes(pre)) {
-    throw new Error(
+    throw new CodedError(
+      'not-a-channel',
       `${pre} is not a pre-release channel of ${p.name} (its channels: ${p.channels.join(', ')})`,
     );
   }
@@ -720,6 +731,69 @@ function proposeTrain(ctx, id, warnings) {
     package_version: null,
     warnings,
   };
+}
+
+/**
+ * Why a version may not be made for a package: its pre-release part is not <label>.<n> under one
+ * of the package's channels (HITLD-898). Null when it may, a full release included.
+ * @param {Pick<Package, 'name' | 'channels'>} p @param {string} version
+ * @returns {string | null}
+ */
+export function channelProblem(p, version) {
+  const label = preLabelOf(version);
+  if (label === null) return null;
+  const channels = `its channels: ${p.channels.join(', ')}`;
+  if (label === undefined) {
+    return `${version}'s pre-release part is not <channel>.<n>, such as ${p.channels[0] ?? 'rc'}.1 (${p.name}: ${channels})`;
+  }
+  if (!p.channels.includes(label)) {
+    return `${label} is not a pre-release channel of ${p.name} (${channels})`;
+  }
+  return null;
+}
+
+/**
+ * The open release trains that need any of these release items (design 03, Release trains;
+ * HITLD-898): open work items with no release key of their own whose needs are the release items
+ * of two packages or groups or more. While one is open, a release it needs is not made alone.
+ * @param {FilesTracker} t @param {string[]} releaseItems
+ * @returns {{ train: string, release_items: string[] }[]} in tracker order
+ */
+export function openTrainsNeeding(t, releaseItems) {
+  const wanted = new Set(releaseItems);
+  if (!wanted.size) return [];
+  const { g, packages } = context(t);
+  /** @param {any} n the unit a release item is of, or null when it names no package declared */
+  const unitOf = (n) => {
+    const name =
+      n.data.package === undefined
+        ? packages.length === 1
+          ? packages[0].name
+          : undefined
+        : String(n.data.package);
+    const p = packages.find((x) => x.name === name);
+    return p ? (p.group ? `group:${p.group}` : p.name) : null;
+  };
+  return g.items
+    .filter((it) => it.data.kind === 'work' && it.data.release === undefined && g.isOpen(it))
+    .flatMap((it) => {
+      const needed = g
+        .needs(it)
+        .map((n) => g.get(n))
+        .filter(
+          (n) =>
+            n &&
+            n.data.kind === 'work' &&
+            typeof (/** @type {any} */ (n).data.release) === 'string',
+        );
+      const held = needed
+        .map((n) => String(/** @type {any} */ (n).data.id))
+        .filter((id) => wanted.has(id));
+      const units = new Set(needed.map(unitOf).filter((u) => u !== null));
+      return held.length && units.size >= 2
+        ? [{ train: String(it.data.id), release_items: held }]
+        : [];
+    });
 }
 
 /** Where make writes each record. @param {FilesTracker} t @param {PackageRelease} r */
