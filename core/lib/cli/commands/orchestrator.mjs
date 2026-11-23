@@ -235,7 +235,7 @@ export class Refusal extends Error {
  * failing command, its exit and the last lines of its (redacted) output, what became of the
  * worktree and its branch, and where the whole record is.
  * @param {import('../../env/registry.mjs').SetupResult} setup @param {string} dispatch
- * @param {{ discarded: boolean, reason?: string, branch_deleted?: boolean, branch_error?: string }} gone
+ * @param {{ discarded: boolean, reason?: string, branch_deleted?: boolean, branch_error?: string, branch_note?: string }} gone
  */
 export function setupFailedMessage(setup, dispatch, gone) {
   const step = setup.steps.at(-1);
@@ -247,9 +247,7 @@ export function setupFailedMessage(setup, dispatch, gone) {
     ? `The worktree is kept${gone.reason ? ` (${gone.reason})` : ''}`
     : gone.branch_deleted
       ? 'The worktree and the branch it made were removed, so a retry starts clean'
-      : gone.branch_error
-        ? `The worktree was removed, but its branch could not be deleted (${gone.branch_error}), so a retry may take a fresh name`
-        : 'The worktree was removed; its branch existed before this dispatch and stays';
+      : `The worktree was removed; ${gone.branch_note ?? 'its branch stays'}`;
   return `the declared worktree setup failed: \`${step.command}\` ${exit}${tail ? `, ending:\n${tail}\n` : '. '}${kept}; ${where}`;
 }
 
@@ -1723,7 +1721,7 @@ const table = [
             if (!setup.ok) {
               // Nobody has worked in it yet: take it back with its branch, so a retry starts clean
               // (HITLD-934). The lease stays for `hitld env status`.
-              /** @type {{ discarded: boolean, reason?: string, branch_deleted?: boolean, branch_error?: string }} */
+              /** @type {{ discarded: boolean, reason?: string, branch_deleted?: boolean, branch_error?: string, branch_note?: string }} */
               const gone = made.existing
                 ? { discarded: false, reason: 'it was there before this start' }
                 : await env

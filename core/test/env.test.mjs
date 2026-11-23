@@ -624,11 +624,111 @@ test('a worktree removed whose branch then cannot be deleted is marked removed, 
     [true, false, 'cannot lock ref'],
   );
   assert.ok(!existsSync(lease.path), 'the worktree is gone');
-  assert.ok(env.registry().worktrees['D-4'].discarded_at, 'and the lease says so');
+  const recorded = env.registry().worktrees['D-4'];
+  assert.ok(recorded.discarded_at, 'and the lease says so');
+  assert.equal(recorded.branch_error, 'cannot lock ref', 'with the error env status shows');
   const message = setupFailedMessage(setup, 'D-4', gone);
-  assert.match(message, /The worktree was removed, but its branch could not be deleted/);
-  assert.doesNotMatch(message, /kept/);
+  assert.match(
+    message,
+    /The worktree was removed; its branch hitld\/W-4-work could not be deleted \(cannot lock ref\); it holds nothing beyond main, so a retry reuses it under the same name/,
+  );
+  assert.doesNotMatch(message, /kept|fresh name/);
+  // And that is what a retry does.
+  const retry = await env.createWorktree({ holder: 'D-5', itemId: 'W-4' });
+  assert.deepEqual([retry.branch_choice?.chose, retry.lease.branch], ['reuse', lease.branch]);
+  await env.releaseHolder({ holder: 'D-5', result: 'abandoned' });
   await env.releaseHolder({ holder: 'D-4', result: 'abandoned' });
+});
+
+test("the message names why a removed worktree's branch stays: commits beyond the base, or it existed before (HITLD-934)", async () => {
+  const repoRoot = makeRepo();
+  git(['branch', 'hitld/W-7-work'], repoRoot);
+  const { env } = await makeEnv({ repoRoot, env: { worktree_setup: ['exit 1'] } });
+  const a = await env.createWorktree({ holder: 'D-6', itemId: 'W-6' });
+  writeFileSync(join(a.lease.path, 'kept.txt'), 'x\n');
+  git(['add', 'kept.txt'], a.lease.path);
+  git(['commit', '-q', '-m', 'kept'], a.lease.path);
+  const setupA = await env.runSetup({ holder: 'D-6' });
+  const goneA = await env.discardFailedSetup({ holder: 'D-6' });
+  const messageA = setupFailedMessage(setupA, 'D-6', goneA);
+  assert.match(
+    messageA,
+    /The worktree was removed; its branch hitld\/W-6-work holds commits not in main, so it stays and a retry takes a fresh name/,
+  );
+  assert.doesNotMatch(messageA, /existed before/);
+
+  await env.createWorktree({ holder: 'D-7', itemId: 'W-7' });
+  const setupB = await env.runSetup({ holder: 'D-7' });
+  const goneB = await env.discardFailedSetup({ holder: 'D-7' });
+  assert.match(
+    setupFailedMessage(setupB, 'D-7', goneB),
+    /The worktree was removed; its branch hitld\/W-7-work existed before this dispatch and stays/,
+  );
+  await env.releaseHolder({ holder: 'D-6', result: 'abandoned' });
+  await env.releaseHolder({ holder: 'D-7', result: 'abandoned' });
+});
+
+test('releasing a worktree with a bind mount in it refuses before saving anything to its branch (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot });
+  const { lease } = await env.createWorktree({ holder: 'D-8', itemId: 'W-8' });
+  mkdirSync(join(lease.path, 'cache'));
+  writeFileSync(join(lease.path, 'cache', 'mounted.txt'), 'outside files\n');
+  const tip = git(['rev-parse', lease.branch], repoRoot).trim();
+  const esc = (/** @type {string} */ p) => p.replace(/ /g, '\\040');
+  for (const point of [join(lease.path, 'cache'), lease.path]) {
+    const mountinfo = () => `40 1 0:21 /src ${esc(point)} rw - ext4 /dev/sda1 rw\n`;
+    await assert.rejects(
+      removeFromDisk(lease, false, { mountinfo }),
+      (/** @type {Error} */ e) =>
+        /is a mount point; nothing was saved or removed/.test(e.message) &&
+        !/another device/.test(e.message),
+    );
+    assert.equal(git(['rev-parse', lease.branch], repoRoot).trim(), tip, 'the branch is untouched');
+    assert.match(
+      git(['status', '--porcelain'], lease.path),
+      /\?\? cache\//,
+      'nothing was committed',
+    );
+    assert.ok(existsSync(join(lease.path, 'cache', 'mounted.txt')));
+  }
+  await env.releaseHolder({ holder: 'D-8', result: 'abandoned' });
+});
+
+test('a non-ASCII secret split across two pipe reads is still redacted (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const SECRET = 'é'.repeat(19) + '-Zq9';
+  const bytes = Buffer.from(SECRET, 'utf8');
+  // Writes the secret's bytes in two parts, cut inside the fifth "é", with a pause between, so
+  // they arrive in two reads.
+  const script = join(dir('split'), 'split.cjs');
+  writeFileSync(
+    script,
+    [
+      `const b = Buffer.from(${JSON.stringify([...bytes])});`,
+      "process.stderr.write('x'.repeat(100) + 'token=');",
+      'process.stderr.write(b.subarray(0, 9));',
+      'setTimeout(() => { process.stderr.write(b.subarray(9)); process.exitCode = 1; }, 300);',
+    ].join('\n'),
+  );
+  const { env } = await makeEnv({
+    repoRoot,
+    env: {
+      worktree_setup: [`"${process.execPath}" "${script}"`],
+      secret_tasks: [
+        { task: 'publish', roles: ['executor'], secrets: ['NPM_TOKEN'], argv: ['/bin/true'] },
+      ],
+    },
+    read: (name) => (name === 'NPM_TOKEN' ? SECRET : null),
+  });
+  await env.createWorktree({ holder: 'D-9', itemId: 'W-9' });
+  const setup = await env.runSetup({ holder: 'D-9' });
+  assert.equal(setup.ok, false);
+  const tail = setup.steps[0].output_tail;
+  assert.ok(!tail.includes('�'), 'no character was broken at the read boundary');
+  assert.match(tail, /token=\[REDACTED:NPM_TOKEN\]$/);
+  assert.ok(!tail.includes('Zq9') && !tail.includes('éé'));
+  await env.releaseHolder({ holder: 'D-9', result: 'abandoned' });
 });
 
 test('setup runs only the commands policy declares; a request cannot add its own', async () => {

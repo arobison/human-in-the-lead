@@ -2,6 +2,7 @@
 // declares, and cleaned up without ever losing uncommitted work.
 
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { CodedError } from '../cli/errors.mjs';
@@ -15,7 +16,7 @@ import {
   templateValues,
 } from './include.mjs';
 import { leasePort } from './ports.mjs';
-import { findOutsideLinks, unlinkOutsideLinks } from './links.mjs';
+import { findOutsideLinks, scanWorktree, unlinkOutsideLinks } from './links.mjs';
 import { logEvent, readRegistry, updateRegistry } from './registry.mjs';
 import { realPath } from './fsx.mjs';
 import { killTree, matchProcess } from './proc.mjs';
@@ -268,12 +269,15 @@ function runStep(command, cwd, env, timeoutMs) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const note = spec.note ? `note: ${spec.note}\n` : '';
-    /** @param {Buffer} d */
-    const take = (d) => {
-      out = (out + d.toString('utf8')).slice(-RAW_KEPT);
+    // One decoder per stream: a character split across two reads is joined, not turned into
+    // U+FFFD, so a non-ASCII secret still matches the redactor (HITLD-934).
+    const decoders = { out: new StringDecoder('utf8'), err: new StringDecoder('utf8') };
+    /** @param {string} text */
+    const keep = (text) => {
+      out = (out + text).slice(-RAW_KEPT);
     };
-    child.stdout.on('data', take);
-    child.stderr.on('data', take);
+    child.stdout.on('data', (/** @type {Buffer} */ d) => keep(decoders.out.write(d)));
+    child.stderr.on('data', (/** @type {Buffer} */ d) => keep(decoders.err.write(d)));
     const timer = setTimeout(() => {
       if (process.platform === 'win32' && child.pid) killTree(child.pid);
       else child.kill('SIGTERM');
@@ -284,6 +288,7 @@ function runStep(command, cwd, env, timeoutMs) {
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      keep(decoders.out.end() + decoders.err.end());
       resolveStep({ exit_code: code, ms: Date.now() - started, raw: out, note });
     });
   });
@@ -457,7 +462,10 @@ const realOr = (p) => {
  * Remove a worktree from disk, saving uncommitted work to its branch first. Returns what happened.
  * @param {WorktreeLease} lease
  * @param {boolean} deleteIfMerged
- * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam] tests fake a mount point
+ * A mount point at or under the worktree refuses the removal before anything is saved, so the
+ * mounted files are never committed to the branch (HITLD-934).
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats, mountinfo?: () => string }} [seam]
+ *   tests fake a mount point
  */
 export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
   // Never the primary checkout, whatever a lease says.
@@ -468,17 +476,22 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
   /** @type {{ saved: boolean, branch_deleted: boolean, branch: string, links_unlinked: string[] }} */
   const out = { saved: false, branch_deleted: false, branch: lease.branch, links_unlinked: [] };
   if (!gone) {
+    // Before the save: `git add -A` would commit what is mounted there into the branch.
+    const mounts = scanWorktree(lease.path, seam).mounts;
+    if (mounts.length) {
+      throw new Error(
+        `not removing ${lease.path}: ${mounts.join(', ')} is a mount point; nothing was saved or removed`,
+      );
+    }
     const saved = await saveUncommitted(lease);
     out.saved = saved.saved;
     out.branch = saved.branch;
     // Unlink every link that points outside the worktree first, so nothing below can reach a
     // target (design 13.2). Uncommitted work is already saved, so --force only lets git remove
     // what the unlinking changed (a tracked link) and the ignored files in the tree.
-    const links = unlinkOutsideLinks(lease.path, seam.lstat ? { lstat: seam.lstat } : undefined);
+    const links = unlinkOutsideLinks(lease.path, seam);
     if (links.mounts.length) {
-      throw new Error(
-        `not removing ${lease.path}: ${links.mounts.join(', ')} is a mount point (another device)`,
-      );
+      throw new Error(`not removing ${lease.path}: ${links.mounts.join(', ')} is a mount point`);
     }
     if (links.declined.length) {
       throw new Error(
@@ -523,7 +536,8 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
  *   unlink?: (root: string, rel: string) => boolean, git?: typeof git }} [seam] tests fake a mount
  *   point, an unlink that declines, or a branch deletion that fails
  * @returns {Promise<{ discarded: boolean, reason?: string, path?: string, branch?: string,
- *   branch_deleted?: boolean, branch_error?: string }>}
+ *   branch_deleted?: boolean, branch_error?: string, branch_note?: string }>} branch_note: why
+ *   the branch stays, when it does
  */
 export async function discardFailedSetup(ctx, request, seam = {}) {
   const holder = checkHolder(request.holder);
@@ -575,22 +589,31 @@ export async function discardFailedSetup(ctx, request, seam = {}) {
     let branchDeleted = false;
     /** @type {string | undefined} */
     let branchError;
+    /** Why the branch stays, when it does: what a retry will meet. */
+    let branchNote;
     try {
-      if (
-        lease.branch_created === true &&
-        lease.branch !== 'HEAD' &&
-        (await gitOk(
+      if (lease.branch === 'HEAD') {
+        branchNote = 'it had no branch';
+      } else if (lease.branch_created !== true) {
+        branchNote = `its branch ${lease.branch} existed before this dispatch and stays`;
+      } else if (
+        !(await gitOk(
           ['merge-base', '--is-ancestor', `refs/heads/${lease.branch}`, lease.base],
           lease.repo_root,
         ))
       ) {
+        branchNote = `its branch ${lease.branch} holds commits not in ${lease.base}, so it stays and a retry takes a fresh name`;
+      } else {
         await (seam.git ?? git)(['branch', '-D', lease.branch], lease.repo_root);
         branchDeleted = true;
       }
     } catch (e) {
       branchError = /** @type {Error} */ (e).message.trim().split('\n')[0];
+      // It holds nothing beyond the base, so chooseBranch reuses it under the same name.
+      branchNote = `its branch ${lease.branch} could not be deleted (${branchError}); it holds nothing beyond ${lease.base}, so a retry reuses it under the same name`;
     }
     lease.discarded_at = new Date().toISOString();
+    if (branchError) lease.branch_error = branchError;
     logEvent(ctx.store, 'worktree_discarded', {
       holder,
       path: lease.path,
@@ -604,6 +627,7 @@ export async function discardFailedSetup(ctx, request, seam = {}) {
       branch: lease.branch,
       branch_deleted: branchDeleted,
       ...(branchError ? { branch_error: branchError } : {}),
+      ...(branchNote ? { branch_note: branchNote } : {}),
     };
   });
 }
