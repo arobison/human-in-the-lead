@@ -18,6 +18,9 @@ const END = /^<!-- hitld:contract end -->[ \t]*$/;
 export const DEFAULT_KEY = 'W';
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 
+/** The key a block's example shows for a project key: the key itself, or the fallback. @param {string} key */
+const renderedKey = (key) => (KEY.test(key) ? key : DEFAULT_KEY);
+
 /** The first line of an AGENTS.md that install creates: markdownlint MD041 wants a top-level heading. */
 export const NEW_FILE_HEADING = '# Agent instructions';
 
@@ -38,7 +41,7 @@ const withoutBlankLines = (body) =>
  * @param {string} [key] the project's ID key (policy.json project.key), shown in the example
  */
 export function renderBlock(version = VERSION, key = DEFAULT_KEY) {
-  const k = KEY.test(key) ? key : DEFAULT_KEY;
+  const k = renderedKey(key);
   return (
     readFileSync(TEMPLATE_PATH, 'utf8')
       .replaceAll('{{VERSION}}', version)
@@ -116,6 +119,17 @@ export function compareBlock(text, version = VERSION, key = DEFAULT_KEY) {
   const want = renderBlock(version, key);
   if (withoutBlankLines(found.body) === withoutBlankLines(want))
     return { status: 'current', found: found.version, expected: version, message: 'current' };
+  // A block rendered while the policy's key was invalid has the fallback key in its example; once
+  // the key is fixed that is a stale rendering, not an edit by hand (HITLD-933).
+  const fallback = renderBlock(version, DEFAULT_KEY);
+  if (fallback !== want && withoutBlankLines(found.body) === withoutBlankLines(fallback)) {
+    return {
+      status: 'outdated',
+      found: found.version,
+      expected: version,
+      message: `the block's example was rendered with the fallback key ${DEFAULT_KEY}, not the project's key ${renderedKey(key)}; ${fix} renders it with ${renderedKey(key)}`,
+    };
+  }
   const have = new Set(found.body.split('\n'));
   const wanted = new Set(want.split('\n'));
   const drift = [
