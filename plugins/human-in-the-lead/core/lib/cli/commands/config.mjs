@@ -2,7 +2,7 @@
 // machine files, and move settings out of policy.json.
 
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { findRepoRoot, loadPolicy, mergePolicy, policyDefaults } from '../../policy/policy.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
@@ -31,6 +31,7 @@ import { pinWarnings } from '../../settings/versions.mjs';
 import { readLedger } from '../../ledger/ledger.mjs';
 import { activePause, pauseGate } from '../../quota/pause.mjs';
 import { machineRootFor } from '../../env/manager.mjs';
+import { worktreeSetupGap } from '../../env/setup-gap.mjs';
 import { runningElsewhere } from '../../registry/machine.mjs';
 
 const MAX_FILE_BYTES = 1_000_000;
@@ -197,9 +198,20 @@ export const commands = [
         run: noPolicy ? null : run,
       });
       const ok = r.errors.length === 0;
+      // Checks the merge queue would run in a worktree its setup leaves empty (HITLD-292): setup
+      // is not finished while the queue cannot run them.
+      const gap = noPolicy
+        ? null
+        : worktreeSetupGap(
+            r.policy,
+            policyResult.path ? dirname(dirname(policyResult.path)) : null,
+          );
       const warnings = [
         ...r.warnings,
         ...versionWarnings(r.layers, ctx, noPolicy ? undefined : base.policy?.project?.id),
+        ...(gap
+          ? [{ path: 'env.worktree_setup', home: /** @type {const} */ ('project'), message: gap }]
+          : []),
       ];
       const files = {
         ...r.files,
@@ -227,7 +239,8 @@ export const commands = [
             ? `\n\nfrom the project's store: ${setup.from_store.join(' and ')}`
             : '') +
           (setup.conservative ? `\n\n${setup.conservative}` : '') +
-          (setup.reason ? `\n\n${setup.reason}` : ''),
+          (setup.reason ? `\n\n${setup.reason}` : '') +
+          (gap ? `\n\n${gap}` : ''),
         files,
         setup,
         warnings: warnings.map((w) => w.message),

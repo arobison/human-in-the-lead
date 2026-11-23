@@ -27,6 +27,7 @@ import {
   listKeys,
   toEntity,
 } from './format.mjs';
+import { optionalKeyNames } from './config.mjs';
 import { ITEM_KINDS, buildGraph, findCycles, holdsLinks, list } from './graph.mjs';
 import { LEGACY_KINDS, LEGACY_KIND_NOTES, LEGACY_STATES, renamesFor } from './legacy.mjs';
 import {
@@ -44,6 +45,9 @@ import { readProject } from './projects.mjs';
 import { insidePath } from './safe.mjs';
 import { idNumber, patterns } from './tree.mjs';
 import { SEMVER } from '../../release/semver.mjs';
+
+/** Where a project turns keys on, as the check names it. */
+const TRACKER_CONFIG_FILE = '.human-in-the-lead/tracker.json';
 
 /**
  * @typedef {import('./config.mjs').Layout} Layout
@@ -155,6 +159,7 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
       return;
     }
     const allowed = allowedKeys(kind, layout);
+    const optionalNames = optionalKeyNames();
     const renamed = renamesFor(kind);
     for (const key of Object.keys(d)) {
       if (Object.hasOwn(RETIRED_KEYS, key) && !allowed.includes(key)) {
@@ -163,8 +168,19 @@ export function checkItems(items, layout, { root, onMain = false, authorRoles } 
       } else if (Object.hasOwn(renamed, key) && !allowed.includes(key)) {
         say(it, `"${key}" is now "${renamed[key]}"; run hitld work migrate`);
         continue;
-      } else if (!allowed.includes(key) && !CODE_KEYS.includes(key)) {
-        say(it, `"${key}" isn't an allowed key for a ${kind}`);
+      } else if (CODE_KEYS.includes(key)) {
+        continue;
+      } else if (!allowed.includes(key)) {
+        // Named once: whether it should be a list depends on a setting that is not on (HITLD-286).
+        say(
+          it,
+          `"${key}" isn't an allowed key for a ${kind}; ${
+            optionalNames.includes(key)
+              ? `turn it on in ${TRACKER_CONFIG_FILE} optional_keys`
+              : `a key of the project's own is declared in ${TRACKER_CONFIG_FILE} fields`
+          }`,
+        );
+        continue;
       }
       if (Array.isArray(d[key]) !== lists.has(key)) {
         say(it, `"${key}" must be ${lists.has(key) ? 'a list' : 'a single value'}`);

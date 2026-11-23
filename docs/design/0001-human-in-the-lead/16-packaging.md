@@ -244,6 +244,8 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `unknown-package`: No release package by that name is declared.
 - `dependency-out-of-range`: A package this release depends on has no release in the range the package declares.
 - `not-a-train`: The item named is not a release train: it needs no two packages' release items.
+- `release-in-train`: An open release train needs this release, so it is not made alone: it is made with the train.
+- `not-a-channel`: The pre-release label, given with --pre or in --version, is not <channel>.<n> under one of the package's channels.
 
 **Security and quarantine**
 

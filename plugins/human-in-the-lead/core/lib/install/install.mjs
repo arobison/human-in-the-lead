@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { POLICY_PATH, findRepoRoot, loadPolicy } from '../policy/policy.mjs';
 import { importsAgents, installBlock } from '../contract/block.mjs';
 import { SCHEMA_DIR } from '../schema/registry.mjs';
+import { worktreeSetupGap } from '../env/setup-gap.mjs';
 
 export const MARKETPLACE = 'human-in-the-lead';
 export const PLUGIN = 'human-in-the-lead';
@@ -540,6 +541,10 @@ export function install(input, ctx) {
   done.message_guard = hooks['commit-msg'].done;
   for (const h of Object.values(hooks)) if (h.warning) warnings.push(h.warning);
 
+  // Checks the merge queue would run in a worktree its setup leaves empty (HITLD-292).
+  const gap = worktreeSetupGap(loadPolicy({ cwd: root }).policy, root);
+  if (gap) warnings.push(gap);
+
   const add =
     source.source === 'directory'
       ? `claude plugin marketplace add ${shq(String(source.path))}`
@@ -552,7 +557,7 @@ export function install(input, ctx) {
     next: [
       ...(add ? [add] : []),
       `claude plugin install ${PLUGIN}@${MARKETPLACE} --scope project`,
-      'set merge.full_suite (and merge.fast_checks) in .human-in-the-lead/policy.json: the merge queue will not move main without a full suite',
+      'set merge.full_suite (and merge.fast_checks) in .human-in-the-lead/policy.json: the merge queue will not move main without a full suite; and env.worktree_setup, the commands that install and generate what those checks need in a fresh worktree',
       'hitld check contract && hitld check policy',
       'commit AGENTS.md, CLAUDE.md, .claude/settings.json and .human-in-the-lead/policy.json',
     ],
