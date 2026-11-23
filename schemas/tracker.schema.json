@@ -47,7 +47,7 @@
       "default": ["refs/bundles/"]
     },
     "optional_keys": {
-      "description": "Front-matter keys beyond the reference format that this project's items may carry. Empty by default: the reference format's check rejects every other key. Turning one on lets the check accept it and the tracker read and write it, typed as the item schema types it. owner is always allowed now (a record without one is the owner's), so listing it changes nothing.",
+      "description": "Front-matter keys beyond the reference format that this project's items may carry. Empty by default: the reference format's check rejects every other key. Turning one on lets the check accept it and the tracker read and write it, typed as the item schema types it. owner, touches and tier_override are always allowed (a record without an owner is the owner's; the executor contract, the sizer and the merge evidence read touches, and the sizer honors tier_override), so listing them changes nothing. A key from this list that is not turned on is refused by the check, which names optional_keys.",
       "type": "array",
       "items": {
         "enum": [

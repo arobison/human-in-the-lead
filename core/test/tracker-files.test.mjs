@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { schemas } from '../lib/schema/registry.mjs';
 import { parseItem, renderItem, setKeys, slugify } from '../lib/tracker/files/frontmatter.mjs';
 import { checkBlocks, loadTrackerConfig, resolveLayout } from '../lib/tracker/files/config.mjs';
-import { keyOrder } from '../lib/tracker/files/format.mjs';
+import { keyOrder, toEntity } from '../lib/tracker/files/format.mjs';
 import { checkItems, unplacedWork } from '../lib/tracker/files/check.mjs';
 import { buildGraph } from '../lib/tracker/files/graph.mjs';
 import { loadWorkTree } from '../lib/tracker/files/tree.mjs';
@@ -458,7 +458,7 @@ test('the check names what is wrong, in the reference check’s words', () => {
   const expected = [
     'work/items/W-7-nofm.md: no frontmatter',
     'work/items/W-8-bad.md: "onStatusChange" is a key some tools run as code; never allowed',
-    'work/items/W-8-bad.md: "foo" isn\'t an allowed key for a work',
+    'work/items/W-8-bad.md: "foo" isn\'t an allowed key for a work; a key of the project\'s own is declared in .human-in-the-lead/tracker.json fields',
     'work/items/W-8-bad.md: "needs" must be a list',
     'work/items/W-8-bad.md: state "Wip" isn\'t one of proposed, planned, in-progress, done, dropped',
     'work/items/W-8-bad.md: "priority" is retired: order is derived (design part 2.4, Q30); run hitld work migrate',
@@ -544,6 +544,65 @@ test('optional keys are allowed only when tracker.json turns them on, and are ty
     problems.join('\n'),
   );
   assert.ok(problems.some((p) => /; area /.test(p)));
+});
+
+test('touches and tier_override are on by default; a key not turned on names optional_keys, once (HITLD-286)', () => {
+  const files = {
+    'work/items/W-7-scoped.md': itemText({
+      id: 'W-7',
+      title: 'Scoped',
+      kind: 'work',
+      state: 'planned',
+      project: 'W-2',
+      touches: ['src/a/**', 'test/a*'],
+      tier_override: '2',
+    }),
+  };
+  // A fresh project (no optional_keys), and one whose list names other keys only.
+  assert.deepEqual(problemsFor(files), []);
+  assert.deepEqual(problemsFor(files, { optional_keys: ['release_note'] }), []);
+  const root = makeRepo({ commit: false });
+  const layout = layoutOf(root);
+  assert.ok(
+    layout.optionalKeys.includes('touches') && layout.optionalKeys.includes('tier_override'),
+  );
+  const entity = toEntity(
+    {
+      id: 'W-7',
+      kind: 'work',
+      title: 'Scoped',
+      state: 'planned',
+      touches: ['src/**'],
+      tier_override: '2',
+    },
+    layout,
+  );
+  assert.deepEqual(entity.touches, ['src/**']);
+  assert.equal(entity.tier_override, 2);
+  // Listing them is still allowed and changes nothing.
+  assert.deepEqual(problemsFor(files, { optional_keys: ['touches', 'tier_override'] }), []);
+
+  const off = {
+    'work/items/W-8-off.md': itemText({
+      id: 'W-8',
+      title: 'Off',
+      kind: 'work',
+      state: 'planned',
+      project: 'W-2',
+      serial: ['W-7'],
+      foo: ['a', 'b'],
+    }),
+  };
+  const problems = problemsFor(off);
+  const serial = problems.filter((p) => p.includes('"serial"'));
+  assert.equal(serial.length, 1, serial.join('\n'));
+  assert.match(serial[0], /isn't an allowed key for a work/);
+  assert.match(serial[0], /\.human-in-the-lead\/tracker\.json optional_keys/);
+  const foo = problems.filter((p) => p.includes('"foo"'));
+  assert.equal(foo.length, 1, foo.join('\n'));
+  assert.doesNotMatch(foo[0], /optional_keys/);
+  assert.match(foo[0], /tracker\.json fields/);
+  assert.ok(!problems.some((p) => /must be a (single value|list)/.test(p)), problems.join('\n'));
 });
 
 test('a decision carries its answer keys, typed by the decision schema; a work item does not', () => {
