@@ -2,10 +2,11 @@
 id: HITLD-899
 title: Upgrading to release packages warns until a package is declared, release migrate plans the moves whenever legacy records exist, and the migration commit passes the release workflow's record check
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M82XJENG657677
 ---
 
 ## Why
