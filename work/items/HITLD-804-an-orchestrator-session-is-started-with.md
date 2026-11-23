@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-254]
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-407 c?]
 ---
 
 ## Why
@@ -21,3 +21,4 @@ The owner decided (HITLD-803, 2026-11-22) how their decisions reach the orchestr
 - Tests cover a command with a matching decision, one without, a revoked one, and a command outside the list. `npm run check`, the offline eval gate and `hitld work check` pass.
 - A permission and guard change reaches main only with the owner's own yes.
 
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

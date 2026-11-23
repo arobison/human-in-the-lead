@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c1]
+constraint_of: [HITLD-64 c?]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ A store file is sealed to recipients' public keys with plain age encryption, so 
 ## Notes
 
 Finding S1 (high, reproduced) of the second Fable security pass (2026-11-22), decision HITLD-885. It comes before the rest of the second pass. HITLD-870 (an owner's approval needs proof an executor cannot forge) covers the queue's state, not the store.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-974 (2026-11-23).

@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-403 c?]
 ---
 
 ## Why
@@ -26,3 +26,5 @@ Part of the walk rule in the build-system design (HITLD-883): the fix here is th
 ## Decided on 2026-11-22
 
 On the owner's decision HITLD-919 the item reproduces first, then sizes the fix. The skip-folders data comes from the ecosystem profiles (HITLD-920).
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

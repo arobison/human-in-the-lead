@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-402 c?]
 ---
 
 ## Why
@@ -25,3 +25,5 @@ On the owner's word of 2026-11-22 (decision HITLD-878), the design is needed for
 ## Walk-through of 2026-11-22
 
 Decided one at a time: HITLD-886 (data profiles, commands only in policy), 910 (a section of policy.json), 911 (explicit mapping), 912 (version sources in the profile), 913 (JSON, TOML, properties, tags), 914 (monorepos: read versions only), 915 (tool shares caches), 916 (exit status decides), 917 (Node on the machine in rc.2), 918 (the rc.2 slice) and 919 (reproduce issue 549 first). The builds are HITLD-920 to 928; the design text is HITLD-924, which closes this item.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-972 (2026-11-23).

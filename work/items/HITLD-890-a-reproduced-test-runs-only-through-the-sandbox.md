@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c1]
+constraint_of: [HITLD-69 c?]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ A reproduced test leaves the reproducer's sandbox as the item's trusted 'Done wh
 ## Notes
 
 Finding S4 (medium, likely) of the second Fable security pass (2026-11-22), decision HITLD-885. 
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-974 (2026-11-23).

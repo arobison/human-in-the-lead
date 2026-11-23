@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-402 c?]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ Both guide pages show only `npm ci` for worktree setup and checks.
 ## Notes
 
 Decided in the build-systems walk-through of 2026-11-22 (HITLD-917, 918).
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-971 (2026-11-23).

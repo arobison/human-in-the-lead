@@ -23,3 +23,5 @@ There is no evidence that a local model can follow HITLd's long system prompt an
 ## Notes
 
 rc.3. The first step after the design (HITLD-959) and the executor sandbox (HITLD-955); it does not need the whole design. Results are walk-through material for the owner, and the pilot never touches the merge path.
+
+Moved from rc.3 to rc.4 by the owner's cut-line decision HITLD-975 (2026-11-23).

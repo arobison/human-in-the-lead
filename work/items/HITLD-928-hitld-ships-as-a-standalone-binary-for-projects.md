@@ -21,3 +21,5 @@ A team with no Node toolchain cannot run HITLd in rc.2 (HITLD-917).
 ## Notes
 
 Decided in the build-systems walk-through of 2026-11-22: HITLD-886, 910 to 919 (the design item is HITLD-883, GitHub issue 553). rc.3; large.
+
+Moved from rc.3 to rc.4 by the owner's cut-line decision HITLD-975 (2026-11-23).

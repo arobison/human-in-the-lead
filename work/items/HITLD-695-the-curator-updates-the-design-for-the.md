@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-21
 project: HITLD-15
-constraint_of: [HITLD-67 c4]
+constraint_of: [HITLD-192 c?]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ Reworded for the shared UI kit (HITLD-720, 721, 724 to 728): the owner replaced 
 - Each change is marked decided, not built, until its build item lands (HITLD-693, 694, 729); what HITLD-691 and 692 built is described as built.
 - The design pull request is the owner's to merge, with the changes listed for the owner's yes.
 - `hitld work check` passes.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-972 (2026-11-23).

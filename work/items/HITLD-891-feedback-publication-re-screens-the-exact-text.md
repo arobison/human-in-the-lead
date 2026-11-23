@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c1]
+constraint_of: [HITLD-64 c?]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ Feedback publishing checks that a record is in the state `drafted` and nothing m
 ## Notes
 
 Finding S5 (medium) of the second Fable security pass (2026-11-22), decision HITLD-885. HITLD-870 covers who approves, not this re-screen.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-974 (2026-11-23).

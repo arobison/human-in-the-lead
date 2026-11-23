@@ -29,3 +29,5 @@ The owner asked on 2026-11-20 whether there is a way to see where all the tokens
 ## Notes
 
 The fuller split by activity, area and model, the rework and overhead shares and the trends stay in HITLD-139 under HITLD-408; its note that per-turn usage is not reported is stale. Code and dashboard: the owner's own yes to merge. Placed under HITLD-192 (the owner sees the plan, milestones, what is running, and quota and spend in one page) as a new clause c3 by the chief of staff, a proposal for the owner to move. Related: HITLD-139, HITLD-438, HITLD-509, HITLD-582 and 583 (the curator agent).
+
+Moved from rc.3 to rc.4 by the owner's cut-line decision HITLD-975 (2026-11-23).

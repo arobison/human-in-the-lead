@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-405 c?]
 ---
 
 
@@ -22,3 +22,5 @@ The orchestrator's `dispatch start` writes the executor's brief to a file in its
 ## Notes
 
 Filed on 2026-11-22 from the owner's request to propose tickets for the session's mistakes and friction.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

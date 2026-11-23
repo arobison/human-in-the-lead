@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-799]
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-71 c?]
 ---
 
 ## Why
@@ -17,3 +17,5 @@ HITLD-799 changes the package default for the quota reserve from 25 percent to 1
 
 - Part 12.5 and Q11 state a 10 percent default and say the owner changed it on 2026-11-22, with the reason (25 percent held a run at one executor at 58 percent of the week used).
 - The design PR reaches main only with the owner's own yes. `npm run check` and `hitld work check` pass.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).

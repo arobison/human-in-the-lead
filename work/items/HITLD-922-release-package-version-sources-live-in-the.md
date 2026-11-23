@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-898, HITLD-899, HITLD-920]
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-402 c?]
 ---
 
 ## Why
@@ -25,3 +25,5 @@ constraint_of: [HITLD-67 c2]
 ## Notes
 
 Decided in the build-systems walk-through of 2026-11-22: HITLD-886, 910 to 919 (the design item is HITLD-883, GitHub issue 553). Needs the release-package fixes (HITLD-898, 899) first, so the migration lands on a sound release path, and the schema (HITLD-920).
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-971 (2026-11-23).

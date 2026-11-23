@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
+constraint_of: [HITLD-403 c?]
 ---
 
 ## Why
@@ -21,3 +21,5 @@ Reported as GitHub issue 548 (https://github.com/arobison/human-in-the-lead/issu
 ## Notes
 
 Re-scoped from the issue's first request (opt the folders out of indexing) after its own correction. Joins Consumer live (HITLD-67) clause c2 on the owner's word of 2026-11-22 (decision HITLD-878); small, and could go to rc.3 if rc.2 needs room.
+
+Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).
