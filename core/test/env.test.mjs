@@ -22,7 +22,8 @@ import { openStore } from '../lib/store/store.mjs';
 import { machineRootFor, openEnv } from '../lib/env/manager.mjs';
 import { isAlive, sleep } from '../lib/env/proc.mjs';
 import { findOutsideLinks, scanWorktree, unlinkLink } from '../lib/env/links.mjs';
-import { removeFromDisk } from '../lib/env/worktree.mjs';
+import { discardFailedSetup, removeFromDisk } from '../lib/env/worktree.mjs';
+import { updateRegistry } from '../lib/env/registry.mjs';
 import { withMutex } from '../lib/env/mutex.mjs';
 import { createRedactor, splitCommand } from '../lib/env/secrets.mjs';
 import { gitBash, programSpec, shellSpec, spawnOptions } from '../lib/env/shell.mjs';
@@ -129,8 +130,8 @@ const dir = (label) => {
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' });
 
 /** A repository with one commit on its main branch (default main). */
-function makeRepo(mainBranch = 'main') {
-  const root = dir('repo');
+function makeRepo(mainBranch = 'main', label = 'repo') {
+  const root = dir(label);
   git(['init', '-q', '-b', mainBranch], root);
   git(['config', 'user.name', 'Test'], root);
   git(['config', 'user.email', 'test@example.com'], root);
@@ -401,6 +402,114 @@ test('a failed setup is discarded with its branch, but never a branch with commi
   assert.equal((await env.runSetup({ holder: 'D-3' })).ok, false);
   assert.equal((await env.discardFailedSetup({ holder: 'D-3' })).discarded, false);
   assert.ok(existsSync(other));
+});
+
+test('a failed setup never deletes a branch it reused: one that existed before stays (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  // An earlier dispatch's branch, fully merged: chooseBranch reuses it under the wanted name.
+  const name = 'hitld/W-5-work';
+  git(['branch', name], repoRoot);
+  const { env } = await makeEnv({ repoRoot, env: { worktree_setup: ['exit 1'] } });
+  const made = await env.createWorktree({ holder: 'D-5', itemId: 'W-5' });
+  assert.equal(made.branch_choice?.chose, 'reuse');
+  assert.equal(made.lease.branch_created, false);
+  assert.equal((await env.runSetup({ holder: 'D-5' })).ok, false);
+  const gone = await env.discardFailedSetup({ holder: 'D-5' });
+  assert.deepEqual([gone.discarded, gone.branch_deleted], [true, false]);
+  assert.ok(!existsSync(made.lease.path));
+  assert.equal(git(['branch', '--list', name], repoRoot).trim(), name);
+});
+
+test('a failed setup keeps the worktree when a link out of it cannot be unlinked safely, another lease names it, or a server runs in it (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const other = makeOtherCheckout();
+  const { env, store } = await makeEnv({ repoRoot, env: { worktree_setup: ['exit 1'] } });
+  const { lease } = await env.createWorktree({ holder: 'D-6', itemId: 'W-6' });
+  mkdirSync(join(lease.path, 'mnt'));
+  dirLink(join(other, 'node_modules'), join(lease.path, 'mnt', 'link'));
+  assert.equal((await env.runSetup({ holder: 'D-6' })).ok, false);
+  const mnt = join(lease.path, 'mnt');
+  /** @param {string} p */
+  const lstat = (p) => {
+    const st = lstatSync(p);
+    return p === mnt
+      ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { dev: st.dev + 1 })
+      : st;
+  };
+  const ctx = { store, repoRoot, settings: env.settings };
+  const kept = await discardFailedSetup(ctx, { holder: 'D-6' }, { lstat });
+  assert.equal(kept.discarded, false);
+  assert.match(String(kept.reason), /mnt is a mount point/);
+  assert.ok(existsSync(lease.path), 'the worktree is kept');
+  assert.ok(lstatSync(join(mnt, 'link')).isSymbolicLink(), 'nothing was unlinked');
+  assert.ok(git(['rev-parse', '--verify', `refs/heads/${lease.branch}`], repoRoot).trim());
+  assert.ok(otherIntact(other));
+  assert.equal(env.registry().worktrees['D-6'].discarded_at, undefined);
+
+  // A second lease naming the same directory holds it too.
+  await updateRegistry(store, (r) => {
+    r.worktrees['D-7'] = { ...r.worktrees['D-6'], holder: 'D-7', state: 'ready' };
+  });
+  const shared = await env.discardFailedSetup({ holder: 'D-6' });
+  assert.deepEqual([shared.discarded, shared.reason], [false, `D-7 also holds ${lease.path}`]);
+  assert.ok(existsSync(lease.path));
+  await updateRegistry(store, (r) => {
+    delete r.worktrees['D-7'];
+  });
+
+  // So does a server the manager started that still runs in it.
+  await env.leasePort({ holder: 'D-6' });
+  const started = await env.startServer({
+    holder: 'D-6',
+    argv: [process.execPath, '-e', 'setInterval(()=>{},1000)'],
+    cwd: lease.path,
+  });
+  const pid = /** @type {number} */ (started.server?.pid);
+  children.add(/** @type {any} */ ({ pid, kill: (/** @type {any} */ s) => process.kill(pid, s) }));
+  const busy = await env.discardFailedSetup({ holder: 'D-6' });
+  assert.equal(busy.discarded, false);
+  assert.match(String(busy.reason), /a server \(pid \d+\) still runs/);
+  assert.ok(existsSync(lease.path));
+  await env.releasePort({ holder: 'D-6' });
+  await env.releaseHolder({ holder: 'D-6', result: 'abandoned' });
+});
+
+test('a failed setup in a repository whose path has spaces is discarded with its branch (HITLD-934)', async () => {
+  const repoRoot = makeRepo('main', 'repo with spaces');
+  const { env } = await makeEnv({ repoRoot, env: { worktree_setup: ['exit 1'] } });
+  const { lease } = await env.createWorktree({ holder: 'D-8', itemId: 'W-8' });
+  assert.ok(lease.path.includes(' ') || repoRoot.includes(' '));
+  assert.equal((await env.runSetup({ holder: 'D-8' })).ok, false);
+  const gone = await env.discardFailedSetup({ holder: 'D-8' });
+  assert.deepEqual([gone.discarded, gone.branch_deleted], [true, true]);
+  assert.ok(!existsSync(lease.path));
+  assert.equal(git(['branch', '--list', lease.branch], repoRoot).trim(), '');
+});
+
+test("a failed setup's output is redacted for the secrets policy declares (HITLD-934)", async () => {
+  const repoRoot = makeRepo();
+  const SECRET = 's3cr3t-934-value';
+  const { env } = await makeEnv({
+    repoRoot,
+    env: {
+      // The command finds the value on its own; it is not in policy's text.
+      worktree_setup: ['echo token=s3cr3t-$((900+34))-value >&2; exit 1'],
+      secret_tasks: [
+        { task: 'publish', roles: ['executor'], secrets: ['NPM_TOKEN'], argv: ['/bin/true'] },
+      ],
+    },
+    read: (name) => (name === 'NPM_TOKEN' ? SECRET : null),
+  });
+  await env.createWorktree({ holder: 'D-9', itemId: 'W-9' });
+  const setup = await env.runSetup({ holder: 'D-9' });
+  assert.equal(setup.ok, false);
+  assert.ok(!setup.steps[0].output_tail.includes(SECRET));
+  assert.match(setup.steps[0].output_tail, /token=\[REDACTED:NPM_TOKEN\]/);
+  assert.ok(
+    !JSON.stringify(env.registry().worktrees['D-9']).includes(SECRET),
+    'nor in the record env status reads',
+  );
+  await env.releaseHolder({ holder: 'D-9', result: 'abandoned' });
 });
 
 test('setup runs only the commands policy declares; a request cannot add its own', async () => {

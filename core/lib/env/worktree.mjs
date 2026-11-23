@@ -3,7 +3,7 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { CodedError } from '../cli/errors.mjs';
 import { checkHolder, worktreeRoot } from './config.mjs';
 import { git, gitOk } from './git.mjs';
@@ -18,7 +18,7 @@ import { leasePort } from './ports.mjs';
 import { findOutsideLinks, unlinkOutsideLinks } from './links.mjs';
 import { logEvent, readRegistry, updateRegistry } from './registry.mjs';
 import { realPath } from './fsx.mjs';
-import { killTree } from './proc.mjs';
+import { killTree, matchProcess } from './proc.mjs';
 import { shellSpec, spawnOptions } from './shell.mjs';
 
 /**
@@ -182,6 +182,9 @@ export async function createWorktree(ctx, request) {
       repo_root: realPath((await git(['rev-parse', '--show-toplevel'], ctx.repoRoot)).trim()),
       base,
       adopted: false,
+      // A name chooseBranch found free (new, or a fresh -N): this lease made the branch, so a
+      // failed setup may delete it. A reused branch existed before and is never deleted for it.
+      branch_created: choice.chose !== 'reuse',
       state: 'ready',
       created_at: new Date().toISOString(),
     };
@@ -289,8 +292,13 @@ function runStep(command, cwd, env, timeoutMs) {
  * command stops it. Setup gets no secrets: it runs with the environment it is given, which the
  * caller keeps free of them. The commands are policy's env.worktree_setup and nothing else: a
  * request cannot name its own.
+ *
+ * A failed setup's output goes into an error message and `hitld env status` (HITLD-934), so it
+ * passes through `redact` first: the manager's redactor for the secrets policy declares. Setup is
+ * never given them, so this only catches a value a command found on its own.
  * @param {WorktreeContext} ctx
- * @param {{ holder: string, env?: NodeJS.ProcessEnv, timeoutMs?: number }} request
+ * @param {{ holder: string, env?: NodeJS.ProcessEnv, timeoutMs?: number,
+ *   redact?: () => (text: string) => string }} request
  * @returns {Promise<SetupResult>}
  */
 export async function runSetup(ctx, request) {
@@ -329,6 +337,10 @@ export async function runSetup(ctx, request) {
       result.ok = false;
       break;
     }
+  }
+  if (!result.ok && request.redact) {
+    const redact = request.redact();
+    for (const step of result.steps) step.output_tail = redact(step.output_tail);
   }
   // Flag links that point out of the worktree, so the owner sees what cleanup will meet.
   try {
@@ -476,32 +488,58 @@ export async function removeFromDisk(lease, deleteIfMerged, seam = {}) {
 
 /**
  * Take back a worktree whose setup failed before anyone worked in it (HITLD-934): remove it from
- * disk without saving (what is in it is setup's output, not work) and delete the branch it was cut
- * on when that branch holds nothing beyond the base, so a retry takes the same name instead of
- * <name>-2. The lease stays, marked `discarded_at`, so `hitld env status` still shows the setup's
- * steps and output; teardown drops it once its dispatch is abandoned. Only a lease this manager
- * created and whose setup failed: an adopted worktree is the harness's.
+ * disk without saving (what is in it is setup's output, not work) and delete its branch when this
+ * lease created it (`branch_created`) and it holds nothing beyond the base, so a retry takes the
+ * same name instead of <name>-2. A branch the worktree reused (chooseBranch's `reuse`) existed
+ * before and stays. The lease stays, marked `discarded_at`, so `hitld env status` still shows the
+ * setup's steps and output; teardown drops it once its dispatch is abandoned.
+ *
+ * Nothing is removed (`discarded: false`, with the reason) when the lease is adopted (the
+ * harness's), its setup did not fail, another lease names the same directory, a server the manager
+ * started still runs in it, or a link out of it could not be safely unlinked or a mount point is
+ * inside it.
  * @param {WorktreeContext} ctx
  * @param {{ holder: string }} request
- * @returns {Promise<{ discarded: boolean, path?: string, branch?: string, branch_deleted?: boolean }>}
+ * @param {{ lstat?: (path: string) => import('node:fs').Stats }} [seam] tests fake a mount point
+ * @returns {Promise<{ discarded: boolean, reason?: string, path?: string, branch?: string,
+ *   branch_deleted?: boolean }>}
  */
-export async function discardFailedSetup(ctx, request) {
+export async function discardFailedSetup(ctx, request, seam = {}) {
   const holder = checkHolder(request.holder);
   return updateRegistry(ctx.store, async (registry) => {
     const lease = registry.worktrees[holder];
-    if (!lease || lease.adopted || lease.state !== 'setup-failed' || lease.discarded_at) {
-      return { discarded: false };
+    /** @param {string} reason */
+    const kept = (reason) => ({ discarded: false, reason });
+    if (!lease) return kept(`${holder} has no worktree`);
+    if (lease.adopted) return kept('the worktree was adopted from the harness');
+    if (lease.state !== 'setup-failed') return kept('its setup did not fail');
+    if (lease.discarded_at) return kept('it was already removed');
+    const here = realOr(lease.path);
+    if (here === realOr(lease.repo_root)) return kept('it is the primary checkout');
+    const other = Object.values(registry.worktrees).find(
+      (l) => l.holder !== holder && !l.discarded_at && realOr(l.path) === here,
+    );
+    if (other) return kept(`${other.holder} also holds ${lease.path}`);
+    const inside = (/** @type {string} */ p) => p === here || p.startsWith(here + sep);
+    const server = Object.values(registry.ports).find(
+      (p) => p.server && inside(realOr(p.server.cwd)) && matchProcess(p.server) === 'match',
+    );
+    if (server?.server) {
+      return kept(`a server (pid ${server.server.pid}) still runs in ${lease.path}`);
     }
-    if (realOr(lease.path) === realOr(lease.repo_root)) return { discarded: false };
     if (existsSync(lease.path)) {
-      const links = unlinkOutsideLinks(lease.path);
-      if (links.mounts.length || links.declined.length) return { discarded: false };
+      const links = unlinkOutsideLinks(lease.path, seam.lstat ? { lstat: seam.lstat } : undefined);
+      if (links.mounts.length) return kept(`${links.mounts.join(', ')} is a mount point`);
+      if (links.declined.length) {
+        return kept(`could not safely unlink ${links.declined.map((l) => l.path).join(', ')}`);
+      }
       await git(['worktree', 'remove', '--force', lease.path], lease.repo_root);
     } else {
       await git(['worktree', 'prune'], lease.repo_root);
     }
     let branchDeleted = false;
     if (
+      lease.branch_created === true &&
       lease.branch !== 'HEAD' &&
       (await gitOk(
         ['merge-base', '--is-ancestor', `refs/heads/${lease.branch}`, lease.base],

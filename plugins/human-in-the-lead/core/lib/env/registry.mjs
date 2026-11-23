@@ -37,6 +37,8 @@ import { withMutex } from './mutex.mjs';
  * @property {string} repo_root
  * @property {string} base
  * @property {boolean} adopted a harness-created worktree: the manager never removes it
+ * @property {boolean} [branch_created] the branch was made for this lease (not an existing one
+ *   reused), so a failed setup may delete it (HITLD-934)
  * @property {'ready' | 'setup-failed' | 'failed'} state
  * @property {string} created_at
  * @property {string} [failed_at]
