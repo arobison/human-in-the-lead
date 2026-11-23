@@ -2,11 +2,12 @@
 id: HITLD-806
 title: The executor contract and the brief say each report list line starts with a dash
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-764]
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M82WYTFJS1NN4X
 ---
 
 ## Done when
