@@ -40,6 +40,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { matchesAny } from '../precedent/glob.mjs';
 import { runShell } from './shell.mjs';
+import { emptyWorktree } from '../env/setup-gap.mjs';
 import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
 import {
   QUARANTINE_PATH,
@@ -289,7 +290,7 @@ export async function runMergeQueue(r) {
     bisection_runs: 0,
     batches: 0,
     main: { before: '', after: '' },
-    /** @type {{ kind: 'main_red' | 'regeneration_red' | 'main_moved' | 'classification' | 'quarantine', message: string, output?: string } | null} */
+    /** @type {{ kind: 'main_red' | 'regeneration_red' | 'main_moved' | 'classification' | 'quarantine' | 'setup', message: string, output?: string } | null} */
     incident: null,
     /** With `hold`: the tested commit holding every branch that passed, for the owner. Main has
      * not moved; advanceTo moves it there once the owner approves.
@@ -328,6 +329,13 @@ export async function runMergeQueue(r) {
   const reportDir = mkdtempSync(join(tmpdir(), 'hitld-report-'));
   gitOk(r.repoRoot, ['worktree', 'add', '--detach', '--force', dir, result.main.before]);
   try {
+    // A worktree with nothing installed fails every branch's checks, through no fault of the
+    // branch: stop with the reason instead (HITLD-292).
+    const empty = emptyWorktree(dir, s.setup ?? []);
+    if (empty) {
+      result.incident = { kind: 'setup', message: empty };
+      return result;
+    }
     for (const cmd of s.setup ?? []) {
       const out = exec(cmd, dir, {});
       if (!out.ok) throw new Error(`the queue worktree's setup failed at "${cmd}": ${out.output}`);
