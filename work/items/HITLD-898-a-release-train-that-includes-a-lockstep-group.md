@@ -2,10 +2,12 @@
 id: HITLD-898
 title: A release train that includes a lockstep group works, a release an open train needs is not made alone, and a version label is checked against the package's channels
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M82XAVA0EAWQ2Q
+release_note: "A release train may include a lockstep group, whose members share one release item; while a train is open, `hitld release make` refuses a release it needs (`release-in-train`), naming the train, and the release workflow's record check does the same; a `--version` or `--pre` label that is not one of the package's channels is refused (`not-a-channel`)."
 ---
 
 ## Why

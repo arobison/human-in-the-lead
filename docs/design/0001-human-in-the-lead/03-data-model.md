@@ -644,7 +644,7 @@ A decision's question, context, options, recommendation, precedent offer, rule b
 
 A milestone is `done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone (its check is a study), when `answered` is recorded by such a role. The check and the tracker refuse anything else.
 
-Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#project-and-item) (`area`, `category`, `classification`, `opened_from`, `touches`, `serial`, `estimate_tokens`, `tier_override`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them. `owner` is always allowed: a record without it is the owner's. An item with no `classification` key takes `default_classification`. *Decided, not built (HITLD-626):* unlabeled data takes its container's label, and with no container the strictest.
+Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#project-and-item) (`area`, `category`, `classification`, `opened_from`, `serial`, `estimate_tokens`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them, and the check's refusal of one names `optional_keys`. `owner` is always allowed: a record without it is the owner's. `touches` and `tier_override` are always allowed too (HITLD-286): the executor contract, the sizer, the overlap rule and the merge evidence read `touches`, and the sizer honors `tier_override`, so a fresh project writes them without turning them on. An item with no `classification` key takes `default_classification`. *Decided, not built (HITLD-626):* unlabeled data takes its container's label, and with no container the strictest.
 
 ```markdown
 ---
@@ -670,7 +670,7 @@ docs/design/0012-config-parsing.md#3-validation
 ## Notes
 ```
 
-With `optional_keys` set to include `area`, `touches` and `estimate_tokens`, the same file could also carry `area: config`, `touches: ["src/config/**", "test/config*"]` and `estimate_tokens: 180000`.
+With `optional_keys` set to include `area` and `estimate_tokens`, the same file could also carry `area: config` and `estimate_tokens: 180000`; `touches: ["src/config/**", "test/config*"]` needs no setting.
 
 ### Claims and closing
 
