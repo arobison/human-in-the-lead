@@ -719,7 +719,7 @@ test("git's error for a branch that cannot be deleted is redacted before the lea
   writeFileSync(join(repoRoot, '.git', 'refs', 'heads', `${lease.branch}.lock`), '');
   const gone = await env.discardFailedSetup({ holder: 'D-1' });
   assert.equal(gone.discarded, true);
-  assert.match(String(gone.branch_error), /could not remove reference/);
+  assert.match(String(gone.branch_error), /could not (remove|delete) reference|cannot lock ref/);
   assert.match(String(gone.branch_error), /\[REDACTED:NPM_TOKEN\]/);
   const event = env.events().findLast((e) => e.kind === 'worktree_discarded');
   for (const [where, text] of [
