@@ -4,7 +4,9 @@
 // A release arrives on main as the squash commit of a release pull request (`hitld release make
 // --branch`). The check refuses unless:
 //   - the commit adds exactly one record under <work dir>/releases/<package>/ (none: nothing to
-//     release); a record directly under <work dir>/releases/ is from before release packages;
+//     release); a record directly under <work dir>/releases/ is from before release packages; a
+//     record the same commit moves there from <work dir>/releases/ under the same id is the
+//     migration (`release migrate`), which releases nothing;
 //   - the record parses and passes the tracker's checks and the release schema;
 //   - its tag does not exist yet;
 //   - its version is the one `release propose --package <its package>` gives at the commit's
@@ -24,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadPolicy } from '../policy/policy.mjs';
 import { formatErrors } from '../schema/validate.mjs';
+import { parseItem } from '../tracker/files/frontmatter.mjs';
 import { releasesDir } from '../tracker/files/releases.mjs';
 import { openTracker } from '../tracker/files/tracker.mjs';
 import { git } from '../tracker/files/tree.mjs';
@@ -101,7 +104,7 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
   const parents = git(root, ['rev-list', '--parents', '-n', '1', sha]).trim().split(' ').slice(1);
   const dir = releasesDir(layout);
   // What the commit adds, against its first parent (or nothing, for a root commit).
-  const added = git(root, [
+  let added = git(root, [
     'diff-tree',
     '-r',
     '--no-commit-id',
@@ -119,6 +122,11 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
         f.endsWith('.md') &&
         f.slice(dir.length + 1).split('/').length <= 2,
     );
+  // A record `release migrate` moved from <work dir>/releases/ into a package's folder releases
+  // nothing (HITLD-899): without rename detection it reads as added, so it is left out when the
+  // same commit deletes a record from before packages with the same id.
+  const moved = parents.length ? movedRecordIds(root, parents[0], sha, dir) : new Set();
+  if (moved.size) added = added.filter((f) => !moved.has(recordIdAt(root, sha, f) ?? ''));
   if (!added.length) {
     out.ok = true;
     return out;
@@ -212,11 +220,22 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
   const wt = mkdtempSync(join(tmpdir(), 'hitld-release-check-'));
   try {
     git(root, ['worktree', 'add', '-q', '--detach', wt, parents[0]]);
-    const p = await proposeRelease(openAt(wt), {
-      package: pkg,
-      version,
-      ...(label ? { pre: label } : {}),
-    });
+    /** @type {import('./propose.mjs').Proposal} */
+    let p;
+    try {
+      p = await proposeRelease(openAt(wt), {
+        package: pkg,
+        version,
+        ...(label ? { pre: label } : {}),
+      });
+    } catch (e) {
+      // A refusal at the parent (no package declared there, say) is why it may not be tagged,
+      // not a crash of the check.
+      const err = /** @type {{ code?: unknown, message?: unknown }} */ (e);
+      if (typeof err?.code !== 'string') throw e;
+      problems.push(`at the parent, release propose refuses: ${String(err.message)}`);
+      return out;
+    }
     if (p.releases.length > 1) {
       problems.push(
         `${pkg} is released with its lockstep group (${p.releases.map((r) => r.package).join(', ')}); a release of several packages is made on main with hitld release make, which tags each record`,
@@ -255,6 +274,54 @@ export async function checkReleaseCommit({ root, commit = 'HEAD', main, prs }) {
   }
   out.ok = problems.length === 0;
   return out;
+}
+
+/**
+ * The ids of the records from before packages (directly under the records' folder) a commit
+ * deletes, read at its parent.
+ * @param {string} root @param {string} parent @param {string} sha @param {string} dir
+ * @returns {Set<string>}
+ */
+function movedRecordIds(root, parent, sha, dir) {
+  const deleted = git(root, [
+    'diff-tree',
+    '-r',
+    '--no-commit-id',
+    '--name-only',
+    '--diff-filter=D',
+    parent,
+    sha,
+    '--',
+    `${dir}/`,
+  ])
+    .split('\n')
+    .map((f) => f.trim())
+    .filter(
+      (f) => f.startsWith(`${dir}/`) && f.endsWith('.md') && !f.slice(dir.length + 1).includes('/'),
+    );
+  /** @type {Set<string>} */
+  const ids = new Set();
+  for (const f of deleted) {
+    const id = recordIdAt(root, parent, f);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * A record's id as a commit holds it, or null when it does not read.
+ * @param {string} root @param {string} rev @param {string} path
+ * @returns {string | null}
+ */
+function recordIdAt(root, rev, path) {
+  const text = git(root, ['show', `${rev}:${path}`], { allowFail: true });
+  if (!text) return null;
+  try {
+    const id = parseItem(text).data?.id;
+    return typeof id === 'string' && id ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 /** @param {string} root @param {string} a @param {string} b */
