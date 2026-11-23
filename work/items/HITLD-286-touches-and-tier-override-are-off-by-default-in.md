@@ -2,10 +2,12 @@
 id: HITLD-286
 title: Touches and tier_override are off by default in tracker.json, so work check refuses them, but sizing and merge evidence depend on touches
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-403 c4]
+claimed_by: D-01M82WYRTRT3CA43
+release_note: "`touches` and `tier_override` are allowed on every item without listing them in tracker.json `optional_keys`; `hitld work check` names `optional_keys` when it refuses another key from the format's list, and no longer adds a false 'must be a single value' line."
 ---
 
 ## Why
