@@ -21,7 +21,8 @@ import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { machineRootFor, openEnv } from '../lib/env/manager.mjs';
 import { isAlive, sleep } from '../lib/env/proc.mjs';
-import { findOutsideLinks, scanWorktree, unlinkLink } from '../lib/env/links.mjs';
+import { findOutsideLinks, mountPointsUnder, scanWorktree, unlinkLink } from '../lib/env/links.mjs';
+import { setupFailedMessage } from '../lib/cli/commands/orchestrator.mjs';
 import { discardFailedSetup, removeFromDisk } from '../lib/env/worktree.mjs';
 import { updateRegistry } from '../lib/env/registry.mjs';
 import { withMutex } from '../lib/env/mutex.mjs';
@@ -510,6 +511,124 @@ test("a failed setup's output is redacted for the secrets policy declares (HITLD
     'nor in the record env status reads',
   );
   await env.releaseHolder({ holder: 'D-9', result: 'abandoned' });
+});
+
+test('a secret that straddles the start of the output tail is redacted whole, with no part of it left (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const SECRET = 's3cr3t-934-straddle';
+  // The value, then 1990 characters: the 2000-character tail starts ten characters into it.
+  const { env } = await makeEnv({
+    repoRoot,
+    env: {
+      worktree_setup: [
+        "printf 'token=s3cr3t-%s-straddle' $((900+34)); head -c 1990 /dev/zero | tr '\\0' x; exit 1",
+      ],
+      secret_tasks: [
+        { task: 'publish', roles: ['executor'], secrets: ['NPM_TOKEN'], argv: ['/bin/true'] },
+      ],
+    },
+    read: (name) => (name === 'NPM_TOKEN' ? SECRET : null),
+  });
+  await env.createWorktree({ holder: 'D-1', itemId: 'W-1' });
+  const setup = await env.runSetup({ holder: 'D-1' });
+  assert.equal(setup.ok, false);
+  const tail = setup.steps[0].output_tail;
+  assert.equal(tail.length, 2000);
+  assert.ok(tail.endsWith('x'.repeat(1990)));
+  for (let n = 4; n <= SECRET.length; n++) {
+    assert.ok(!tail.includes(SECRET.slice(-n)), `no ${n}-character end of the secret is left`);
+  }
+  assert.ok(tail.startsWith('NPM_TOKEN]'), 'the cut falls inside the marker instead');
+  const message = setupFailedMessage(setup, 'D-1', { discarded: false });
+  assert.ok(!message.includes('934-straddle'), 'nor in the message');
+  await env.releaseHolder({ holder: 'D-1', result: 'abandoned' });
+});
+
+test('the kernel mount table names a same-device bind mount, and one on the worktree root (HITLD-934)', () => {
+  const root = '/w/D 1';
+  const table = [
+    '22 1 0:21 / / rw - overlay overlay rw',
+    '30 22 0:21 /cache /w/D\\0401/node_modules rw - overlay overlay rw',
+    '31 22 0:22 / /w/D\\0401 rw - tmpfs tmpfs rw',
+    '32 22 0:23 / /w/D\\04012 rw - tmpfs tmpfs rw',
+    '33 22 0:24 / /elsewhere rw - tmpfs tmpfs rw',
+    '',
+  ].join('\n');
+  assert.deepEqual(
+    mountPointsUnder(root, () => table),
+    ['.', 'node_modules'],
+  );
+  assert.deepEqual(
+    mountPointsUnder(root, () => {
+      throw new Error('no such file');
+    }),
+    [],
+    'no table (macOS, Windows): none, and the st_dev check is what is left',
+  );
+});
+
+test('a failed setup keeps the worktree when the mount table shows a bind mount in it or on it (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const { env, store } = await makeEnv({ repoRoot, env: { worktree_setup: ['exit 1'] } });
+  const { lease } = await env.createWorktree({ holder: 'D-2', itemId: 'W-2' });
+  mkdirSync(join(lease.path, 'cache'));
+  writeFileSync(join(lease.path, 'cache', 'shared.txt'), 'not ours\n');
+  assert.equal((await env.runSetup({ holder: 'D-2' })).ok, false);
+  const ctx = { store, repoRoot, settings: env.settings };
+  const esc = (/** @type {string} */ p) => p.replace(/ /g, '\\040');
+  for (const [point, shown] of [
+    [join(lease.path, 'cache'), 'cache'],
+    [lease.path, '.'],
+  ]) {
+    const mountinfo = () => `40 1 0:21 /src ${esc(point)} rw - ext4 /dev/sda1 rw\n`;
+    const kept = await discardFailedSetup(ctx, { holder: 'D-2' }, { mountinfo });
+    assert.deepEqual([kept.discarded, kept.reason], [false, `${shown} is a mount point`]);
+    assert.ok(existsSync(join(lease.path, 'cache', 'shared.txt')), 'nothing under it is removed');
+  }
+  await env.releaseHolder({ holder: 'D-2', result: 'abandoned' });
+});
+
+test('a failed setup keeps the worktree when a link out of it cannot be unlinked (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const other = makeOtherCheckout();
+  const { env, store } = await makeEnv({ repoRoot, env: { worktree_setup: ['exit 1'] } });
+  const { lease } = await env.createWorktree({ holder: 'D-3', itemId: 'W-3' });
+  dirLink(join(other, 'node_modules'), join(lease.path, 'node_modules'));
+  assert.equal((await env.runSetup({ holder: 'D-3' })).ok, false);
+  const ctx = { store, repoRoot, settings: env.settings };
+  const kept = await discardFailedSetup(ctx, { holder: 'D-3' }, { unlink: () => false });
+  assert.deepEqual([kept.discarded, kept.reason], [false, 'could not safely unlink node_modules']);
+  assert.ok(existsSync(lease.path));
+  assert.ok(lstatSync(join(lease.path, 'node_modules')).isSymbolicLink());
+  assert.ok(otherIntact(other));
+  assert.equal(env.registry().worktrees['D-3'].discarded_at, undefined);
+  await env.releaseHolder({ holder: 'D-3', result: 'abandoned' });
+  assert.ok(otherIntact(other));
+});
+
+test('a worktree removed whose branch then cannot be deleted is marked removed, and the message says so (HITLD-934)', async () => {
+  const repoRoot = makeRepo();
+  const { env, store } = await makeEnv({ repoRoot, env: { worktree_setup: ['exit 1'] } });
+  const { lease } = await env.createWorktree({ holder: 'D-4', itemId: 'W-4' });
+  const setup = await env.runSetup({ holder: 'D-4' });
+  assert.equal(setup.ok, false);
+  const ctx = { store, repoRoot, settings: env.settings };
+  /** @type {any} */
+  const failingGit = async (/** @type {string[]} */ args) => {
+    if (args[0] === 'branch') throw new Error('cannot lock ref\nmore');
+    return '';
+  };
+  const gone = await discardFailedSetup(ctx, { holder: 'D-4' }, { git: failingGit });
+  assert.deepEqual(
+    [gone.discarded, gone.branch_deleted, gone.branch_error],
+    [true, false, 'cannot lock ref'],
+  );
+  assert.ok(!existsSync(lease.path), 'the worktree is gone');
+  assert.ok(env.registry().worktrees['D-4'].discarded_at, 'and the lease says so');
+  const message = setupFailedMessage(setup, 'D-4', gone);
+  assert.match(message, /The worktree was removed, but its branch could not be deleted/);
+  assert.doesNotMatch(message, /kept/);
+  await env.releaseHolder({ holder: 'D-4', result: 'abandoned' });
 });
 
 test('setup runs only the commands policy declares; a request cannot add its own', async () => {
