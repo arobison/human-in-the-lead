@@ -2,7 +2,7 @@
 id: HITLD-933
 title: install validates --key before writing anything, refuses a --key that differs from the existing policy, and renders the contract example with the real key
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
