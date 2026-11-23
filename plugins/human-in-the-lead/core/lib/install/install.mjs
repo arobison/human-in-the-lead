@@ -27,12 +27,19 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { POLICY_PATH, findRepoRoot, loadPolicy } from '../policy/policy.mjs';
 import { importsAgents, installBlock } from '../contract/block.mjs';
+import { SCHEMA_DIR } from '../schema/registry.mjs';
 
 export const MARKETPLACE = 'human-in-the-lead';
 export const PLUGIN = 'human-in-the-lead';
 const TEMPLATE = fileURLToPath(new URL('../../../templates/policy.json', import.meta.url));
 const STATUSLINE = fileURLToPath(new URL('../../bin/hitld-statusline.mjs', import.meta.url));
 const HITLD = fileURLToPath(new URL('../../bin/hitld.mjs', import.meta.url));
+
+/** The tracker ID key pattern, read from the policy schema so `check policy` and install agree. */
+const KEY_PATTERN = String(
+  JSON.parse(readFileSync(join(SCHEMA_DIR, 'policy', 'project.schema.json'), 'utf8')).properties.key
+    .pattern,
+);
 
 /** The line that marks a pre-commit or commit-msg hook as hitld's own, so install may rewrite it. */
 export const HOOK_MARK = '# hitld:commit-guard';
@@ -358,12 +365,40 @@ export function install(input, ctx) {
   /** @type {string[]} */
   const warnings = [];
 
-  // policy.json
+  // The key is checked before anything is written (HITLD-933): an invalid one would give a
+  // policy that check policy refuses and a contract example rendered with the fallback key.
   const policyPath = join(root, POLICY_PATH);
+  const given = input.key === undefined ? null : input.key;
+  if (given !== null && (typeof given !== 'string' || !new RegExp(KEY_PATTERN).test(given))) {
+    return {
+      ok: false,
+      error: 'usage',
+      message: `--key ${typeof given === 'string' ? given : '(no value)'} is not a tracker ID key: it must match ${KEY_PATTERN} (capital letters and digits, starting with a letter, at most 10; SIG, P, C and D are reserved); nothing was written`,
+    };
+  }
+  if (given !== null && existsSync(policyPath)) {
+    // Read as written, not through loadPolicy: a policy whose key fails the schema still has one.
+    /** @type {unknown} */
+    let existing;
+    try {
+      existing = readJson(policyPath).project?.key;
+    } catch {
+      existing = undefined;
+    }
+    if (existing !== given) {
+      return {
+        ok: false,
+        error: 'usage',
+        message: `--key ${given} differs from the key in ${POLICY_PATH} (${typeof existing === 'string' ? existing : 'none'}); install does not change an existing policy's key: drop --key, or change project.key in ${POLICY_PATH} yourself; nothing was written`,
+      };
+    }
+  }
+
+  // policy.json
   if (existsSync(policyPath)) {
     done.policy = 'kept';
   } else {
-    const key = typeof input.key === 'string' ? input.key : null;
+    const key = typeof given === 'string' ? given : null;
     if (!key)
       return {
         ok: false,
