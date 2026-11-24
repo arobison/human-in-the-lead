@@ -82,7 +82,7 @@ import {
   reportsByMessage,
 } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
-import { recordParent } from '../../dispatch/parent.mjs';
+import { parentKey, recordParent } from '../../dispatch/parent.mjs';
 import {
   mergedSincePlanned,
   overlapsInFlight,
@@ -154,6 +154,31 @@ const FOLLOW_UP_OF = 'follow-up of ';
  * then, so a launch that fails records nothing (GitHub issue 582). @param {string} d
  */
 export const pendingFollowUpKey = (d) => `dispatch/follow-ups/${d}.json`;
+
+/**
+ * The follow-ups that wait for `dispatch handle`: a pending record whose dispatch the ledger does
+ * not hold. One that was handled stays on disk but is no longer pending.
+ * @param {{ store: import('../../store/store.mjs').PrivateStore }} p
+ * @param {import('../../ledger/ledger.mjs').LedgerEntry[]} events
+ * @returns {{ dispatch: string, item: string, follows: string }[]}
+ */
+function pendingFollowUps(p, events) {
+  const recorded = new Set(
+    events.filter((e) => e.event === 'dispatched').map((e) => String(e.dispatch)),
+  );
+  return p.store.list('dispatch/follow-ups/').flatMap((key) => {
+    const dispatch = key.replace(/^.*\//, '').replace(/\.json$/, '');
+    if (recorded.has(dispatch)) return [];
+    try {
+      const pending = JSON.parse(p.store.read(key) ?? 'null');
+      return pending?.dispatched?.item
+        ? [{ dispatch, item: String(pending.dispatched.item), follows: String(pending.follows) }]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+}
 
 /** How an executor ran, as `dispatch handle --mode` names it. */
 const HANDLE_MODES = ['headless', 'interactive', 'subagent'];
@@ -1601,6 +1626,16 @@ const table = [
             { handover: due },
           );
         }
+        // A follow-up launched as a run of its own is in flight in all but the ledger until
+        // dispatch handle records it: a second executor on the item would work its branch too.
+        const waiting = pendingFollowUps(p, readLedger(p.store).events).find((f) => f.item === id);
+        if (waiting) {
+          throw new Refusal(
+            'follow-up-pending',
+            `${id} has a follow-up waiting to be recorded: ${waiting.dispatch} (follow-up of ${waiting.follows}). Once its launch printed the process ID, hitld dispatch handle --dispatch ${waiting.dispatch} --harness-ref <that pid>; a launch that fails removes it, and the item can be started again`,
+            { dispatch: waiting.dispatch, follows: waiting.follows },
+          );
+        }
         const byHand = input['by-hand'] === true ? id : undefined;
         // A fix for a stuck merge names the merge: an item, or a branch, the plan has awaiting
         // merge (HITLD-978). Nothing else earns the slot past the cap.
@@ -1985,21 +2020,24 @@ const table = [
         }
         if (!entry) throw new Refusal('not-in-flight', `${d} is not in flight`);
         // The agent that is running: a reference other than the one recorded is recorded too,
-        // and the last one stands, so the watchdog reaches what runs. The same one twice is a no-op.
+        // and the last one stands, so the watchdog reaches what runs. The reference that stands,
+        // given again, records nothing, however many were recorded before it; an earlier one given
+        // again is a new reference and is recorded (it stands from then on).
         const refs = events.filter((e) => e.event === 'started' && e.dispatch === d);
         const same = refs.at(-1)?.harness_ref === ref;
-        const { appended } = run.record({
-          id:
-            refs.length && !same
-              ? `${lifecycleId('started', d)}-${refs.length + 1}`
-              : lifecycleId('started', d),
-          event: 'started',
-          dispatch: d,
-          item: entry.item,
-          harness: 'claude-code',
-          harness_ref: ref,
-          host: run.host,
-        });
+        const { appended } = same
+          ? { appended: false }
+          : run.record({
+              id: refs.length
+                ? `${lifecycleId('started', d)}-${refs.length + 1}`
+                : lifecycleId('started', d),
+              event: 'started',
+              dispatch: d,
+              item: entry.item,
+              harness: 'claude-code',
+              harness_ref: ref,
+              host: run.host,
+            });
         return {
           ok: true,
           dispatch: d,
@@ -2178,6 +2216,11 @@ const table = [
             pidPath: join(p.store.root, pidKey(dispatch)),
             permissionMode: p.policy.dispatch.headless_permission_mode,
             env: xenv,
+            // What this follow-up writes before its launch: a launch that fails removes it, so
+            // nothing is left to hold the item or look like a dispatch (HITLD-935).
+            cleanup: [briefKey(dispatch), pendingFollowUpKey(dispatch), parentKey(dispatch)].map(
+              (k) => join(p.store.root, k),
+            ),
           });
         }
         /** @type {Record<string, any>} */
@@ -2214,7 +2257,6 @@ const table = [
             pendingFollowUpKey(dispatch),
             `${JSON.stringify({ follows: from, dispatched: dispatchedEvent }, null, 2)}\n`,
           );
-          mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
         } else {
           run.record(dispatchedEvent);
           run.record({

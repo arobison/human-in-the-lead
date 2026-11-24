@@ -12,10 +12,15 @@
 // process has ended (the pid file), its output holds a result event (the result file) and its
 // branch head is its closing commit with the report. No timer stops it: its budget is its cap.
 //
-// Usage: launch.mjs --pid <file> --in <file> --out <file> [--err <file>] -- <command> [args...]
+// Usage: launch.mjs [--cwd <dir>] [--cleanup <file>]... --pid <file> --in <file> --out <file>
+//   [--err <file>] -- <command> [args...]
+//
+// A launch that fails (the directory missing, the command not found) writes no pid file. With
+// --cleanup, it also removes each file named and the result and error files it opened: a
+// follow-up's brief and pending record go with the run that never started (HITLD-935).
 
 import { spawn } from 'node:child_process';
-import { closeSync, mkdirSync, openSync, realpathSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,22 +63,33 @@ export async function launchDurable(r) {
 }
 
 /**
+ * Remove what a launch that failed leaves: the files `cleanup` names, and the result and error
+ * files it opened. A file already gone is no error. @param {string[]} files
+ */
+export function removeAfterFailure(files) {
+  for (const f of files) rmSync(f, { force: true });
+}
+
+/**
  * Read the command line. @param {string[]} argv
- * @returns {{ pidFile: string, stdin: string, stdout: string, stderr: string | null, command: string, args: string[] }}
+ * @returns {{ pidFile: string, stdin: string, stdout: string, stderr: string | null, cwd: string | null, cleanup: string[], command: string, args: string[] }}
  */
 export function parseLaunchArgs(argv) {
   const at = argv.indexOf('--');
   if (at < 0 || at === argv.length - 1) throw new Error('give the command after --');
   /** @type {Record<string, string>} */
   const opts = {};
+  /** @type {string[]} */
+  const cleanup = [];
   const own = argv.slice(0, at);
   for (let i = 0; i < own.length; i += 2) {
     const k = own[i];
     const v = own[i + 1];
-    if (!['--pid', '--in', '--out', '--err'].includes(k) || v === undefined) {
+    if (!['--pid', '--in', '--out', '--err', '--cwd', '--cleanup'].includes(k) || v === undefined) {
       throw new Error(`unknown or incomplete option ${k}`);
     }
-    opts[k.slice(2)] = v;
+    if (k === '--cleanup') cleanup.push(v);
+    else opts[k.slice(2)] = v;
   }
   for (const k of ['pid', 'in', 'out']) {
     if (!opts[k]) throw new Error(`--${k} <file> is required`);
@@ -84,6 +100,8 @@ export function parseLaunchArgs(argv) {
     stdin: opts.in,
     stdout: opts.out,
     stderr: opts.err ?? null,
+    cwd: opts.cwd ?? null,
+    cleanup,
     command,
     args,
   };
@@ -99,14 +117,23 @@ const isMain = () => {
 };
 
 if (isMain()) {
+  /** @type {ReturnType<typeof parseLaunchArgs> | null} */
+  let a = null;
   try {
-    const a = parseLaunchArgs(process.argv.slice(2));
-    const { pid } = await launchDurable(a);
+    a = parseLaunchArgs(process.argv.slice(2));
+    const { cwd, cleanup: _c, ...rest } = a;
+    const { pid } = await launchDurable({ ...rest, ...(cwd ? { cwd } : {}) });
     process.stdout.write(
       `${JSON.stringify({ ok: true, pid, pid_file: a.pidFile, result_file: a.stdout })}\n`,
     );
   } catch (e) {
-    process.stderr.write(`launch: ${/** @type {Error} */ (e).message}\n`);
+    const removed = a?.cleanup.length
+      ? [...a.cleanup, a.stdout, ...(a.stderr ? [a.stderr] : [])]
+      : [];
+    removeAfterFailure(removed);
+    process.stderr.write(
+      `launch: ${/** @type {Error} */ (e).message}${removed.length ? `; removed ${removed.length} files written for it` : ''}\n`,
+    );
     process.exitCode = 1;
   }
 }

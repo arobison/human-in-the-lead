@@ -127,13 +127,18 @@ const STREAM = ['--output-format', 'stream-json', '--verbose'];
  * The command line that starts a headless run as a durable process (launch.mjs): its own process
  * group, its brief on standard input, its events in the result file and its process ID in the pid
  * file, all in the store. It returns at once, printing the process ID.
+ * With `cleanup`, the launcher itself starts the run in the worktree (`--cwd`, no `cd` before it)
+ * and removes those files when the launch fails, the worktree missing included, along with the
+ * result and error files it opened: what was written for a run that never started goes with it.
  * @param {{ worktree: string, env: Record<string, string>, briefPath: string, resultPath: string,
- *   pidPath: string, words: string[] }} r
+ *   pidPath: string, words: string[], cleanup?: string[] }} r
  */
 export function durableCommand(r) {
+  const cleanup = r.cleanup ?? [];
   const launch = [
     'node',
     LAUNCHER,
+    ...(cleanup.length ? ['--cwd', r.worktree, ...cleanup.flatMap((f) => ['--cleanup', f])] : []),
     '--pid',
     r.pidPath,
     '--in',
@@ -145,7 +150,8 @@ export function durableCommand(r) {
     '--',
     ...r.words,
   ];
-  return `cd ${shq(r.worktree)} && ${envWords(r.env)} ${launch.map(shq).join(' ')}`;
+  const words = `${envWords(r.env)} ${launch.map(shq).join(' ')}`;
+  return cleanup.length ? words : `cd ${shq(r.worktree)} && ${words}`;
 }
 
 /**
@@ -154,7 +160,8 @@ export function durableCommand(r) {
  * result file or process ID of its own.
  * @param {{ harnessRef: string, message: string, tier: number, mode?: 'headless' | 'interactive' | null,
  *   worktree?: string | null, sessionId?: string | null, briefPath?: string, resultPath?: string,
- *   pidPath?: string, dispatch: string, permissionMode?: string, env?: Record<string, string> }} r
+ *   pidPath?: string, dispatch: string, permissionMode?: string, env?: Record<string, string>,
+ *   cleanup?: string[] }} r `cleanup`: the files the follow-up wrote, removed if its launch fails
  * @returns {Instruction}
  */
 export function followUpInstruction(r) {
@@ -181,6 +188,7 @@ export function followUpInstruction(r) {
     briefPath: r.briefPath,
     resultPath: r.resultPath,
     pidPath: r.pidPath,
+    ...(r.cleanup?.length ? { cleanup: r.cleanup } : {}),
     words: [
       'claude',
       '-p',
