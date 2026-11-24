@@ -79,7 +79,111 @@ test('pnpm-workspace.yaml: the packages list is read, quotes and comments remove
     '',
   ].join('\n');
   assert.deepEqual(pnpmWorkspaceGlobs(text), ['packages/*', 'apps/**', 'tools/cli', '!**/test/**']);
-  assert.deepEqual(pnpmWorkspaceGlobs('catalog:\n  a: 1\n'), []);
+  assert.equal(pnpmWorkspaceGlobs('catalog:\n  a: 1\n'), null, 'no packages key');
+});
+
+test('pnpm-workspace.yaml: a zero-indent sequence is read', () => {
+  assert.deepEqual(pnpmWorkspaceGlobs('packages:\n- a/*\n- b\n'), ['a/*', 'b']);
+  assert.deepEqual(pnpmWorkspaceGlobs('packages:\n- a/*\ncatalog:\n  x: 1\n- c\n'), ['a/*']);
+});
+
+test('pnpm-workspace.yaml: a flow sequence is read, on one line or several', () => {
+  assert.deepEqual(pnpmWorkspaceGlobs("packages: ['a/*', 'b']\n"), ['a/*', 'b']);
+  assert.deepEqual(pnpmWorkspaceGlobs('packages: [ "a/*",\n  b, # the b one\n  \'c, d\' ]\n'), [
+    'a/*',
+    'b',
+    'c, d',
+  ]);
+  assert.deepEqual(pnpmWorkspaceGlobs('packages: []\n'), []);
+});
+
+test('pnpm-workspace.yaml: a leading byte-order mark is allowed', () => {
+  assert.deepEqual(pnpmWorkspaceGlobs("\uFEFFpackages:\n  - 'packages/*'\n"), ['packages/*']);
+});
+
+test('pnpm-workspace.yaml: a quoted packages key is read', () => {
+  assert.deepEqual(pnpmWorkspaceGlobs("'packages':\n  - a/*\n"), ['a/*']);
+  assert.deepEqual(pnpmWorkspaceGlobs('"packages": [b]\n'), ['b']);
+});
+
+test('pnpm-workspace.yaml: a " #" inside quotes is kept; a comment outside quotes is removed', () => {
+  assert.deepEqual(
+    pnpmWorkspaceGlobs(
+      'packages:\n  - "c #d"\n  - \'e #f\'  # a comment\n  - g # another\n  - h#i\n',
+    ),
+    ['c #d', 'e #f', 'g', 'h#i'],
+  );
+});
+
+test('pnpm-workspace.yaml: CRLF line ends are read like LF', () => {
+  assert.deepEqual(
+    pnpmWorkspaceGlobs("packages:\r\n  - 'a/*'\r\n  - b\r\ncatalog:\r\n  x: 1\r\n"),
+    ['a/*', 'b'],
+  );
+});
+
+test('pnpm-workspace.yaml: an empty file has no packages key, and an empty key no packages', () => {
+  assert.equal(pnpmWorkspaceGlobs(''), null);
+  assert.equal(pnpmWorkspaceGlobs('\uFEFF\n# nothing\n'), null);
+  assert.deepEqual(pnpmWorkspaceGlobs('packages:\n'), []);
+});
+
+/** @param {Record<string, string>} files */
+function scratch(files) {
+  const root = tempDir('hitld-pnpm-ws-');
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(root, path, '..'), { recursive: true });
+    writeFileSync(join(root, path), text);
+  }
+  return root;
+}
+
+test('no packages key: pnpm reads the root alone, and the proposal says plainly that no package was found', () => {
+  const root = scratch({ ...WORKSPACE, 'pnpm-workspace.yaml': 'catalog:\n  react: ^18.3.1\n' });
+  const p = /** @type {NonNullable<ReturnType<typeof proposeSetup>>} */ (proposeSetup(root));
+  assert.deepEqual(p.packages, []);
+  assert.deepEqual(p.full_suite, []);
+  assert.deepEqual(p.worktree_setup, ['pnpm install --frozen-lockfile']);
+  assert.equal(p.notes.length, 1);
+  assert.match(p.notes[0], /no packages key, so pnpm reads the root project alone/);
+  assert.match(p.notes[0], /no workspace package was found/);
+});
+
+test('a workspace whose globs match no package says so, instead of an empty list without a word', () => {
+  for (const yaml of ['packages:\n  - nowhere/*\n', 'packages: []\n']) {
+    const root = scratch({ ...WORKSPACE, 'pnpm-workspace.yaml': yaml });
+    const p = /** @type {NonNullable<ReturnType<typeof proposeSetup>>} */ (proposeSetup(root));
+    assert.deepEqual(p.packages, []);
+    assert.deepEqual(p.full_suite, []);
+    assert.equal(p.notes.length, 1, yaml);
+    assert.match(p.notes[0], /pnpm-workspace\.yaml declares a workspace, but no folder/);
+  }
+});
+
+test('an npm workspace: package.json workspaces are read and its checks run in each package', () => {
+  const root = scratch({
+    'package-lock.json': '{ "lockfileVersion": 3, "packages": {} }\n',
+    'package.json': JSON.stringify({ name: 'ws', private: true, workspaces: ['packages/*'] }),
+    'packages/a/package.json': WORKSPACE['packages/a/package.json'],
+    'packages/b/package.json': WORKSPACE['packages/b/package.json'],
+  });
+  assert.deepEqual(proposeSetup(root), {
+    lockfile: 'package-lock.json',
+    worktree_setup: ['npm ci'],
+    full_suite: ['npm run test --workspaces --if-present'],
+    fast_checks: [
+      'npm run lint --workspaces --if-present',
+      'npm run typecheck --workspaces --if-present',
+    ],
+    packages: ['packages/a', 'packages/b'],
+    sources: [
+      'packages/a/package.json: scripts.lint',
+      'packages/b/package.json: scripts.typecheck',
+      'packages/a/package.json: scripts.test',
+      'packages/b/package.json: scripts.test',
+    ],
+    notes: [],
+  });
 });
 
 test('the workspace packages are the folders with a package.json that the globs match, less the "!" ones', () => {
@@ -91,10 +195,10 @@ test('the workspace packages are the folders with a package.json that the globs 
   mkdirSync(join(root, 'packages', 'a', 'node_modules', 'dep'), { recursive: true });
   writeFileSync(join(root, 'packages', 'a', 'node_modules', 'dep', 'package.json'), '{}');
   mkdirSync(join(root, 'packages', 'empty'));
-  assert.deepEqual(workspacePackages(root, pnpmWorkspaceGlobs(WORKSPACE['pnpm-workspace.yaml'])), [
-    'packages/a',
-    'packages/b',
-  ]);
+  assert.deepEqual(
+    workspacePackages(root, pnpmWorkspaceGlobs(WORKSPACE['pnpm-workspace.yaml']) ?? []),
+    ['packages/a', 'packages/b'],
+  );
   const proposal = proposeSetup(root);
   assert.deepEqual(proposal, {
     lockfile: 'pnpm-lock.yaml',
@@ -108,6 +212,7 @@ test('the workspace packages are the folders with a package.json that the globs 
       'packages/a/package.json: scripts.test',
       'packages/b/package.json: scripts.test',
     ],
+    notes: [],
   });
   // A root script runs at the root, and a check script is the whole suite.
   writeFileSync(

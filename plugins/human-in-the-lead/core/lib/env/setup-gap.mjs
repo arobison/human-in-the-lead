@@ -118,41 +118,138 @@ function readJsonObject(path) {
 }
 
 /**
- * The `packages` list of a pnpm-workspace.yaml: the block sequence under that top-level key, with
- * quotes and comments removed. Only that key is read, so no YAML library is needed.
- * @param {string} text @returns {string[]}
+ * A YAML line without its comment: a "#" at the start or after a space, outside quotes, ends it.
+ * @param {string} line
  */
-export function pnpmWorkspaceGlobs(text) {
+function uncomment(line) {
+  /** @type {string | null} */
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote === '"' && c === '\\') i++;
+    else if (quote && c === quote) quote = null;
+    else if (!quote && (c === '"' || c === "'")) quote = c;
+    else if (!quote && c === '#' && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i);
+  }
+  return line;
+}
+
+/** A YAML scalar without its quotes. @param {string} s */
+function unquote(s) {
+  const v = s.trim();
+  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'"))
+    return v.slice(1, -1).replace(/''/g, "'");
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+    return v.slice(1, -1).replace(/\\(.)/g, (_, c) => (c === 'n' ? '\n' : c === 't' ? '\t' : c));
+  }
+  return v;
+}
+
+/** The items of a flow sequence's inside, split on the commas outside quotes. @param {string} s */
+function flowItems(s) {
   /** @type {string[]} */
   const out = [];
-  let inside = false;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/^\s*#.*$/, '').replace(/\s+#.*$/, '');
-    if (!line.trim()) continue;
-    if (/^\S/.test(line)) {
-      inside = /^packages\s*:\s*$/.test(line);
-      continue;
+  /** @type {string | null} */
+  let quote = null;
+  let start = 0;
+  for (let i = 0; i <= s.length; i++) {
+    const c = s[i];
+    if (quote === '"' && c === '\\') i++;
+    else if (quote && c === quote) quote = null;
+    else if (!quote && (c === '"' || c === "'")) quote = c;
+    else if (!quote && (c === ',' || i === s.length)) {
+      const item = unquote(s.slice(start, i));
+      if (item) out.push(item);
+      start = i + 1;
     }
-    const m = inside ? /^\s+-\s+(.+?)\s*$/.exec(line) : null;
-    if (m) out.push(m[1].replace(/^(['"])(.*)\1$/, '$2'));
   }
   return out;
 }
 
+/** The top-level `packages` key, bare or quoted, and what follows its colon. */
+const PACKAGES_KEY = /^(?:packages|'packages'|"packages")\s*:(?:\s+(.*))?$/;
+
+/**
+ * The `packages` list of a pnpm-workspace.yaml, or null when it has no such key. Read as a block
+ * sequence (indented or not) or a flow sequence, with quotes and comments removed and a leading
+ * byte-order mark or CRLF line ends allowed. Only that key is read, so no YAML library is needed.
+ * @param {string} text @returns {string[] | null}
+ */
+export function pnpmWorkspaceGlobs(text) {
+  const lines = text
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map(uncomment);
+  const at = lines.findIndex((l) => PACKAGES_KEY.test(l.trimEnd()));
+  if (at < 0) return null;
+  const rest = (PACKAGES_KEY.exec(lines[at].trimEnd())?.[1] ?? '').trim();
+  if (rest.startsWith('[')) {
+    // A flow sequence, which may run over several lines until its closing bracket.
+    let flow = rest.slice(1);
+    for (let i = at + 1; !flowClosed(flow) && i < lines.length; i++) flow += ` ${lines[i].trim()}`;
+    return flowItems(flow.slice(0, flowEnd(flow)));
+  }
+  if (rest) return [];
+  /** @type {string[]} */
+  const out = [];
+  for (const line of lines.slice(at + 1)) {
+    if (!line.trim() || /^(---|\.\.\.)\s*$/.test(line)) continue;
+    const item = /^\s*-(?:\s+(.*))?$/.exec(line.trimEnd());
+    if (item) {
+      const v = unquote(item[1] ?? '');
+      if (v) out.push(v);
+    } else if (/^\S/.test(line)) break; // the next top-level key
+  }
+  return out;
+}
+
+/** Where a flow sequence's closing bracket is, outside quotes, or -1. @param {string} s */
+function flowEnd(s) {
+  /** @type {string | null} */
+  let quote = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote === '"' && c === '\\') i++;
+    else if (quote && c === quote) quote = null;
+    else if (!quote && (c === '"' || c === "'")) quote = c;
+    else if (!quote && c === ']') return i;
+  }
+  return -1;
+}
+
+/** @param {string} s */
+const flowClosed = (s) => flowEnd(s) >= 0;
+
 /**
  * The workspace globs of a repository: pnpm-workspace.yaml's for pnpm, package.json `workspaces`
- * otherwise.
+ * otherwise; `from` names where they were declared (null: not a workspace), and `note` says why
+ * none were read when the file has no list.
  * @param {string} root @param {string} runner @param {Record<string, any> | null} rootPkg
- * @returns {string[]}
+ * @returns {{ globs: string[], from: string | null, note: string | null }}
  */
 function workspaceGlobs(root, runner, rootPkg) {
   if (runner === 'pnpm') {
     const file = join(root, 'pnpm-workspace.yaml');
-    return existsSync(file) ? pnpmWorkspaceGlobs(readFileSync(file, 'utf8')) : [];
+    if (!existsSync(file)) return { globs: [], from: null, note: null };
+    const globs = pnpmWorkspaceGlobs(readFileSync(file, 'utf8'));
+    // pnpm 10 reads a workspace file with no packages key as the root project alone (checked
+    // with pnpm 10.28: `pnpm -r list` names only the root), so no package is read either.
+    return globs
+      ? { globs, from: 'pnpm-workspace.yaml', note: null }
+      : {
+          globs: [],
+          from: 'pnpm-workspace.yaml',
+          note: 'pnpm-workspace.yaml has no packages key, so pnpm reads the root project alone and no workspace package was found: only the root’s scripts are read; add a packages list to propose the packages’ checks',
+        };
   }
   const w = rootPkg?.workspaces;
-  const list = Array.isArray(w) ? w : Array.isArray(w?.packages) ? w.packages : [];
-  return list.filter((/** @type {unknown} */ g) => typeof g === 'string');
+  const list = Array.isArray(w) ? w : Array.isArray(w?.packages) ? w.packages : null;
+  if (!list) return { globs: [], from: null, note: null };
+  return {
+    globs: list.filter((/** @type {unknown} */ g) => typeof g === 'string'),
+    from: 'package.json workspaces',
+    note: null,
+  };
 }
 
 /** A workspace glob without a leading "./" or a trailing "/". @param {string} g */
@@ -219,6 +316,7 @@ function runScript(runner, script, atRoot) {
  * @property {string[]} fast_checks for merge.fast_checks
  * @property {string[]} packages the workspace packages found, repository-relative
  * @property {string[]} sources where each check comes from, as `<file>: scripts.<name>`
+ * @property {string[]} notes what the reading could not tell, or where a default stood in
  */
 
 /** @param {Record<string, any> | null} pkg @returns {Record<string, unknown>} */
@@ -241,11 +339,21 @@ export function proposeSetup(root) {
     fast_checks: [],
     packages: [],
     sources: [],
+    notes: [],
   };
   const runner = RUNNERS[lock.file];
   if (!runner) return out;
   const rootPkg = readJsonObject(join(root, 'package.json'));
-  out.packages = workspacePackages(root, workspaceGlobs(root, runner, rootPkg));
+  const ws = workspaceGlobs(root, runner, rootPkg);
+  out.packages = workspacePackages(root, ws.globs);
+  if (ws.note) out.notes.push(ws.note);
+  if (ws.from && !ws.note && !out.packages.length) {
+    out.notes.push(
+      `${ws.from} declares a workspace, but no folder with a package.json matches ${
+        ws.globs.length ? ws.globs.join(', ') : 'its empty packages list'
+      }, so only the root's scripts are read`,
+    );
+  }
   const rootScripts = scriptsOf(rootPkg);
   const members = out.packages.map((dir) => ({
     file: `${dir}/package.json`,
