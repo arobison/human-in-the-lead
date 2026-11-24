@@ -15,6 +15,7 @@ import { fakeGitHub, repoFromRemote } from '../lib/merge/github.mjs';
 import { stageAll } from '../lib/merge/queue.mjs';
 import {
   approvePulls,
+  bringUpToMain,
   emptyPullState,
   pullRequestWaits,
   pullTrustEvents,
@@ -1109,6 +1110,173 @@ test('hitld merge with merge.via pull-request: presented to the owner, approved 
   }
 });
 
+test('after a pull-request merge the merged item is not offered again: the merge brings the checkout up to main, and a checkout left behind is read against the fetched main (HITLD-839)', async () => {
+  const { main } = await import('../lib/cli/main.mjs');
+  const { makeConsumer, item, report, STATUS_INPUT } = await import('./orchestrator-fixture.mjs');
+  const { recordStatusLine } = await import('../harness/claude-code/statusline.mjs');
+  const c = makeConsumer({
+    policy: {
+      merge: {
+        mode: 'queue',
+        via: 'pull-request',
+        pull_request: { checks: ['test'] },
+        full_suite: ['node --test "test/*.test.js"'],
+      },
+    },
+  });
+  try {
+    const remote = join(c.base, 'remote.git');
+    git(c.base, 'init', '-q', '--bare', '-b', 'main', remote);
+    git(c.root, 'remote', 'add', 'origin', remote);
+    git(c.root, 'push', '-q', 'origin', 'main');
+    const github = fakeGitHub({ remote, checks: () => [{ name: 'test', state: 'success' }] });
+    /** @param {string[]} argv */
+    const hitld = async (argv) => {
+      let out = '';
+      const exit = await main(argv, {
+        out: (t) => (out += t),
+        err: () => {},
+        cwd: c.root,
+        env: c.env,
+        github: () => github,
+      });
+      return { exit, result: JSON.parse(out) };
+    };
+    /** The items the plan would start. */
+    const planned = async () =>
+      (await hitld(['dispatch', 'plan'])).result.start.map((/** @type {any} */ s) => s.item);
+    recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+    assert.equal((await hitld(['run', 'start'])).exit, 0);
+    const start = await hitld(['dispatch', 'start', 'W-1']);
+    assert.equal(start.exit, 0, JSON.stringify(start.result));
+    const dispatch = start.result.dispatch;
+    await hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', 'agent-1']);
+    const branch = start.result.branch;
+    git(c.root, 'switch', '-q', '-c', branch);
+    put(c.root, {
+      'work/items/W-1-add-numbers.md': item({
+        id: 'W-1',
+        title: 'Add numbers',
+        kind: 'work',
+        state: 'done',
+        touches: ['src/calc.js'],
+      }),
+      'src/calc.js': 'export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n',
+    });
+    git(c.root, 'add', '-A');
+    git(
+      c.root,
+      'commit',
+      '-q',
+      '-m',
+      'W-1',
+      '-m',
+      `Work-Item: W-1\nDispatch: ${dispatch}\nAgent-Role: executor`,
+    );
+    const sha = git(c.root, 'rev-parse', 'HEAD');
+    git(c.root, 'push', '-q', 'origin', branch);
+    git(c.root, 'switch', '-q', 'main');
+    const before = git(c.root, 'rev-parse', 'main');
+    const note = join(c.base, 'note.txt');
+    writeFileSync(note, report({ item: 'W-1', sha, branch }));
+    const done = await hitld([
+      'dispatch',
+      'complete',
+      '--dispatch',
+      dispatch,
+      '--report-file',
+      note,
+    ]);
+    assert.equal(done.result.queued_to_merge, branch);
+
+    const merged = await hitld(['merge']);
+    assert.equal(merged.exit, 0, JSON.stringify(merged.result));
+    assert.deepEqual(merged.result.merged, ['W-1']);
+    // The merge brought the checkout up to the main it fetched: W-1 reads done here.
+    assert.equal(git(c.root, 'rev-parse', 'main'), git(remote, 'rev-parse', 'main'));
+    assert.match(
+      readFileSync(join(c.root, 'work/items/W-1-add-numbers.md'), 'utf8'),
+      /^state: done$/m,
+    );
+    assert.ok(!(await planned()).includes('W-1'));
+
+    // A checkout the merge did not move (here a branch still at the old main) reads W-1 planned;
+    // the fetched main has it done, so it is not offered or started again.
+    git(c.root, 'switch', '-q', '-c', 'behind', before);
+    assert.match(
+      readFileSync(join(c.root, 'work/items/W-1-add-numbers.md'), 'utf8'),
+      /^state: planned$/m,
+    );
+    const offered = await planned();
+    assert.ok(!offered.includes('W-1'), `W-1 offered again: ${offered.join(', ')}`);
+    assert.ok(offered.length > 0, 'the other ready items are still offered');
+    const again = await hitld(['dispatch', 'start', 'W-1']);
+    assert.equal(again.result.error, 'not-planned', JSON.stringify(again.result));
+  } finally {
+    rmSync(c.base, { recursive: true, force: true });
+  }
+});
+
+test('bringUpToMain only fast-forwards: the branch ref when main is not checked out, a merge where it is; a main with its own commits or a local change in the way stays and says why (HITLD-839)', () => {
+  const base = realpathSync(tempDir('hitld-ff-'));
+  try {
+    const remote = join(base, 'remote.git');
+    const root = join(base, 'repo');
+    const other = join(base, 'other');
+    git(base, 'init', '-q', '--bare', '-b', 'main', remote);
+    git(base, 'clone', '-q', remote, root);
+    git(root, 'checkout', '-q', '-b', 'main');
+    put(root, { 'a.txt': 'one\n' });
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'start');
+    git(root, 'push', '-q', 'origin', 'main');
+    git(base, 'clone', '-q', remote, other);
+    /** Land a commit on the remote's main from another clone, and fetch it here. @param {string} text */
+    const land = (text) => {
+      git(other, 'pull', '-q', 'origin', 'main');
+      put(other, { 'a.txt': text });
+      git(other, 'commit', '-q', '-am', text.trim());
+      git(other, 'push', '-q', 'origin', 'main');
+      git(root, 'fetch', '-q', 'origin');
+      return git(root, 'rev-parse', 'refs/remotes/origin/main');
+    };
+    const ref = 'refs/remotes/origin/main';
+    assert.equal(bringUpToMain(root, 'main', ref).why, 'already up to date');
+
+    // Checked out here: a fast-forward merge moves the files too.
+    let to = land('two\n');
+    assert.equal(bringUpToMain(root, 'main', ref).moved, true);
+    assert.equal(git(root, 'rev-parse', 'main'), to);
+    assert.equal(readFileSync(join(root, 'a.txt'), 'utf8'), 'two\n');
+
+    // A local change the fast-forward would overwrite: git refuses, nothing moves.
+    to = land('three\n');
+    put(root, { 'a.txt': 'mine\n' });
+    const refused = bringUpToMain(root, 'main', ref);
+    assert.equal(refused.moved, false);
+    assert.ok(refused.why);
+    assert.notEqual(git(root, 'rev-parse', 'main'), to);
+    git(root, 'checkout', '-q', '--', 'a.txt');
+
+    // Not checked out anywhere: the branch ref alone.
+    git(root, 'switch', '-q', '-c', 'elsewhere');
+    assert.equal(bringUpToMain(root, 'main', ref).moved, true);
+    assert.equal(git(root, 'rev-parse', 'main'), to);
+
+    // A main with a commit of its own is not moved.
+    git(root, 'switch', '-q', 'main');
+    put(root, { 'b.txt': 'local\n' });
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', 'local');
+    land('four\n');
+    const diverged = bringUpToMain(root, 'main', ref);
+    assert.equal(diverged.moved, false);
+    assert.match(String(diverged.why), /has commits/);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('hitld merge with owner paths and a delegation: the owner approves code, the queue is proposed, a tracker-only pull request merges without asking and is listed in the digest with its reversal, and its revert starts the run again', async () => {
   const { main } = await import('../lib/cli/main.mjs');
   const { makeConsumer, item, report, STATUS_INPUT } = await import('./orchestrator-fixture.mjs');
@@ -1150,14 +1318,15 @@ test('hitld merge with owner paths and a delegation: the owner approves code, th
      * Dispatch an item, commit its change on its branch with the item closed, report it.
      * @param {string} id @param {string} file the item's file
      * @param {string} title @param {Record<string, string>} files
+     * @param {string} [from] the commit the branch starts from; main by default
      */
-    const deliver = async (id, file, title, files) => {
+    const deliver = async (id, file, title, files, from = 'main') => {
       const start = await hitld(['dispatch', 'start', id]);
       assert.equal(start.exit, 0, JSON.stringify(start.result));
       const dispatch = start.result.dispatch;
       await hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', `agent-${id}`]);
       const branch = start.result.branch;
-      git(c.root, 'switch', '-q', '-c', branch);
+      git(c.root, 'switch', '-q', '-c', branch, from);
       put(c.root, { [file]: item({ id, title, kind: 'work', state: 'done' }), ...files });
       git(c.root, 'add', '-A');
       git(
@@ -1200,10 +1369,14 @@ test('hitld merge with owner paths and a delegation: the owner approves code, th
       shown.result.presented.map((/** @type {any} */ b) => [b.item, b.no_signoff ?? false]),
       [['W-1', false]],
     );
+    const beforeW1 = git(c.root, 'rev-parse', 'main');
     const approved = await hitld(['merge', '--all', '--signoff', OWNER]);
     assert.equal(approved.exit, 0, JSON.stringify(approved.result));
     assert.deepEqual(approved.result.merged, ['W-1']);
     assert.deepEqual(approved.result.delegated, []);
+    // The merge brought this checkout's main up to the squash (HITLD-839).
+    assert.equal(approved.result.checkout.moved, true);
+    assert.equal(git(c.root, 'rev-parse', 'main'), git(remote, 'rev-parse', 'main'));
     assert.deepEqual(
       approved.result.proposals.map((/** @type {any} */ x) => [x.area, x.change]),
       [['unassigned', { 'merge.mode': 'queue' }]],
@@ -1213,10 +1386,14 @@ test('hitld merge with owner paths and a delegation: the owner approves code, th
     void code;
 
     // A tracker-only change merges without asking, with the owner's sign-off marked as delegated.
-    const tracker = await deliver('W-2', 'work/items/W-2-another-thing.md', 'Another thing', {
-      'work/notes.md': 'a note\n',
-    });
     // Its branch left main before W-1 merged: the first pass brings it up to date, the next merges.
+    const tracker = await deliver(
+      'W-2',
+      'work/items/W-2-another-thing.md',
+      'Another thing',
+      { 'work/notes.md': 'a note\n' },
+      beforeW1,
+    );
     const update = await hitld(['merge']);
     assert.equal(update.exit, 0, JSON.stringify(update.result));
     assert.deepEqual(
