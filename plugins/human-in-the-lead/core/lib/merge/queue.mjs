@@ -64,6 +64,8 @@ import {
  * @property {string[]} fastChecks
  * @property {string[]} fullSuite
  * @property {{ globs: string[], regenerate?: string }[]} generated
+ * @property {string} [workDir] the tracker's folder (tracker.json work_dir): its files are expected
+ *   on any branch, as the claim and close commits edit them; the tracker's default when not given
  * @property {number} flakeReruns
  * @property {FlakeSettings} [flake] policy flake; the defaults when not given
  * @property {string[]} [setup] commands run once in the queue's fresh worktree (env.worktree_setup)
