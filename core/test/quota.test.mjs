@@ -528,7 +528,47 @@ test('the worst limit binds, and a limit that cannot be read stops dispatch', ()
   const none = dispatchGate(policy, [], { critical_path: true }, { now: T0 });
   assert.equal(none.mode, 'stop');
   assert.equal(none.allow, false);
-  assert.match(none.reason, /unknown or not a number.*dispatch stops until it can be read/);
+  assert.match(
+    none.reason,
+    /^no reading yet: claude-weekly has no usage reading \(no snapshot yet/,
+  );
+  assert.match(none.reason, /dispatch stops until it can be read/);
+  assert.deepEqual(none.unread, ['claude-weekly']);
+});
+
+test('with no reading the gate says no reading yet, not the reserve; a limit past the reserve still binds (HITLD-936)', () => {
+  // The default list, the weekly window only, with no status-line snapshot.
+  const g = dispatchGate(policyWith(), [], {}, { now: T0 });
+  assert.equal(g.mode, 'stop');
+  assert.equal(g.allow, false);
+  assert.equal(g.notify_owner, true);
+  assert.equal(g.binding, 'claude-weekly');
+  assert.match(g.reason, /^no reading yet: claude-weekly has no usage reading/);
+  assert.doesNotMatch(g.reason, /reserve/);
+  assert.deepEqual(g.unread, ['claude-weekly']);
+  // A tokens limit past the reserve beside a limit with no reading: the reserve is the reason.
+  const weekly = policyWith().quota.limits[0];
+  const both = dispatchGate(
+    policyWith({ limits: [weekly, tokenLimit()] }),
+    [],
+    {},
+    { now: T0, ledger: [entry('E-1', T0 - HOUR, 900)] },
+  );
+  assert.equal(both.mode, 'stop');
+  assert.equal(both.binding, 'tok');
+  assert.match(both.reason, /^stop at the reserve: tok: .*past the reserve/);
+  assert.match(both.reason, /\(no reading for claude-weekly\)$/);
+  // A tokens limit the ledger reads, declared alone: no reading is needed from the status line.
+  const declared = dispatchGate(
+    policyWith({
+      limits: [tokenLimit({ source: 'estimated', window: 'weekly', limit: 20_000_000 })],
+    }),
+    [],
+    {},
+    { now: T0, ledger: [] },
+  );
+  assert.equal(declared.mode, 'normal');
+  assert.deepEqual(declared.unread, []);
 });
 
 test('the gate follows the owner’s thresholds and reserve', () => {
