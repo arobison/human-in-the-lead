@@ -812,8 +812,23 @@ export const planWithPause = (planned, pause) => {
 const readInput = (path, ctx) =>
   readFileSync(isAbsolute(path) ? path : resolve(ctx.cwd, path), 'utf8');
 
-/** The follow-up text for a branch the merge queue sent back. @param {import('../../merge/queue.mjs').Rejected} x @param {string} main */
-const sentBack = (x, main) =>
+/**
+ * What the follow-up adds for a fast check that failed while env.worktree_setup is empty
+ * (HITLD-284): the queue's worktree is fresh, so a missing install or generated file fails the
+ * check through no fault of the branch.
+ * @param {string[] | undefined} setup env.worktree_setup, when the queue ran the check
+ */
+const freshWorktree = (setup) =>
+  setup && !setup.length
+    ? ` The queue runs it in a fresh worktree of its own, which holds only what git tracks: env.worktree_setup is empty, so nothing is installed there and nothing generated. If the check passes in your worktree and fails in the queue's for a missing install or generated file, the fault is not your branch's: change nothing, and say so under questions, so the owner can set env.worktree_setup in .human-in-the-lead/policy.json.`
+    : '';
+
+/**
+ * The follow-up text for a branch the merge queue sent back.
+ * @param {import('../../merge/queue.mjs').Rejected} x @param {string} main
+ * @param {string[]} [setup] env.worktree_setup, when the local queue ran the checks
+ */
+const sentBack = (x, main, setup) =>
   x.reason === 'conflict'
     ? `Rebase onto ${main}: your change conflicts with merged work in ${(x.files ?? []).join(', ') || 'your branch'}. Keep both intents; if they contradict, say so under questions.`
     : x.reason === 'classification'
@@ -822,13 +837,18 @@ const sentBack = (x, main) =>
         ? (x.message ??
           `Your branch fails hitld kb check rebased onto ${main}. Fix the notes on your branch.`)
         : x.reason === 'fast_check'
-          ? `The merge queue's fast check "${x.command}" fails on your branch rebased onto ${main}. Fix it on your branch.`
+          ? `The merge queue's fast check "${x.command}" fails on your branch rebased onto ${main}. Fix it on your branch.${freshWorktree(setup)}`
           : x.reason === 'security'
             ? securitySentBack(x, main)
             : `Your branch fails the full suite in its merge batch ("${x.command}"); bisection named it. Fix it on your branch.`;
 
-/** A rejected entry as `hitld merge` prints it. @param {import('../../merge/queue.mjs').Rejected} x @param {string} main */
-const rejectedJson = (x, main) => ({
+/**
+ * A rejected entry as `hitld merge` prints it. A failed fast check's follow-up names an empty
+ * env.worktree_setup (HITLD-284).
+ * @param {import('../../merge/queue.mjs').Rejected} x @param {string} main
+ * @param {{ setup?: string[] }} [o] env.worktree_setup, when the local queue ran the checks
+ */
+const rejectedJson = (x, main, o = {}) => ({
   item: x.item,
   reason: x.reason,
   ...(x.files ? { files: x.files } : {}),
@@ -842,7 +862,7 @@ const rejectedJson = (x, main) => ({
     : {}),
   follow_up:
     x.dispatch && !['missing', 'needs_rejected'].includes(x.reason)
-      ? { dispatch: x.dispatch, message: x.message ?? sentBack(x, main) }
+      ? { dispatch: x.dispatch, message: x.message ?? sentBack(x, main, o.setup) }
       : null,
 });
 
@@ -2690,7 +2710,9 @@ const table = [
             // The items the merged branches' Closes: trailers closed in the same merge.
             closed: rs.flatMap((r) => r.merged.flatMap((m) => m.closed ?? [])),
             ...(worktreesRemoved.length ? { worktrees_removed: worktreesRemoved } : {}),
-            rejected: rs.flatMap((r) => r.rejected.map((x) => rejectedJson(x, main))),
+            rejected: rs.flatMap((r) =>
+              r.rejected.map((x) => rejectedJson(x, main, { setup: settings.setup })),
+            ),
             flakes: rs.flatMap((r) =>
               r.flakes.map((f) => ({
                 commit: f.commit,

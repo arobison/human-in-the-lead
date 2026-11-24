@@ -30,11 +30,13 @@ test('merge.mode: owner by default, owner accepted, anything else refused', () =
 /**
  * An owner-mode consumer with W-1 and W-2 finished and verified on their branches.
  * W-2's branch adds bad.txt, which the fast check refuses, unless `green`.
- * @param {string} [mode] @param {{ green?: boolean, merge?: Record<string, unknown> }} [o]
+ * @param {string} [mode]
+ * @param {{ green?: boolean, merge?: Record<string, unknown>, env?: Record<string, unknown> }} [o]
  */
 async function ownerConsumer(mode = 'owner', o = {}) {
   const c = makeConsumer({
     policy: {
+      ...(o.env ? { env: o.env } : {}),
       merge: {
         mode,
         fast_checks: ['test ! -f bad.txt'],
@@ -99,6 +101,25 @@ async function ownerConsumer(mode = 'owner', o = {}) {
   const store = openStore(join(c.data, 'human-in-the-lead', 'orch-fixture'));
   return { c, branches, store };
 }
+
+test('a failed fast check names the fresh worktree and env.worktree_setup when the setup is empty, instead of only blaming the branch (HITLD-284)', async () => {
+  const { c } = await ownerConsumer('queue');
+  const r = await c.hitld(['merge']);
+  const x = r.result.rejected.find((/** @type {any} */ y) => y.item === 'W-2');
+  assert.equal(x?.reason, 'fast_check', JSON.stringify(r.result));
+  assert.match(x.follow_up.message, /fresh worktree/);
+  assert.match(x.follow_up.message, /env\.worktree_setup is empty/);
+  assert.match(x.follow_up.message, /the fault is not your branch's: change nothing/);
+});
+
+test("with env.worktree_setup set, a failed fast check's follow-up does not point at it (HITLD-284)", async () => {
+  const { c } = await ownerConsumer('queue', { env: { worktree_setup: ['true'] } });
+  const r = await c.hitld(['merge']);
+  const x = r.result.rejected.find((/** @type {any} */ y) => y.item === 'W-2');
+  assert.equal(x?.reason, 'fast_check', JSON.stringify(r.result));
+  assert.match(x.follow_up.message, /Fix it on your branch\.$/);
+  assert.doesNotMatch(x.follow_up.message, /worktree_setup|fresh worktree/);
+});
 
 test('owner mode: hitld merge checks first; the red branch goes back and only the green one is presented, with evidence', async () => {
   const { c, branches } = await ownerConsumer();
