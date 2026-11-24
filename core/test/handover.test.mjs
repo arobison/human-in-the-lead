@@ -242,8 +242,13 @@ test('commands: after enough completions the refill is held, the hand-over waits
   const d2 = (await c.hitld(['dispatch', 'start', 'W-2'], orch1)).result.dispatch;
   await c.hitld(['dispatch', 'handle', '--dispatch', d2, '--harness-ref', 'agent-2'], orch1);
 
+  // Partial reports: a completion counts towards the hand-over whatever its result, and a done
+  // report would need its branch in the repository (HITLD-935).
   const note = join(c.base, 'note.txt');
-  writeFileSync(note, report({ item: 'W-1', sha: 'abc1234', branch: 'hitld/W-1-add-numbers' }));
+  writeFileSync(
+    note,
+    report({ item: 'W-1', sha: 'abc1234', branch: 'hitld/W-1-add-numbers', result: 'partial' }),
+  );
   const done = await c.hitld(
     ['dispatch', 'complete', '--dispatch', d1, '--report-file', note],
     orch1,
@@ -262,7 +267,10 @@ test('commands: after enough completions the refill is held, the hand-over waits
   assert.equal(early.result.error, 'draining');
   assert.deepEqual(early.result.reporting_here, [d2]);
 
-  writeFileSync(note, report({ item: 'W-2', sha: 'def5678', branch: 'hitld/W-2-another-thing' }));
+  writeFileSync(
+    note,
+    report({ item: 'W-2', sha: 'def5678', branch: 'hitld/W-2-another-thing', result: 'partial' }),
+  );
   await c.hitld(['dispatch', 'complete', '--dispatch', d2, '--report-file', note], orch1);
   const handed = await c.hitld(['handover'], orch1);
   assert.equal(handed.exit, 0, JSON.stringify(handed.result));

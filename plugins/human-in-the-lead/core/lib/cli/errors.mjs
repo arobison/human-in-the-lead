@@ -87,10 +87,14 @@ export const ERROR_CODES = Object.freeze({
     "The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.",
   'report-shape':
     "The executor's report does not have the fixed shape; nothing was recorded and the dispatch is still in flight. Send the executor report_errors, then complete the same dispatch with its corrected report.",
+  'report-errors':
+    "The executor's report names another item or a branch the repository does not have; nothing was recorded and the dispatch is still in flight. Send the executor report_errors, then complete the same dispatch with its corrected report.",
   'unknown-dispatch': 'The dispatch has no recorded harness reference, so it cannot be continued.',
   'still-running': 'The dispatch is still running; its completion notice comes first.',
+  'follow-up-pending':
+    'The item has a follow-up launched as a run of its own that dispatch handle has not recorded yet; handle it with its reference, or let a failed launch remove it, before starting the item again.',
   'cannot-follow-up':
-    'The dispatch cannot be continued: a headless run needs its earlier session ID and worktree. Nothing was recorded.',
+    'The dispatch cannot be continued: a follow-up that resumes a run needs its earlier session ID and worktree. Nothing was recorded.',
   'handover-due': "This session's hand-over is due, so nothing new starts.",
   draining: 'Executors still report to this session, and no successor would hear of them.',
   cap: 'The maximum number of live executors is reached.',

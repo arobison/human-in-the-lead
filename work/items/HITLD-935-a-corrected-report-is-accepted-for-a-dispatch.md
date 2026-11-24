@@ -2,10 +2,12 @@
 id: HITLD-935
 title: A corrected report is accepted for a dispatch whose report had errors, and a failed follow-up records nothing
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
+claimed_by: D-01M85RYHBF4SEW3C
+release_note: "`hitld dispatch complete` refuses a report that names another item or a branch the repository does not have (`report-errors`) before recording anything, so the corrected report is accepted. A headless follow-up records nothing until `hitld dispatch handle` gives the run's reference, which takes `--mode` for a follow-up run another way; `dispatch handle` with a new reference records the agent that is running."
 ---
 
 ## Why
