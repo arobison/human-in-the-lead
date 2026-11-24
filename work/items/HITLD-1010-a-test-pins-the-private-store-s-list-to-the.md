@@ -2,7 +2,7 @@
 id: HITLD-1010
 title: A test pins the private store's list to the folder its prefix names and tolerates a folder that vanishes
 kind: work
-state: in-progress
+state: done
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
