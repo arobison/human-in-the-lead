@@ -495,7 +495,7 @@ test('the Claude Code adapter: a valid adapter whose calls are instructions for 
   // A durable process (HITLD-746): the launcher starts it in its own process group.
   assert.equal(
     String(headless.input.command),
-    `cd '/w/D 3' && HITLD_DISPATCH=D-3 HITLD_PROJECT_ID=p HITLD_ROLE=executor node ${LAUNCHER} --pid /s/r.pid --in /s/b.md --out /s/r.json --err /s/r.stderr -- claude -p --output-format stream-json --verbose --model opus --effort high --permission-mode acceptEdits`,
+    `cd '/w/D 3' && HITLD_DISPATCH=D-3 HITLD_PROJECT_ID=p HITLD_ROLE=executor node ${LAUNCHER} --credential claude-code --pid /s/r.pid --in /s/b.md --out /s/r.json --err /s/r.stderr -- claude -p --output-format stream-json --verbose --model opus --effort high --permission-mode acceptEdits`,
   );
   assert.equal(headless.input.run_in_background, false);
 

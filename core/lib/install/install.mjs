@@ -16,6 +16,11 @@
 //                                   it runs (HITLD-741); shared by every worktree
 //   .git/hooks/commit-msg           the commit message guard (design part 10.3, rule 7): runs
 //                                   `check commit-message` on the message; shared the same way
+//   (nothing; a report)             the credential detached executors run on (HITLD-880): whether
+//                                   unattended runs have a long-lived one, and if not how the
+//                                   owner makes one. It is checked on every install, the first
+//                                   (the project's setup script) and each upgrade, while detached
+//                                   executors are on (dispatch.tier3_mode headless, the default)
 //
 // Nothing outside the markers of AGENTS.md is changed, an existing policy.json is kept, and
 // existing settings are merged key by key. A pre-commit or commit-msg hook that is not hitld's is
@@ -29,6 +34,8 @@ import { POLICY_PATH, findRepoRoot, loadPolicy } from '../policy/policy.mjs';
 import { importsAgents, installBlock } from '../contract/block.mjs';
 import { SCHEMA_DIR } from '../schema/registry.mjs';
 import { proposeSetup, worktreeSetupGap } from '../env/setup-gap.mjs';
+import { machineDir } from '../settings/files.mjs';
+import { setupSteps, unattendedCredential } from '../../harness/claude-code/credential.mjs';
 
 export const MARKETPLACE = 'human-in-the-lead';
 export const PLUGIN = 'human-in-the-lead';
@@ -339,6 +346,31 @@ function installHook(hook, text, line, name) {
 }
 
 /**
+ * Whether unattended runs here have a long-lived credential, for install's result, while detached
+ * executors are on (dispatch.tier3_mode headless, the default): the report (kind, source and
+ * length, never the value), a warning when there is none or what was found looks wrong, and the
+ * steps the owner takes to make one. Null when executors run interactive.
+ * @param {Record<string, any> | null | undefined} policy @param {NodeJS.ProcessEnv} env
+ */
+export function credentialReport(policy, env) {
+  if ((policy?.dispatch?.tier3_mode ?? 'headless') !== 'headless') return null;
+  let dir = null;
+  try {
+    dir = machineDir({ env });
+  } catch {
+    dir = null; // the keychain is still looked in
+  }
+  const c = unattendedCredential({ env, machineDir: dir });
+  const steps = c.long_lived ? [] : setupSteps(process.platform, dir);
+  const warning = c.long_lived
+    ? c.problems.length
+      ? `the long-lived credential for detached executors may be wrong: ${c.problems.join('; ')}`
+      : null
+    : `detached executors have no long-lived credential: started on the interactive sign-in, an unattended run stops when that ends, which can be at any time before a date Claude Code gives, and the launcher refuses to start one without it. Make one with claude setup-token, run by you in a terminal outside the agent (next lists the steps)`;
+  return { report: c, warning, steps };
+}
+
+/**
  * @param {Record<string, unknown>} input
  * @param {{ cwd: string, env: NodeJS.ProcessEnv }} ctx
  * @returns {{ ok: boolean } & Record<string, unknown>}
@@ -556,6 +588,11 @@ export function install(input, ctx) {
     );
   }
 
+  // The credential detached executors run on (HITLD-880). A report only: the owner makes and
+  // stores the token, in a terminal outside the agent, and nothing here reads it into output.
+  const credential = credentialReport(loadPolicy({ cwd: root }).policy, ctx.env);
+  if (credential?.warning) warnings.push(credential.warning);
+
   const add =
     source.source === 'directory'
       ? `claude plugin marketplace add ${shq(String(source.path))}`
@@ -566,7 +603,11 @@ export function install(input, ctx) {
     done,
     warnings,
     ...(proposed ? { proposed } : {}),
+    ...(credential ? { unattended_credential: credential.report } : {}),
     next: [
+      ...(credential?.steps.length
+        ? [`for detached executors, before an unattended run: ${credential.steps.join('; ')}`]
+        : []),
       ...(add ? [add] : []),
       `claude plugin install ${PLUGIN}@${MARKETPLACE} --scope project`,
       'set merge.full_suite (and merge.fast_checks) in .human-in-the-lead/policy.json: the merge queue will not move main without a full suite; and env.worktree_setup, the commands that install and generate what those checks need in a fresh worktree',

@@ -728,6 +728,10 @@ export const briefKey = (d) => `dispatch/briefs/${d}.md`;
 export const resultKey = (d) => `dispatch/results/${d}.json`;
 /** Where a headless run writes its process ID, for the watchdog. @param {string} d */
 export const pidKey = (d) => `dispatch/pids/${d}.pid`;
+/** Where a headless run writes its standard error, beside its result (instructions.mjs). @param {string} d */
+export const stderrKey = (d) => `dispatch/results/${d}.stderr`;
+/** The note a reported event carries when a run stopped for its credential (HITLD-880). */
+export const CREDENTIAL_NOTE = 'stopped for its credential';
 
 /**
  * Whether the quota gate pauses dispatch now, and the change to record: a pause when the gate
@@ -1319,7 +1323,8 @@ export function completeDispatch(input, ctx, given = null) {
     const stored = p.store.read(resultKey(d));
     if (stored === null)
       throw new Refusal('usage', 'give --session-record, --result-file or --report-file');
-    n = { kind: 'headless', json: stored };
+    const stderr = p.store.read(stderrKey(d));
+    n = { kind: 'headless', json: stored, ...(stderr ? { stderr } : {}) };
   }
   /** @type {ReturnType<typeof completionOf>} */
   let completion;
@@ -1353,6 +1358,13 @@ export function completeDispatch(input, ctx, given = null) {
   // by permissions, never a missing report shape: a follow-up would meet the same refusal
   // (HITLD-141). A report that only mentions a refusal is a warning, never a hold.
   const refused = refusedCommands(completion.permissionDenials);
+  // A headless run that stopped for its credential with no report of its own is blocked by it
+  // (HITLD-880): its sign-in ended, or the token was refused, mid-run. A follow-up would stop the
+  // same way until the owner gives it a working credential.
+  const lostCredential =
+    n.kind === 'headless' && !parsed.report && !refused.length
+      ? (completion.credentialFailure ?? null)
+      : null;
   // A report that does not parse is refused before anything is recorded or released
   // (HITLD-748): a dispatch completes once, so a recorded bad shape would stand. Its executor
   // can still be messaged and resends; a headless run has ended, so its report is recorded
@@ -1397,6 +1409,7 @@ export function completeDispatch(input, ctx, given = null) {
     ...(completion.usageSource === 'observed'
       ? ['usage from the completion notification (observed; undocumented)']
       : []),
+    ...(lostCredential ? [`${CREDENTIAL_NOTE}: ${lostCredential}`] : []),
     ...(farAboveEstimate(tokens, estimate)
       ? [
           measured
@@ -1417,6 +1430,7 @@ export function completeDispatch(input, ctx, given = null) {
     ),
     ...(notes.length ? { notes: notes.join('; ') } : {}),
     ...(refused.length ? { result: 'blocked', reason: PERMISSIONS_REASON } : {}),
+    ...(lostCredential ? { result: 'blocked' } : {}),
   });
 
   /** @type {Result} */
@@ -1441,6 +1455,11 @@ export function completeDispatch(input, ctx, given = null) {
     out.blocked_by = PERMISSIONS_REASON;
     out.refused_commands = refused;
     out.next = `the executor's permission mode ${refusedNote(refused)}, which the contract requires: recorded as blocked by permissions. Send no follow-up, which would meet the same refusal. For the rest of this run, the plan dispatches no item this way on this harness: it uses the other tier-3 mode, or holds the item (reason ${PERMISSIONS_REASON}); tell the owner`;
+  } else if (lostCredential) {
+    out.result = 'blocked';
+    out.blocked_by = 'credential';
+    out.credential_failure = lostCredential;
+    out.next = `${d} stopped for its credential (${lostCredential}) with no report: recorded as blocked. Tell the owner: unattended runs need a long-lived credential (claude setup-token, run by the owner in a terminal outside the agent; hitld env status shows what executors run on). Once it is in place, hitld dispatch follow-up --dispatch ${d} continues it with its commits`;
   } else if (!parsed.report) {
     out.report_errors = parsed.errors;
     out.next = `the report does not have the fixed shape: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report in the fixed shape, naming the errors>"`;
@@ -1918,6 +1937,7 @@ const table = [
             ...(tier === 3 || durable ? { tier3Mode: mode } : {}),
             permissionMode: p.policy.dispatch.headless_permission_mode,
             env: xenv,
+            machineDir: p.machineRoot,
           },
         );
         const then =
@@ -2216,6 +2236,7 @@ const table = [
             pidPath: join(p.store.root, pidKey(dispatch)),
             permissionMode: p.policy.dispatch.headless_permission_mode,
             env: xenv,
+            machineDir: p.machineRoot,
             // What this follow-up writes before its launch: a launch that fails removes it, so
             // nothing is left to hold the item or look like a dispatch (HITLD-935).
             cleanup: [briefKey(dispatch), pendingFollowUpKey(dispatch), parentKey(dispatch)].map(

@@ -12,8 +12,15 @@
 // process has ended (the pid file), its output holds a result event (the result file) and its
 // branch head is its closing commit with the report. No timer stops it: its budget is its cap.
 //
-// Usage: launch.mjs [--cwd <dir>] [--cleanup <file>]... --pid <file> --in <file> --out <file>
-//   [--err <file>] -- <command> [args...]
+// Usage: launch.mjs [--cwd <dir>] [--cleanup <file>]... [--credential claude-code
+//   [--machine-dir <dir>]] --pid <file> --in <file> --out <file> [--err <file>] -- <command> [args...]
+//
+// With --credential claude-code, the run starts on a long-lived credential or not at all
+// (HITLD-880): one the environment already gives Claude Code, else the token `claude setup-token`
+// made, read at this start from the keychain or the machine directory's file (credential.mjs) into
+// the child's environment only, as CLAUDE_CODE_OAUTH_TOKEN. It is never on a command line, in
+// this process's environment or in any output; the reference to it is dropped once the child has
+// started. With none, nothing starts: the launcher says why, without any value, and exits 1.
 //
 // A launch that fails (the directory missing, the command not found) writes no pid file. With
 // --cleanup, it also removes each file named and the result and error files it opened: a
@@ -23,6 +30,14 @@ import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  CREDENTIAL_KIND,
+  TOKEN_ENV,
+  childEnv,
+  credentialInEnv,
+  readToken,
+  setupSteps,
+} from './credential.mjs';
 
 /** This file, for the command line the adapter writes. */
 export const LAUNCHER = fileURLToPath(import.meta.url);
@@ -63,6 +78,32 @@ export async function launchDurable(r) {
 }
 
 /**
+ * The environment a run starts in when it needs a long-lived credential (HITLD-880): `env` as it
+ * is when it already gives one, else a copy with the stored token added. Refuses, naming where it
+ * looked and how to make one, never a value, when there is none.
+ * @param {{ env: NodeJS.ProcessEnv, machineDir: string | null, platform?: NodeJS.Platform,
+ *   run?: import('./credential.mjs').Runner }} o
+ * @returns {{ env: NodeJS.ProcessEnv, credential: { kind: string, source: string, variable?: string } }}
+ */
+export function credentialEnv(o) {
+  const given = credentialInEnv(o.env);
+  if (given) {
+    return {
+      env: o.env,
+      credential: { kind: given.kind, source: 'environment', variable: given.variable },
+    };
+  }
+  const found = readToken(o);
+  if (found.value === null) {
+    throw new Error(
+      `refused to start the executor: no long-lived credential for unattended runs, and on the interactive sign-in it would stop when that ends. Looked in ${found.looked_in.join(', ')}${found.problems.length ? ` (${found.problems.join('; ')})` : ''}. To make one: ${setupSteps(o.platform, o.machineDir).join('; ')}`,
+    );
+  }
+  const env = childEnv(o.env, found.value);
+  return { env, credential: { kind: 'oauth-token', source: found.source } };
+}
+
+/**
  * Remove what a launch that failed leaves: the files `cleanup` names, and the result and error
  * files it opened. A file already gone is no error. @param {string[]} files
  */
@@ -72,7 +113,7 @@ export function removeAfterFailure(files) {
 
 /**
  * Read the command line. @param {string[]} argv
- * @returns {{ pidFile: string, stdin: string, stdout: string, stderr: string | null, cwd: string | null, cleanup: string[], command: string, args: string[] }}
+ * @returns {{ pidFile: string, stdin: string, stdout: string, stderr: string | null, cwd: string | null, cleanup: string[], credential: string | null, machineDir: string | null, command: string, args: string[] }}
  */
 export function parseLaunchArgs(argv) {
   const at = argv.indexOf('--');
@@ -85,7 +126,19 @@ export function parseLaunchArgs(argv) {
   for (let i = 0; i < own.length; i += 2) {
     const k = own[i];
     const v = own[i + 1];
-    if (!['--pid', '--in', '--out', '--err', '--cwd', '--cleanup'].includes(k) || v === undefined) {
+    if (
+      ![
+        '--pid',
+        '--in',
+        '--out',
+        '--err',
+        '--cwd',
+        '--cleanup',
+        '--credential',
+        '--machine-dir',
+      ].includes(k) ||
+      v === undefined
+    ) {
       throw new Error(`unknown or incomplete option ${k}`);
     }
     if (k === '--cleanup') cleanup.push(v);
@@ -93,6 +146,9 @@ export function parseLaunchArgs(argv) {
   }
   for (const k of ['pid', 'in', 'out']) {
     if (!opts[k]) throw new Error(`--${k} <file> is required`);
+  }
+  if (opts.credential !== undefined && opts.credential !== CREDENTIAL_KIND) {
+    throw new Error(`--credential takes ${CREDENTIAL_KIND}, not ${opts.credential}`);
   }
   const [command, ...args] = argv.slice(at + 1);
   return {
@@ -102,6 +158,8 @@ export function parseLaunchArgs(argv) {
     stderr: opts.err ?? null,
     cwd: opts.cwd ?? null,
     cleanup,
+    credential: opts.credential ?? null,
+    machineDir: opts['machine-dir'] ?? null,
     command,
     args,
   };
@@ -121,10 +179,23 @@ if (isMain()) {
   let a = null;
   try {
     a = parseLaunchArgs(process.argv.slice(2));
-    const { cwd, cleanup: _c, ...rest } = a;
-    const { pid } = await launchDurable({ ...rest, ...(cwd ? { cwd } : {}) });
+    const { cwd, cleanup: _c, credential: need, machineDir, ...rest } = a;
+    // Read before anything is opened: a refusal leaves no file behind but those --cleanup names.
+    const started = need ? credentialEnv({ env: process.env, machineDir }) : null;
+    /** @type {number} */
+    let pid;
+    try {
+      ({ pid } = await launchDurable({
+        ...rest,
+        ...(cwd ? { cwd } : {}),
+        ...(started ? { env: started.env } : {}),
+      }));
+    } finally {
+      // The child has its own copy of its environment: the token goes from this one.
+      if (started && started.env !== process.env) delete started.env[TOKEN_ENV];
+    }
     process.stdout.write(
-      `${JSON.stringify({ ok: true, pid, pid_file: a.pidFile, result_file: a.stdout })}\n`,
+      `${JSON.stringify({ ok: true, pid, pid_file: a.pidFile, result_file: a.stdout, ...(started ? { credential: started.credential } : {}) })}\n`,
     );
   } catch (e) {
     const removed = a?.cleanup.length

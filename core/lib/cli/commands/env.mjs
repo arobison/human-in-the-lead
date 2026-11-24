@@ -11,7 +11,13 @@ import { openStore, privateStorePath } from '../../store/store.mjs';
 import { POLICY_PATH, findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { readPrimaryCheckout } from '../../env/primary.mjs';
-import { openEnv } from '../../env/manager.mjs';
+import { machineRootFor, openEnv } from '../../env/manager.mjs';
+import {
+  credentialLine,
+  setupSteps,
+  signInEnds,
+  unattendedCredential,
+} from '../../../harness/claude-code/credential.mjs';
 import { splitCommand } from '../../env/secrets.mjs';
 import {
   INCLUDE_FILE,
@@ -23,7 +29,7 @@ import {
 /**
  * Open the manager for the project at the working directory.
  * @param {import('../table.mjs').CommandContext} ctx
- * @returns {{ env: ReturnType<typeof openEnv>, cwd: string } | { error: import('../table.mjs').CommandResult }}
+ * @returns {{ env: ReturnType<typeof openEnv>, cwd: string, storeRoot: string } | { error: import('../table.mjs').CommandResult }}
  */
 function open(ctx) {
   // Policy, tasks and scripts come from the primary checkout, which the owner controls, never from
@@ -63,6 +69,7 @@ function open(ctx) {
       capacity: loaded.layers?.machine?.capacity,
     }),
     cwd: repoRoot,
+    storeRoot: store.root,
   };
 }
 
@@ -188,6 +195,36 @@ const withEnv = (body) => (input, ctx) => {
   if ('error' in opened) return opened.error;
   return body(input, opened.env, ctx, opened.cwd);
 };
+
+/**
+ * What `env status` says about the credential detached executors run on (HITLD-880): which one,
+ * by kind, source and length, never its value; for the interactive sign-in, the date Claude Code
+ * gave for its end and a warning.
+ * @param {string} storeRoot @param {NodeJS.ProcessEnv} env
+ */
+function credentialStatus(storeRoot, env) {
+  const machineDir = machineRootFor(storeRoot);
+  const c = unattendedCredential({ env, machineDir });
+  const ends = c.long_lived ? null : signInEnds(join(storeRoot, 'dispatch', 'results'));
+  const line = credentialLine(c, ends);
+  const { looked_in: lookedIn, ...shown } = c;
+  return {
+    credential: {
+      ...shown,
+      ...(c.long_lived ? {} : { looked_in: lookedIn, sign_in_ends: ends?.date ?? null }),
+      summary: line,
+    },
+    ...(c.long_lived && !c.problems.length
+      ? {}
+      : {
+          warnings: [
+            ...(c.long_lived ? [] : [line]),
+            ...c.problems,
+            ...(c.long_lived ? [] : setupSteps(process.platform, machineDir)),
+          ],
+        }),
+  };
+}
 
 /** @param {unknown} value @returns {string[]} */
 const nameList = (value) =>
@@ -531,9 +568,12 @@ export const commands = [
   {
     name: 'env status',
     summary:
-      'Show the worktrees, ports and locks the manager holds, and the time spent waiting for locks',
+      'Show the worktrees, ports and locks the manager holds, the time spent waiting for locks, and the credential detached executors run on (never its value): a long-lived one, or the interactive sign-in and when it can end',
     built_by: 'c',
-    run: withEnv((_input, env) => {
+    run: (_input, ctx) => {
+      const opened = open(ctx);
+      if ('error' in opened) return opened.error;
+      const { env } = opened;
       const registry = env.registry();
       return {
         ok: true,
@@ -541,8 +581,9 @@ export const commands = [
         ports: Object.values(registry.ports),
         locks: env.lockStatus(),
         lock_waits: env.lockWaits(),
+        ...credentialStatus(opened.storeRoot, ctx.env),
       };
-    }),
+    },
   },
   {
     name: 'env exec',
