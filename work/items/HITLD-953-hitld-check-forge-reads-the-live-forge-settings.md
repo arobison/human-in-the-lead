@@ -2,7 +2,7 @@
 id: HITLD-953
 title: hitld check forge reads the live forge settings with a read-only token and reports each as ok, wrong or cannot-read
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
