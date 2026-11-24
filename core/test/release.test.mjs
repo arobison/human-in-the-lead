@@ -610,106 +610,94 @@ test('with everything the release item needs done, make goes ahead', async () =>
   assert.equal(made.json.tag, 'v0.1.0');
 });
 
-// --- The release item ships in the release commit (HITLD-838) --------------------------------
+// --- The record lists its release item, whose state stays as it is (HITLD-838) --------------
 
 /** The files a commit changes. @param {string} root @param {string} rev */
 const filesOf = (root, rev) =>
   git(root, 'show', '--name-only', '--format=', rev).trim().split('\n').filter(Boolean).sort();
 
-test('release make sets the release item done and lists it in the record, in one commit', async () => {
+test('release make lists the release item in the record and leaves it open', async () => {
   const root = releaseRepo(itemFile('W-8', { release: '0.1.0', needs: ['W-3'] }));
   const before = git(root, 'rev-parse', 'HEAD').trim();
   const made = await hitld(['release', 'make'], root);
   assert.equal(made.code, 0, JSON.stringify(made.json));
-  assert.deepEqual(made.json.shipped, ['W-8']);
   assert.equal(git(root, 'rev-parse', 'HEAD~1').trim(), before, 'one commit');
-  assert.deepEqual(filesOf(root, 'HEAD'), [
-    'work/items/W-8-thing.md',
-    'work/releases/main/0.1.0.md',
-  ]);
+  assert.deepEqual(filesOf(root, 'HEAD'), ['work/releases/main/0.1.0.md'], 'the record alone');
   assert.equal(git(root, 'status', '--porcelain').trim(), '');
   const record = readFileSync(join(root, 'work/releases/main/0.1.0.md'), 'utf8');
   assert.match(record, /\nitems: \[W-3, W-8\]\n/);
-  const item = readFileSync(join(root, 'work/items/W-8-thing.md'), 'utf8');
-  assert.match(item, /\nstate: done\n/);
-  assert.match(item, /\nrelease: 0\.1\.0\n/, 'only the state line changes');
   const t = open(root);
   assert.deepEqual(t.check().problems, []);
-  assert.equal(t.get('W-8').state, 'done');
+  assert.equal(t.get('W-8').state, 'planned', 'open until the release is published');
   assert.equal(t.get('W-8').released_in, 'v0.1.0', 'the release it shipped in');
-  // The next proposal does not list it again.
+  // Closed by hand after publishing, it is not proposed again.
+  put(root, itemFile('W-8', { release: '0.1.0', needs: ['W-3'], state: 'done' }));
+  commitAll(root, 'close W-8 after publishing');
   const next = await hitld(['release', 'propose'], root);
   assert.equal(next.json.items.includes('W-8'), false);
 });
 
-test('release make --branch ships the release item on the branch; main keeps it planned', async () => {
+test('release make --branch lists the release item in the record on the branch', async () => {
   const root = releaseRepo(itemFile('W-8', { release: '0.1.0-rc.1', needs: ['W-3'] }));
-  const before = git(root, 'rev-parse', 'HEAD').trim();
   const made = await hitld(['release', 'make', '--pre', 'rc', '--branch', 'release'], root);
   assert.equal(made.code, 0, JSON.stringify(made.json));
-  assert.deepEqual(made.json.shipped, ['W-8']);
-  assert.equal(git(root, 'rev-parse', 'release~1').trim(), before, 'one commit on the branch');
-  assert.deepEqual(filesOf(root, 'release'), [
-    'work/items/W-8-thing.md',
-    'work/releases/main/0.1.0-rc.1.md',
-  ]);
-  assert.match(git(root, 'show', 'release:work/items/W-8-thing.md'), /\nstate: done\n/);
+  assert.deepEqual(filesOf(root, 'release'), ['work/releases/main/0.1.0-rc.1.md']);
   assert.match(
     git(root, 'show', 'release:work/releases/main/0.1.0-rc.1.md'),
     /\nitems: \[W-3, W-8\]\n/,
   );
-  assert.match(readFileSync(join(root, 'work/items/W-8-thing.md'), 'utf8'), /\nstate: planned\n/);
-  assert.equal(git(root, 'status', '--porcelain').trim(), '');
-  // The release workflow check still passes the squash-merged pull request.
+  assert.match(git(root, 'show', 'release:work/items/W-8-thing.md'), /\nstate: planned\n/);
   const sha = squash(root, 'release', 'Release v0.1.0-rc.1 (#7)');
   const r = await checkReleaseCommit({ root, commit: sha, prs: [7] });
   assert.equal(r.ok, true, r.problems.join('\n'));
-  assert.equal(open(root).get('W-8').state, 'done');
 });
 
-test('a release with no release item ships no item: the commit holds the record alone', async () => {
+test('a done release item is listed once and kept done; a dropped one is not listed', async () => {
+  const done = releaseRepo(itemFile('W-8', { release: '0.1.0', needs: ['W-3'], state: 'done' }));
+  assert.equal((await hitld(['release', 'make'], done)).code, 0);
+  const listed = readFileSync(join(done, 'work/releases/main/0.1.0.md'), 'utf8');
+  assert.equal((listed.match(/W-8/g) ?? []).length, 1, 'listed once');
+  assert.deepEqual(filesOf(done, 'HEAD'), ['work/releases/main/0.1.0.md']);
+  assert.equal(open(done).get('W-8').state, 'done');
+
+  const dropped = releaseRepo(
+    itemFile('W-8', { release: '0.1.0', needs: ['W-3'], state: 'dropped' }),
+  );
+  const made = await hitld(['release', 'make'], dropped);
+  assert.equal(made.code, 0, JSON.stringify(made.json));
+  assert.match(
+    readFileSync(join(dropped, 'work/releases/main/0.1.0.md'), 'utf8'),
+    /\nitems: \[W-3\]\n/,
+  );
+  assert.deepEqual(filesOf(dropped, 'HEAD'), ['work/releases/main/0.1.0.md']);
+  assert.equal(open(dropped).get('W-8').state, 'dropped');
+});
+
+test('a release with no release item lists none; an --item without a release key is not listed', async () => {
   const root = releaseRepo(itemFile('W-9', { release: '0.2.0', needs: ['W-3'] }));
   const made = await hitld(['release', 'make'], root);
   assert.equal(made.code, 0, JSON.stringify(made.json));
   assert.equal(made.json.tag, 'v0.1.0');
-  assert.deepEqual(made.json.shipped, []);
-  assert.deepEqual(filesOf(root, 'HEAD'), ['work/releases/main/0.1.0.md']);
   assert.match(
     readFileSync(join(root, 'work/releases/main/0.1.0.md'), 'utf8'),
     /\nitems: \[W-3\]\n/,
   );
-  assert.equal(open(root).get('W-9').state, 'planned', 'another version’s item is untouched');
-  // An item named with --item that has no release key is a gate source only.
   const other = releaseRepo(itemFile('W-10', { needs: ['W-3'] }));
   const named = await hitld(['release', 'make', '--item', 'W-10'], other);
   assert.equal(named.code, 0, JSON.stringify(named.json));
-  assert.deepEqual(named.json.shipped, []);
+  assert.match(
+    readFileSync(join(other, 'work/releases/main/0.1.0.md'), 'utf8'),
+    /\nitems: \[W-3\]\n/,
+  );
   assert.equal(open(other).get('W-10').state, 'planned');
 });
 
-test('work close accepts a release item once its release record exists, on main too', async () => {
+test('work close still refuses a planned release item, on main too', async () => {
   const root = releaseRepo(itemFile('W-8', { release: '0.1.0', needs: ['W-3'] }));
-  const early = await hitld(['work', 'close', 'W-8'], root);
-  assert.equal(early.code, 1);
-  assert.match(
-    early.json.message,
-    /W-8 is planned; .*a release item once its release record exists/,
-  );
-  // A release made another way: the record arrives without the item's state.
-  assert.equal((await hitld(['release', 'make', '--branch', 'release'], root)).code, 0);
-  git(root, 'checkout', '-q', 'release', '--', 'work/releases/main/0.1.0.md');
-  git(root, 'commit', '-q', '-m', 'the record, by hand');
-  const closed = await hitld(['work', 'close', 'W-8'], root);
-  assert.equal(closed.code, 0, JSON.stringify(closed.json));
-  assert.equal(closed.json.branch, 'main');
-  assert.deepEqual(filesOf(root, 'HEAD'), ['work/items/W-8-thing.md']);
-  assert.equal(git(root, 'log', '-1', '--format=%s').trim(), 'close: W-8');
-  assert.equal(open(root).get('W-8').state, 'done');
-  // An item that is not a release item is still refused on main.
-  const plain = releaseRepo(itemFile('W-10'));
-  const refused = await hitld(['work', 'close', 'W-10'], plain);
+  assert.equal((await hitld(['release', 'make'], root)).code, 0);
+  const refused = await hitld(['work', 'close', 'W-8'], root);
   assert.equal(refused.code, 1);
-  assert.match(refused.json.message, /W-10 is planned; close an item that this branch claimed/);
+  assert.match(refused.json.message, /W-8 is planned; close an item that this branch claimed/);
 });
 
 test('the release item is found by the version proposed or made; --item overrides it', async () => {

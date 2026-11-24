@@ -8,10 +8,6 @@
 //   prefixes where a second machine's bundles are fetched.
 // - Closing rides with the work: a commit on the same branch sets `state: done`. Merging the
 //   branch closes the item.
-// - A release item (a work item whose `release:` names a version) ships in its release commit,
-//   where the release command sets it to done (HITLD-838). For a release made another way, close
-//   accepts the release item once its release record exists, from planned and on the main branch
-//   too: no branch claims it, and the record is the work it waited for.
 // - An abandoned claim is given up (unclaimed) by the orchestrator with a commit on the main
 //   branch whose message starts `unclaim:`, naming the branch and the claim commit and recording
 //   why. The commit may be empty: main already shows the item planned. A claim whose commit an
@@ -26,7 +22,6 @@
 
 import { applyPatch } from './format.mjs';
 import { findEntry, writeKeys, writeStored } from './edit.mjs';
-import { loadReleases } from './releases.mjs';
 import { git, idNumber, loadPlaces, refPlaces } from './tree.mjs';
 import { CodedError } from '../../cli/errors.mjs';
 import { DISPATCH_ID } from '../../ledger/ids.mjs';
@@ -315,8 +310,7 @@ export function closeItem(root, layout, id, { commit = true, report } = {}) {
   if (!entry?.data) throw new CodedError('not-found', `${id} is not in this working tree`);
   const d = entry.data;
   const here = currentBranch(root);
-  const shipped = d.state !== 'done' && releaseRecordOf(root, layout, d) !== null;
-  const solo = d.kind === 'decision' || d.kind === 'external' || shipped;
+  const solo = d.kind === 'decision' || d.kind === 'external';
   if (d.kind === 'project') {
     throw new Error(`${id} is a ${d.kind}; whether it is active is derived from its items`);
   }
@@ -326,7 +320,7 @@ export function closeItem(root, layout, id, { commit = true, report } = {}) {
   if (d.state === 'done') throw new Error(`${id} is already done`);
   if (d.state !== 'in-progress' && !(solo && d.state === 'planned')) {
     throw new Error(
-      `${id} is ${d.state}; close an item that this branch claimed (in-progress)${d.kind === 'work' ? (d.release !== undefined ? ', or a release item once its release record exists' : '') : ', or a planned decision or external item'}`,
+      `${id} is ${d.state}; close an item that this branch claimed (in-progress)${solo ? ', or a planned decision or external item' : ''}`,
     );
   }
   if (!solo && here === layout.mainBranch) {
@@ -349,27 +343,6 @@ export function closeItem(root, layout, id, { commit = true, report } = {}) {
       })
     : null;
   return { commit: sha, branch: here, path: entry.path, version };
-}
-
-/**
- * The release record of a release item: its package's record (the only declared package's, when
- * the item names none) at the version its `release:` names. Null when there is none, or when the
- * item is not a release item.
- * @param {string} root @param {Layout} layout @param {Record<string, unknown>} d the item's keys
- * @returns {string | null} the record's path
- */
-export function releaseRecordOf(root, layout, d) {
-  if (d.kind !== 'work' || typeof d.release !== 'string') return null;
-  const packages = layout.packages ?? [];
-  const pkg =
-    typeof d.package === 'string' ? d.package : packages.length === 1 ? packages[0].name : null;
-  const found = loadReleases(root, layout).find(
-    (r) =>
-      r.data &&
-      String(r.data.version ?? '') === d.release &&
-      (packages.length ? r.package === pkg : (r.package ?? null) === null),
-  );
-  return found?.path ?? null;
 }
 
 /**
