@@ -18,7 +18,7 @@ constraint_of: [HITLD-67 c?]
 
 ## Why
 
-On 2026-11-24 the chief of staff triaged GitHub issues 603 to 607 and posted a reply on each, by judgement, with no written rule: what a duplicate, a fix, a missing-information request or a decline posts, and when an issue closes. The owner asked for the process. The pull-request path (`Closes #N`) would close an issue at merge, before the reporter can run the fix, so the rule has to say otherwise. [Likely: closing on ship is what reporters expect of a project that cuts release candidates.]
+On 2026-11-24 the chief of staff triaged GitHub issues 603 to 607 and posted a reply on each, by judgment, with no written rule: what a duplicate, a fix, a missing-information request or a decline posts, and when an issue closes. The owner asked for the process. The pull-request path (`Closes #N`) would close an issue at merge, before the reporter can run the fix, so the rule has to say otherwise. [Likely: closing on ship is what reporters expect of a project that cuts release candidates.]
 
 ## Notes
 
