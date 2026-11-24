@@ -357,7 +357,8 @@ export function mainMismatches(root, layout, ref, items) {
         why: `${id} is ${state}, but ${shas.length === 1 ? `${shas[0]} on ${layout.mainBranch} carries` : `${shas.length} commits on ${layout.mainBranch} (${shas.slice(0, 3).join(', ')}${shas.length > 3 ? ', ...' : ''}) carry`} its Work-Item or Closes trailer: close it if the work is done, or note in the item why it stays open`,
       });
     } else if (state === 'done' && checkDone && !named.has(id) && d.release === undefined) {
-      // A release item is done when its release is published: the release check owns it.
+      // A release item is closed by hand once its release is published (HITLD-838), with no
+      // commit that names it.
       const changed = edited.get(it.path);
       // Unchanged since before the first commit that names an item: from before the trailers.
       if (changed === undefined || changed > firstNaming) continue;
