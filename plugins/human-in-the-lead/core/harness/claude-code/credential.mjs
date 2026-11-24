@@ -18,7 +18,11 @@
 //            its owner only
 //
 // A credential the environment already gives Claude Code (an API key, an OAuth token set by the
-// cloud environment, or a cloud provider) is long-lived too, and is used as it is.
+// cloud environment, or a cloud provider) is long-lived too, and is used as it is. So is a Claude
+// Code cloud session's own sign-in (CLAUDE_CODE_REMOTE set, none of those given): the platform
+// adds the credential to the run's requests in transit, so nothing in reach holds it, and it has
+// no end date to warn about (the owner's decision on HITLD-880; a child claude -p was seen to
+// authenticate there with apiKeySource none).
 //
 // Nothing here prints, logs or returns a value: reports carry the kind, the source and the
 // length. The value is read only by readToken, for the launcher, which puts it in one child's
@@ -48,9 +52,15 @@ export const KEYCHAIN_TIMEOUT_MS = 10_000;
 const DAY_MS = 86_400_000;
 
 /**
+ * @typedef {'oauth-token' | 'api-key' | 'auth-token' | 'cloud-provider' | 'cloud-session'} EnvKind
+ *   cloud-session: a Claude Code cloud session's own sign-in, which the platform manages
+ */
+
+/**
  * Long-lived credentials the environment can already give Claude Code, by variable name. Only the
  * names are ever read for a report.
- * @type {{ variable: string, kind: 'oauth-token' | 'api-key' | 'auth-token' | 'cloud-provider' }[]}
+ * The cloud session comes last: one of the others, when given, is what the run uses.
+ * @type {{ variable: string, kind: EnvKind }[]}
  */
 const FROM_ENV = [
   { variable: TOKEN_ENV, kind: 'oauth-token' },
@@ -59,7 +69,10 @@ const FROM_ENV = [
   { variable: 'CLAUDE_CODE_USE_BEDROCK', kind: 'cloud-provider' },
   { variable: 'CLAUDE_CODE_USE_VERTEX', kind: 'cloud-provider' },
   { variable: 'CLAUDE_CODE_USE_FOUNDRY', kind: 'cloud-provider' },
+  { variable: 'CLAUDE_CODE_REMOTE', kind: 'cloud-session' },
 ];
+/** A value that leaves a variable off: empty, false or 0. @param {string | undefined} v */
+const isOn = (v) => typeof v === 'string' && !/^(|0|false)$/i.test(v.trim());
 
 /**
  * Variables that would make a shell in the child trace its commands, and so print what they
@@ -82,8 +95,10 @@ const TRACING = ['SHELLOPTS', 'BASH_XTRACEFD', 'PS4'];
  *
  * @typedef {object} CredentialReport what unattended runs start on, without the value
  * @property {boolean} long_lived
- * @property {'oauth-token' | 'api-key' | 'auth-token' | 'cloud-provider' | 'interactive'} kind
+ * @property {EnvKind | 'interactive'} kind
  *   interactive: none was found, so a run starts on the interactive sign-in
+ * @property {'platform'} [managed_by] for the cloud session's sign-in: the platform holds it and
+ *   ends it, so there is no end date to watch
  * @property {Source | null} source
  * @property {string} [variable] for a credential from the environment, its name
  * @property {number} [length] for a stored token, its length, so a value cut short shows
@@ -233,7 +248,11 @@ function accountName(env) {
  */
 export function credentialInEnv(env) {
   return (
-    FROM_ENV.find((c) => typeof env[c.variable] === 'string' && env[c.variable] !== '') ?? null
+    FROM_ENV.find((c) =>
+      c.kind === 'cloud-session'
+        ? isOn(env[c.variable])
+        : typeof env[c.variable] === 'string' && env[c.variable] !== '',
+    ) ?? null
   );
 }
 
@@ -270,6 +289,9 @@ export function unattendedCredential(o) {
       kind: fromEnv.kind,
       source: 'environment',
       variable: fromEnv.variable,
+      ...(fromEnv.kind === 'cloud-session'
+        ? { managed_by: /** @type {const} */ ('platform') }
+        : {}),
       problems: [],
       looked_in: lookedIn,
     };
@@ -525,6 +547,9 @@ function harnessText(text) {
  * @param {number} [now]
  */
 export function credentialLine(c, ends, now = Date.now()) {
+  if (c.kind === 'cloud-session') {
+    return `executors run on this Claude Code cloud session's own sign-in (${c.variable} set), which the platform manages: nothing here holds it and it has no end date to watch`;
+  }
   if (c.long_lived) {
     const what =
       c.source === 'environment'

@@ -31,7 +31,9 @@ const HITLD = fileURLToPath(new URL('../bin/hitld.mjs', import.meta.url));
 const withoutCredentials = (env) => {
   const out = { ...env };
   for (const k of Object.keys(out)) {
-    if (/^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$|CLAUDE_CODE_USE_)/.test(k)) delete out[k];
+    if (/^(ANTHROPIC_|CLAUDE_CODE_OAUTH_TOKEN$|CLAUDE_CODE_USE_|CLAUDE_CODE_REMOTE$)/.test(k)) {
+      delete out[k];
+    }
   }
   return out;
 };

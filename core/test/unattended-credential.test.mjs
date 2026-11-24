@@ -572,7 +572,9 @@ test('a detached executor that loses its credential mid-run is recorded blocked 
     String(ended.pid),
   ]);
   assert.equal(handled.exit, 0, JSON.stringify(handled.result));
-  const pass = await c.hitld(['dispatch', 'reconcile']);
+  // In a cloud session too (the kind the platform manages): the loss is read from the run's output,
+  // whatever the credential it started on.
+  const pass = await c.hitld(['dispatch', 'reconcile'], { env: { CLAUDE_CODE_REMOTE: 'true' } });
   assert.equal(pass.exit, 0, JSON.stringify(pass.result));
   const shown = pass.result.dispatches.find((/** @type {any} */ d) => d.dispatch === dispatch);
   assert.equal(shown.state, 'blocked', JSON.stringify(shown));
@@ -638,3 +640,118 @@ test('the sign-in date is read from what the harness printed, never from the age
     from: 'D-3.json',
   });
 });
+
+test(
+  'a Claude Code cloud session is a credential the platform manages: the launcher starts on it, and a session elsewhere with none of the six still refuses',
+  { skip: !POSIX },
+  () => {
+    const dir = tempDir('hitld-880-cloud-');
+    const child = join(dir, 'child.mjs');
+    writeFileSync(
+      child,
+      `process.stdout.write(JSON.stringify({ token: process.env.${TOKEN_ENV} ?? null, remote: process.env.CLAUDE_CODE_REMOTE ?? null }));\n`,
+    );
+    writeFileSync(join(dir, 'brief.md'), 'brief');
+    /** @param {Record<string, string>} more */
+    const launch = (more) =>
+      spawnSync(
+        process.execPath,
+        [
+          LAUNCHER,
+          '--credential',
+          'claude-code',
+          '--machine-dir',
+          join(dir, 'machine'),
+          '--pid',
+          join(dir, 'run.pid'),
+          '--in',
+          join(dir, 'brief.md'),
+          '--out',
+          join(dir, 'run.json'),
+          '--',
+          process.execPath,
+          child,
+        ],
+        // No keychain on this PATH: nothing stored is found either way.
+        { encoding: 'utf8', env: { PATH: `${keychainTools(null)}:${process.env.PATH}`, ...more } },
+      );
+
+    // Not a cloud session (unset, or set off), none of the six: refused, nothing started.
+    /** @type {Record<string, string>[]} */
+    const notCloud = [{}, { CLAUDE_CODE_REMOTE: 'false' }, { CLAUDE_CODE_REMOTE: '' }];
+    for (const more of notCloud) {
+      const refused = launch(more);
+      assert.equal(refused.status, 1, JSON.stringify(more));
+      assert.match(refused.stderr, /refused to start the executor: no long-lived credential/);
+      assert.equal(existsSync(join(dir, 'run.pid')), false, 'nothing started');
+    }
+
+    // A cloud session: started, on the session's own sign-in, with no token given.
+    const started = launch({ CLAUDE_CODE_REMOTE: 'true' });
+    assert.equal(started.status, 0, started.stderr);
+    assert.match(
+      started.stdout,
+      /"credential":\{"kind":"cloud-session","source":"environment","variable":"CLAUDE_CODE_REMOTE"\}/,
+    );
+    for (let i = 0; i < 200; i++) {
+      if (existsSync(join(dir, 'run.json')) && readFileSync(join(dir, 'run.json'), 'utf8')) break;
+      spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 25)']);
+    }
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')), {
+      token: null,
+      remote: 'true',
+    });
+
+    // One of the six, when given, is what the run uses, cloud session or not.
+    const keyed = unattendedCredential({
+      env: { CLAUDE_CODE_REMOTE: 'true', ANTHROPIC_API_KEY: 'k' },
+      machineDir: null,
+    });
+    assert.equal(keyed.kind, 'api-key');
+  },
+);
+
+test(
+  'setup, upgrade and status report a cloud session as managed by the platform, with no end date and no warning',
+  { skip: !POSIX },
+  async () => {
+    // Setup and upgrade.
+    const root = tempDir('hitld-880-cloud-install-');
+    execFileSync('git', ['init', '-q', root]);
+    const env = {
+      PATH: `${keychainTools(null)}:${process.env.PATH}`,
+      XDG_DATA_HOME: tempDir('hitld-880-cloud-data-'),
+      CLAUDE_CODE_REMOTE: 'true',
+    };
+    for (let i = 0; i < 2; i++) {
+      const r = install({ marketplace: CHECKOUT, key: 'SAM' }, { cwd: root, env });
+      assert.equal(r.ok, true, JSON.stringify(r));
+      const report = /** @type {Record<string, any>} */ (r.unattended_credential);
+      assert.equal(report.long_lived, true);
+      assert.equal(report.kind, 'cloud-session');
+      assert.equal(report.managed_by, 'platform');
+      assert.ok(!(/** @type {string[]} */ (r.warnings).some((w) => /credential|sign-in/.test(w))));
+      assert.ok(!(/** @type {string[]} */ (r.next).some((w) => /setup-token/.test(w))));
+    }
+
+    // Status, even with a run's sign-in warning in the store: no end date, no warning.
+    const c = makeConsumer();
+    const store = join(c.data, 'human-in-the-lead/orch-fixture');
+    mkdirSync(join(store, 'dispatch/results'), { recursive: true });
+    writeFileSync(
+      join(store, 'dispatch/results/D-1.stderr'),
+      `Warning: this sign-in can end at any time from now until ${day(2)}. Renewing it does not move that date.\n`,
+    );
+    const status = await c.hitld(['env', 'status'], {
+      env: { PATH: env.PATH, CLAUDE_CODE_REMOTE: 'true' },
+    });
+    assert.equal(status.exit, 0, JSON.stringify(status.result));
+    const credential = status.result.credential;
+    assert.equal(credential.kind, 'cloud-session');
+    assert.equal(credential.managed_by, 'platform');
+    assert.equal(credential.sign_in_ends, undefined);
+    assert.match(credential.summary, /cloud session's own sign-in .* which the platform manages/);
+    assert.match(credential.summary, /no end date/);
+    assert.equal(status.result.warnings, undefined);
+  },
+);

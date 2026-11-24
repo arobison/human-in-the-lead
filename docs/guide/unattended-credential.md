@@ -6,6 +6,10 @@ Unattended runs need a long-lived credential: the token `claude setup-token` mak
 
 `hitld install`, on the first install (your `hitld:setup` script) and on each upgrade, reports whether unattended runs here have one (`unattended_credential` in its result), and if not, lists these steps under `next`. `hitld env status` shows the credential executors run on at any time.
 
+## In a Claude Code cloud session
+
+A cloud session needs none of the steps below. It runs on its own sign-in, which the platform manages: the credential is added to the session's requests on their way out, so nothing in the session holds it, and there is no end date to watch. When `CLAUDE_CODE_REMOTE` is set and none of the credentials in the environment that the launcher accepts is (see What `hitld env status` says), the launcher starts executors on it and reports `kind: cloud-session`. `hitld install` and `hitld env status` report it as `managed_by: platform`, with no end date and no warning. If one of those credentials is set as well, the run uses that one instead.
+
 ## 1. Make the token, in your own terminal
 
 Run this yourself, in a terminal outside any agent session:
@@ -56,6 +60,7 @@ Compare it with the length of the token `claude setup-token` printed. `hitld env
 
 - `long_lived: true` with `kind: oauth-token` and `source` (`keychain`, `credential-manager`, `secret-service` or `machine-file`) and `length`: the stored token.
 - `long_lived: true` with `source: environment` and the `variable`: a credential the environment already gives Claude Code (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, a `CLAUDE_CODE_OAUTH_TOKEN` a cloud environment sets, or a cloud provider such as `CLAUDE_CODE_USE_BEDROCK`). The launcher uses it as it is.
+- `long_lived: true`, `kind: cloud-session`, `managed_by: platform`, `variable: CLAUDE_CODE_REMOTE`: a Claude Code cloud session's own sign-in, with none of the credentials above set. No end date, no warning.
 - `long_lived: false`, `kind: interactive`: none was found, and a warning says to make the token before an overnight run. When a headless run here started on the sign-in, Claude Code warned on its standard error when the sign-in ends ("this sign-in ends between 2026-12-14 and 2026-12-20", "can end at any time from now until 2026-12-20", or "may have ended between ..."). `sign_in_ends` holds those dates (`earliest`, `latest`), the file it was read from, and where they stand now: `state` is `ahead` with `days_left` before the earliest, `any-day-now`, or `ended`.
 
 ## How the launcher uses it
