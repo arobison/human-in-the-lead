@@ -37,6 +37,8 @@ import { reservedFieldNames } from './format.mjs';
  * @property {{ name: string, from: number, to: number | null }[]} blocks reserved ID blocks
  * @property {import('../../release/packages.mjs').Package[]} packages policy.release.packages,
  *   the release packages, with their defaults filled in
+ * @property {import('../../ecosystems/profiles.mjs').Ecosystems} ecosystems policy.ecosystems:
+ *   the ecosystem profiles in use and the project's own profiles
  */
 
 /** A relative path of plain segments. */
@@ -312,6 +314,7 @@ export function resolveLayout(config, policy) {
     privatePaths: policy.project.private_paths ?? [],
     blocks,
     packages: declaredPackages(policy),
+    ecosystems: policy.ecosystems ?? {},
   };
 }
 

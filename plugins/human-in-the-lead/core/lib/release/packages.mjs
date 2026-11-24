@@ -344,7 +344,7 @@ export function dependentsOf(packages, name) {
 // --- Paths -------------------------------------------------------------------------------------
 
 /** How specific a glob is: the length of its part before the first wildcard. @param {string} g */
-const specificity = (g) => (/[*?]/.test(g) ? g.search(/[*?]/) : g.length + 1);
+export const specificity = (g) => (/[*?]/.test(g) ? g.search(/[*?]/) : g.length + 1);
 
 /**
  * The packages that own a file: those whose paths match it, keeping only the most specific
