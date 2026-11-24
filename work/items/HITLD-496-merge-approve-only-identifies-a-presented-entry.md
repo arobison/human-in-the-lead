@@ -21,3 +21,5 @@ Reported in GitHub issue #202. Two items passed the merge queue together and the
 ## Notes
 
 Triaged 2026-11-18: proposed. Related: #149 (the hook refusing the rename, tracked; fixing it removes the trigger), #150, HITLD-494, HITLD-495. As with HITLD-494, check whether the pull-request merge path has the same failure before building. Code: the owner's own yes to merge.
+
+Added 2026-11-24 from GitHub issue 630 (closed as a duplicate of 202 and 297): in one batch of two items, verification passed on harness-named branches and two merge approvals did nothing; the items were dispatched again with no code change, verified on hitld-named branches, and only then merged, after the owner approved three times. An approval applies to the branches the owner was shown, whatever they are named; if it cannot, hitld says so.
