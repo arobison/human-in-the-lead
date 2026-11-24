@@ -2,7 +2,7 @@
 id: HITLD-880
 title: Setup and upgrade check the long-lived credential detached executors run on, and status warns before it ends
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
