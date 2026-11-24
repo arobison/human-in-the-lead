@@ -26,7 +26,11 @@
 //   6. update    a green branch behind main is brought up to date: main merged in (never a rebase,
 //                never a force-push), generated files rebuilt and committed, pushed, and checked
 //                again; a conflict goes back to the executor. An approval holds across the queue's
-//                own updates, and no other new commit. A branch main moved past only under work/,
+//                own updates, and no other new commit. An approval recorded before the queue
+//                presented a head (approveAhead, HITLD-821) is applied when the queue reaches that
+//                point with the head approved, or with only merges of main after it that leave the
+//                branch's own change as it was (aheadHolds); with anything else after it, it is
+//                dropped and the pull request is presented. A branch main moved past only under work/,
 //                in files the branch leaves alone, is not updated and its checks are not run again
 //                (HITLD-777): tracker merges would otherwise restart them without end
 //   7. merge     squash-merge through the API, only while the head is the commit checked, with a
@@ -75,9 +79,11 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *   delegated merging, without asking, the pull requests that do not wait for them
  *
  * @typedef {{ number: number, head: string, signed_off_by: string, at: string, by: string,
- *   presented_at?: string, as_presented?: boolean }} Approval the owner's approval of one pull
- *   request's head: presented_at is when it was put to them, and as_presented whether they took
- *   everything presented then or named a list that left some out
+ *   presented_at?: string, as_presented?: boolean, ahead?: string }} Approval the owner's approval
+ *   of one pull request's head: presented_at is when it was put to them, and as_presented whether
+ *   they took everything presented then or named a list that left some out; ahead, on one given
+ *   before the queue presented the pull request, is the head the owner approved (head is then
+ *   the one the queue applied it to)
  *
  * @typedef {object} PullState what the queue remembers about one branch's pull request
  * @property {string} item
@@ -96,6 +102,8 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  * @property {{ at: string, branches: Presented[] } | null} presented the green pull requests that wait for the owner
  * @property {string | null} [owner_signoff] the sign-off the owner's latest approval gave: the one a
  *   merge made under their delegation carries
+ * @property {Record<string, Approval>} [approved_ahead] by branch: approvals of a pull request's
+ *   head recorded before the queue presented it (HITLD-821), applied or dropped when it would
  *
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, changed: string[],
  *   checks: string[], dispatch?: string, no_signoff?: true, links?: string[],
@@ -112,6 +120,10 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *   output?: string, message?: string, number?: number, url?: string, dispatch?: string }} PullRejected
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, checks: string[],
  *   waited_ms: number, dispatch?: string }} PullWaiting a pull request whose named checks have not all finished
+ * @typedef {{ item: string, branch: string, number: number, url: string, approved_head: string,
+ *   head: string, by: string, at: string, presented_at: string, dispatch?: string }} AheadOutcome
+ *   an approval recorded before the queue presented the pull request (at), and the head the queue
+ *   reached it with (at presented_at)
  */
 
 /** The private store key of the pull-request queue's state. */
@@ -346,6 +358,51 @@ export function approvalHolds(dir, s, number, head) {
 }
 
 /**
+ * The branch's own change against main, as text that does not depend on where main was: the
+ * diff from the merge base to the head, without index lines or hunk line numbers. Two heads
+ * whose texts are equal change the same files in the same way.
+ * @param {string} dir @param {string} main @param {string} head
+ */
+function ownChange(dir, main, head) {
+  const base = gitOk(dir, ['merge-base', main, head]);
+  const r = spawnSync(
+    'git',
+    ['diff', '--binary', '--no-renames', '--no-color', '--no-ext-diff', base, head],
+    { cwd: dir, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
+  );
+  if (r.status !== 0) throw new Error(`git diff ${base} ${head}: ${(r.stderr ?? '').trim()}`);
+  return r.stdout
+    .split('\n')
+    .filter((l) => !l.startsWith('index '))
+    .map((l) => (l.startsWith('@@ ') ? '@@' : l))
+    .join('\n');
+}
+
+/**
+ * Whether an approval recorded before the queue presented the pull request (HITLD-821) covers the
+ * head the queue would present now: the same pull request, and the head approved or that head
+ * followed only by merges of main (each commit after it on the branch a merge whose other parents
+ * main holds) that leave the branch's own change against main as it was. A conflict resolved
+ * differently, or main changing lines next to the branch's, makes the change differ: the approval
+ * is dropped, and the owner is asked about the head as it is.
+ * @param {string} dir @param {Approval} a @param {number} number @param {string} head
+ * @param {string} main the commit main is at
+ */
+export function aheadHolds(dir, a, number, head, main) {
+  if (a.number !== number) return false;
+  if (a.head === head) return true;
+  if (!isAncestor(dir, a.head, head)) return false;
+  const after = git(dir, ['rev-list', '--first-parent', '--parents', `${a.head}..${head}`])
+    .out.split('\n')
+    .filter(Boolean)
+    .map((l) => l.split(' '));
+  const mergesOfMain = after.every(
+    ([, , ...others]) => others.length > 0 && others.every((c) => isAncestor(dir, c, main)),
+  );
+  return mergesOfMain && ownChange(dir, main, a.head) === ownChange(dir, main, head);
+}
+
+/**
  * One pass of the pull-request queue over the waiting entries (the steps above). It changes only
  * branches on the remote and pull requests; main moves only by GitHub's squash merge.
  * @param {{ repoRoot: string, entries: Entry[], settings: PullSettings, policy: Record<string, any>,
@@ -358,8 +415,10 @@ export async function runPullRequestQueue(r) {
   const now = r.now ?? (() => new Date());
   const remote = s.remote;
   const mainRef = `refs/remotes/${remote}/${s.mainBranch}`;
+  /** Approvals recorded before a presentation, by branch: this pass applies or drops them. */
+  const approvedAhead = { ...r.state.approved_ahead };
   /** @type {PullQueueState} */
-  const state = { ...r.state, branches: { ...r.state.branches } };
+  const state = { ...r.state, branches: { ...r.state.branches }, approved_ahead: approvedAhead };
   const result = {
     /** @type {PullMerged[]} */
     merged: [],
@@ -372,6 +431,10 @@ export async function runPullRequestQueue(r) {
     stalled: [],
     /** @type {Presented[]} */
     awaiting_owner: [],
+    /** Approvals recorded before the queue presented a pull request (HITLD-821): applied to the
+     * head it presents, or dropped because the head moved by more than a merge of main.
+     * @type {{ applied: AheadOutcome[], dropped: AheadOutcome[] }} */
+    ahead: { applied: [], dropped: [] },
     /** Branches the queue brought up to date with main and pushed; their checks run again.
      * @type {{ item: string, branch: string, number: number, commit: string, rebuilt: boolean }[]} */
     updated: [],
@@ -625,7 +688,26 @@ export async function runPullRequestQueue(r) {
       const delegatedBy = !waits && owner ? (s.delegatedBy ?? null) : null;
       const noSignoff = Boolean(delegatedBy) && !state.owner_signoff;
       const holds = waits || noSignoff || unverified.length > 0;
-      const approved = holds && approvalHolds(dir, ps, pr.number, head);
+      let approved = holds && approvalHolds(dir, ps, pr.number, head);
+      // An approval given before this point (HITLD-821) is used here, where the queue would put
+      // the pull request to the owner, once: applied to this head, or dropped.
+      const ahead = holds ? approvedAhead[e.branch] : undefined;
+      if (ahead) {
+        delete approvedAhead[e.branch];
+        const outcome = {
+          ...info,
+          approved_head: ahead.head,
+          head,
+          by: ahead.by,
+          at: ahead.at,
+          presented_at: now().toISOString(),
+        };
+        if (!approved && aheadHolds(dir, ahead, pr.number, head, main)) {
+          ps.approval = { ...ahead, head, ahead: ahead.head };
+          approved = true;
+          result.ahead.applied.push(outcome);
+        } else if (!approved) result.ahead.dropped.push(outcome);
+      }
       if (holds && !approved) {
         const shown = {
           ...info,
@@ -791,6 +873,7 @@ export async function runPullRequestQueue(r) {
         delegated_by: delegated,
       });
       delete state.branches[e.branch];
+      delete approvedAhead[e.branch];
     }
   } finally {
     git(r.repoRoot, ['worktree', 'remove', '--force', dir]);
@@ -846,6 +929,35 @@ export function approvePulls(o) {
   // The sign-off the owner gave here is the one a merge under their delegation carries.
   if (chosen.length) o.state.owner_signoff = o.signedOffBy;
   return { approved: chosen, refused: null };
+}
+
+/**
+ * Record the owner's approval of one pull request's head before the queue presents it (HITLD-821):
+ * the owner answered from the pull request itself, so the approval need not wait a round trip for
+ * the presentation. It needs an open pull request whose head is the one approved; the queue
+ * applies it when it would present that head, or that head followed only by merges of main
+ * (aheadHolds), and drops it otherwise. The state is changed only when nothing is refused; the
+ * sign-off given is kept as the owner's latest, as approvePulls keeps it.
+ * @param {{ state: PullQueueState, branch: string, head: string,
+ *   pull: import('./github.mjs').PullRequest | null, signedOffBy: string, by: string, at: string }} o
+ * @returns {{ refused: 'no_pull_request' | 'moved' | null }}
+ */
+export function approveAhead(o) {
+  if (!o.pull || o.pull.state !== 'open') return { refused: 'no_pull_request' };
+  if (o.pull.head !== o.head) return { refused: 'moved' };
+  o.state.approved_ahead = {
+    ...o.state.approved_ahead,
+    [o.branch]: {
+      number: o.pull.number,
+      head: o.head,
+      signed_off_by: o.signedOffBy,
+      at: o.at,
+      by: o.by,
+      as_presented: true,
+    },
+  };
+  o.state.owner_signoff = o.signedOffBy;
+  return { refused: null };
 }
 
 /**

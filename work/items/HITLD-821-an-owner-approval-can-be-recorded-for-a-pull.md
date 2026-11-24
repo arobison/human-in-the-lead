@@ -7,6 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M860KRCVC4M0YF
+release_note: "`hitld merge approve --only <branch> --head <sha> --signoff <sign-off>` records the owner's approval of an open pull request's head before the queue presents it (merge.via pull-request); the queue applies it when it presents that head, or that head with only merges of main after it, and drops it otherwise. A branch with no open pull request is refused with the new error code `no-pull-request`."
 ---
 
 ## Why
