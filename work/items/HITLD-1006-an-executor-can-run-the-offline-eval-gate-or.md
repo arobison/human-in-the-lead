@@ -21,3 +21,7 @@ The executor on pull request 602 (HITLD-1002) reported on 2026-11-24 that it cou
 ## Notes
 
 rc.3. One sighting. Related: HITLD-1003. If a second sighting names the same refusal as HITLD-1003, fold this item into it.
+
+## More sightings on 2026-11-24
+
+Three more executors reported the same refusal in the same hour: the executors on HITLD-976 and HITLD-920 (both on a follow-up round) said "the offline eval gate (`hitld eval`) is refused to executors by the guard hook, so it did not run; CI runs evals", so this is now four sightings (with HITLD-1002) across four executors, not one. The command is `hitld eval`, and the refusal is by design in the executor guard (it names the session hook), so the cause is probably a deliberate rule, not HITLD-1003. The open question for the investigation is whether the rule is right: the `Done when` of every code item names the eval gate, so an executor is held to a gate it is not allowed to run. Every code pull request therefore learns its eval result only from CI.
