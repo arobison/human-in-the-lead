@@ -188,6 +188,8 @@ const MANIFESTS = new Set([
   'npm-shrinkwrap.json',
   'yarn.lock',
   'pnpm-lock.yaml',
+  // pnpm catalogs pin dependency versions here, outside any package.json (HITLD-976).
+  'pnpm-workspace.yaml',
   'requirements.txt',
   'pyproject.toml',
   'poetry.lock',
