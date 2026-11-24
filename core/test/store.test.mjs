@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs, { mkdirSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join, sep } from 'node:path';
+import { recordFeedback } from '../lib/feedback/record.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { hostEnv, retryBusy } from '../lib/store/host.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -92,6 +95,100 @@ test('the store reads, writes atomically, appends and lists', () => {
   assert.equal(store.read('runs/R-1/run-state.json'), '{"checkpoint":2}');
   assert.deepEqual(store.list(), ['ledger.jsonl', 'runs/R-1/run-state.json']);
   assert.deepEqual(store.list('runs/'), ['runs/R-1/run-state.json']);
+});
+
+/**
+ * Run fn with every fs.readdirSync call (the store's among them) shown to spy once it returns.
+ * @template T @param {(dir: string) => void} spy @param {() => T} fn @returns {T}
+ */
+function withReaddirSpy(spy, fn) {
+  const original = fs.readdirSync;
+  // @ts-ignore a wrapper with the same signature
+  fs.readdirSync = (/** @type {any} */ dir, /** @type {any} */ options) => {
+    const out = original(dir, options);
+    spy(String(dir));
+    return out;
+  };
+  syncBuiltinESMExports();
+  try {
+    return fn();
+  } finally {
+    fs.readdirSync = original;
+    syncBuiltinESMExports();
+  }
+}
+
+test('listing feedback/ and finding the next feedback ID read no folder outside it (GitHub issue 603)', () => {
+  const tmp = tempDir('hitld-store-');
+  const root = join(tmp, 'store');
+  const store = openStore(root);
+  // A store root beside many worktrees, as in the report: none of them may be read.
+  for (let w = 0; w < 30; w++) {
+    for (let d = 0; d < 5; d++) {
+      const dir = join(root, 'worktrees', `w-${w}`, `d-${d}`);
+      mkdirSync(dir, { recursive: true });
+      for (let f = 0; f < 5; f++) writeFileSync(join(dir, `f-${f}.txt`), 'x');
+    }
+  }
+  store.write('feedback/FB-1.json', '{}');
+  store.write('feedback/FB-7.json', '{}');
+  store.write('ledger/w-0123456789abcdef.jsonl', '');
+  const cwd = join(tmp, 'elsewhere');
+  mkdirSync(cwd);
+
+  /** @type {string[]} */
+  const read = [];
+  const inStore = (/** @type {string} */ dir) => {
+    if (dir === root || dir.startsWith(root + sep)) read.push(dir.slice(root.length + 1));
+  };
+  const keys = withReaddirSpy(inStore, () => store.list('feedback/'));
+  assert.deepEqual(keys, ['feedback/FB-1.json', 'feedback/FB-7.json']);
+  assert.deepEqual(read, ['feedback']);
+
+  read.length = 0;
+  const { record } = withReaddirSpy(inStore, () =>
+    recordFeedback(store, { cwd, kind: 'bug', words: 'slow', defaultHarness: 'test' }),
+  );
+  assert.equal(record.id, 'FB-8');
+  assert.ok(read.includes('feedback'), 'the spy saw the feedback folder read');
+  for (const dir of read) {
+    const ok = ['feedback', 'ledger'].some((d) => dir === d || dir.startsWith(d + sep));
+    assert.ok(ok, `read ${JSON.stringify(dir)}, outside feedback/ and ledger/`);
+  }
+
+  // A prefix with no slash reads the top folder, and of its folders only those it can match.
+  read.length = 0;
+  const loose = withReaddirSpy(inStore, () => store.list('feed'));
+  assert.deepEqual(loose, [...keys, 'feedback/FB-8.json']);
+  assert.deepEqual(read, ['', 'feedback']);
+});
+
+test('a folder removed while list walks the prefix is skipped, not an error', () => {
+  const root = join(tempDir('hitld-store-'), 'store');
+  const store = openStore(root);
+  store.write('run/checkpoints/a/one.json', '{}');
+  store.write('run/checkpoints/gone/deep/two.json', '{}');
+  store.write('run/checkpoints/z/three.json', '{}');
+  const top = join(root, 'run', 'checkpoints');
+  let removed = false;
+  const keys = withReaddirSpy(
+    (dir) => {
+      // A worktree cleanup races the walk: the folder goes after it is listed, before it is read.
+      // Not rmSync: its recursive helper loads on first use and would keep this spy as its reader.
+      if (dir === top) {
+        unlinkSync(join(top, 'gone', 'deep', 'two.json'));
+        rmdirSync(join(top, 'gone', 'deep'));
+        rmdirSync(join(top, 'gone'));
+        removed = true;
+      }
+    },
+    () => store.list('run/checkpoints/'),
+  );
+  assert.ok(removed, 'the folder was removed during the walk');
+  assert.deepEqual(keys, ['run/checkpoints/a/one.json', 'run/checkpoints/z/three.json']);
+  // The prefix's own folder gone before the walk: no keys, no error.
+  rmSync(join(root, 'run'), { recursive: true });
+  assert.deepEqual(store.list('run/checkpoints/'), []);
 });
 
 test('store keys cannot leave the store', () => {
