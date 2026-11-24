@@ -7,6 +7,7 @@ created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-404 c2]
 claimed_by: D-01M87PRN98K3KNSA
+release_note: "The merge queue's rejection of a failed fast check now carries `output_tail`, the last 40 lines of its output with private terms and credentials taken out; when `env.worktree_setup` is empty, its follow-up says the queue's worktree is fresh, with nothing installed or generated."
 ---
 
 ## Why
