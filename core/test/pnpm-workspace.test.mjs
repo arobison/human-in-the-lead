@@ -185,6 +185,27 @@ test('** skips folders whose names start with a dot, as pnpm does', () => {
   assert.deepEqual(notes, []);
 });
 
+test('a dot folder named in a pattern is walked, as pnpm 10 does; ** and * still skip the others', () => {
+  const root = scratch({
+    '.tools/t/package.json': '{}',
+    '.claude/worktrees/w/package.json': '{}',
+    '.cache/x/package.json': '{}',
+    'packages/a/package.json': '{}',
+    'packages/.hid/package.json': '{}',
+  });
+  assert.deepEqual(workspacePackages(root, ['.tools/*']).packages, ['.tools/t']);
+  assert.deepEqual(workspacePackages(root, ['.claude/**']).packages, ['.claude/worktrees/w']);
+  assert.deepEqual(workspacePackages(root, ['./.tools/*']).packages, ['.tools/t'], 'a ./ prefix');
+  // Naming .claude opens .claude alone: .cache stays skipped for ** beside it.
+  assert.deepEqual(workspacePackages(root, ['.claude/**', '**']).packages, [
+    '.claude/worktrees/w',
+    'packages/a',
+  ]);
+  assert.deepEqual(workspacePackages(root, ['**']).packages, ['packages/a']);
+  assert.deepEqual(workspacePackages(root, ['packages/*']).packages, ['packages/a']);
+  assert.deepEqual(workspacePackages(root, ['packages/.hid']).packages, ['packages/.hid']);
+});
+
 test('!dir/** excludes dir itself, as pnpm matches dir/**/package.json', () => {
   const root = scratch({
     'packages/a/package.json': '{}',
@@ -199,6 +220,31 @@ test('!dir/** excludes dir itself, as pnpm matches dir/**/package.json', () => {
     'packages/a/deep/b',
     'packages/c',
   ]);
+});
+
+test('brace expansion is bounded: 6 groups expand, 20 and 30 return a note and never throw', () => {
+  const groups = (/** @type {number} */ n) => `packages/${'{a,b}'.repeat(n)}`;
+  const six = expandBraces(groups(6));
+  assert.ok('globs' in six && six.globs.length === 64);
+  const root = scratch({ 'packages/abaaba/package.json': '{}' });
+  assert.deepEqual(workspacePackages(root, [groups(6)]).packages, ['packages/abaaba']);
+  for (const n of [20, 30]) {
+    const started = Date.now();
+    assert.deepEqual(expandBraces(groups(n)), { error: 'more than 256 brace alternatives' });
+    /** @type {string[]} */
+    const notes = [];
+    assert.deepEqual(workspacePackages(root, [groups(n)], notes).packages, []);
+    assert.equal(notes.length, 1);
+    assert.ok(notes[0].includes(`the workspace glob ${groups(n)} uses more than 256`), notes[0]);
+    assert.ok(Date.now() - started < 1000, `${n} groups took ${Date.now() - started} ms`);
+  }
+  assert.deepEqual(expandBraces('{a,b}'.repeat(65)), { error: 'more than 64 braces' });
+  // Through install's own call: a workspace file with such a glob proposes, with the note.
+  const ws = scratch({ ...WORKSPACE, 'pnpm-workspace.yaml': `packages:\n  - '${groups(30)}'\n` });
+  const p = /** @type {NonNullable<ReturnType<typeof proposeSetup>>} */ (proposeSetup(ws));
+  assert.deepEqual(p.worktree_setup, ['pnpm install --frozen-lockfile']);
+  assert.equal(p.notes.length, 1);
+  assert.match(p.notes[0], /more than 256 brace alternatives/);
 });
 
 test('brace globs expand; a glob the reader cannot expand is refused with a note naming it', () => {

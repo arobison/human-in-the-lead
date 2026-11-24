@@ -305,10 +305,25 @@ const MAX_FOLDERS = 20000;
 /**
  * A glob's brace alternatives expanded (`{a,b}/*` is `a/*` and `b/*`, nested braces included),
  * or an error naming what the matcher cannot read: a range such as `{1..3}`, a brace with no
- * comma, an unclosed brace, a character class or an extglob.
+ * comma, an unclosed brace, a character class, an extglob, or more than MAX_ALTERNATIVES
+ * alternatives (every folder is matched against each one, and the count doubles with each brace).
+ * Never throws.
  * @param {string} glob @returns {{ globs: string[] } | { error: string }}
  */
 export function expandBraces(glob) {
+  if ((glob.match(/\{/g) ?? []).length > MAX_BRACES) {
+    return { error: `more than ${MAX_BRACES} braces` };
+  }
+  return expandWithin(glob);
+}
+
+/** The most brace alternatives one glob may expand to. */
+const MAX_ALTERNATIVES = 256;
+/** The most braces one glob may hold, which bounds the expansion's recursion. */
+const MAX_BRACES = 64;
+
+/** @param {string} glob @returns {{ globs: string[] } | { error: string }} */
+function expandWithin(glob) {
   if (/[[\]]|[@!+?*]\(/.test(glob)) return { error: 'a character class or an extglob' };
   const open = glob.indexOf('{');
   if (open < 0) {
@@ -333,9 +348,12 @@ export function expandBraces(glob) {
   /** @type {string[]} */
   const out = [];
   for (let k = 0; k + 1 < cuts.length; k++) {
-    const r = expandBraces(head + glob.slice(cuts[k] + 1, cuts[k + 1]) + tail);
+    const r = expandWithin(head + glob.slice(cuts[k] + 1, cuts[k + 1]) + tail);
     if ('error' in r) return r;
-    out.push(...r.globs);
+    if (out.length + r.globs.length > MAX_ALTERNATIVES) {
+      return { error: `more than ${MAX_ALTERNATIVES} brace alternatives` };
+    }
+    for (const g of r.globs) out.push(g);
   }
   return { globs: out };
 }
@@ -350,7 +368,7 @@ const holds = (pattern, dir) => globMatch(`${pattern}/package.json`, `${dir}/pac
 /**
  * The folders under `root` that hold a package.json and match the workspace globs ("!" globs
  * exclude), repository-relative and sorted. As pnpm does, folders whose names start with a dot
- * are skipped. Brace globs are expanded; a glob the matcher cannot read is left out, and so is a
+ * are skipped unless a pattern names a dot folder at that level. Brace globs are expanded; a glob the matcher cannot read is left out, and so is a
  * match deeper than DEPTH folder levels, each with a note in `notes`.
  * @param {string} root @param {string[]} globs @param {string[]} [notes]
  * @returns {{ packages: string[], usable: number }} usable: how many include globs were read
@@ -374,6 +392,20 @@ export function workspacePackages(root, globs, notes = []) {
   /** @type {string[]} */
   const deeper = [];
   let seen = 0;
+  // A dot folder is walked only where an include pattern names one at that level, as `.tools/*`
+  // does; `**` and `*` never reach into one (pnpm 10 agrees on both).
+  /** @type {Map<number, string[]>} level to the dot segments the patterns name there */
+  const dotSegments = new Map();
+  for (const p of include) {
+    p.split('/').forEach((seg, i) => {
+      if (seg.startsWith('.') && seg !== '.') {
+        dotSegments.set(i + 1, [...(dotSegments.get(i + 1) ?? []), seg]);
+      }
+    });
+  }
+  /** @param {string} name @param {number} depth */
+  const dotNamed = (name, depth) =>
+    (dotSegments.get(depth) ?? []).some((seg) => globMatch(seg, name));
   /** @param {string} rel @param {number} depth */
   const walk = (rel, depth) => {
     let entries;
@@ -383,7 +415,8 @@ export function workspacePackages(root, globs, notes = []) {
       return;
     }
     for (const e of entries) {
-      if (!e.isDirectory() || SKIP.has(e.name) || e.name.startsWith('.')) continue;
+      if (!e.isDirectory() || SKIP.has(e.name)) continue;
+      if (e.name.startsWith('.') && !dotNamed(e.name, depth)) continue;
       if (++seen > MAX_FOLDERS) return;
       const path = rel ? `${rel}/${e.name}` : e.name;
       if (

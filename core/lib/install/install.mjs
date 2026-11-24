@@ -546,7 +546,15 @@ export function install(input, ctx) {
   if (gap) warnings.push(gap);
   // What to set there, read from the lockfile and the packages' scripts (HITLD-976): for the owner
   // to approve, never written to the policy here.
-  const proposed = proposeSetup(root);
+  // A proposal is a convenience: a file it cannot read never stops the install.
+  let proposed = null;
+  try {
+    proposed = proposeSetup(root);
+  } catch (e) {
+    warnings.push(
+      `no worktree setup or checks are proposed: reading the lockfile and workspace failed (${e instanceof Error ? e.message : String(e)})`,
+    );
+  }
 
   const add =
     source.source === 'directory'
