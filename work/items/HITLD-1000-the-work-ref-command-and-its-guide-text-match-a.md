@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-24
 project: HITLD-15
-constraint_of: [HITLD-67 c?]
+constraint_of: [HITLD-405 c?]
 ---
 
 ## Done when
@@ -22,4 +22,4 @@ The independent review of pull request 592 (HITLD-807) on 2026-11-24 found no bl
 
 ## Notes
 
-rc.2. Also noted by the review, unconfirmed: `work ref` takes its remote from a policy key that `work publish` does not read; a renamed item file can leave a stale path on main; the forge repo match would accept a host like notgithub.com (older code).
+rc.3. Moved from rc.2 on 2026-11-24 at the owner's word: review polish, not a ship blocker. Also noted by the review, unconfirmed: `work ref` takes its remote from a policy key that `work publish` does not read; a renamed item file can leave a stale path on main; the forge repo match would accept a host like notgithub.com (older code).
