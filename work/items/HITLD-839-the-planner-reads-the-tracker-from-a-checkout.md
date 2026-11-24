@@ -2,12 +2,12 @@
 id: HITLD-839
 title: The planner reads the tracker from a checkout the pull-request merge never moves, so a merged item is offered again
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M860KSV2WP286H
 ---
-
 
 ## Why
 
