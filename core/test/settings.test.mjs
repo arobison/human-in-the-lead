@@ -976,3 +976,19 @@ test("this repository's policy hands an orchestrator over at 0.3 or 8 completion
   assert.equal(raw.orchestrator.handover_context_share, 0.3);
   assert.equal(raw.orchestrator.handover_after_completions, 8);
 });
+
+test("this repository's policy lets up to 8 executors run at once", () => {
+  const raw = JSON.parse(
+    readFileSync(resolve(import.meta.dirname, '../../.human-in-the-lead/policy.json'), 'utf8'),
+  );
+  assert.deepEqual(raw.execution.max_executors, { value: 8, min: 1, max: 8 });
+  // With person, machine and run caps that allow 8, the project layer sets the cap.
+  const eff = layers({
+    raw,
+    person: { schema_version: 1, max_executors: 10 },
+    machine: { schema_version: 1, max_executors: 12 },
+    run: { max_executors: 9 },
+  });
+  assert.equal(eff.cap, 8);
+  assert.equal(entry(eff, 'executors.cap').layer, 'project');
+});
