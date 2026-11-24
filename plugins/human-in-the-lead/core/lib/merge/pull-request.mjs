@@ -37,6 +37,9 @@
 //   7. merge     squash-merge through the API, only while the head is the commit checked, with a
 //                message carrying the item's trailers and, when the owner approved, their sign-off;
 //                then the next waiting branch is brought up to date (step 6)
+//   8. checkout  after a merge, this clone's main is fast-forwarded to the main fetched, so the
+//                checkout reads each merged item done (HITLD-839); one that cannot fast-forward
+//                stays and says why
 //
 // GitHub's own merge queue is a later backend for the same steps (design 14.5).
 
@@ -394,7 +397,8 @@ export function aheadHolds(dir, a, number, head, main) {
 
 /**
  * One pass of the pull-request queue over the waiting entries (the steps above). It changes only
- * branches on the remote and pull requests; main moves only by GitHub's squash merge.
+ * branches on the remote and pull requests; main moves only by GitHub's squash merge, and after one
+ * this clone's main is fast-forwarded to it (bringUpToMain).
  * @param {{ repoRoot: string, entries: Entry[], settings: PullSettings, policy: Record<string, any>,
  *   github: GitHub, state: PullQueueState, evidence?: (item: string) => string[],
  *   exec?: Exec, now?: () => Date }} r
@@ -430,6 +434,9 @@ export async function runPullRequestQueue(r) {
      * @type {{ item: string, branch: string, number: number, commit: string, rebuilt: boolean }[]} */
     updated: [],
     main: { before: '', after: '' },
+    /** After a merge: whether this clone's main was brought up to the fetched main (HITLD-839).
+     * @type {ReturnType<typeof bringUpToMain> | undefined} */
+    checkout: undefined,
     /** @type {{ kind: 'fetch' | 'push' | 'update', message: string } | null} */
     incident: null,
     state,
@@ -889,7 +896,39 @@ export async function runPullRequestQueue(r) {
     git(r.repoRoot, ['worktree', 'prune']);
   }
   state.presented = presented.length ? { at: now().toISOString(), branches: presented } : null;
+  if (result.merged.length) result.checkout = bringUpToMain(r.repoRoot, s.mainBranch, mainRef);
   return result;
+}
+
+/**
+ * Bring this clone's main up to the main the queue fetched after a merge, as the local queue moves
+ * it (HITLD-839): the squash lands on the remote, and a checkout left behind still reads each
+ * merged item as planned. Only a fast-forward: where main is checked out (this checkout or another
+ * worktree), `git merge --ff-only` there, which refuses rather than overwrite a local change; where
+ * it is not, the branch ref alone. A main with commits of its own, or a refused merge, stays where
+ * it is, and says why; the planner reads the fetched main's closes either way (dispatch/items.mjs).
+ * @param {string} repoRoot @param {string} mainBranch @param {string} mainRef the fetched main
+ * @returns {{ moved: boolean, from: string | null, to: string, why?: string }}
+ */
+export function bringUpToMain(repoRoot, mainBranch, mainRef) {
+  const to = gitOk(repoRoot, ['rev-parse', mainRef]);
+  const local = git(repoRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${mainBranch}`]);
+  if (!local.ok) return { moved: false, from: null, to, why: `there is no local ${mainBranch}` };
+  const from = local.out;
+  if (from === to) return { moved: false, from, to, why: 'already up to date' };
+  if (!isAncestor(repoRoot, from, to)) {
+    return { moved: false, from, to, why: `${mainBranch} has commits ${mainRef} does not` };
+  }
+  const where = git(repoRoot, ['worktree', 'list', '--porcelain'])
+    .out.split('\n\n')
+    .find((block) => block.split('\n').includes(`branch refs/heads/${mainBranch}`))
+    ?.match(/^worktree (.*)$/m)?.[1];
+  const moved = where
+    ? git(where, ['merge', '--ff-only', '--quiet', to])
+    : git(repoRoot, ['update-ref', `refs/heads/${mainBranch}`, to, from]);
+  return moved.ok
+    ? { moved: true, from, to }
+    : { moved: false, from, to, why: moved.err || moved.out || 'git refused the fast-forward' };
 }
 
 /**

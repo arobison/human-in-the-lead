@@ -149,6 +149,32 @@ test('parseReport reads the design example', () => {
   assert.deepEqual(parseReport('```\n' + GOOD + '```').errors, []);
 });
 
+// HITLD-853: the contract, the briefs and the skills mark a call (reversible) only. A one-way call
+// is the owner's, so a call line marked (one-way) is refused, and the refusal says where it goes.
+test('parseReport refuses a call marked (one-way), saying it goes under questions as a decision', () => {
+  const withCalls = (/** @type {string[]} */ calls) =>
+    GOOD.replace(/^calls:\n.*\n/m, `calls:\n${calls.map((c) => `  - ${c}\n`).join('')}`);
+  const pointer =
+    'every call is marked (reversible); a one-way call is not yours to make: put it under questions as a decision item (executor contract rule 5 in AGENTS.md)';
+  const oneWay = parseReport(
+    withCalls([
+      'kept the old cache directory name (reversible)',
+      'renamed the published flag (one-way)',
+    ]),
+  );
+  assert.equal(oneWay.report, null);
+  assert.deepEqual(oneWay.errors, [
+    `call not marked (reversible): renamed the published flag (one-way): ${pointer}`,
+  ]);
+  // Any other ending is refused the same way; a reversible call alone still parses.
+  assert.deepEqual(parseReport(withCalls(['renamed the flag'])).errors, [
+    `call not marked (reversible): renamed the flag: ${pointer}`,
+  ]);
+  assert.deepEqual(parseReport(withCalls(['kept the old name (Reversible).'])).report?.calls, [
+    { text: 'kept the old name', reversible: true },
+  ]);
+});
+
 test('parseReport refuses departures from the shape, each named', () => {
   const bad = (/** @type {string} */ text, /** @type {RegExp} */ re) => {
     const r = parseReport(text);
