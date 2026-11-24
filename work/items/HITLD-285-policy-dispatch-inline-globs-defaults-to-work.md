@@ -2,10 +2,11 @@
 id: HITLD-285
 title: Policy dispatch.inline_globs defaults to work/** and ignores tracker.json's work_dir
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-403 c4]
+claimed_by: D-01M87PRM5ZXXVCTD
 ---
 
 ## Why
