@@ -7,11 +7,12 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { sizeItem } from '../lib/dispatch/sizing.mjs';
-import { awaitingMerge, planDispatch, slotsText } from '../lib/dispatch/plan.mjs';
+import { awaitingMerge, planDispatch, queuedBranches, slotsText } from '../lib/dispatch/plan.mjs';
 import { renderBrief } from '../lib/dispatch/brief.mjs';
 import { runDispatchLoop } from '../lib/dispatch/loop.mjs';
 import { startRun } from '../lib/run/run.mjs';
-import { readLedger } from '../lib/ledger/ledger.mjs';
+import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
+import { catchUp } from '../lib/run/pulled.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { createFakeAdapter, FAKE_PROFILES } from '../harness/fake/fake.mjs';
 import { checkHarnessAdapter } from '../harness/interface.mjs';
@@ -302,6 +303,88 @@ test('awaiting merge: a verified branch waits until it merges, is reverted or ab
     ]),
     [],
   );
+});
+
+test('queued branches: abandoning a dispatch frees its slot, not its queued branch (HITLD-978)', () => {
+  const events = [
+    { id: 'reported-D-1', event: 'reported', dispatch: 'D-1', item: 'W-1', result: 'done' },
+    { id: 'verified-D-1', event: 'verified', item: 'W-1', result: 'pass', branch: 'hitld/W-1-x' },
+  ];
+  // The watchdog's pair: the ledger's wait ends, the queued branch does not.
+  const abandoned = [
+    ...events,
+    { id: 'a', event: 'abandoned', dispatch: 'D-2', item: 'W-1' },
+    { id: 'u', event: 'unclaimed', item: 'W-1' },
+  ];
+  assert.deepEqual(awaitingMerge(abandoned), []);
+  assert.deepEqual(
+    queuedBranches(abandoned).map((a) => [a.item, a.dispatch, a.branch, a.verified]),
+    [['W-1', 'D-1', 'hitld/W-1-x', 'verified-D-1']],
+  );
+  // Sent back, then its follow-up abandoned: still queued, marked sent back.
+  const sentBack = [
+    ...events,
+    { id: 'v-f', event: 'verified', item: 'W-1', result: 'fail' },
+    { id: 'a', event: 'abandoned', dispatch: 'D-2', item: 'W-1' },
+  ];
+  assert.equal(queuedBranches(sentBack)[0].sent_back, true);
+  // Merged, reverted, or the pass corrected (the owner dropped the branch): no longer queued.
+  for (const end of [
+    { id: 'm', event: 'merged', item: 'W-1' },
+    { id: 'r', event: 'reverted', item: 'W-1' },
+    { id: 'c', event: 'verified', item: 'W-1', result: 'fail', corrects: 'verified-D-1' },
+  ]) {
+    assert.deepEqual(queuedBranches([...abandoned, end]), [], end.event);
+  }
+});
+
+test('a fix for a stuck merge takes one slot past the economize cap; a plain item does not (HITLD-978)', () => {
+  const p = policy();
+  const items = [ready('W-1'), ready('W-2')];
+  const sizes = new Map(items.map((i) => [i.id, sizeItem(i, p)]));
+  const economize = () => ({
+    mode: 'economize',
+    allow: true,
+    reason: 'economize: low headroom',
+    economize: { reduce_concurrency: true },
+  });
+  // A cap of 2, economized to 1, and the one slot taken by work that is not the fix.
+  const running = [
+    { dispatch: 'D-1', item: 'W-9', serial_resources: [], touches: ['src/nine.js'] },
+  ];
+  const at = (/** @type {Record<string, unknown>} */ o) =>
+    planDispatch({
+      queue: [items[0]],
+      sizes,
+      running,
+      cap: 2,
+      capabilities: FAKE_PROFILES.full,
+      gate: economize,
+      ...o,
+    });
+  const plain = at({});
+  assert.equal(plain.cap, 1);
+  assert.deepEqual(plain.start, []);
+  assert.equal(plain.waiting, 1);
+  const fix = at({ mergeFix: true });
+  assert.equal(fix.cap, 1);
+  assert.deepEqual(
+    fix.start.map((s) => s.item),
+    ['W-1'],
+  );
+  assert.match(
+    fix.start[0].notes.join('; '),
+    /fixes a stuck merge: it takes a slot past the cap of 1/,
+  );
+  // One past only: with a fix already past the cap, a second waits.
+  const second = at({
+    mergeFix: true,
+    running: [...running, { dispatch: 'D-2', item: 'W-2', serial_resources: [], touches: [] }],
+  });
+  assert.deepEqual(second.start, []);
+  // A harness that runs one executor at a time has no slot past the cap.
+  const single = at({ mergeFix: true, capabilities: FAKE_PROFILES.minimal });
+  assert.deepEqual(single.start, []);
 });
 
 test('the brief points rather than restates', () => {
@@ -1031,6 +1114,152 @@ test('an item awaiting merge is planned again once its pass is corrected away (H
   const plan = await c.hitld(['dispatch', 'plan']);
   assert.deepEqual(plan.result.awaiting_merge, []);
   assert.ok(plan.result.start.some((/** @type {any} */ x) => x.item === 'W-2'));
+});
+
+test('an item closed on its queued branch stays out of the plan and the ready count once its dispatch is abandoned; a fix for its stuck merge starts at the economize cap (HITLD-978)', async () => {
+  const extra = (
+    /** @type {string} */ id,
+    /** @type {string} */ title,
+    /** @type {string} */ file,
+  ) => ({
+    [`work/items/${id}-${title.toLowerCase()}.md`]: item({
+      id,
+      title,
+      kind: 'work',
+      state: 'planned',
+      touches: [file],
+    }),
+  });
+  const c = makeConsumer({
+    policy: { execution: { max_executors: { value: 2 } } },
+    files: { ...extra('W-4', 'Four', 'src/four.js'), ...extra('W-5', 'Five', 'src/five.js') },
+  });
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+  const s = await c.hitld(['dispatch', 'start', 'W-4']);
+  assert.equal(s.exit, 0, JSON.stringify(s.result));
+  const d1 = s.result.dispatch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'agent-1']);
+
+  // W-4 is closed on its branch, which is queued to merge.
+  const branch = 'hitld/W-4-four';
+  git(c.root, 'switch', '-q', '-c', branch);
+  put(c.root, {
+    'src/four.js': 'export const four = 4;\n',
+    'work/items/W-4-four.md': item({
+      id: 'W-4',
+      title: 'Four',
+      kind: 'work',
+      state: 'done',
+      touches: ['src/four.js'],
+    }),
+  });
+  git(c.root, 'add', '-A');
+  git(c.root, 'commit', '-q', '-m', 'W-4');
+  const sha = git(c.root, 'rev-parse', 'HEAD');
+  git(c.root, 'switch', '-q', 'main');
+  const note = join(c.base, 'note-4.txt');
+  writeFileSync(note, report({ item: 'W-4', sha, branch }));
+  const done = await c.hitld(['dispatch', 'complete', '--dispatch', d1, '--report-file', note]);
+  assert.equal(done.exit, 0, JSON.stringify(done.result));
+  assert.equal(done.result.queued_to_merge, branch);
+
+  // The merge queue sends the branch back, its follow-up is dispatched, and the session dies: the
+  // next one abandons the follow-up and unclaims W-4. The branch still closes W-4 and still waits
+  // to merge, so W-4 is not ready work.
+  const back = await c.hitld([
+    'ledger',
+    'append',
+    JSON.stringify({ event: 'verified', item: 'W-4', result: 'fail', branch, notes: 'checks' }),
+  ]);
+  assert.equal(back.exit, 0, JSON.stringify(back.result));
+  const follow = await c.hitld(['dispatch', 'follow-up', '--dispatch', d1, '--message', 'fix it']);
+  assert.equal(follow.exit, 0, JSON.stringify(follow.result));
+  // The watchdog abandons the follow-up and unclaims W-4, with the events it writes.
+  const store = openStore(join(c.data, 'human-in-the-lead/orch-fixture'));
+  const fd = follow.result.dispatch;
+  appendEvent(store, { event: 'abandoned', dispatch: fd, item: 'W-4', notes: 'the watchdog' });
+  appendEvent(store, { event: 'unclaimed', item: 'W-4', notes: `after abandoning ${fd}` });
+  assert.equal(catchUp(store, undefined), true);
+  const as = {};
+  const plan = await c.hitld(['dispatch', 'plan'], as);
+  assert.ok(!plan.result.start.some((/** @type {any} */ x) => x.item === 'W-4'));
+  assert.deepEqual(
+    plan.result.awaiting_merge.map((/** @type {any} */ a) => [
+      a.item,
+      a.dispatch,
+      a.branch,
+      a.sent_back,
+    ]),
+    [['W-4', d1, branch, true]],
+  );
+  assert.equal(plan.result.running, 0);
+  const ready = await c.hitld(['ready'], as);
+  assert.ok(ready.result.queue.length > 0);
+  assert.ok(!ready.result.queue.some((/** @type {any} */ q) => q.id === 'W-4'));
+  const again = await c.hitld(['dispatch', 'start', 'W-4'], as);
+  assert.equal(again.result.error, 'not-planned');
+  assert.match(again.result.message, /^W-4 awaits merge: .* on hitld\/W-4-four/);
+
+  // Headroom falls into economize: the cap of 2 becomes 1, and W-5 takes that slot.
+  recordStatusLine(
+    JSON.stringify({
+      session_id: 's-1',
+      workspace: { project_dir: c.root },
+      rate_limits: {
+        five_hour: { used_percentage: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 },
+        seven_day: { used_percentage: 65, resets_at: Math.floor(Date.now() / 1000) + 86400 },
+      },
+    }),
+    { cwd: c.root, env: c.env },
+  );
+  const economized = await c.hitld(['dispatch', 'plan'], as);
+  assert.equal(economized.result.gate.mode, 'economize', JSON.stringify(economized.result.gate));
+  assert.equal(economized.result.cap, 1);
+  const five = await c.hitld(['dispatch', 'start', 'W-5'], as);
+  assert.equal(five.exit, 0, JSON.stringify(five.result));
+  const handle = (/** @type {string} */ d, /** @type {string} */ ref) =>
+    c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', ref], as);
+  await handle(five.result.dispatch, 'agent-5');
+
+  // At the cap, a plain item is refused; the fix for W-4's stuck merge starts past it.
+  const plain = await c.hitld(['dispatch', 'start', 'W-1'], as);
+  assert.equal(plain.result.error, 'not-planned');
+  assert.match(plain.result.message, /^W-1 is ready but no slot is free: cap 1, 1 running/);
+  const fix = await c.hitld(['dispatch', 'start', 'W-1', '--fixes-merge', 'W-4'], as);
+  assert.equal(fix.exit, 0, JSON.stringify(fix.result));
+  assert.deepEqual(fix.result.fixes_merge, { item: 'W-4', branch });
+  assert.equal(fix.result.past_cap, true);
+  const dispatched = readLedger(
+    openStore(join(c.data, 'human-in-the-lead/orch-fixture')),
+  ).events.find((e) => e.event === 'dispatched' && e.dispatch === fix.result.dispatch);
+  assert.equal(dispatched?.notes, `fixes the stuck merge of W-4 on ${branch}`);
+  await handle(fix.result.dispatch, 'agent-1b');
+  // One past the cap only; and only for a merge that is awaited.
+  const second = await c.hitld(['dispatch', 'start', 'W-2', '--fixes-merge', branch], as);
+  assert.equal(second.result.error, 'not-planned');
+  const notStuck = await c.hitld(['dispatch', 'start', 'W-2', '--fixes-merge', 'W-5'], as);
+  assert.equal(notStuck.result.error, 'not-awaiting');
+
+  // The owner drops the branch: the pass is corrected, and W-4 is ready work again.
+  const dropped = await c.hitld(
+    [
+      'ledger',
+      'append',
+      JSON.stringify({
+        event: 'verified',
+        item: 'W-4',
+        result: 'fail',
+        corrects: `verified-${d1}`,
+        notes: 'the owner dropped the branch',
+      }),
+    ],
+    as,
+  );
+  assert.equal(dropped.exit, 0, JSON.stringify(dropped.result));
+  const released = await c.hitld(['ready'], as);
+  assert.deepEqual(released.result.awaiting_merge, []);
+  assert.ok(released.result.queue.some((/** @type {any} */ q) => q.id === 'W-4'));
 });
 
 test('kill and resume: a dispatch recorded but never started is abandoned; a live one is adopted', async () => {
