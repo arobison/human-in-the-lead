@@ -2,7 +2,7 @@
 id: HITLD-284
 title: A failed fast check's output is dropped, and the follow-up blames the branch
 kind: work
-state: in-progress
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-404 c2]
