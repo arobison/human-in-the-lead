@@ -1,12 +1,14 @@
 // The live forge settings, read back (HITLD-953). The owner applies the forge settings by hand
 // (HITLD-952): squash-only merging, the rulesets, the release environment, the Actions settings,
-// and no secrets, deploy keys, collaborators or stray write-capable Apps. Nothing checked them
-// afterwards. This reads each through the GitHub REST API with a read-only token the caller
-// supplies, and reports each as ok, wrong (found, expected, where in the UI to fix it) or
-// cannot-read (the HTTP status, and the token permission it needs).
+// and no secrets, deploy keys or collaborators. Nothing checked them afterwards. This reads each
+// through the GitHub REST API with a read-only token the caller supplies, and reports each as ok,
+// wrong (found, expected, where in the UI to fix it) or cannot-read (the HTTP status, and the
+// token permission it needs).
 //
-// The token never leaves the client: it goes into one request header and nowhere else. Nothing here
-// prints, logs or writes it, and no line quotes a request or a header.
+// It fails closed: an answer without the expected shape reads cannot-read, never ok. The token goes
+// into one request header and nowhere else, and is redacted from every answer before it is read, so
+// no line can quote it. Every string the forge sends is capped and stripped of control characters
+// before a line shows it.
 
 /**
  * @typedef {{ status: number, body: any }} ForgeResponse status 0: the forge could not be reached
@@ -21,11 +23,26 @@
  * @property {string} [ui] wrong or cannot-read: where in the forge's settings to look
  * @property {number} [status] cannot-read: the HTTP status, 0 when unreachable
  * @property {string} [path] cannot-read: the API path that was refused
- * @property {string} [permission] cannot-read: what the token needs to read it
+ * @property {string} [permission] cannot-read for a refusal: what the token needs to read it
+ * @property {string} [reason] cannot-read for an answer of the wrong shape: what was wrong with it
  */
 
 /** GitHub Actions' App ID: the required checks come from it. */
 export const GITHUB_ACTIONS_APP_ID = 15368;
+
+/** The token permissions, by role: the guidance and permissionFor both read them from here. */
+const PERMISSION = Object.freeze({
+  administration: 'Administration: read',
+  actions: 'Actions: read',
+  secrets: 'Secrets: read',
+  metadata: 'Metadata: read',
+});
+
+/** Every permission the checks need, and nothing more: the token the owner creates has these. */
+export const TOKEN_PERMISSIONS = Object.freeze(Object.values(PERMISSION));
+
+/** What to create, for the message when no token is given and for HITLD-952 step 1. */
+export const TOKEN_GUIDANCE = `a read-only fine-grained token for this repository only, with ${TOKEN_PERMISSIONS.join(', ')}`;
 
 const UI = Object.freeze({
   general: 'Settings > General > Pull Requests',
@@ -58,36 +75,71 @@ export const FORGE_CHECKS = Object.freeze([
   { name: 'secrets', ui: UI.secrets },
   { name: 'deploy-keys', ui: UI.keys },
   { name: 'collaborators', ui: UI.collaborators },
-  { name: 'installations', ui: UI.apps },
+]);
+
+/**
+ * What the item asks for and this cannot check: listed in the output so it never reads as ok.
+ * GitHub lists installed Apps only to an App's own user access token (GET /user/installations), so
+ * a personal read-only token cannot find a stray App.
+ */
+export const NOT_CHECKED = Object.freeze([
+  {
+    check: 'installations',
+    reason:
+      'a personal token cannot list the Apps installed on a repository; review each App with write access by hand',
+    ui: UI.apps,
+  },
 ]);
 
 /** The fine-grained token permission that reads a path. @param {string} path */
 export function permissionFor(path) {
   if (path.startsWith('/apps/')) return 'nothing: an App is public, so check the App slug';
-  if (path.startsWith('/user/installations')) {
-    return 'a user access token; a fine-grained repository token cannot list installations';
+  if (/\/environments\b/.test(path)) return PERMISSION.actions;
+  if (/\/actions\/secrets\b/.test(path)) return PERMISSION.secrets;
+  if (/\/collaborators\b/.test(path)) return PERMISSION.metadata;
+  if (/\/(rulesets|branches|actions\/permissions|keys)\b/.test(path)) {
+    return PERMISSION.administration;
   }
-  if (/\/environments\b/.test(path)) return 'Actions: read';
-  if (/\/actions\/secrets\b/.test(path)) return 'Secrets: read';
-  if (/\/collaborators\b/.test(path)) return 'Metadata: read';
-  if (/\/(rulesets|branches|actions\/permissions|keys)\b/.test(path)) return 'Administration: read';
-  return 'Metadata: read';
+  return PERMISSION.metadata;
 }
 
-class Unreadable extends Error {
-  /** @param {string} path @param {number} status */
-  constructor(path, status) {
-    super(`GET ${path} answered ${status}`);
-    this.path = path;
-    this.status = status;
-  }
+const MAX_TEXT = 80;
+const MAX_ITEMS = 20;
+
+/**
+ * A string from the forge, fit to show: control and direction-changing characters stripped, and
+ * capped at a fixed length.
+ * @param {unknown} s @returns {string}
+ */
+export function clean(s) {
+  const t = String(s).replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, '');
+  return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT - 3)}...` : t;
 }
 
-/** @param {unknown} xs @returns {string} */
-const list = (xs) => (Array.isArray(xs) && xs.length ? xs.join(', ') : 'none');
+/** @param {unknown[]} xs @returns {string} */
+const list = (xs) => {
+  if (!xs.length) return 'none';
+  const shown = xs.slice(0, MAX_ITEMS).map(clean);
+  return xs.length > MAX_ITEMS
+    ? `${shown.join(', ')} and ${xs.length - MAX_ITEMS} more`
+    : shown.join(', ');
+};
 /** @param {string[]} a @param {string[]} b */
 const sameSet = (a, b) =>
   a.length === b.length && [...a].sort().join('\n') === [...b].sort().join('\n');
+
+class Unreadable extends Error {
+  /** @param {string} path @param {number} status @param {string} [reason] */
+  constructor(path, status, reason) {
+    super(`GET ${path} answered ${status}`);
+    this.path = path;
+    this.status = status;
+    this.reason = reason;
+  }
+}
+
+/** @param {unknown} v */
+const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * @typedef {object} Spec what one ruleset must be (HITLD-952 steps 7 to 10)
@@ -155,15 +207,13 @@ const rulesetSpecs = (main) => [
 /**
  * Read the forge and judge each setting.
  * @param {{ get: ForgeGet, repo: string, contexts: string[],
- *   apps?: { queue?: string, executor?: string, release?: string }, allowApps?: string[] }} o
- *   repo: owner/name; contexts: the required checks, from policy.json; apps: the App slugs;
- *   allowApps: other Apps with write access the owner has reviewed and kept
+ *   apps?: { queue?: string, release?: string } }} o
+ *   repo: owner/name; contexts: the required checks, from policy.json; apps: the App slugs
  * @returns {Promise<ForgeLine[]>}
  */
-export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [] }) {
+export async function checkForge({ get, repo, contexts, apps = {} }) {
   const slugs = {
     queue: apps.queue ?? 'hitld-queue',
-    executor: apps.executor ?? 'hitld-executor',
     release: apps.release ?? 'hitld-release',
   };
   const owner = repo.split('/')[0];
@@ -175,41 +225,75 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
     if (!cache.has(path)) {
       cache.set(
         path,
-        get(path).catch(() => ({ status: 0, body: null })),
+        get(path).then(
+          (r) => (isObject(r) && typeof r.status === 'number' ? r : { status: 0, body: null }),
+          () => ({ status: 0, body: null }),
+        ),
       );
     }
     return /** @type {Promise<ForgeResponse>} */ (cache.get(path));
   };
-  /** The body of a 200, else Unreadable. @param {string} path */
-  const read = async (path) => {
+  /** The object a 200 answers, else Unreadable. @param {string} path @returns {Promise<any>} */
+  const obj = async (path) => {
     const r = await raw(path);
     if (r.status !== 200) throw new Unreadable(path, r.status);
+    if (!isObject(r.body)) throw new Unreadable(path, 200, 'the answer is not a JSON object');
     return r.body;
   };
+  /** The array a 200 answers, else Unreadable. @param {string} path @returns {Promise<any[]>} */
+  const arr = async (path) => {
+    const r = await raw(path);
+    if (r.status !== 200) throw new Unreadable(path, r.status);
+    if (!Array.isArray(r.body)) throw new Unreadable(path, 200, 'the answer is not a JSON list');
+    return r.body;
+  };
+  /**
+   * A list field of an answer, else Unreadable: a missing list never reads as an empty one.
+   * @param {any} body @param {string} key @param {string} path @returns {any[]}
+   */
+  const field = (body, key, path) => {
+    if (!Array.isArray(body?.[key])) {
+      throw new Unreadable(path, 200, `the answer has no ${key} list`);
+    }
+    return body[key];
+  };
 
-  const repoBody = () => read(R);
+  const repoBody = () => obj(R);
   const mainRef = async () => {
     const r = await raw(R);
-    return `refs/heads/${(r.status === 200 && r.body?.default_branch) || 'main'}`;
+    const name = r.status === 200 && isObject(r.body) ? r.body.default_branch : null;
+    return `refs/heads/${typeof name === 'string' && name ? name : 'main'}`;
   };
 
   /** @param {string} slug */
-  const appId = async (slug) => (await read(`/apps/${slug}`)).id;
+  const appId = async (slug) => {
+    const path = `/apps/${slug}`;
+    const id = (await obj(path)).id;
+    if (!Number.isInteger(id)) throw new Unreadable(path, 200, 'the answer has no App ID');
+    return id;
+  };
 
   /** The rulesets in full, the default branch spelled out. */
   const rulesets = async () => {
     const main = await mainRef();
-    const summaries = await read(`${R}/rulesets?per_page=100`);
-    /** @param {string[]} refs */
-    const norm = (refs) => (refs ?? []).map((x) => (x === '~DEFAULT_BRANCH' ? main : x));
+    const listPath = `${R}/rulesets?per_page=100`;
+    const summaries = await arr(listPath);
+    /** @param {unknown} refs */
+    const norm = (refs) =>
+      (Array.isArray(refs) ? refs : []).map((x) => (x === '~DEFAULT_BRANCH' ? main : String(x)));
     const full = [];
-    for (const s of summaries ?? []) {
-      const r = await read(`${R}/rulesets/${s.id}`);
+    for (const s of summaries) {
+      if (!Number.isInteger(s?.id)) throw new Unreadable(listPath, 200, 'a ruleset has no ID');
+      const path = `${R}/rulesets/${s.id}`;
+      const r = await obj(path);
+      const rules = field(r, 'rules', path);
       full.push({
         ...r,
+        rules,
+        bypass_actors: field(r, 'bypass_actors', path),
         include: norm(r.conditions?.ref_name?.include),
         exclude: norm(r.conditions?.ref_name?.exclude),
-        types: (r.rules ?? []).map((/** @type {any} */ x) => x.type),
+        types: rules.map((/** @type {any} */ x) => String(x?.type)),
       });
     }
     return { main, full };
@@ -225,10 +309,10 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
         (!spec.marker || r.types.includes(spec.marker)),
     );
 
-  /** @param {Spec} spec @returns {Promise<Problem[]>} */
-  const rulesetProblems = async (spec) => {
+  /** @param {string} name @returns {Promise<Problem[]>} */
+  const rulesetProblems = async (name) => {
     const { main, full } = await rulesets();
-    const s = rulesetSpecs(main).find((x) => x.name === spec.name) ?? spec;
+    const s = /** @type {Spec} */ (rulesetSpecs(main).find((x) => x.name === name));
     /** @type {Problem[]} */
     const problems = [];
     const bypassId = s.bypass ? await appId(slugs[s.bypass]) : null;
@@ -245,7 +329,7 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
     }
     const r = found[0];
     if (r.enforcement !== 'active') {
-      problems.push({ what: 'enforcement', found: String(r.enforcement), expected: 'active' });
+      problems.push({ what: 'enforcement', found: clean(r.enforcement), expected: 'active' });
     }
     const missing = s.rules.filter((t) => !r.types.includes(t));
     if (missing.length) {
@@ -265,37 +349,42 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
         expected: list(s.rules),
       });
     }
-    const actors = (r.bypass_actors ?? []).map((/** @type {any} */ a) =>
-      `${a.actor_type} ${a.actor_id ?? ''}`.trim(),
+    const actors = r.bypass_actors.map((/** @type {any} */ a) =>
+      `${a?.actor_type} ${a?.actor_id ?? ''}`.trim(),
     );
     const wanted = bypassId === null ? [] : [`Integration ${bypassId}`];
     if (!sameSet(actors, wanted)) {
       problems.push({
         what: 'bypass actors',
         found: list(actors),
-        expected: s.bypass ? `Integration ${bypassId} (${slugs[s.bypass]}) only` : 'none',
+        expected: s.bypass ? `Integration ${bypassId} (${clean(slugs[s.bypass])}) only` : 'none',
       });
     }
-    const param = (/** @type {string} */ type) =>
-      (r.rules ?? []).find((/** @type {any} */ x) => x.type === type)?.parameters ?? {};
+    /** @param {string} type @returns {any} */
+    const param = (type) => {
+      const p = r.rules.find((/** @type {any} */ x) => x?.type === type)?.parameters;
+      return isObject(p) ? p : {};
+    };
+    /** @param {unknown} v @returns {any[]} */
+    const asList = (v) => (Array.isArray(v) ? v : []);
     if (r.types.includes('pull_request')) {
       const p = param('pull_request');
-      const methods = p.allowed_merge_methods ?? [];
+      const methods = asList(p.allowed_merge_methods);
       if (!sameSet(methods, ['squash'])) {
         problems.push({ what: 'allowed merge methods', found: list(methods), expected: 'squash' });
       }
-      if (p.require_code_owner_review) {
+      if (p.require_code_owner_review !== false) {
         problems.push({
           what: 'code-owner review',
-          found: 'required',
+          found: p.require_code_owner_review === true ? 'required' : 'not stated',
           expected: 'not required (HITLD-946)',
         });
       }
     }
     if (r.types.includes('required_status_checks')) {
       const p = param('required_status_checks');
-      const checks = p.required_status_checks ?? [];
-      const names = checks.map((/** @type {any} */ c) => c.context);
+      const checks = asList(p.required_status_checks);
+      const names = checks.map((/** @type {any} */ c) => String(c?.context));
       if (!sameSet(names, contexts)) {
         problems.push({
           what: 'required contexts',
@@ -304,8 +393,8 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
         });
       }
       const notActions = checks
-        .filter((/** @type {any} */ c) => c.integration_id !== GITHUB_ACTIONS_APP_ID)
-        .map((/** @type {any} */ c) => c.context);
+        .filter((/** @type {any} */ c) => c?.integration_id !== GITHUB_ACTIONS_APP_ID)
+        .map((/** @type {any} */ c) => String(c?.context));
       if (notActions.length) {
         problems.push({
           what: 'required checks not from GitHub Actions',
@@ -347,7 +436,7 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
         ? []
         : [{ what: 'delete head branches', found: 'off', expected: 'on' }],
     ...Object.fromEntries(
-      rulesetSpecs('refs/heads/main').map((s) => [s.name, () => rulesetProblems(s)]),
+      rulesetSpecs('refs/heads/main').map((s) => [s.name, () => rulesetProblems(s.name)]),
     ),
     'rulesets-other': async () => {
       const { main, full } = await rulesets();
@@ -373,7 +462,7 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
       if (r.status !== 200) throw new Unreadable(path, r.status);
       return [
         {
-          what: `a classic branch protection rule on ${main}`,
+          what: `a classic branch protection rule on ${clean(main)}`,
           found: 'present',
           expected: 'none: the rulesets govern the branch',
         },
@@ -384,16 +473,15 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
       const r = await raw(path);
       if (r.status === 404)
         return [{ what: 'the release environment', found: 'none', expected: 'present' }];
-      if (r.status !== 200) throw new Unreadable(path, r.status);
-      const e = r.body;
+      const e = await obj(path);
       /** @type {Problem[]} */
       const p = [];
-      const reviewers = (e.protection_rules ?? [])
-        .filter((/** @type {any} */ x) => x.type === 'required_reviewers')
-        .flatMap((/** @type {any} */ x) => x.reviewers ?? [])
+      const reviewers = field(e, 'protection_rules', path)
+        .filter((/** @type {any} */ x) => x?.type === 'required_reviewers')
+        .flatMap((/** @type {any} */ x) => (Array.isArray(x.reviewers) ? x.reviewers : []))
         .map(
           (/** @type {any} */ x) =>
-            `${x.type} ${x.reviewer?.login ?? x.reviewer?.slug ?? x.reviewer?.id}`,
+            `${x?.type} ${x?.reviewer?.login ?? x?.reviewer?.slug ?? x?.reviewer?.id}`,
         );
       if (!sameSet(reviewers, [`User ${owner}`])) {
         p.push({
@@ -407,19 +495,19 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
       }
       const policy = e.deployment_branch_policy;
       if (
-        !policy ||
+        !isObject(policy) ||
         policy.custom_branch_policies !== true ||
         policy.protected_branches !== false
       ) {
         p.push({
           what: 'deployment branches',
-          found: policy ? 'not selected branches' : 'any branch',
+          found: isObject(policy) ? 'not selected branches' : 'any branch',
           expected: 'selected branches: main',
         });
       } else {
-        const b = await read(`${R}/environments/release/deployment-branch-policies?per_page=100`);
-        const names = (b.branch_policies ?? []).map(
-          (/** @type {any} */ x) => `${x.type ?? 'branch'} ${x.name}`,
+        const bPath = `${R}/environments/release/deployment-branch-policies?per_page=100`;
+        const names = field(await obj(bPath), 'branch_policies', bPath).map(
+          (/** @type {any} */ x) => `${x?.type ?? 'branch'} ${x?.name}`,
         );
         if (!sameSet(names, ['branch main'])) {
           p.push({ what: 'deployment branches', found: list(names), expected: 'branch main only' });
@@ -428,17 +516,18 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
       return p;
     },
     'actions-permissions': async () => {
-      const a = await read(`${R}/actions/permissions`);
+      const a = await obj(`${R}/actions/permissions`);
       /** @type {Problem[]} */
       const p = [];
       if (a.allowed_actions !== 'selected') {
-        p.push({ what: 'allowed actions', found: String(a.allowed_actions), expected: 'selected' });
+        p.push({ what: 'allowed actions', found: clean(a.allowed_actions), expected: 'selected' });
       }
       if (a.sha_pinning_required !== true) {
         p.push({ what: 'full-SHA pinning', found: 'not required', expected: 'required' });
       }
       if (a.allowed_actions === 'selected') {
-        const s = await read(`${R}/actions/permissions/selected-actions`);
+        const sPath = `${R}/actions/permissions/selected-actions`;
+        const s = await obj(sPath);
         if (s.github_owned_allowed !== true) {
           p.push({ what: 'actions created by GitHub', found: 'not allowed', expected: 'allowed' });
         }
@@ -449,9 +538,9 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
             expected: 'not allowed',
           });
         }
-        const patterns = s.patterns_allowed ?? [];
+        const patterns = field(s, 'patterns_allowed', sPath);
         const pinned = /^ossf\/scorecard-action@[0-9a-f]{40}$/;
-        if (patterns.length !== 1 || !pinned.test(patterns[0])) {
+        if (patterns.length !== 1 || !pinned.test(String(patterns[0]))) {
           p.push({
             what: 'allowed patterns',
             found: list(patterns),
@@ -462,13 +551,13 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
       return p;
     },
     'workflow-permissions': async () => {
-      const w = await read(`${R}/actions/permissions/workflow`);
+      const w = await obj(`${R}/actions/permissions/workflow`);
       /** @type {Problem[]} */
       const p = [];
       if (w.default_workflow_permissions !== 'read') {
         p.push({
           what: 'default workflow permissions',
-          found: String(w.default_workflow_permissions),
+          found: clean(w.default_workflow_permissions),
           expected: 'read',
         });
       }
@@ -482,8 +571,12 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
       return p;
     },
     secrets: async () => {
-      const s = await read(`${R}/actions/secrets?per_page=100`);
-      const names = (s.secrets ?? []).map((/** @type {any} */ x) => x.name);
+      const path = `${R}/actions/secrets?per_page=100`;
+      const s = await obj(path);
+      const names = field(s, 'secrets', path).map((/** @type {any} */ x) => x?.name);
+      if (!Number.isInteger(s.total_count)) {
+        throw new Unreadable(path, 200, 'the answer has no total_count');
+      }
       return s.total_count === 0 && names.length === 0
         ? []
         : [
@@ -495,60 +588,18 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
           ];
     },
     'deploy-keys': async () => {
-      const k = await read(`${R}/keys?per_page=100`);
-      const titles = (k ?? []).map(
-        (/** @type {any} */ x) => `${x.title} (${x.read_only ? 'read' : 'write'})`,
+      const titles = (await arr(`${R}/keys?per_page=100`)).map(
+        (/** @type {any} */ x) => `${clean(x?.title)} (${x?.read_only ? 'read' : 'write'})`,
       );
       return titles.length ? [{ what: 'deploy keys', found: list(titles), expected: 'none' }] : [];
     },
     collaborators: async () => {
-      const c = await read(`${R}/collaborators?affiliation=direct&per_page=100`);
-      const others = (c ?? [])
-        .map((/** @type {any} */ x) => x.login)
-        .filter((/** @type {string} */ l) => l !== owner);
+      const others = (await arr(`${R}/collaborators?affiliation=direct&per_page=100`))
+        .map((/** @type {any} */ x) => x?.login)
+        .filter((l) => l !== owner);
       return others.length
         ? [{ what: 'collaborators', found: list(others), expected: 'none but the owner' }]
         : [];
-    },
-    installations: async () => {
-      const i = await read('/user/installations?per_page=100');
-      /** @type {string[]} */
-      const here = [];
-      /** @type {string[]} */
-      const writers = [];
-      for (const inst of i.installations ?? []) {
-        let covers = inst.repository_selection === 'all';
-        if (!covers) {
-          const r = await read(`/user/installations/${inst.id}/repositories?per_page=100`);
-          covers = (r.repositories ?? []).some((/** @type {any} */ x) => x.full_name === repo);
-        }
-        if (!covers) continue;
-        here.push(inst.app_slug);
-        const writes = Object.values(inst.permissions ?? {}).some(
-          (v) => v === 'write' || v === 'admin',
-        );
-        if (writes) writers.push(inst.app_slug);
-      }
-      const ours = Object.values(slugs);
-      /** @type {Problem[]} */
-      const p = [];
-      const missing = ours.filter((s) => !here.includes(s));
-      if (missing.length) {
-        p.push({
-          what: 'Apps not installed here',
-          found: list(here),
-          expected: `${list(ours)} installed`,
-        });
-      }
-      const stray = writers.filter((s) => !ours.includes(s) && !allowApps.includes(s));
-      if (stray.length) {
-        p.push({
-          what: 'other Apps with write access',
-          found: list(stray),
-          expected: `none beyond ${list(ours)}, or reviewed and kept with --allow-app`,
-        });
-      }
-      return p;
     },
   };
 
@@ -575,26 +626,71 @@ export async function checkForge({ get, repo, contexts, apps = {}, allowApps = [
         line: `wrong: ${name}: ${text}; fix in ${ui}`,
       });
     } catch (e) {
-      if (!(e instanceof Unreadable)) throw e;
-      const permission = permissionFor(e.path);
-      const answered =
-        e.status === 0 ? 'could not reach the forge (status 0)' : `answered ${e.status}`;
-      lines.push({
-        check: name,
-        result: 'cannot-read',
-        status: e.status,
-        path: e.path,
-        permission,
-        ui,
-        line: `cannot-read: ${name}: GET ${e.path} ${answered}; needs ${permission}`,
-      });
+      lines.push(cannotRead(name, ui, e));
     }
   }
   return lines;
 }
 
 /**
- * The real forge: GitHub's REST API with the caller's read-only token, sent in one header only.
+ * The line for a check that could not read what it judges. Anything other than a refusal or an
+ * answer of the wrong shape (a bug, an answer this did not foresee) also reads cannot-read, so one
+ * check never stops the others.
+ * @param {string} name @param {string} ui @param {unknown} e @returns {ForgeLine}
+ */
+function cannotRead(name, ui, e) {
+  if (!(e instanceof Unreadable)) {
+    const reason = 'the answer did not have the expected shape';
+    return {
+      check: name,
+      result: 'cannot-read',
+      ui,
+      reason,
+      line: `cannot-read: ${name}: ${reason}`,
+    };
+  }
+  if (e.reason) {
+    return {
+      check: name,
+      result: 'cannot-read',
+      status: e.status,
+      path: e.path,
+      reason: e.reason,
+      ui,
+      line: `cannot-read: ${name}: GET ${e.path} answered ${e.status}, but ${e.reason}`,
+    };
+  }
+  const permission = permissionFor(e.path);
+  const answered = e.status === 0 ? 'could not reach the forge (status 0)' : `answered ${e.status}`;
+  return {
+    check: name,
+    result: 'cannot-read',
+    status: e.status,
+    path: e.path,
+    permission,
+    ui,
+    line: `cannot-read: ${name}: GET ${e.path} ${answered}; needs ${permission}`,
+  };
+}
+
+/**
+ * Every occurrence of the token, wherever the forge put it, replaced before anything reads the
+ * answer: a forge that echoes the token cannot get it into a line.
+ * @param {ForgeGet} get @param {string} token @returns {ForgeGet}
+ */
+export function redacting(get, token) {
+  return async (path) => {
+    const r = await get(path);
+    if (!token || !isObject(r)) return r;
+    const text = JSON.stringify(r.body);
+    if (typeof text !== 'string' || !text.includes(token)) return r;
+    return { ...r, body: JSON.parse(text.split(token).join('[redacted]')) };
+  };
+}
+
+/**
+ * The real forge: GitHub's REST API with the caller's read-only token, sent in one header only and
+ * redacted from the answer's text before it is parsed.
  * @param {string} token @param {{ base?: string }} [o] @returns {ForgeGet}
  */
 export function httpForge(token, { base = 'https://api.github.com' } = {}) {
@@ -612,9 +708,10 @@ export function httpForge(token, { base = 'https://api.github.com' } = {}) {
     /** @type {any} */
     let body = null;
     try {
-      body = await res.json();
+      const text = await res.text();
+      body = JSON.parse(token ? text.split(token).join('[redacted]') : text);
     } catch {
-      // Not JSON: the status says enough.
+      // Not JSON: the shape checks read it as cannot-read.
     }
     return { status: res.status, body };
   };

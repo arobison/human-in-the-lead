@@ -15,7 +15,7 @@ Two security reviews concluded that hook guards cannot stop a hostile executor a
 ## Done when
 
 The owner does these in order, each recorded here as done with its date; the way back for every step is to set the ruleset to Disabled or re-apply the saved value.
-1. Baseline: create a read-only fine-grained token (Administration, Actions, Contents, Metadata read; 90-day expiry) and save the output of the rulesets, environments, Actions permissions, workflow permissions, deploy keys and collaborators calls.
+1. Baseline: create a read-only fine-grained token (Administration, Actions, Secrets, Metadata read, for this repository only; 90-day expiry; the token `hitld check forge` reads) and save the output of the rulesets, environments, Actions permissions, workflow permissions, deploy keys and collaborators calls.
 2. Actions settings: allow GitHub-created actions plus the pinned scorecard action; require full-SHA pinning; default workflow permissions read-only; Actions may not create or approve pull requests.
 3. General: squash merging only, auto-merge off, delete head branches on.
 4. No repository secrets, no deploy keys, no collaborators; review every installed app with write access, including the one behind the cloud connector.

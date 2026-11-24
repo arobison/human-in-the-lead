@@ -6,8 +6,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
-import { checkForge, FORGE_CHECKS } from '../lib/forge/check.mjs';
+import {
+  checkForge,
+  clean,
+  FORGE_CHECKS,
+  httpForge,
+  NOT_CHECKED,
+  permissionFor,
+  redacting,
+  TOKEN_GUIDANCE,
+  TOKEN_PERMISSIONS,
+} from '../lib/forge/check.mjs';
 import { main, EXIT } from '../lib/cli/main.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
@@ -150,22 +161,6 @@ function goodForge() {
     [`${R}/actions/secrets?per_page=100`]: { total_count: 0, secrets: [] },
     [`${R}/keys?per_page=100`]: [],
     [`${R}/collaborators?affiliation=direct&per_page=100`]: [{ login: 'owner' }],
-    '/user/installations?per_page=100': {
-      installations: [
-        { id: 11, app_slug: 'hitld-queue', repository_selection: 'selected' },
-        { id: 12, app_slug: 'hitld-executor', repository_selection: 'selected' },
-        { id: 13, app_slug: 'hitld-release', repository_selection: 'selected' },
-        {
-          id: 14,
-          app_slug: 'some-reader',
-          repository_selection: 'all',
-          permissions: { metadata: 'read' },
-        },
-      ],
-    },
-    '/user/installations/11/repositories?per_page=100': { repositories: [{ full_name: REPO }] },
-    '/user/installations/12/repositories?per_page=100': { repositories: [{ full_name: REPO }] },
-    '/user/installations/13/repositories?per_page=100': { repositories: [{ full_name: REPO }] },
   };
   for (const r of rulesets) forge[`${R}/rulesets/${r.id}`] = r;
   return forge;
@@ -300,17 +295,6 @@ const WRONG = [
     (f) => f[`${R}/collaborators?affiliation=direct&per_page=100`].push({ login: 'helper' }),
     /helper/,
   ],
-  [
-    'installations',
-    (f) =>
-      f['/user/installations?per_page=100'].installations.push({
-        id: 15,
-        app_slug: 'writer-bot',
-        repository_selection: 'all',
-        permissions: { contents: 'write' },
-      }),
-    /writer-bot/,
-  ],
 ];
 
 for (const [name, change, says] of WRONG) {
@@ -357,7 +341,6 @@ const UNREADABLE = [
   ['secrets', `${R}/actions/secrets?per_page=100`],
   ['deploy-keys', `${R}/keys?per_page=100`],
   ['collaborators', `${R}/collaborators?affiliation=direct&per_page=100`],
-  ['installations', '/user/installations?per_page=100'],
 ];
 
 for (const [name, path] of UNREADABLE) {
@@ -466,4 +449,167 @@ test('hitld check forge without a token says where to put one and reads nothing'
   assert.equal(none.result.error, 'no-forge-token');
   assert.match(none.result.message, /HITLD_FORGE_TOKEN/);
   assert.deepEqual(none.tokens, []);
+});
+
+test('the token guidance names every permission the checks need, and no other', async () => {
+  /** @type {string[]} */
+  const seen = [];
+  await checkForge({ get: fake(goodForge(), seen), repo: REPO, contexts: CONTEXTS });
+  const needed = new Set(seen.filter((p) => !p.startsWith('/apps/')).map(permissionFor));
+  assert.deepEqual([...needed].sort(), [...TOKEN_PERMISSIONS].sort());
+  assert.ok(TOKEN_PERMISSIONS.includes('Secrets: read'));
+  assert.ok(!TOKEN_GUIDANCE.includes('Contents'));
+  for (const p of TOKEN_PERMISSIONS) assert.ok(TOKEN_GUIDANCE.includes(p), p);
+  const none = await hitld(['check', 'forge', '--repo', REPO], {}, goodForge());
+  assert.ok(none.result.message.includes(TOKEN_GUIDANCE));
+});
+
+test('installations are listed as not checked, never as ok', async () => {
+  const good = await hitld(
+    ['check', 'forge', '--repo', REPO],
+    { HITLD_FORGE_TOKEN: TOKEN },
+    goodForge(),
+  );
+  assert.ok(!good.result.lines.some((/** @type {any} */ l) => l.check === 'installations'));
+  assert.deepEqual(
+    good.result.not_checked.map((/** @type {any} */ n) => n.check),
+    ['installations'],
+  );
+  assert.deepEqual(good.result.not_checked, JSON.parse(JSON.stringify(NOT_CHECKED)));
+});
+
+/** A 200 whose answer lacks the expected shape, per path: each reads cannot-read, never ok. @type {[string, string, unknown][]} */
+const MALFORMED = [
+  ['squash-only', R, null],
+  ['auto-merge-off', R, 'not json'],
+  ['ruleset-main', `${R}/rulesets?per_page=100`, null],
+  ['rulesets-other', `${R}/rulesets?per_page=100`, { rulesets: [] }],
+  ['ruleset-main-updates', '/apps/hitld-queue', { slug: 'hitld-queue' }],
+  ['release-environment', `${R}/environments/release`, { can_admins_bypass: false }],
+  ['actions-permissions', `${R}/actions/permissions`, null],
+  ['workflow-permissions', `${R}/actions/permissions/workflow`, []],
+  ['secrets', `${R}/actions/secrets?per_page=100`, { total_count: 0 }],
+  ['secrets', `${R}/actions/secrets?per_page=100`, null],
+  ['deploy-keys', `${R}/keys?per_page=100`, null],
+  ['deploy-keys', `${R}/keys?per_page=100`, { keys: [] }],
+  ['collaborators', `${R}/collaborators?affiliation=direct&per_page=100`, null],
+];
+
+for (const [name, path, body] of MALFORMED) {
+  test(`check forge: ${name} reads cannot-read on a 200 from ${path} with ${JSON.stringify(body)}`, async () => {
+    const forge = goodForge();
+    forge[path] = { status: 200, body };
+    const lines = await run(forge);
+    assert.equal(lines.length, FORGE_CHECKS.length);
+    const l = line(lines, name);
+    assert.equal(l.result, 'cannot-read', l.line);
+    assert.match(l.line, /^cannot-read: .*answered 200, but /);
+  });
+}
+
+test('a ruleset without bypass actors or rules reads cannot-read, not none', async () => {
+  for (const key of ['bypass_actors', 'rules']) {
+    const forge = goodForge();
+    delete rs(forge, 1)[key];
+    const l = line(await run(forge), 'ruleset-main');
+    assert.equal(l.result, 'cannot-read', l.line);
+    assert.match(l.line, new RegExp(`no ${key} list`));
+  }
+});
+
+test('an answer that throws inside a check reads cannot-read and the other lines still print', async () => {
+  const forge = goodForge();
+  rs(forge, 1).rules = [null];
+  const lines = await run(forge);
+  assert.equal(lines.length, FORGE_CHECKS.length);
+  for (const l of lines) assert.match(l.line, /^(ok|wrong|cannot-read): /);
+});
+
+test('strings from the forge are capped and stripped of control characters', async () => {
+  const forge = goodForge();
+  const long = `evil\u001b[31m\u202e${'x'.repeat(500)}`;
+  forge[`${R}/keys?per_page=100`] = [{ id: 1, title: long, read_only: true }];
+  forge[`${R}/actions/secrets?per_page=100`] = {
+    total_count: 30,
+    secrets: Array.from({ length: 30 }, (_, i) => ({ name: `S\n${i}` })),
+  };
+  forge[`${R}/collaborators?affiliation=direct&per_page=100`].push({ login: 'a\u0007b' });
+  const lines = await run(forge);
+  for (const l of lines) {
+    assert.ok(!/[\u0000-\u001f\u007f-\u009f‪-‮]/.test(l.line), l.check);
+  }
+  const keys = line(lines, 'deploy-keys');
+  assert.ok(keys.line.length < 300, keys.line);
+  assert.ok(!keys.line.includes('x'.repeat(100)));
+  assert.match(line(lines, 'secrets').line, /and 10 more/);
+  assert.match(line(lines, 'collaborators').line, /ab/);
+  assert.equal(clean('a'.repeat(200)).length, 80);
+});
+
+test('a --token-env value is never printed, whether or not it is shaped like a name', async () => {
+  for (const value of [TOKEN, 'ghp-not/a name', `${TOKEN}-x`]) {
+    const r = await hitld(
+      ['check', 'forge', '--repo', REPO, '--token-env', value],
+      {},
+      goodForge(),
+    );
+    assert.equal(r.code, EXIT.failed);
+    assert.equal(r.result.error, 'no-forge-token');
+    assert.ok(!r.out.includes(value) && !r.err.includes(value), value);
+    assert.ok(!r.out.includes(TOKEN));
+    assert.deepEqual(r.tokens, []);
+  }
+});
+
+test('a forge that echoes the token gets it into no line', async () => {
+  const forge = goodForge();
+  forge[`${R}/keys?per_page=100`] = [{ id: 1, title: `key ${TOKEN}`, read_only: true }];
+  forge[`${R}/collaborators?affiliation=direct&per_page=100`].push({ login: TOKEN });
+  const r = await hitld(['check', 'forge', '--repo', REPO], { HITLD_FORGE_TOKEN: TOKEN }, forge);
+  assert.equal(r.code, EXIT.failed);
+  assert.ok(!r.out.includes(TOKEN) && !r.err.includes(TOKEN));
+  assert.match(r.out, /\[redacted\]/);
+  const direct = await redacting(fake(forge), TOKEN)(`${R}/keys?per_page=100`);
+  assert.ok(!JSON.stringify(direct).includes(TOKEN));
+});
+
+test('httpForge sends the token only in its header, and no answer or error path brings it out', async () => {
+  /** @type {string[]} */
+  const auth = [];
+  const server = createServer((req, res) => {
+    const header = String(req.headers.authorization ?? '');
+    auth.push(header);
+    const path = String(req.url);
+    if (path.startsWith(`${R}/keys`)) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify([{ id: 1, title: `echo ${header}`, read_only: true }]));
+    } else if (path.startsWith(`${R}/actions/secrets`)) {
+      res.writeHead(500, { 'content-type': 'text/plain' });
+      res.end(`server error, you sent ${header}`);
+    } else if (path.startsWith(`${R}/collaborators`)) {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end(`not json ${header}`);
+    } else if (path === R) {
+      res.destroy();
+    } else {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ message: `refused ${header}` }));
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+  try {
+    const port = /** @type {import('node:net').AddressInfo} */ (server.address()).port;
+    const get = redacting(httpForge(TOKEN, { base: `http://127.0.0.1:${port}` }), TOKEN);
+    const lines = await checkForge({ get, repo: REPO, contexts: CONTEXTS });
+    assert.ok(auth.length > 0 && auth.every((a) => a === `Bearer ${TOKEN}`));
+    const text = JSON.stringify(lines);
+    assert.ok(!text.includes(TOKEN), text);
+    assert.equal(line(lines, 'deploy-keys').result, 'wrong');
+    assert.match(line(lines, 'deploy-keys').line, /\[redacted\]/);
+    assert.equal(line(lines, 'secrets').status, 500);
+    assert.equal(line(lines, 'collaborators').result, 'cannot-read');
+    assert.equal(line(lines, 'squash-only').status, 0);
+  } finally {
+    await new Promise((resolve) => server.close(() => resolve(undefined)));
+  }
 });

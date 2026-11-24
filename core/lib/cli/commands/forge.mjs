@@ -1,14 +1,23 @@
 // `hitld check forge` (HITLD-953): read the live forge settings the owner applied by hand
 // (HITLD-952) with a read-only token from the caller, and report each as ok, wrong or cannot-read.
 // The token is read from an environment variable the caller names, never from an argument (an
-// argument shows in the process list and the shell history), and is never printed.
+// argument shows in the process list and the shell history), and is never printed. Nor is the
+// value given to --token-env: a token pasted there by mistake must not come back out.
 
 import { loadPolicy } from '../../policy/policy.mjs';
 import { remoteUrl, repoFromRemote } from '../../merge/github.mjs';
-import { checkForge, httpForge } from '../../forge/check.mjs';
+import {
+  NOT_CHECKED,
+  TOKEN_GUIDANCE,
+  checkForge,
+  httpForge,
+  redacting,
+} from '../../forge/check.mjs';
 
 /** The variable the token is read from unless --token-env names another. */
 export const DEFAULT_TOKEN_ENV = 'HITLD_FORGE_TOKEN';
+
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
 /** @type {import('../table.mjs').Command[]} */
 export const commands = [
@@ -26,7 +35,7 @@ export const commands = [
       {
         name: 'token-env',
         type: 'string',
-        description: `The environment variable that holds the read-only token. Default: ${DEFAULT_TOKEN_ENV}`,
+        description: `The name of the environment variable that holds the read-only token, never the token itself. Default: ${DEFAULT_TOKEN_ENV}`,
       },
       {
         name: 'queue-app',
@@ -34,31 +43,32 @@ export const commands = [
         description: "The merge queue App's slug. Default: hitld-queue",
       },
       {
-        name: 'executor-app',
-        type: 'string',
-        description: "The executors' App's slug. Default: hitld-executor",
-      },
-      {
         name: 'release-app',
         type: 'string',
         description: "The release App's slug. Default: hitld-release",
       },
-      {
-        name: 'allow-app',
-        type: 'string',
-        repeatable: true,
-        description: 'Another App with write access the owner reviewed and kept, by slug',
-      },
     ],
-    output: ['ok', 'repo', 'lines', 'wrong', 'cannot_read', 'error', 'message'],
+    output: ['ok', 'repo', 'lines', 'wrong', 'cannot_read', 'not_checked', 'error', 'message'],
     run: async (input, ctx) => {
-      const tokenEnv = /** @type {string | undefined} */ (input['token-env']) ?? DEFAULT_TOKEN_ENV;
-      const token = ctx.env[tokenEnv];
-      if (!token) {
+      const named = /** @type {string | undefined} */ (input['token-env']);
+      if (named !== undefined && !ENV_NAME.test(named)) {
         return {
           ok: false,
           error: 'no-forge-token',
-          message: `no token in ${tokenEnv}: set it to a read-only fine-grained token (Administration, Actions, Contents, Metadata read) for this repository, or name another variable with --token-env`,
+          message:
+            'the --token-env value is not an environment variable name; give the name of the variable that holds the token, never the token',
+        };
+      }
+      const token = ctx.env[named ?? DEFAULT_TOKEN_ENV];
+      if (!token) {
+        const where =
+          named === undefined
+            ? `${DEFAULT_TOKEN_ENV} is unset or empty`
+            : 'the variable --token-env names is unset or empty';
+        return {
+          ok: false,
+          error: 'no-forge-token',
+          message: `${where}: set it to ${TOKEN_GUIDANCE}`,
         };
       }
       const loaded = loadPolicy({ cwd: ctx.cwd });
@@ -82,21 +92,26 @@ export const commands = [
           message: 'name the repository with --repo owner/name; the git remote names none',
         };
       }
-      const get = ctx.forge ? ctx.forge(token) : httpForge(token);
+      const get = redacting(ctx.forge ? ctx.forge(token) : httpForge(token), token);
       const lines = await checkForge({
         get,
         repo,
         contexts: pr.checks ?? [],
         apps: {
           queue: /** @type {string | undefined} */ (input['queue-app']),
-          executor: /** @type {string | undefined} */ (input['executor-app']),
           release: /** @type {string | undefined} */ (input['release-app']),
         },
-        allowApps: /** @type {string[] | undefined} */ (input['allow-app']) ?? [],
       });
       const wrong = lines.filter((l) => l.result === 'wrong').length;
       const cannotRead = lines.filter((l) => l.result === 'cannot-read').length;
-      return { ok: wrong === 0 && cannotRead === 0, repo, lines, wrong, cannot_read: cannotRead };
+      return {
+        ok: wrong === 0 && cannotRead === 0,
+        repo,
+        lines,
+        wrong,
+        cannot_read: cannotRead,
+        not_checked: NOT_CHECKED,
+      };
     },
   },
 ];
