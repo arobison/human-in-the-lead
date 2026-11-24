@@ -693,6 +693,8 @@ test('the guard lets an executor run rights who and precedent match, and no othe
     `node core/bin/hitld.mjs precedent match --question ${question}`,
     'hitld precedent match --file q.json',
     'hitld rights who --file q.json && hitld precedent match --file q.json',
+    // Naming items by title and link only reads the tracker (HITLD-807).
+    'hitld work ref W-1,W-2',
   ]) {
     assert.equal(asExecutor(allowed), '', allowed);
   }
