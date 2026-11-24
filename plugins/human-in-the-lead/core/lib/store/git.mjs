@@ -158,9 +158,7 @@ export function head(root) {
 export function snapshot(root, message) {
   ensureRepo(root);
   stage(root);
-  const gitlinks = staged(root)
-    .filter((e) => e.mode === GITLINK)
-    .map((e) => e.path);
+  const gitlinks = stagedGitlinks(root);
   if (gitlinks.length) {
     throw new StoreGitError(
       'store-gitlink',
@@ -168,6 +166,31 @@ export function snapshot(root, message) {
       { paths: gitlinks },
     );
   }
+  return commitIndex(root, message);
+}
+
+/**
+ * Commit everything that syncs before an import merges (HITLD-820). A gitlink is dropped from the
+ * index instead of refused, so the commit takes it out of the head and the merge never reads it;
+ * nothing on disk changes. An export still refuses one outside the machine-local paths (snapshot).
+ * @param {string} root @param {string} message
+ * @returns {{ head: string, gitlinks: string[] }} gitlinks: the paths dropped, the head's included
+ *   (a machine-local one leaves the index in stage, as it does on export)
+ */
+export function snapshotForImport(root, message) {
+  ensureRepo(root);
+  const held = [...tree(root, head(root))].filter(([, e]) => e.mode === GITLINK).map(([p]) => p);
+  stage(root);
+  const gitlinks = stagedGitlinks(root);
+  unstage(root, gitlinks);
+  return {
+    head: commitIndex(root, message),
+    gitlinks: [...new Set([...held, ...gitlinks])].sort(),
+  };
+}
+
+/** Commit the index if it differs from the head, or if there is no head yet. @param {string} root @param {string} message */
+function commitIndex(root, message) {
   const before = head(root);
   const clean =
     before !== null && git(root, ['diff', '--cached', '--quiet'], { allowFail: true }).ok;
@@ -197,15 +220,27 @@ const GITLINK = '160000';
  */
 function stage(root) {
   git(root, ['add', '-A']);
-  const local = staged(root)
-    .map((e) => e.path)
-    .filter(isMachineLocal);
-  if (local.length) {
-    git(root, ['update-index', '-z', '--force-remove', '--stdin'], {
-      input: local.map((p) => `${p}\0`).join(''),
-    });
-  }
+  unstage(
+    root,
+    staged(root)
+      .map((e) => e.path)
+      .filter(isMachineLocal),
+  );
 }
+
+/** Drop paths from the index; the files stay on disk. @param {string} root @param {string[]} paths */
+function unstage(root, paths) {
+  if (!paths.length) return;
+  git(root, ['update-index', '-z', '--force-remove', '--stdin'], {
+    input: paths.map((p) => `${p}\0`).join(''),
+  });
+}
+
+/** The gitlinks the index holds. @param {string} root */
+const stagedGitlinks = (root) =>
+  staged(root)
+    .filter((e) => e.mode === GITLINK)
+    .map((e) => e.path);
 
 /**
  * What the index holds, with each entry's mode.
@@ -435,22 +470,40 @@ export function mergeAppendOnly(base, ours, theirs) {
  * Merge the fetched head into the store's branch and update the files. Per path: a side that did
  * not change it takes the other side's; both changing it the same way is fine; both changing an
  * append-only file (.jsonl) merges its lines; anything else is a conflict, and nothing is written.
+ * A gitlink (mode 160000) on either side, or in the base, is left out of the merge (HITLD-820): it
+ * names a commit of another repository that this one does not hold, so it has no blob to read. One
+ * in the fetched head counts as unchanged there, and its path comes back in `gitlinks`.
  * @param {string} root
  * @param {string} theirs the fetched commit
- * @returns {{ result: 'up-to-date' | 'fast-forward' | 'merged', head: string, changed: string[] } | { result: 'conflict', conflicts: Conflict[] }}
+ * @returns {{ result: 'up-to-date' | 'fast-forward' | 'merged', head: string, changed: string[], gitlinks: string[] } | { result: 'conflict', conflicts: Conflict[], gitlinks: string[] }}
  */
 export function mergeIncoming(root, theirs) {
   // No commit yet: a store that held nothing to sync takes the imported history as it is.
   const ours = head(root);
   if (ours && isAncestor(root, theirs, ours))
-    return { result: 'up-to-date', head: ours, changed: [] };
+    return { result: 'up-to-date', head: ours, changed: [], gitlinks: [] };
   const base = ours ? mergeBase(root, ours, theirs) : null;
-  const [tb, to, tt] = [tree(root, base), tree(root, ours), tree(root, theirs)];
+  const [tb, to, tt] = [
+    withoutGitlinks(tree(root, base)),
+    withoutGitlinks(tree(root, ours)),
+    tree(root, theirs),
+  ];
+  /** @type {string[]} */
+  const gitlinks = [];
+  for (const [path, e] of tt) {
+    if (e.mode !== GITLINK) continue;
+    gitlinks.push(path);
+    const was = tb.get(path);
+    if (was) tt.set(path, was);
+    else tt.delete(path);
+  }
 
   /** @type {Conflict[]} */
   const conflicts = [];
   for (const [path, e] of tt) {
-    if (!['100644', '100755'].includes(e.mode)) {
+    if (gitlinks.includes(path)) {
+      // The base's entry, standing in for the gitlink: this store's own history.
+    } else if (!['100644', '100755'].includes(e.mode)) {
       conflicts.push({ path, why: `mode ${e.mode} is not a plain file; refused` });
     } else if (path === '.gitignore') {
       // Ours always: which paths stay on this machine is this version's call.
@@ -460,7 +513,7 @@ export function mergeIncoming(root, theirs) {
       conflicts.push({ path, why: 'is not a safe store path; refused' });
     }
   }
-  if (conflicts.length) return { result: 'conflict', conflicts };
+  if (conflicts.length) return { result: 'conflict', conflicts, gitlinks };
 
   // First what each path needs, then every blob that takes in one read.
   /** @type {({ path: string, take: string | null } | { path: string, base: string | null, ours: string, theirs: string } | { path: string, why: string })[]} */
@@ -514,7 +567,7 @@ export function mergeIncoming(root, theirs) {
       else writes.set(p.path, Buffer.from(m.text));
     }
   }
-  if (conflicts.length) return { result: 'conflict', conflicts };
+  if (conflicts.length) return { result: 'conflict', conflicts, gitlinks };
 
   // Write only what this store still holds as we committed it a moment ago.
   for (const path of writes.keys()) {
@@ -540,7 +593,9 @@ export function mergeIncoming(root, theirs) {
       replaceFile(tmp, file);
     }
   }
-  git(root, ['add', '-A']);
+  // Stage as an export does, without the gitlinks a checkout on disk would add back.
+  stage(root);
+  unstage(root, stagedGitlinks(root));
   const merged = gitText(root, ['write-tree']);
   const theirsTree = gitText(root, ['rev-parse', `${theirs}^{tree}`]);
   /** @type {string} */
@@ -565,8 +620,11 @@ export function mergeIncoming(root, theirs) {
   git(root, ['update-ref', `refs/heads/${BRANCH}`, next, ours ?? '']);
   // The index now matches the new head's tree.
   git(root, ['read-tree', next]);
-  return { result, head: next, changed: [...writes.keys()] };
+  return { result, head: next, changed: [...writes.keys()], gitlinks };
 }
+
+/** @param {Map<string, TreeEntry>} entries */
+const withoutGitlinks = (entries) => new Map([...entries].filter(([, e]) => e.mode !== GITLINK));
 
 /** @param {string} path */
 function safeRelative(path) {

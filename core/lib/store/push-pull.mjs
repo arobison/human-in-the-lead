@@ -271,6 +271,7 @@ async function pullOnce(o) {
     head: merged.head,
     changed: merged.changed,
     index: merged.index,
+    ...(merged.warnings ? { warnings: merged.warnings } : {}),
   };
 }
 

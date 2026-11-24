@@ -20,8 +20,10 @@ import {
   ensureRepo,
   fetchBundle,
   hasText,
+  isMachineLocal,
   mergeIncoming,
   snapshot,
+  snapshotForImport,
 } from './git.mjs';
 import { FORMAT, checkRecipients, open, seal } from './sealed.mjs';
 import { rebuildIndex } from './index-db.mjs';
@@ -139,14 +141,22 @@ export async function importStore(options) {
     );
   }
   const root = ensureRepo(options.root);
-  // A store with nothing in it yet takes the imported history as it is (a fast-forward).
-  const before = hasText(root) ? snapshot(root, 'store before import') : null;
+  // A store with nothing in it yet takes the imported history as it is (a fast-forward). A gitlink
+  // in this store's head is dropped from it first, and one in the imported head is left out of the
+  // merge (HITLD-820): either names a commit no store holds, so the merge could not read it.
+  const local = hasText(root)
+    ? snapshotForImport(root, 'store before import')
+    : { head: null, gitlinks: [] };
+  const before = local.head;
   try {
     const theirs = fetchBundle(root, bundle, manifest.head);
     const merged = mergeIncoming(root, theirs);
+    const warnings = gitlinkWarnings(root, local.gitlinks, merged.gitlinks);
+    /** @type {{ warnings?: string[] }} */
+    const warned = warnings.length ? { warnings } : {};
     if (merged.result === 'conflict') {
       return {
-        ok: false,
+        ok: /** @type {const} */ (false),
         error: 'conflict',
         message: `the import stopped on a conflict; nothing was merged. Resolve it in ${root} and import again`,
         project: manifest.project,
@@ -154,11 +164,12 @@ export async function importStore(options) {
         head: before,
         incoming: manifest.head,
         conflicts: merged.conflicts,
+        ...warned,
       };
     }
     const index = await rebuildIndex(openStore(root));
     return {
-      ok: true,
+      ok: /** @type {const} */ (true),
       project: manifest.project,
       format,
       result: merged.result,
@@ -166,6 +177,7 @@ export async function importStore(options) {
       incoming: manifest.head,
       sealed_to: sealedTo(manifest),
       changed: merged.changed,
+      ...warned,
       index: {
         events: index.events,
         dispatches: index.dispatches,
@@ -176,6 +188,24 @@ export async function importStore(options) {
   } finally {
     dropIncoming(root);
   }
+}
+
+/**
+ * One warning per gitlink an import left out, naming its path.
+ * @param {string} root @param {string[]} here dropped from this store's head
+ * @param {string[]} incoming in the imported head
+ */
+function gitlinkWarnings(root, here, incoming) {
+  return [
+    ...here.map(
+      (p) =>
+        `${p} is another git checkout this store held as a gitlink (mode 160000); it was dropped from the history before the merge and nothing on disk changed${!isMachineLocal(p) && existsSync(join(root, ...p.split('/'), '.git')) ? '; an export refuses it until it is moved out of the store' : ''}`,
+    ),
+    ...incoming.map(
+      (p) =>
+        `${p} arrived as a gitlink (mode 160000), another checkout no store can import; it was left out of the merge`,
+    ),
+  ];
 }
 
 /**
