@@ -7,6 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M860KSV2WP286H
+release_note: "After a pull-request merge, `hitld merge` fast-forwards the checkout's main to the merged main (its output says under `checkout` whether it moved, and why not), and `hitld dispatch plan` no longer offers an item that the fetched main has closed, so the orchestrator no longer has to fast-forward before planning."
 ---
 
 ## Why
