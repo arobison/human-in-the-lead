@@ -150,9 +150,9 @@
   },
   "execution": {
     "max_executors": {
-      "value": 5,
+      "value": 8,
       "min": 1,
-      "max": 6
+      "max": 8
     }
   }
 }
