@@ -2,10 +2,11 @@
 id: HITLD-978
 title: The planner and the ready count skip items closed on their branch and waiting to merge, and a fix for a stuck merge can take an executor slot at the cap
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M85PQM97TJFWF1
 ---
 
 ## Done when
