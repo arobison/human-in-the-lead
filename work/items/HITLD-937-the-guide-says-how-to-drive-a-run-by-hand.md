@@ -7,6 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
 claimed_by: D-01M87PRPC7SKNSWQ
+release_note: "`hitld dispatch --help` (and the same for every command group, such as `run` and `work`) lists the group's subcommands instead of answering `unknown command`, and the new-project guide shows how to drive one item by hand without Claude Code."
 ---
 
 ## Why

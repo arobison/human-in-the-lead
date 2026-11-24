@@ -56,8 +56,34 @@ export function helpText() {
   ].join('\n');
 }
 
+/** The commands under a group of words, such as `dispatch`: each whose name starts with them. @param {string} group */
+const membersOf = (group) => COMMANDS.filter((c) => c.name.startsWith(`${group} `));
+
+/** @param {Command[]} members */
+function memberLines(members) {
+  const width = Math.max(...members.map((c) => c.name.length)) + 2;
+  return members.map(
+    (c) => `  ${c.name.padEnd(width)}${c.summary}${c.run ? '' : ` [${c.built_by}]`}`,
+  );
+}
+
+/**
+ * Help for a group of commands that is not a command itself, such as `hitld dispatch`.
+ * @param {string} group @param {Command[]} members
+ */
+const groupHelp = (group, members) =>
+  [
+    `Usage: hitld ${group} <subcommand> [options]`,
+    `       hitld ${group} <subcommand> --help`,
+    '',
+    'Subcommands:',
+    ...memberLines(members),
+    '',
+  ].join('\n');
+
 /** @param {Command} c */
 function commandHelp(c) {
+  const members = membersOf(c.name);
   const word = (/** @type {import('./args.mjs').ArgSpec} */ a) =>
     a.positional ? `<${a.name}>` : `--${a.name}`;
   const width = Math.max(0, ...(c.args ?? []).map((a) => word(a).length)) + 2;
@@ -68,6 +94,7 @@ function commandHelp(c) {
     c.summary + '.',
     ...(c.aliases?.length ? ['', `Also: ${c.aliases.map((a) => `hitld ${a}`).join(', ')}`] : []),
     ...(args.length ? ['', 'Options:', ...args] : []),
+    ...(members.length ? ['', 'Subcommands:', ...memberLines(members)] : []),
     ...(c.run ? [] : ['', `Not yet built: ${BUILT_BY[c.built_by]} builds it.`]),
     '',
   ].join('\n');
@@ -91,6 +118,21 @@ export async function main(argv, io) {
 
   const found = findCommand(argv);
   if (!found) {
+    // A group of commands, such as `hitld dispatch`: its words before any option, when commands
+    // start with them (HITLD-937).
+    const flag = argv.findIndex((w) => w.startsWith('-'));
+    const group = argv.slice(0, flag < 0 ? argv.length : flag).join(' ');
+    const members = group ? membersOf(group) : [];
+    if (members.length) {
+      if (argv.includes('--help') || argv.includes('-h')) {
+        io.out(groupHelp(group, members));
+        return EXIT.ok;
+      }
+      const names = members.map((c) => c.name.slice(group.length + 1)).join(', ');
+      const message = `"${group}" needs a subcommand: ${names}. Run hitld ${group} --help for what each does`;
+      json(io, { ok: false, error: 'usage', message });
+      return EXIT.usage;
+    }
     const message = `unknown command "${argv.join(' ')}"; run hitld --help for the list`;
     json(io, { ok: false, error: 'usage', message });
     return EXIT.usage;
