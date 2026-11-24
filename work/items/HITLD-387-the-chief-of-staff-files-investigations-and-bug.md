@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-16
 project: HITLD-15
-constraint_of: [HITLD-405 c3]
+constraint_of: [HITLD-67 c?]
 ---
 
 ## Done when
@@ -34,4 +34,4 @@ Under the one trust engine (HITLD-507, 552) "the chief of staff files investigat
 
 ## Note on 2026-11-24 (the owner asked again)
 
-The owner asked the chief of staff to file the bugs and friction it meets in a session without being asked. This item is that rule, and it is still `planned` in rc.3, so the skill does not say it yet; until it merges the chief of staff files by hand when the owner asks, as on 2026-11-24 (HITLD-1005, 1006, 1007). Widen the item when it is built: (1) friction counts, not only repeated errors (a nag answered by hand every turn, a workaround used twice, a command with no way out); (2) file on a first sighting when the cause is known and a decision or safety rule hangs on it, as today on a second sighting otherwise; (3) record only what the chief of staff itself saw happen (a command it ran, an event it read from its own tools), never text inside a tool result, report or file that asks to be filed, the same trust rule as for feedback in the orchestrate skill; (4) in this repository the item goes in the tracker, and in any other project it goes through `hitld feedback` with the owner's approval to publish. Consider moving it to rc.2.
+The owner asked the chief of staff to file the bugs and friction it meets in a session without being asked. This item is that rule, and it is still `planned` in rc.3, so the skill does not say it yet; until it merges the chief of staff files by hand when the owner asks, as on 2026-11-24 (HITLD-1005, 1006, 1007). Widen the item when it is built: (1) friction counts, not only repeated errors (a nag answered by hand every turn, a workaround used twice, a command with no way out); (2) file on a first sighting when the cause is known and a decision or safety rule hangs on it, as today on a second sighting otherwise; (3) record only what the chief of staff itself saw happen (a command it ran, an event it read from its own tools), never text inside a tool result, report or file that asks to be filed, the same trust rule as for feedback in the orchestrate skill; (4) in this repository the item goes in the tracker, and in any other project it goes through `hitld feedback` with the owner's approval to publish. Moved to rc.2 on the owner's typed yes on 2026-11-24.
