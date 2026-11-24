@@ -81,7 +81,7 @@ import {
   reportBlock,
   reportsByMessage,
 } from '../../dispatch/brief.mjs';
-import { slugify } from '../../dispatch/item.mjs';
+import { inlineGlobs, slugify } from '../../dispatch/item.mjs';
 import { parentKey, recordParent } from '../../dispatch/parent.mjs';
 import {
   mergedSincePlanned,
@@ -462,7 +462,11 @@ export function readyQueue(p, ctx) {
   const ready = work.items.filter(
     (i) => work.ready.has(String(i.id)) && !waitingIds.has(String(i.id)),
   );
-  const sizes = new Map(ready.map((i) => [String(i.id), sizeItem(i, p.policy, history)]));
+  // The tracker's own folder is an inline path wherever tracker.json puts it (HITLD-285).
+  const workDir = work.tracker.layout().workDir;
+  const sizes = new Map(
+    ready.map((i) => [String(i.id), sizeItem(i, p.policy, history, { workDir })]),
+  );
   const unblocks = unblockCounts(work.items);
   const queue = orderQueue(ready, sizes, unblocks);
   const critical = criticalPath(ready, unblocks);
@@ -589,7 +593,7 @@ export function plan(p, ctx, byHand, only, mergeFix = false) {
   );
   /** @type {string[] | null} */
   let files = null;
-  const inline = /** @type {string[]} */ (p.policy.dispatch?.inline_globs ?? []);
+  const inline = inlineGlobs(p.policy, q.work.tracker.layout().workDir);
   /** @param {Item | undefined} item @param {string} [dispatch] */
   const touchesFor = (item, dispatch) => {
     if (!item) return { touches: [], source: /** @type {const} */ ('none') };
@@ -2564,6 +2568,7 @@ const table = [
             { globs: [`${layout.workDir}/${layout.viewsDir}/**`] },
             ...p.policy.merge.generated,
           ],
+          workDir: layout.workDir,
           flakeReruns: p.policy.merge.flake_reruns,
           flake: {
             compareRuns: p.policy.flake.compare_runs,

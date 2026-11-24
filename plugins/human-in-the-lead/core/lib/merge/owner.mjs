@@ -23,7 +23,7 @@
 //                proposed there, and the owner decides
 
 import { spawnSync } from 'node:child_process';
-import { allWithin, globsOverlap, sample } from '../dispatch/item.mjs';
+import { allWithin, globsOverlap, inlineGlobs, sample } from '../dispatch/item.mjs';
 import { matchesAny } from '../precedent/glob.mjs';
 import { diffSurface, emptySurface } from '../release/delta.mjs';
 import { schemaFields } from '../release/surface.mjs';
@@ -250,9 +250,10 @@ function publicSurface(repoRoot, t, globs) {
 export function evidenceFor(o) {
   const t = o.tested;
   const p = o.policy;
-  // Tracker edits and generated files are expected on any branch.
+  // Tracker edits (the tracker's own folder included) and generated files are expected on any
+  // branch.
   const expected = [
-    ...(p.dispatch?.inline_globs ?? []),
+    ...inlineGlobs(p, o.settings.workDir),
     ...o.settings.generated.flatMap((g) => g.globs),
   ];
   const touches = o.touches ?? [];
