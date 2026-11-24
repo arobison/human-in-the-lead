@@ -190,10 +190,11 @@ function itemLine(g, it, projectId, linkBase) {
 }
 
 /**
- * The generated item lists, as markdown: projects and their items.
- * @param {Graph} g @param {{ linkBase?: string }} [options]
+ * The generated item lists, as markdown: projects and their items. `level` is the heading
+ * level of each project: 2 under a page's own title, 3 between the README markers.
+ * @param {Graph} g @param {{ linkBase?: string, level?: number }} [options]
  */
-export function renderLists(g, { linkBase = '' } = {}) {
+export function renderLists(g, { linkBase = '', level = 3 } = {}) {
   /** @type {string[]} */
   const out = [];
   /** @param {Node} p @param {number} level */
@@ -230,7 +231,7 @@ export function renderLists(g, { linkBase = '' } = {}) {
       out.push('');
     }
   };
-  for (const p of g.projects) projectBlock(p, 3);
+  for (const p of g.projects) projectBlock(p, level);
   return `${out.join('\n').replace(/\n+$/, '')}\n`;
 }
 
