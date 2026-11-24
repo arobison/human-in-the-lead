@@ -2,10 +2,11 @@
 id: HITLD-937
 title: The guide says how to drive a run by hand without Claude Code, or says those commands are for the orchestrator skill only
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
+claimed_by: D-01M87PRPC7SKNSWQ
 ---
 
 ## Why
