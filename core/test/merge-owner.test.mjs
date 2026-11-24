@@ -1,4 +1,11 @@
-import { approvalSummary, chooseNamed, evidenceFor, queueProposals } from '../lib/merge/owner.mjs';
+import {
+  approvalSummary,
+  chooseNamed,
+  dependencyFileNames,
+  evidenceFor,
+  queueProposals,
+} from '../lib/merge/owner.mjs';
+import { builtinProfiles } from '../lib/ecosystems/profiles.mjs';
 import { test } from 'node:test';
 import { DISPATCH_ID } from '../lib/ledger/ids.mjs';
 import assert from 'node:assert/strict';
@@ -570,4 +577,103 @@ test("this repository's merge.public_globs cover the release surface paths", () 
     const sample = p.endsWith('/') ? `${p}x/y.mjs` : p;
     assert.ok(matchesAny(own.merge.public_globs, sample), p);
   }
+});
+
+/** @param {any} policy @param {string[]} changed */
+function dependencyReads(policy, changed) {
+  const root = tempDir('hitld-evidence-deps-');
+  return evidenceFor({
+    repoRoot: root,
+    tested: { item: 'W-1', branch: 'b', commit: 'HEAD', parent: 'HEAD', changed },
+    branchSha: 'abc',
+    touches: ['**'],
+    settings: { ...MERGE_SETTINGS, generated: [] },
+    policy,
+  }).reads.filter((r) => r.trigger === 'new dependency');
+}
+
+test('the new-dependency trigger fires on a manifest or lockfile of each of the built-in ecosystems', () => {
+  const { policy } = resolvePolicy(minimal);
+  const base = builtinProfiles();
+  assert.equal(base.size, 12);
+  /** @type {Record<string, string[]>} */
+  const sample = {
+    npm: ['package-lock.json', 'web/package.json', 'npm-shrinkwrap.json'],
+    pnpm: ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'packages/a/package.json'],
+    yarn: ['yarn.lock'],
+    cargo: ['crates/x/Cargo.toml', 'Cargo.lock'],
+    go: ['go.mod', 'svc/go.sum'],
+    pip: ['requirements.txt', 'setup.cfg', 'Pipfile', 'Pipfile.lock'],
+    uv: ['uv.lock', 'pyproject.toml'],
+    poetry: ['poetry.lock'],
+    maven: ['pom.xml'],
+    gradle: ['build.gradle', 'app/build.gradle.kts', 'settings.gradle.kts', 'gradle.lockfile'],
+    bundler: ['Gemfile', 'Gemfile.lock'],
+    composer: ['composer.json', 'composer.lock'],
+  };
+  assert.deepEqual(Object.keys(sample).sort(), [...base.keys()].sort());
+  for (const [name, files] of Object.entries(sample)) {
+    const profile = /** @type {import('../lib/ecosystems/profiles.mjs').Profile} */ (
+      base.get(name)
+    );
+    for (const file of files) {
+      const basename = /** @type {string} */ (file.split('/').at(-1));
+      assert.ok(
+        [...profile.manifests, ...profile.lockfiles].includes(basename),
+        `${file} is one of ${name}'s files`,
+      );
+      const fired = dependencyReads(policy, [file, 'src/x.js']);
+      assert.equal(fired.length, 1, file);
+      assert.deepEqual(fired[0].files, [file]);
+    }
+  }
+  assert.deepEqual(dependencyReads(policy, ['src/x.js', 'README.md']), []);
+});
+
+test("the trigger's names are the union of the built-in profiles' and the project's own; a project profile adds a name", () => {
+  const base = builtinProfiles();
+  const { policy } = resolvePolicy(minimal);
+  const builtin = dependencyFileNames(/** @type {any} */ (policy));
+  const union = new Set([...base.values()].flatMap((p) => [...p.manifests, ...p.lockfiles]));
+  assert.deepEqual([...builtin].sort(), [...union].sort());
+  assert.equal(builtin.has('deps.edn'), false);
+  assert.deepEqual(dependencyReads(policy, ['deps.edn']), []);
+  const own = resolvePolicy({
+    ...minimal,
+    ecosystems: {
+      profiles: [
+        { name: 'clojure', manifests: ['deps.edn'], lockfiles: [] },
+        { name: 'pnpm-locked', extends: 'pnpm', lockfiles: ['pnpm-lock.extra.yaml'] },
+      ],
+    },
+  });
+  assert.ok(own.policy, JSON.stringify(own));
+  const names = dependencyFileNames(/** @type {any} */ (own.policy));
+  for (const n of [...union, 'deps.edn', 'pnpm-lock.extra.yaml']) assert.ok(names.has(n), n);
+  const fired = dependencyReads(own.policy, ['tools/deps.edn', 'pnpm-lock.extra.yaml']);
+  assert.equal(fired.length, 1);
+  assert.deepEqual(fired[0].files, ['tools/deps.edn', 'pnpm-lock.extra.yaml']);
+});
+
+test("the pnpm workspace's manifest and lockfile names come from the pnpm profile, not the trigger's own list", () => {
+  const { policy } = resolvePolicy(minimal);
+  const base = builtinProfiles();
+  const pnpm = /** @type {import('../lib/ecosystems/profiles.mjs').Profile} */ (base.get('pnpm'));
+  for (const n of ['package.json', 'pnpm-workspace.yaml']) assert.ok(pnpm.manifests.includes(n));
+  assert.ok(pnpm.lockfiles.includes('pnpm-lock.yaml'));
+  const withPnpm = dependencyFileNames(/** @type {any} */ (policy), base);
+  for (const n of ['package.json', 'pnpm-workspace.yaml', 'pnpm-lock.yaml']) {
+    assert.ok(withPnpm.has(n), n);
+  }
+  // Without the pnpm profile the pnpm-only names are gone, so they come from it; package.json
+  // stays, since npm and yarn name it too.
+  const without = new Map([...base].filter(([name]) => name !== 'pnpm'));
+  const names = dependencyFileNames(/** @type {any} */ (policy), without);
+  assert.equal(names.has('pnpm-workspace.yaml'), false);
+  assert.equal(names.has('pnpm-lock.yaml'), false);
+  assert.ok(names.has('package.json'));
+  // And a pnpm profile that names another workspace file is followed.
+  const renamed = new Map(base);
+  renamed.set('pnpm', { ...pnpm, manifests: ['package.json', 'pnpm-workspace.yml'] });
+  assert.ok(dependencyFileNames(/** @type {any} */ (policy), renamed).has('pnpm-workspace.yml'));
 });

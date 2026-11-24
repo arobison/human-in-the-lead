@@ -29,3 +29,5 @@ GitHub issue 342, from a consumer's dashboard on v0.1.0-rc.1: its board took 8 t
 ## Notes
 
 Reported as GitHub issue 342 (a performance report), filed by the owner through `hitld feedback` from a consumer on v0.1.0-rc.1. The issue stays open until this item is done. Related: HITLD-243 (the git process count fix that took `work claims` from 129 to 3 seconds on Windows), HITLD-130 and 200 (removing merged worktrees, which shrinks the 5.5 GB), HITLD-18 (the read API), HITLD-267, 268 and 510 (more read API fields). Code: the owner's own yes to merge. Placed under HITLD-192 as a new clause c4 by the chief of staff, a proposal for the owner to move.
+
+Added 2026-11-24 from GitHub issue 636 (closed as a duplicate of 342): `run status` blocked for more than two minutes while a merge-queue run was in progress. Beside the store walk, a likely cause is a wait on a store or run-state file lock the merge holds. A read-only command must not wait on a lock a merge holds: add a test that runs it while a merge holds the lock and asserts a prompt answer.

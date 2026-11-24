@@ -176,6 +176,8 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `no-pull-request`: The branch has no open pull request to approve.
 - `ambiguous`: The name matches more than one presented branch, or a branch other than the item was dispatched on.
 - `no-github-remote`: merge.via is pull-request, and the git remote merge.pull_request.remote names no GitHub repository.
+- `no-forge-token`: hitld check forge found no read-only token in the environment variable it reads; nothing was read.
+- `no-forge-repo`: hitld check forge was given no repository as owner/name, and the git remote names none.
 
 **Decisions and precedents**
 
