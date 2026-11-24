@@ -94,6 +94,7 @@ import { runMergeQueue } from '../../merge/queue.mjs';
 import { ghGitHub, remoteUrl, repoFromRemote } from '../../merge/github.mjs';
 import {
   PULL_STATE_KEY,
+  approveAhead,
   approvePulls,
   pullTrustEvents,
   readPullState,
@@ -991,7 +992,7 @@ function approvePullRequests(o) {
   if (!state.presented) {
     throw new Refusal(
       'not-presented',
-      'no pull request is waiting for the owner: the session holding the lease runs hitld merge first; nothing was approved',
+      'no pull request is waiting for the owner: the session holding the lease runs hitld merge first; nothing was approved; to approve a pull request the queue has not presented yet, give --only <branch> --head <its head commit>',
     );
   }
   const shown = state.presented.branches.map((b) => ({
@@ -1018,7 +1019,7 @@ function approvePullRequests(o) {
   if (r.refused) {
     throw new Refusal(
       'not-presented',
-      `${r.refused.unknown.join(', ')} ${r.refused.unknown.length === 1 ? 'is' : 'are'} not among the pull requests presented to the owner; nothing was approved`,
+      `${r.refused.unknown.join(', ')} ${r.refused.unknown.length === 1 ? 'is' : 'are'} not among the pull requests presented to the owner; nothing was approved; to approve a pull request the queue has not presented yet, give --only <branch> --head <its head commit>`,
       { presented: shown },
     );
   }
@@ -1036,6 +1037,56 @@ function approvePullRequests(o) {
     });
   }
   return r.approved;
+}
+
+/** A full commit hash: SHA-1, or SHA-256. */
+const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * Record the owner's approval of one pull request's head before the queue presents it
+ * (HITLD-821, merge.via pull-request): in the queue's state, with the sign-off, for the queue to
+ * apply when it presents that head. A branch already presented with that head is approved as
+ * presented. Refused for a branch with no open pull request, or one whose head is not the one
+ * approved. The merge-approved ledger event is written when the queue applies it, naming the
+ * presentation it answers.
+ * @param {{ p: any, name: string, head: string, signedOffBy: string, by: string, run?: string,
+ *   github: import('../../merge/github.mjs').GitHub }} o
+ */
+function approveHead(o) {
+  const state = readPullState(o.p.store);
+  // An item ID names the branch the queue knows it on; anything else is a branch.
+  const known = Object.entries(state.branches).filter(([, b]) => b.item === o.name);
+  const branch = known.length === 1 ? known[0][0] : o.name;
+  const shown = state.presented?.branches.find((b) => b.branch === branch);
+  if (shown && shown.head === o.head) {
+    const approved = approvePullRequests({ ...o, all: false, names: [branch] });
+    return { approved, presented: true };
+  }
+  const pull = o.github.findPull(branch, o.p.policy.merge.main_branch);
+  const r = approveAhead({
+    state,
+    branch,
+    head: o.head,
+    pull,
+    signedOffBy: o.signedOffBy,
+    by: o.by,
+    at: new Date().toISOString(),
+  });
+  if (r.refused === 'no_pull_request') {
+    throw new Refusal(
+      'no-pull-request',
+      `${branch} has no open pull request to ${o.p.policy.merge.main_branch}; nothing was approved`,
+    );
+  }
+  if (r.refused === 'moved') {
+    throw new Refusal(
+      'stale',
+      `the head of ${branch}'s pull request is ${pull?.head}, not ${o.head}, so the owner approved other code; nothing was approved`,
+      { pull_request: pull?.url ?? null, head: pull?.head ?? null },
+    );
+  }
+  o.p.store.write(PULL_STATE_KEY, JSON.stringify(state));
+  return { approved: [{ branch, url: /** @type {any} */ (pull).url }], presented: false };
 }
 
 /**
@@ -1115,6 +1166,18 @@ async function pullRequestMerge(o) {
     ...(ctx.now ? { now: ctx.now } : {}),
   });
   p.store.write(PULL_STATE_KEY, JSON.stringify(result.state));
+  // An approval given before the presentation (HITLD-821), applied now: one record of it, naming
+  // this pass as the presentation it answers and the head it was applied to.
+  for (const a of result.ahead.applied) {
+    run.record({
+      event: 'merge-approved',
+      branches: [a.branch],
+      presented_at: a.presented_at,
+      commit: a.head,
+      by: a.by,
+      notes: `from the owner's own message at ${a.at}, before the queue presented pull request #${a.number}; approved head ${a.approved_head}, with the owner's sign-off`,
+    });
+  }
   for (const m of result.merged) {
     run.record({
       id: `merged-${m.item}-${m.commit.slice(0, 12)}`,
@@ -1187,6 +1250,9 @@ async function pullRequestMerge(o) {
     pending: result.pending,
     stalled: result.stalled,
     updated: result.updated,
+    ...(result.ahead.applied.length || result.ahead.dropped.length || result.ahead.expired.length
+      ? { approved_ahead: result.ahead }
+      : {}),
     presented: waiting,
     question: waiting.length
       ? waiting.length === 1
@@ -2784,7 +2850,7 @@ const table = [
   {
     name: 'merge approve',
     summary:
-      "Owner merge mode: record the owner's answer to the batch the last hitld merge presented (all, or a list), from the owner's own message in this session, bound to that presentation. Needs no lease: the chief of staff records it, and the session holding the lease applies it with hitld merge. Without --all or --only, shows the presentation",
+      "Owner merge mode: record the owner's answer to the batch the last hitld merge presented (all, or a list), from the owner's own message in this session, bound to that presentation. With merge.via pull-request, --only <branch> --head <sha> records an approval of that pull request head before the queue presents it. Needs no lease: the chief of staff records it, and the session holding the lease applies it with hitld merge. Without --all or --only, shows the presentation",
     built_by: 'h',
     args: [
       {
@@ -2802,6 +2868,12 @@ const table = [
         type: 'string',
         description:
           'With merge.via pull-request: the owner\'s sign-off for the squash commits they approve, "Name <email>"',
+      },
+      {
+        name: 'head',
+        type: 'string',
+        description:
+          'With merge.via pull-request and --only naming one branch: the full commit hash of the pull request head the owner approved. Recorded before the queue presents it; the queue applies it when it presents that head, or that head with only merges of main after it, and drops it otherwise',
       },
       SESSION,
     ],
@@ -2831,7 +2903,50 @@ const table = [
                 .filter(Boolean)
             : null;
         if (all && names) throw new Refusal('usage', 'give --all or --only, not both');
+        const head = typeof input.head === 'string' ? input.head.trim().toLowerCase() : null;
+        if (head !== null) {
+          if (p.policy.merge.via !== 'pull-request') {
+            throw new Refusal(
+              'usage',
+              '--head approves a pull request head, with merge.via pull-request; here the owner answers the batch hitld merge presents',
+            );
+          }
+          if (all || names?.length !== 1) {
+            throw new Refusal('usage', '--head goes with --only naming one branch');
+          }
+          if (!FULL_SHA.test(head)) {
+            throw new Refusal(
+              'usage',
+              '--head must be the full commit hash of the pull request head',
+            );
+          }
+        }
         if (p.policy.merge.via === 'pull-request') {
+          if (head !== null && names) {
+            const signedOffBy = signoffOf(input);
+            const by = identityOf(p, input, ctx).session;
+            if (!by) throw new Refusal('usage', NO_SESSION);
+            const done = approveHead({
+              p,
+              name: names[0],
+              head,
+              signedOffBy,
+              by,
+              run: p.state.run.id,
+              github: githubFor(p, ctx),
+            });
+            return {
+              ok: true,
+              via: 'pull-request',
+              approved: done.approved.map((b) => b.branch),
+              pull_requests: done.approved.map((b) => b.url),
+              head,
+              presented: done.presented,
+              next: done.presented
+                ? 'wake the session that holds the lease (hitld run status names it): its hitld merge merges this pull request once its checks pass, with the sign-off'
+                : 'nothing more to do now: when its checks pass, the queue applies this approval to this head (or this head with only merges of main after it) and merges it with the sign-off; any other new commit drops it, and the pull request is presented as usual',
+            };
+          }
           const shown = readPullState(p.store).presented;
           if (!all && names === null) {
             if (!shown) {

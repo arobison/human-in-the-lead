@@ -2,12 +2,13 @@
 id: HITLD-821
 title: An owner approval can be recorded for a pull request head before the queue presents it, and applies when it does
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M864TWQBN5ME9E
+release_note: "`hitld merge approve --only <branch> --head <sha> --signoff <sign-off>` records the owner's approval of an open pull request's head before the queue presents it (merge.via pull-request); the queue applies it when it presents that head, or that head followed only by clean merges of main exactly as git makes them, and drops it otherwise. A branch with no open pull request is refused with the new error code `no-pull-request`."
 ---
-
 
 ## Why
 
