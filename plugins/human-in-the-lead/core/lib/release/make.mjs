@@ -11,6 +11,12 @@
 // <version>.md and pins the exact versions of the packages it depends on; all of one release go
 // in one commit, so a lockstep group or a train is one owner approval. Nothing is pushed.
 //
+// The release item (the work item whose `release:` names the version made) ships in that same
+// commit (HITLD-838): its state is set to done and the record lists it under `items`, which is
+// how an item records the release it shipped in (`released_in`, for a full release). A release
+// made another way leaves the item open; `hitld work close` then accepts it once its record
+// exists (core/lib/tracker/files/claims.mjs).
+//
 // Two ways (design 16.5):
 //   on main    the commit lands on main and an annotated tag marks each record, for a person at a
 //              terminal who then pushes them.
@@ -22,6 +28,8 @@
 
 import { existsSync, rmSync } from 'node:fs';
 import { CodedError } from '../cli/errors.mjs';
+import { findEntry, writeKeys } from '../tracker/files/edit.mjs';
+import { applyPatch } from '../tracker/files/format.mjs';
 import { renderItem } from '../tracker/files/frontmatter.mjs';
 import { RELEASE_KEYS, formatDeltaEntry, packageReleasesDir } from '../tracker/files/releases.mjs';
 import { createExclusive, insidePath, mkdirInside } from '../tracker/files/safe.mjs';
@@ -138,6 +146,7 @@ export async function makeRelease(
     }
   }
   if (p.release_item) assertGatesMet(p);
+  const shipping = releaseItemsShipped(root, layout, releases);
   /** @type {{ r: import('./propose.mjs').NamedRelease, path: string, text: string, notes: string }[]} */
   const written = releases.map((r) => {
     const bump = /** @type {import('./semver.mjs').Bump} */ (
@@ -153,7 +162,10 @@ export async function makeRelease(
       depends: r.depends.map((d) => `${d.package}@${d.version}`),
       decision,
       train: p.train ?? undefined,
-      items: r.items,
+      items:
+        shipping.some((s) => s.id === r.release_item) && !r.items.includes(String(r.release_item))
+          ? [...r.items, String(r.release_item)]
+          : r.items,
       milestones: r.milestones,
       classification: layout.defaultClassification,
     };
@@ -179,8 +191,9 @@ export async function makeRelease(
     `Written by hitld release make, under the decision of ${decision === 'owner' ? 'the owner' : decision}${p.train ? `, for the release train ${p.train}` : ''}.`,
   ];
   const first = written[0];
+  const shipped = shipping.map((s) => s.id);
   if (onto !== undefined) {
-    const commit = commitOnBranch(root, layout, onto, written, message);
+    const commit = commitOnBranch(root, layout, onto, written, shipping, message);
     return {
       tag: first.r.tag,
       tags,
@@ -191,6 +204,7 @@ export async function makeRelease(
       record: first.path,
       records: written.map((w) => w.path),
       commit,
+      shipped,
       branch: onto,
       tagged: false,
       pushed: false,
@@ -199,7 +213,7 @@ export async function makeRelease(
       next: `Nothing was pushed or tagged. Push the branch (git push origin ${onto}) and open a pull request from it to ${layout.mainBranch} with pr.title and pr.body. Squash-merging it with the owner's Signed-off-by is the release: the release workflow tags ${first.r.tag} on the squash commit once the owner approves the run in the release environment.`,
     };
   }
-  writeRecords(root, layout, written);
+  writeRecords(root, layout, written, shipping);
   // Signed off with the git identity of whoever runs it, which is the owner: release make runs
   // only in the owner's own turn (the guard in cli/commands/release.mjs). The DCO check on main
   // (HITLD-59) needs a person's sign-off on every commit pushed there.
@@ -209,7 +223,7 @@ export async function makeRelease(
     '--signoff',
     ...message,
     '--',
-    ...written.map((w) => w.path),
+    ...committed(written, shipping),
   ]);
   const commit = git(root, ['rev-parse', 'HEAD']).trim();
   for (const w of written)
@@ -224,6 +238,7 @@ export async function makeRelease(
     record: first.path,
     records: written.map((w) => w.path),
     commit,
+    shipped,
     tagged: true,
     pushed: false,
     warnings: p.warnings,
@@ -232,15 +247,55 @@ export async function makeRelease(
 }
 
 /**
- * Write and stage each record.
+ * The release items this release ships: each release's release item whose `release:` is the
+ * version made and that is not done or dropped yet. An item named with --item that has no
+ * `release:` key, or another version, is a gate source only and keeps its state.
+ * @param {string} root @param {Layout} layout
+ * @param {import('./propose.mjs').NamedRelease[]} releases
+ * @returns {{ id: string, path: string }[]}
+ */
+function releaseItemsShipped(root, layout, releases) {
+  /** @type {Map<string, { id: string, path: string }>} */
+  const out = new Map();
+  for (const r of releases) {
+    const id = r.release_item;
+    if (id === null || out.has(id)) continue;
+    const entry = findEntry(root, layout, id);
+    const d = entry?.data;
+    if (!entry || !d || d.kind !== 'work' || d.release !== r.version) continue;
+    if (d.state === 'done' || d.state === 'dropped') continue;
+    out.set(id, { id, path: entry.path });
+  }
+  return [...out.values()];
+}
+
+/**
+ * The files the release commit holds: the records, then the release items it ships.
+ * @param {{ path: string }[]} written @param {{ path: string }[]} shipping
+ */
+const committed = (written, shipping) => [
+  ...written.map((w) => w.path),
+  ...shipping.map((s) => s.path),
+];
+
+/**
+ * Write and stage each record, and set each release item it ships to done. Only the state line
+ * of an item changes; its other keys stay where the file has them.
  * @param {string} root @param {Layout} layout
  * @param {{ r: import('./propose.mjs').NamedRelease, path: string, text: string }[]} written
+ * @param {{ id: string, path: string }[]} shipping
  */
-function writeRecords(root, layout, written) {
+function writeRecords(root, layout, written, shipping) {
   for (const w of written) {
     mkdirInside(root, packageReleasesDir(layout, w.r.package));
     createExclusive(insidePath(root, w.path), w.text);
     git(root, ['add', '--', w.path]);
+  }
+  for (const s of shipping) {
+    const entry = findEntry(root, layout, s.id);
+    if (!entry?.data) throw new Error(`${s.id} is not in this working tree`);
+    writeKeys(root, layout, s.path, applyPatch(entry.data, { state: 'done' }, layout), ['state']);
+    git(root, ['add', '--', s.path]);
   }
 }
 
@@ -319,13 +374,14 @@ function checkNewBranch(root, name, mainBranch) {
  * Commit the records on a new branch made from main, then check out main again. On a failure the
  * new branch is removed and main is checked out, as it was.
  * @param {string} root @param {Layout} layout @param {string} name
- * @param {{ r: import('./propose.mjs').NamedRelease, path: string, text: string }[]} written @param {string[]} message
+ * @param {{ r: import('./propose.mjs').NamedRelease, path: string, text: string }[]} written
+ * @param {{ id: string, path: string }[]} shipping @param {string[]} message
  * @returns {string} the commit
  */
-function commitOnBranch(root, layout, name, written, message) {
+function commitOnBranch(root, layout, name, written, shipping, message) {
   git(root, ['switch', '-q', '-c', name]);
   try {
-    writeRecords(root, layout, written);
+    writeRecords(root, layout, written, shipping);
     // Signed off by whoever runs it (the owner's own turn), so the branch passes the pull request
     // DCO check; the squash commit on main carries the owner's sign-off as the one who merges.
     git(root, [
@@ -334,7 +390,7 @@ function commitOnBranch(root, layout, name, written, message) {
       '--signoff',
       ...message,
       '--',
-      ...written.map((w) => w.path),
+      ...committed(written, shipping),
     ]);
     const commit = git(root, ['rev-parse', 'HEAD']).trim();
     git(root, ['switch', '-q', layout.mainBranch]);
@@ -344,6 +400,8 @@ function commitOnBranch(root, layout, name, written, message) {
       git(root, ['reset', '-q', '--', w.path], { allowFail: true });
       rmSync(insidePath(root, w.path), { force: true });
     }
+    for (const s of shipping)
+      git(root, ['checkout', '-q', 'HEAD', '--', s.path], { allowFail: true });
     git(root, ['switch', '-q', '-f', layout.mainBranch], { allowFail: true });
     git(root, ['branch', '-D', name], { allowFail: true });
     throw e;

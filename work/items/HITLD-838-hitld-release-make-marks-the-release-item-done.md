@@ -7,6 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M860KWV74HH54J
+release_note: "`hitld release make` sets the release item to done and lists it in the release record, in the same commit as the record, and returns the items it shipped as `shipped`. `hitld work close` accepts a release item once its release record exists, from planned and on main too."
 ---
 
 ## Why
