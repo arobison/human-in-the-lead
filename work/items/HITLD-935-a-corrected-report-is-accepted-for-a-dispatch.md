@@ -2,10 +2,11 @@
 id: HITLD-935
 title: A corrected report is accepted for a dispatch whose report had errors, and a failed follow-up records nothing
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
+claimed_by: D-01M85PQHPHKC0G5J
 ---
 
 ## Why
