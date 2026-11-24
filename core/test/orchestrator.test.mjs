@@ -861,43 +861,11 @@ test('a run end to end: plan, dispatch, complete, merge, refill, follow-up', asy
   assert.equal(events.find((e) => e.event === 'reported')?.tokens, 5000);
 });
 
-test('dispatch complete asks again for a report whose branch is not a branch name or not in the repository (HITLD-280)', async () => {
+test('dispatch complete asks again for a report whose branch is not a branch name or not in the repository, and accepts the corrected one (HITLD-280, HITLD-935)', async () => {
   const c = makeConsumer();
   recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
   assert.equal((await c.hitld(['run', 'start'])).exit, 0);
   const sha = git(c.root, 'rev-parse', 'HEAD');
-  /** Start the item, complete it with the report `text` makes from its branch, and check that
-   * nothing is queued and the executor is asked again for the reason `re`. */
-  const asksAgain = async (
-    /** @type {string} */ id,
-    /** @type {(branch: string) => string} */ text,
-    /** @type {RegExp} */ re,
-  ) => {
-    const start = await c.hitld(['dispatch', 'start', id]);
-    assert.equal(start.exit, 0, JSON.stringify(start.result));
-    const d = start.result.dispatch;
-    await c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', `agent-${id}`]);
-    const note = join(c.base, `${id}.txt`);
-    writeFileSync(note, text(start.result.branch));
-    const done = await c.hitld([
-      'dispatch',
-      'complete',
-      '--dispatch',
-      d,
-      '--report-file',
-      note,
-      '--tokens',
-      '5000',
-    ]);
-    assert.equal(done.exit, 0, JSON.stringify(done.result));
-    assert.equal(done.result.queued_to_merge, undefined, JSON.stringify(done.result));
-    assert.ok(
-      (done.result.report_errors ?? []).some((/** @type {string} */ e) => re.test(e)),
-      JSON.stringify(done.result),
-    );
-    assert.match(done.result.next, new RegExp(`dispatch follow-up --dispatch ${d}`));
-  };
-
   // A note written inside the parenthetical, as in the issue, is a parse error: refused before
   // anything is recorded (HITLD-748), naming the same fix.
   const start = await c.hitld(['dispatch', 'start', 'W-1']);
@@ -920,11 +888,53 @@ test('dispatch complete asks again for a report whose branch is not a branch nam
     JSON.stringify(refused.result),
   );
   // A well-formed name that no branch in the repository has: the merge would reject it as
-  // missing and tell no one. (The end-to-end test above queues a branch that exists.)
-  await asksAgain(
-    'W-2',
-    () => report({ item: 'W-2', sha, branch: 'hitld/W-2-no-such-branch' }),
-    /hitld\/W-2-no-such-branch, which is not a branch in the repository/,
+  // missing and tell no one. Refused before anything is recorded (HITLD-935), so the dispatch is
+  // still in flight and the corrected report is accepted, not answered `already`.
+  const ledger = () => readLedger(openStore(join(c.data, 'human-in-the-lead/orch-fixture'))).events;
+  const start2 = await c.hitld(['dispatch', 'start', 'W-2']);
+  assert.equal(start2.exit, 0, JSON.stringify(start2.result));
+  const d2 = start2.result.dispatch;
+  const branch2 = start2.result.branch;
+  await c.hitld(['dispatch', 'handle', '--dispatch', d2, '--harness-ref', 'agent-W-2']);
+  const note2 = join(c.base, 'W-2.txt');
+  const complete2 = (/** @type {string} */ text) => {
+    writeFileSync(note2, text);
+    return c.hitld(['dispatch', 'complete', '--dispatch', d2, '--report-file', note2]);
+  };
+  const missing = await complete2(report({ item: 'W-2', sha, branch: 'hitld/W-2-no-such-branch' }));
+  assert.equal(missing.exit, 1, JSON.stringify(missing.result));
+  assert.equal(missing.result.error, 'report-errors', JSON.stringify(missing.result));
+  assert.ok(
+    missing.result.report_errors.some((/** @type {string} */ e) =>
+      /hitld\/W-2-no-such-branch in its commit line, which is not a branch in the repository/.test(
+        e,
+      ),
+    ),
+    JSON.stringify(missing.result),
+  );
+  assert.match(missing.result.next, new RegExp(`hitld dispatch complete --dispatch ${d2} again`));
+  // A report about another item is refused the same way.
+  const other = await complete2(report({ item: 'W-1', sha, branch: branch2 }));
+  assert.equal(other.result.error, 'report-errors', JSON.stringify(other.result));
+  assert.match(other.result.report_errors[0], /is about W-1, not W-2/);
+  assert.ok(
+    !ledger().some((e) => e.dispatch === d2 && e.event === 'reported'),
+    'nothing is recorded for a report with errors',
+  );
+  // The corrected report: accepted (the dispatch is still in flight), recorded once, and its
+  // branch queued to merge.
+  git(c.root, 'branch', branch2, sha);
+  const corrected = await complete2(report({ item: 'W-2', sha, branch: branch2 }));
+  assert.equal(corrected.exit, 0, JSON.stringify(corrected.result));
+  assert.equal(corrected.result.already, undefined, 'not answered already');
+  assert.equal(corrected.result.result, 'done');
+  assert.equal(corrected.result.queued_to_merge, branch2);
+  assert.equal(corrected.result.report_errors, undefined);
+  assert.deepEqual(
+    ledger()
+      .filter((e) => [`reported-${d2}`, `verified-${d2}`].includes(String(e.id)))
+      .map((e) => e.event),
+    ['reported', 'verified'],
   );
 });
 
@@ -1412,6 +1422,8 @@ test('a completion records its start estimate, refuses a figure far above it, an
   const ledger = () => readLedger(openStore(join(c.data, 'human-in-the-lead/orch-fixture'))).events;
   const estimate = ledger().find((e) => e.event === 'dispatched')?.estimate_tokens;
   assert.ok(typeof estimate === 'number' && estimate > 0, 'the dispatch started with an estimate');
+  // The branch is there, as an executor's would be: a report naming a missing one is refused.
+  git(c.root, 'branch', s.result.branch, git(c.root, 'rev-parse', 'HEAD'));
   const note = join(c.base, 'note-436.txt');
   writeFileSync(note, report({ item: 'W-2', sha: 'abc1234', branch: s.result.branch }));
 

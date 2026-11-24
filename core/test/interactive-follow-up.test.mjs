@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readLedger } from '../lib/ledger/ledger.mjs';
 import { openStore } from '../lib/store/store.mjs';
@@ -242,5 +242,210 @@ test('an interactive follow-up without a session to report to is refused before 
   );
   assert.notEqual(refused.exit, 0, JSON.stringify(refused.result));
   assert.equal(refused.result.error, 'no-report-block', JSON.stringify(refused.result));
+  assert.doesNotMatch(refused.result.message, /headless/, 'it does not speak of a headless run');
   assert.equal(ledger().length, before, 'nothing is recorded');
+});
+
+/** A headless dispatch of W-4 that ended with a partial report: its run has a session ID to resume. */
+async function headlessPartial() {
+  const t = await dispatched('headless');
+  const { c, d, start, store } = t;
+  const result = {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    duration_ms: 1000,
+    session_id: 'sess-headless',
+    result: report({
+      item: 'W-4',
+      sha: 'abc1234',
+      branch: String(start.result.branch),
+      result: 'partial',
+    }),
+    usage: { input_tokens: 10, output_tokens: 3000 },
+  };
+  store.write(`dispatch/results/${d}.json`, `${JSON.stringify(result)}\n`);
+  const partial = await c.hitld(['dispatch', 'complete', '--dispatch', d], ORCH);
+  assert.equal(partial.exit, 0, JSON.stringify(partial.result));
+  assert.equal(partial.result.result, 'partial');
+  return t;
+}
+
+/** The dispatches in flight. @param {Awaited<ReturnType<typeof dispatched>>['c']} c */
+const inFlight = async (c) =>
+  (await c.hitld(['ledger', 'in-flight'], ORCH)).result.in_flight.map(
+    (/** @type {any} */ x) => x.dispatch,
+  );
+
+test('a follow-up that launches a run records nothing until dispatch handle names what runs (GitHub issue 582)', async () => {
+  const { c, d, ledger } = await headlessPartial();
+  const before = ledger().length;
+  const follow = await c.hitld(
+    ['dispatch', 'follow-up', '--dispatch', d, '--message', 'Finish it.'],
+    ORCH,
+  );
+  assert.equal(follow.exit, 0, JSON.stringify(follow.result));
+  const d2 = String(follow.result.dispatch);
+  assert.equal(follow.result.instruction.tool, 'Bash');
+  assert.match(follow.result.instruction.input.command, /--resume sess-headless/);
+  assert.match(follow.result.then, /nothing is recorded yet/);
+  assert.match(follow.result.then, new RegExp(`hitld dispatch handle --dispatch ${d2} `));
+  assert.equal(ledger().length, before, 'no dispatched or started event before it runs');
+
+  // The launch printed its process ID: recorded now, headless, with that reference.
+  const handled = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d2, '--harness-ref', '4242'],
+    ORCH,
+  );
+  assert.equal(handled.exit, 0, JSON.stringify(handled.result));
+  assert.equal(handled.result.recorded_follow_up, true);
+  assert.equal(handled.result.mode, 'headless');
+  const recorded = ledger().filter((e) => e.dispatch === d2);
+  assert.deepEqual(
+    recorded.map((e) => e.event),
+    ['dispatched', 'started'],
+  );
+  assert.equal(recorded[0].mode, 'headless');
+  assert.equal(recorded[0].notes, `follow-up of ${d}`);
+  assert.equal(recorded[1].harness_ref, '4242', 'its own reference, not the earlier run');
+  const again = await c.hitld(['dispatch', 'complete', '--dispatch', d]);
+  assert.equal(again.result.continued_as, d2);
+});
+
+/** What a follow-up `d2` has in the store, by the keys it writes or its launch would write. @param {any} store @param {string} d2 */
+const filesOf = (store, d2) =>
+  [
+    `dispatch/briefs/${d2}.md`,
+    `dispatch/follow-ups/${d2}.json`,
+    `run/parents/${d2}.json`,
+    `dispatch/results/${d2}.json`,
+    `dispatch/results/${d2}.stderr`,
+    `dispatch/pids/${d2}.pid`,
+  ].filter((k) => store.read(k) !== null);
+
+test('a follow-up waiting for dispatch handle holds its item: dispatch start refuses it, naming the follow-up (HITLD-935)', async () => {
+  const { c, d, store } = await headlessPartial();
+  const follow = await c.hitld(
+    ['dispatch', 'follow-up', '--dispatch', d, '--message', 'Finish it.'],
+    ORCH,
+  );
+  assert.equal(follow.exit, 0, JSON.stringify(follow.result));
+  const d2 = String(follow.result.dispatch);
+  assert.deepEqual(filesOf(store, d2).slice(0, 2), [
+    `dispatch/briefs/${d2}.md`,
+    `dispatch/follow-ups/${d2}.json`,
+  ]);
+  const refused = await c.hitld(['dispatch', 'start', 'W-4'], ORCH);
+  assert.equal(refused.result.error, 'follow-up-pending', JSON.stringify(refused.result));
+  assert.equal(refused.result.dispatch, d2);
+  assert.match(refused.result.message, new RegExp(`${d2} \\(follow-up of ${d}\\)`));
+  assert.match(refused.result.message, new RegExp(`hitld dispatch handle --dispatch ${d2} `));
+  // Once handled, it is in flight like any dispatch, and no longer pending.
+  await c.hitld(['dispatch', 'handle', '--dispatch', d2, '--harness-ref', '4242'], ORCH);
+  const after = await c.hitld(['dispatch', 'start', 'W-4'], ORCH);
+  assert.notEqual(after.result.error, 'follow-up-pending', JSON.stringify(after.result));
+});
+
+test('a follow-up whose launch fails removes what it wrote, records nothing, and frees its item (GitHub issue 582, HITLD-935)', async () => {
+  const { c, d, ledger, store } = await headlessPartial();
+  const before = ledger().length;
+  const flightBefore = await inFlight(c);
+  const follow = await c.hitld(
+    ['dispatch', 'follow-up', '--dispatch', d, '--message', 'Finish it.'],
+    ORCH,
+  );
+  assert.equal(follow.exit, 0, JSON.stringify(follow.result));
+  const d2 = String(follow.result.dispatch);
+  const command = String(follow.result.instruction.input.command);
+  assert.match(command, / --cwd /, 'the launcher, not a cd before it, enters the worktree');
+  assert.doesNotMatch(command, /^cd /);
+
+  // The launch fails: a path with node on it and no claude. The launcher removes what was
+  // written for it.
+  const bin = join(c.base, 'node-only');
+  mkdirSync(bin, { recursive: true });
+  symlinkSync(process.execPath, join(bin, 'node'));
+  assert.throws(() =>
+    execFileSync('/bin/sh', ['-c', command], { env: { PATH: bin }, stdio: 'pipe' }),
+  );
+  assert.deepEqual(filesOf(store, d2), [], 'no brief, pending record, result or pid file');
+  assert.equal(ledger().length, before, 'a launch that fails records nothing');
+  assert.deepEqual(await inFlight(c), flightBefore, 'nothing in flight');
+  const start = await c.hitld(['dispatch', 'start', 'W-4'], ORCH);
+  assert.notEqual(start.result.error, 'follow-up-pending', JSON.stringify(start.result));
+  const handle = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d2, '--harness-ref', '4242'],
+    ORCH,
+  );
+  assert.equal(handle.result.error, 'not-in-flight', 'nothing is left to handle');
+});
+
+test('a follow-up run as a subagent instead of its launch is recorded as one, with its agent (GitHub issue 582)', async () => {
+  const { c, d, ledger } = await headlessPartial();
+  const follow = await c.hitld(
+    ['dispatch', 'follow-up', '--dispatch', d, '--message', 'Finish it.'],
+    ORCH,
+  );
+  const d2 = String(follow.result.dispatch);
+  const handled = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d2, '--harness-ref', 'agent-real', '--mode', 'subagent'],
+    ORCH,
+  );
+  assert.equal(handled.exit, 0, JSON.stringify(handled.result));
+  assert.equal(handled.result.mode, 'subagent');
+  const recorded = ledger().filter((e) => e.dispatch === d2);
+  assert.deepEqual(
+    recorded.map((e) => e.event),
+    ['dispatched', 'started'],
+  );
+  assert.equal(recorded[0].mode, undefined, 'a subagent carries no tier-3 mode');
+  assert.equal(recorded[1].harness_ref, 'agent-real');
+  assert.ok((await inFlight(c)).includes(d2));
+  // Its mode is recorded once: a later --mode that differs is refused.
+  const changed = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d2, '--harness-ref', 'agent-real', '--mode', 'headless'],
+    ORCH,
+  );
+  assert.equal(changed.result.error, 'usage', JSON.stringify(changed.result));
+});
+
+test('dispatch handle accepts the reference of the agent that is running, and the last one stands (GitHub issue 582)', async () => {
+  const { c, d, ledger } = await dispatched('interactive');
+  /** @param {string} ref */
+  const handle = (ref) =>
+    c.hitld(['dispatch', 'handle', '--dispatch', d, '--harness-ref', ref], ORCH);
+  const standing = async () =>
+    (await c.hitld(['ledger', 'in-flight'], ORCH)).result.in_flight.find(
+      (/** @type {any} */ x) => x.dispatch === d,
+    ).harness_ref;
+  const started = () => ledger().filter((e) => e.event === 'started' && e.dispatch === d);
+
+  // X (recorded by the fixture), X again: a no-op.
+  const same = await handle('session_exec');
+  assert.equal(same.exit, 0, JSON.stringify(same.result));
+  assert.equal(same.result.appended, false, 'the same reference twice is a no-op');
+
+  // X, Y, Y: Y replaces X, and Y again is a no-op, not a clash with the first started event.
+  const moved = await handle('session_real');
+  assert.equal(moved.exit, 0, JSON.stringify(moved.result));
+  assert.equal(moved.result.appended, true);
+  assert.equal(moved.result.replaced, 'session_exec');
+  assert.equal(await standing(), 'session_real', 'the watchdog reaches the agent that runs');
+  const again = await handle('session_real');
+  assert.equal(again.exit, 0, JSON.stringify(again.result));
+  assert.equal(again.result.appended, false);
+  assert.equal(started().length, 2);
+
+  // X, Y, X: the earlier reference given again is a new reference, recorded, and it stands.
+  const back = await handle('session_exec');
+  assert.equal(back.exit, 0, JSON.stringify(back.result));
+  assert.equal(back.result.appended, true);
+  assert.equal(back.result.replaced, 'session_real');
+  assert.equal(await standing(), 'session_exec');
+  assert.deepEqual(
+    started().map((e) => e.harness_ref),
+    ['session_exec', 'session_real', 'session_exec'],
+  );
+  const backAgain = await handle('session_exec');
+  assert.equal(backAgain.result.appended, false, 'and given again it is a no-op');
 });

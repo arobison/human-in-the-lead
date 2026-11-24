@@ -68,6 +68,7 @@ import { awaitingMerge, planDispatch, queuedBranches } from '../../dispatch/plan
 import {
   PERMISSIONS_REASON,
   mentionedRefusals,
+  modeOf,
   refusalsInRun,
   refusedCommands,
   refusedNote,
@@ -81,7 +82,7 @@ import {
   reportsByMessage,
 } from '../../dispatch/brief.mjs';
 import { slugify } from '../../dispatch/item.mjs';
-import { recordParent } from '../../dispatch/parent.mjs';
+import { parentKey, recordParent } from '../../dispatch/parent.mjs';
 import {
   mergedSincePlanned,
   overlapsInFlight,
@@ -146,6 +147,41 @@ import { loadTerms } from '../../store/private-terms.mjs';
 
 /** The notes of a follow-up's dispatched event; `dispatch complete` reads it to name the follow-up. */
 const FOLLOW_UP_OF = 'follow-up of ';
+
+/**
+ * A follow-up that launches a run of its own (a headless resume) waits here until
+ * `dispatch handle` names what actually ran: its dispatched and started events are recorded only
+ * then, so a launch that fails records nothing (GitHub issue 582). @param {string} d
+ */
+export const pendingFollowUpKey = (d) => `dispatch/follow-ups/${d}.json`;
+
+/**
+ * The follow-ups that wait for `dispatch handle`: a pending record whose dispatch the ledger does
+ * not hold. One that was handled stays on disk but is no longer pending.
+ * @param {{ store: import('../../store/store.mjs').PrivateStore }} p
+ * @param {import('../../ledger/ledger.mjs').LedgerEntry[]} events
+ * @returns {{ dispatch: string, item: string, follows: string }[]}
+ */
+function pendingFollowUps(p, events) {
+  const recorded = new Set(
+    events.filter((e) => e.event === 'dispatched').map((e) => String(e.dispatch)),
+  );
+  return p.store.list('dispatch/follow-ups/').flatMap((key) => {
+    const dispatch = key.replace(/^.*\//, '').replace(/\.json$/, '');
+    if (recorded.has(dispatch)) return [];
+    try {
+      const pending = JSON.parse(p.store.read(key) ?? 'null');
+      return pending?.dispatched?.item
+        ? [{ dispatch, item: String(pending.dispatched.item), follows: String(pending.follows) }]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** How an executor ran, as `dispatch handle --mode` names it. */
+const HANDLE_MODES = ['headless', 'interactive', 'subagent'];
 
 /** @type {import('../args.mjs').ArgSpec} */
 const SESSION = {
@@ -1180,6 +1216,33 @@ async function pullRequestMerge(o) {
 }
 
 /**
+ * What is wrong with a report in the fixed shape that the executor can correct: another item, or
+ * a done report whose branch the repository does not have (the merge would reject it as missing
+ * and tell no one, HITLD-280). Null when nothing is.
+ * @param {ReturnType<typeof project>} p @param {Record<string, any>} r
+ * @param {{ item: string, branch: string }} entry
+ * @returns {{ error: string, ask: string, next: string } | null}
+ */
+function reportErrors(p, r, entry) {
+  if (r.item !== entry.item) {
+    return {
+      error: `is about ${r.item}, not ${entry.item}, the item this dispatch runs`,
+      ask: `send the report about ${entry.item}`,
+      next: `the report is about ${r.item}, not ${entry.item}`,
+    };
+  }
+  if (r.result === 'done' && r.commit && missingBranch(p, r.commit, entry)) {
+    const branch = r.commit.branch ?? entry.branch;
+    return {
+      error: `names ${branch} in its commit line, which is not a branch in the repository: give the branch the work is on`,
+      ask: 'give the branch the work is on in the commit line',
+      next: 'the report names a branch that does not exist',
+    };
+  }
+  return null;
+}
+
+/**
  * `hitld dispatch complete`: record a completion, check its report, queue its branch to merge and
  * plan the refill. `given` is a notification the caller has already built, in place of the files
  * the input names: `hitld dispatch reconcile` builds it from the closing commit and the harness's
@@ -1306,6 +1369,22 @@ export function completeDispatch(input, ctx, given = null) {
       },
     );
   }
+  // A report in the fixed shape that names another item or a branch the repository does not
+  // have is refused the same way (HITLD-935): recorded, it would stand, so the corrected report
+  // would be answered `already` and the branch would never reach the merge queue.
+  const wrong = parsed.report && !refused.length ? reportErrors(p, parsed.report, entry) : null;
+  if (wrong && n.kind !== 'headless') {
+    throw new Refusal(
+      'report-errors',
+      `${d}'s report ${wrong.error}. Nothing was recorded and it is still in flight`,
+      {
+        dispatch: d,
+        item: entry.item,
+        report_errors: [wrong.error],
+        next: `send the executor report_errors by the way it reports (SendMessage to the agent, or a message to its session), asking it to ${wrong.ask} and send the whole report again; then run hitld dispatch complete --dispatch ${d} again with the corrected report`,
+      },
+    );
+  }
   releaseExecutor(p.machineRoot, p.policy.project.id, d);
   const mentioned = refused.length
     ? []
@@ -1372,16 +1451,10 @@ export function completeDispatch(input, ctx, given = null) {
     out.questions = r.questions;
     out.calls = r.calls.map((/** @type {any} */ c) => c.text);
     out.deviations = r.deviations;
-    if (r.item !== entry.item) {
-      out.next = `the report is about ${r.item}, not ${entry.item}: follow up`;
-    } else if (r.result === 'done' && r.commit && missingBranch(p, r.commit, entry)) {
-      // The merge would reject the branch as missing and tell no one, so the executor is
-      // asked now (HITLD-280).
-      const branch = r.commit.branch ?? entry.branch;
-      out.report_errors = [
-        `commit names ${branch}, which is not a branch in the repository: give the branch the work is on`,
-      ];
-      out.next = `the report names a branch that does not exist: hitld dispatch follow-up --dispatch ${d} --message "<ask for the report again with the branch the work is on, naming the error>"`;
+    if (wrong) {
+      // A headless run has ended: its report is recorded, and a follow-up asks again.
+      out.report_errors = [wrong.error];
+      out.next = `${wrong.next}: hitld dispatch follow-up --dispatch ${d} --message "<ask the executor to ${wrong.ask}, naming the error>"`;
     } else if (r.result === 'done' && r.commit) {
       const branch = r.commit.branch ?? entry.branch;
       run.record({
@@ -1551,6 +1624,16 @@ const table = [
             'handover-due',
             `this session's hand-over is due (${due.reasons.join('; ')}): start nothing new; once the work it started has reported, hitld handover. A successor dispatches ${id}`,
             { handover: due },
+          );
+        }
+        // A follow-up launched as a run of its own is in flight in all but the ledger until
+        // dispatch handle records it: a second executor on the item would work its branch too.
+        const waiting = pendingFollowUps(p, readLedger(p.store).events).find((f) => f.item === id);
+        if (waiting) {
+          throw new Refusal(
+            'follow-up-pending',
+            `${id} has a follow-up waiting to be recorded: ${waiting.dispatch} (follow-up of ${waiting.follows}). Once its launch printed the process ID, hitld dispatch handle --dispatch ${waiting.dispatch} --harness-ref <that pid>; a launch that fails removes it, and the item can be started again`,
+            { dispatch: waiting.dispatch, follows: waiting.follows },
           );
         }
         const byHand = input['by-hand'] === true ? id : undefined;
@@ -1881,7 +1964,7 @@ const table = [
   {
     name: 'dispatch handle',
     summary:
-      'Record the reference the harness gave a dispatch (harness_ref: the agent ID, the background task ID)',
+      'Record the reference the harness gave a dispatch (harness_ref: the agent ID, the background task ID), and record a follow-up that launched a run once it runs',
     built_by: 'h',
     args: [
       DISPATCH,
@@ -1889,7 +1972,14 @@ const table = [
         name: 'harness-ref',
         type: 'string',
         required: true,
-        description: "The harness's own reference for the dispatch",
+        description:
+          "The harness's own reference for the dispatch: the agent that is running it. A reference other than the one recorded replaces it",
+      },
+      {
+        name: 'mode',
+        type: 'string',
+        description:
+          'How a follow-up that launched a run of its own actually ran, when not as instructed: headless, interactive or subagent',
       },
       SESSION,
       HOST,
@@ -1899,22 +1989,67 @@ const table = [
         const p = project(ctx);
         const run = runOf(p, input, ctx);
         const d = String(input.dispatch);
-        const entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
+        const ref = String(input['harness-ref']);
+        const mode = typeof input.mode === 'string' ? input.mode : null;
+        if (mode !== null && !HANDLE_MODES.includes(mode)) {
+          throw new Refusal('usage', `--mode is one of ${HANDLE_MODES.join(', ')}, not ${mode}`);
+        }
+        const events = readLedger(p.store).events;
+        const dispatched = events.find((e) => e.event === 'dispatched' && e.dispatch === d);
+        let entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
+        /** @type {import('../../ledger/ledger.mjs').LedgerEntry | null} */
+        let recordedFollowUp = null;
+        if (!dispatched) {
+          // A follow-up that launched a run of its own is recorded now that it runs, with how
+          // it ran and the reference of what runs (GitHub issue 582).
+          const raw = p.store.read(pendingFollowUpKey(d));
+          if (raw === null) throw new Refusal('not-in-flight', `${d} is not in flight`);
+          const pending = JSON.parse(raw);
+          const { mode: instructed, ...rest } = pending.dispatched;
+          const ran = mode ?? instructed ?? 'subagent';
+          /** @type {import('../../ledger/ledger.mjs').LedgerEntry} */
+          const follow = { ...rest, ...(ran === 'subagent' ? {} : { mode: ran }) };
+          recordedFollowUp = follow;
+          run.record(follow);
+          entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
+        } else if (mode !== null && mode !== modeOf(dispatched)) {
+          throw new Refusal(
+            'usage',
+            `${d} is recorded as run ${modeOf(dispatched) === 'subagent' ? 'as a subagent' : modeOf(dispatched)} since it was dispatched; --mode names how a follow-up that launched a run of its own ran, before it is recorded`,
+          );
+        }
         if (!entry) throw new Refusal('not-in-flight', `${d} is not in flight`);
-        const { appended } = run.record({
-          id: lifecycleId('started', d),
-          event: 'started',
-          dispatch: d,
-          item: entry.item,
-          harness: 'claude-code',
-          harness_ref: String(input['harness-ref']),
-          host: run.host,
-        });
+        // The agent that is running: a reference other than the one recorded is recorded too,
+        // and the last one stands, so the watchdog reaches what runs. The reference that stands,
+        // given again, records nothing, however many were recorded before it; an earlier one given
+        // again is a new reference and is recorded (it stands from then on).
+        const refs = events.filter((e) => e.event === 'started' && e.dispatch === d);
+        const same = refs.at(-1)?.harness_ref === ref;
+        const { appended } = same
+          ? { appended: false }
+          : run.record({
+              id: refs.length
+                ? `${lifecycleId('started', d)}-${refs.length + 1}`
+                : lifecycleId('started', d),
+              event: 'started',
+              dispatch: d,
+              item: entry.item,
+              harness: 'claude-code',
+              harness_ref: ref,
+              host: run.host,
+            });
         return {
           ok: true,
           dispatch: d,
           item: entry.item,
           appended,
+          ...(recordedFollowUp
+            ? {
+                recorded_follow_up: true,
+                mode: modeOf(recordedFollowUp),
+              }
+            : {}),
+          ...(refs.length && !same ? { replaced: refs.at(-1)?.harness_ref ?? null } : {}),
           next: 'wait for its completion notice; between notices, merge, answer questions, triage. Never poll',
         };
       }),
@@ -1976,7 +2111,8 @@ const table = [
         const from = String(input.dispatch);
         const events = readLedger(p.store).events;
         const first = events.find((e) => e.dispatch === from && e.event === 'dispatched');
-        const started = events.find((e) => e.dispatch === from && e.event === 'started');
+        // The last started event: dispatch handle records another when the agent that runs changed.
+        const started = events.filter((e) => e.dispatch === from && e.event === 'started').at(-1);
         if (!first || !started?.harness_ref) {
           throw new Refusal('unknown-dispatch', `${from} has no recorded harness_ref to continue`);
         }
@@ -2032,6 +2168,12 @@ const table = [
           let sessionId = null;
           let worktree = null;
           if (tier >= 3 || first.mode === 'headless') {
+            // A run continued by resuming it: a headless run, or a tier-3 dispatch whose mode the
+            // ledger does not hold, which can only be resumed.
+            const ran =
+              first.mode === 'headless'
+                ? 'ran headless, and a follow-up resumes its run'
+                : 'has no recorded mode, so a follow-up can only resume its run';
             try {
               const stored = p.store.read(resultKey(from));
               sessionId = stored === null ? null : headlessCompletion(stored).sessionId;
@@ -2057,7 +2199,7 @@ const table = [
             if (missing.length) {
               throw new Refusal(
                 'cannot-follow-up',
-                `${from} ran headless, and a headless follow-up resumes its run, which needs ${missing.join(' and ')}. Nothing was recorded`,
+                `${from} ${ran}, which needs ${missing.join(' and ')}. Nothing was recorded`,
               );
             }
           }
@@ -2074,9 +2216,15 @@ const table = [
             pidPath: join(p.store.root, pidKey(dispatch)),
             permissionMode: p.policy.dispatch.headless_permission_mode,
             env: xenv,
+            // What this follow-up writes before its launch: a launch that fails removes it, so
+            // nothing is left to hold the item or look like a dispatch (HITLD-935).
+            cleanup: [briefKey(dispatch), pendingFollowUpKey(dispatch), parentKey(dispatch)].map(
+              (k) => join(p.store.root, k),
+            ),
           });
         }
-        run.record({
+        /** @type {Record<string, any>} */
+        const dispatchedEvent = {
           id: lifecycleId('dispatched', dispatch),
           event: 'dispatched',
           dispatch,
@@ -2097,25 +2245,35 @@ const table = [
             ? { touches: first.touches, touches_source: first.touches_source }
             : {}),
           notes: `${FOLLOW_UP_OF}${from}`,
-        });
-        run.record({
-          id: lifecycleId('started', dispatch),
-          event: 'started',
-          dispatch,
-          item: first.item,
-          harness: 'claude-code',
-          harness_ref: started.harness_ref,
-          host: run.host,
-        });
+        };
         p.store.write(briefKey(dispatch), message);
+        // A message to the same agent or session continues the run that is there, under its own
+        // reference. A resume launches a run of its own, with a reference of its own: nothing is
+        // recorded until dispatch handle gives it, so a launch that fails leaves no dispatch
+        // behind and the reference recorded is the one of what runs (GitHub issue 582).
+        const launches = call.tool === 'Bash';
+        if (launches) {
+          p.store.write(
+            pendingFollowUpKey(dispatch),
+            `${JSON.stringify({ follows: from, dispatched: dispatchedEvent }, null, 2)}\n`,
+          );
+        } else {
+          run.record(dispatchedEvent);
+          run.record({
+            id: lifecycleId('started', dispatch),
+            event: 'started',
+            dispatch,
+            item: first.item,
+            harness: 'claude-code',
+            harness_ref: started.harness_ref,
+            host: run.host,
+          });
+        }
         recordParent(p.store, dispatch, {
           env: ctx.env,
           host: run.host,
           now: new Date(nowOf(ctx)),
         });
-        if (call.tool === 'Bash') {
-          mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
-        }
         return {
           ok: true,
           dispatch,
@@ -2125,7 +2283,9 @@ const table = [
           then:
             call.tool === 'relay'
               ? `with a chief of staff, put the relay in your message to it (relay: follow-up ${dispatch} to session ${started.harness_ref}, with the message); when you are both, send the message to that session yourself. Its report comes to this session: complete it as ${dispatch}, not ${from}, whose report is already recorded: save the session's result events to a file; hitld dispatch complete --dispatch ${dispatch} --session-record <file> [--report-file <the report>]`
-              : `its completion notice goes to hitld dispatch complete --dispatch ${dispatch}`,
+              : launches
+                ? `nothing is recorded yet: once the call prints the process ID, hitld dispatch handle --dispatch ${dispatch} --harness-ref <that pid>, which records the follow-up. If the launch fails, nothing is left behind: run the follow-up another way and give dispatch handle that run's reference and how it ran (as a subagent with the message in ${briefPath}: --harness-ref <the agent ID> --mode subagent). Its completion goes to hitld dispatch complete --dispatch ${dispatch}`
+                : `its completion notice goes to hitld dispatch complete --dispatch ${dispatch}`,
         };
       }),
   },
