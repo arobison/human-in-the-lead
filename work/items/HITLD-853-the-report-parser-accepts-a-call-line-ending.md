@@ -2,11 +2,12 @@
 id: HITLD-853
 title: The report parser accepts a call line ending (one-way), as the contract and the briefs say
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M860KVF993NCM9
+release_note: "A report's call line may end `(one-way)` as well as `(reversible)`: the parsed call carries `reversible: false`, `dispatch complete` lists it with its `(one-way)` mark, and a line ending neither is refused, naming it."
 ---
 
 ## Why
