@@ -2,10 +2,12 @@
 id: HITLD-921
 title: The new-dependency trigger reads its manifest and lockfile names from the ecosystem profiles
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M87SHJFVEXC1BE
+release_note: "The new-dependency read in owner merge mode fires on the manifests and lockfiles the ecosystem profiles name, the built-in ones and the project's own in `ecosystems.profiles`, instead of a fixed list; it now also fires on setup.cfg, uv.lock, build.gradle.kts, settings.gradle, settings.gradle.kts, gradle.lockfile and composer.lock."
 ---
 
 ## Why
