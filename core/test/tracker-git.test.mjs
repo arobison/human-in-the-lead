@@ -737,6 +737,21 @@ test('views are written to the views directory, only changed files are rewritten
   assert.equal(git(root, 'status', '--porcelain'), status);
 });
 
+test('the lists view never skips a heading level (markdownlint MD001)', () => {
+  const root = makeRepo();
+  const t = open(root);
+  const { dir } = t.writeViews();
+  const levels = readFileSync(join(dir, 'lists.md'), 'utf8')
+    .split('\n')
+    .flatMap((line) => (/^#+ /.test(line) ? [line.indexOf(' ')] : []));
+  assert.equal(levels[0], 1, 'the view opens with a level-1 heading');
+  assert.ok(levels.length > 1, 'the fixture has a project under the title');
+  levels.forEach((level, i) => {
+    if (i)
+      assert.ok(level <= levels[i - 1] + 1, `heading ${i} jumps from ${levels[i - 1]} to ${level}`);
+  });
+});
+
 test('views regenerate the lists between the README markers when tracker.json names the file', () => {
   const root = makeRepo({
     files: {
