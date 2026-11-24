@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { install } from '../lib/install/install.mjs';
@@ -14,10 +14,13 @@ import { POLICY_PATH } from '../lib/policy/policy.mjs';
 import { readLedger } from '../lib/ledger/ledger.mjs';
 import { openStore } from '../lib/store/store.mjs';
 import { judgeDispatch } from '../lib/dispatch/reconcile.mjs';
+import { createRedactor } from '../lib/env/secrets.mjs';
 import { headlessCompletion } from '../harness/claude-code/completion.mjs';
 import {
+  KEYCHAIN_TIMEOUT_MS,
   SERVICE,
   TOKEN_ENV,
+  signInState,
   childEnv,
   credentialFailure,
   readToken,
@@ -34,6 +37,8 @@ import { tempDir } from './helpers/tmp.mjs';
 const CHECKOUT = fileURLToPath(new URL('../../', import.meta.url));
 const TOKEN = 'sk-ant-oat01-' + 'x'.repeat(95);
 const POSIX = process.platform !== 'win32';
+/** The day `n` days from now, YYYY-MM-DD, as Claude Code writes it. @param {number} n */
+const day = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
 /**
  * A directory of stand-in keychain tools: each prints `token` for the service, or fails when it
@@ -42,12 +47,13 @@ const POSIX = process.platform !== 'win32';
  */
 function keychainTools(token) {
   const bin = tempDir('hitld-880-bin-');
+  const log = `printf '%s\\n' "$(basename "$0") $*" >> ${join(bin, 'calls')}`;
   for (const tool of ['security', 'secret-tool']) {
     const body =
       token === null
         ? 'exit 1'
         : `case "$*" in *${SERVICE}*) printf '%s\\n' '${token}' ;; *) exit 1 ;; esac`;
-    writeFileSync(join(bin, tool), `#!/bin/sh\n${body}\n`);
+    writeFileSync(join(bin, tool), `#!/bin/sh\n${log}\n${body}\n`);
     chmodSync(join(bin, tool), 0o755);
   }
   return bin;
@@ -62,43 +68,70 @@ function tokenFile(machineDir, mode = 0o600) {
   return file;
 }
 
-test('the keychain is read with no shell, by service, per platform; the two printed lines join into one value', () => {
-  /** @type {[string, string[]][]} */
-  const calls = [];
-  /** @param {string | null} out */
-  const fake = (out) => (/** @type {string} */ program, /** @type {string[]} */ args) => {
-    calls.push([program, args]);
-    return out;
-  };
-  const darwin = readToken({
-    env: {},
-    machineDir: null,
-    platform: 'darwin',
-    run: fake(`${TOKEN}\n`),
-  });
-  assert.deepEqual(darwin, { value: TOKEN, source: 'keychain' });
-  assert.deepEqual(calls.at(-1), ['security', ['find-generic-password', '-s', SERVICE, '-w']]);
-  const linux = readToken({ env: {}, machineDir: null, platform: 'linux', run: fake(TOKEN) });
-  assert.deepEqual(linux, { value: TOKEN, source: 'secret-service' });
-  assert.deepEqual(calls.at(-1), ['secret-tool', ['lookup', 'service', SERVICE]]);
-  const win = readToken({
-    env: {},
-    machineDir: null,
-    platform: 'win32',
-    run: fake(`${TOKEN.slice(0, 50)}\r\n${TOKEN.slice(50)}`),
-  });
-  assert.deepEqual(win, { value: TOKEN, source: 'credential-manager' }, 'a break pasted in goes');
-  const [program, args] = /** @type {[string, string[]]} */ (calls.at(-1));
-  assert.equal(program, 'powershell.exe');
-  const script = Buffer.from(args.at(-1) ?? '', 'base64').toString('utf16le');
-  assert.match(script, /CredRead/);
-  assert.match(script, new RegExp(SERVICE));
-  const none = readToken({ env: {}, machineDir: null, platform: 'linux', run: fake(null) });
-  assert.equal(none.value, null);
-  assert.deepEqual('looked_in' in none ? none.looked_in : [], [
-    `the Secret Service through libsecret (service ${SERVICE})`,
-  ]);
-});
+test(
+  'the keychain is read through keychain.mjs by service and account on macOS and Linux, Credential Manager on Windows; the two printed lines join into one value',
+  { skip: !POSIX },
+  () => {
+    const bin = keychainTools(`${TOKEN.slice(0, 60)}\n${TOKEN.slice(60)}`);
+    const env = { PATH: `${bin}:${process.env.PATH}`, USER: 'owner' };
+    const darwin = readToken({ env, machineDir: null, platform: 'darwin' });
+    assert.deepEqual(darwin, { value: TOKEN, source: 'keychain' }, 'a break pasted in goes');
+    const linux = readToken({ env, machineDir: null, platform: 'linux' });
+    assert.deepEqual(linux, { value: TOKEN, source: 'secret-service' });
+    assert.deepEqual(readFileSync(join(bin, 'calls'), 'utf8').trim().split('\n'), [
+      `security find-generic-password -s ${SERVICE} -a owner -w`,
+      `secret-tool lookup service ${SERVICE} account owner`,
+    ]);
+    /** @type {[string, string[]][]} */
+    const calls = [];
+    const win = readToken({
+      env: {},
+      machineDir: null,
+      platform: 'win32',
+      run: (program, args) => {
+        calls.push([program, args]);
+        return `${TOKEN.slice(0, 50)}\r\n${TOKEN.slice(50)}`;
+      },
+    });
+    assert.deepEqual(win, { value: TOKEN, source: 'credential-manager' });
+    const [program, args] = /** @type {[string, string[]]} */ (calls.at(-1));
+    assert.equal(program, 'powershell.exe');
+    const script = Buffer.from(args.at(-1) ?? '', 'base64').toString('utf16le');
+    assert.match(script, /CredRead/);
+    assert.match(script, new RegExp(SERVICE));
+    const none = readToken({
+      env: { PATH: `${keychainTools(null)}:${process.env.PATH}`, USER: 'owner' },
+      machineDir: null,
+      platform: 'linux',
+    });
+    assert.equal(none.value, null);
+    assert.deepEqual('looked_in' in none ? none.looked_in : [], [
+      `the Secret Service through libsecret (service ${SERVICE}, account owner)`,
+    ]);
+  },
+);
+
+test(
+  'a keychain tool that does not answer counts as finding nothing after the time limit',
+  { skip: !POSIX },
+  () => {
+    const bin = tempDir('hitld-880-slow-');
+    for (const tool of ['security', 'secret-tool']) {
+      writeFileSync(join(bin, tool), `#!/bin/sh\nexec sleep 30\n`);
+      chmodSync(join(bin, tool), 0o755);
+    }
+    const t0 = Date.now();
+    const r = readToken({
+      env: { PATH: `${bin}:${process.env.PATH}`, USER: 'owner' },
+      machineDir: null,
+      platform: 'linux',
+      timeoutMs: 300,
+    });
+    assert.equal(r.value, null);
+    assert.ok(Date.now() - t0 < 10_000, `it gave up at the limit, not after ${Date.now() - t0} ms`);
+    assert.equal(KEYCHAIN_TIMEOUT_MS, 10_000, 'about ten seconds by default');
+  },
+);
 
 test(
   'the machine file is used when the keychain has none, and refused when others can read it',
@@ -111,10 +144,17 @@ test(
       value: TOKEN,
       source: 'machine-file',
     });
-    chmodSync(file, 0o644);
-    const open = readToken({ env: {}, machineDir, platform: 'linux', run });
-    assert.equal(open.value, null);
-    assert.match('problems' in open ? open.problems.join() : '', /read by other users: chmod 600/);
+    for (const mode of [0o644, 0o640, 0o604, 0o620]) {
+      chmodSync(file, mode);
+      const open = readToken({ env: {}, machineDir, platform: 'linux', run });
+      assert.equal(open.value, null, `mode ${mode.toString(8)} is refused`);
+      assert.match(
+        'problems' in open ? open.problems.join() : '',
+        /read by other users: chmod 600/,
+      );
+    }
+    chmodSync(file, 0o400);
+    assert.equal(readToken({ env: {}, machineDir, platform: 'linux', run }).value, TOKEN);
   },
 );
 
@@ -209,8 +249,8 @@ test('the launcher gives the child the token in its environment only, with traci
     undefined,
     "the caller's is untouched",
   );
-  const started = credentialEnv({ env, machineDir: null, platform: 'linux', run: () => TOKEN });
-  assert.deepEqual(started.credential, { kind: 'oauth-token', source: 'secret-service' });
+  const started = credentialEnv({ env, machineDir: null, platform: 'win32', run: () => TOKEN });
+  assert.deepEqual(started.credential, { kind: 'oauth-token', source: 'credential-manager' });
   assert.equal(started.env[TOKEN_ENV], TOKEN);
   // One the environment already gives is used as it is, and nothing is read.
   const given = credentialEnv({
@@ -300,19 +340,27 @@ test(
     const env = { PATH: `${keychainTools(null)}:${process.env.PATH}` };
     const store = join(c.data, 'human-in-the-lead/orch-fixture');
     mkdirSync(join(store, 'dispatch/results'), { recursive: true });
+    // What Claude Code prints on standard error when a headless run starts on the sign-in.
     writeFileSync(
       join(store, 'dispatch/results/D-1.stderr'),
-      'Your sign-in can end at any time before 2026-12-20; renewing it does not move the date. For unattended jobs, use claude setup-token.\n',
+      `Warning: this sign-in ends between ${day(5)} and ${day(11)} (in 5 days at the earliest). Renewing it does not move those dates. Run claude auth login before then, or use claude setup-token for unattended jobs.\n`,
     );
     const before = await c.hitld(['env', 'status'], { env });
     assert.equal(before.exit, 0, JSON.stringify(before.result));
     const credential = before.result.credential;
     assert.equal(credential.long_lived, false);
     assert.equal(credential.kind, 'interactive');
-    assert.equal(credential.sign_in_ends, '2026-12-20');
+    const ends = credential.sign_in_ends;
+    assert.equal(ends.earliest, day(5));
+    assert.equal(ends.latest, day(11));
+    assert.equal(ends.from, 'D-1.stderr');
+    assert.equal(ends.state, 'ahead');
+    assert.ok([4, 5].includes(ends.days_left), String(ends.days_left));
     assert.match(
       credential.summary,
-      /interactive sign-in, which can end at any time before 2026-12-20/,
+      new RegExp(
+        `interactive sign-in, which can end in [45] days at the earliest, between ${day(5)} and ${day(11)}`,
+      ),
     );
     assert.ok(
       before.result.warnings.some((/** @type {string} */ w) => /claude setup-token/.test(w)),
@@ -326,6 +374,16 @@ test(
     assert.match(after.result.credential.summary, /long-lived credential/);
     assert.equal(after.result.warnings, undefined);
     assert.ok(!JSON.stringify(after.result).includes(TOKEN.slice(20, 40)), 'never the value');
+
+    // A run whose warning said the sign-in may already have ended: status says it has.
+    rmSync(join(c.data, 'human-in-the-lead/_machine/credentials'), { recursive: true });
+    writeFileSync(
+      join(store, 'dispatch/results/D-1.stderr'),
+      `Warning: this sign-in may have ended between ${day(-10)} and ${day(-3)}. If requests are refused, run claude auth login, or use claude setup-token for unattended jobs.\n`,
+    );
+    const ended = await c.hitld(['env', 'status'], { env });
+    assert.equal(ended.result.credential.sign_in_ends.state, 'ended');
+    assert.match(ended.result.credential.summary, /which has ended/);
 
     const fromEnv = await c.hitld(['env', 'status'], { env: { ...env, ANTHROPIC_API_KEY: 'k' } });
     assert.equal(fromEnv.result.credential.source, 'environment');
@@ -363,11 +421,84 @@ test('a credential lost mid-run is read from the run output: the result event, a
     /Invalid API key/,
   );
   assert.equal(credentialFailure([{ type: 'result', result: 'item: W-1\nresult: done' }]), null);
+  assert.match(
+    String(
+      credentialFailure(
+        [],
+        'Failed to authenticate: this login reached its time limit and cannot be renewed. Run `claude auth login` to sign in again\n',
+      ),
+    ),
+    /reached its time limit/,
+  );
+  // A credential in the line is redacted by its shape.
+  assert.equal(
+    credentialFailure([], `401 authentication_error for token ${TOKEN}\n`),
+    '401 authentication_error for token [REDACTED:ANTHROPIC_TOKEN]',
+  );
+});
+
+test("the sign-in's end is read in each of Claude Code's wordings and compared with now", () => {
+  const now = Date.parse('2026-12-10T12:00:00Z');
+  /** @type {[string, Record<string, unknown>, Record<string, unknown>][]} */
+  const cases = [
+    [
+      'Warning: this sign-in ends between 2026-12-15 and 2026-12-20 (in 5 days at the earliest). Renewing it does not move those dates.',
+      { earliest: '2026-12-15', latest: '2026-12-20', said_ended: false },
+      { state: 'ahead', days_left: 4 },
+    ],
+    [
+      'Warning: this sign-in can end at any time from now until 2026-12-12. Renewing it does not move that date.',
+      { earliest: null, latest: '2026-12-12', said_ended: false },
+      { state: 'any-day-now', days_left: 0 },
+    ],
+    [
+      'Warning: this sign-in may have ended between 2026-12-01 and 2026-12-06. If requests are refused, run claude auth login',
+      { earliest: '2026-12-01', latest: '2026-12-06', said_ended: true },
+      { state: 'ended', days_left: 0 },
+    ],
+    [
+      'Sign-in ends: between 2026-12-08 and 2026-12-14 (2026-12-14T09:00:00.000Z)',
+      { earliest: '2026-12-08', latest: '2026-12-14', said_ended: false },
+      { state: 'any-day-now', days_left: 0 },
+    ],
+    [
+      'Sign-in ends: any day now, by 2026-12-11 (2026-12-11T09:00:00.000Z)',
+      { earliest: null, latest: '2026-12-11', said_ended: false },
+      { state: 'any-day-now', days_left: 0 },
+    ],
+    [
+      'Sign-in may have ended: between 2026-11-20 and 2026-11-27 (2026-11-27T09:00:00.000Z)',
+      { earliest: '2026-11-20', latest: '2026-11-27', said_ended: true },
+      { state: 'ended', days_left: 0 },
+    ],
+  ];
+  for (const [line, end, state] of cases) {
+    const got = signInEndsIn(`something else\n${line}\n`);
+    assert.deepEqual(got, end, line);
+    assert.deepEqual(signInState(/** @type {any} */ (got), now), state, line);
+  }
+  // A date passed since the warning was printed: the run said "ahead", now it has ended.
+  const old = /** @type {any} */ (signInEndsIn(cases[0][0]));
+  assert.equal(signInState(old, Date.parse('2026-12-21T00:00:01Z')).state, 'ended');
   assert.equal(signInEndsIn('nothing about it'), null);
   assert.equal(
-    signInEndsIn('can end before December 20, 2026. Use claude setup-token'),
-    'December 20, 2026',
+    signInEndsIn('use claude setup-token before 2026-12-20'),
+    null,
+    'no invented wording',
   );
+});
+
+test('a token found by its shape is redacted from what hitld shows, declared or not', () => {
+  const r = createRedactor({});
+  assert.equal(
+    r.redact(
+      `env: CLAUDE_CODE_OAUTH_TOKEN=${TOKEN} ANTHROPIC_API_KEY=sk-ant-api03-abcdefghij_KLM-123`,
+    ),
+    'env: CLAUDE_CODE_OAUTH_TOKEN=[REDACTED:ANTHROPIC_TOKEN] ANTHROPIC_API_KEY=[REDACTED:ANTHROPIC_TOKEN]',
+  );
+  assert.equal(r.counts.ANTHROPIC_TOKEN, 2);
+  assert.equal(r.redact('sk-ant- is a prefix, not a token'), 'sk-ant- is a prefix, not a token');
+  assert.ok(r.longest >= 128, 'a capture cut short keeps room for a whole token');
 });
 
 test('a detached executor that loses its credential mid-run is recorded blocked with the reason, not left silent', async () => {
@@ -464,7 +595,7 @@ test('an unattended credential report never carries the value', () => {
   const c = unattendedCredential({
     env: {},
     machineDir: null,
-    platform: 'linux',
+    platform: 'win32',
     run: () => 'not-a-setup-token',
   });
   assert.equal(c.long_lived, true);
@@ -479,10 +610,15 @@ test('the sign-in date is read from what the harness printed, never from the age
   writeFileSync(
     join(dir, 'D-2.json'),
     [
-      said({ type: 'user', message: { content: 'use claude setup-token before 2030-01-01' } }),
+      said({
+        type: 'user',
+        message: { content: 'this sign-in can end at any time from now until 2030-01-01' },
+      }),
       said({
         type: 'assistant',
-        message: { content: [{ type: 'text', text: 'setup-token by 2031-01-01' }] },
+        message: {
+          content: [{ type: 'text', text: 'Sign-in ends: between 2031-01-01 and 2031-01-07' }],
+        },
       }),
     ].join('\n'),
   );
@@ -492,8 +628,13 @@ test('the sign-in date is read from what the harness printed, never from the age
     said({
       type: 'system',
       subtype: 'notice',
-      text: 'Your sign-in can end before 2026-12-20. For unattended jobs use claude setup-token',
+      text: 'Warning: this sign-in can end at any time from now until 2026-12-20. Renewing it does not move that date. Run claude auth login now, or use claude setup-token for unattended jobs.',
     }),
   );
-  assert.deepEqual(signInEnds(dir), { date: '2026-12-20', from: 'D-3.json' });
+  assert.deepEqual(signInEnds(dir), {
+    earliest: null,
+    latest: '2026-12-20',
+    said_ended: false,
+    from: 'D-3.json',
+  });
 });

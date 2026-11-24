@@ -56,11 +56,13 @@ Compare it with the length of the token `claude setup-token` printed. `hitld env
 
 - `long_lived: true` with `kind: oauth-token` and `source` (`keychain`, `credential-manager`, `secret-service` or `machine-file`) and `length`: the stored token.
 - `long_lived: true` with `source: environment` and the `variable`: a credential the environment already gives Claude Code (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, a `CLAUDE_CODE_OAUTH_TOKEN` a cloud environment sets, or a cloud provider such as `CLAUDE_CODE_USE_BEDROCK`). The launcher uses it as it is.
-- `long_lived: false`, `kind: interactive`: none was found. `sign_in_ends` is the date Claude Code gave for the sign-in's end in a headless run's output, when one has run here, and a warning says to make the token before an overnight run.
+- `long_lived: false`, `kind: interactive`: none was found, and a warning says to make the token before an overnight run. When a headless run here started on the sign-in, Claude Code warned on its standard error when the sign-in ends ("this sign-in ends between 2026-12-14 and 2026-12-20", "can end at any time from now until 2026-12-20", or "may have ended between ..."). `sign_in_ends` holds those dates (`earliest`, `latest`), the file it was read from, and where they stand now: `state` is `ahead` with `days_left` before the earliest, `any-day-now`, or `ended`.
 
 ## How the launcher uses it
 
-At each start of a detached executor, the launcher reads the token into that executor's environment only, as `CLAUDE_CODE_OAUTH_TOKEN`. It is never on a command line, in the launcher's own environment or in any output; the keychain tools run with no shell, so nothing traces them, and their errors are discarded. The launcher drops it once the executor has started, and prints only the credential's kind and source. Claude Code keeps the variable out of the environment of the tools the executor runs, so an executor that runs `env` does not see it. The executor's own process environment can still be read by your other processes (`ps eww`), as any process's can.
+At each start of a detached executor, the launcher reads the token into that executor's environment only, as `CLAUDE_CODE_OAUTH_TOKEN`. It is never on a command line, in the launcher's own environment or in any output of the launcher's; the keychain tools run with no shell, so nothing traces them, their errors are discarded, and one that does not answer within 10 seconds counts as finding nothing. The launcher prints only the credential's kind and source, and exits once the executor has started.
+
+What it does not protect: the executor itself holds the token, and so can whatever it runs. Claude Code does not take the variable out of its tools' environment by default (only with `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` set, which on Linux needs bubblewrap), so a command the executor runs, such as `env`, can print it, and what it prints lands in the run's transcript in the private store (`dispatch/results/`). The executor's process environment can also be read by your other processes (`ps eww`), as any process's can. Where `hitld` shows text from a run, such as the reason a run stopped or the output of `hitld env exec`, it redacts anything shaped like an Anthropic token or key (`sk-ant-...`). Treat the transcripts in the private store as holding the token, and revoke it if one leaves the machine.
 
 With no credential, the launcher starts nothing, exits 1, and says where it looked and these steps, never a value.
 
@@ -70,4 +72,4 @@ If the token is revoked, or a run started on the interactive sign-in loses it, t
 
 ## Undo
 
-Delete the stored token: `security delete-generic-password -s claude-code-oauth-token` (macOS), `cmdkey /delete:claude-code-oauth-token` (Windows), `secret-tool clear service claude-code-oauth-token` (Linux), or the file. Executors then refuse to start until a credential is stored again.
+Delete the stored token: `security delete-generic-password -a "$USER" -s claude-code-oauth-token` (macOS), `cmdkey /delete:claude-code-oauth-token` (Windows), `secret-tool clear service claude-code-oauth-token` (Linux), or the file. Executors then refuse to start until a credential is stored again.

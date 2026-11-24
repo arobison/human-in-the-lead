@@ -16,6 +16,7 @@ import {
   credentialLine,
   setupSteps,
   signInEnds,
+  signInState,
   unattendedCredential,
 } from '../../../harness/claude-code/credential.mjs';
 import { splitCommand } from '../../env/secrets.mjs';
@@ -198,20 +199,25 @@ const withEnv = (body) => (input, ctx) => {
 
 /**
  * What `env status` says about the credential detached executors run on (HITLD-880): which one,
- * by kind, source and length, never its value; for the interactive sign-in, the date Claude Code
- * gave for its end and a warning.
- * @param {string} storeRoot @param {NodeJS.ProcessEnv} env
+ * by kind, source and length, never its value; for the interactive sign-in, the dates Claude Code
+ * gave for its end, where that stands now (ended, any day now, or days left), and a warning.
+ * @param {string} storeRoot @param {NodeJS.ProcessEnv} env @param {number} now
  */
-function credentialStatus(storeRoot, env) {
+function credentialStatus(storeRoot, env, now) {
   const machineDir = machineRootFor(storeRoot);
   const c = unattendedCredential({ env, machineDir });
   const ends = c.long_lived ? null : signInEnds(join(storeRoot, 'dispatch', 'results'));
-  const line = credentialLine(c, ends);
+  const line = credentialLine(c, ends, now);
   const { looked_in: lookedIn, ...shown } = c;
   return {
     credential: {
       ...shown,
-      ...(c.long_lived ? {} : { looked_in: lookedIn, sign_in_ends: ends?.date ?? null }),
+      ...(c.long_lived
+        ? {}
+        : {
+            looked_in: lookedIn,
+            sign_in_ends: ends ? { ...ends, ...signInState(ends, now) } : null,
+          }),
       summary: line,
     },
     ...(c.long_lived && !c.problems.length
@@ -581,7 +587,7 @@ export const commands = [
         ports: Object.values(registry.ports),
         locks: env.lockStatus(),
         lock_waits: env.lockWaits(),
-        ...credentialStatus(opened.storeRoot, ctx.env),
+        ...credentialStatus(opened.storeRoot, ctx.env, (ctx.now ?? (() => new Date()))().getTime()),
       };
     },
   },

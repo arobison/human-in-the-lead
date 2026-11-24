@@ -80,9 +80,22 @@ export function splitCommand(line) {
 }
 
 /**
+ * Credentials found by their shape, whatever their value, so one never declared is still
+ * redacted (HITLD-880): the Anthropic tokens and keys a run can be given, such as the token
+ * `claude setup-token` makes (sk-ant-oat01-...) and API keys (sk-ant-api03-...).
+ * @type {{ name: string, pattern: RegExp }[]}
+ */
+export const TOKEN_PATTERNS = [
+  { name: 'ANTHROPIC_TOKEN', pattern: /sk-ant-[a-z]{2,8}\d{2}-[A-Za-z0-9_-]{8,}/g },
+];
+/** Room kept for a token found by its shape at the end of a capture cut short. */
+const PATTERN_ROOM = 256;
+
+/**
  * Finds secret values in text and replaces them with [REDACTED:NAME]. Besides the value itself it
  * recognizes the forms a program commonly prints: JSON-escaped, URL-encoded, base64, base64url and
- * hex; and for a multi-line value, each line of at least six characters.
+ * hex; and for a multi-line value, each line of at least six characters. A credential with a known
+ * shape (TOKEN_PATTERNS) is redacted too, given or not.
  * @param {Record<string, string>} secrets name to value
  */
 export function createRedactor(secrets) {
@@ -106,7 +119,7 @@ export function createRedactor(secrets) {
     }
   }
   needles.sort((a, b) => b.text.length - a.text.length);
-  const longest = needles[0]?.text.length ?? 0;
+  const longest = Math.max(needles[0]?.text.length ?? 0, PATTERN_ROOM);
   /** @type {Record<string, number>} */
   const counts = {};
 
@@ -123,6 +136,12 @@ export function createRedactor(secrets) {
         const parts = out.split(needle);
         counts[name] = (counts[name] ?? 0) + parts.length - 1;
         out = parts.join(`[REDACTED:${name}]`);
+      }
+      for (const { name, pattern } of TOKEN_PATTERNS) {
+        out = out.replace(pattern, () => {
+          counts[name] = (counts[name] ?? 0) + 1;
+          return `[REDACTED:${name}]`;
+        });
       }
       return out;
     },

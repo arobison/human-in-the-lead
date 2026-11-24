@@ -8,9 +8,11 @@
 // Where the token is kept, looked for in this order, never in the project, a log or an
 // environment file the project tracks:
 //
-//   macOS    the login Keychain, a generic password with service claude-code-oauth-token
+//   macOS    the login Keychain, a generic password with service claude-code-oauth-token and
+//            the person's account name (keychain.mjs reads it)
 //   Windows  Credential Manager, a generic credential with target claude-code-oauth-token
-//   Linux    the Secret Service through libsecret, attribute service=claude-code-oauth-token
+//   Linux    the Secret Service through libsecret, attributes service=claude-code-oauth-token and
+//            account=<the person's account name> (keychain.mjs reads it)
 //   any      the file credentials/claude-code-oauth-token in this machine's hitld directory (the
 //            _machine directory beside the private stores, which is never synced), readable by
 //            its owner only
@@ -20,12 +22,16 @@
 //
 // Nothing here prints, logs or returns a value: reports carry the kind, the source and the
 // length. The value is read only by readToken, for the launcher, which puts it in one child's
-// environment and drops it. The keychain tools run with no shell, so there is no tracing to turn
-// off, and their standard error is discarded.
+// environment. The keychain tools run with no shell, so there is no tracing to turn off, their
+// standard error never reaches any output, and a tool that does not answer in KEYCHAIN_TIMEOUT_MS
+// counts as finding nothing, so a launch never hangs on a keychain waiting to be unlocked.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { userInfo } from 'node:os';
 import { join } from 'node:path';
+import { keychain } from '../../lib/env/keychain.mjs';
+import { createRedactor } from '../../lib/env/secrets.mjs';
 
 /** The variable Claude Code reads the token from. */
 export const TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
@@ -37,6 +43,9 @@ export const TOKEN_FILE = join('credentials', SERVICE);
 const TOKEN_PREFIX = 'sk-ant-oat';
 /** The value `--credential` takes on the launcher's command line. */
 export const CREDENTIAL_KIND = 'claude-code';
+/** How long a keychain tool may take to answer before it counts as finding nothing. */
+export const KEYCHAIN_TIMEOUT_MS = 10_000;
+const DAY_MS = 86_400_000;
 
 /**
  * Long-lived credentials the environment can already give Claude Code, by variable name. Only the
@@ -66,7 +75,8 @@ const TRACING = ['SHELLOPTS', 'BASH_XTRACEFD', 'PS4'];
  * @property {NodeJS.ProcessEnv} env the environment unattended runs start from
  * @property {string | null} machineDir this machine's hitld directory, for the file
  * @property {NodeJS.Platform} [platform]
- * @property {Runner} [run] how the keychain tools run (tests give a fake)
+ * @property {Runner} [run] how Credential Manager is read on Windows (tests give a fake)
+ * @property {number} [timeoutMs] how long a keychain tool may take (KEYCHAIN_TIMEOUT_MS)
  *
  * @typedef {'keychain' | 'credential-manager' | 'secret-service' | 'machine-file' | 'environment'} Source
  *
@@ -82,13 +92,15 @@ const TRACING = ['SHELLOPTS', 'BASH_XTRACEFD', 'PS4'];
  */
 
 /**
- * Run a keychain tool found on `env`'s PATH, with no shell and its errors discarded.
+ * Run a program found on `env`'s PATH, with no shell, its errors discarded and a time limit.
  * @param {string} program @param {string[]} args @param {NodeJS.ProcessEnv} env
+ * @param {number} timeoutMs
  */
-const defaultRun = (program, args, env) => {
+const defaultRun = (program, args, env, timeoutMs) => {
   try {
     return execFileSync(program, args, {
       env,
+      timeout: timeoutMs,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
@@ -143,19 +155,25 @@ const normalize = (s) => s.replace(/\s+/g, '');
  */
 function places(o) {
   const platform = o.platform ?? process.platform;
+  const timeoutMs = o.timeoutMs ?? KEYCHAIN_TIMEOUT_MS;
   /** @type {Runner} */
-  const run = o.run ?? ((program, args) => defaultRun(program, args, o.env));
+  const run = o.run ?? ((program, args) => defaultRun(program, args, o.env, timeoutMs));
   /** @param {string | null} out */
   const got = (out) => ({ value: out === null ? null : normalize(out) || null });
+  const account = accountName(o.env);
   /** @type {ReturnType<typeof places>} */
   const out = [];
-  if (platform === 'darwin') {
+  if (platform !== 'win32') {
+    const store = keychain({ service: SERVICE, platform, env: o.env, timeoutMs });
     out.push({
-      source: 'keychain',
-      where: `the login Keychain (service ${SERVICE})`,
-      read: () => got(run('security', ['find-generic-password', '-s', SERVICE, '-w'])),
+      source: platform === 'darwin' ? 'keychain' : 'secret-service',
+      where:
+        platform === 'darwin'
+          ? `the login Keychain (service ${SERVICE}, account ${account})`
+          : `the Secret Service through libsecret (service ${SERVICE}, account ${account})`,
+      read: () => got(store.read(account)),
     });
-  } else if (platform === 'win32') {
+  } else {
     out.push({
       source: 'credential-manager',
       where: `Credential Manager (target ${SERVICE})`,
@@ -168,12 +186,6 @@ function places(o) {
             Buffer.from(windowsReader(SERVICE), 'utf16le').toString('base64'),
           ]),
         ),
-    });
-  } else {
-    out.push({
-      source: 'secret-service',
-      where: `the Secret Service through libsecret (service ${SERVICE})`,
-      read: () => got(run('secret-tool', ['lookup', 'service', SERVICE])),
     });
   }
   if (o.machineDir) {
@@ -199,6 +211,20 @@ function places(o) {
     });
   }
   return out;
+}
+
+/**
+ * The account the token is kept under: the person's account name, as the guide's commands store it
+ * ("$USER", %USERNAME%). @param {NodeJS.ProcessEnv} env
+ */
+function accountName(env) {
+  const given = env.USER ?? env.USERNAME ?? env.LOGNAME;
+  if (given) return given;
+  try {
+    return userInfo().username;
+  } catch {
+    return 'unknown';
+  }
 }
 
 /**
@@ -320,18 +346,22 @@ export function childEnv(env, token) {
 
 /** Words in a run's output that say its credential was refused or has ended. */
 const AUTH_FAILURE =
-  /(invalid api key|please run \/login|oauth token (?:has )?expired|token (?:has )?(?:expired|been revoked)|authentication[_ ](?:error|failed)|failed to authenticate|not logged in|invalid bearer token|\b401\b[^\n]*(?:unauthori[sz]ed|authentication))/i;
+  /(invalid api key|please run \/login|reached its time limit|oauth token (?:has )?expired|token (?:has )?(?:expired|been revoked)|authentication[_ ](?:error|failed)|failed to authenticate|not logged in|invalid bearer token|\b401\b[^\n]*(?:unauthori[sz]ed|authentication))/i;
+
+/** Redacts a credential found by its shape (secrets.mjs TOKEN_PATTERNS) from a line hitld shows. */
+const shapes = createRedactor({});
 
 /**
  * Why a headless run stopped for its credential, from its output, or null. Read: an event the
  * harness marks authentication_failed, and the result event or standard error saying the
- * credential was refused or has ended. The line is cut to 200 characters and never holds a value
- * hitld gave it: the run was never given the token in its output.
+ * credential was refused or has ended. The line is cut to 200 characters, and a credential in it
+ * is redacted by its shape.
  * @param {Record<string, any>[]} events the run's events @param {string} [stderr] its errors file
  * @returns {string | null}
  */
 export function credentialFailure(events, stderr = '') {
-  const cut = (/** @type {string} */ s) => s.replace(/\s+/g, ' ').trim().slice(0, 200);
+  const cut = (/** @type {string} */ s) =>
+    shapes.redact(s.replace(/\s+/g, ' ').trim()).slice(0, 200);
   for (const e of events) {
     const err = e?.error ?? e?.message?.error;
     if (err === 'authentication_failed') {
@@ -359,35 +389,78 @@ function textOf(e) {
     .trim();
 }
 
-const MONTHS =
-  'january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec';
-const DATE = new RegExp(
-  `(\\d{4}-\\d{2}-\\d{2}(?:[T ]\\d{2}:\\d{2}(?::\\d{2})?(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?)?|(?:${MONTHS})\\.? \\d{1,2},? \\d{4}|\\d{1,2} (?:${MONTHS})\\.? \\d{4}|\\d{1,2}/\\d{1,2}/\\d{4})`,
-  'i',
-);
+const ISO_DAY = '(\\d{4}-\\d{2}-\\d{2})';
+/**
+ * The ways Claude Code says when the interactive sign-in ends, with its dates as YYYY-MM-DD: the
+ * warning a run prints on standard error when it starts on the sign-in, and its status line.
+ *   "this sign-in may have ended between A and B"   past its end
+ *   "this sign-in can end at any time from now until B"
+ *   "this sign-in ends between A and B (in N days at the earliest)"
+ *   "Sign-in may have ended: between A and B", "Sign-in ends: any day now, by B",
+ *   "Sign-in ends: between A and B"
+ * @type {{ re: RegExp, ended: boolean, earliest: boolean }[]}
+ */
+const SIGN_IN = [
+  {
+    re: new RegExp(`may have ended:? between ${ISO_DAY} and ${ISO_DAY}`, 'i'),
+    ended: true,
+    earliest: true,
+  },
+  {
+    re: new RegExp(`can end at any time from now until ${ISO_DAY}`, 'i'),
+    ended: false,
+    earliest: false,
+  },
+  { re: new RegExp(`ends:? any day now, by ${ISO_DAY}`, 'i'), ended: false, earliest: false },
+  { re: new RegExp(`ends:? between ${ISO_DAY} and ${ISO_DAY}`, 'i'), ended: false, earliest: true },
+];
 
 /**
- * The date Claude Code says the interactive sign-in can end by, from a run's output: the line that
- * points unattended jobs at setup-token, which it prints when a headless run starts on the
- * sign-in. Null when no such line holds a date.
+ * @typedef {object} SignInEnd when Claude Code said the interactive sign-in ends
+ * @property {string | null} earliest the first day it can end, YYYY-MM-DD; null: it can end now
+ * @property {string} latest the day it ends by, YYYY-MM-DD
+ * @property {boolean} said_ended Claude Code said it may already have ended
+ */
+
+/**
+ * When Claude Code says the interactive sign-in ends, from a run's output, or null when no line
+ * says it.
  * @param {string} text
- * @returns {string | null}
+ * @returns {SignInEnd | null}
  */
 export function signInEndsIn(text) {
   for (const line of String(text).split('\n')) {
-    if (!/setup-token/i.test(line)) continue;
-    const m = DATE.exec(line.replace(/\\n/g, ' '));
-    if (m) return m[1];
+    for (const f of SIGN_IN) {
+      const m = f.re.exec(line);
+      if (!m) continue;
+      return f.earliest
+        ? { earliest: m[1], latest: m[2], said_ended: f.ended }
+        : { earliest: null, latest: m[1], said_ended: false };
+    }
   }
   return null;
 }
 
 /**
- * The latest date Claude Code gave for the sign-in's end, read from the error files and the start
- * of the result files of the headless runs in a store's dispatch results (newest first), with the
- * file it came from. Null when none of them holds one.
+ * Where the sign-in stands now, from what Claude Code said when a run started: ended (its last
+ * day has passed), any day now (its first day has come), or the whole days left before its first.
+ * @param {SignInEnd} end @param {number} now
+ * @returns {{ state: 'ended' | 'any-day-now' | 'ahead', days_left: number }}
+ */
+export function signInState(end, now) {
+  const latest = Date.parse(`${end.latest}T00:00:00Z`) + DAY_MS;
+  if (now >= latest) return { state: 'ended', days_left: 0 };
+  const earliest = end.earliest === null ? null : Date.parse(`${end.earliest}T00:00:00Z`);
+  if (earliest === null || now >= earliest) return { state: 'any-day-now', days_left: 0 };
+  return { state: 'ahead', days_left: Math.floor((earliest - now) / DAY_MS) };
+}
+
+/**
+ * What Claude Code last said about the sign-in's end, read from the error files and the start of
+ * the result files of the headless runs in a store's dispatch results (newest first), with the
+ * file it came from. Null when none of them says.
  * @param {string} resultsDir the store's dispatch/results directory
- * @returns {{ date: string, from: string } | null}
+ * @returns {(SignInEnd & { from: string }) | null}
  */
 export function signInEnds(resultsDir) {
   /** @type {string[]} */
@@ -410,16 +483,16 @@ export function signInEnds(resultsDir) {
   for (const { n } of dated) {
     let text = '';
     try {
-      // A result file is the run's whole transcript: the warning comes at its start.
+      // A result file is the run's whole transcript: what the harness says comes at its start.
       text = readFileSync(join(resultsDir, n), 'utf8').slice(0, 64 * 1024);
     } catch {
       continue;
     }
     // In a transcript, only what the harness itself said: the agent's and the brief's words may
-    // talk about setup-token and dates too.
+    // talk about the sign-in and dates too.
     if (n.endsWith('.json')) text = harnessText(text);
-    const date = signInEndsIn(text);
-    if (date) return { date, from: n };
+    const end = signInEndsIn(text);
+    if (end) return { ...end, from: n };
   }
   return null;
 }
@@ -447,10 +520,11 @@ function harnessText(text) {
 
 /**
  * What a status report says about the credential, as one line: which credential executors run on,
- * and for the interactive sign-in, when it can end.
- * @param {CredentialReport} c @param {{ date: string, from: string } | null} ends
+ * and for the interactive sign-in, where its end stands now.
+ * @param {CredentialReport} c @param {(SignInEnd & { from: string }) | null} ends
+ * @param {number} [now]
  */
-export function credentialLine(c, ends) {
+export function credentialLine(c, ends, now = Date.now()) {
   if (c.long_lived) {
     const what =
       c.source === 'environment'
@@ -458,5 +532,20 @@ export function credentialLine(c, ends) {
         : `the token claude setup-token made, from ${c.source}${c.length ? ` (${c.length} characters)` : ''}`;
     return `executors run on a long-lived credential: ${what}`;
   }
-  return `executors run on the interactive sign-in, which can end at any time before ${ends ? `${ends.date} (as Claude Code said in ${ends.from})` : 'the date Claude Code gives when a headless run starts'}; an unattended run stops when it does. Make a long-lived credential with claude setup-token before an overnight run`;
+  const fix =
+    'an unattended run stops when it ends. Make a long-lived credential with claude setup-token before an overnight run';
+  if (!ends) {
+    return `executors run on the interactive sign-in, which can end at any time before a date Claude Code gives when a headless run starts on it; ${fix}`;
+  }
+  const s = signInState(ends, now);
+  const window = ends.earliest
+    ? `between ${ends.earliest} and ${ends.latest}`
+    : `by ${ends.latest}`;
+  const where =
+    s.state === 'ended'
+      ? `which has ended: Claude Code gave its end as ${window}`
+      : s.state === 'any-day-now'
+        ? `which can end any day now, ${ends.earliest ? `${window}` : `at the latest ${ends.latest}`}`
+        : `which can end in ${s.days_left} ${s.days_left === 1 ? 'day' : 'days'} at the earliest, ${window}`;
+  return `executors run on the interactive sign-in, ${where} (as Claude Code said in ${ends.from}); ${fix}`;
 }

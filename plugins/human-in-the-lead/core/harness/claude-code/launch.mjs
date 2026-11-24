@@ -19,8 +19,8 @@
 // (HITLD-880): one the environment already gives Claude Code, else the token `claude setup-token`
 // made, read at this start from the keychain or the machine directory's file (credential.mjs) into
 // the child's environment only, as CLAUDE_CODE_OAUTH_TOKEN. It is never on a command line, in
-// this process's environment or in any output; the reference to it is dropped once the child has
-// started. With none, nothing starts: the launcher says why, without any value, and exits 1.
+// this process's environment or in any output, and this process exits once the child has started.
+// With none, nothing starts: the launcher says why, without any value, and exits 1.
 //
 // A launch that fails (the directory missing, the command not found) writes no pid file. With
 // --cleanup, it also removes each file named and the result and error files it opened: a
@@ -32,7 +32,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CREDENTIAL_KIND,
-  TOKEN_ENV,
   childEnv,
   credentialInEnv,
   readToken,
@@ -182,18 +181,14 @@ if (isMain()) {
     const { cwd, cleanup: _c, credential: need, machineDir, ...rest } = a;
     // Read before anything is opened: a refusal leaves no file behind but those --cleanup names.
     const started = need ? credentialEnv({ env: process.env, machineDir }) : null;
-    /** @type {number} */
-    let pid;
-    try {
-      ({ pid } = await launchDurable({
-        ...rest,
-        ...(cwd ? { cwd } : {}),
-        ...(started ? { env: started.env } : {}),
-      }));
-    } finally {
-      // The child has its own copy of its environment: the token goes from this one.
-      if (started && started.env !== process.env) delete started.env[TOKEN_ENV];
-    }
+    // The token is only ever in started.env, a copy made for the child (childEnv), never in this
+    // process's environment, so nothing this process starts after inherits it; and this process
+    // writes one line and exits once the child has started.
+    const { pid } = await launchDurable({
+      ...rest,
+      ...(cwd ? { cwd } : {}),
+      ...(started ? { env: started.env } : {}),
+    });
     process.stdout.write(
       `${JSON.stringify({ ok: true, pid, pid_file: a.pidFile, result_file: a.stdout, ...(started ? { credential: started.credential } : {}) })}\n`,
     );
