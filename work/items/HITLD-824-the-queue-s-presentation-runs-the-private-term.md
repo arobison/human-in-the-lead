@@ -2,7 +2,7 @@
 id: HITLD-824
 title: The queue's presentation runs the private-term check on a pull request's diff and commit messages
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
