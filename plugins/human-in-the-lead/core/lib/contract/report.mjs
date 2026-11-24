@@ -20,8 +20,13 @@ const LISTS = new Set(['evidence', 'bench_runs', 'deviations', 'calls', 'questio
  */
 const OLD_FIELDS = /** @type {Record<string, string>} */ ({ status: 'result', runs: 'bench_runs' });
 const NONE = /^none$/i;
-/** A call line ends with its door (HITLD-853): `(reversible)` or `(one-way)`, either case. */
-const DOOR = /\s*\((reversible|one-way)\)\.?\s*$/i;
+const REVERSIBLE = /\s*\(reversible\)\.?\s*$/i;
+/**
+ * What a refused call line is told (HITLD-853): a call that is not reversible, a one-way one
+ * among them, is not the executor's to make, so it is a decision item under `questions`.
+ */
+const NOT_REVERSIBLE =
+  'every call is marked (reversible); a one-way call is not yours to make: put it under questions as a decision item (executor contract rule 5 in AGENTS.md)';
 
 /**
  * Parse a report. `report` is the parsed data when there are no errors, else null.
@@ -100,12 +105,10 @@ export function parseReport(text) {
   /** @type {string[]} */
   const calls = !raw.calls || (raw.calls.length === 1 && NONE.test(raw.calls[0])) ? [] : raw.calls;
   report.calls = calls.map((/** @type {string} */ call) => {
-    const door = DOOR.exec(call);
-    if (!door) errors.push(`call not marked (reversible) or (one-way): ${call.slice(0, 80)}`);
-    return {
-      text: call.replace(DOOR, ''),
-      reversible: door?.[1].toLowerCase() !== 'one-way',
-    };
+    if (!REVERSIBLE.test(call)) {
+      errors.push(`call not marked (reversible): ${call.slice(0, 80)}: ${NOT_REVERSIBLE}`);
+    }
+    return { text: call.replace(REVERSIBLE, ''), reversible: true };
   });
 
   if (errors.length) return { report: null, errors, warnings };

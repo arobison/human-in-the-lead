@@ -1449,10 +1449,7 @@ export function completeDispatch(input, ctx, given = null) {
     out.result = r.result;
     if (parsed.warnings.length) out.report_warnings = parsed.warnings;
     out.questions = r.questions;
-    // A one-way call keeps its mark, so the orchestrator does not read it as a reversible one.
-    out.calls = r.calls.map((/** @type {any} */ c) =>
-      c.reversible ? c.text : `${c.text} (one-way)`,
-    );
+    out.calls = r.calls.map((/** @type {any} */ c) => c.text);
     out.deviations = r.deviations;
     if (wrong) {
       // A headless run has ended: its report is recorded, and a follow-up asks again.
