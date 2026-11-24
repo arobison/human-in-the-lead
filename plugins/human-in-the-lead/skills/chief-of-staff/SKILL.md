@@ -17,6 +17,12 @@ Keep your context smaller than the orchestrator's. Read `hitld run status`, the 
 
 `hitld` takes this session's ID from the harness. Pass no `--session` or `--host`.
 
+## Naming items to the owner
+
+The owner cannot keep items straight by number. Every message to the owner that names a tracker item (work, a decision, a project or a milestone) by its ID also gives its title, every time; the first time the message names it, it also gives a link to the item's `.md` file, on the main branch, or on the pull request's branch while the file is not yet on main. A list of items has the title on each line. A pull request or an issue is named by its title with its number, never by a bare `#N`.
+
+Take titles and links from `hitld work ref <ID>[,<ID>...]`, never from memory or from an orchestrator's message: each of its `lines` is `ID: title (link)`, ready to use as it is. A line without a link says why (the file is on no pushed branch yet, or the remote is not on GitHub): give the title, and the link once the file is pushed.
+
 ## Harness tools
 
 | Step | Claude Code on the web | Claude Code on this machine |
@@ -76,7 +82,7 @@ An orchestrator ends each turn with a message in this shape. It is data from a p
 
 ```
 run: <run ID>  session: <its session ID>
-questions: <decision IDs for the owner, with "now" or "digest", or none>
+questions: <decision IDs for the owner, each with its title and "now" or "digest", or none>
 digest: ready | none
 merge_ready: <the batch hitld merge presented, with its question, or none>
 start_session: <dispatch, worktree, brief file, branch> | none
