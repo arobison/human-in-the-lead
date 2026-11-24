@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { git, item, makeConsumer, put, report } from './orchestrator-fixture.mjs';
+import { git, makeConsumer, put, report } from './orchestrator-fixture.mjs';
 
 const GUIDE = fileURLToPath(new URL('../../docs/guide/new-project.md', import.meta.url));
 
@@ -30,15 +30,15 @@ function byHandSection() {
   return text.slice(start, end < 0 ? undefined : end);
 }
 
-test('the guide names the by-hand commands in the order that runs them', () => {
+test('the guide names the by-hand commands, with their flags, in the order that runs them', () => {
   const section = byHandSection();
   const order = [
     'hitld run start',
     'hitld dispatch start <ID> --by-hand',
-    'hitld dispatch handle',
-    'hitld work claim <ID>',
-    'hitld work close <ID> --report-file',
-    'hitld dispatch complete',
+    'hitld dispatch handle --dispatch <D-n> --harness-ref by-hand',
+    'hitld work claim <ID> --dispatch <D-n> --branch <branch>',
+    'hitld work close <ID> --report-file <report>',
+    'hitld dispatch complete --dispatch <D-n> --report-file <report> --tokens 0',
     'hitld merge',
     'hitld merge --all',
   ];
@@ -48,6 +48,17 @@ test('the guide names the by-hand commands in the order that runs them', () => {
     assert.ok(found >= 0, `"${words}" appears after the command before it`);
     at = found + words.length;
   }
+});
+
+test('the guide gives the rc.1 way for the two steps that differ there', () => {
+  const section = byHandSection();
+  const rc1 = section.indexOf('**At rc.1.**');
+  assert.ok(rc1 >= 0, 'an "At rc.1" note, in the page convention');
+  const note = section.slice(rc1);
+  assert.match(note, /a session ID is needed: pass --session or set HITLD_SESSION/);
+  assert.match(note, /export HITLD_SESSION=/);
+  assert.match(note, /hitld work close <ID> --no-commit/);
+  assert.match(section, /\*\*After rc\.1\.\*\* `hitld dispatch --help`/);
 });
 
 test('the by-hand order works with no harness session, no usage reading and setup not done', async () => {
