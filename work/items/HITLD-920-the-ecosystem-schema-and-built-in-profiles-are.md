@@ -2,7 +2,7 @@
 id: HITLD-920
 title: The ecosystem schema and built-in profiles are data in policy.json, validated by work check, with explicit per-path mapping
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
