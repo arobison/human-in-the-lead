@@ -5,11 +5,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
 import {
   BUILTIN_PROFILES_FILE,
+  KNOWN_CACHE_VARIABLES,
   builtinProblems,
   builtinProfiles,
   cacheVariableProblem,
@@ -340,20 +341,102 @@ test('a variable that names only a cache folder is accepted', () => {
   for (const variable of [...builtin, 'NPM_CONFIG_CACHE', 'MYTOOL_CACHE_DIR', 'MYTOOL_CACHE']) {
     assert.equal(cacheVariableProblem(variable), null, variable);
   }
+  for (const variable of KNOWN_CACHE_VARIABLES) {
+    assert.equal(cacheVariableProblem(variable), null, variable);
+  }
+  // Every variable a built-in profile uses is on the known list.
+  for (const variable of builtin) assert.ok(KNOWN_CACHE_VARIABLES.includes(variable.toUpperCase()));
 });
 
-test('work check refuses a use glob that can never match, or names a bare folder', async () => {
+// The allowlist (HITLD-920 review, D-01M85XNNYCHK205F): one assertion per name the owner listed.
+for (const variable of [
+  'GITHUB_TOKEN',
+  'AWS_SECRET_ACCESS_KEY',
+  'CLASSPATH',
+  'DOTNET_STARTUP_HOOKS',
+  'SSL_CERT_DIR',
+  'OPENSSL_CONF',
+  'LUA_INIT',
+  'ZDOTDIR',
+  'TERMINFO_DIRS',
+  'NUGET_PLUGIN_PATHS',
+  'HTTPS_PROXY',
+  'KUBECONFIG',
+  'DOCKER_HOST',
+  'TMPDIR',
+  'CCACHE_PREFIX',
+  'CCACHE_CONFIGPATH',
+  'SCCACHE_CONF',
+  'SHELLOPTS',
+  'IFS',
+  'PS4',
+  'FOO',
+  '_',
+  'A',
+  'CARGO_HOME',
+  'GRADLE_USER_HOME',
+]) {
+  test(`the cache-variable allowlist refuses ${variable}`, () => {
+    assert.match(String(cacheVariableProblem(variable)), /^not a known cache variable/);
+  });
+}
+
+for (const variable of [
+  'XDG_CACHE_HOME',
+  'PNPM_STORE_DIR',
+  'UV_PYTHON_CACHE_DIR',
+  'GRADLE_RO_DEP_CACHE',
+  'CARGO_REGISTRIES_CACHE',
+  'PYTHONPYCACHEPREFIX',
+  'PRE_COMMIT_HOME',
+  'HF_HOME',
+]) {
+  test(`the cache-variable allowlist accepts ${variable}`, () => {
+    assert.equal(cacheVariableProblem(variable), null);
+  });
+}
+
+test('the cache-variable allowlist compares without case, and refuses a non-ASCII name', () => {
+  assert.equal(cacheVariableProblem('xdg_cache_home'), null);
+  assert.equal(cacheVariableProblem('Npm_Config_Cache'), null);
+  assert.equal(cacheVariableProblem('npm_config_store_dir'), null);
+  assert.match(String(cacheVariableProblem('path')), /^not a known cache variable/);
+  assert.match(String(cacheVariableProblem('github_token')), /^not a known cache variable/);
+  // Fullwidth PATH: never folded to PATH, and refused as not a plain name.
+  assert.match(String(cacheVariableProblem('\uFF30\uFF21\uFF34\uFF28')), /not a plain ASCII/);
+  assert.match(String(cacheVariableProblem('\uFF30\uFF21\uFF34\uFF28_CACHE')), /not a plain ASCII/);
+});
+
+test('a cache suffix does not admit a loader, git or switch variable', () => {
+  assert.match(String(cacheVariableProblem('DYLD_SHARED_CACHE_DIR')), /dynamic loader or git/);
+  assert.match(String(cacheVariableProblem('LD_CACHE')), /dynamic loader or git/);
+  assert.match(String(cacheVariableProblem('GIT_OBJECT_CACHE_DIR')), /dynamic loader or git/);
+  assert.match(String(cacheVariableProblem('YARN_ENABLE_GLOBAL_CACHE')), /a switch/);
+});
+
+test('work check refuses a use glob that can never match, or names no file in the checkout', async () => {
   const root = repo(
     {
       use: [
         {
           profile: 'npm',
-          paths: ['web', 'web/', 'web\\**', 'web/../api/**', '~/src/**', 'web/**', 'package.json'],
+          paths: [
+            'web',
+            'web/',
+            'web\\**',
+            'web/../api/**',
+            '~/src/**',
+            'lib',
+            'link',
+            'web/**',
+            'package.json',
+          ],
         },
       ],
     },
     { 'web/index.js': 'x\n', 'package.json': '{}\n' },
   );
+  symlinkSync('web', join(root, 'link'));
   const checked = await hitld(['work', 'check'], root);
   assert.equal(checked.code, 1);
   const problems = checked.json.problems.filter((/** @type {string} */ p) =>
@@ -361,14 +444,16 @@ test('work check refuses a use glob that can never match, or names a bare folder
   );
   const about = (/** @type {string} */ glob) =>
     problems.find((/** @type {string} */ p) => p.includes(`path ${JSON.stringify(glob)} `)) ?? '';
-  assert.match(about('web'), /is a folder.*write web\/\*\* for everything under it/);
+  assert.match(about('web'), /is a folder; .*for a folder write web\/\*\*/);
   assert.match(about('web/'), /ends with \/, which matches nothing; write web\/\*\*/);
   assert.match(about('web\\**'), /has a backslash/);
   assert.match(about('web/../api/**'), /has a \.\. segment/);
   assert.match(about('~/src/**'), /starts with ~/);
+  assert.match(about('lib'), /names no file in the checkout; .*for a folder write lib\/\*\*/);
+  assert.match(about('link'), /symbolic link.*for a folder write link\/\*\*/);
   assert.equal(about('web/**'), '', 'a folder glob passes');
   assert.equal(about('package.json'), '', 'a file passes');
-  assert.equal(problems.length, 5, problems.join('\n'));
+  assert.equal(problems.length, 7, problems.join('\n'));
 });
 
 // --- mapping ------------------------------------------------------------------------------------

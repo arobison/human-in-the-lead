@@ -15,7 +15,7 @@
             "$ref": "common#/$defs/name"
           },
           "paths": {
-            "description": "The paths it applies to, as globs relative to the repository root with / separators. A folder takes a wildcard: web/** for everything under web, since web alone matches only a file named web. `hitld work check` refuses a glob with a backslash, a `..` segment or a leading `~`, one ending in /, and a bare folder of the repository.",
+            "description": "The paths it applies to, as globs relative to the repository root with / separators. A folder takes a wildcard: web/** for everything under web, since web alone matches only a file named web. `hitld work check` refuses a glob with a backslash, a `..` segment or a leading `~`, one ending in /, and a glob without a wildcard that does not name a regular file in the checkout (a folder, a symbolic link or a path that is not there), naming the web/** form: such a glob matches nothing the owner meant, and passing it silently is what the check is for.",
             "type": "array",
             "items": { "$ref": "common#/$defs/glob" },
             "minItems": 1,

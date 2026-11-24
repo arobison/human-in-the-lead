@@ -76,7 +76,7 @@
           "uniqueItems": true
         },
         "caches": {
-          "description": "Dependency caches the ecosystem's own tool can share between worktrees, each named by the environment variable that points the tool at it. hitld never creates links itself.",
+          "description": "Dependency caches the ecosystem's own tool can share between worktrees, each named by the environment variable that points the tool at it. Nothing reads this yet: in this release hitld only validates it, and sets, exports or creates nothing from it (a later slice, HITLD-925, has setup and checks export the variable, pointing at the tool's default folder or a machine-file path, and the disk report show the folder's size). hitld never creates links itself.",
           "type": "array",
           "items": {
             "type": "object",
@@ -86,7 +86,7 @@
                 "$ref": "common#/$defs/name"
               },
               "variable": {
-                "description": "The environment variable that sets the cache's folder, and nothing else. `hitld work check` refuses a variable that can change what a tool runs: in the namespace of a tool that reads any of its settings from such variables (npm_config_*, YARN_*, PIP_*, UV_*, POETRY_*, BUNDLE_*, COMPOSER*, GO*, CARGO*, RUST*, GRADLE*, MAVEN*, JAVA*, PYTHON*, NODE_* and the like) any variable but that tool's cache folder, such as npm_config_init_module, PIP_CONFIG_FILE, BUNDLE_APP_CONFIG, COMPOSER_HOME, GOFLAGS, GOENV or RUSTFLAGS; a variable any tool reads as a home folder, configuration, a shell, a compiler or flags (HOME, PATH, XDG_*, LD_*, CC, CFLAGS and the like); and any other whose name ends as such a variable's does (_HOME, _CONFIG, _CONFIG_FILE, _PATH, FLAGS, _OPTS, _OPTIONS, _ARGS, _ENV, _BIN, _WRAPPER and the like).",
+                "description": "The environment variable that sets the cache's folder, and nothing else. An allowlist, compared without regard to case: a known cache variable (npm_config_cache, npm_config_store_dir, PNPM_STORE_DIR, YARN_CACHE_FOLDER, GOCACHE, GOMODCACHE, PIP_CACHE_DIR, UV_CACHE_DIR, POETRY_CACHE_DIR, BUNDLE_USER_CACHE, COMPOSER_CACHE_DIR, XDG_CACHE_HOME, PYTHONPYCACHEPREFIX, PRE_COMMIT_HOME, HF_HOME), or a name ending in _CACHE, _CACHE_DIR, _CACHE_FOLDER or _STORE_DIR that the dynamic loader or git does not read (LD_*, DYLD_*, GIT_*) and that is not a switch (_ENABLE_, _DISABLE_, _USE_, _NO_, _SKIP_). `hitld work check` refuses any other, since a variable that names a home folder, configuration, credentials, a search path or flags (CARGO_HOME and GRADLE_USER_HOME hold configuration and init scripts) can change what a tool runs.",
                 "type": "string",
                 "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
               }
