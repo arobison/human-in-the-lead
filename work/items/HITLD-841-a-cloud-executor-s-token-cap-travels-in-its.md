@@ -2,7 +2,7 @@
 id: HITLD-841
 title: A cloud executor's token cap travels in its claim commit, so its budget hook enforces it without the store
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
