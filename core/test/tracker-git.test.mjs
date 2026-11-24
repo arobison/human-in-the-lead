@@ -991,6 +991,101 @@ test('--repo and --config read a tracker with its settings kept outside it, writ
   assert.match(missing.json.message, /policy\.json/);
 });
 
+test('work ref names each item by its title, with a link to its file on main or on the branch that holds it (HITLD-807)', async () => {
+  const root = makeRepo();
+  settings(root);
+  commitAll(root, 'settings');
+  git(root, 'remote', 'add', 'origin', 'https://github.com/acme/widgets.git');
+  git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  // W-7 is on a pushed pull request branch only; the checkout on main holds it in its working
+  // tree, as `work publish` leaves it.
+  git(root, 'checkout', '-q', '-b', 'tracker/add-w-7');
+  const w7 = itemText({ id: 'W-7', title: 'A new step', kind: 'work', state: 'planned' });
+  put(root, { 'work/items/W-7-a-new-step.md': w7 });
+  commitAll(root, 'add W-7');
+  git(root, 'update-ref', 'refs/remotes/origin/tracker/add-w-7', 'HEAD');
+  git(root, 'checkout', '-q', 'main');
+  put(root, { 'work/items/W-7-a-new-step.md': w7 });
+  // W-8 is on no branch at all yet.
+  put(root, {
+    'work/items/W-8-not-yet.md': itemText({
+      id: 'W-8',
+      title: 'Not yet filed',
+      kind: 'work',
+      state: 'planned',
+    }),
+  });
+
+  const r = await hitld(['work', 'ref', 'W-4,W-7, W-8,W-4'], root);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(r.json.lines, [
+    'W-4: Second step (https://github.com/acme/widgets/blob/main/work/items/W-4-second-step.md)',
+    'W-7: A new step (https://github.com/acme/widgets/blob/tracker/add-w-7/work/items/W-7-a-new-step.md)',
+    'W-8: Not yet filed (work/items/W-8-not-yet.md, on no branch yet)',
+  ]);
+  assert.equal(r.json.text, r.json.lines.join('\n'));
+  assert.deepEqual(
+    r.json.refs.map((/** @type {any} */ x) => [x.id, x.branch, x.on_main, x.pushed]),
+    [
+      ['W-4', 'main', true, true],
+      ['W-7', 'tracker/add-w-7', false, true],
+      ['W-8', null, false, false],
+    ],
+  );
+
+  // A branch this checkout published is found by `work publish`'s own record of it.
+  const w10 = itemText({ id: 'W-10', title: 'Published', kind: 'work', state: 'planned' });
+  git(root, 'checkout', '-q', '-b', 'tracker/add-w-10');
+  put(root, { 'work/items/W-10-published.md': w10 });
+  git(root, 'add', 'work/items/W-10-published.md');
+  git(root, 'commit', '-q', '-m', 'add W-10');
+  const published = git(root, 'rev-parse', 'HEAD').trim();
+  git(root, 'checkout', '-q', 'main');
+  git(root, 'branch', '-q', '-D', 'tracker/add-w-10');
+  git(root, 'update-ref', 'refs/hitld/published/tracker/add-w-10', published);
+  put(root, { 'work/items/W-10-published.md': w10 });
+  assert.deepEqual((await hitld(['work', 'ref', 'W-10'], root)).json.lines, [
+    'W-10: Published (https://github.com/acme/widgets/blob/tracker/add-w-10/work/items/W-10-published.md)',
+  ]);
+
+  // Once W-7 reaches main, its link moves there.
+  git(root, 'add', 'work/items/W-7-a-new-step.md');
+  git(root, 'commit', '-q', '-m', 'merge W-7');
+  git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const merged = await hitld(['work', 'ref', 'W-7'], root);
+  assert.deepEqual(merged.json.lines, [
+    'W-7: A new step (https://github.com/acme/widgets/blob/main/work/items/W-7-a-new-step.md)',
+  ]);
+
+  // A branch of the checkout's own that is not pushed gets no link: it would lead nowhere.
+  git(root, 'checkout', '-q', '-b', 'mine');
+  put(root, {
+    'work/items/W-9-local.md': itemText({
+      id: 'W-9',
+      title: 'Local',
+      kind: 'work',
+      state: 'planned',
+    }),
+  });
+  commitAll(root, 'add W-9');
+  const local = await hitld(['work', 'ref', 'W-9'], root);
+  assert.deepEqual(local.json.lines, ['W-9: Local (work/items/W-9-local.md on mine, not pushed)']);
+  assert.equal(local.json.refs[0].link, null);
+
+  // An ID the tracker does not hold refuses, naming every one.
+  const unknown = await hitld(['work', 'ref', 'W-4,W-98,W-99'], root);
+  assert.equal(unknown.code, 1);
+  assert.equal(unknown.json.error, 'not-found');
+  assert.match(unknown.json.message, /W-98, W-99/);
+
+  // A remote that is not on github.com gives no link, and says why.
+  git(root, 'remote', 'set-url', 'origin', 'https://git.example.invalid/acme/widgets.git');
+  const elsewhere = await hitld(['work', 'ref', 'W-4'], root);
+  assert.deepEqual(elsewhere.json.lines, [
+    'W-4: Second step (work/items/W-4-second-step.md; the remote origin is not on github.com)',
+  ]);
+});
+
 test('every command this piece owns is built', async () => {
   const { COMMANDS } = await import('../lib/cli/table.mjs');
   const mine = COMMANDS.filter((c) => c.built_by === 'a');
@@ -999,6 +1094,7 @@ test('every command this piece owns is built', async () => {
     [
       'work new',
       'work show',
+      'work ref',
       'work query',
       'work claim',
       'work unclaim',

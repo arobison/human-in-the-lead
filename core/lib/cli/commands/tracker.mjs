@@ -21,6 +21,7 @@ import { formatErrors } from '../../schema/validate.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import { apiResponse, fieldFilter } from '../../tracker/files/api.mjs';
 import { MIGRATIONS } from '../../tracker/files/migrations/index.mjs';
+import { itemRefs } from '../../tracker/files/refs.mjs';
 import { SWEEP_KINDS, sweepTracker } from '../../tracker/files/sweep.mjs';
 import { readLedger } from '../../ledger/ledger.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
@@ -53,6 +54,23 @@ export const where = [
  * @param {{ readOnly?: boolean }} [options] readOnly: the command changes nothing in the repository
  */
 export function open(input, ctx, { readOnly = false } = {}) {
+  const { repo, configDir, policy } = policyOf(input, ctx, { readOnly });
+  return openTracker({
+    repoRoot: repo,
+    policy,
+    configDir,
+    env: ctx.env,
+    block: typeof input.block === 'string' ? input.block : undefined,
+  });
+}
+
+/**
+ * The repository, settings directory and loaded policy the command's options point at.
+ * @param {Record<string, unknown>} input @param {CommandContext} ctx
+ * @param {{ readOnly?: boolean }} [options]
+ * @returns {{ repo: string, configDir: string | undefined, policy: Record<string, any> }}
+ */
+function policyOf(input, ctx, { readOnly = false } = {}) {
   const repo = input.repo ? resolve(ctx.cwd, String(input.repo)) : ctx.cwd;
   const configDir = input.config ? resolve(ctx.cwd, String(input.config)) : undefined;
   if (configDir && !readOnly) {
@@ -72,13 +90,7 @@ export function open(input, ctx, { readOnly = false } = {}) {
       `policy.json: ${formatErrors(loaded.errors).split('\n').join('; ')}`,
     );
   }
-  return openTracker({
-    repoRoot: repo,
-    policy: loaded.policy,
-    configDir,
-    env: ctx.env,
-    block: typeof input.block === 'string' ? input.block : undefined,
-  });
+  return { repo, configDir, policy: loaded.policy };
 }
 
 /**
@@ -305,6 +317,52 @@ export const commands = [
       const t = open(input, ctx, { readOnly: true });
       const entity = t.get(idOf(input));
       return input.json ? apiResponse(t.layout(), { entity }) : { ok: true, entity };
+    },
+  },
+  {
+    name: 'work ref',
+    summary:
+      'Name items to the owner: "ID: title (link)" for each ID, the link to its file on the main branch, or on the branch that holds it while it is not yet there',
+    built_by: 'a',
+    output: ['ok', 'refs', 'lines', 'text'],
+    args: [
+      {
+        name: 'ids',
+        type: 'string',
+        description: 'The tracker IDs, comma-separated, such as W-214,W-215',
+        positional: true,
+        required: true,
+      },
+      ...where,
+    ],
+    run(input, ctx) {
+      const { policy } = policyOf(input, ctx, { readOnly: true });
+      const t = open(input, ctx, { readOnly: true });
+      const ids = [...new Set(csv(input.ids) ?? [])];
+      if (!ids.length) throw new CodedError('usage', '<ids> names no tracker ID');
+      /** @type {string[]} */
+      const missing = [];
+      const entities = ids.flatMap((id) => {
+        try {
+          const e = t.get(id);
+          return [{ id, title: String(e.title ?? ''), path: String(e.path) }];
+        } catch (err) {
+          if (/** @type {{ code?: unknown }} */ (err).code !== 'not-found') throw err;
+          missing.push(id);
+          return [];
+        }
+      });
+      if (missing.length) {
+        throw new CodedError('not-found', `not in the tracker: ${missing.join(', ')}`);
+      }
+      const { refs } = itemRefs({
+        root: t.root(),
+        mainBranch: t.layout().mainBranch,
+        remote: policy.merge?.pull_request?.remote ?? 'origin',
+        entities,
+      });
+      const lines = refs.map((r) => r.line);
+      return { ok: true, refs, lines, text: lines.join('\n') };
     },
   },
   {
