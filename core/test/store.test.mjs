@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs, { mkdirSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join, sep } from 'node:path';
@@ -189,6 +190,105 @@ test('a folder removed while list walks the prefix is skipped, not an error', ()
   // The prefix's own folder gone before the walk: no keys, no error.
   rmSync(join(root, 'run'), { recursive: true });
   assert.deepEqual(store.list('run/checkpoints/'), []);
+});
+
+test('a folder replaced by a file, or a file removed, while list walks is not an error', () => {
+  const root = join(tempDir('hitld-store-'), 'store');
+  const store = openStore(root);
+  store.write('ledger/a/one.jsonl', '');
+  store.write('ledger/swapped/two.jsonl', '');
+  store.write('ledger/z/three.jsonl', '');
+  store.write('ledger/z/four.jsonl', '');
+  const top = join(root, 'ledger');
+  const keys = withReaddirSpy(
+    (dir) => {
+      if (dir === top) {
+        // Listed as a folder, a file by the time the walk reads it (ENOTDIR).
+        unlinkSync(join(top, 'swapped', 'two.jsonl'));
+        rmdirSync(join(top, 'swapped'));
+        writeFileSync(join(top, 'swapped'), '');
+        // Listed with its folder, then removed: the walk does not open files, so it goes on.
+      } else if (dir === join(top, 'z')) {
+        unlinkSync(join(top, 'z', 'four.jsonl'));
+      }
+    },
+    () => store.list('ledger/'),
+  );
+  assert.deepEqual(keys, ['ledger/a/one.jsonl', 'ledger/z/four.jsonl', 'ledger/z/three.jsonl']);
+  assert.deepEqual(store.list('ledger/'), [
+    'ledger/a/one.jsonl',
+    'ledger/swapped',
+    'ledger/z/three.jsonl',
+  ]);
+});
+
+test('an error other than a vanished folder still fails the list', () => {
+  const root = join(tempDir('hitld-store-'), 'store');
+  const store = openStore(root);
+  store.write('feedback/locked/FB-1.json', '{}');
+  const locked = join(root, 'feedback', 'locked');
+  // Injected, because a chmod does not stop a test run as root.
+  const denied = Object.assign(new Error(`EACCES: permission denied, scandir '${locked}'`), {
+    code: 'EACCES',
+  });
+  assert.throws(
+    () =>
+      withReaddirSpy(
+        (dir) => {
+          if (dir === locked) throw denied;
+        },
+        () => store.list('feedback/'),
+      ),
+    /EACCES/,
+  );
+});
+
+test('list gives no dot path and never reads the store git repository', () => {
+  const root = join(tempDir('hitld-store-'), 'store');
+  mkdirSync(root, { recursive: true });
+  execFileSync('git', ['init', '-q', root]);
+  const store = openStore(root);
+  store.write('.gitignore', 'index.db\n');
+  store.write('feedback/FB-1.json', '{}');
+  store.write('feedback/.draft', '');
+  store.write('top.json', '{}');
+  /** @type {string[]} */
+  const read = [];
+  const spy = (/** @type {string} */ dir) => {
+    if (dir === root || dir.startsWith(root + sep)) read.push(dir.slice(root.length + 1));
+  };
+  for (const [prefix, want] of /** @type {[string, string[]][]} */ ([
+    ['', ['feedback/.draft', 'feedback/FB-1.json', 'top.json']],
+    ['.', []],
+    ['.git', []],
+    ['.git/', []],
+    ['.git/obj', []],
+    ['.gitignore', []],
+  ])) {
+    read.length = 0;
+    assert.deepEqual(
+      withReaddirSpy(spy, () => store.list(prefix)),
+      want,
+      prefix,
+    );
+    assert.ok(!read.some((d) => d.startsWith('.')), `${prefix}: read ${read.join(', ')}`);
+  }
+});
+
+test('a prefix matches key paths as written: partial names, and no doubled or dot segments', () => {
+  const store = openStore(join(tempDir('hitld-store-'), 'store'));
+  for (const key of ['a/b1', 'a/bc/d', 'a/b/x', 'feedback/FB-1.json', 'feedback/FB-12.json']) {
+    store.write(key, '');
+  }
+  store.write('feedback/notes.json', '');
+  assert.deepEqual(store.list('a/b'), ['a/b/x', 'a/b1', 'a/bc/d']);
+  assert.deepEqual(store.list('a/b/'), ['a/b/x']);
+  assert.deepEqual(store.list('a/bc'), ['a/bc/d']);
+  assert.deepEqual(store.list('feedback/FB-'), ['feedback/FB-1.json', 'feedback/FB-12.json']);
+  assert.deepEqual(store.list('feedback/FB-1'), ['feedback/FB-1.json', 'feedback/FB-12.json']);
+  for (const prefix of ['a//b', 'a//', 'a/./b', 'a/b//']) {
+    assert.deepEqual(store.list(prefix), [], prefix);
+  }
 });
 
 test('store keys cannot leave the store', () => {

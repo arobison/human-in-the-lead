@@ -100,8 +100,15 @@ export function openStore(root) {
       // Walk only the directory the prefix names (ledger/ for the ledger's files), not the whole
       // store, its worktrees and its git repository on every read (GitHub issue 603). Inside it,
       // a folder whose path cannot lead to the prefix is not entered, so a prefix with no slash
-      // reads the top folder and only the folders that match it.
+      // reads the top folder and only the folders that match it. The keys are the ones a full
+      // walk would give: paths as the file system resolves them, never a dot path.
       const dir = prefix.includes('/') ? prefix.slice(0, prefix.lastIndexOf('/')) : '';
+      const from = dir === '' ? base : pathOf(dir);
+      // The key path of from as resolved ('a//' and 'a/./' are 'a/'), so a prefix spelled
+      // another way matches nothing, as before.
+      const top = relative(base, from).split(sep).join('/');
+      // Dot paths at the top are the store's git repository and its .gitignore, not keys.
+      if (top.startsWith('.')) return [];
       /** @type {string[]} */
       const keys = [];
       /** @param {string} abs @param {string} rel the key path of abs, '' or ending in '/' */
@@ -117,8 +124,7 @@ export function openStore(root) {
         }
         for (const d of entries) {
           const key = rel + d.name;
-          // Dot paths at the top are the store's git repository and its .gitignore, not keys.
-          if (rel === '' && d.name.startsWith('.')) continue;
+          if (key.startsWith('.')) continue;
           if (d.isDirectory()) {
             const sub = `${key}/`;
             if (sub.startsWith(prefix) || prefix.startsWith(sub)) walk(join(abs, d.name), sub);
@@ -127,7 +133,7 @@ export function openStore(root) {
           }
         }
       };
-      walk(dir === '' ? base : pathOf(dir), dir === '' ? '' : `${dir}/`);
+      walk(from, top === '' ? '' : `${top}/`);
       return keys.sort();
     },
   };
