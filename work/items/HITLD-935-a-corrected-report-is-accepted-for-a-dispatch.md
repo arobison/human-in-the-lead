@@ -2,7 +2,7 @@
 id: HITLD-935
 title: A corrected report is accepted for a dispatch whose report had errors, and a failed follow-up records nothing
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
