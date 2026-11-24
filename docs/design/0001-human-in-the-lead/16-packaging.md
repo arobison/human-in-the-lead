@@ -173,6 +173,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `not-presented`: The branch was not presented to the owner, or nothing has been presented yet.
 - `not-waiting`: The branch is not waiting to merge.
 - `stale`: A presented branch changed after the owner saw it.
+- `no-pull-request`: The branch has no open pull request to approve.
 - `ambiguous`: The name matches more than one presented branch, or a branch other than the item was dispatched on.
 - `no-github-remote`: merge.via is pull-request, and the git remote merge.pull_request.remote names no GitHub repository.
 
