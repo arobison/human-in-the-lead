@@ -1244,7 +1244,7 @@ async function pullRequestMerge(o) {
     pending: result.pending,
     stalled: result.stalled,
     updated: result.updated,
-    ...(result.ahead.applied.length || result.ahead.dropped.length
+    ...(result.ahead.applied.length || result.ahead.dropped.length || result.ahead.expired.length
       ? { approved_ahead: result.ahead }
       : {}),
     presented: waiting,

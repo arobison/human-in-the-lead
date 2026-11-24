@@ -28,9 +28,10 @@
 //                again; a conflict goes back to the executor. An approval holds across the queue's
 //                own updates, and no other new commit. An approval recorded before the queue
 //                presented a head (approveAhead, HITLD-821) is applied when the queue reaches that
-//                point with the head approved, or with only merges of main after it that leave the
-//                branch's own change as it was (aheadHolds); with anything else after it, it is
-//                dropped and the pull request is presented. A branch main moved past only under work/,
+//                point with the head approved, or with only clean merges of main after it, each
+//                exactly what git makes of it (aheadHolds); with anything else after it, it is
+//                dropped and the pull request is presented. One the queue sends back, or one left
+//                when nothing is waiting, is dropped unused. A branch main moved past only under work/,
 //                in files the branch leaves alone, is not updated and its checks are not run again
 //                (HITLD-777): tracker merges would otherwise restart them without end
 //   7. merge     squash-merge through the API, only while the head is the commit checked, with a
@@ -124,6 +125,9 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *   head: string, by: string, at: string, presented_at: string, dispatch?: string }} AheadOutcome
  *   an approval recorded before the queue presented the pull request (at), and the head the queue
  *   reached it with (at presented_at)
+ * @typedef {{ branch: string, number: number, approved_head: string, by: string, at: string,
+ *   why: 'rejected' | 'nothing_waiting' }} AheadExpired an approval recorded before the queue
+ *   presented the pull request, dropped unused: its branch was sent back, or nothing was waiting
  */
 
 /** The private store key of the pull-request queue's state. */
@@ -358,33 +362,14 @@ export function approvalHolds(dir, s, number, head) {
 }
 
 /**
- * The branch's own change against main, as text that does not depend on where main was: the
- * diff from the merge base to the head, without index lines or hunk line numbers. Two heads
- * whose texts are equal change the same files in the same way.
- * @param {string} dir @param {string} main @param {string} head
- */
-function ownChange(dir, main, head) {
-  const base = gitOk(dir, ['merge-base', main, head]);
-  const r = spawnSync(
-    'git',
-    ['diff', '--binary', '--no-renames', '--no-color', '--no-ext-diff', base, head],
-    { cwd: dir, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
-  );
-  if (r.status !== 0) throw new Error(`git diff ${base} ${head}: ${(r.stderr ?? '').trim()}`);
-  return r.stdout
-    .split('\n')
-    .filter((l) => !l.startsWith('index '))
-    .map((l) => (l.startsWith('@@ ') ? '@@' : l))
-    .join('\n');
-}
-
-/**
  * Whether an approval recorded before the queue presented the pull request (HITLD-821) covers the
- * head the queue would present now: the same pull request, and the head approved or that head
- * followed only by merges of main (each commit after it on the branch a merge whose other parents
- * main holds) that leave the branch's own change against main as it was. A conflict resolved
- * differently, or main changing lines next to the branch's, makes the change differ: the approval
- * is dropped, and the owner is asked about the head as it is.
+ * head the queue would present now: the same pull request, and the head approved, or that head
+ * followed only by merges of main whose result is exactly what git makes of it. Every commit after
+ * the approved head on the branch must be a merge whose other parents main holds, and the head's
+ * tree must be the tree `git merge-tree --write-tree` gives for the approved head and the newest
+ * main commit the head holds. A merge with a conflict, a conflict resolution, or any other change
+ * made in the merge (an approved change moved elsewhere, say) drops the approval, and the owner is
+ * asked about the head as it is. A git that cannot run the check drops it too.
  * @param {string} dir @param {Approval} a @param {number} number @param {string} head
  * @param {string} main the commit main is at
  */
@@ -399,7 +384,12 @@ export function aheadHolds(dir, a, number, head, main) {
   const mergesOfMain = after.every(
     ([, , ...others]) => others.length > 0 && others.every((c) => isAncestor(dir, c, main)),
   );
-  return mergesOfMain && ownChange(dir, main, a.head) === ownChange(dir, main, head);
+  if (!mergesOfMain) return false;
+  const merged = git(dir, ['merge-base', head, main]);
+  if (!merged.ok) return false;
+  const clean = git(dir, ['merge-tree', '--write-tree', a.head, merged.out]);
+  const tree = git(dir, ['rev-parse', `${head}^{tree}`]);
+  return clean.ok && tree.ok && clean.out.split('\n')[0] === tree.out;
 }
 
 /**
@@ -433,8 +423,9 @@ export async function runPullRequestQueue(r) {
     awaiting_owner: [],
     /** Approvals recorded before the queue presented a pull request (HITLD-821): applied to the
      * head it presents, or dropped because the head moved by more than a merge of main.
-     * @type {{ applied: AheadOutcome[], dropped: AheadOutcome[] }} */
-    ahead: { applied: [], dropped: [] },
+     * Expired: dropped unused, its branch sent back or nothing waiting.
+     * @type {{ applied: AheadOutcome[], dropped: AheadOutcome[], expired: AheadExpired[] }} */
+    ahead: { applied: [], dropped: [], expired: [] },
     /** Branches the queue brought up to date with main and pushed; their checks run again.
      * @type {{ item: string, branch: string, number: number, commit: string, rebuilt: boolean }[]} */
     updated: [],
@@ -478,10 +469,25 @@ export async function runPullRequestQueue(r) {
   const waitingBranches = new Set(r.entries.map((e) => e.branch));
   for (const b of Object.keys(state.branches))
     if (!waitingBranches.has(b)) delete state.branches[b];
+  /** @param {string} branch @param {AheadExpired['why']} why */
+  const expire = (branch, why) => {
+    const a = approvedAhead[branch];
+    if (!a) return;
+    delete approvedAhead[branch];
+    result.ahead.expired.push({
+      branch,
+      number: a.number,
+      approved_head: a.head,
+      by: a.by,
+      at: a.at,
+      why,
+    });
+  };
   /** @type {Presented[]} */
   const presented = [];
   if (!r.entries.length) {
     state.presented = null;
+    for (const b of Object.keys(approvedAhead)) expire(b, 'nothing_waiting');
     return result;
   }
 
@@ -505,6 +511,8 @@ export async function runPullRequestQueue(r) {
       });
       rejectedNow.add(e.item);
       delete state.branches[e.branch];
+      // An approval given before the presentation is not kept for what the executor sends next.
+      expire(e.branch, 'rejected');
     };
     // A pull request still running its checks, or one just updated, holds the merges after it.
     let held = false;

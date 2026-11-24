@@ -1896,3 +1896,74 @@ test('hitld merge approve --head: the owner approves a pull request head before 
     rmSync(c.base, { recursive: true, force: true });
   }
 });
+
+test('an early approval is dropped when a merge of main moves the approved change to a look-alike place (HITLD-821)', async () => {
+  // Two stanzas with the same surroundings: the diff of a change to either reads the same once
+  // line numbers are left out. The owner approves a change to the first; the merge of main the
+  // executor pushes moves it to the second.
+  const stanza = 'p\np\np\np\nv = 1\n';
+  const t = setup({ checks: { 'hitld/W-1': [{ name: 'test', state: 'pending' }] } });
+  try {
+    put(t.root, { 'conf.txt': `start\n${stanza}${stanza}p\np\np\np\nend\n` });
+    git(t.root, 'add', '-A');
+    git(t.root, 'commit', '-q', '-m', 'conf');
+    git(t.root, 'push', '-q', 'origin', 'main');
+    const changed = (/** @type {number} */ n) =>
+      `start\n${[0, 1].map((i) => (i === n ? stanza.replace('v = 1', 'v = 2') : stanza)).join('')}p\np\np\np\nend\n`;
+    const a = t.branch('W-1', { 'conf.txt': changed(0) });
+    const first = await t.pass([a], { mode: 'owner' });
+    const approved = t.remoteTip(a.branch);
+    assert.deepEqual(approveEarly(t, a, first.state), { refused: null });
+    trackerMerge(t, { 'shared.txt': 'two\n' });
+    mergeMainInto(t, a.branch, { 'conf.txt': changed(1) });
+    t.checks['hitld/W-1'] = [{ name: 'test', state: 'success' }];
+    const second = await t.pass([a], { mode: 'owner', state: first.state });
+    assert.deepEqual(second.merged, [], 'the code merged is not the code approved');
+    assert.deepEqual(
+      second.ahead.dropped.map((x) => [x.item, x.approved_head]),
+      [['W-1', approved]],
+    );
+    assert.deepEqual(
+      second.awaiting_owner.map((x) => x.item),
+      ['W-1'],
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('an early approval is dropped unused when its branch is sent back, or when nothing is waiting (HITLD-821)', async () => {
+  const t = setup({
+    checks: {
+      'hitld/W-1': [{ name: 'test', state: 'pending' }],
+      'hitld/W-2': [{ name: 'test', state: 'pending' }],
+    },
+  });
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'b.txt': 'b\n' });
+    const first = await t.pass([a, b], { mode: 'owner' });
+    for (const x of [a, b]) assert.deepEqual(approveEarly(t, x, first.state), { refused: null });
+    // W-1's check fails: it goes back to its executor, and its approval with it.
+    t.checks['hitld/W-1'] = [{ name: 'test', state: 'failure' }];
+    const second = await t.pass([a, b], { mode: 'owner', state: first.state });
+    assert.deepEqual(
+      second.rejected.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.deepEqual(
+      second.ahead.expired.map((x) => [x.branch, x.why]),
+      [[a.branch, 'rejected']],
+    );
+    assert.deepEqual(Object.keys(second.state.approved_ahead ?? {}), [b.branch]);
+    // A pass with nothing waiting drops what is left.
+    const third = await t.pass([], { mode: 'owner', state: second.state });
+    assert.deepEqual(
+      third.ahead.expired.map((x) => [x.branch, x.why]),
+      [[b.branch, 'nothing_waiting']],
+    );
+    assert.deepEqual(third.state.approved_ahead, {});
+  } finally {
+    t.done();
+  }
+});
