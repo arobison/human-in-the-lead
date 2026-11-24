@@ -80,3 +80,5 @@ On 2026-11-22, HITLD-853 and HITLD-854 join the second clause: the report parser
 ## Frozen on 2026-11-22 (HITLD-874)
 
 On the owner's decision HITLD-874 the constraint set is frozen: new friction goes to the next release by default, and changing a constraint is a decision. The trust engine core and merging (HITLD-552, 553), batching and its design (HITLD-814, 818), the dollar and dashboard work (HITLD-846, 847, 848, 693, 694), the executor ceiling command (HITLD-204) and the hand-merge command (HITLD-429) left this milestone for later ones; the owner's earlier decision to keep them (HITLD-850) is reversed.
+
+On the owner's decisions HITLD-1031 and HITLD-1032 (2026-11-24, the rc.2 triage), nine hardening items left this milestone for the least-privilege clause of HITLD-69 (HITLD-856, 857, 867, 868, 869, 870, 888, 954, 955); HITLD-872, 871 and 953 stay. HITLD-1030 (review nits) moved to HITLD-404 c2, and HITLD-752 (the release packages design) was dropped: its decisions are made and its build, HITLD-759, is done.
