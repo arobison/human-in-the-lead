@@ -3,7 +3,8 @@
 //
 // The rule, in order:
 //   1. tier_override on the item wins (the owner's override).
-//   2. Base tier: 0 when every touches glob is an inline path (a tracker edit); 3 when the item has
+//   2. Base tier: 0 when every touches glob is an inline path (dispatch.inline_globs, or the
+//      tracker's own folder, tracker.json work_dir: a tracker edit); 3 when the item has
 //      no plan at all; 1 when "Done when" is executable, the plan is specific to files, and the
 //      touches are few; otherwise 2.
 //   3. Up one for blast radius: more than one area, or a sensitive path. At most 3.
@@ -16,6 +17,7 @@
 import {
   allWithin,
   areasTouched,
+  inlineGlobs,
   doneWhenExecutable,
   globsOverlap,
   planRef,
@@ -73,9 +75,11 @@ const median = (xs) => {
  * @param {Item} item
  * @param {Record<string, any>} policy the effective policy
  * @param {HistoryEntry[]} [history]
+ * @param {{ workDir?: string }} [o] workDir: the tracker's folder (its layout's workDir), always
+ *   an inline path; the tracker's default folder when absent
  * @returns {Sizing}
  */
-export function sizeItem(item, policy, history = []) {
+export function sizeItem(item, policy, history = [], o = {}) {
   const d = policy.dispatch ?? {};
   const touches = /** @type {string[]} */ (item.touches ?? []);
   const areas = areasTouched(item, policy);
@@ -89,7 +93,7 @@ export function sizeItem(item, policy, history = []) {
     reasons.push(`tier_override ${tier} on the item (the owner's override)`);
   } else {
     const plan = planRef(item);
-    if (allWithin(touches, d.inline_globs ?? [])) {
+    if (allWithin(touches, inlineGlobs(policy, o.workDir))) {
       tier = 0;
       reasons.push('every touches glob is an inline path: the orchestrator does it itself');
     } else if (plan.kind === 'none') {

@@ -112,6 +112,24 @@ export function areasTouched(item, policy) {
   return [...out].sort();
 }
 
+/** The tracker's folder when tracker.json does not name one (schemas/tracker.schema.json). */
+const DEFAULT_WORK_DIR = 'work';
+
+/**
+ * The paths the orchestrator edits itself: the project's dispatch.inline_globs, then the
+ * tracker's own folder (tracker.json work_dir), which is always inline. Every branch's claim and
+ * close commits edit its item file there, so the tracker folder never comes from a policy default
+ * that may name another folder (HITLD-285).
+ * @param {Record<string, any>} policy the effective policy
+ * @param {string} [workDir] the tracker layout's workDir; the tracker's default folder when absent
+ * @returns {string[]}
+ */
+export function inlineGlobs(policy, workDir = DEFAULT_WORK_DIR) {
+  const own = /** @type {string[]} */ (policy.dispatch?.inline_globs ?? []);
+  const tracker = `${workDir.replace(/\/+$/, '')}/**`;
+  return own.includes(tracker) ? [...own] : [...own, tracker];
+}
+
 /**
  * Whether every glob falls inside the given globs.
  * @param {string[]} touches @param {string[]} within

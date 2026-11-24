@@ -5,9 +5,9 @@
   "type": "object",
   "properties": {
     "inline_globs": {
-      "description": "Paths the orchestrator edits itself (tier 0): an item whose touches all fall here, such as a tracker edit, is not dispatched.",
+      "description": "Paths the orchestrator edits itself (tier 0), besides the tracker's own folder: an item whose touches all fall here is not dispatched, and a branch's changes here are not outside its touches. The tracker's folder (tracker.json work_dir, with /**) is always added, wherever it is, so the default names no folder of its own.",
       "$ref": "common#/$defs/globs",
-      "default": ["work/**"]
+      "default": []
     },
     "sensitive_globs": {
       "description": "Paths whose change raises an item one tier for blast radius: the build and release pipeline, dependency manifests, security-sensitive code, the project's own policy.",

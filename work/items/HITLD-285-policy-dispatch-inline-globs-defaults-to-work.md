@@ -7,6 +7,7 @@ created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-403 c4]
 claimed_by: D-01M87PRM5ZXXVCTD
+release_note: "The tracker's own folder (tracker.json `work_dir`) is always an inline path: an item that touches only tracker files runs inline, and a branch's claim and close edits are no longer reported outside its touches. `dispatch.inline_globs` now defaults to an empty list, was `work/**`."
 ---
 
 ## Why
