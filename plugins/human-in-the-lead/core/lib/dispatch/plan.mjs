@@ -65,6 +65,7 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   disk?: { state: string, reason: string },
  *   touches?: (item: Item) => import('./touches.mjs').Touches,
  *   executorModes?: (item: Item) => ModeAbility,
+ *   mergeFix?: boolean,
  * }} r
  *   setup: until the first-run setup is done (design part 13.4), every item waits (reason
  *   `setup`) and the cap is one, except `byHand`, the one item the person started by hand
@@ -74,6 +75,11 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   (permissions.mjs). A tier-3 item whose headless runs cannot runs interactive, and the other
  *   way round; when neither can, or a subagent cannot below tier 3, it is held (reason
  *   executor-permissions) and nothing is launched
+ *   mergeFix: the queue is one item whose work unsticks a merge the queue cannot make (HITLD-978).
+ *   With every slot taken it may take one past the cap, so a run the cap holds to one slot (the
+ *   quota gate's economize mode, a setup not done) cannot deadlock behind branches waiting to
+ *   merge. One past only: a second fix waits for a slot as any item does. A harness that runs one
+ *   executor at a time gives no slot past it
  */
 export function planDispatch(r) {
   const caps = r.capabilities;
@@ -247,8 +253,9 @@ export function planDispatch(r) {
       });
       continue;
     }
+    const past = r.mergeFix && caps.parallel_subagents ? 1 : 0;
     if (
-      r.running.length + start.length >= cap ||
+      r.running.length + start.length >= cap + past ||
       serial.some((s) => proposedSerial.has(s)) ||
       (proposedTouches.length &&
         overlapShare(touches.touches, proposedTouches) >= (r.overlapSerialize ?? 0.5))
@@ -258,6 +265,11 @@ export function planDispatch(r) {
     }
     /** @type {string[]} */
     const itemNotes = sizing.estimate_note ? [sizing.estimate_note] : [];
+    if (r.running.length + start.length >= cap) {
+      itemNotes.push(
+        `it fixes a stuck merge: it takes a slot past the cap of ${cap}, which frees when it reports or is abandoned`,
+      );
+    }
     let tier = sizing.tier;
     if (tier === 3 && !caps.persistent_sessions) {
       tier = 2;
@@ -337,10 +349,35 @@ export function slotsText(cap, running) {
  * @returns {AwaitingMerge[]}
  */
 export function awaitingMerge(events) {
+  return foldAwaiting(events, true);
+}
+
+/**
+ * The branches still queued to merge whatever became of the dispatches on their items: as
+ * awaitingMerge, but an `abandoned` or `unclaimed` event ends no wait. Abandoning a dispatch frees
+ * its slot, not its branch: a branch that closed its item and was queued stays queued until it
+ * merges, is reverted or its pass is corrected, so planning the item again would do the work twice
+ * (HITLD-978). The caller keeps only those whose branch still carries the item's close.
+ * @param {import('../ledger/ledger.mjs').LedgerEntry[]} events
+ * @returns {AwaitingMerge[]}
+ */
+export function queuedBranches(events) {
+  return foldAwaiting(events, false);
+}
+
+/**
+ * @param {import('../ledger/ledger.mjs').LedgerEntry[]} events
+ * @param {boolean} abandonEnds whether `abandoned` and `unclaimed` end a wait
+ * @returns {AwaitingMerge[]}
+ */
+function foldAwaiting(events, abandonEnds) {
   /** @type {Map<string, AwaitingMerge>} */
   const waiting = new Map();
   /** @type {Map<string, string>} the dispatch that last reported on each item */
   const reported = new Map();
+  const ends = abandonEnds
+    ? ['merged', 'reverted', 'abandoned', 'unclaimed']
+    : ['merged', 'reverted'];
   for (const e of effectiveEvents(events)) {
     const item = e.item;
     if (typeof item !== 'string') continue;
@@ -359,7 +396,7 @@ export function awaitingMerge(events) {
     } else if (e.event === 'verified' && e.result === 'fail') {
       const w = waiting.get(item);
       if (w) w.sent_back = true;
-    } else if (['merged', 'reverted', 'abandoned', 'unclaimed'].includes(e.event)) {
+    } else if (ends.includes(e.event)) {
       waiting.delete(item);
     }
   }

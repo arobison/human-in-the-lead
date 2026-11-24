@@ -64,7 +64,7 @@ import {
   sizeItem,
 } from '../../dispatch/sizing.mjs';
 import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mjs';
-import { awaitingMerge, planDispatch } from '../../dispatch/plan.mjs';
+import { awaitingMerge, planDispatch, queuedBranches } from '../../dispatch/plan.mjs';
 import {
   PERMISSIONS_REASON,
   mentionedRefusals,
@@ -102,6 +102,7 @@ import {
 } from '../../merge/pull-request.mjs';
 import { duplicateIds } from '../../tracker/files/check.mjs';
 import { closeByTrailer } from '../../tracker/files/closing.mjs';
+import { parseItem } from '../../tracker/files/frontmatter.mjs';
 import { git, loadWorkTree } from '../../tracker/files/tree.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import {
@@ -419,7 +420,7 @@ export function readyQueue(p, ctx) {
   const history = historyFromLedger(events, (id) => byId.get(id));
   // Work finished on a branch that has not merged is not ready: the tracker on main shows it done
   // only once it merges, and planning it again would do the work twice (HITLD-153).
-  const awaiting = awaitingOf(p, events);
+  const awaiting = awaitingOf(p, events, work);
   const waitingIds = new Set(awaiting.map((a) => a.item));
   const ready = work.items.filter(
     (i) => work.ready.has(String(i.id)) && !waitingIds.has(String(i.id)),
@@ -435,12 +436,23 @@ export function readyQueue(p, ctx) {
 }
 
 /**
- * The items awaiting merge, each with its pull request when the pull-request queue knows it.
+ * The items awaiting merge, each with its pull request when the pull-request queue knows it: those
+ * the ledger has waiting, and those whose queued branch still carries the item's close though an
+ * abandoned or unclaimed dispatch on the item ended its wait in the ledger (HITLD-978). The
+ * tracker's ready set counts only an in-progress copy on a branch as a claim, so an item closed on
+ * its branch reads as ready on main until the branch merges; planning it again does the work twice,
+ * and at a cap of one keeps the slot from the work that would unstick the merge.
  * @param {ReturnType<typeof project>} p @param {import('../../ledger/ledger.mjs').LedgerEntry[]} events
+ * @param {import('../../dispatch/items.mjs').WorkItems} work
  */
-function awaitingOf(p, events) {
+function awaitingOf(p, events, work) {
   const pulls = readPullState(p.store).branches;
-  return awaitingMerge(events).map((a) => {
+  const waiting = awaitingMerge(events);
+  const known = new Set(waiting.map((a) => a.item));
+  const closed = queuedBranches(events).filter(
+    (a) => !known.has(a.item) && work.ready.has(a.item) && closedOnBranch(p, work, a),
+  );
+  return [...waiting, ...closed].map((a) => {
     const pr = pulls[a.branch];
     return {
       item: a.item,
@@ -455,11 +467,27 @@ function awaitingOf(p, events) {
 }
 
 /**
+ * Whether a queued branch, as this checkout or its remote has it, carries its item's close: the
+ * item's file there is done. A branch git cannot find closes nothing.
+ * @param {ReturnType<typeof project>} p @param {import('../../dispatch/items.mjs').WorkItems} work
+ * @param {{ item: string, branch: string }} a
+ */
+function closedOnBranch(p, work, a) {
+  const path = work.items.find((i) => String(i.id) === a.item)?.path;
+  if (typeof path !== 'string' || !/^[\w./-]+$/.test(a.branch)) return false;
+  const remote = String(p.policy.merge?.pull_request?.remote ?? 'origin');
+  return [`refs/heads/${a.branch}`, `refs/remotes/${remote}/${a.branch}`].some((ref) => {
+    const text = git(p.repoRoot, ['show', `${ref}:${path}`], { allowFail: true });
+    return text !== '' && parseItem(text).data?.state === 'done';
+  });
+}
+
+/**
  * Why an item is not started because it awaits merge, in the plan's words.
  * @param {{ item: string, dispatch: string | null, branch: string, pull_request: { number: number, url: string } | null, sent_back?: boolean }} a
  */
 export const awaitingText = (a) =>
-  `${a.item} awaits merge: ${a.dispatch ?? 'its dispatch'} reported it done on ${a.branch}${a.pull_request ? ` (pull request #${a.pull_request.number}, ${a.pull_request.url})` : ''}${a.sent_back ? ', which the merge queue sent back for a follow-up' : ''}. It is planned again when that branch merges or is reverted, or its dispatch is abandoned`;
+  `${a.item} awaits merge: ${a.dispatch ?? 'its dispatch'} reported it done on ${a.branch}${a.pull_request ? ` (pull request #${a.pull_request.number}, ${a.pull_request.url})` : ''}${a.sent_back ? ', which the merge queue sent back for a follow-up' : ''}. It is planned again when that branch merges or is reverted, or its pass is corrected (the owner drops the branch); abandoning a dispatch frees its slot, not the branch`;
 
 /**
  * An item's file, repository-relative, from the files tracker on this checkout; undefined when
@@ -482,9 +510,11 @@ function itemPathOf(p, ctx, id) {
  * `byHand`: the item the person started by hand; it is the only one that runs before setup is done.
  * `only`: plan this one item alone, against running work and nothing the plan would propose
  * before it, which is how `dispatch start` decides whether it may start (HITLD-153).
+ * `mergeFix`: with `only`, that item fixes a stuck merge, and may take a slot past the cap (HITLD-978).
  * @param {ReturnType<typeof project>} p @param {Ctx} ctx @param {string} [byHand] @param {string} [only]
+ * @param {boolean} [mergeFix]
  */
-export function plan(p, ctx, byHand, only) {
+export function plan(p, ctx, byHand, only, mergeFix = false) {
   const q = readyQueue(p, ctx);
   // Snapshots: this project's own, and every account's from the machine registry, so all projects
   // on the machine see the same use.
@@ -582,6 +612,7 @@ export function plan(p, ctx, byHand, only) {
     setup: { ...p.setup, byHand },
     touches: (item) => touchesFor(item),
     executorModes: () => refusals,
+    mergeFix: only !== undefined && mergeFix,
   });
   return {
     q,
@@ -1487,6 +1518,12 @@ const table = [
         description:
           'The owner asked for this item themselves. Before the first-run setup is done, only an item started this way runs, and one at a time',
       },
+      {
+        name: 'fixes-merge',
+        type: 'string',
+        description:
+          'The item (or branch) awaiting merge whose stuck merge this item fixes. With every slot taken, it may take one past the cap, so branches waiting to merge cannot hold the only slot from their own fix',
+      },
       SESSION,
       HOST,
     ],
@@ -1517,9 +1554,30 @@ const table = [
           );
         }
         const byHand = input['by-hand'] === true ? id : undefined;
+        // A fix for a stuck merge names the merge: an item, or a branch, the plan has awaiting
+        // merge (HITLD-978). Nothing else earns the slot past the cap.
+        const fixes = typeof input['fixes-merge'] === 'string' ? input['fixes-merge'].trim() : null;
+        /** @type {{ item: string, branch: string } | null} */
+        let stuck = null;
+        if (fixes !== null) {
+          const awaiting = readyQueue(p, ctx).awaiting;
+          stuck = awaiting.find((a) => a.item === fixes || a.branch === fixes) ?? null;
+          if (!stuck) {
+            throw new Refusal(
+              'not-awaiting',
+              `--fixes-merge names ${fixes || 'nothing'}, which is not awaiting merge: name an item or branch from the plan's awaiting_merge${awaiting.length ? ` (${awaiting.map((a) => a.item).join(', ')})` : ', which is empty'}; nothing was started`,
+            );
+          }
+          if (stuck.item === id) {
+            throw new Refusal(
+              'usage',
+              `${id} awaits merge itself: a fix for its merge is another item, or a follow-up on its branch; nothing was started`,
+            );
+          }
+        }
         // The item is planned alone, against what runs: its place in the plan's start list does
         // not matter, and the plan's other proposals hold nothing (HITLD-153).
-        const { q, result, setup, running } = plan(p, ctx, byHand, id);
+        const { q, result, setup, running } = plan(p, ctx, byHand, id, stuck !== null);
         const planned = result.start.find((s) => s.item === id);
         if (!planned && result.disk?.state === 'below') {
           throw new Refusal('disk-floor', `${id} waits: ${result.disk.reason}`, {
@@ -1669,6 +1727,7 @@ const table = [
           host: run.host,
           ...(tier === 3 || durable ? { mode } : {}),
           ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
+          ...(stuck ? { notes: `fixes the stuck merge of ${stuck.item} on ${stuck.branch}` } : {}),
         });
 
         // Count it in the machine registry, against the person's and the machine's maxima. The
@@ -1799,6 +1858,13 @@ const table = [
               }
             : {}),
           worktree,
+          // A fix for a stuck merge, and whether it took a slot past the cap (HITLD-978).
+          ...(stuck
+            ? {
+                fixes_merge: { item: stuck.item, branch: stuck.branch },
+                past_cap: running.length >= result.cap,
+              }
+            : {}),
           brief_file: briefPath,
           executor_env: envPrefix(xenv),
           instruction: call,
