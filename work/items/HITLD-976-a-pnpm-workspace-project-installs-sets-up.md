@@ -2,7 +2,7 @@
 id: HITLD-976
 title: A pnpm workspace project installs, sets up worktrees, runs its checks and cuts a release with HITLd
 kind: work
-state: in-progress
+state: done
 created: 2026-11-23
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
