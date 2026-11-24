@@ -2,12 +2,12 @@
 id: HITLD-853
 title: The report parser accepts a call line ending (one-way), as the contract and the briefs say
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M860KVF993NCM9
 ---
-
 
 ## Why
 
