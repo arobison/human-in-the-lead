@@ -2,10 +2,11 @@
 id: HITLD-1019
 title: The cache-variable check refuses credential, session and shell-startup stems and runner variables, before HITLD-925 exports the variable
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M860KNFTTV0TBS
 ---
 
 ## Done when
