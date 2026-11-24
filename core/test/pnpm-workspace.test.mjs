@@ -9,7 +9,12 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main } from '../lib/cli/main.mjs';
-import { proposeSetup, pnpmWorkspaceGlobs, workspacePackages } from '../lib/env/setup-gap.mjs';
+import {
+  expandBraces,
+  proposeSetup,
+  pnpmWorkspaceGlobs,
+  workspacePackages,
+} from '../lib/env/setup-gap.mjs';
 import { evidenceFor } from '../lib/merge/owner.mjs';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { MERGE_SETTINGS } from '../lib/eval/orchestrator-fixtures.mjs';
@@ -145,8 +150,128 @@ test('no packages key: pnpm reads the root alone, and the proposal says plainly 
   assert.deepEqual(p.full_suite, []);
   assert.deepEqual(p.worktree_setup, ['pnpm install --frozen-lockfile']);
   assert.equal(p.notes.length, 1);
-  assert.match(p.notes[0], /no packages key, so pnpm reads the root project alone/);
+  assert.match(p.notes[0], /no packages key, which pnpm 10 reads as the root project alone/);
   assert.match(p.notes[0], /no workspace package was found/);
+  assert.doesNotMatch(p.notes[0], /earlier pnpm/);
+});
+
+test('no packages key with package.json naming pnpm 9: the note says the project may differ and names the setting to add', () => {
+  const root = scratch({
+    ...WORKSPACE,
+    'pnpm-workspace.yaml': 'catalog:\n  react: ^18.3.1\n',
+    'package.json': JSON.stringify({ name: 'ws', packageManager: 'pnpm@9.15.0' }),
+  });
+  const p = /** @type {NonNullable<ReturnType<typeof proposeSetup>>} */ (proposeSetup(root));
+  assert.equal(p.notes.length, 1);
+  assert.match(p.notes[0], /pnpm 10 reads as the root project alone/);
+  assert.match(
+    p.notes[0],
+    /names pnpm@9\.15\.0, an earlier pnpm, which may read the file differently/,
+  );
+  assert.match(p.notes[0], /add a packages list to pnpm-workspace\.yaml/);
+});
+
+test('** skips folders whose names start with a dot, as pnpm does', () => {
+  const root = scratch({
+    'package.json': '{ "name": "root" }',
+    '.claude/worktrees/w1/package.json': '{}',
+    '.cache/x/package.json': '{}',
+    'fixtures/f/package.json': '{}',
+    'packages/a/package.json': '{}',
+  });
+  /** @type {string[]} */
+  const notes = [];
+  assert.deepEqual(workspacePackages(root, ['**'], notes).packages, ['fixtures/f', 'packages/a']);
+  assert.deepEqual(notes, []);
+});
+
+test('!dir/** excludes dir itself, as pnpm matches dir/**/package.json', () => {
+  const root = scratch({
+    'packages/a/package.json': '{}',
+    'packages/a/deep/b/package.json': '{}',
+    'packages/c/package.json': '{}',
+  });
+  assert.deepEqual(workspacePackages(root, ['packages/**', '!packages/a/**']).packages, [
+    'packages/c',
+  ]);
+  assert.deepEqual(workspacePackages(root, ['packages/**']).packages, [
+    'packages/a',
+    'packages/a/deep/b',
+    'packages/c',
+  ]);
+});
+
+test('brace globs expand; a glob the reader cannot expand is refused with a note naming it', () => {
+  const root = scratch({
+    'packages/a/package.json': '{}',
+    'fixtures/f/package.json': '{}',
+    'tools/t/package.json': '{}',
+  });
+  assert.deepEqual(workspacePackages(root, ['{packages,fixtures}/*']).packages, [
+    'fixtures/f',
+    'packages/a',
+  ]);
+  assert.deepEqual(workspacePackages(root, ['{packages,{fixtures,tools}}/*']).packages, [
+    'fixtures/f',
+    'packages/a',
+    'tools/t',
+  ]);
+  assert.deepEqual(expandBraces('a/{b,c}/{d,e}'), { globs: ['a/b/d', 'a/b/e', 'a/c/d', 'a/c/e'] });
+  for (const glob of ['packages/{1..3}', 'packages/[ab]', 'packages/{a,b', '+(a|b)/*']) {
+    /** @type {string[]} */
+    const notes = [];
+    assert.deepEqual(workspacePackages(root, [glob], notes).packages, [], glob);
+    assert.equal(notes.length, 1, glob);
+    assert.ok(notes[0].includes(`the workspace glob ${glob} uses`), notes[0]);
+  }
+  // In a proposal, a refused glob has its own note, not "no folder matches".
+  const ws = scratch({ ...WORKSPACE, 'pnpm-workspace.yaml': "packages:\n  - 'packages/[ab]'\n" });
+  const p = /** @type {NonNullable<ReturnType<typeof proposeSetup>>} */ (proposeSetup(ws));
+  assert.equal(p.notes.length, 1);
+  assert.match(p.notes[0], /the workspace glob packages\/\[ab\] uses a character class/);
+});
+
+test('pnpm-workspace.yaml: an anchor on the key or an entry is read past; an alias is refused with a note', () => {
+  assert.deepEqual(pnpmWorkspaceGlobs('packages: &p\n  - fixtures/*\n  - b\n'), [
+    'fixtures/*',
+    'b',
+  ]);
+  assert.deepEqual(pnpmWorkspaceGlobs('packages: &p [a, b]\n'), ['a', 'b']);
+  /** @type {string[]} */
+  const notes = [];
+  assert.deepEqual(
+    pnpmWorkspaceGlobs("packages:\n  - &a x\n  - *a\n  - '*quoted'\n", notes),
+    ['x', '*quoted'],
+    'the anchored value is read, the alias is not returned as text, a quoted * is text',
+  );
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /entry \*a is a YAML alias/);
+  /** @type {string[]} */
+  const whole = [];
+  assert.deepEqual(pnpmWorkspaceGlobs('packages: *p\n', whole), []);
+  assert.match(whole[0], /packages key holds \*p, not a list/);
+});
+
+test('a match deeper than the walk reads is left out with a note naming it', () => {
+  const root = scratch({ 'a/b/c/d/e/package.json': '{}', 'a/b/package.json': '{}' });
+  /** @type {string[]} */
+  const notes = [];
+  assert.deepEqual(workspacePackages(root, ['a/**'], notes).packages, ['a/b']);
+  assert.equal(notes.length, 1);
+  assert.match(
+    notes[0],
+    /reads 4 folder levels, so 1 matching package deeper is left out: a\/b\/c\/d\/e/,
+  );
+  const ws = scratch({
+    ...WORKSPACE,
+    'pnpm-workspace.yaml': "packages:\n  - 'packages/**'\n",
+    'packages/x/y/z/w/package.json': '{ "scripts": { "test": "node --test" } }',
+  });
+  const p = /** @type {NonNullable<ReturnType<typeof proposeSetup>>} */ (proposeSetup(ws));
+  assert.ok(
+    p.notes.some((n) => n.includes('packages/x/y/z/w')),
+    JSON.stringify(p.notes),
+  );
 });
 
 test('a workspace whose globs match no package says so, instead of an empty list without a word', () => {
@@ -196,7 +321,7 @@ test('the workspace packages are the folders with a package.json that the globs 
   writeFileSync(join(root, 'packages', 'a', 'node_modules', 'dep', 'package.json'), '{}');
   mkdirSync(join(root, 'packages', 'empty'));
   assert.deepEqual(
-    workspacePackages(root, pnpmWorkspaceGlobs(WORKSPACE['pnpm-workspace.yaml']) ?? []),
+    workspacePackages(root, pnpmWorkspaceGlobs(WORKSPACE['pnpm-workspace.yaml']) ?? []).packages,
     ['packages/a', 'packages/b'],
   );
   const proposal = proposeSetup(root);

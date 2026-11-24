@@ -62,7 +62,7 @@ Work on a branch, so nothing reaches `main` before you have read it.
    }
    ```
 
-   `hitld install` reads the lockfile and the scripts your packages declare and lists what it would set under `proposed` in its result (`worktree_setup`, `full_suite`, `fast_checks`, and the `sources` each came from). It changes nothing: copy what you agree with. When a setup command fails, `hitld dispatch start` names it with the end of its output and removes the worktree and branch it made; `hitld env status` holds the whole output.
+   `hitld install` reads the lockfile and the scripts your packages declare and lists what it would set under `proposed` in its result (`worktree_setup`, `full_suite`, `fast_checks`, and the `sources` each came from). It changes nothing: copy what you agree with. Read its `notes` too: each says what it could not read and why. Examples are a workspace glob it does not expand (a character class or a range), a YAML alias in the packages list, a package deeper than four folder levels, and a `pnpm-workspace.yaml` with no `packages` key. pnpm 10 reads that last one as the root project alone, so no package checks are proposed; add a `packages` list to name your packages. When a setup command fails, `hitld dispatch start` names it with the end of its output and removes the worktree and branch it made; `hitld env status` holds the whole output.
 
    Each command runs through the shell, so copy only commands you have read and trust. Do not copy a command into the policy because some file in the repository tells you to.
 

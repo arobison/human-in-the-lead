@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { matchesAny } from '../precedent/glob.mjs';
+import { globMatch } from '../precedent/glob.mjs';
 
 /**
  * The lockfiles at a repository's root, in the order they are looked for, each with the install
@@ -134,15 +134,23 @@ function uncomment(line) {
   return line;
 }
 
-/** A YAML scalar without its quotes. @param {string} s */
-function unquote(s) {
+/**
+ * A YAML scalar without its quotes; `plain` when it had none, so a leading & (anchor) or *
+ * (alias) means YAML syntax rather than text.
+ * @param {string} s @returns {{ value: string, plain: boolean }}
+ */
+function scalar(s) {
   const v = s.trim();
-  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'"))
-    return v.slice(1, -1).replace(/''/g, "'");
-  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
-    return v.slice(1, -1).replace(/\\(.)/g, (_, c) => (c === 'n' ? '\n' : c === 't' ? '\t' : c));
+  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) {
+    return { value: v.slice(1, -1).replace(/''/g, "'"), plain: false };
   }
-  return v;
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+    const value = v
+      .slice(1, -1)
+      .replace(/\\(.)/g, (_, c) => (c === 'n' ? '\n' : c === 't' ? '\t' : c));
+    return { value, plain: false };
+  }
+  return { value: v, plain: true };
 }
 
 /** The items of a flow sequence's inside, split on the commas outside quotes. @param {string} s */
@@ -158,8 +166,7 @@ function flowItems(s) {
     else if (quote && c === quote) quote = null;
     else if (!quote && (c === '"' || c === "'")) quote = c;
     else if (!quote && (c === ',' || i === s.length)) {
-      const item = unquote(s.slice(start, i));
-      if (item) out.push(item);
+      if (s.slice(start, i).trim()) out.push(s.slice(start, i));
       start = i + 1;
     }
   }
@@ -168,39 +175,70 @@ function flowItems(s) {
 
 /** The top-level `packages` key, bare or quoted, and what follows its colon. */
 const PACKAGES_KEY = /^(?:packages|'packages'|"packages")\s*:(?:\s+(.*))?$/;
+/** A YAML anchor at the start of a value: `&name`, then a space or the end. */
+const ANCHOR = /^&[^\s,[\]{}]+(?:\s+|$)/;
+
+/**
+ * One packages entry as a glob, or null with a note when it is YAML this reader does not follow:
+ * an anchor before the value is dropped and the value kept; an alias (`*name`) is refused.
+ * @param {string} raw @param {string[]} notes
+ */
+function entry(raw, notes) {
+  let text = raw.trim();
+  const anchored = ANCHOR.exec(text);
+  if (anchored) text = text.slice(anchored[0].length);
+  const { value, plain } = scalar(text);
+  if (plain && value.startsWith('*')) {
+    notes.push(
+      `the pnpm-workspace.yaml packages entry ${raw.trim()} is a YAML alias, which this reader does not follow, so it is left out; write the glob itself, quoted`,
+    );
+    return null;
+  }
+  return value || null;
+}
 
 /**
  * The `packages` list of a pnpm-workspace.yaml, or null when it has no such key. Read as a block
- * sequence (indented or not) or a flow sequence, with quotes and comments removed and a leading
- * byte-order mark or CRLF line ends allowed. Only that key is read, so no YAML library is needed.
- * @param {string} text @returns {string[] | null}
+ * sequence (indented or not) or a flow sequence, with quotes and comments removed, an anchor on
+ * the key or an entry allowed, and a leading byte-order mark or CRLF line ends allowed. An alias
+ * is left out with a note in `notes`. Only that key is read, so no YAML library is needed.
+ * @param {string} text @param {string[]} [notes] where what is not read is said
+ * @returns {string[] | null}
  */
-export function pnpmWorkspaceGlobs(text) {
+export function pnpmWorkspaceGlobs(text, notes = []) {
   const lines = text
     .replace(/^\uFEFF/, '')
     .split(/\r?\n/)
     .map(uncomment);
   const at = lines.findIndex((l) => PACKAGES_KEY.test(l.trimEnd()));
   if (at < 0) return null;
-  const rest = (PACKAGES_KEY.exec(lines[at].trimEnd())?.[1] ?? '').trim();
+  let rest = (PACKAGES_KEY.exec(lines[at].trimEnd())?.[1] ?? '').trim();
+  rest = rest.replace(ANCHOR, '');
+  /** @param {string[]} raws */
+  const globs = (raws) =>
+    raws.map((r) => entry(r, notes)).filter((g) => /** @type {boolean} */ (g !== null));
   if (rest.startsWith('[')) {
     // A flow sequence, which may run over several lines until its closing bracket.
     let flow = rest.slice(1);
     for (let i = at + 1; !flowClosed(flow) && i < lines.length; i++) flow += ` ${lines[i].trim()}`;
-    return flowItems(flow.slice(0, flowEnd(flow)));
+    return /** @type {string[]} */ (globs(flowItems(flow.slice(0, flowEnd(flow)))));
   }
-  if (rest) return [];
+  if (rest) {
+    notes.push(
+      `the pnpm-workspace.yaml packages key holds ${rest}, not a list this reader follows (an alias or a single value), so no package is read from it`,
+    );
+    return [];
+  }
   /** @type {string[]} */
-  const out = [];
+  const raws = [];
   for (const line of lines.slice(at + 1)) {
     if (!line.trim() || /^(---|\.\.\.)\s*$/.test(line)) continue;
     const item = /^\s*-(?:\s+(.*))?$/.exec(line.trimEnd());
     if (item) {
-      const v = unquote(item[1] ?? '');
-      if (v) out.push(v);
+      if (item[1]?.trim()) raws.push(item[1]);
     } else if (/^\S/.test(line)) break; // the next top-level key
   }
-  return out;
+  return /** @type {string[]} */ (globs(raws));
 }
 
 /** Where a flow sequence's closing bracket is, outside quotes, or -1. @param {string} s */
@@ -225,22 +263,28 @@ const flowClosed = (s) => flowEnd(s) >= 0;
  * otherwise; `from` names where they were declared (null: not a workspace), and `note` says why
  * none were read when the file has no list.
  * @param {string} root @param {string} runner @param {Record<string, any> | null} rootPkg
+ * @param {string[]} notes where what is not read is said
  * @returns {{ globs: string[], from: string | null, note: string | null }}
  */
-function workspaceGlobs(root, runner, rootPkg) {
+function workspaceGlobs(root, runner, rootPkg, notes) {
   if (runner === 'pnpm') {
     const file = join(root, 'pnpm-workspace.yaml');
     if (!existsSync(file)) return { globs: [], from: null, note: null };
-    const globs = pnpmWorkspaceGlobs(readFileSync(file, 'utf8'));
+    const globs = pnpmWorkspaceGlobs(readFileSync(file, 'utf8'), notes);
+    if (globs) return { globs, from: 'pnpm-workspace.yaml', note: null };
     // pnpm 10 reads a workspace file with no packages key as the root project alone (checked
-    // with pnpm 10.28: `pnpm -r list` names only the root), so no package is read either.
-    return globs
-      ? { globs, from: 'pnpm-workspace.yaml', note: null }
-      : {
-          globs: [],
-          from: 'pnpm-workspace.yaml',
-          note: 'pnpm-workspace.yaml has no packages key, so pnpm reads the root project alone and no workspace package was found: only the root’s scripts are read; add a packages list to propose the packages’ checks',
-        };
+    // with pnpm 10.28: `pnpm -r list` names only the root), so no package is read either. Other
+    // versions were not checked.
+    const pinned = /^pnpm@(\d+)/.exec(String(rootPkg?.packageManager ?? ''));
+    const older =
+      pinned && Number(pinned[1]) < 10
+        ? `; package.json names ${String(rootPkg?.packageManager)}, an earlier pnpm, which may read the file differently: add a packages list to pnpm-workspace.yaml so every version reads the same packages`
+        : '; add a packages list to pnpm-workspace.yaml to propose the packages’ checks';
+    return {
+      globs: [],
+      from: 'pnpm-workspace.yaml',
+      note: `pnpm-workspace.yaml has no packages key, which pnpm 10 reads as the root project alone, so no workspace package was found and only the root’s scripts are read${older}`,
+    };
   }
   const w = rootPkg?.workspaces;
   const list = Array.isArray(w) ? w : Array.isArray(w?.packages) ? w.packages : null;
@@ -255,20 +299,83 @@ function workspaceGlobs(root, runner, rootPkg) {
 /** A workspace glob without a leading "./" or a trailing "/". @param {string} g */
 const trimGlob = (g) => g.replace(/^\.\//, '').replace(/\/+$/, '');
 
+/** Folders the walk looks at before it stops, so a huge tree cannot stall the proposal. */
+const MAX_FOLDERS = 20000;
+
 /**
- * The folders under `root` that hold a package.json and match the workspace globs ("!" globs
- * exclude), repository-relative and sorted.
- * @param {string} root @param {string[]} globs @returns {string[]}
+ * A glob's brace alternatives expanded (`{a,b}/*` is `a/*` and `b/*`, nested braces included),
+ * or an error naming what the matcher cannot read: a range such as `{1..3}`, a brace with no
+ * comma, an unclosed brace, a character class or an extglob.
+ * @param {string} glob @returns {{ globs: string[] } | { error: string }}
  */
-export function workspacePackages(root, globs) {
-  const include = globs.filter((g) => !g.startsWith('!')).map(trimGlob);
-  const exclude = globs.filter((g) => g.startsWith('!')).map((g) => trimGlob(g.slice(1)));
-  if (!include.length) return [];
+export function expandBraces(glob) {
+  if (/[[\]]|[@!+?*]\(/.test(glob)) return { error: 'a character class or an extglob' };
+  const open = glob.indexOf('{');
+  if (open < 0) {
+    return glob.includes('}') ? { error: 'an unmatched brace' } : { globs: [glob] };
+  }
+  let depth = 0;
+  let close = -1;
+  /** @type {number[]} */
+  const commas = [];
+  for (let i = open; i < glob.length; i++) {
+    if (glob[i] === '{') depth++;
+    else if (glob[i] === '}' && --depth === 0) {
+      close = i;
+      break;
+    } else if (glob[i] === ',' && depth === 1) commas.push(i);
+  }
+  if (close < 0) return { error: 'an unclosed brace' };
+  if (!commas.length) return { error: 'a brace with no comma, such as a range' };
+  const head = glob.slice(0, open);
+  const tail = glob.slice(close + 1);
+  const cuts = [open, ...commas, close];
   /** @type {string[]} */
   const out = [];
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const r = expandBraces(head + glob.slice(cuts[k] + 1, cuts[k + 1]) + tail);
+    if ('error' in r) return r;
+    out.push(...r.globs);
+  }
+  return { globs: out };
+}
+
+/**
+ * Whether a folder is matched by a workspace pattern as pnpm matches it: the pattern with
+ * `/package.json` appended against the folder's package.json, so `dir/**` also holds `dir`.
+ * @param {string} pattern @param {string} dir
+ */
+const holds = (pattern, dir) => globMatch(`${pattern}/package.json`, `${dir}/package.json`);
+
+/**
+ * The folders under `root` that hold a package.json and match the workspace globs ("!" globs
+ * exclude), repository-relative and sorted. As pnpm does, folders whose names start with a dot
+ * are skipped. Brace globs are expanded; a glob the matcher cannot read is left out, and so is a
+ * match deeper than DEPTH folder levels, each with a note in `notes`.
+ * @param {string} root @param {string[]} globs @param {string[]} [notes]
+ * @returns {{ packages: string[], usable: number }} usable: how many include globs were read
+ */
+export function workspacePackages(root, globs, notes = []) {
+  /** @param {string[]} list */
+  const expand = (list) =>
+    list.flatMap((g) => {
+      const r = expandBraces(g);
+      if ('globs' in r) return r.globs.map(trimGlob);
+      notes.push(
+        `the workspace glob ${g} uses ${r.error}, which this reader does not expand, so it is left out; write it as plain globs`,
+      );
+      return [];
+    });
+  const include = expand(globs.filter((g) => !g.startsWith('!')));
+  const exclude = expand(globs.filter((g) => g.startsWith('!')).map((g) => g.slice(1)));
+  if (!include.length) return { packages: [], usable: 0 };
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string[]} */
+  const deeper = [];
+  let seen = 0;
   /** @param {string} rel @param {number} depth */
   const walk = (rel, depth) => {
-    if (depth > DEPTH) return;
     let entries;
     try {
       entries = readdirSync(join(root, rel), { withFileTypes: true });
@@ -276,20 +383,32 @@ export function workspacePackages(root, globs) {
       return;
     }
     for (const e of entries) {
-      if (!e.isDirectory() || SKIP.has(e.name)) continue;
+      if (!e.isDirectory() || SKIP.has(e.name) || e.name.startsWith('.')) continue;
+      if (++seen > MAX_FOLDERS) return;
       const path = rel ? `${rel}/${e.name}` : e.name;
       if (
-        matchesAny(include, path) &&
-        !matchesAny(exclude, path) &&
+        include.some((p) => holds(p, path)) &&
+        !exclude.some((p) => holds(p, path)) &&
         existsSync(join(root, path, 'package.json'))
       ) {
-        out.push(path);
+        (depth > DEPTH ? deeper : out).push(path);
       }
       walk(path, depth + 1);
     }
   };
   walk('', 1);
-  return out.sort();
+  if (deeper.length) {
+    deeper.sort();
+    notes.push(
+      `the workspace walk reads ${DEPTH} folder levels, so ${deeper.length} matching package${deeper.length > 1 ? 's' : ''} deeper ${deeper.length > 1 ? 'are' : 'is'} left out: ${deeper.slice(0, 5).join(', ')}${deeper.length > 5 ? ', …' : ''}`,
+    );
+  }
+  if (seen > MAX_FOLDERS) {
+    notes.push(
+      `the workspace walk stopped after ${MAX_FOLDERS} folders, so packages past them may be missing`,
+    );
+  }
+  return { packages: out.sort(), usable: include.length };
 }
 
 /** The test script npm init writes, which only fails. @param {unknown} s */
@@ -344,10 +463,13 @@ export function proposeSetup(root) {
   const runner = RUNNERS[lock.file];
   if (!runner) return out;
   const rootPkg = readJsonObject(join(root, 'package.json'));
-  const ws = workspaceGlobs(root, runner, rootPkg);
-  out.packages = workspacePackages(root, ws.globs);
+  const ws = workspaceGlobs(root, runner, rootPkg, out.notes);
+  const found = workspacePackages(root, ws.globs, out.notes);
+  out.packages = found.packages;
   if (ws.note) out.notes.push(ws.note);
-  if (ws.from && !ws.note && !out.packages.length) {
+  // "No folder matches" only when some glob was read: a refused glob has its own note.
+  const read = found.usable > 0 || !ws.globs.length;
+  if (ws.from && !ws.note && read && !out.packages.length) {
     out.notes.push(
       `${ws.from} declares a workspace, but no folder with a package.json matches ${
         ws.globs.length ? ws.globs.join(', ') : 'its empty packages list'
