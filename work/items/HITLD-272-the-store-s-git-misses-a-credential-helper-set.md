@@ -2,10 +2,11 @@
 id: HITLD-272
 title: The store's git misses a credential helper set in git's built-in config (Xcode git on macOS)
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c1, HITLD-402 c3]
+claimed_by: D-01M87SHKKV95SM1W
 ---
 
 ## Why
