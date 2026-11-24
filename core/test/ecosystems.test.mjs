@@ -12,6 +12,7 @@ import {
   BUILTIN_PROFILES_FILE,
   builtinProblems,
   builtinProfiles,
+  cacheVariableProblem,
   checkEcosystems,
   profilesOfFile,
   resolveProfiles,
@@ -28,8 +29,11 @@ async function hitld(argv, cwd) {
   return { code, json: JSON.parse(out) };
 }
 
-/** A fixture repository whose policy.json has this ecosystems section. @param {unknown} ecosystems */
-function repo(ecosystems) {
+/**
+ * A fixture repository whose policy.json has this ecosystems section.
+ * @param {unknown} ecosystems @param {Record<string, string>} [files]
+ */
+function repo(ecosystems, files = {}) {
   const root = makeRepo({
     files: {
       '.human-in-the-lead/policy.json': JSON.stringify({
@@ -37,6 +41,7 @@ function repo(ecosystems) {
         project: { id: 'fixture', key: 'W' },
         ecosystems,
       }),
+      ...files,
     },
     commit: false,
   });
@@ -181,9 +186,12 @@ test('work check refuses a project profile that extends an unknown one or reuses
 
 test('work check refuses a version-source file that is not a repository path', async () => {
   for (const [file, why] of /** @type {[string, RegExp][]} */ ([
-    ['../elsewhere/package.json', /leaves the repository root/],
+    ['../elsewhere/package.json', /has a \.\. segment/],
     ['/etc/package.json', /is absolute/],
     ['packages/*/package.json', /is a glob, not a file/],
+    ['packages/../package.json', /has a \.\. segment/],
+    ['a/b/../../package.json', /has a \.\. segment/],
+    ['~/package.json', /starts with ~/],
   ])) {
     const root = repo({
       profiles: [{ name: 'mine', version_sources: [{ file, format: 'json', key: 'version' }] }],
@@ -218,6 +226,149 @@ test('work check refuses a cache named by a variable that runs code', async () =
   const checked = await hitld(['work', 'check'], root);
   assert.equal(checked.code, 1);
   assert.match(checked.json.problems.join('\n'), /cache node is named by NODE_OPTIONS/);
+});
+
+// The variables the owner's review named, and each is refused through work check itself.
+const NAMED_CODE_VARIABLES = [
+  'npm_config_init_module',
+  'COMPOSER_HOME',
+  'HOME',
+  'GOFLAGS',
+  'GOENV',
+  'RUSTFLAGS',
+  'PIP_CONFIG_FILE',
+  'BUNDLE_APP_CONFIG',
+];
+
+/** @type {Promise<{ code: number, json: any }> | undefined} */
+let namedChecked;
+const checkNamed = () =>
+  (namedChecked ??= hitld(
+    ['work', 'check'],
+    repo({
+      profiles: [
+        {
+          name: 'mine',
+          caches: NAMED_CODE_VARIABLES.map((variable, i) => ({ name: `c${i}`, variable })),
+        },
+      ],
+    }),
+  ));
+
+for (const [i, variable] of NAMED_CODE_VARIABLES.entries()) {
+  test(`work check refuses ${variable} as a cache variable`, async () => {
+    const checked = await checkNamed();
+    assert.equal(checked.code, 1);
+    const line = checked.json.problems.find((/** @type {string} */ p) =>
+      p.includes(`cache c${i} is named by ${variable}, which is `),
+    );
+    assert.ok(line, checked.json.problems.join('\n'));
+    assert.match(line, /a cache variable must name only a cache folder/);
+  });
+}
+
+// Added beyond the review's list: each tool namespace's other settings, variables any tool reads
+// as a home, configuration, shell, compiler or flags, and names that end as such variables do.
+for (const variable of [
+  'npm_config_userconfig',
+  'NPM_CONFIG_ONLOAD_SCRIPT',
+  'npm_config_script_shell',
+  'PNPM_HOME',
+  'YARN_YARN_PATH',
+  'YARN_RC_FILENAME',
+  'NODE_OPTIONS',
+  'CARGO_HOME',
+  'CARGO_BUILD_RUSTC_WRAPPER',
+  'RUSTC_WRAPPER',
+  'RUSTUP_TOOLCHAIN',
+  'GOPATH',
+  'GOROOT',
+  'GOTOOLCHAIN',
+  'GOPROXY',
+  'CGO_CFLAGS',
+  'PIP_INDEX_URL',
+  'UV_CONFIG_FILE',
+  'UV_PYTHON_INSTALL_DIR',
+  'POETRY_HOME',
+  'POETRY_CONFIG_DIR',
+  'PYTHONPATH',
+  'PYTHONUSERBASE',
+  'VIRTUAL_ENV',
+  'MAVEN_OPTS',
+  'MAVEN_ARGS',
+  'M2_HOME',
+  'GRADLE_USER_HOME',
+  'GRADLE_OPTS',
+  'JAVA_HOME',
+  'JAVA_TOOL_OPTIONS',
+  'JDK_JAVA_OPTIONS',
+  'BUNDLE_GEMFILE',
+  'BUNDLE_USER_CONFIG',
+  'GEM_HOME',
+  'RUBYOPT',
+  'COMPOSER',
+  'COMPOSER_VENDOR_DIR',
+  'PATH',
+  'USERPROFILE',
+  'APPDATA',
+  'XDG_CONFIG_HOME',
+  'LD_PRELOAD',
+  'DYLD_INSERT_LIBRARIES',
+  'GIT_SSH_COMMAND',
+  'CC',
+  'CFLAGS',
+  'LDFLAGS',
+  'MAKEFLAGS',
+  'MYTOOL_HOME',
+  'MYTOOL_CONFIG_FILE',
+  'MYTOOL_FLAGS',
+  'MYTOOL_OPTS',
+  'MYTOOL_PATH',
+]) {
+  test(`work check refuses ${variable} as a cache variable (added)`, () => {
+    assert.ok(cacheVariableProblem(variable), variable);
+    const problems = checkEcosystems({
+      profiles: [{ name: 'mine', caches: [{ name: 'c', variable }] }],
+    });
+    assert.equal(problems.length, 1, variable);
+    assert.ok(problems[0].includes(`cache c is named by ${variable}, which is `), problems[0]);
+  });
+}
+
+test('a variable that names only a cache folder is accepted', () => {
+  const builtin = [...builtinProfiles().values()].flatMap((p) => p.caches.map((c) => c.variable));
+  for (const variable of [...builtin, 'NPM_CONFIG_CACHE', 'MYTOOL_CACHE_DIR', 'MYTOOL_CACHE']) {
+    assert.equal(cacheVariableProblem(variable), null, variable);
+  }
+});
+
+test('work check refuses a use glob that can never match, or names a bare folder', async () => {
+  const root = repo(
+    {
+      use: [
+        {
+          profile: 'npm',
+          paths: ['web', 'web/', 'web\\**', 'web/../api/**', '~/src/**', 'web/**', 'package.json'],
+        },
+      ],
+    },
+    { 'web/index.js': 'x\n', 'package.json': '{}\n' },
+  );
+  const checked = await hitld(['work', 'check'], root);
+  assert.equal(checked.code, 1);
+  const problems = checked.json.problems.filter((/** @type {string} */ p) =>
+    p.includes('ecosystems.use[0]'),
+  );
+  const about = (/** @type {string} */ glob) =>
+    problems.find((/** @type {string} */ p) => p.includes(`path ${JSON.stringify(glob)} `)) ?? '';
+  assert.match(about('web'), /is a folder.*write web\/\*\* for everything under it/);
+  assert.match(about('web/'), /ends with \/, which matches nothing; write web\/\*\*/);
+  assert.match(about('web\\**'), /has a backslash/);
+  assert.match(about('web/../api/**'), /has a \.\. segment/);
+  assert.match(about('~/src/**'), /starts with ~/);
+  assert.equal(about('web/**'), '', 'a folder glob passes');
+  assert.equal(about('package.json'), '', 'a file passes');
+  assert.equal(problems.length, 5, problems.join('\n'));
 });
 
 // --- mapping ------------------------------------------------------------------------------------

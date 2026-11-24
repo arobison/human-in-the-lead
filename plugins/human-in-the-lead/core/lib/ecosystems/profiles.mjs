@@ -11,11 +11,12 @@
 // Nothing is detected at run time: the profile for a file is the `ecosystems.use` entry whose
 // glob matches it most specifically, as for release packages.
 
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { globMatch, safePath } from '../precedent/glob.mjs';
 import { specificity } from '../release/packages.mjs';
 import { schemas } from '../schema/registry.mjs';
 import { formatErrors } from '../schema/validate.mjs';
+import { insidePath } from '../tracker/files/safe.mjs';
 
 /**
  * @typedef {{ file: string, format: 'json' | 'toml' | 'properties', key: string }} VersionSource
@@ -45,12 +46,66 @@ const LISTS = /** @type {const} */ ([
   'caches',
 ]);
 
+// A cache variable is set to a shared folder, so it must name only a cache folder: a variable that
+// points a tool at a home folder, a configuration file, a shell, a compiler or a set of flags
+// would let that folder's contents, or the value itself, change what the tool runs. Three rules,
+// compared without regard to case (npm reads its variables in either case):
+
 /**
- * Environment variables that point a tool at code or configuration it runs, so a cache may never
- * be named by one: setting them to a shared folder would let that folder's contents run.
+ * 1. Tool namespaces. These tools read any of their settings from variables with these names
+ * (npm_config_init_module, YARN_YARN_PATH, PIP_CONFIG_FILE, BUNDLE_APP_CONFIG, COMPOSER_HOME,
+ * GOFLAGS, RUSTFLAGS, CARGO_HOME), so in a namespace only the tool's own cache variables are
+ * accepted, and none in a namespace with no cache variable that is only a cache.
+ * @type {{ re: RegExp, tool: string, caches: string[] }[]}
  */
-const CODE_VARIABLES =
-  /^(PATH|LD_.*|DYLD_.*|NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|PROMPT_COMMAND|SHELL|PYTHONSTARTUP|PYTHONPATH|PYTHONHOME|PERL5OPT|PERL5LIB|RUBYOPT|RUBYLIB|GEM_HOME|GEM_PATH|CARGO_HOME|RUSTUP_HOME|RUSTC_WRAPPER|GRADLE_USER_HOME|GRADLE_OPTS|MAVEN_OPTS|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS|GIT_.*|npm_config_(userconfig|globalconfig|prefix|script_shell|node_options))$/i;
+const TOOL_NAMESPACES = [
+  { re: /^NPM_/, tool: 'npm', caches: ['NPM_CONFIG_CACHE', 'NPM_CONFIG_STORE_DIR'] },
+  { re: /^PNPM_/, tool: 'pnpm', caches: [] },
+  { re: /^YARN_/, tool: 'yarn', caches: ['YARN_CACHE_FOLDER'] },
+  { re: /^NODE_/, tool: 'node', caches: [] },
+  { re: /^(CARGO|RUST)/, tool: 'cargo', caches: [] },
+  { re: /^(GO[A-Z0-9]*|CGO_.*)$/, tool: 'go', caches: ['GOMODCACHE', 'GOCACHE'] },
+  { re: /^PIP_/, tool: 'pip', caches: ['PIP_CACHE_DIR'] },
+  { re: /^UV_/, tool: 'uv', caches: ['UV_CACHE_DIR'] },
+  { re: /^POETRY_/, tool: 'poetry', caches: ['POETRY_CACHE_DIR'] },
+  { re: /^(PYTHON|VIRTUAL_ENV)/, tool: 'python', caches: [] },
+  { re: /^(MAVEN|M2_|MVN)/, tool: 'maven', caches: [] },
+  { re: /^GRADLE/, tool: 'gradle', caches: [] },
+  { re: /^(JAVA|_JAVA|JDK_)/, tool: 'java', caches: [] },
+  { re: /^BUNDLE_/, tool: 'bundler', caches: ['BUNDLE_USER_CACHE'] },
+  { re: /^(GEM_|RUBY)/, tool: 'ruby', caches: [] },
+  { re: /^COMPOSER/, tool: 'composer', caches: ['COMPOSER_CACHE_DIR'] },
+];
+
+/** 2. Variables any tool may read as a home folder, configuration, a shell, a compiler or flags. */
+const SHARED_CODE_VARIABLES =
+  /^(PATH|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|XDG_[A-Z_]+|SHELL|ENV|BASH_ENV|PROMPT_COMMAND|EDITOR|VISUAL|PAGER|LD_.*|DYLD_.*|GIT_.*|PERL5.*|CC|CXX|CPP|LD|AR|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|MAKEFLAGS|PKG_CONFIG_PATH)$/;
+
+/** 3. Any other variable whose name ends as a home, configuration, path, flags or a wrapper does. */
+const CODE_SUFFIX =
+  /(_HOME|_CONFIG|_CONFIG_FILE|_CONFIG_DIR|_CONFIG_PATH|RC|FLAGS|_OPTS|_OPTIONS|_ARGS|_PATH|_ENV|_BIN|_BIN_DIR|_WRAPPER|_PLUGINS)$/;
+
+/**
+ * Why a variable may not name a cache, or null if it may.
+ * @param {string} variable @returns {string | null}
+ */
+export function cacheVariableProblem(variable) {
+  const v = variable.toUpperCase();
+  for (const ns of TOOL_NAMESPACES) {
+    if (!ns.re.test(v) || ns.caches.includes(v)) continue;
+    return ns.caches.length
+      ? `a setting of ${ns.tool} other than its cache folder (${ns.caches.join(', ')}), and ${ns.tool} reads any of its settings from such variables, some of which change what it runs`
+      : `a setting of ${ns.tool}, which reads settings from such variables that change what it runs, and ${ns.tool} has no variable that is only a cache folder`;
+  }
+  if (TOOL_NAMESPACES.some((ns) => ns.re.test(v))) return null;
+  if (SHARED_CODE_VARIABLES.test(v)) {
+    return 'read by tools as a home folder, configuration, a shell, a compiler or flags';
+  }
+  if (CODE_SUFFIX.test(v)) {
+    return 'named as a home folder, configuration, a search path, flags or a wrapper is, which can change what a tool runs';
+  }
+  return null;
+}
 
 /**
  * Why a file or folder name is not a plain name, or null if it is: no separator, not `.` or `..`.
@@ -65,10 +120,12 @@ export function nameProblem(name) {
 
 /**
  * Why a version source's file is not a repository path, or null if it is: relative to the
- * repository root, with no `..` segment, and a file rather than a glob or the root itself.
+ * repository root, with no `..` segment and no `~`, and a file rather than a glob or the root.
  * @param {string} file @returns {string | null}
  */
 export function repositoryPathProblem(file) {
+  if (file.startsWith('~')) return `${JSON.stringify(file)} starts with ~, a home folder`;
+  if (file.split(/[/\\]/).includes('..')) return `${JSON.stringify(file)} has a .. segment`;
   const r = safePath(file);
   if ('error' in r) return r.error;
   if (r.path === '') return `${JSON.stringify(file)} names the repository root, not a file`;
@@ -99,9 +156,10 @@ export function profileProblems(profile, where) {
     if (p) problems.push(`${where}: version source ${v.file} is not a repository path: ${p}`);
   }
   for (const c of profile.caches ?? []) {
-    if (CODE_VARIABLES.test(c.variable)) {
+    const p = cacheVariableProblem(c.variable);
+    if (p) {
       problems.push(
-        `${where}: cache ${c.name} is named by ${c.variable}, which points a tool at code or configuration it runs; a cache variable must name only a cache folder`,
+        `${where}: cache ${c.name} is named by ${c.variable}, which is ${p}; a cache variable must name only a cache folder`,
       );
     }
   }
@@ -195,12 +253,14 @@ export function resolveProfiles(ecosystems, base = builtinProfiles()) {
  * Problems with policy.json `ecosystems`, for `hitld work check`: an unknown profile, a project
  * profile that repeats a name or extends one that is not built in, a version-source file that is
  * not a repository path, a skip folder with a separator or `..`, a cache named by a variable that
- * runs code, and a path glob that leaves the repository.
+ * can change what a tool runs, and a path glob that can never match or matches less than it says
+ * (see usePathProblem).
  * @param {Ecosystems | undefined} ecosystems
  * @param {Map<string, Profile>} [base] the built-in profiles
+ * @param {{ root?: string }} [options] root: also refuse a glob that names a folder in it
  * @returns {string[]}
  */
-export function checkEcosystems(ecosystems, base = builtinProfiles()) {
+export function checkEcosystems(ecosystems, base = builtinProfiles(), { root } = {}) {
   /** @type {string[]} */
   const problems = [];
   const own = new Set();
@@ -229,11 +289,44 @@ export function checkEcosystems(ecosystems, base = builtinProfiles()) {
       );
     }
     for (const g of u.paths) {
-      const r = safePath(g.replace(/\*+/g, 'x'));
-      if ('error' in r) problems.push(`${where}: path ${r.error}`);
+      const p = usePathProblem(g, root);
+      if (p) problems.push(`${where}: path ${JSON.stringify(g)} ${p}`);
     }
   });
   return problems;
+}
+
+/**
+ * Why an `ecosystems.use` glob can never match a repository path, or matches less than it says,
+ * or null if neither: a backslash (globs use /), a `..` segment, a path that is absolute or starts
+ * with ~, a trailing /, or, with `root`, a bare folder such as `web`, which matches only a file
+ * named web, not what is in the folder.
+ * @param {string} glob @param {string} [root] the repository root
+ * @returns {string | null}
+ */
+export function usePathProblem(glob, root) {
+  if (glob.includes('\\')) return 'has a backslash, which never matches; globs use / separators';
+  if (glob.split('/').includes('..'))
+    return 'has a .. segment, which never matches a repository path';
+  if (glob.startsWith('~')) return 'starts with ~, a home folder, not the repository';
+  const r = safePath(glob.replace(/\*+/g, 'x'));
+  if ('error' in r) return r.error;
+  const folder = glob.replace(/\/+$/, '');
+  if (folder !== glob) {
+    return `ends with /, which matches nothing; write ${folder}/** for everything under the folder`;
+  }
+  if (root && !/[*?]/.test(glob)) {
+    let isFolder = false;
+    try {
+      isFolder = lstatSync(insidePath(root, glob)).isDirectory();
+    } catch {
+      // A path that crosses a link or is not there is not a folder in the repository.
+    }
+    if (isFolder) {
+      return `is a folder, and a glob without a wildcard matches only a file of that name; write ${glob}/** for everything under it`;
+    }
+  }
+  return null;
 }
 
 /**

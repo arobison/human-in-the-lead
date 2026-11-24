@@ -805,7 +805,7 @@ export function openTracker({
       const problems = [
         ...checkItems(items, layout, { root, onMain, authorRoles }),
         ...checkPackages(layout.packages ?? [], { root }),
-        ...checkEcosystems(layout.ecosystems),
+        ...checkEcosystems(layout.ecosystems, undefined, { root }),
         ...checkReleases(records, layout, (id) => g.get(id)?.data),
         ...pendingMigrationProblems(root, layout),
       ];

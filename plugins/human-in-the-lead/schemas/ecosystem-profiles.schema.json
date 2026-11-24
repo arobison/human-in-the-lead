@@ -51,7 +51,7 @@
             "type": "object",
             "properties": {
               "file": {
-                "description": "A repository path: relative to the repository root, with no `..` segment. `hitld work check` refuses one that is not.",
+                "description": "A repository path: relative to the repository root, with no `..` segment, not starting with `~`, and a file rather than a glob. `hitld work check` refuses one that is not.",
                 "type": "string",
                 "minLength": 1
               },
@@ -86,7 +86,7 @@
                 "$ref": "common#/$defs/name"
               },
               "variable": {
-                "description": "The environment variable that sets the cache's folder. `hitld work check` refuses one that points a tool at code or configuration it runs (PATH, NODE_OPTIONS, LD_PRELOAD, CARGO_HOME, GRADLE_USER_HOME and the like).",
+                "description": "The environment variable that sets the cache's folder, and nothing else. `hitld work check` refuses a variable that can change what a tool runs: in the namespace of a tool that reads any of its settings from such variables (npm_config_*, YARN_*, PIP_*, UV_*, POETRY_*, BUNDLE_*, COMPOSER*, GO*, CARGO*, RUST*, GRADLE*, MAVEN*, JAVA*, PYTHON*, NODE_* and the like) any variable but that tool's cache folder, such as npm_config_init_module, PIP_CONFIG_FILE, BUNDLE_APP_CONFIG, COMPOSER_HOME, GOFLAGS, GOENV or RUSTFLAGS; a variable any tool reads as a home folder, configuration, a shell, a compiler or flags (HOME, PATH, XDG_*, LD_*, CC, CFLAGS and the like); and any other whose name ends as such a variable's does (_HOME, _CONFIG, _CONFIG_FILE, _PATH, FLAGS, _OPTS, _OPTIONS, _ARGS, _ENV, _BIN, _WRAPPER and the like).",
                 "type": "string",
                 "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
               }

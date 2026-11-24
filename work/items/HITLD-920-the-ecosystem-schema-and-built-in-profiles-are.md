@@ -6,7 +6,7 @@ state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
-release_note: "policy.json has an `ecosystems` section: `ecosystems.use` maps a profile to path globs (most specific wins) and holds the only install, build, test and publish commands, as owner configuration that this release validates and does not run; `ecosystems.profiles` adds the project's own profiles, which may extend a built-in one. Twelve built-in profiles (npm, pnpm, yarn, cargo, go, pip, uv, poetry, maven, gradle, bundler, composer) ship as data with no commands. `hitld work check` refuses an unknown profile, a version-source file that is not a repository path, a skip folder with a separator or `..`, and a cache variable that points a tool at code."
+release_note: "policy.json has an `ecosystems` section: `ecosystems.use` maps a profile to path globs (most specific wins) and holds the only install, build, test and publish commands, as owner configuration that this release validates and does not run; `ecosystems.profiles` adds the project's own profiles, which may extend a built-in one. Twelve built-in profiles (npm, pnpm, yarn, cargo, go, pip, uv, poetry, maven, gradle, bundler, composer) ship as data with no commands. `hitld work check` refuses an unknown profile, a version-source file that is not a repository path, a skip folder with a separator or `..`, a cache variable that can change what a tool runs (a tool's other settings, a home folder, configuration or flags), and a `use` glob that can never match or names a bare folder (write `web/**`, not `web`)."
 claimed_by: D-01M85QAXBKVVZH09
 ---
 
