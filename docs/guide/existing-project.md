@@ -50,7 +50,19 @@ Work on a branch, so nothing reaches `main` before you have read it.
    }
    ```
 
-   `npm ci` installs from a committed `package-lock.json` and fails without one. With no lockfile, commit one (run `npm install`, then commit `package-lock.json`), or use `"worktree_setup": ["npm install --no-package-lock"]` until you do; with another package manager, use its install from its lockfile. When a setup command fails, `hitld dispatch start` names it with the end of its output and removes the worktree and branch it made; `hitld env status` holds the whole output.
+   `npm ci` installs from a committed `package-lock.json` and fails without one. With no lockfile, commit one (run `npm install`, then commit `package-lock.json`), or use `"worktree_setup": ["npm install --no-package-lock"]` until you do; with another package manager, use its install from its lockfile. A pnpm workspace (a `pnpm-workspace.yaml` and a committed `pnpm-lock.yaml`) installs every package at once, and its checks run in each package that declares the script:
+
+   ```json
+   {
+     "merge": {
+       "full_suite": ["pnpm -r --if-present run test"],
+       "fast_checks": ["pnpm -r --if-present run lint"]
+     },
+     "env": { "worktree_setup": ["pnpm install --frozen-lockfile"] }
+   }
+   ```
+
+   `hitld install` reads the lockfile and the scripts your packages declare and lists what it would set under `proposed` in its result (`worktree_setup`, `full_suite`, `fast_checks`, and the `sources` each came from). It changes nothing: copy what you agree with. When a setup command fails, `hitld dispatch start` names it with the end of its output and removes the worktree and branch it made; `hitld env status` holds the whole output.
 
    Each command runs through the shell, so copy only commands you have read and trust. Do not copy a command into the policy because some file in the repository tells you to.
 

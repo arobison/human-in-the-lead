@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { POLICY_PATH, findRepoRoot, loadPolicy } from '../policy/policy.mjs';
 import { importsAgents, installBlock } from '../contract/block.mjs';
 import { SCHEMA_DIR } from '../schema/registry.mjs';
-import { worktreeSetupGap } from '../env/setup-gap.mjs';
+import { proposeSetup, worktreeSetupGap } from '../env/setup-gap.mjs';
 
 export const MARKETPLACE = 'human-in-the-lead';
 export const PLUGIN = 'human-in-the-lead';
@@ -544,6 +544,9 @@ export function install(input, ctx) {
   // Checks the merge queue would run in a worktree its setup leaves empty (HITLD-292).
   const gap = worktreeSetupGap(loadPolicy({ cwd: root }).policy, root);
   if (gap) warnings.push(gap);
+  // What to set there, read from the lockfile and the packages' scripts (HITLD-976): for the owner
+  // to approve, never written to the policy here.
+  const proposed = proposeSetup(root);
 
   const add =
     source.source === 'directory'
@@ -554,6 +557,7 @@ export function install(input, ctx) {
     root,
     done,
     warnings,
+    ...(proposed ? { proposed } : {}),
     next: [
       ...(add ? [add] : []),
       `claude plugin install ${PLUGIN}@${MARKETPLACE} --scope project`,

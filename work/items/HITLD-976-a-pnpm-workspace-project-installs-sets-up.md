@@ -7,6 +7,7 @@ created: 2026-11-23
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
 claimed_by: D-01M85PQQ2QDDQCZ9
+release_note: "`hitld install` lists under `proposed` the worktree setup and checks it reads from the lockfile and the scripts the packages declare, pnpm and npm workspaces included (`pnpm install --frozen-lockfile`, `pnpm -r --if-present run test`); a change to `pnpm-workspace.yaml` now fires the new-dependency read."
 ---
 
 ## Done when
