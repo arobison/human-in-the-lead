@@ -2,7 +2,7 @@
 id: HITLD-823
 title: A handover does not leave approved merges with no orchestrator to apply them
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
