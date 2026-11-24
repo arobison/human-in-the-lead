@@ -23,7 +23,8 @@
 //                proposed there, and the owner decides
 
 import { spawnSync } from 'node:child_process';
-import { allWithin, globsOverlap, sample } from '../dispatch/item.mjs';
+import { allWithin, globsOverlap, inlineGlobs, sample } from '../dispatch/item.mjs';
+import { builtinProfiles, resolveProfiles } from '../ecosystems/profiles.mjs';
 import { matchesAny } from '../precedent/glob.mjs';
 import { diffSurface, emptySurface } from '../release/delta.mjs';
 import { schemaFields } from '../release/surface.mjs';
@@ -41,6 +42,7 @@ import { advanceTo, runMergeQueue } from './queue.mjs';
  * @typedef {import('./security.mjs').SecurityGate} SecurityGate
  * @typedef {import('../tracker/files/releases.mjs').DeltaEntry} DeltaEntry
  * @typedef {Record<string, any>} Policy
+ * @typedef {import('../ecosystems/profiles.mjs').Profile} Profile
  *
  * @typedef {{ trigger: string, read: string, files: string[], diff: string, question: string }} DirectedRead
  *
@@ -181,28 +183,23 @@ export function waitsForOwner(files, policy) {
   return areasOf(files, policy).some((a) => named.includes(a));
 }
 
-/** Dependency manifests: a change to one is the new-dependency trigger of design 6.6. */
-const MANIFESTS = new Set([
-  'package.json',
-  'package-lock.json',
-  'npm-shrinkwrap.json',
-  'yarn.lock',
-  'pnpm-lock.yaml',
-  'requirements.txt',
-  'pyproject.toml',
-  'poetry.lock',
-  'Pipfile',
-  'Pipfile.lock',
-  'go.mod',
-  'go.sum',
-  'Cargo.toml',
-  'Cargo.lock',
-  'Gemfile',
-  'Gemfile.lock',
-  'pom.xml',
-  'build.gradle',
-  'composer.json',
-]);
+/**
+ * The file names of the new-dependency trigger of design 6.6: a change to a file of one of these
+ * names, in any folder, fires it. They are the manifests and lockfiles of every ecosystem profile,
+ * the built-in ones and the project's own in policy.json `ecosystems.profiles` (HITLD-921), so the
+ * trigger keeps no list of its own: pnpm's workspace manifest and lockfile, for one, come from the
+ * pnpm profile. Every profile counts, not only those `ecosystems.use` maps to a path, since a
+ * project that names no profile still has dependencies.
+ * @param {Policy} policy @param {Map<string, Profile>} [base] the built-in profiles
+ * @returns {Set<string>}
+ */
+export function dependencyFileNames(policy, base = builtinProfiles()) {
+  const names = new Set();
+  for (const p of resolveProfiles(policy.ecosystems, base).values()) {
+    for (const n of [...p.manifests, ...p.lockfiles]) names.add(n);
+  }
+  return names;
+}
 
 /** @param {string} repoRoot @param {string} commit @param {string} path @returns {any} */
 function jsonAt(repoRoot, commit, path) {
@@ -248,9 +245,10 @@ function publicSurface(repoRoot, t, globs) {
 export function evidenceFor(o) {
   const t = o.tested;
   const p = o.policy;
-  // Tracker edits and generated files are expected on any branch.
+  // Tracker edits (the tracker's own folder included) and generated files are expected on any
+  // branch.
   const expected = [
-    ...(p.dispatch?.inline_globs ?? []),
+    ...inlineGlobs(p, o.settings.workDir),
     ...o.settings.generated.flatMap((g) => g.globs),
   ];
   const touches = o.touches ?? [];
@@ -259,7 +257,8 @@ export function evidenceFor(o) {
     : null;
   const sensitive = t.changed.filter((f) => matchesAny(p.dispatch?.sensitive_globs ?? [], f));
   const surface = publicSurface(o.repoRoot, t, p.merge?.public_globs ?? []);
-  const manifests = t.changed.filter((f) => MANIFESTS.has(f.split('/').at(-1) ?? ''));
+  const dependencyNames = dependencyFileNames(p);
+  const manifests = t.changed.filter((f) => dependencyNames.has(f.split('/').at(-1) ?? ''));
   const areas = areasOf(t.changed, p);
   /** @type {string[]} */
   const deviations = [];

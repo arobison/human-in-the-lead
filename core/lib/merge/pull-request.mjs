@@ -26,12 +26,20 @@
 //   6. update    a green branch behind main is brought up to date: main merged in (never a rebase,
 //                never a force-push), generated files rebuilt and committed, pushed, and checked
 //                again; a conflict goes back to the executor. An approval holds across the queue's
-//                own updates, and no other new commit. A branch main moved past only under work/,
+//                own updates, and no other new commit. An approval recorded before the queue
+//                presented a head (approveAhead, HITLD-821) is applied when the queue reaches that
+//                point with the head approved, or with only clean merges of main after it, each
+//                exactly what git makes of it (aheadHolds); with anything else after it, it is
+//                dropped and the pull request is presented. One the queue sends back, or one left
+//                when nothing is waiting, is dropped unused. A branch main moved past only under work/,
 //                in files the branch leaves alone, is not updated and its checks are not run again
 //                (HITLD-777): tracker merges would otherwise restart them without end
 //   7. merge     squash-merge through the API, only while the head is the commit checked, with a
 //                message carrying the item's trailers and, when the owner approved, their sign-off;
 //                then the next waiting branch is brought up to date (step 6)
+//   8. checkout  after a merge, this clone's main is fast-forwarded to the main fetched, so the
+//                checkout reads each merged item done (HITLD-839); one that cannot fast-forward
+//                stays and says why
 //
 // GitHub's own merge queue is a later backend for the same steps (design 14.5).
 
@@ -75,9 +83,11 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *   delegated merging, without asking, the pull requests that do not wait for them
  *
  * @typedef {{ number: number, head: string, signed_off_by: string, at: string, by: string,
- *   presented_at?: string, as_presented?: boolean }} Approval the owner's approval of one pull
- *   request's head: presented_at is when it was put to them, and as_presented whether they took
- *   everything presented then or named a list that left some out
+ *   presented_at?: string, as_presented?: boolean, ahead?: string }} Approval the owner's approval
+ *   of one pull request's head: presented_at is when it was put to them, and as_presented whether
+ *   they took everything presented then or named a list that left some out; ahead, on one given
+ *   before the queue presented the pull request, is the head the owner approved (head is then
+ *   the one the queue applied it to)
  *
  * @typedef {object} PullState what the queue remembers about one branch's pull request
  * @property {string} item
@@ -96,6 +106,8 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  * @property {{ at: string, branches: Presented[] } | null} presented the green pull requests that wait for the owner
  * @property {string | null} [owner_signoff] the sign-off the owner's latest approval gave: the one a
  *   merge made under their delegation carries
+ * @property {Record<string, Approval>} [approved_ahead] by branch: approvals of a pull request's
+ *   head recorded before the queue presented it (HITLD-821), applied or dropped when it would
  *
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, changed: string[],
  *   checks: string[], dispatch?: string, no_signoff?: true, links?: string[],
@@ -112,6 +124,13 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *   output?: string, message?: string, number?: number, url?: string, dispatch?: string }} PullRejected
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, checks: string[],
  *   waited_ms: number, dispatch?: string }} PullWaiting a pull request whose named checks have not all finished
+ * @typedef {{ item: string, branch: string, number: number, url: string, approved_head: string,
+ *   head: string, by: string, at: string, presented_at: string, dispatch?: string }} AheadOutcome
+ *   an approval recorded before the queue presented the pull request (at), and the head the queue
+ *   reached it with (at presented_at)
+ * @typedef {{ branch: string, number: number, approved_head: string, by: string, at: string,
+ *   why: 'rejected' | 'nothing_waiting' }} AheadExpired an approval recorded before the queue
+ *   presented the pull request, dropped unused: its branch was sent back, or nothing was waiting
  */
 
 /** The private store key of the pull-request queue's state. */
@@ -346,8 +365,40 @@ export function approvalHolds(dir, s, number, head) {
 }
 
 /**
+ * Whether an approval recorded before the queue presented the pull request (HITLD-821) covers the
+ * head the queue would present now: the same pull request, and the head approved, or that head
+ * followed only by merges of main whose result is exactly what git makes of it. Every commit after
+ * the approved head on the branch must be a merge whose other parents main holds, and the head's
+ * tree must be the tree `git merge-tree --write-tree` gives for the approved head and the newest
+ * main commit the head holds. A merge with a conflict, a conflict resolution, or any other change
+ * made in the merge (an approved change moved elsewhere, say) drops the approval, and the owner is
+ * asked about the head as it is. A git that cannot run the check drops it too.
+ * @param {string} dir @param {Approval} a @param {number} number @param {string} head
+ * @param {string} main the commit main is at
+ */
+export function aheadHolds(dir, a, number, head, main) {
+  if (a.number !== number) return false;
+  if (a.head === head) return true;
+  if (!isAncestor(dir, a.head, head)) return false;
+  const after = git(dir, ['rev-list', '--first-parent', '--parents', `${a.head}..${head}`])
+    .out.split('\n')
+    .filter(Boolean)
+    .map((l) => l.split(' '));
+  const mergesOfMain = after.every(
+    ([, , ...others]) => others.length > 0 && others.every((c) => isAncestor(dir, c, main)),
+  );
+  if (!mergesOfMain) return false;
+  const merged = git(dir, ['merge-base', head, main]);
+  if (!merged.ok) return false;
+  const clean = git(dir, ['merge-tree', '--write-tree', a.head, merged.out]);
+  const tree = git(dir, ['rev-parse', `${head}^{tree}`]);
+  return clean.ok && tree.ok && clean.out.split('\n')[0] === tree.out;
+}
+
+/**
  * One pass of the pull-request queue over the waiting entries (the steps above). It changes only
- * branches on the remote and pull requests; main moves only by GitHub's squash merge.
+ * branches on the remote and pull requests; main moves only by GitHub's squash merge, and after one
+ * this clone's main is fast-forwarded to it (bringUpToMain).
  * @param {{ repoRoot: string, entries: Entry[], settings: PullSettings, policy: Record<string, any>,
  *   github: GitHub, state: PullQueueState, evidence?: (item: string) => string[],
  *   exec?: Exec, now?: () => Date }} r
@@ -358,8 +409,10 @@ export async function runPullRequestQueue(r) {
   const now = r.now ?? (() => new Date());
   const remote = s.remote;
   const mainRef = `refs/remotes/${remote}/${s.mainBranch}`;
+  /** Approvals recorded before a presentation, by branch: this pass applies or drops them. */
+  const approvedAhead = { ...r.state.approved_ahead };
   /** @type {PullQueueState} */
-  const state = { ...r.state, branches: { ...r.state.branches } };
+  const state = { ...r.state, branches: { ...r.state.branches }, approved_ahead: approvedAhead };
   const result = {
     /** @type {PullMerged[]} */
     merged: [],
@@ -372,10 +425,18 @@ export async function runPullRequestQueue(r) {
     stalled: [],
     /** @type {Presented[]} */
     awaiting_owner: [],
+    /** Approvals recorded before the queue presented a pull request (HITLD-821): applied to the
+     * head it presents, or dropped because the head moved by more than a merge of main.
+     * Expired: dropped unused, its branch sent back or nothing waiting.
+     * @type {{ applied: AheadOutcome[], dropped: AheadOutcome[], expired: AheadExpired[] }} */
+    ahead: { applied: [], dropped: [], expired: [] },
     /** Branches the queue brought up to date with main and pushed; their checks run again.
      * @type {{ item: string, branch: string, number: number, commit: string, rebuilt: boolean }[]} */
     updated: [],
     main: { before: '', after: '' },
+    /** After a merge: whether this clone's main was brought up to the fetched main (HITLD-839).
+     * @type {ReturnType<typeof bringUpToMain> | undefined} */
+    checkout: undefined,
     /** @type {{ kind: 'fetch' | 'push' | 'update', message: string } | null} */
     incident: null,
     state,
@@ -415,10 +476,25 @@ export async function runPullRequestQueue(r) {
   const waitingBranches = new Set(r.entries.map((e) => e.branch));
   for (const b of Object.keys(state.branches))
     if (!waitingBranches.has(b)) delete state.branches[b];
+  /** @param {string} branch @param {AheadExpired['why']} why */
+  const expire = (branch, why) => {
+    const a = approvedAhead[branch];
+    if (!a) return;
+    delete approvedAhead[branch];
+    result.ahead.expired.push({
+      branch,
+      number: a.number,
+      approved_head: a.head,
+      by: a.by,
+      at: a.at,
+      why,
+    });
+  };
   /** @type {Presented[]} */
   const presented = [];
   if (!r.entries.length) {
     state.presented = null;
+    for (const b of Object.keys(approvedAhead)) expire(b, 'nothing_waiting');
     return result;
   }
 
@@ -442,6 +518,8 @@ export async function runPullRequestQueue(r) {
       });
       rejectedNow.add(e.item);
       delete state.branches[e.branch];
+      // An approval given before the presentation is not kept for what the executor sends next.
+      expire(e.branch, 'rejected');
     };
     // A pull request still running its checks, or one just updated, holds the merges after it.
     let held = false;
@@ -625,7 +703,26 @@ export async function runPullRequestQueue(r) {
       const delegatedBy = !waits && owner ? (s.delegatedBy ?? null) : null;
       const noSignoff = Boolean(delegatedBy) && !state.owner_signoff;
       const holds = waits || noSignoff || unverified.length > 0;
-      const approved = holds && approvalHolds(dir, ps, pr.number, head);
+      let approved = holds && approvalHolds(dir, ps, pr.number, head);
+      // An approval given before this point (HITLD-821) is used here, where the queue would put
+      // the pull request to the owner, once: applied to this head, or dropped.
+      const ahead = holds ? approvedAhead[e.branch] : undefined;
+      if (ahead) {
+        delete approvedAhead[e.branch];
+        const outcome = {
+          ...info,
+          approved_head: ahead.head,
+          head,
+          by: ahead.by,
+          at: ahead.at,
+          presented_at: now().toISOString(),
+        };
+        if (!approved && aheadHolds(dir, ahead, pr.number, head, main)) {
+          ps.approval = { ...ahead, head, ahead: ahead.head };
+          approved = true;
+          result.ahead.applied.push(outcome);
+        } else if (!approved) result.ahead.dropped.push(outcome);
+      }
       if (holds && !approved) {
         const shown = {
           ...info,
@@ -791,6 +888,7 @@ export async function runPullRequestQueue(r) {
         delegated_by: delegated,
       });
       delete state.branches[e.branch];
+      delete approvedAhead[e.branch];
     }
   } finally {
     git(r.repoRoot, ['worktree', 'remove', '--force', dir]);
@@ -798,7 +896,39 @@ export async function runPullRequestQueue(r) {
     git(r.repoRoot, ['worktree', 'prune']);
   }
   state.presented = presented.length ? { at: now().toISOString(), branches: presented } : null;
+  if (result.merged.length) result.checkout = bringUpToMain(r.repoRoot, s.mainBranch, mainRef);
   return result;
+}
+
+/**
+ * Bring this clone's main up to the main the queue fetched after a merge, as the local queue moves
+ * it (HITLD-839): the squash lands on the remote, and a checkout left behind still reads each
+ * merged item as planned. Only a fast-forward: where main is checked out (this checkout or another
+ * worktree), `git merge --ff-only` there, which refuses rather than overwrite a local change; where
+ * it is not, the branch ref alone. A main with commits of its own, or a refused merge, stays where
+ * it is, and says why; the planner reads the fetched main's closes either way (dispatch/items.mjs).
+ * @param {string} repoRoot @param {string} mainBranch @param {string} mainRef the fetched main
+ * @returns {{ moved: boolean, from: string | null, to: string, why?: string }}
+ */
+export function bringUpToMain(repoRoot, mainBranch, mainRef) {
+  const to = gitOk(repoRoot, ['rev-parse', mainRef]);
+  const local = git(repoRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${mainBranch}`]);
+  if (!local.ok) return { moved: false, from: null, to, why: `there is no local ${mainBranch}` };
+  const from = local.out;
+  if (from === to) return { moved: false, from, to, why: 'already up to date' };
+  if (!isAncestor(repoRoot, from, to)) {
+    return { moved: false, from, to, why: `${mainBranch} has commits ${mainRef} does not` };
+  }
+  const where = git(repoRoot, ['worktree', 'list', '--porcelain'])
+    .out.split('\n\n')
+    .find((block) => block.split('\n').includes(`branch refs/heads/${mainBranch}`))
+    ?.match(/^worktree (.*)$/m)?.[1];
+  const moved = where
+    ? git(where, ['merge', '--ff-only', '--quiet', to])
+    : git(repoRoot, ['update-ref', `refs/heads/${mainBranch}`, to, from]);
+  return moved.ok
+    ? { moved: true, from, to }
+    : { moved: false, from, to, why: moved.err || moved.out || 'git refused the fast-forward' };
 }
 
 /**
@@ -846,6 +976,35 @@ export function approvePulls(o) {
   // The sign-off the owner gave here is the one a merge under their delegation carries.
   if (chosen.length) o.state.owner_signoff = o.signedOffBy;
   return { approved: chosen, refused: null };
+}
+
+/**
+ * Record the owner's approval of one pull request's head before the queue presents it (HITLD-821):
+ * the owner answered from the pull request itself, so the approval need not wait a round trip for
+ * the presentation. It needs an open pull request whose head is the one approved; the queue
+ * applies it when it would present that head, or that head followed only by merges of main
+ * (aheadHolds), and drops it otherwise. The state is changed only when nothing is refused; the
+ * sign-off given is kept as the owner's latest, as approvePulls keeps it.
+ * @param {{ state: PullQueueState, branch: string, head: string,
+ *   pull: import('./github.mjs').PullRequest | null, signedOffBy: string, by: string, at: string }} o
+ * @returns {{ refused: 'no_pull_request' | 'moved' | null }}
+ */
+export function approveAhead(o) {
+  if (!o.pull || o.pull.state !== 'open') return { refused: 'no_pull_request' };
+  if (o.pull.head !== o.head) return { refused: 'moved' };
+  o.state.approved_ahead = {
+    ...o.state.approved_ahead,
+    [o.branch]: {
+      number: o.pull.number,
+      head: o.head,
+      signed_off_by: o.signedOffBy,
+      at: o.at,
+      by: o.by,
+      as_presented: true,
+    },
+  };
+  o.state.owner_signoff = o.signedOffBy;
+  return { refused: null };
 }
 
 /**

@@ -76,6 +76,8 @@ export const ERROR_CODES = Object.freeze({
   // Dispatch, handover and the merge queue
   'not-planned':
     'The item is not one the plan starts now (held, tier 0, no free slot, or not ready).',
+  'not-awaiting':
+    'The item or branch named as a stuck merge (dispatch start --fixes-merge) is not awaiting merge.',
   'disk-floor':
     "Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.",
   'not-in-flight': 'The dispatch is not in flight.',
@@ -85,10 +87,14 @@ export const ERROR_CODES = Object.freeze({
     "The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.",
   'report-shape':
     "The executor's report does not have the fixed shape; nothing was recorded and the dispatch is still in flight. Send the executor report_errors, then complete the same dispatch with its corrected report.",
+  'report-errors':
+    "The executor's report names another item or a branch the repository does not have; nothing was recorded and the dispatch is still in flight. Send the executor report_errors, then complete the same dispatch with its corrected report.",
   'unknown-dispatch': 'The dispatch has no recorded harness reference, so it cannot be continued.',
   'still-running': 'The dispatch is still running; its completion notice comes first.',
+  'follow-up-pending':
+    'The item has a follow-up launched as a run of its own that dispatch handle has not recorded yet; handle it with its reference, or let a failed launch remove it, before starting the item again.',
   'cannot-follow-up':
-    'The dispatch cannot be continued: a headless run needs its earlier session ID and worktree. Nothing was recorded.',
+    'The dispatch cannot be continued: a follow-up that resumes a run needs its earlier session ID and worktree. Nothing was recorded.',
   'handover-due': "This session's hand-over is due, so nothing new starts.",
   draining: 'Executors still report to this session, and no successor would hear of them.',
   cap: 'The maximum number of live executors is reached.',
@@ -96,10 +102,15 @@ export const ERROR_CODES = Object.freeze({
   'not-presented': 'The branch was not presented to the owner, or nothing has been presented yet.',
   'not-waiting': 'The branch is not waiting to merge.',
   stale: 'A presented branch changed after the owner saw it.',
+  'no-pull-request': 'The branch has no open pull request to approve.',
   ambiguous:
     'The name matches more than one presented branch, or a branch other than the item was dispatched on.',
   'no-github-remote':
     'merge.via is pull-request, and the git remote merge.pull_request.remote names no GitHub repository.',
+  'no-forge-token':
+    'hitld check forge found no read-only token in the environment variable it reads; nothing was read.',
+  'no-forge-repo':
+    'hitld check forge was given no repository as owner/name, and the git remote names none.',
 
   // Decisions and precedents
   'invalid-question': 'The question does not match its schema or normalize.',

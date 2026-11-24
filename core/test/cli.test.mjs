@@ -55,6 +55,34 @@ test('an unknown command is a usage error', async () => {
   assert.match(parse(out).message, /unknown command "frobnicate"/);
 });
 
+test('hitld <group> --help lists the group subcommands; the bare group is a usage error naming them (HITLD-937)', async () => {
+  for (const group of ['dispatch', 'run', 'work']) {
+    const members = COMMANDS.filter((c) => c.name.startsWith(`${group} `));
+    assert.ok(members.length > 1, group);
+    for (const flag of ['--help', '-h']) {
+      const { code, out } = await run([group, flag]);
+      assert.equal(code, EXIT.ok, `${group} ${flag}`);
+      for (const c of members)
+        assert.ok(out.includes(`  ${c.name} `), `${group} ${flag}: ${c.name}`);
+      assert.match(out, new RegExp(`hitld ${group} <subcommand> --help`));
+    }
+    const bare = await run([group]);
+    assert.equal(bare.code, EXIT.usage);
+    const message = parse(bare.out).message;
+    assert.match(message, new RegExp(`"${group}" needs a subcommand`));
+    for (const c of members) assert.ok(message.includes(c.name.slice(group.length + 1)), c.name);
+  }
+  // A command that is also a group lists its subcommands under its own help.
+  const merge = await run(['merge', '--help']);
+  assert.equal(merge.code, EXIT.ok);
+  assert.match(merge.out, /^hitld merge /);
+  assert.match(merge.out, /Subcommands:\n {2}merge approve /);
+  // An unknown word in a group is still unknown.
+  const wrong = await run(['dispatch', 'frobnicate', '--help']);
+  assert.equal(wrong.code, EXIT.usage);
+  assert.match(parse(wrong.out).message, /unknown command "dispatch frobnicate --help"/);
+});
+
 test('an unknown option is a usage error that shows the usage', async () => {
   const { code, out } = await run(['check', 'policy', '--polcy', 'x']);
   assert.equal(code, EXIT.usage);

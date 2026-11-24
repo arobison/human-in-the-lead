@@ -355,6 +355,8 @@ test('git runs with hooks off, and only connection config crosses from the owner
       ].join('\n') + '\n',
     );
     process.env.HOME = home;
+    // The owner's global config is the one in their home, as plain git finds it.
+    delete process.env.GIT_CONFIG_GLOBAL;
     delete process.env.GIT_CONFIG_COUNT;
     const dir = join(home, 'store', 'remote');
     const r = createGitRemote({ url: 'https://git.example.test/owner/store.git', dir });
@@ -370,6 +372,108 @@ test('git runs with hooks off, and only connection config crosses from the owner
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
+    rmSync(home, { recursive: true, force: true });
+    host.cleanup();
+  }
+});
+
+/**
+ * Run `body` with the owner's environment changed by `set` (undefined deletes), then put it back.
+ * @param {Record<string, string | undefined>} set @param {() => Promise<void>} body
+ */
+async function withEnv(set, body) {
+  const saved = { ...process.env };
+  try {
+    for (const [k, v] of Object.entries(set)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    delete process.env.GIT_CONFIG_COUNT;
+    await body();
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  }
+}
+
+/** A url rewrite from the test's address to the fake host: a connection key, as config text. */
+const rewrite = (/** @type {string} */ url) =>
+  `[url "${url.replaceAll('\\', '\\\\')}"]\n\tinsteadOf = https://git.example.test/owner/store.git\n`;
+
+test(
+  "a connection key from git's installation-level config crosses, as plain git reads it",
+  { skip: process.platform === 'win32' && 'the stand-in git is a shell script' },
+  async () => {
+    // A git build with a config file of its own (Apple's Xcode git): every command reads it
+    // unless GIT_CONFIG_NOSYSTEM is set, but `git config --system` does not. The stand-in adds
+    // the file to every command the same way, through the real git.
+    const host = fakeHost();
+    const home = tempDir('hitld-remote-home-');
+    try {
+      const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+      assert.ok(real, 'git is on PATH');
+      const builtIn = join(home, 'built-in-gitconfig');
+      writeFileSync(builtIn, rewrite(host.url));
+      const bin = join(home, 'bin');
+      mkdirSync(bin);
+      writeFileSync(
+        join(bin, 'git'),
+        [
+          '#!/bin/sh',
+          'if [ -z "$GIT_CONFIG_NOSYSTEM" ]; then',
+          `  exec '${real}' -c 'include.path=${builtIn}' "$@"`,
+          'fi',
+          `exec '${real}' "$@"`,
+        ].join('\n') + '\n',
+      );
+      chmodSync(join(bin, 'git'), 0o755);
+      const owner = {
+        HOME: home,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        GIT_CONFIG_NOSYSTEM: undefined,
+        GIT_CONFIG_GLOBAL: undefined,
+      };
+      await withEnv(owner, async () => {
+        const plain = spawnSync('git', ['config', '--get-regexp', '^url\\.'], {
+          cwd: home,
+          encoding: 'utf8',
+        });
+        assert.equal(plain.status, 0, 'plain git reads the built-in config');
+        const system = spawnSync('git', ['config', '--system', '--get-regexp', '^url\\.'], {
+          cwd: home,
+          encoding: 'utf8',
+        });
+        assert.notEqual(system.status, 0, '`git config --system` does not read it');
+        const r = createGitRemote({
+          url: 'https://git.example.test/owner/store.git',
+          dir: join(home, 'store', 'remote'),
+        });
+        const a = await r.push(Buffer.from('through the built-in rewrite'), { expected: null });
+        assert.equal(await host.open().head(), a, 'the rewrite from the built-in config applied');
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      host.cleanup();
+    }
+  },
+);
+
+test('a connection key from a global config under XDG_CONFIG_HOME crosses', async () => {
+  const host = fakeHost();
+  const home = tempDir('hitld-remote-home-');
+  try {
+    const xdg = join(home, 'elsewhere');
+    mkdirSync(join(xdg, 'git'), { recursive: true });
+    writeFileSync(join(xdg, 'git', 'config'), rewrite(host.url));
+    await withEnv({ HOME: home, XDG_CONFIG_HOME: xdg, GIT_CONFIG_GLOBAL: undefined }, async () => {
+      const r = createGitRemote({
+        url: 'https://git.example.test/owner/store.git',
+        dir: join(home, 'store', 'remote'),
+      });
+      const a = await r.push(Buffer.from('through the xdg rewrite'), { expected: null });
+      assert.equal(await host.open().head(), a, 'the rewrite from the XDG config applied');
+    });
+  } finally {
     rmSync(home, { recursive: true, force: true });
     host.cleanup();
   }

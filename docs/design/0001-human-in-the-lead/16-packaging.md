@@ -78,7 +78,7 @@ One entry point for skills, hooks, adapters and people. Every subcommand reads a
 | `hitld store device init / ask / list / remove` | Enroll, list and remove the devices the private store is encrypted to: the key pair, the private key in the OS keychain or a cloud environment variable, the device's request on the store repository, and the device decisions only the owner's answer settles ([0003 section 6](../0003-private-store-remote.md#6-enrolling-and-removing-a-device)) |
 | `hitld store remote set / clear / show`, `store push / pull / status` | Move the private store through its remote, encrypted to the devices the owner approved; the address is `HITLD_STORE_REMOTE`, else the person file, else this machine's override, never `policy.json`; `remote set` puts the address and the repository's names on the private term list ([design 0003](../0003-private-store-remote.md#8-when-sync-runs)) |
 | `hitld release propose [--package <name>] [--pre <channel>] [--item <id>]` | The package's interface delta since its last full release, the bump it proposes and its reason, draft notes, items that changed public surface without a `release_note` line, the gates of the release item for the proposed version (the work item whose `package` and `release` are that package and version, or `--item`): each item or milestone it needs that is not done or dropped, and, for a breaking change, the packages that depend on it ([3.2](03-data-model.md#release)). `--package` may be left out when one package is declared. For a package with no surface file it proposes no version ([Q39](22-open-questions.md#q39-how-is-a-package-with-no-surface-file-bumped-affects-hitld-759)); decided, not built (HITLD-759) |
-| `hitld release make [--package <name>] [--version v] [--pre <channel>] [--decision <id>] [--item <id>]` | Write the release record under `work/releases/<package>/` and an annotated tag from the package's template on `main` (one of each per member of a lockstep group, or per release a train item needs), refused while a gate of the release item for that version is open, and, for a package with no surface file, without `--version` ([Q39](22-open-questions.md#q39-how-is-a-package-with-no-surface-file-bumped-affects-hitld-759)); the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
+| `hitld release make [--package <name>] [--version v] [--pre <channel>] [--decision <id>] [--item <id>]` | Write the release record under `work/releases/<package>/` and an annotated tag from the package's template on `main` (one of each per member of a lockstep group, or per release a train item needs), refused while a gate of the release item for that version is open, and, for a package with no surface file, without `--version` ([Q39](22-open-questions.md#q39-how-is-a-package-with-no-surface-file-bumped-affects-hitld-759)); the record lists the release item under `items` unless it is dropped, and leaves its state alone (HITLD-838); the owner's, from the main session; never pushes. Publishing after the eval gate is planned |
 | `hitld feedback`, with `list`, `drop` and `render` | Capture feedback about the plugin, locally ([part 18](18-self-improvement.md#184-giving-feedback)) |
 | `hitld friction scan`, `friction messages` | Record the friction in a session record as `friction` events in the ledger, and give the independent reader the messages it classifies ([18.4, implicit friction signals](18-self-improvement.md#implicit-friction-signals)) |
 | `hitld mcp` (planned) | Serve the same operations over MCP (tools only) |
@@ -155,14 +155,17 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 **Dispatch, handover and the merge queue**
 
 - `not-planned`: The item is not one the plan starts now (held, tier 0, no free slot, or not ready).
+- `not-awaiting`: The item or branch named as a stuck merge (dispatch start --fixes-merge) is not awaiting merge.
 - `disk-floor`: Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.
 - `not-in-flight`: The dispatch is not in flight.
 - `no-report-block`: An executor that reports by message (an interactive session) would get a brief without the communication block, because no session ID it could send its report to is known: pass --session or set HITLD_SESSION, or run in a harness that gives one.
 - `tokens-over-estimate`: The completion's token count is three times the dispatch's estimate or more; nothing was recorded. Give output plus fresh input (never cache reads), or confirm with --tokens-over-estimate.
 - `report-shape`: The executor's report does not have the fixed shape; nothing was recorded and the dispatch is still in flight. Send the executor report_errors, then complete the same dispatch with its corrected report.
+- `report-errors`: The executor's report names another item or a branch the repository does not have; nothing was recorded and the dispatch is still in flight. Send the executor report_errors, then complete the same dispatch with its corrected report.
 - `unknown-dispatch`: The dispatch has no recorded harness reference, so it cannot be continued.
 - `still-running`: The dispatch is still running; its completion notice comes first.
-- `cannot-follow-up`: The dispatch cannot be continued: a headless run needs its earlier session ID and worktree. Nothing was recorded.
+- `follow-up-pending`: The item has a follow-up launched as a run of its own that dispatch handle has not recorded yet; handle it with its reference, or let a failed launch remove it, before starting the item again.
+- `cannot-follow-up`: The dispatch cannot be continued: a follow-up that resumes a run needs its earlier session ID and worktree. Nothing was recorded.
 - `handover-due`: This session's hand-over is due, so nothing new starts.
 - `draining`: Executors still report to this session, and no successor would hear of them.
 - `cap`: The maximum number of live executors is reached.
@@ -170,8 +173,11 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `not-presented`: The branch was not presented to the owner, or nothing has been presented yet.
 - `not-waiting`: The branch is not waiting to merge.
 - `stale`: A presented branch changed after the owner saw it.
+- `no-pull-request`: The branch has no open pull request to approve.
 - `ambiguous`: The name matches more than one presented branch, or a branch other than the item was dispatched on.
 - `no-github-remote`: merge.via is pull-request, and the git remote merge.pull_request.remote names no GitHub repository.
+- `no-forge-token`: hitld check forge found no read-only token in the environment variable it reads; nothing was read.
+- `no-forge-repo`: hitld check forge was given no repository as owner/name, and the git remote names none.
 
 **Decisions and precedents**
 

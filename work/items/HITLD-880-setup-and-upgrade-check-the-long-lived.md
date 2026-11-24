@@ -2,10 +2,12 @@
 id: HITLD-880
 title: Setup and upgrade check the long-lived credential detached executors run on, and status warns before it ends
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M860KY6FHJXJ5G
+release_note: Detached executors start on a long-lived credential or not at all: the launcher reads the token `claude setup-token` makes from the keychain (or this machine's hitld directory) into the executor's environment only, `hitld install` reports whether there is one and how to make it, `hitld env status` names the credential executors run on and when the interactive sign-in can end, and a run that loses it mid-run is recorded blocked (docs/guide/unattended-credential.md).
 ---
 
 ## Why

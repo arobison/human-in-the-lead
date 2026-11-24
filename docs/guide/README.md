@@ -10,7 +10,7 @@ One page for each situation you may start from. Each gives the commands, what to
 | Existing code and a tracker in Linear, Jira or GitHub Issues | [An existing hosted tracker](hosted-tracker.md) |
 | You want a view of the numbers of your own | [Building your own dashboard](dashboard.md) |
 
-Whichever you start from, read [Moving the private store between machines and cloud sessions](store-remote.md) after it when you work from more than one machine, or from cloud sessions.
+Whichever you start from, read [Moving the private store between machines and cloud sessions](store-remote.md) after it when you work from more than one machine, or from cloud sessions. Before executors run unattended, such as overnight, read [The credential detached executors run on](unattended-credential.md): `hitld install` says when it is missing.
 
 ## Before any of them
 

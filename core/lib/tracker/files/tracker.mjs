@@ -63,6 +63,7 @@ import {
   releasedIn,
 } from './releases.mjs';
 import { checkPackages } from '../../release/packages.mjs';
+import { checkEcosystems } from '../../ecosystems/profiles.mjs';
 import { allocate, assertOrchestrator } from './ids.mjs';
 import { sharedIds } from './shared-ids.mjs';
 import { parseItem, renderItem, slugify } from './frontmatter.mjs';
@@ -805,6 +806,7 @@ export function openTracker({
       const problems = [
         ...checkItems(items, layout, { root, onMain, authorRoles }),
         ...checkPackages(layout.packages ?? [], { root }),
+        ...checkEcosystems(layout.ecosystems, undefined, { root }),
         ...checkReleases(records, layout, (id) => g.get(id)?.data),
         ...pendingMigrationProblems(root, layout),
       ];
@@ -893,7 +895,7 @@ export function openTracker({
         'critical-path': viewCriticalPath(g),
         milestones: viewMilestones(g, (m) => derivedOf(ctx, m)),
         unreleased: viewUnreleased(g, ctx.released),
-        lists: renderLists(g),
+        lists: renderLists(g, { level: 2 }),
         'items-graph': mermaidItems(g),
         'projects-graph': mermaidProjects(g),
         'milestones-graph': mermaidMilestones(graphOf(ctx)),

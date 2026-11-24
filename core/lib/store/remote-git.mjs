@@ -38,8 +38,10 @@
 // pinned to a bare repository inside the private store (never the project's checkout), hooks off,
 // signing off, prompts off. The owner's global and system git config are ignored, with one
 // exception: the keys that say how to reach and sign in to a host (`credential.*`, `http.*`,
-// `url.<base>.insteadOf`) are read from them and from GIT_CONFIG_* and passed on, so the
-// credential helper or proxy the session already uses still works. Proxy, certificate and ssh
+// `url.<base>.insteadOf`) are read from every config the owner's plain git reads outside a
+// repository (system, a git build's own installation-level file, global, the command line and
+// GIT_CONFIG_*) and passed on, so the credential helper or proxy the session already uses still
+// works. Proxy, certificate and ssh
 // agent variables pass through; nothing else of the environment does. Only https, ssh and file
 // (a local or mounted repository) may be used. The bytes are opaque here: no key, passphrase or
 // plain text reaches this module.
@@ -725,28 +727,51 @@ function baseEnv(dir) {
   return env;
 }
 
+/** The variables that say which config files git reads and what it is given on the command line. */
+const CONFIG_ENV =
+  /^(GIT_CONFIG_NOSYSTEM|GIT_CONFIG_SYSTEM|GIT_CONFIG_GLOBAL|XDG_CONFIG_HOME|GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+)$/;
+
+/** The scopes the owner's keys come from; the local copy's own (local, worktree) are not theirs. */
+const OWNER_SCOPE = new Set(['system', 'global', 'command']);
+
 /**
- * The connection keys from the owner's system and global git config and from GIT_CONFIG_COUNT,
- * in the order git reads them. No other key crosses.
+ * The connection keys from every config the owner's plain git reads outside a repository, in the
+ * order git reads them: the system level (with a git build's own installation-level file, such as
+ * Apple's Xcode git, which `git config --system` does not read), the global level (also under
+ * XDG_CONFIG_HOME), and the command line (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT). No other key
+ * crosses. A git older than 2.26 cannot say a key's scope: the system and global files are read
+ * by name, then GIT_CONFIG_COUNT.
  * @param {string} dir @returns {[string, string][]}
  */
 function connectionConfig(dir) {
+  const env = baseEnv(dir);
+  delete env.GIT_CONFIG_NOSYSTEM;
+  delete env.GIT_CONFIG_GLOBAL;
+  for (const [name, v] of Object.entries(process.env)) {
+    if (v !== undefined && CONFIG_ENV.test(name)) env[name] = v;
+  }
   /** @type {[string, string][]} */
   const out = [];
+  /** @param {string} rec a `key\nvalue` record */
+  const take = (rec) => {
+    const nl = rec.indexOf('\n');
+    const key = nl < 0 ? rec : rec.slice(0, nl);
+    if (CONNECTION_KEY.test(key)) out.push([key, nl < 0 ? '' : rec.slice(nl + 1)]);
+  };
+  const all = runSync(dir, env, ['config', '--list', '--includes', '--show-scope', '-z'], {
+    allowFail: true,
+  });
+  if (all.ok) {
+    // `scope\0key\nvalue\0` for each entry.
+    const recs = all.stdout.toString('utf8').split('\0');
+    for (let i = 0; i + 1 < recs.length; i += 2) if (OWNER_SCOPE.has(recs[i])) take(recs[i + 1]);
+    return out;
+  }
   for (const scope of ['--system', '--global']) {
-    const env = baseEnv(dir);
-    delete env.GIT_CONFIG_NOSYSTEM;
-    delete env.GIT_CONFIG_GLOBAL;
     const r = runSync(dir, env, ['config', scope, '--includes', '--list', '-z'], {
       allowFail: true,
     });
-    if (!r.ok) continue;
-    for (const rec of r.stdout.toString('utf8').split('\0')) {
-      if (!rec) continue;
-      const nl = rec.indexOf('\n');
-      const key = nl < 0 ? rec : rec.slice(0, nl);
-      if (CONNECTION_KEY.test(key)) out.push([key, nl < 0 ? '' : rec.slice(nl + 1)]);
-    }
+    if (r.ok) for (const rec of r.stdout.toString('utf8').split('\0')) if (rec) take(rec);
   }
   const count = Number(process.env.GIT_CONFIG_COUNT);
   if (Number.isInteger(count) && count > 0) {

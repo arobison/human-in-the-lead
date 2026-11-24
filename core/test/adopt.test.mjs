@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findCommand } from '../lib/cli/table.mjs';
+import { COMMANDS, findCommand } from '../lib/cli/table.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const GUIDE = join(ROOT, 'docs/guide');
@@ -31,8 +31,8 @@ function shown(text) {
   const found = [];
   const code = [...text.matchAll(/```[\s\S]*?```|`[^`\n]+`/g)].map((m) => m[0]);
   for (const block of code) {
-    for (const m of block.matchAll(/(?:^|[\s`$(|;&])hitld((?: [a-z][a-z-]*)+)/gm)) {
-      found.push(m[1].trim());
+    for (const m of block.matchAll(/(?:^|[\s`$(|;&])hitld((?: [a-z][a-z-]*)+)( --help)?/gm)) {
+      found.push(m[1].trim() + (m[2] ?? ''));
     }
   }
   return found;
@@ -44,8 +44,12 @@ test('every hitld command in the guides and the adopt skill exists, or is named 
   /** @type {string[]} */
   const bad = [];
   for (const file of files) {
-    for (const words of shown(readFileSync(file, 'utf8'))) {
+    for (const shownWords of shown(readFileSync(file, 'utf8'))) {
+      const words = shownWords.replace(/ --help$/, '');
       if (PLANNED.some((p) => words === p || words.startsWith(`${p} `))) continue;
+      // A group of commands, such as `hitld dispatch --help`, lists its subcommands (HITLD-937).
+      if (shownWords.endsWith(' --help') && COMMANDS.some((c) => c.name.startsWith(`${words} `)))
+        continue;
       const hit = findCommand(words.split(' '));
       if (!hit || typeof hit.command.run !== 'function') bad.push(`${file}: hitld ${words}`);
     }

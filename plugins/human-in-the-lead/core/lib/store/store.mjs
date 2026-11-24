@@ -20,7 +20,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  statSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -99,16 +98,43 @@ export function openStore(root) {
     },
     list(prefix = '') {
       // Walk only the directory the prefix names (ledger/ for the ledger's files), not the whole
-      // store and its git repository on every read.
+      // store, its worktrees and its git repository on every read (GitHub issue 603). Inside it,
+      // a folder whose path cannot lead to the prefix is not entered, so a prefix with no slash
+      // reads the top folder and only the folders that match it. The keys are the ones a full
+      // walk would give: paths as the file system resolves them, never a dot path.
       const dir = prefix.includes('/') ? prefix.slice(0, prefix.lastIndexOf('/')) : '';
       const from = dir === '' ? base : pathOf(dir);
-      if (!existsSync(from) || !statSync(from).isDirectory()) return [];
+      // The key path of from as resolved ('a//' and 'a/./' are 'a/'), so a prefix spelled
+      // another way matches nothing, as before.
+      const top = relative(base, from).split(sep).join('/');
       // Dot paths at the top are the store's git repository and its .gitignore, not keys.
-      return readdirSync(from, { recursive: true, withFileTypes: true })
-        .filter((d) => d.isFile() && !d.name.endsWith('.tmp'))
-        .map((d) => relative(base, join(d.parentPath, d.name)).split(sep).join('/'))
-        .filter((k) => k.startsWith(prefix) && !k.startsWith('.'))
-        .sort();
+      if (top.startsWith('.')) return [];
+      /** @type {string[]} */
+      const keys = [];
+      /** @param {string} abs @param {string} rel the key path of abs, '' or ending in '/' */
+      const walk = (abs, rel) => {
+        let entries;
+        try {
+          entries = readdirSync(abs, { withFileTypes: true });
+        } catch (e) {
+          // A folder removed while the walk runs (a worktree being cleaned up) holds no keys now.
+          const code = /** @type {NodeJS.ErrnoException} */ (e).code;
+          if (code === 'ENOENT' || code === 'ENOTDIR') return;
+          throw e;
+        }
+        for (const d of entries) {
+          const key = rel + d.name;
+          if (key.startsWith('.')) continue;
+          if (d.isDirectory()) {
+            const sub = `${key}/`;
+            if (sub.startsWith(prefix) || prefix.startsWith(sub)) walk(join(abs, d.name), sub);
+          } else if (d.isFile() && !d.name.endsWith('.tmp') && key.startsWith(prefix)) {
+            keys.push(key);
+          }
+        }
+      };
+      walk(from, top === '' ? '' : `${top}/`);
+      return keys.sort();
     },
   };
 }

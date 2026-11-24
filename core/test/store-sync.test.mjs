@@ -26,6 +26,7 @@ import {
   head,
   isMachineLocal,
   mergeAppendOnly,
+  mergeIncoming,
   snapshot,
 } from '../lib/store/git.mjs';
 import { VERSION } from '../lib/version.mjs';
@@ -583,6 +584,136 @@ test('the export refuses a gitlink anywhere else in the store, naming the path, 
   );
   assert.equal(head(a.root), before);
   assert.equal(existsSync(file), false);
+});
+
+/**
+ * Seal the store's head as an earlier version, or another program, could have written it: this
+ * version's export refuses a gitlink, so the file is sealed by hand.
+ * @param {string} root @param {string} file
+ */
+function sealHead(root, file) {
+  const manifest = {
+    project: 'fixture',
+    schema_versions: versions(),
+    head: /** @type {string} */ (head(root)),
+    branch: 'main',
+    created_at: at(2),
+    hitld_version: VERSION,
+    recipients: [DEVICE.recipient],
+  };
+  writeFileSync(file, seal(manifest, createBundle(root), [DEVICE.recipient]));
+}
+
+/** @param {string} root @returns {string[]} the gitlinks at the head of the store's history */
+const gitlinksAtHead = (root) =>
+  git(root, ['ls-tree', '-r', '-z', 'HEAD'])
+    .stdout.toString('utf8')
+    .split('\0')
+    .filter((rec) => rec.startsWith('160000 '))
+    .map((rec) => rec.slice(rec.indexOf('\t') + 1));
+
+/** @param {number} n a line of the trust events log, an append-only file */
+const trustLine = (n) => `{"area":"cache","at":"${at(n)}"}\n`;
+
+test('a pull imports a head that carries gitlinks and drops those in its own head, naming each path; the directories stay and an append-only log changed on both sides merges', async () => {
+  const { dir, file } = fixture();
+  const a = openStore(join(dir, 'a'));
+  const b = openStore(join(dir, 'b'));
+  question(a, 'E-1', 1);
+  a.append('trust/events.jsonl', trustLine(1));
+  snapshot(a.root, 'first');
+  // An earlier version committed two checkouts as gitlinks: an executor worktree and one elsewhere.
+  checkout(dir, join(a.root, 'worktrees', 'D-1'));
+  checkout(dir, join(a.root, 'elsewhere', 'D-2'));
+  git(a.root, ['add', '-f', 'worktrees/D-1', 'elsewhere/D-2']);
+  git(a.root, ['commit', '-q', '-m', 'an earlier version committed two checkouts']);
+  assert.deepEqual(gitlinksAtHead(a.root), ['elsewhere/D-2', 'worktrees/D-1']);
+  sealHead(a.root, file);
+
+  // The incoming head carries both: they are left out of the merge and named; the rest arrives.
+  const r = await importStore(opts(b.root, file));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.warnings?.length, 2);
+  assert.match(String(r.warnings?.[0]), /^elsewhere\/D-2 arrived as a gitlink \(mode 160000\)/);
+  assert.match(String(r.warnings?.[1]), /^worktrees\/D-1 arrived as a gitlink/);
+  assert.deepEqual(gitlinksAtHead(b.root), []);
+  assert.equal(existsSync(join(b.root, 'elsewhere')), false);
+  assert.equal(b.read('trust/events.jsonl'), trustLine(1));
+  assert.deepEqual(readLedger(b).events, readLedger(a).events);
+
+  // Both sides append to the same log; then a, whose own head still holds both gitlinks, pulls.
+  a.append('trust/events.jsonl', trustLine(3));
+  b.append('trust/events.jsonl', trustLine(2));
+  const back = join(dir, 'back.hitld');
+  exportStore(opts(b.root, back));
+  const r2 = await importStore(opts(a.root, back));
+  assert.equal(r2.ok, true, JSON.stringify(r2));
+  assert.equal(r2.result, 'merged');
+  assert.equal(r2.warnings?.length, 2);
+  assert.match(
+    String(r2.warnings?.[0]),
+    /^elsewhere\/D-2 is another git checkout .* dropped from the history .*; an export refuses it until it is moved out of the store$/,
+  );
+  assert.match(String(r2.warnings?.[1]), /^worktrees\/D-1 is another git checkout .*changed$/);
+  assert.deepEqual(gitlinksAtHead(a.root), []);
+  assert.equal(a.read('trust/events.jsonl'), trustLine(1) + trustLine(2) + trustLine(3));
+  // The checkouts stay on disk.
+  assert.equal(readFileSync(join(a.root, 'worktrees', 'D-1', 'README.md'), 'utf8'), 'code\n');
+  assert.equal(readFileSync(join(a.root, 'elsewhere', 'D-2', 'README.md'), 'utf8'), 'code\n');
+  // The one outside the machine-local paths still stops an export, as before (HITLD-763).
+  assert.throws(
+    () => exportStore(opts(a.root, file)),
+    (/** @type {any} */ e) => e.code === 'store-gitlink' && e.message.includes('elsewhere/D-2'),
+  );
+});
+
+test('a sync whose own head holds a live worktree gitlink drops it, names it, merges and exports', async () => {
+  const { dir, file } = fixture();
+  const a = openStore(join(dir, 'a'));
+  const b = openStore(join(dir, 'b'));
+  a.append('trust/events.jsonl', trustLine(1));
+  await syncStore(opts(a.root, file));
+  await syncStore(opts(b.root, file));
+  // An export before HITLD-763 put b's live worktree back in its head.
+  checkout(dir, join(b.root, 'worktrees', 'D-1'));
+  git(b.root, ['add', '-f', 'worktrees/D-1']);
+  git(b.root, ['commit', '-q', '-m', 'an earlier version committed the worktree']);
+  a.append('trust/events.jsonl', trustLine(3));
+  b.append('trust/events.jsonl', trustLine(2));
+  await syncStore(opts(a.root, file));
+  const r = await syncStore(opts(b.root, file));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.imported?.ok && r.imported.result, 'merged');
+  assert.match(String(r.imported?.warnings?.[0]), /^worktrees\/D-1 is another git checkout/);
+  assert.equal(r.imported?.warnings?.length, 1);
+  assert.deepEqual(gitlinksAtHead(b.root), []);
+  assert.equal(b.read('trust/events.jsonl'), trustLine(1) + trustLine(2) + trustLine(3));
+  assert.equal(readFileSync(join(b.root, 'worktrees', 'D-1', 'README.md'), 'utf8'), 'code\n');
+});
+
+test('the merge reads no blob for a gitlink this store holds in its base and head', () => {
+  const { dir } = fixture();
+  const a = openStore(join(dir, 'a'));
+  a.append('trust/events.jsonl', trustLine(1));
+  snapshot(a.root, 'first');
+  // A gitlink to a commit this repository does not hold, in the base and in this side's head.
+  const missing = '293f000d'.padEnd(40, '0');
+  git(a.root, ['update-index', '--add', '--cacheinfo', `160000,${missing},elsewhere/D-2`]);
+  git(a.root, ['commit', '-q', '-m', 'a gitlink']);
+  const base = /** @type {string} */ (head(a.root));
+  // The other side dropped it and appended to the log.
+  git(a.root, ['update-index', '--force-remove', 'elsewhere/D-2']);
+  a.append('trust/events.jsonl', trustLine(2));
+  git(a.root, ['add', 'trust/events.jsonl']);
+  git(a.root, ['commit', '-q', '-m', 'theirs']);
+  const theirs = /** @type {string} */ (head(a.root));
+  git(a.root, ['update-ref', 'refs/heads/main', base]);
+  git(a.root, ['read-tree', base]);
+  writeFileSync(join(a.root, 'trust', 'events.jsonl'), trustLine(1));
+  const r = mergeIncoming(a.root, theirs);
+  assert.equal(r.result, 'fast-forward', JSON.stringify(r));
+  assert.deepEqual(gitlinksAtHead(a.root), []);
+  assert.equal(a.read('trust/events.jsonl'), trustLine(1) + trustLine(2));
 });
 
 test('append-only merge: the same result from either side; a removed line is a conflict', () => {

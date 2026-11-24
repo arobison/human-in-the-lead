@@ -1,19 +1,21 @@
 ---
 id: HITLD-853
-title: The report parser accepts a call line ending (one-way), as the contract and the briefs say
+title: The report parser refuses a (one-way) call line and says a one-way call goes under questions as a decision
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M864TVZEXA2WET
+release_note: "A report call line not marked `(reversible)`, one marked `(one-way)` among them, is refused with a message that says a one-way call is not the executor's to make and goes under `questions` as a decision item (executor contract rule 5)."
 ---
-
 
 ## Why
 
-On 2026-11-22 the HITLD-759 executor's report was refused four times by `dispatch complete`, once because a call line ended `(one-way)`. The contract and every brief say a call line ends `(reversible)` or `(one-way)`, but `core/lib/contract/report.mjs` (the REVERSIBLE pattern, line 23) accepts only `(reversible)`, so a one-way call can never be reported. The orchestrator did not mark anything falsely: it had the executor move the one-way step into deviations.
+On 2026-11-22 the HITLD-759 executor's report was refused four times by `dispatch complete`, once because a call line ended `(one-way)`. The item first said the contract and every brief allow a call line to end `(one-way)`, and asked the parser to accept it. That premise was false: the contract template (`templates/AGENTS.contract.md` rule 5 and its example), the brief (`core/lib/dispatch/brief.mjs`), the execute and curate skills and the design's execution part all mark a call `(reversible)` only, and rule 5 makes a one-way call the owner's, not the executor's: it goes under `questions` as a decision item. On review the owner decided to keep the refusal (2026-11-24). What was wrong is the message: `call not marked (reversible)` did not say where a one-way call goes, so the orchestrator had the executor move the one-way step into deviations.
 
 ## Done when
 
-- `parseReport` accepts a call line ending `(reversible)` or `(one-way)`, and refuses one that ends neither, naming the line; a one-way call is recorded as one-way, not as a reversible one.
-- Tests cover each ending and a line with neither. A contract change reaches main only with the owner's own yes. `npm run check`, the offline eval gate and `hitld work check` pass.
+- `parseReport` still refuses a call line not marked `(reversible)`, `(one-way)` included, and records every call as reversible; the report schema keeps `reversible` as `const true`.
+- The refusal names the line and says a one-way call is not the executor's to make and goes under `questions` as a decision item, pointing to executor contract rule 5 in AGENTS.md.
+- A test pins the refusal of a `(one-way)` line and its message. No template, skill or design text changes. `npm run check`, the offline eval gate and `hitld work check` pass.

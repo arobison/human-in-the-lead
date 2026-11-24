@@ -36,8 +36,8 @@ const clean = (raw) =>
  * Touches derived from an item's text: each path or module the title and body name that the
  * repository has. A file is itself; a directory is `<dir>/**`; a glob counts when it matches a
  * file; a bare file name or a partial path (`brief.mjs`, `dispatch/brief.mjs`) is the file it
- * ends, when at most three files end that way. Tracker paths (`dispatch.inline_globs`) are left
- * out: the item's own file changes on every branch.
+ * ends, when at most three files end that way. Tracker paths (`inlineGlobs`: dispatch.inline_globs
+ * and the tracker's work_dir) are left out: the item's own file changes on every branch.
  * @param {Item} item @param {string[]} files the repository's tracked files
  * @param {{ inline?: string[] }} [o]
  * @returns {string[]}

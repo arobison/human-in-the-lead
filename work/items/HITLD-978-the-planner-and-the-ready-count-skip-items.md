@@ -2,10 +2,12 @@
 id: HITLD-978
 title: The planner and the ready count skip items closed on their branch and waiting to merge, and a fix for a stuck merge can take an executor slot at the cap
 kind: work
-state: planned
+state: done
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M85PQM97TJFWF1
+release_note: "`hitld dispatch plan`, `hitld ready` and `hitld dispatch start` no longer offer an item whose queued branch already closes it once a dispatch on it is abandoned or unclaimed: it stays under `awaiting_merge` until the branch merges or is reverted, or its pass is corrected. `hitld dispatch start <ID> --fixes-merge <item or branch>` starts the fix for a stuck merge with every slot taken, one past the cap, so a run the economize cap holds to one slot cannot deadlock behind its own waiting branches."
 ---
 
 ## Done when

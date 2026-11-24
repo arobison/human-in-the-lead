@@ -1,0 +1,103 @@
+{
+  "$id": "ecosystem-profiles",
+  "title": "Ecosystem profiles",
+  "description": "A build system's ecosystem described as data (HITLD-886): its manifests, lockfiles, version sources, the folders walks skip and its shareable caches. A profile never holds a command: this is not an owner configuration schema, so no property here may be run, and a code-running key is refused wherever it appears. The commands for a project's paths live only in policy.json ecosystems.use. The built-in profiles shipped with hitld (core/lib/ecosystems/profiles.json) are a file of this shape; a project's own profiles in policy.json ecosystems.profiles use its profile definition.",
+  "type": "object",
+  "properties": {
+    "profiles": {
+      "description": "The built-in profiles, one per ecosystem.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/profile" },
+      "minItems": 1
+    }
+  },
+  "required": ["profiles"],
+  "additionalProperties": false,
+  "$defs": {
+    "fileName": {
+      "description": "A file or folder name, matched in any folder: no path separator.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "profile": {
+      "description": "One ecosystem, as data.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The profile's name, which ecosystems.use names.",
+          "$ref": "common#/$defs/name"
+        },
+        "extends": {
+          "description": "A project's own profile only: the built-in profile it starts from. Each list given here replaces the built-in's list; a list left out is the built-in's.",
+          "$ref": "common#/$defs/name"
+        },
+        "manifests": {
+          "description": "The file names that declare dependencies, such as package.json or Cargo.toml.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileName" },
+          "uniqueItems": true
+        },
+        "lockfiles": {
+          "description": "The file names that pin resolved dependencies, such as package-lock.json or Cargo.lock.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileName" },
+          "uniqueItems": true
+        },
+        "version_sources": {
+          "description": "Where a package's version is read: a file, its format and the key path to the version. Read by release in a later slice; until then, release.packages version_source is what release reads.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "description": "A repository path: relative to the repository root, with no `..` segment, not starting with `~`, and a file rather than a glob. `hitld work check` refuses one that is not.",
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "description": "How the file is read.",
+                "enum": ["json", "toml", "properties"]
+              },
+              "key": {
+                "description": "The key path to the version, dot-separated, such as version or package.version.",
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$"
+              }
+            },
+            "required": ["file", "format", "key"],
+            "additionalProperties": false
+          }
+        },
+        "skip_folders": {
+          "description": "Folder names walks skip, wherever they are: installed dependencies and build output, such as node_modules or target. A name, never a path: `hitld work check` refuses one with a separator or `..`.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileName" },
+          "uniqueItems": true
+        },
+        "caches": {
+          "description": "Dependency caches the ecosystem's own tool can share between worktrees, each named by the environment variable that points the tool at it. Nothing reads this yet: in this release hitld only validates it, and sets, exports or creates nothing from it (a later slice, HITLD-925, has setup and checks export the variable, pointing at the tool's default folder or a machine-file path, and the disk report show the folder's size). hitld never creates links itself.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "description": "The cache's name, for reports.",
+                "$ref": "common#/$defs/name"
+              },
+              "variable": {
+                "description": "The environment variable that sets the cache's folder, and nothing else. An allowlist, compared without regard to case after the name is checked to be plain ASCII (letters, digits and _, not starting with a digit; any other character is refused, so no Unicode lookalike folds into an accepted name): a known cache variable (npm_config_cache, npm_config_store_dir, PNPM_STORE_DIR, YARN_CACHE_FOLDER, GOCACHE, GOMODCACHE, PIP_CACHE_DIR, UV_CACHE_DIR, POETRY_CACHE_DIR, BUNDLE_USER_CACHE, COMPOSER_CACHE_DIR, XDG_CACHE_HOME, PYTHONPYCACHEPREFIX, PIPENV_CACHE_DIR), or a name ending in _CACHE, _CACHE_DIR or _CACHE_FOLDER that the dynamic loader, git or the GitHub Actions runner does not read (LD_*, DYLD_*, GIT_*, RUNNER_*, so not RUNNER_TOOL_CACHE, whose contents go on the PATH of later steps), that has no switch word (ENABLE, ENABLED, DISABLE, DISABLED, USE, NO, SKIP, OFFLINE, FORCE) and whose other words do not contain a word that names a credential or session (PASSWORD, PASSWD, ASKPASS, PASS, PWD, TOKEN, SECRET, CREDENTIAL, KEY, OAUTH, AUTH, JWT, BEARER, SESSION, COOKIE, PRIVATE, CERT, VAULT, NETRC, KERBEROS, KRB, SUDO, GNUPG, GPG, AWS, SSH), a setting or search path (CONFIG, ENV, PATH, HOME, OPTIONS, PRELOAD) or a shell that sources files at start-up (SHELL, BASH, ZSH, so not ZSH_CACHE_DIR). `hitld work check` refuses any other. The suffix rule is a convention filter, not a security boundary. There is no way to declare another name: a variable outside these rules, such as PRE_COMMIT_HOME (pre-commit runs the hook code it keeps there), HF_HOME (it holds a token file), CARGO_HOME or GRADLE_USER_HOME (configuration and init scripts), cannot name a cache in this release.",
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+              }
+            },
+            "required": ["name", "variable"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    }
+  }
+}

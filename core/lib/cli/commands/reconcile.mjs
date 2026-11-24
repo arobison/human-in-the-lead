@@ -14,6 +14,8 @@ import { lifecycleId, readLedger } from '../../ledger/ledger.mjs';
 import { releaseExecutor } from '../../registry/machine.mjs';
 import { budgetOf } from '../../dispatch/budget.mjs';
 import { completionOf } from '../../../harness/claude-code/adapter.mjs';
+import { headlessEvents } from '../../../harness/claude-code/completion.mjs';
+import { credentialFailure } from '../../../harness/claude-code/credential.mjs';
 import { absorb } from '../../run/state.mjs';
 import { assertHolds } from '../../run/lease.mjs';
 import { processSignal } from '../../run/reality.mjs';
@@ -32,6 +34,7 @@ import {
   project,
   resultKey,
   runOf,
+  stderrKey,
 } from './orchestrator.mjs';
 
 /**
@@ -300,15 +303,25 @@ export const commands = [
             });
             // Ended: its process has exited and its output ends with its result event. A durable
             // run writes events while it runs (HITLD-746), so output without a result is a run
-            // that was stopped: gone.
+            // that was stopped: gone. One that stopped for its credential says so in its output
+            // or its errors (HITLD-880).
+            const lost =
+              proc && !proc.alive
+                ? credentialFailure(
+                    headlessEvents(p.store.read(resultKey(entry.dispatch)) ?? '') ?? [],
+                    p.store.read(stderrKey(entry.dispatch)) ?? '',
+                  )
+                : null;
             return {
               ended: Boolean(proc && !proc.alive && proc.result),
               gone: Boolean(proc && !proc.alive && !proc.result),
+              credentialFailure: lost,
               evidence: {
                 ...progress,
                 process: proc
                   ? { alive: proc.alive, output_bytes: proc.output_bytes, result: proc.result }
                   : 'no process ID on file',
+                ...(lost ? { credential_failure: lost } : {}),
               },
             };
           }
@@ -360,6 +373,41 @@ export const commands = [
           if (v.state === 'unreported') shown.report_request = reportRequest(entry.dispatch);
           if (v.state === 'awaiting_record') {
             shown.next = `save session ${entry.harness_ref ?? `of ${entry.dispatch}`}'s result events (the event list of kind result) to a file; hitld dispatch reconcile --ended ${entry.harness_ref ?? entry.dispatch} --session-record ${entry.dispatch}=<file>`;
+          }
+          if (v.state === 'blocked') {
+            // Recorded as blocked through dispatch complete, from the run's own output: the
+            // executor cannot report, having no credential to run on (HITLD-880).
+            if (!holds) {
+              shown.recorded = false;
+              shown.next = 'the session holding the lease records it with hitld dispatch reconcile';
+              dispatches.push(shown);
+              continue;
+            }
+            const stored = p.store.read(resultKey(entry.dispatch));
+            const stderr = p.store.read(stderrKey(entry.dispatch)) ?? '';
+            /** @type {Record<string, any>} */
+            let done;
+            try {
+              done = completeDispatch(
+                { dispatch: entry.dispatch, ...(session ? { session } : {}), host },
+                ctx,
+                // Output with no JSON in it (the run stopped before its first event) is no events.
+                {
+                  kind: 'headless',
+                  json: stored && headlessEvents(stored) ? stored : '[]',
+                  stderr,
+                },
+              );
+            } catch (e) {
+              if (!(e instanceof Refusal)) throw e;
+              done = { ok: false, error: e.code, message: e.message, ...e.more };
+            }
+            const { refill: _r, handover: _h, ...completion } = done;
+            if (done.ok && !done.already) lastCompletion = done;
+            shown.recorded = Boolean(done.ok && !done.already);
+            shown.completion = completion;
+            dispatches.push(shown);
+            continue;
           }
           if (v.state === 'complete' && v.closing) {
             if (!holds) {
@@ -443,6 +491,7 @@ export const commands = [
         const recorded = dispatches.filter((x) => x.recorded);
         const unreported = of('unreported');
         const dead = of('dead').filter((x) => !x.stopped?.ok);
+        const blocked = of('blocked');
         const awaiting = of('awaiting_record');
         const stopped = dispatches.filter((x) => x.stopped?.ok);
         const overrun = dispatches.filter((x) => x.overrun && !x.stopped?.ok);
@@ -459,6 +508,9 @@ export const commands = [
           next:
             [
               ...recorded.map((x) => `${x.dispatch}: recorded; do what its completion's next says`),
+              ...blocked
+                .filter((x) => !x.recorded)
+                .map((x) => `${x.dispatch}: ${x.why}; ${x.next ?? 'not recorded'}`),
               ...awaiting.map((x) => `${x.dispatch}: ${x.next}`),
               ...stopped.map(
                 (x) =>

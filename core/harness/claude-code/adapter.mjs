@@ -32,14 +32,15 @@ import {
  * @property {(text: string, urgency: string) => Promise<string>} [say] a message to the owner in the main session
  *
  * @typedef {({ kind: 'subagent', text: string, usage?: { tokens?: number | null, toolCalls?: number | null, durationMs?: number | null } | null, commit?: string }
- *   | { kind: 'headless', json: string, commit?: string }
+ *   | { kind: 'headless', json: string, stderr?: string, commit?: string }
  *   | { kind: 'session', record: string, text?: string, since?: string | null, commit?: string })
  *   & { report?: string }} Notification
  *   session: an interactive session's completion, from the harness's own record of the session
  *   (`record`); `text` is the report when it came apart from the record (as the chief of staff
  *   relayed it), else the record's last turn is the report. `report`, of any kind: the report as
  *   it rides in the executor's closing commit (`hitld dispatch reconcile`, HITLD-780), which
- *   stands over the one in the harness's record; the record still gives the tokens
+ *   stands over the one in the harness's record; the record still gives the tokens.
+ *   headless `stderr`: the run's errors file, read for a credential that failed (HITLD-880)
  */
 
 export const ID = 'claude-code';
@@ -63,7 +64,7 @@ export class ContractCall extends Error {
 export function completionOf(dispatch, n) {
   const parsed =
     n.kind === 'headless'
-      ? headlessCompletion(n.json)
+      ? headlessCompletion(n.json, n.stderr ?? '')
       : n.kind === 'session'
         ? sessionRecordCompletion(n.record, { since: n.since ?? null })
         : subagentCompletion(n);

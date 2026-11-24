@@ -18,7 +18,7 @@ constraint_of: [HITLD-405 c?]
 
 ## Why
 
-The owner wants a long-running chat with the chief of staff that does not grow in cost with its length. A project's coordinator is documented to work from recent messages, recent threads and project memory instead of its full history, which is that behaviour built in. The documentation does not say whether the coordinator has a shell, repository access or session control, so adopting it without a test could break the chief-of-staff flow in mid-run. Serves the owner, who pays for the chat, and the product, which cannot depend on a beta feature that Team and Enterprise plans do not have until a decision says how far to rely on it.
+The owner wants a long-running chat with the chief of staff that does not grow in cost with its length. A project's coordinator is documented to work from recent messages, recent threads and project memory instead of its full history, which is that behavior built in. The documentation does not say whether the coordinator has a shell, repository access or session control, so adopting it without a test could break the chief-of-staff flow in mid-run. Serves the owner, who pays for the chat, and the product, which cannot depend on a beta feature that Team and Enterprise plans do not have until a decision says how far to rely on it.
 
 ## Notes
 
