@@ -2,7 +2,7 @@
 id: HITLD-820
 title: The store pull does not stop on a gitlink in the local head, and names the path it found
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
