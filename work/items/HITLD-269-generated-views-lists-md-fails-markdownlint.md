@@ -2,10 +2,11 @@
 id: HITLD-269
 title: Generated views/lists.md fails markdownlint (MD001)
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c2, HITLD-403 c1]
+claimed_by: D-01M87PRFFY2DB59D
 ---
 
 ## Why
