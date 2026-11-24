@@ -14,6 +14,7 @@ import { mergeErrors } from '../lib/kb/kb.mjs';
 import { fakeGitHub, repoFromRemote } from '../lib/merge/github.mjs';
 import { stageAll } from '../lib/merge/queue.mjs';
 import {
+  approveAhead,
   approvePulls,
   bringUpToMain,
   emptyPullState,
@@ -1772,6 +1773,373 @@ test('a changed decision answer merges without asking only as the rights flow re
       none.awaiting_owner.map((x) => x.item),
       ['W-3'],
     );
+  } finally {
+    t.done();
+  }
+});
+
+// An approval recorded before the queue presents a pull request (HITLD-821).
+
+/**
+ * The owner's approval of a branch's pull request head, recorded before the queue presents it.
+ * @param {ReturnType<typeof setup>} t @param {{ branch: string }} b
+ * @param {import('../lib/merge/pull-request.mjs').PullQueueState} state @param {string} [head]
+ */
+function approveEarly(t, b, state, head = t.remoteTip(b.branch)) {
+  return approveAhead({
+    state,
+    branch: b.branch,
+    head,
+    pull: t.github.findPull(b.branch, 'main'),
+    signedOffBy: OWNER,
+    by: 'cos',
+    at: '2026-11-24T10:00:00Z',
+  });
+}
+
+/**
+ * Main merged into an executor's branch by the executor, pushed. `resolve` changes files in the
+ * merge commit itself, as a conflict resolution would.
+ * @param {ReturnType<typeof setup>} t @param {string} branch @param {Record<string, string>} [resolve]
+ */
+function mergeMainInto(t, branch, resolve) {
+  git(t.root, 'fetch', '-q', 'origin');
+  git(t.root, 'checkout', '-q', branch);
+  git(t.root, 'merge', '-q', '--no-edit', ...(resolve ? ['--no-commit'] : []), 'origin/main');
+  if (resolve) {
+    put(t.root, resolve);
+    git(t.root, 'add', '-A');
+    git(t.root, 'commit', '-q', '--no-edit');
+  }
+  git(t.root, 'push', '-q', 'origin', branch);
+  git(t.root, 'checkout', '-q', 'main');
+}
+
+test('an approval recorded before the queue presents a pull request applies when it presents that head (HITLD-821)', async () => {
+  const t = setup({ checks: { 'hitld/W-1': [{ name: 'test', state: 'pending' }] } });
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const first = await t.pass([a], { mode: 'owner' });
+    assert.deepEqual(first.awaiting_owner, [], 'its checks still run: nothing is presented');
+    assert.equal(first.pending.length, 1);
+    const head = t.remoteTip(a.branch);
+    const state = first.state;
+    assert.deepEqual(approveEarly(t, a, state), { refused: null });
+    assert.equal(state.approved_ahead?.[a.branch]?.head, head);
+    assert.equal(state.owner_signoff, OWNER);
+    t.checks['hitld/W-1'] = [{ name: 'test', state: 'success' }];
+    const second = await t.pass([a], { mode: 'owner', state });
+    assert.deepEqual(second.awaiting_owner, [], 'not put to the owner again');
+    assert.deepEqual(
+      second.merged.map((x) => [x.item, x.signed_off, x.approval?.as_presented]),
+      [['W-1', true, true]],
+    );
+    assert.deepEqual(
+      second.ahead.applied.map((x) => [x.branch, x.approved_head, x.head]),
+      [[a.branch, head, head]],
+    );
+    assert.deepEqual(second.ahead.dropped, []);
+    assert.deepEqual(second.state.approved_ahead, {});
+    assert.match(
+      git(t.remote, 'log', '-1', '--format=%B', 'main'),
+      /^Signed-off-by: Owner Person <owner@example\.com>$/m,
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('an early approval holds across a merge of main into the branch, and is dropped by any other change (HITLD-821)', async () => {
+  const t = setup({
+    checks: {
+      'hitld/W-1': [{ name: 'test', state: 'pending' }],
+      'hitld/W-2': [{ name: 'test', state: 'pending' }],
+      'hitld/W-3': [{ name: 'test', state: 'pending' }],
+    },
+  });
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'b.txt': 'b\n' });
+    const c = t.branch('W-3', { 'c.txt': 'c\n' });
+    const first = await t.pass([a, b, c], { mode: 'owner' });
+    const state = first.state;
+    const approved = Object.fromEntries([a, b, c].map((x) => [x.branch, t.remoteTip(x.branch)]));
+    for (const x of [a, b, c]) assert.deepEqual(approveEarly(t, x, state), { refused: null });
+    // Code lands on main; each executor merges main in. W-1 only merges it, W-2 changes its own
+    // file in the merge commit, and W-3 adds a commit of its own.
+    trackerMerge(t, { 'shared.txt': 'two\n' });
+    mergeMainInto(t, a.branch);
+    mergeMainInto(t, b.branch, { 'b.txt': 'b, changed in the merge\n' });
+    git(t.root, 'checkout', '-q', c.branch);
+    put(t.root, { 'c.txt': 'c, changed after the approval\n' });
+    git(t.root, 'commit', '-q', '-am', 'more');
+    git(t.root, 'push', '-q', 'origin', c.branch);
+    git(t.root, 'checkout', '-q', 'main');
+    for (const x of [a, b, c]) t.checks[x.branch] = [{ name: 'test', state: 'success' }];
+    const second = await t.pass([a, b, c], { mode: 'owner', state });
+    assert.deepEqual(
+      second.ahead.applied.map((x) => [x.item, x.approved_head]),
+      [['W-1', approved[a.branch]]],
+    );
+    assert.notEqual(second.ahead.applied[0].head, approved[a.branch], 'applied to the merge');
+    assert.deepEqual(
+      second.ahead.dropped.map((x) => x.item),
+      ['W-2', 'W-3'],
+    );
+    // W-1 merges with the sign-off; the others are put to the owner as they are now.
+    assert.deepEqual(
+      second.merged.map((x) => [x.item, x.signed_off]),
+      [['W-1', true]],
+    );
+    assert.deepEqual(
+      second.awaiting_owner.map((x) => x.item),
+      ['W-2', 'W-3'],
+    );
+    assert.deepEqual(second.state.approved_ahead, {});
+    assert.equal(git(t.remote, 'show', 'main:a.txt'), 'a');
+    assert.equal(git(t.remote, 'show', 'main:shared.txt'), 'two');
+  } finally {
+    t.done();
+  }
+});
+
+test('an early approval needs an open pull request at the head approved, and covers only that pull request (HITLD-821)', async () => {
+  const t = setup({ checks: { 'hitld/W-1': [{ name: 'test', state: 'pending' }] } });
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'b.txt': 'b\n' });
+    const state = emptyPullState();
+    // No pull request yet: refused, and nothing recorded.
+    assert.deepEqual(approveEarly(t, a, state), { refused: 'no_pull_request' });
+    assert.deepEqual(state, emptyPullState());
+    const first = await t.pass([a], { mode: 'owner', state });
+    const head = t.remoteTip(a.branch);
+    // A head that is not the pull request's: refused.
+    assert.deepEqual(approveEarly(t, a, first.state, t.remoteTip(b.branch)), {
+      refused: 'moved',
+    });
+    assert.equal(first.state.approved_ahead?.[a.branch], undefined);
+    assert.deepEqual(approveEarly(t, a, first.state, head), { refused: null });
+    // While its checks run it is never presented, and the approval waits for it.
+    const second = await t.pass([a], { mode: 'owner', state: first.state });
+    assert.deepEqual(second.merged, []);
+    assert.equal(second.state.approved_ahead?.[a.branch]?.head, head);
+    // The pull request is closed and another opened from the same branch: not the one approved.
+    const pr = t.github.pulls.find((x) => x.branch === a.branch);
+    if (pr) pr.state = 'closed';
+    t.checks['hitld/W-1'] = [{ name: 'test', state: 'success' }];
+    const third = await t.pass([a], { mode: 'owner', state: second.state });
+    assert.deepEqual(third.merged, []);
+    assert.deepEqual(
+      third.ahead.dropped.map((x) => [x.item, x.number]),
+      [['W-1', 2]],
+    );
+    assert.deepEqual(
+      third.awaiting_owner.map((x) => x.number),
+      [2],
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('hitld merge approve --head: the owner approves a pull request head before the queue presents it; hitld merge applies it (HITLD-821)', async () => {
+  const { main } = await import('../lib/cli/main.mjs');
+  const { makeConsumer, item, report, STATUS_INPUT } = await import('./orchestrator-fixture.mjs');
+  const { recordStatusLine } = await import('../harness/claude-code/statusline.mjs');
+  const { openStore } = await import('../lib/store/store.mjs');
+  const { readLedger } = await import('../lib/ledger/ledger.mjs');
+  const c = makeConsumer({
+    policy: {
+      merge: {
+        mode: 'owner',
+        via: 'pull-request',
+        pull_request: { checks: ['test'] },
+        full_suite: ['node --test "test/*.test.js"'],
+      },
+    },
+  });
+  try {
+    const remote = join(c.base, 'remote.git');
+    git(c.base, 'init', '-q', '--bare', '-b', 'main', remote);
+    git(c.root, 'remote', 'add', 'origin', remote);
+    git(c.root, 'push', '-q', 'origin', 'main');
+    const github = fakeGitHub({ remote, checks: () => [{ name: 'test', state: 'success' }] });
+    /** @param {string[]} argv */
+    const hitld = async (argv) => {
+      let out = '';
+      const exit = await main(argv, {
+        out: (t) => (out += t),
+        err: () => {},
+        cwd: c.root,
+        env: c.env,
+        github: () => github,
+      });
+      return { exit, result: JSON.parse(out) };
+    };
+    recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+    assert.equal((await hitld(['run', 'start'])).exit, 0);
+    const start = await hitld(['dispatch', 'start', 'W-1']);
+    assert.equal(start.exit, 0, JSON.stringify(start.result));
+    const dispatch = start.result.dispatch;
+    await hitld(['dispatch', 'handle', '--dispatch', dispatch, '--harness-ref', 'agent-1']);
+    const branch = start.result.branch;
+    git(c.root, 'switch', '-q', '-c', branch);
+    put(c.root, {
+      'work/items/W-1-add-numbers.md': item({
+        id: 'W-1',
+        title: 'Add numbers',
+        kind: 'work',
+        state: 'done',
+        touches: ['src/calc.js'],
+      }),
+      'src/calc.js': 'export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n',
+    });
+    git(c.root, 'add', '-A');
+    git(
+      c.root,
+      'commit',
+      '-q',
+      '-m',
+      'W-1',
+      '-m',
+      `Work-Item: W-1\nDispatch: ${dispatch}\nAgent-Role: executor`,
+    );
+    const sha = git(c.root, 'rev-parse', 'HEAD');
+    git(c.root, 'push', '-q', 'origin', branch);
+    git(c.root, 'switch', '-q', 'main');
+    const sign = ['--signoff', 'Owner Person <owner@example.com>'];
+    const approve = (/** @type {string[]} */ ...args) => hitld(['merge', 'approve', ...args]);
+
+    // No pull request yet: refused, and it says so.
+    const none = await approve('--only', branch, '--head', sha, ...sign);
+    assert.equal(none.result.error, 'no-pull-request', JSON.stringify(none.result));
+    assert.match(none.result.message, /has no open pull request/);
+    // The executor opens its pull request; the queue has presented nothing.
+    github.createPull({ head: branch, base: 'main', title: 'W-1', body: 'W-1' });
+    assert.equal((await approve('--only', branch, '--head', sha)).result.error, 'usage');
+    assert.equal((await approve('--all', '--head', sha, ...sign)).result.error, 'usage');
+    assert.equal(
+      (await approve('--only', branch, '--head', sha.slice(0, 12), ...sign)).result.error,
+      'usage',
+    );
+    const other = await approve('--only', branch, '--head', 'f'.repeat(40), ...sign);
+    assert.equal(other.result.error, 'stale', JSON.stringify(other.result));
+    const elsewhere = await approve('--only', 'hitld/W-9-none', '--head', sha, ...sign);
+    assert.equal(elsewhere.result.error, 'no-pull-request');
+    // Without --head an unpresented pull request is refused as before, pointing at --head.
+    const plain = await approve('--only', branch, ...sign);
+    assert.equal(plain.result.error, 'not-presented');
+    assert.match(plain.result.message, /--head/);
+
+    const early = await approve('--only', branch, '--head', sha, ...sign);
+    assert.equal(early.exit, 0, JSON.stringify(early.result));
+    assert.deepEqual(early.result.approved, [branch]);
+    assert.equal(early.result.presented, false);
+    assert.equal(early.result.head, sha);
+
+    const note = join(c.base, 'note.txt');
+    writeFileSync(note, report({ item: 'W-1', sha, branch }));
+    const done = await hitld([
+      'dispatch',
+      'complete',
+      '--dispatch',
+      dispatch,
+      '--report-file',
+      note,
+    ]);
+    assert.equal(done.result.queued_to_merge, branch);
+
+    // The first pass presents that head, so the approval applies and it merges with the sign-off.
+    const merged = await hitld(['merge']);
+    assert.equal(merged.exit, 0, JSON.stringify(merged.result));
+    assert.deepEqual(merged.result.merged, ['W-1']);
+    assert.deepEqual(merged.result.presented, []);
+    assert.deepEqual(
+      merged.result.approved_ahead.applied.map((/** @type {any} */ a) => [a.branch, a.head]),
+      [[branch, sha]],
+    );
+    assert.match(
+      git(remote, 'log', '-1', '--format=%B', 'main'),
+      /^Signed-off-by: Owner Person <owner@example\.com>$/m,
+    );
+    const store = openStore(join(c.data, 'human-in-the-lead', 'orch-fixture'));
+    const approvals = readLedger(store).events.filter((e) => e.event === 'merge-approved');
+    assert.equal(approvals.length, 1);
+    assert.deepEqual(approvals[0].branches, [branch]);
+    assert.equal(approvals[0].commit, sha);
+    assert.match(String(approvals[0].notes), /before the queue presented pull request #1/);
+  } finally {
+    rmSync(c.base, { recursive: true, force: true });
+  }
+});
+
+test('an early approval is dropped when a merge of main moves the approved change to a look-alike place (HITLD-821)', async () => {
+  // Two stanzas with the same surroundings: the diff of a change to either reads the same once
+  // line numbers are left out. The owner approves a change to the first; the merge of main the
+  // executor pushes moves it to the second.
+  const stanza = 'p\np\np\np\nv = 1\n';
+  const t = setup({ checks: { 'hitld/W-1': [{ name: 'test', state: 'pending' }] } });
+  try {
+    put(t.root, { 'conf.txt': `start\n${stanza}${stanza}p\np\np\np\nend\n` });
+    git(t.root, 'add', '-A');
+    git(t.root, 'commit', '-q', '-m', 'conf');
+    git(t.root, 'push', '-q', 'origin', 'main');
+    const changed = (/** @type {number} */ n) =>
+      `start\n${[0, 1].map((i) => (i === n ? stanza.replace('v = 1', 'v = 2') : stanza)).join('')}p\np\np\np\nend\n`;
+    const a = t.branch('W-1', { 'conf.txt': changed(0) });
+    const first = await t.pass([a], { mode: 'owner' });
+    const approved = t.remoteTip(a.branch);
+    assert.deepEqual(approveEarly(t, a, first.state), { refused: null });
+    trackerMerge(t, { 'shared.txt': 'two\n' });
+    mergeMainInto(t, a.branch, { 'conf.txt': changed(1) });
+    t.checks['hitld/W-1'] = [{ name: 'test', state: 'success' }];
+    const second = await t.pass([a], { mode: 'owner', state: first.state });
+    assert.deepEqual(second.merged, [], 'the code merged is not the code approved');
+    assert.deepEqual(
+      second.ahead.dropped.map((x) => [x.item, x.approved_head]),
+      [['W-1', approved]],
+    );
+    assert.deepEqual(
+      second.awaiting_owner.map((x) => x.item),
+      ['W-1'],
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('an early approval is dropped unused when its branch is sent back, or when nothing is waiting (HITLD-821)', async () => {
+  const t = setup({
+    checks: {
+      'hitld/W-1': [{ name: 'test', state: 'pending' }],
+      'hitld/W-2': [{ name: 'test', state: 'pending' }],
+    },
+  });
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'b.txt': 'b\n' });
+    const first = await t.pass([a, b], { mode: 'owner' });
+    for (const x of [a, b]) assert.deepEqual(approveEarly(t, x, first.state), { refused: null });
+    // W-1's check fails: it goes back to its executor, and its approval with it.
+    t.checks['hitld/W-1'] = [{ name: 'test', state: 'failure' }];
+    const second = await t.pass([a, b], { mode: 'owner', state: first.state });
+    assert.deepEqual(
+      second.rejected.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.deepEqual(
+      second.ahead.expired.map((x) => [x.branch, x.why]),
+      [[a.branch, 'rejected']],
+    );
+    assert.deepEqual(Object.keys(second.state.approved_ahead ?? {}), [b.branch]);
+    // A pass with nothing waiting drops what is left.
+    const third = await t.pass([], { mode: 'owner', state: second.state });
+    assert.deepEqual(
+      third.ahead.expired.map((x) => [x.branch, x.why]),
+      [[b.branch, 'nothing_waiting']],
+    );
+    assert.deepEqual(third.state.approved_ahead, {});
   } finally {
     t.done();
   }
