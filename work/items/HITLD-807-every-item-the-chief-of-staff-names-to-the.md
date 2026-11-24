@@ -2,11 +2,12 @@
 id: HITLD-807
 title: Every item the chief of staff names to the owner carries its title and a link to its file
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-766]
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M85PQSVVJT3NM9
 ---
 
 ## Done when
