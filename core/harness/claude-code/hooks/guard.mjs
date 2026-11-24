@@ -34,7 +34,7 @@ const unquoted = command.replace(/['"\\]/g, '');
  * refused; asking, answering and recording are the orchestrator's or the owner's.
  */
 const EXECUTOR_HITLD =
-  /^\s+(work\s+(claim|close|show|query|check|claims)|check\s+(contract|policy|quarantine|classification|commit-message)|publish\s+check|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|rights\s+who|precedent\s+match|--help|--version)\b/;
+  /^\s+(work\s+(claim|close|show|ref|query|check|claims)|check\s+(contract|policy|quarantine|classification|commit-message)|publish\s+check|env\s+(setup|port\s+lease|port\s+release|lock|unlock|status|exec)|rights\s+who|precedent\s+match|--help|--version)\b/;
 /** What follows each call of hitld in a command. @param {string} text */
 const hitldCalls = (text) =>
   [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
