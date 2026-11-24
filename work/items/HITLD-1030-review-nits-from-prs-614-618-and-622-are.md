@@ -26,3 +26,5 @@ Independent reviews of PRs 614, 616, 618, 620 and 622 each found non-blocking po
 ## Notes
 
 rc.2 or later. Ordinary code; no guard, policy, rights, skill, design-rule, public-schema or release-path file is meant to change; if one of the points turns out to need such a change, split it into its own item.
+
+Added 2026-11-24 from the review of the HITLD-1030 pull request, points to check here (each fixed or dropped with a reason): how `workDir` is taken in `core/lib/dispatch/loop.mjs` (line 84) and `core/lib/eval/actions/orchestrator.mjs` (line 81); whether the guard handles `work_dir: "."`; and where the output of `work views --view lists` starts (a `##` line). The reviewer's wording is in the review report, not in this note.
