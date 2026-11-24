@@ -2,7 +2,7 @@
 id: HITLD-853
 title: The report parser refuses a (one-way) call line and says a one-way call goes under questions as a decision
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
