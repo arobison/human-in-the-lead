@@ -2,7 +2,7 @@
 id: HITLD-807
 title: Every item the chief of staff names to the owner carries its title and a link to its file
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-766]
