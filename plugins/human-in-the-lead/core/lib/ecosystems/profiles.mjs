@@ -50,12 +50,19 @@ const LISTS = /** @type {const} */ ([
 // points a tool at a home folder, configuration, credentials, a shell, a compiler, a search path
 // or a set of flags would let that folder's contents, or the value itself, change what the tool
 // runs. So the rule is an allowlist, compared without regard to case (npm reads its variables in
-// either case): a name on KNOWN_CACHE_VARIABLES, or a plain ASCII name ending in CACHE_SUFFIX,
-// and of those, none that the dynamic loader or git reads and none that is a switch.
+// either case): a name on KNOWN_CACHE_VARIABLES, or a plain ASCII name ending in CACHE_SUFFIX
+// whose other words name no credential, setting or code (STEM_WORDS), that the dynamic loader or
+// git does not read, and that is not a switch.
+//
+// The suffix rule is a convention filter, not a security boundary: a tool may read any name it
+// likes, and a name can end in _CACHE and still steer one. What bounds the risk is that the owner
+// writes policy.json, built-in profiles are reviewed data, and nothing reads the variable yet
+// (HITLD-925 will export it); the filter catches the names most likely to be a mistake.
 
 /**
  * The cache variables accepted by name: every one the built-in profiles use, and the shared ones
- * whose names do not end in a cache suffix.
+ * whose names do not end in a cache suffix. There is no way to accept another name: a variable
+ * outside this list and the suffix rule cannot name a cache in this release.
  */
 export const KNOWN_CACHE_VARIABLES = Object.freeze([
   'NPM_CONFIG_CACHE',
@@ -71,18 +78,38 @@ export const KNOWN_CACHE_VARIABLES = Object.freeze([
   'COMPOSER_CACHE_DIR',
   'XDG_CACHE_HOME',
   'PYTHONPYCACHEPREFIX',
-  'PRE_COMMIT_HOME',
-  'HF_HOME',
 ]);
 
 /** Any other cache variable's name ends in one of these. */
-const CACHE_SUFFIX = /(_CACHE|_CACHE_DIR|_CACHE_FOLDER|_STORE_DIR)$/;
+const CACHE_SUFFIX = /(_CACHE|_CACHE_DIR|_CACHE_FOLDER)$/;
+
+/**
+ * Words that, anywhere in a word of the name before its suffix, mark a credential, a setting or
+ * code rather than a cache (GNUPGHOME_CACHE, NPM_TOKEN_CACHE, NODE_OPTIONS_CACHE_DIR, PATH_CACHE).
+ * Matched within each underscore-separated word, so a false match only refuses.
+ */
+const STEM_WORDS = [
+  'PASSWORD',
+  'PASSWD',
+  'TOKEN',
+  'SECRET',
+  'CREDENTIAL',
+  'KEY',
+  'GNUPG',
+  'GPG',
+  'AWS',
+  'SSH',
+  'PATH',
+  'HOME',
+  'OPTIONS',
+  'PRELOAD',
+];
 
 /** Read by the dynamic loader or by git, so never a cache, whatever the ending (DYLD_SHARED_CACHE_DIR). */
 const LOADER_PREFIX = /^(LD_|DYLD_|GIT_)/;
 
-/** A switch, not a folder (YARN_ENABLE_GLOBAL_CACHE). */
-const SWITCH = /_(ENABLE|DISABLE|USE|NO|SKIP)_/;
+/** A switch, not a folder, as a whole word anywhere in the name (NO_CACHE, YARN_ENABLE_GLOBAL_CACHE). */
+const SWITCH_WORDS = ['ENABLE', 'DISABLE', 'USE', 'NO', 'SKIP'];
 
 /**
  * Why a variable may not name a cache, or null if it may.
@@ -94,12 +121,20 @@ export function cacheVariableProblem(variable) {
   }
   const v = variable.toUpperCase();
   if (KNOWN_CACHE_VARIABLES.includes(v)) return null;
-  if (!CACHE_SUFFIX.test(v)) {
-    return `not a known cache variable (${KNOWN_CACHE_VARIABLES.join(', ')}), and its name does not end in _CACHE, _CACHE_DIR, _CACHE_FOLDER or _STORE_DIR`;
+  const suffix = CACHE_SUFFIX.exec(v);
+  if (!suffix) {
+    return `not a known cache variable (${KNOWN_CACHE_VARIABLES.join(', ')}), and its name does not end in _CACHE, _CACHE_DIR or _CACHE_FOLDER`;
   }
   if (LOADER_PREFIX.test(v))
     return 'read by the dynamic loader or git, which can make a tool run code';
-  if (SWITCH.test(v)) return 'a switch, not a folder';
+  const words = v.split('_').filter(Boolean);
+  const switchWord = words.find((w) => SWITCH_WORDS.includes(w));
+  if (switchWord) return `a switch (${switchWord}), not a folder`;
+  const stem = v.slice(0, suffix.index).split('_').filter(Boolean);
+  for (const w of stem) {
+    const hit = STEM_WORDS.find((s) => w.includes(s));
+    if (hit) return `named for ${hit}, a credential, a setting or code, not a cache`;
+  }
   return null;
 }
 

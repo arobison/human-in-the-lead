@@ -375,6 +375,16 @@ for (const variable of [
   'A',
   'CARGO_HOME',
   'GRADLE_USER_HOME',
+  'PRE_COMMIT_HOME',
+  'HF_HOME',
+  'NODE_OPTIONS',
+  'LD_PRELOAD',
+  'Path',
+  'PASSWORD_STORE_DIR',
+  'CREDENTIAL_STORE_DIR',
+  'GPG_STORE_DIR',
+  'SECRETS_STORE_DIR',
+  'KEYRING_STORE_DIR',
 ]) {
   test(`the cache-variable allowlist refuses ${variable}`, () => {
     assert.match(String(cacheVariableProblem(variable)), /^not a known cache variable/);
@@ -388,11 +398,52 @@ for (const variable of [
   'GRADLE_RO_DEP_CACHE',
   'CARGO_REGISTRIES_CACHE',
   'PYTHONPYCACHEPREFIX',
-  'PRE_COMMIT_HOME',
-  'HF_HOME',
+  'MYTOOL_CACHE',
+  'MYTOOL_CACHE_DIR',
+  'MYTOOL_CACHE_FOLDER',
 ]) {
   test(`the cache-variable allowlist accepts ${variable}`, () => {
     assert.equal(cacheVariableProblem(variable), null);
+  });
+}
+
+// A cache suffix does not admit a name whose other words name a credential, a setting or code.
+for (const [variable, word] of [
+  ['AWS_SHARED_CREDENTIALS_CACHE', 'AWS'],
+  ['SHARED_CREDENTIALS_CACHE', 'CREDENTIAL'],
+  ['NPM_TOKEN_CACHE', 'TOKEN'],
+  ['GNUPGHOME_CACHE', 'GNUPG'],
+  ['NODE_OPTIONS_CACHE_DIR', 'OPTIONS'],
+  ['PATH_CACHE', 'PATH'],
+  ['HOME_CACHE', 'HOME'],
+  ['MY_PASSWORD_CACHE', 'PASSWORD'],
+  ['MY_PASSWD_CACHE_DIR', 'PASSWD'],
+  ['VAULT_SECRET_CACHE', 'SECRET'],
+  ['API_KEY_CACHE', 'KEY'],
+  ['GPG_CACHE', 'GPG'],
+  ['SSH_AGENT_CACHE', 'SSH'],
+  ['LIB_PRELOAD_CACHE', 'PRELOAD'],
+]) {
+  test(`the cache-variable allowlist refuses ${variable} for ${word}`, () => {
+    assert.equal(
+      cacheVariableProblem(variable),
+      `named for ${word}, a credential, a setting or code, not a cache`,
+    );
+  });
+}
+
+// A switch word counts at the start, the end and between underscores.
+for (const [variable, word] of [
+  ['NO_CACHE', 'NO'],
+  ['DISABLE_CACHE', 'DISABLE'],
+  ['SKIP_CACHE', 'SKIP'],
+  ['USE_CACHE', 'USE'],
+  ['ENABLE_CACHE', 'ENABLE'],
+  ['YARN_ENABLE_GLOBAL_CACHE', 'ENABLE'],
+  ['TOOL_NO_CACHE_DIR', 'NO'],
+]) {
+  test(`the cache-variable allowlist refuses the switch ${variable}`, () => {
+    assert.equal(cacheVariableProblem(variable), `a switch (${word}), not a folder`);
   });
 }
 
@@ -412,6 +463,7 @@ test('a cache suffix does not admit a loader, git or switch variable', () => {
   assert.match(String(cacheVariableProblem('LD_CACHE')), /dynamic loader or git/);
   assert.match(String(cacheVariableProblem('GIT_OBJECT_CACHE_DIR')), /dynamic loader or git/);
   assert.match(String(cacheVariableProblem('YARN_ENABLE_GLOBAL_CACHE')), /a switch/);
+  assert.match(String(cacheVariableProblem('PASSWORD_STORE_DIR')), /^not a known cache variable/);
 });
 
 test('work check refuses a use glob that can never match, or names no file in the checkout', async () => {
@@ -428,6 +480,8 @@ test('work check refuses a use glob that can never match, or names no file in th
             '~/src/**',
             'lib',
             'link',
+            'Cargo.toml',
+            'file-link',
             'web/**',
             'package.json',
           ],
@@ -437,6 +491,7 @@ test('work check refuses a use glob that can never match, or names no file in th
     { 'web/index.js': 'x\n', 'package.json': '{}\n' },
   );
   symlinkSync('web', join(root, 'link'));
+  symlinkSync('package.json', join(root, 'file-link'));
   const checked = await hitld(['work', 'check'], root);
   assert.equal(checked.code, 1);
   const problems = checked.json.problems.filter((/** @type {string} */ p) =>
@@ -451,9 +506,11 @@ test('work check refuses a use glob that can never match, or names no file in th
   assert.match(about('~/src/**'), /starts with ~/);
   assert.match(about('lib'), /names no file in the checkout; .*for a folder write lib\/\*\*/);
   assert.match(about('link'), /symbolic link.*for a folder write link\/\*\*/);
+  assert.match(about('Cargo.toml'), /names no file in the checkout/, 'a missing file');
+  assert.match(about('file-link'), /symbolic link/, 'a symbolic link to a file');
   assert.equal(about('web/**'), '', 'a folder glob passes');
   assert.equal(about('package.json'), '', 'a file passes');
-  assert.equal(problems.length, 7, problems.join('\n'));
+  assert.equal(problems.length, 9, problems.join('\n'));
 });
 
 // --- mapping ------------------------------------------------------------------------------------
