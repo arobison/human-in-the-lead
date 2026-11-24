@@ -2,10 +2,11 @@
 id: HITLD-936
 title: The guide's quota section is true for the release, with a working declared-limit example, and the gate says no reading yet
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
+claimed_by: D-01M860KZKQ2PA2WP
 ---
 
 ## Why
