@@ -77,7 +77,7 @@ test('a built-in profile can never hold a command', () => {
   ])) {
     const profile = { ...data.profiles[0], [key]: value };
     const problems = builtinProblems({ profiles: [profile] }).join('\n');
-    assert.match(problems, new RegExp(`profiles\\[0\\]\\.${key} `), key);
+    assert.ok(problems.includes(`profiles[0].${key} `), `${key}: ${problems}`);
   }
   // The profile schema is not owner configuration, so it cannot mark anything as run.
   assert.doesNotMatch(
@@ -191,10 +191,7 @@ test('work check refuses a version-source file that is not a repository path', a
     const checked = await hitld(['work', 'check'], root);
     assert.equal(checked.code, 1, file);
     const problems = checked.json.problems.join('\n');
-    assert.match(
-      problems,
-      new RegExp(`version source ${file.replace(/[.*/]/g, '\\$&')} is not a repository path`),
-    );
+    assert.ok(problems.includes(`version source ${file} is not a repository path`), problems);
     assert.match(problems, why);
   }
 });
@@ -209,10 +206,7 @@ test('work check refuses a skip folder with a separator or ..', async () => {
     const checked = await hitld(['work', 'check'], root);
     assert.equal(checked.code, 1, folder);
     const problems = checked.json.problems.join('\n');
-    assert.match(
-      problems,
-      new RegExp(`skip folder ${JSON.stringify(folder).replace(/[.\\]/g, '\\$&')}`),
-    );
+    assert.ok(problems.includes(`skip folder ${JSON.stringify(folder)}`), problems);
     assert.match(problems, why);
   }
 });
