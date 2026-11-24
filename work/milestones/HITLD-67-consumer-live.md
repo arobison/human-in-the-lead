@@ -75,7 +75,7 @@ On 2026-11-22, four items from the run join this milestone: HITLD-838, HITLD-839
 
 On the owner's decision (2026-11-22), three items join the fourth clause: HITLD-846, HITLD-847, HITLD-848 (the usage and dollars of each session reach the ledger; the dashboard and quota report show dollars beside tokens; the design of dollar budgets).
 
-On 2026-11-22, HITLD-853 and HITLD-854 join the second clause: the report parser refuses a (one-way) call line the contract allows, and this repository needs `release migrate` applied before the rc.2 release.
+On 2026-11-22, HITLD-853 and HITLD-854 join the second clause: the report parser refuses a (one-way) call line without saying where a one-way call goes (the contract marks calls (reversible) only, and a one-way call is a question for the owner), and this repository needs `release migrate` applied before the rc.2 release.
 
 ## Frozen on 2026-11-22 (HITLD-874)
 
