@@ -7,6 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M87Y66HJQPG4HX
+release_note: "`hitld handover` names every pull request the owner approved or was shown that still waits to merge (`merges_pending`, the note's first line, and `branches` on the lease-released ledger event). Until a successor takes the lease, the session that handed over may still run `hitld merge` for those, merge-only; any other branch is refused. `hitld run resume` shows them first (`merges_pending`, `first`). `hitld merge` from a session that does not hold the lease is refused before any pull request merges."
 ---
 
 ## Why

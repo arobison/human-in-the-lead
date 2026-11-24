@@ -24,6 +24,7 @@ import {
   handoverDue,
   latestHandover,
   leaseStatus,
+  pendingMergesLine,
   rebuildRun,
   releaseLease,
   reportingHere,
@@ -39,6 +40,7 @@ import { recordPrimaryCheckout } from '../../env/primary.mjs';
 import { executorSignal } from '../executor.mjs';
 import { SyncRefused, pullBeforeRun, pushingAfter } from '../../store/auto-sync.mjs';
 import { revertEvents } from '../../merge/owner.mjs';
+import { pendingMerges } from '../../merge/pending.mjs';
 import { decisionsAt } from '../../friction/friction.mjs';
 import { activePause } from '../../quota/pause.mjs';
 import { declaredFigureAsks } from '../../quota/inputs.mjs';
@@ -837,8 +839,18 @@ const table = [
           reality,
         });
         const identity = remember(s.store, me, ctx);
+        // Merges the owner approved or was shown that have not happened: first, so the successor
+        // applies them before it starts anything (HITLD-823).
+        const events = readLedger(s.store).events;
+        const pending = pendingMerges(s.store, events, r.run.state.merge_queue.waiting);
         return {
           ok: true,
+          merges_pending: pending,
+          ...(pending.length
+            ? {
+                first: `${pendingMergesLine(pending)} Run hitld merge for them before you start anything.`,
+              }
+            : {}),
           identity,
           took_over: r.tookOver,
           recovered_from: r.recoveredFrom,
@@ -851,7 +863,7 @@ const table = [
           foreign: r.foreign,
           unverified: r.unverified,
           version: versionOut(r.drift),
-          handover: handOver(r.run.state, readLedger(s.store).events),
+          handover: handOver(r.run.state, events, pending),
           ...(pull ? { store_sync: { pull, rebuilt_state: rebuilt } } : {}),
         };
       }),
