@@ -1158,6 +1158,8 @@ async function pullRequestMerge(o) {
     via: 'pull-request',
     mode: o.owner ? 'owner' : 'queue',
     main: result.main,
+    // After a merge: whether this clone's main was brought up to it, and why not (HITLD-839).
+    ...(result.checkout ? { checkout: result.checkout } : {}),
     ...(o.approve ? { approved: approved.map((b) => b.branch) } : {}),
     merged: result.merged.map((m) => m.item),
     pull_requests: result.merged,
