@@ -11,6 +11,12 @@
 // <version>.md and pins the exact versions of the packages it depends on; all of one release go
 // in one commit, so a lockstep group or a train is one owner approval. Nothing is pushed.
 //
+// The record lists its release item (the work item whose `release:` names the version made)
+// under `items`, so the item records the release it shipped in (`released_in`, for a full
+// release); a dropped release item shipped nothing and is left out (HITLD-838). The item's state
+// is not changed here: a release item stays open until its release is published, and is closed
+// by hand after that (the owner's decision on HITLD-838).
+//
 // Two ways (design 16.5):
 //   on main    the commit lands on main and an annotated tag marks each record, for a person at a
 //              terminal who then pushes them.
@@ -22,6 +28,7 @@
 
 import { existsSync, rmSync } from 'node:fs';
 import { CodedError } from '../cli/errors.mjs';
+import { findEntry } from '../tracker/files/edit.mjs';
 import { renderItem } from '../tracker/files/frontmatter.mjs';
 import { RELEASE_KEYS, formatDeltaEntry, packageReleasesDir } from '../tracker/files/releases.mjs';
 import { createExclusive, insidePath, mkdirInside } from '../tracker/files/safe.mjs';
@@ -138,6 +145,7 @@ export async function makeRelease(
     }
   }
   if (p.release_item) assertGatesMet(p);
+  const shipping = releaseItemsListed(root, layout, releases);
   /** @type {{ r: import('./propose.mjs').NamedRelease, path: string, text: string, notes: string }[]} */
   const written = releases.map((r) => {
     const bump = /** @type {import('./semver.mjs').Bump} */ (
@@ -153,7 +161,10 @@ export async function makeRelease(
       depends: r.depends.map((d) => `${d.package}@${d.version}`),
       decision,
       train: p.train ?? undefined,
-      items: r.items,
+      items:
+        r.release_item !== null && shipping.has(r.release_item) && !r.items.includes(r.release_item)
+          ? [...r.items, r.release_item]
+          : r.items,
       milestones: r.milestones,
       classification: layout.defaultClassification,
     };
@@ -229,6 +240,27 @@ export async function makeRelease(
     warnings: p.warnings,
     next: `Nothing was pushed. When ready: git push origin ${layout.mainBranch} ${tags.join(' ')}`,
   };
+}
+
+/**
+ * The release items the records list: each release's release item whose `release:` is the
+ * version made, unless it is dropped. An item named with --item that has no `release:` key, or
+ * another version, is a gate source only and is not listed. No item's state changes here.
+ * @param {string} root @param {Layout} layout
+ * @param {import('./propose.mjs').NamedRelease[]} releases
+ * @returns {Set<string>}
+ */
+function releaseItemsListed(root, layout, releases) {
+  /** @type {Set<string>} */
+  const out = new Set();
+  for (const r of releases) {
+    const id = r.release_item;
+    if (id === null || out.has(id)) continue;
+    const d = findEntry(root, layout, id)?.data;
+    if (!d || d.kind !== 'work' || d.release !== r.version || d.state === 'dropped') continue;
+    out.add(id);
+  }
+  return out;
 }
 
 /**
