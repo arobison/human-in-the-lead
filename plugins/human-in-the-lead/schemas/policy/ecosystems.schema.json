@@ -1,0 +1,70 @@
+{
+  "$id": "policy/ecosystems",
+  "title": "policy.json: ecosystems",
+  "description": "Which build-system ecosystem applies to which paths (HITLD-910, HITLD-911): profiles are data (manifests, lockfiles, version sources, folders to skip, caches) and never run anything; the commands for a project's paths appear only here, in ecosystems.use, as owner configuration. The mapping is explicit: nothing is detected at run time. `hitld work check` refuses an unknown profile, a version-source file that is not a repository path and a skip folder with a separator or `..`.",
+  "type": "object",
+  "properties": {
+    "use": {
+      "description": "The profiles in use, each with the path globs it applies to (* within a segment, ** across segments). When several entries' globs match one file, the most specific glob wins, as for release.packages.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "description": "A built-in profile (npm, pnpm, yarn, cargo, go, pip, uv, poetry, maven, gradle, bundler, composer) or one of ecosystems.profiles.",
+            "$ref": "common#/$defs/name"
+          },
+          "paths": {
+            "description": "The paths it applies to, as globs relative to the repository root with / separators. A folder takes a wildcard: web/** for everything under web, since web alone matches only a file named web. `hitld work check` refuses a glob with a backslash, a `..` segment or a leading `~`, one ending in /, and a glob without a wildcard that does not name a regular file in the checkout (a folder, a symbolic link or a path that is not there), naming the web/** form: such a glob matches nothing the owner meant, and passing it silently is what the check is for.",
+            "type": "array",
+            "items": { "$ref": "common#/$defs/glob" },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "commands": {
+            "description": "The install, build, test and publish commands for these paths, each a list run in order through the shell. This is the only place an ecosystem's command may appear: owner configuration, never agent input, as env.worktree_setup is. In this release hitld validates them and runs none of them; env.worktree_setup and the merge checks still run what they run today.",
+            "type": "object",
+            "properties": {
+              "install": {
+                "description": "Install dependencies from the lockfile.",
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "x-hitld-executes": "each entry is run through the shell"
+              },
+              "build": {
+                "description": "Build the paths' outputs.",
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "x-hitld-executes": "each entry is run through the shell"
+              },
+              "test": {
+                "description": "Run the paths' tests.",
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "x-hitld-executes": "each entry is run through the shell"
+              },
+              "publish": {
+                "description": "Publish the paths' package to its registry.",
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "x-hitld-executes": "each entry is run through the shell"
+              }
+            },
+            "additionalProperties": false,
+            "x-hitld-executes": "each list's entries are run through the shell"
+          }
+        },
+        "required": ["profile", "paths"],
+        "additionalProperties": false
+      },
+      "default": []
+    },
+    "profiles": {
+      "description": "The project's own profiles, as data like the built-in ones: a new ecosystem, or one that extends a built-in profile and replaces some of its lists. A profile never holds a command.",
+      "type": "array",
+      "items": { "$ref": "ecosystem-profiles#/$defs/profile" },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}

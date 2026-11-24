@@ -1,0 +1,107 @@
+{
+  "profiles": [
+    {
+      "name": "npm",
+      "manifests": ["package.json"],
+      "lockfiles": ["package-lock.json", "npm-shrinkwrap.json"],
+      "version_sources": [{ "file": "package.json", "format": "json", "key": "version" }],
+      "skip_folders": ["node_modules"],
+      "caches": [{ "name": "npm", "variable": "npm_config_cache" }]
+    },
+    {
+      "name": "pnpm",
+      "manifests": ["package.json", "pnpm-workspace.yaml"],
+      "lockfiles": ["pnpm-lock.yaml"],
+      "version_sources": [{ "file": "package.json", "format": "json", "key": "version" }],
+      "skip_folders": ["node_modules"],
+      "caches": [{ "name": "pnpm-store", "variable": "npm_config_store_dir" }]
+    },
+    {
+      "name": "yarn",
+      "manifests": ["package.json"],
+      "lockfiles": ["yarn.lock"],
+      "version_sources": [{ "file": "package.json", "format": "json", "key": "version" }],
+      "skip_folders": ["node_modules"],
+      "caches": [{ "name": "yarn", "variable": "YARN_CACHE_FOLDER" }]
+    },
+    {
+      "name": "cargo",
+      "manifests": ["Cargo.toml"],
+      "lockfiles": ["Cargo.lock"],
+      "version_sources": [{ "file": "Cargo.toml", "format": "toml", "key": "package.version" }],
+      "skip_folders": ["target"],
+      "caches": []
+    },
+    {
+      "name": "go",
+      "manifests": ["go.mod"],
+      "lockfiles": ["go.sum"],
+      "version_sources": [],
+      "skip_folders": ["vendor"],
+      "caches": [
+        { "name": "go-modules", "variable": "GOMODCACHE" },
+        { "name": "go-build", "variable": "GOCACHE" }
+      ]
+    },
+    {
+      "name": "pip",
+      "manifests": ["requirements.txt", "pyproject.toml", "setup.cfg", "Pipfile"],
+      "lockfiles": ["Pipfile.lock"],
+      "version_sources": [{ "file": "pyproject.toml", "format": "toml", "key": "project.version" }],
+      "skip_folders": [".venv", "venv", "__pycache__"],
+      "caches": [{ "name": "pip", "variable": "PIP_CACHE_DIR" }]
+    },
+    {
+      "name": "uv",
+      "manifests": ["pyproject.toml"],
+      "lockfiles": ["uv.lock"],
+      "version_sources": [{ "file": "pyproject.toml", "format": "toml", "key": "project.version" }],
+      "skip_folders": [".venv", "__pycache__"],
+      "caches": [{ "name": "uv", "variable": "UV_CACHE_DIR" }]
+    },
+    {
+      "name": "poetry",
+      "manifests": ["pyproject.toml"],
+      "lockfiles": ["poetry.lock"],
+      "version_sources": [
+        { "file": "pyproject.toml", "format": "toml", "key": "tool.poetry.version" }
+      ],
+      "skip_folders": [".venv", "__pycache__"],
+      "caches": [{ "name": "poetry", "variable": "POETRY_CACHE_DIR" }]
+    },
+    {
+      "name": "maven",
+      "manifests": ["pom.xml"],
+      "lockfiles": [],
+      "version_sources": [],
+      "skip_folders": ["target"],
+      "caches": []
+    },
+    {
+      "name": "gradle",
+      "manifests": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+      "lockfiles": ["gradle.lockfile"],
+      "version_sources": [
+        { "file": "gradle.properties", "format": "properties", "key": "version" }
+      ],
+      "skip_folders": ["build", ".gradle"],
+      "caches": []
+    },
+    {
+      "name": "bundler",
+      "manifests": ["Gemfile"],
+      "lockfiles": ["Gemfile.lock"],
+      "version_sources": [],
+      "skip_folders": [".bundle"],
+      "caches": [{ "name": "bundler", "variable": "BUNDLE_USER_CACHE" }]
+    },
+    {
+      "name": "composer",
+      "manifests": ["composer.json"],
+      "lockfiles": ["composer.lock"],
+      "version_sources": [{ "file": "composer.json", "format": "json", "key": "version" }],
+      "skip_folders": ["vendor"],
+      "caches": [{ "name": "composer", "variable": "COMPOSER_CACHE_DIR" }]
+    }
+  ]
+}
