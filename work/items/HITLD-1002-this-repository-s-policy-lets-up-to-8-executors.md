@@ -2,7 +2,7 @@
 id: HITLD-1002
 title: This repository's policy lets up to 8 executors run at once
 kind: work
-state: in-progress
+state: done
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
