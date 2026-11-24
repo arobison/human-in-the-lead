@@ -1,7 +1,7 @@
 {
   "$id": "policy/ecosystems",
   "title": "policy.json: ecosystems",
-  "description": "Which build-system ecosystem applies to which paths (HITLD-910, HITLD-911): profiles are data (manifests, lockfiles, version sources, folders to skip, caches) and never run anything; the commands for a project's paths appear only here, in ecosystems.use, as owner configuration. The mapping is explicit: nothing is detected at run time. `hitld work check` refuses an unknown profile, a version-source file that is not a repository path and a skip folder with a separator or `..`.",
+  "description": "Which build-system ecosystem applies to which paths (HITLD-910, HITLD-911): profiles are data (manifests, lockfiles, version sources, folders to skip, caches) and never run anything; the commands for a project's paths appear only here, in ecosystems.use, as owner configuration. The mapping is explicit: nothing is detected at run time. `hitld work check` refuses an unknown profile, a version-source file that is not a repository path, a skip folder with a separator or `..`, and a cache variable outside the cache allowlist (ecosystem-profiles: a known cache variable, or a name ending in _CACHE, _CACHE_DIR or _CACHE_FOLDER that names no credential, session, setting, switch or shell start-up and that the loader, git or the GitHub Actions runner does not read; a convention filter, not a security boundary).",
   "type": "object",
   "properties": {
     "use": {
