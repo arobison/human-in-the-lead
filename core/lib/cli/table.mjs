@@ -34,6 +34,7 @@ import { commands as friction } from './commands/friction.mjs';
 import { commands as adversary } from './commands/adversary.mjs';
 import { commands as kb } from './commands/kb.mjs';
 import { commands as reproduce } from './commands/reproduce.mjs';
+import { commands as forge } from './commands/forge.mjs';
 
 /**
  * @typedef {import('./args.mjs').ArgSpec} ArgSpec
@@ -50,6 +51,9 @@ import { commands as reproduce } from './commands/reproduce.mjs';
  * @property {(repo: string) => import('../merge/github.mjs').GitHub} [github] the GitHub API for a
  *   repository (owner/name), for merge.via pull-request; tests and offline evals pass a fake,
  *   everything else leaves it unset for `gh api` with the session's own sign-in
+ * @property {(token: string) => import('../forge/check.mjs').ForgeGet} [forge] the forge's REST
+ *   API with a read-only token, for `hitld check forge`; tests pass a fake, everything else leaves
+ *   it unset for GitHub's API
  *
  * @typedef {{ ok: boolean } & Record<string, unknown>} CommandResult
  *   JSON out. ok false means the command ran and found a problem (exit code 1).
@@ -116,6 +120,7 @@ export const COMMANDS = Object.freeze([
   ...friction,
   ...kb,
   ...reproduce,
+  ...forge,
   ...machine,
   ...cadence,
   ...later,

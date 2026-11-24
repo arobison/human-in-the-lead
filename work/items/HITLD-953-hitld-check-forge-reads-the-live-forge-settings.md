@@ -7,6 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
 claimed_by: D-01M87R90H4GKNQYQ
+release_note: "`hitld check forge` reads the live GitHub settings with a read-only token from `HITLD_FORGE_TOKEN` (or the variable `--token-env` names) and reports each as ok, wrong (found, expected, where to fix it) or cannot-read (status, permission needed), exiting non-zero on any that is not ok."
 ---
 
 ## Why
