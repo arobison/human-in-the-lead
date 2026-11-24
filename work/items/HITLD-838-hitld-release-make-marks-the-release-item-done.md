@@ -1,6 +1,6 @@
 ---
 id: HITLD-838
-title: `hitld release make` marks the release item done and records the release it shipped in, in the release commit
+title: `hitld release make` lists the release item in the release record, so the item records the release it shipped in
 kind: work
 state: done
 created: 2026-11-22
@@ -16,7 +16,8 @@ Reported as GitHub issue 519 (friction, release area, 0.1.0-rc.1), filed by the 
 
 ## Done when
 
-- `hitld release make` sets the release item (the item whose `release:` names the version) to `done` and records the release it shipped in, in the same commit as the release record.
-- Failing that for a release made another way, `hitld work close` accepts a release item once its release record exists.
-- Tests cover a release made for a release item (state done, record present, one commit) and a release with no release item.
+- `hitld release make` lists the release item (the item whose `release:` names the version made) under `items` in the release record, in the same commit as the record; a dropped release item is left out.
+- It does not change the release item's state: the item stays open until its release is published and is closed by hand after that (the owner's decision, 2026-11-24).
+- `03-data-model.md`, `16-packaging.md` and the comment in `core/lib/tracker/files/closing.mjs` say so, and none of them says the release command marks the item done.
+- Tests cover a release item listed with its state unchanged, a dropped release item, and a release with no release item.
 - A release change reaches main only with the owner's own yes. `npm run check`, the offline eval gate and `hitld work check` pass.
