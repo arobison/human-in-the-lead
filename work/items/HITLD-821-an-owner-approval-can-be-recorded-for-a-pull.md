@@ -2,7 +2,7 @@
 id: HITLD-821
 title: An owner approval can be recorded for a pull request head before the queue presents it, and applies when it does
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
