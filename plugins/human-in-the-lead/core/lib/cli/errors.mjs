@@ -76,6 +76,8 @@ export const ERROR_CODES = Object.freeze({
   // Dispatch, handover and the merge queue
   'not-planned':
     'The item is not one the plan starts now (held, tier 0, no free slot, or not ready).',
+  'not-awaiting':
+    'The item or branch named as a stuck merge (dispatch start --fixes-merge) is not awaiting merge.',
   'disk-floor':
     "Free disk is below the machine file's disk_floor_mb, so no new work starts until space is freed.",
   'not-in-flight': 'The dispatch is not in flight.',
