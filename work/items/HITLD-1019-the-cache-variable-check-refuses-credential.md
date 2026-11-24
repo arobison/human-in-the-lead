@@ -2,10 +2,12 @@
 id: HITLD-1019
 title: The cache-variable check refuses credential, session and shell-startup stems and runner variables, before HITLD-925 exports the variable
 kind: work
-state: planned
+state: done
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M860KNFTTV0TBS
+release_note: "The cache variable allowlist also refuses a name ending in _CACHE, _CACHE_DIR or _CACHE_FOLDER whose other words name a session, a further credential (AUTH, PASS, CERT, VAULT, NETRC, JWT and others), a setting (CONFIG, ENV) or a shell that sources files at start-up (SHELL, BASH, ZSH, so ZSH_CACHE_DIR), any RUNNER_ variable (RUNNER_TOOL_CACHE), and the switch words ENABLED, DISABLED, OFFLINE and FORCE; PIPENV_CACHE_DIR is accepted by name. It is a convention filter, not a security boundary."
 ---
 
 ## Done when
