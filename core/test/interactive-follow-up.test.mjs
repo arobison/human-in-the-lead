@@ -242,5 +242,136 @@ test('an interactive follow-up without a session to report to is refused before 
   );
   assert.notEqual(refused.exit, 0, JSON.stringify(refused.result));
   assert.equal(refused.result.error, 'no-report-block', JSON.stringify(refused.result));
+  assert.doesNotMatch(refused.result.message, /headless/, 'it does not speak of a headless run');
   assert.equal(ledger().length, before, 'nothing is recorded');
+});
+
+/** A headless dispatch of W-4 that ended with a partial report: its run has a session ID to resume. */
+async function headlessPartial() {
+  const t = await dispatched('headless');
+  const { c, d, start, store } = t;
+  const result = {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    duration_ms: 1000,
+    session_id: 'sess-headless',
+    result: report({
+      item: 'W-4',
+      sha: 'abc1234',
+      branch: String(start.result.branch),
+      result: 'partial',
+    }),
+    usage: { input_tokens: 10, output_tokens: 3000 },
+  };
+  store.write(`dispatch/results/${d}.json`, `${JSON.stringify(result)}\n`);
+  const partial = await c.hitld(['dispatch', 'complete', '--dispatch', d], ORCH);
+  assert.equal(partial.exit, 0, JSON.stringify(partial.result));
+  assert.equal(partial.result.result, 'partial');
+  return t;
+}
+
+/** The dispatches in flight. @param {Awaited<ReturnType<typeof dispatched>>['c']} c */
+const inFlight = async (c) =>
+  (await c.hitld(['ledger', 'in-flight'], ORCH)).result.in_flight.map(
+    (/** @type {any} */ x) => x.dispatch,
+  );
+
+test('a follow-up that launches a run records nothing until dispatch handle names what runs (GitHub issue 582)', async () => {
+  const { c, d, ledger } = await headlessPartial();
+  const before = ledger().length;
+  const follow = await c.hitld(
+    ['dispatch', 'follow-up', '--dispatch', d, '--message', 'Finish it.'],
+    ORCH,
+  );
+  assert.equal(follow.exit, 0, JSON.stringify(follow.result));
+  const d2 = String(follow.result.dispatch);
+  assert.equal(follow.result.instruction.tool, 'Bash');
+  assert.match(follow.result.instruction.input.command, /--resume sess-headless/);
+  assert.match(follow.result.then, /nothing is recorded yet/);
+  assert.match(follow.result.then, new RegExp(`hitld dispatch handle --dispatch ${d2} `));
+  assert.equal(ledger().length, before, 'no dispatched or started event before it runs');
+
+  // The launch printed its process ID: recorded now, headless, with that reference.
+  const handled = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d2, '--harness-ref', '4242'],
+    ORCH,
+  );
+  assert.equal(handled.exit, 0, JSON.stringify(handled.result));
+  assert.equal(handled.result.recorded_follow_up, true);
+  assert.equal(handled.result.mode, 'headless');
+  const recorded = ledger().filter((e) => e.dispatch === d2);
+  assert.deepEqual(
+    recorded.map((e) => e.event),
+    ['dispatched', 'started'],
+  );
+  assert.equal(recorded[0].mode, 'headless');
+  assert.equal(recorded[0].notes, `follow-up of ${d}`);
+  assert.equal(recorded[1].harness_ref, '4242', 'its own reference, not the earlier run');
+  const again = await c.hitld(['dispatch', 'complete', '--dispatch', d]);
+  assert.equal(again.result.continued_as, d2);
+});
+
+test('a follow-up whose launch failed leaves nothing behind, and one run as a subagent instead is recorded as one with its agent (GitHub issue 582)', async () => {
+  const { c, d, ledger } = await headlessPartial();
+  const before = ledger().length;
+  const flightBefore = await inFlight(c);
+
+  // The launch fails and nothing else is done: no dispatch is left running or holding a slot.
+  const failed = await c.hitld(
+    ['dispatch', 'follow-up', '--dispatch', d, '--message', 'Finish it.'],
+    ORCH,
+  );
+  assert.equal(failed.exit, 0, JSON.stringify(failed.result));
+  assert.equal(ledger().length, before, 'a launch that fails records nothing');
+  assert.deepEqual(await inFlight(c), flightBefore, 'nothing in flight');
+
+  // Run as a subagent instead: recorded with that mode and the real agent's reference.
+  const follow = await c.hitld(
+    ['dispatch', 'follow-up', '--dispatch', d, '--message', 'Finish it.'],
+    ORCH,
+  );
+  const d2 = String(follow.result.dispatch);
+  const handled = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d2, '--harness-ref', 'agent-real', '--mode', 'subagent'],
+    ORCH,
+  );
+  assert.equal(handled.exit, 0, JSON.stringify(handled.result));
+  assert.equal(handled.result.mode, 'subagent');
+  const recorded = ledger().filter((e) => e.dispatch === d2);
+  assert.deepEqual(
+    recorded.map((e) => e.event),
+    ['dispatched', 'started'],
+  );
+  assert.equal(recorded[0].mode, undefined, 'a subagent carries no tier-3 mode');
+  assert.equal(recorded[1].harness_ref, 'agent-real');
+  assert.ok((await inFlight(c)).includes(d2));
+  // Its mode is recorded once: a later --mode that differs is refused.
+  const changed = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d2, '--harness-ref', 'agent-real', '--mode', 'headless'],
+    ORCH,
+  );
+  assert.equal(changed.result.error, 'usage', JSON.stringify(changed.result));
+});
+
+test('dispatch handle accepts the reference of the agent that is running, and the last one stands (GitHub issue 582)', async () => {
+  const { c, d, ledger } = await dispatched('interactive');
+  const same = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'session_exec'],
+    ORCH,
+  );
+  assert.equal(same.exit, 0, JSON.stringify(same.result));
+  assert.equal(same.result.appended, false, 'the same reference twice is a no-op');
+  const moved = await c.hitld(
+    ['dispatch', 'handle', '--dispatch', d, '--harness-ref', 'session_real'],
+    ORCH,
+  );
+  assert.equal(moved.exit, 0, JSON.stringify(moved.result));
+  assert.equal(moved.result.appended, true);
+  assert.equal(moved.result.replaced, 'session_exec');
+  const flight = (await c.hitld(['ledger', 'in-flight'], ORCH)).result.in_flight.find(
+    (/** @type {any} */ x) => x.dispatch === d,
+  );
+  assert.equal(flight.harness_ref, 'session_real', 'the watchdog reaches the agent that runs');
+  assert.equal(ledger().filter((e) => e.event === 'started' && e.dispatch === d).length, 2);
 });

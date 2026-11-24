@@ -61,7 +61,7 @@
       "action": "file.write",
       "with": {
         "path": "note-1.txt",
-        "content": "item: W-1\nresult: done\ncommit: abc1234 (branch hitld/W-1-add-numbers)\nevidence:\n  - node --test test/: 1 passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n"
+        "content": "item: W-1\nresult: partial\ncommit: abc1234 (branch hitld/W-1-add-numbers)\nevidence:\n  - node --test test/: 1 passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n"
       }
     },
     {
@@ -89,7 +89,7 @@
       "action": "file.write",
       "with": {
         "path": "note-2.txt",
-        "content": "item: W-2\nresult: done\ncommit: def5678 (branch hitld/W-2-another-thing)\nevidence:\n  - node --test test/: 1 passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n"
+        "content": "item: W-2\nresult: partial\ncommit: def5678 (branch hitld/W-2-another-thing)\nevidence:\n  - node --test test/: 1 passed\nbench_runs: none\ndeviations: none\ncalls: none\nquestions: none\n"
       }
     },
     {

@@ -172,7 +172,7 @@ export function followUpInstruction(r) {
   }
   if (!r.sessionId || !r.worktree || !r.briefPath || !r.resultPath || !r.pidPath) {
     throw new Error(
-      'a headless follow-up needs the earlier run session ID, its worktree, the message file, a result file and a pid file',
+      'a follow-up that resumes a run needs the earlier run session ID, its worktree, the message file, a result file and a pid file',
     );
   }
   const command = durableCommand({
