@@ -20,6 +20,8 @@
 //   closing          a closing report, and the executor still runs: wait for it to end
 //   unreported       the executor ended or went idle with no report for this dispatch
 //   dead             its process is gone with no report
+//   blocked          it ended or is gone with no report, and its output says its credential was
+//                    refused or ended mid-run (HITLD-880): recorded as blocked, with the reason
 //   running          alive, with or without progress lately: shown with its evidence, nothing acts
 //   foreign          a headless run on another machine: the pass there judges it
 //
@@ -46,8 +48,10 @@ import { git } from '../tracker/files/tree.mjs';
  * @property {boolean} gone its process is gone: a headless run that exited without its result, or
  *   a background agent whose parent exited
  * @property {Record<string, unknown>} evidence what was seen, for the verdict
+ * @property {string | null} [credentialFailure] why a headless run stopped for its credential,
+ *   from its output, when it did
  *
- * @typedef {'complete' | 'awaiting_record' | 'closing' | 'unreported' | 'dead' | 'running' | 'foreign'} State
+ * @typedef {'complete' | 'awaiting_record' | 'closing' | 'unreported' | 'dead' | 'blocked' | 'running' | 'foreign'} State
  */
 
 /** Trailer lines: a capitalized key, as git writes them; the report's own fields are lowercase. */
@@ -164,6 +168,13 @@ export function judgeDispatch({ entry, heads, harness, hasRecord }) {
       state: 'complete',
       closing,
       why: `its closing commit ${closing.sha.slice(0, 12)} carries its report, and the executor has ended`,
+    };
+  }
+  if ((harness.gone || harness.ended) && harness.credentialFailure) {
+    return {
+      state: 'blocked',
+      closing: null,
+      why: `it stopped for its credential (${harness.credentialFailure}), and ${noReport}`,
     };
   }
   if (harness.gone) {

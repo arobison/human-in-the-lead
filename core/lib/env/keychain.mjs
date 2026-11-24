@@ -25,8 +25,11 @@ const WORD = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 /**
  * The keychain, for one service.
- * @param {{ service: string, platform?: NodeJS.Platform, env?: NodeJS.ProcessEnv }} options
- *   env is the environment the tool runs in (its PATH); the default is this process's
+ * @param {{ service: string, platform?: NodeJS.Platform, env?: NodeJS.ProcessEnv,
+ *   timeoutMs?: number }} options
+ *   env is the environment the tool runs in (its PATH); the default is this process's. timeoutMs:
+ *   how long a tool may take before it counts as failed (a read is then not found); none by
+ *   default, so a keychain that asks the person to unlock it waits for them
  * @returns {Keychain}
  */
 export function keychain(options) {
@@ -40,6 +43,7 @@ export function keychain(options) {
       encoding: 'utf8',
       env: options.env,
       input,
+      ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}),
       stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
   /** @type {Keychain['read']} */

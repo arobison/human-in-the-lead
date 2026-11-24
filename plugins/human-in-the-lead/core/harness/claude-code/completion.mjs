@@ -35,8 +35,11 @@
  * @typedef {{ input_tokens: number | null, output_tokens: number | null, cache_write_tokens: number | null, cache_read_tokens: number | null, cost_usd: number | null }} UsageParts
  *   the harness's counts, kept apart: uncached input, output, input written to the cache, input
  *   read from the cache, and the cost it reports in US dollars
- * @typedef {Omit<Completion, 'dispatch'> & { sessionId?: string | null, costUsd?: number | null, usageSource: 'documented' | 'observed' | 'none', tokensSource?: TokensSource | null, parts?: UsageParts | null, turns?: number, isError?: boolean, permissionDenials?: unknown[] }} ParsedCompletion
+ * @typedef {Omit<Completion, 'dispatch'> & { sessionId?: string | null, costUsd?: number | null, usageSource: 'documented' | 'observed' | 'none', tokensSource?: TokensSource | null, parts?: UsageParts | null, turns?: number, isError?: boolean, permissionDenials?: unknown[], credentialFailure?: string | null }} ParsedCompletion
+ *   credentialFailure: why a headless run stopped for its credential (HITLD-880), from its output
  */
+
+import { credentialFailure } from './credential.mjs';
 
 /** @param {unknown} v */
 const int = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
@@ -189,9 +192,10 @@ export function headlessEvents(text) {
  * ended, or was stopped) gives an empty report and no tokens; the transcript's other events are
  * never read for usage, only for the session ID a follow-up resumes.
  * @param {string} text the file claude -p wrote
+ * @param {string} [stderr] its errors file, read only for a credential that failed
  * @returns {ParsedCompletion}
  */
-export function headlessCompletion(text) {
+export function headlessCompletion(text, stderr = '') {
   const events = headlessEvents(text);
   if (!events) {
     let why = 'no JSON in it';
@@ -236,6 +240,7 @@ export function headlessCompletion(text) {
     ...(Array.isArray(data.permission_denials)
       ? { permissionDenials: data.permission_denials }
       : {}),
+    credentialFailure: credentialFailure(events, stderr),
   };
 }
 
