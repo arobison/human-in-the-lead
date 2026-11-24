@@ -47,7 +47,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
+import { STRICT, checkCommits, isTermRefusal, problemLines } from '../guard/classification.mjs';
 import { findTerms, matchMessage } from '../guard/private-terms.mjs';
 import { UNASSIGNED } from '../rights/trust.mjs';
 import { matchesAny } from '../precedent/glob.mjs';
@@ -318,6 +318,22 @@ export function pullRequestText(o) {
 }
 
 /**
+ * What the executor is told when its branch's diff or commit messages hold a private term
+ * (HITLD-824): where each is, by its kind and line, never the term. A path that holds one is not
+ * repeated, since the path is the term.
+ * @param {string} item @param {import('../guard/classification.mjs').Refused[]} termed
+ */
+export function termMessage(item, termed) {
+  // A message or a file's content names its line; a path that holds a term names none.
+  const where = termed.map((r) =>
+    r.line
+      ? `${r.path}, ${r.message}`
+      : `the path of a file the branch adds or changes holds a private ${r.kind ?? 'term'} from the private term list`,
+  );
+  return `The queue checked your branch's diff and commit messages against the private term list before presenting the pull request for ${item}, and found a private term: ${where.join('; ')}. The pull request is not presented. Write each again by role, never by name. The branch's history holds every commit, so a later commit does not clear one: replacing commits on a pushed branch is not your call, so say under questions which commits hold it and the owner decides.`;
+}
+
+/**
  * The squash commit's message: the trailers the branch's own commits carry (the queue's updates
  * aside), the item's at least, and the owner's sign-off when they approved it or when the merge
  * was delegated; a delegated one adds a Delegated-by trailer naming the owner's decision.
@@ -556,12 +572,16 @@ export async function runPullRequestQueue(r) {
       checkout(head);
 
       // The guards the local queue runs whatever the policy says.
+      // With the private term list's terms, this is the check hitld publish check runs, on every
+      // file each commit changes and each commit's message, before the pull request is presented.
       const guard = checkCommits(dir, base, head, s.classification ?? STRICT);
       if (guard.refused.length) {
+        const termed = guard.refused.filter(isTermRefusal);
         reject(e, {
           reason: 'classification',
           files: [...new Set(guard.refused.filter((x) => !x.commit).map((x) => x.path))],
           output: problemLines(guard.refused).join('\n'),
+          ...(termed.length ? { message: termMessage(e.item, termed) } : {}),
         });
         continue;
       }
