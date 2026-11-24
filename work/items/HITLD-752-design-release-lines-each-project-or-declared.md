@@ -2,10 +2,10 @@
 id: HITLD-752
 title: "Design release packages: each package has its own version, tags, release record and interface delta"
 kind: work
-state: proposed
+state: dropped
+reason: "Dropped on 2026-11-24 (owner's answer, decision HITLD-1032): the design is decided (HITLD-751, 753 to 757, 760 to 762, 783) and built (HITLD-759), so this design item has no work left."
 created: 2026-11-22
 project: HITLD-15
-constraint_of: [HITLD-67 c2]
 ---
 
 ## Why
