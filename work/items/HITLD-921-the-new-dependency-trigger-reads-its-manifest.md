@@ -2,10 +2,11 @@
 id: HITLD-921
 title: The new-dependency trigger reads its manifest and lockfile names from the ecosystem profiles
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M87SHJFVEXC1BE
 ---
 
 ## Why
