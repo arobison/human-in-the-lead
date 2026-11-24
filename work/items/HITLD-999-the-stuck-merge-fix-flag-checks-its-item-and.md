@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-24
 project: HITLD-15
-constraint_of: [HITLD-67 c?]
+constraint_of: [HITLD-405 c?]
 ---
 
 ## Done when
@@ -21,4 +21,4 @@ HITLD-978 gave a stuck-merge fix one slot past the cap and hid items waiting to 
 
 ## Notes
 
-rc.2. From the review of pull request 593 (HITLD-978), accepted by the owner on 2026-11-24 with the gaps filed here. Review doubts to check while here: a past-cap start refused with `cap` after its dispatch events were written (person and machine max_executors); `closedOnBranch` reading a pre-migration branch file as not done; `dispatch start` reading the ready queue twice; other callers of awaitingMerge (digest, status) using the old rule.
+rc.3. Moved from rc.2 on 2026-11-24 at the owner's word: review polish, not a ship blocker. From the review of pull request 593 (HITLD-978), accepted by the owner on 2026-11-24 with the gaps filed here. Review doubts to check while here: a past-cap start refused with `cap` after its dispatch events were written (person and machine max_executors); `closedOnBranch` reading a pre-migration branch file as not done; `dispatch start` reading the ready queue twice; other callers of awaitingMerge (digest, status) using the old rule.
