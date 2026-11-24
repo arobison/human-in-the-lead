@@ -29,12 +29,20 @@ const pct = (share) => `${Math.round(share * 1000) / 10}%`;
  * @param {Record<string, any>} q policy.quota
  * @param {{ estimate_tokens?: number, estimate_basis?: string }} item
  * @param {number} [share] this project's fraction of the headroom near the reserve, in (0, 1]
- * @returns {{ mode: typeof MODES[number], why: string } | null} null when there is no reading
+ * @returns {{ mode: typeof MODES[number], why: string, unread?: boolean }} unread: the stop is
+ *   because the limit has no usage reading at all, not because it reached the reserve
  */
 function modeOf(s, q, item, share = 1) {
   // Fail closed: a quota whose headroom, use or limit is missing or not a finite number cannot
   // be shown to have room, so it stops dispatch and says why.
   const num = (/** @type {unknown} */ n) => typeof n === 'number' && Number.isFinite(n);
+  if (s.used == null) {
+    return {
+      mode: 'stop',
+      unread: true,
+      why: `${s.id} has no usage reading (${s.notes.at(-1) ?? 'no reading'}), so dispatch stops until it can be read`,
+    };
+  }
   if (!num(s.headroom) || !num(s.used) || !num(s.limit)) {
     return {
       mode: 'stop',
@@ -131,14 +139,14 @@ export function dispatchGate(policy, snapshots, item = {}, options = {}) {
     now: options.now,
     runStartedAt: options.runStartedAt,
   });
-  /** @type {{ s: import('./quota.mjs').QuotaState, mode: typeof MODES[number], why: string }[]} */
+  /** @type {{ s: import('./quota.mjs').QuotaState, mode: typeof MODES[number], why: string, unread?: boolean }[]} */
   const judged = [];
   /** @type {string[]} */
   const unread = [];
   for (const s of quotas) {
     const m = modeOf(s, policy.quota, item, options.share);
-    if (m) judged.push({ s, ...m });
-    else unread.push(s.id);
+    judged.push({ s, ...m });
+    if (m.unread) unread.push(s.id);
   }
   // The worst mode wins; of equals, the one with the least headroom.
   const worst = judged.reduce(
@@ -155,18 +163,23 @@ export function dispatchGate(policy, snapshots, item = {}, options = {}) {
   const allow = mode === 'stop' ? false : mode === 'critical_path_only' ? critical : true;
 
   let reason;
-  if (!worst) reason = 'no quota has a reading yet, so nothing limits dispatch';
+  if (!worst) reason = 'no quota is declared, so nothing limits dispatch';
   else if (mode === 'normal') reason = `normal dispatch: ${worst.why}`;
   else if (mode === 'economize')
     reason = `economize: ${worst.why}; prefer cheaper models and tiers where sizing allows and lower concurrency`;
   else if (mode === 'critical_path_only') {
     reason = `critical path only: ${worst.why}; ${critical ? `${item.id ?? 'this item'} is on the critical path, so it may go` : `${item.id ?? 'this item'} is not on the critical path, so it waits`}`;
+  } else if (worst.unread) {
+    // No reading is not the reserve (HITLD-936): the owner fixes it by turning on the status-line
+    // capture or declaring a limit that can be read, not by waiting for a reset.
+    reason = `no reading yet: ${worst.why}; autonomous dispatch has stopped, in-flight executors finish or checkpoint, and the owner is told`;
   } else {
     reason = `stop at the reserve: ${worst.why}; autonomous dispatch has stopped, in-flight executors finish or checkpoint, and the owner is told`;
   }
   const ask = mode === 'stop' && worst?.s.hard === true;
   if (ask) reason += "; this limit is hard, so going past it needs the owner's yes first";
-  if (unread.length) reason += ` (no reading for ${unread.join(', ')})`;
+  const others = unread.filter((id) => id !== worst?.s.id);
+  if (others.length) reason += ` (no reading for ${others.join(', ')})`;
   // A usage figure the owner declared that nears the reserve or has grown old: the owner is asked
   // for a fresh one (HITLD-164). It changes no mode; at the reserve the gate stops anyway.
   const refresh = quotas

@@ -418,7 +418,8 @@ for (const [variable, word] of [
   ['HOME_CACHE', 'HOME'],
   ['MY_PASSWORD_CACHE', 'PASSWORD'],
   ['MY_PASSWD_CACHE_DIR', 'PASSWD'],
-  ['VAULT_SECRET_CACHE', 'SECRET'],
+  ['VAULT_SECRET_CACHE', 'VAULT'],
+  ['MY_SECRET_CACHE', 'SECRET'],
   ['API_KEY_CACHE', 'KEY'],
   ['GPG_CACHE', 'GPG'],
   ['SSH_AGENT_CACHE', 'SSH'],
@@ -427,10 +428,81 @@ for (const [variable, word] of [
   test(`the cache-variable allowlist refuses ${variable} for ${word}`, () => {
     assert.equal(
       cacheVariableProblem(variable),
-      `named for ${word}, a credential, a setting or code, not a cache`,
+      `named for ${word}, a credential, a session, a setting, shell start-up or code, not a cache`,
     );
   });
 }
+
+// HITLD-1019: credential, session, setting and shell start-up words, one test per word, each
+// before the suffix as a whole word and in each suffix's form.
+for (const word of [
+  'AUTH',
+  'SESSION',
+  'COOKIE',
+  'PRIVATE',
+  'CERT',
+  'PASS',
+  'PWD',
+  'VAULT',
+  'NETRC',
+  'OAUTH',
+  'JWT',
+  'BEARER',
+  'KRB',
+  'KERBEROS',
+  'SUDO',
+  'ASKPASS',
+  'CONFIG',
+  'ENV',
+  'SHELL',
+  'BASH',
+  'ZSH',
+]) {
+  test(`the cache-variable allowlist refuses a name with ${word} before the suffix`, () => {
+    const why = `named for ${word}, a credential, a session, a setting, shell start-up or code, not a cache`;
+    for (const variable of [
+      `${word}_CACHE`,
+      `MYTOOL_${word}_CACHE_DIR`,
+      `MYTOOL_${word}_STORE_CACHE_FOLDER`,
+      `${word.toLowerCase()}_cache`,
+    ]) {
+      assert.equal(cacheVariableProblem(variable), why, variable);
+    }
+    const problems = checkEcosystems({
+      profiles: [{ name: 'mine', caches: [{ name: 'c', variable: `MYTOOL_${word}_CACHE` }] }],
+    });
+    assert.equal(problems.length, 1, word);
+  });
+}
+
+test('the cache-variable allowlist refuses ZSH_CACHE_DIR, which zsh sources at start-up', () => {
+  assert.equal(
+    cacheVariableProblem('ZSH_CACHE_DIR'),
+    'named for ZSH, a credential, a session, a setting, shell start-up or code, not a cache',
+  );
+  assert.ok(cacheVariableProblem('zsh_cache_dir'));
+});
+
+// The GitHub Actions runner puts what RUNNER_TOOL_CACHE holds on the PATH of later steps.
+for (const variable of [
+  'RUNNER_TOOL_CACHE',
+  'runner_tool_cache',
+  'RUNNER_TEMP_CACHE_DIR',
+  'RUNNER_CACHE',
+]) {
+  test(`the cache-variable allowlist refuses the runner variable ${variable}`, () => {
+    assert.equal(
+      cacheVariableProblem(variable),
+      'read by the GitHub Actions runner, which puts what it caches on the PATH of later steps',
+    );
+  });
+}
+
+test('the cache-variable allowlist still accepts PIPENV_CACHE_DIR, though PIPENV holds ENV', () => {
+  assert.equal(cacheVariableProblem('PIPENV_CACHE_DIR'), null);
+  assert.equal(cacheVariableProblem('pipenv_cache_dir'), null);
+  assert.ok(cacheVariableProblem('MYENV_CACHE_DIR'));
+});
 
 // A switch word counts at the start, the end and between underscores.
 for (const [variable, word] of [
@@ -441,6 +513,11 @@ for (const [variable, word] of [
   ['ENABLE_CACHE', 'ENABLE'],
   ['YARN_ENABLE_GLOBAL_CACHE', 'ENABLE'],
   ['TOOL_NO_CACHE_DIR', 'NO'],
+  ['ENABLED_CACHE', 'ENABLED'],
+  ['MYTOOL_DISABLED_CACHE_DIR', 'DISABLED'],
+  ['MYTOOL_OFFLINE_CACHE', 'OFFLINE'],
+  ['FORCE_CACHE_FOLDER', 'FORCE'],
+  ['mytool_force_cache', 'FORCE'],
 ]) {
   test(`the cache-variable allowlist refuses the switch ${variable}`, () => {
     assert.equal(cacheVariableProblem(variable), `a switch (${word}), not a folder`);
