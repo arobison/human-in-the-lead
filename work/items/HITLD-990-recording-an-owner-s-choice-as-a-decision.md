@@ -17,7 +17,7 @@ constraint_of: [HITLD-405 c?]
 
 ## Why
 
-Today the chief of staff records every owner choice with a private script and then runs publish, opens the pull request, cleans the working tree and merges, about eight calls per choice. Serves the owner's token budget and repeatable behaviour across chief-of-staff sessions.
+Today the chief of staff records every owner choice with a private script and then runs publish, opens the pull request, cleans the working tree and merges, about eight calls per choice. Serves the owner's token budget and repeatable behavior across chief-of-staff sessions.
 
 ## Notes
 
