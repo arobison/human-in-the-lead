@@ -6,7 +6,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { install } from '../lib/install/install.mjs';
@@ -23,13 +31,14 @@ import {
   signInState,
   childEnv,
   credentialFailure,
+  credentialInEnv,
   readToken,
   setupSteps,
   signInEnds,
   signInEndsIn,
   unattendedCredential,
 } from '../harness/claude-code/credential.mjs';
-import { LAUNCHER, credentialEnv } from '../harness/claude-code/launch.mjs';
+import { LAUNCHER, credentialEnv, launchDurable } from '../harness/claude-code/launch.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { STATUS_INPUT, item, makeConsumer } from './orchestrator-fixture.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -421,6 +430,18 @@ test('a credential lost mid-run is read from the run output: the result event, a
     /Invalid API key/,
   );
   assert.equal(credentialFailure([{ type: 'result', result: 'item: W-1\nresult: done' }]), null);
+  // The agent's own words in a result that is no error are not the harness refusing the credential.
+  assert.equal(
+    credentialFailure([
+      {
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'The API returned 401 unauthorized and the tool said not logged in; fixed it.',
+      },
+    ]),
+    null,
+  );
   assert.match(
     String(
       credentialFailure(
@@ -708,6 +729,70 @@ test(
       machineDir: null,
     });
     assert.equal(keyed.kind, 'api-key');
+  },
+);
+
+test(
+  'a stored token wins over a cloud session: a stray CLAUDE_CODE_REMOTE never hides it, in the launcher or the report',
+  { skip: !POSIX },
+  () => {
+    const machineDir = tempDir('hitld-880-order-');
+    const cloud = { PATH: `${keychainTools(null)}:${process.env.PATH}`, CLAUDE_CODE_REMOTE: '1' };
+    // Nothing stored: the cloud session is accepted.
+    assert.equal(unattendedCredential({ env: cloud, machineDir }).kind, 'cloud-session');
+    assert.deepEqual(credentialEnv({ env: cloud, machineDir }).credential, {
+      kind: 'cloud-session',
+      source: 'environment',
+      variable: 'CLAUDE_CODE_REMOTE',
+    });
+    // A token stored: it is what the run starts on, and the report says so.
+    tokenFile(machineDir);
+    const report = unattendedCredential({ env: cloud, machineDir });
+    assert.equal(report.kind, 'oauth-token');
+    assert.equal(report.source, 'machine-file');
+    assert.equal(report.managed_by, undefined);
+    const started = credentialEnv({ env: cloud, machineDir });
+    assert.deepEqual(started.credential, { kind: 'oauth-token', source: 'machine-file' });
+    assert.equal(started.env[TOKEN_ENV], TOKEN);
+    // And one of the six still wins over both.
+    const keyed = credentialEnv({ env: { ...cloud, ANTHROPIC_API_KEY: 'k' }, machineDir });
+    assert.equal(keyed.credential.kind, 'api-key');
+  },
+);
+
+test('a cloud provider switch set off (0, false or empty) is no credential', () => {
+  for (const v of ['0', 'false', 'FALSE', '']) {
+    for (const name of [
+      'CLAUDE_CODE_USE_BEDROCK',
+      'CLAUDE_CODE_USE_VERTEX',
+      'CLAUDE_CODE_USE_FOUNDRY',
+    ]) {
+      assert.equal(credentialInEnv({ [name]: v }), null, `${name}=${v}`);
+    }
+  }
+  assert.equal(credentialInEnv({ CLAUDE_CODE_USE_BEDROCK: '1' })?.kind, 'cloud-provider');
+});
+
+test(
+  "the run's result and error files are its owner's only, a file already there narrowed too",
+  { skip: !POSIX },
+  async () => {
+    const dir = tempDir('hitld-880-modes-');
+    writeFileSync(join(dir, 'brief.md'), 'brief');
+    writeFileSync(join(dir, 'run.json'), 'old', { mode: 0o644 });
+    chmodSync(join(dir, 'run.json'), 0o644);
+    const { pid } = await launchDurable({
+      command: process.execPath,
+      args: ['-e', 'process.stdout.write("x")'],
+      stdin: join(dir, 'brief.md'),
+      stdout: join(dir, 'run.json'),
+      stderr: join(dir, 'run.stderr'),
+      pidFile: join(dir, 'run.pid'),
+    });
+    assert.ok(pid > 0);
+    for (const f of ['run.json', 'run.stderr']) {
+      assert.equal(statSync(join(dir, f)).mode & 0o777, 0o600, f);
+    }
   },
 );
 

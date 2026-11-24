@@ -27,12 +27,21 @@
 // follow-up's brief and pending record go with the run that never started (HITLD-935).
 
 import { spawn } from 'node:child_process';
-import { closeSync, mkdirSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  fchmodSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CREDENTIAL_KIND,
   childEnv,
+  cloudSession,
   credentialInEnv,
   readToken,
   setupSteps,
@@ -53,8 +62,10 @@ export async function launchDurable(r) {
   for (const f of [r.stdout, r.pidFile, ...(r.stderr ? [r.stderr] : [])]) {
     mkdirSync(dirname(resolve(f)), { recursive: true });
   }
-  const fds = [openSync(r.stdin, 'r'), openSync(r.stdout, 'w')];
-  if (r.stderr) fds.push(openSync(r.stderr, 'w'));
+  // The run's output and errors are the owner's only: the run holds its credential, and anything
+  // it runs, such as env, can print it into them (HITLD-880). A file already there is narrowed too.
+  const fds = [openSync(r.stdin, 'r'), ownerOnly(r.stdout)];
+  if (r.stderr) fds.push(ownerOnly(r.stderr));
   try {
     const child = spawn(r.command, r.args ?? [], {
       cwd: r.cwd,
@@ -78,7 +89,8 @@ export async function launchDurable(r) {
 
 /**
  * The environment a run starts in when it needs a long-lived credential (HITLD-880): `env` as it
- * is when it already gives one, else a copy with the stored token added. Refuses, naming where it
+ * is when it already gives one, else a copy with the stored token added, else `env` as it is in a
+ * cloud session, which the platform authenticates. Refuses, naming where it
  * looked and how to make one, never a value, when there is none.
  * @param {{ env: NodeJS.ProcessEnv, machineDir: string | null, platform?: NodeJS.Platform,
  *   run?: import('./credential.mjs').Runner }} o
@@ -93,6 +105,14 @@ export function credentialEnv(o) {
     };
   }
   const found = readToken(o);
+  // A cloud session's own sign-in, only when nothing is stored (the owner's decision on HITLD-880).
+  const cloud = found.value === null ? cloudSession(o.env) : null;
+  if (cloud) {
+    return {
+      env: o.env,
+      credential: { kind: cloud.kind, source: 'environment', variable: cloud.variable },
+    };
+  }
   if (found.value === null) {
     throw new Error(
       `refused to start the executor: no long-lived credential for unattended runs, and on the interactive sign-in it would stop when that ends. Looked in ${found.looked_in.join(', ')}${found.problems.length ? ` (${found.problems.join('; ')})` : ''}. To make one: ${setupSteps(o.platform, o.machineDir).join('; ')}`,
@@ -100,6 +120,16 @@ export function credentialEnv(o) {
   }
   const env = childEnv(o.env, found.value);
   return { env, credential: { kind: 'oauth-token', source: found.source } };
+}
+
+/**
+ * Open a file for writing, created or emptied, readable and writable by its owner only.
+ * @param {string} path @returns {number}
+ */
+function ownerOnly(path) {
+  const fd = openSync(path, 'w', 0o600);
+  if (process.platform !== 'win32') fchmodSync(fd, 0o600);
+  return fd;
 }
 
 /**

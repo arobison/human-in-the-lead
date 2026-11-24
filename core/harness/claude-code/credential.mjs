@@ -58,19 +58,21 @@ const DAY_MS = 86_400_000;
 
 /**
  * Long-lived credentials the environment can already give Claude Code, by variable name. Only the
- * names are ever read for a report.
- * The cloud session comes last: one of the others, when given, is what the run uses.
- * @type {{ variable: string, kind: EnvKind }[]}
+ * names are ever read for a report. The cloud session is not among them: it comes after a stored
+ * token (cloudSession).
+ * @type {{ variable: string, kind: Exclude<EnvKind, 'cloud-session'>, flag?: true }[]}
+ *   flag: a switch, on unless empty, false or 0; the others count when they hold anything
  */
 const FROM_ENV = [
   { variable: TOKEN_ENV, kind: 'oauth-token' },
   { variable: 'ANTHROPIC_API_KEY', kind: 'api-key' },
   { variable: 'ANTHROPIC_AUTH_TOKEN', kind: 'auth-token' },
-  { variable: 'CLAUDE_CODE_USE_BEDROCK', kind: 'cloud-provider' },
-  { variable: 'CLAUDE_CODE_USE_VERTEX', kind: 'cloud-provider' },
-  { variable: 'CLAUDE_CODE_USE_FOUNDRY', kind: 'cloud-provider' },
-  { variable: 'CLAUDE_CODE_REMOTE', kind: 'cloud-session' },
+  { variable: 'CLAUDE_CODE_USE_BEDROCK', kind: 'cloud-provider', flag: true },
+  { variable: 'CLAUDE_CODE_USE_VERTEX', kind: 'cloud-provider', flag: true },
+  { variable: 'CLAUDE_CODE_USE_FOUNDRY', kind: 'cloud-provider', flag: true },
 ];
+/** The variable a Claude Code cloud session sets. */
+const CLOUD_SESSION = 'CLAUDE_CODE_REMOTE';
 /** A value that leaves a variable off: empty, false or 0. @param {string | undefined} v */
 const isOn = (v) => typeof v === 'string' && !/^(|0|false)$/i.test(v.trim());
 
@@ -249,11 +251,23 @@ function accountName(env) {
 export function credentialInEnv(env) {
   return (
     FROM_ENV.find((c) =>
-      c.kind === 'cloud-session'
+      c.flag
         ? isOn(env[c.variable])
         : typeof env[c.variable] === 'string' && env[c.variable] !== '',
     ) ?? null
   );
+}
+
+/**
+ * The Claude Code cloud session's own sign-in, which the platform manages, by name only; null
+ * outside one. It counts only after the environment's credentials and a stored token: a stray
+ * CLAUDE_CODE_REMOTE never hides either.
+ * @param {NodeJS.ProcessEnv} env
+ */
+export function cloudSession(env) {
+  return isOn(env[CLOUD_SESSION])
+    ? { variable: CLOUD_SESSION, kind: /** @type {const} */ ('cloud-session') }
+    : null;
 }
 
 /**
@@ -275,7 +289,8 @@ export function readToken(o) {
 
 /**
  * What unattended runs start on here, without the value: the environment's credential when it
- * gives one, else the stored token, else the interactive sign-in.
+ * gives one, else the stored token, else a cloud session's own sign-in, else the interactive
+ * sign-in.
  * @param {CredentialOptions} o
  * @returns {CredentialReport}
  */
@@ -289,15 +304,26 @@ export function unattendedCredential(o) {
       kind: fromEnv.kind,
       source: 'environment',
       variable: fromEnv.variable,
-      ...(fromEnv.kind === 'cloud-session'
-        ? { managed_by: /** @type {const} */ ('platform') }
-        : {}),
       problems: [],
       looked_in: lookedIn,
     };
   }
   const found = readToken(o);
   if (found.value === null) {
+    // Nothing stored: a cloud session's own sign-in, which the platform manages, else the
+    // interactive sign-in.
+    const cloud = cloudSession(o.env);
+    if (cloud) {
+      return {
+        long_lived: true,
+        kind: cloud.kind,
+        source: 'environment',
+        variable: cloud.variable,
+        managed_by: 'platform',
+        problems: found.problems,
+        looked_in: found.looked_in,
+      };
+    }
     return {
       long_lived: false,
       kind: 'interactive',
@@ -391,8 +417,13 @@ export function credentialFailure(events, stderr = '') {
       return cut(text ? `authentication failed: ${text}` : 'authentication failed');
     }
   }
+  // The result's text counts only when the harness marks the result an error: a run that ended
+  // normally carries the agent's own words, which may mention a 401 or a sign-in.
   const result = events.findLast((e) => e?.type === 'result');
-  if (result && typeof result.result === 'string' && AUTH_FAILURE.test(result.result)) {
+  const failed =
+    result?.is_error === true ||
+    (typeof result?.subtype === 'string' && result.subtype !== 'success');
+  if (failed && typeof result.result === 'string' && AUTH_FAILURE.test(result.result)) {
     return cut(result.result);
   }
   const line = String(stderr)
