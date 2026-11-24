@@ -108,7 +108,7 @@ claude plugin list             # human-in-the-lead@human-in-the-lead is installe
 
 `hitld work check` reports `0 files` when it finds no items. In a project that has items, that means it is looking in the wrong folder, not that all is well.
 
-Until the first-run setup is done, `hitld dispatch plan` holds all autonomous work, and only work you start by hand (`hitld dispatch start <ID> --by-hand`) runs.
+Until the first-run setup is done, `hitld dispatch plan` holds all autonomous work, and only work you start by hand (`hitld dispatch start <ID> --by-hand`) runs. The orchestrate skill runs that command for you; to run it from a shell yourself, follow [Drive one item by hand](#drive-one-item-by-hand-without-claude-code).
 
 ## Quotas: why dispatch stops at first
 
@@ -142,6 +142,46 @@ You have two ways out:
 - With no reading, the gate's reason reads `no reading yet: claude-weekly has no usage reading (…)`, not `stop at the reserve`.
 - `hitld quota declare --used <figure> --resets-at <reset> [--limit <ID>]` records a usage figure you read on your own account, so a limit in percent of your plan has a reading without the capture, such as in a cloud session.
 - The declared-limit example above works unchanged.
+
+## Drive one item by hand, without Claude Code
+
+In a Claude Code session, the orchestrate skill runs every command below for you, and an executor does the item. To take one item from planned to merged from a shell, with no Claude Code session, you play both parts: you run the commands, and you do the item's work yourself.
+
+Before you start, the quota gate needs a reading. `--by-hand` gets past an unfinished first-run setup, not the gate: without the status-line capture, declare a limit the ledger can read, as in way 2 of [Quotas](#quotas-why-dispatch-stops-at-first).
+
+Run these in order. Run the `run`, `dispatch` and `merge` commands from the checkout you ran `hitld run start` in. The block is for `main`; two steps differ at `v0.1.0-rc.1`, the release this page installs: see **At rc.1** below the steps.
+
+```bash
+hitld run start
+hitld dispatch plan
+hitld dispatch start <ID> --by-hand
+hitld dispatch handle --dispatch <D-n> --harness-ref by-hand
+git switch -c <branch>
+hitld work claim <ID> --dispatch <D-n> --branch <branch>
+# make the change, run your tests, commit with the trailers Work-Item: <ID> and Dispatch: <D-n>
+hitld work close <ID> --report-file <report>
+git switch main
+hitld dispatch complete --dispatch <D-n> --report-file <report> --tokens 0
+hitld merge
+hitld merge --all
+```
+
+What each one does, and what to take from its output:
+
+1. **`hitld run start`** records the run and takes the lease. After rc.1, with no Claude Code session and no `HITLD_SESSION`, it makes a session ID for this checkout and remembers it (`identity.source` is `new`), so the later commands need no `--session`. Set `HITLD_SESSION` or pass `--session` only to choose the ID yourself.
+2. **`hitld dispatch plan`** shows what is ready and what is held, with the reason. Before the setup is done it holds everything; that is expected. It records nothing, so you may skip it.
+3. **`hitld dispatch start <ID> --by-hand`** records the dispatch. Take `dispatch` (the `D-<n>` ID) and `branch` from its output. Its `instruction` is a Claude Code tool call that an orchestrator would make to start an executor: do not make it, since you do the work. `brief_file` is the brief that executor would read. If the output has a `worktree`, the branch is already checked out in that folder: work there instead of running `git switch -c`.
+4. **`hitld dispatch handle`** records who runs the dispatch. `by-hand` is the reference; any word that names it for you works.
+5. **The work**, on the branch. `hitld work claim` writes the claim commit, which must be the branch's first. Then make and commit the change. `hitld work close` sets the item to `done` and, after rc.1, commits it with your report as the message. Write the report first, in the fixed shape of the executor contract in `AGENTS.md` (`item`, `result`, `commit`, `evidence`, `bench_runs`, `deviations`, `calls`, `questions`), with the hash of your last work commit on the `commit` line. Keep the report file outside the repository.
+6. **`hitld dispatch complete`** checks the report and queues the branch to merge (`queued_to_merge`). `--tokens` is what the dispatch cost in model tokens, which the quota counts: `0` when no model did the work, or the figure your tool reports.
+7. **`hitld merge`**. A new project is in owner merge mode: this checks the branch (rebase, fast checks, full suite) without moving `main` and lists it under `presented` with the evidence. Read it, then **`hitld merge --all`** merges what was presented, or `hitld merge --only <branch>` merges just that one. In queue mode, plain `hitld merge` merges and there is no second step. With `merge.via` set to `pull-request`, the merge goes through pull requests, which this section does not cover.
+
+**At rc.1.** Two steps differ in `v0.1.0-rc.1`:
+
+- `hitld run start` makes no session ID. Without one, it and the `dispatch` and `merge` commands refuse with `a session ID is needed: pass --session or set HITLD_SESSION`. Before step 1, set one of your own and keep it for every later command, such as `export HITLD_SESSION=by-hand` (one word of letters, digits and `. _ : -`), or pass the same `--session <ID>` to each.
+- `hitld work close` has no `--report-file`. Run `hitld work close <ID> --no-commit`, then commit the item file yourself, with your report as the message body and the trailers `Work-Item: <ID>` and `Dispatch: <D-n>`. Pass the same report file to `hitld dispatch complete`.
+
+**After rc.1.** `hitld dispatch --help`, `hitld run --help` and `hitld work --help` list each group's commands. At rc.1 they answer `unknown command`; `hitld <command> --help`, such as `hitld dispatch start --help`, gives a command's options in both.
 
 ## Undo it
 
