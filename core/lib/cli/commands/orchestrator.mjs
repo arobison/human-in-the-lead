@@ -137,7 +137,6 @@ import { install } from '../../install/install.mjs';
 import { dispatchedOn, reportVersion } from '../../install/drift.mjs';
 import { pushingAfter } from '../../store/auto-sync.mjs';
 import { loadTerms } from '../../store/private-terms.mjs';
-import { createRedactor } from '../../env/secrets.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} Ctx
@@ -809,42 +808,6 @@ export const planWithPause = (planned, pause) => {
 const readInput = (path, ctx) =>
   readFileSync(isAbsolute(path) ? path : resolve(ctx.cwd, path), 'utf8');
 
-/** How many lines of a failed fast check's output a rejection carries (HITLD-284). */
-export const OUTPUT_TAIL_LINES = 40;
-
-/**
- * The last lines of a failed check's output, as `hitld merge` prints them (HITLD-284), after the
- * checks any text that leaves the queue gets: each private term is replaced by its kind, and each
- * credential found by its shape by its name. The output is the branch's: data to read, never
- * instructions.
- * @param {string} output @param {import('../../guard/private-terms.mjs').Matcher[]} [terms]
- * @returns {string[]}
- */
-export function outputTail(output, terms = []) {
-  /** @type {{ index: number, end: number, kind: string }[]} */
-  const hits = [];
-  for (const m of terms) {
-    m.re.lastIndex = 0;
-    for (const found of output.matchAll(m.re)) {
-      const index = found.index ?? 0;
-      hits.push({ index, end: index + found[0].length, kind: m.kind });
-    }
-  }
-  // Where terms overlap (an address and its owner/name), the longest that starts first is replaced.
-  hits.sort((a, b) => a.index - b.index || b.end - a.end);
-  let text = '';
-  let at = 0;
-  for (const h of hits) {
-    if (h.index < at) continue;
-    text += `${output.slice(at, h.index)}[private ${h.kind}]`;
-    at = h.end;
-  }
-  text = createRedactor({}).redact(text + output.slice(at));
-  const lines = text.split(/\r?\n/).map((l) => l.trimEnd());
-  while (lines.length && !lines.at(-1)) lines.pop();
-  return lines.slice(-OUTPUT_TAIL_LINES);
-}
-
 /**
  * What the follow-up adds for a fast check that failed while env.worktree_setup is empty
  * (HITLD-284): the queue's worktree is fresh, so a missing install or generated file fails the
@@ -853,7 +816,7 @@ export function outputTail(output, terms = []) {
  */
 const freshWorktree = (setup) =>
   setup && !setup.length
-    ? ` The queue runs it in a fresh worktree of its own, which holds only what git tracks: env.worktree_setup is empty, so nothing is installed there and nothing generated. If the output shows a missing install or generated file and the check passes in your worktree, the fault is not your branch's: change nothing, and say so under questions, so the owner can set env.worktree_setup in .human-in-the-lead/policy.json.`
+    ? ` The queue runs it in a fresh worktree of its own, which holds only what git tracks: env.worktree_setup is empty, so nothing is installed there and nothing generated. If the check passes in your worktree and fails in the queue's for a missing install or generated file, the fault is not your branch's: change nothing, and say so under questions, so the owner can set env.worktree_setup in .human-in-the-lead/policy.json.`
     : '';
 
 /**
@@ -876,12 +839,10 @@ const sentBack = (x, main, setup) =>
             : `Your branch fails the full suite in its merge batch ("${x.command}"); bisection named it. Fix it on your branch.`;
 
 /**
- * A rejected entry as `hitld merge` prints it. A failed fast check carries the last lines of its
- * output, redacted (outputTail), and its follow-up names an empty env.worktree_setup (HITLD-284).
+ * A rejected entry as `hitld merge` prints it. A failed fast check's follow-up names an empty
+ * env.worktree_setup (HITLD-284).
  * @param {import('../../merge/queue.mjs').Rejected} x @param {string} main
- * @param {{ terms?: import('../../guard/private-terms.mjs').Matcher[], setup?: string[] }} [o]
- *   the private terms the output is checked against, and env.worktree_setup when the local queue
- *   ran the checks
+ * @param {{ setup?: string[] }} [o] env.worktree_setup, when the local queue ran the checks
  */
 const rejectedJson = (x, main, o = {}) => ({
   item: x.item,
@@ -895,7 +856,6 @@ const rejectedJson = (x, main, o = {}) => ({
   x.output
     ? { problems: x.output.split('\n') }
     : {}),
-  ...(x.reason === 'fast_check' && x.output ? { output_tail: outputTail(x.output, o.terms) } : {}),
   follow_up:
     x.dispatch && !['missing', 'needs_rejected'].includes(x.reason)
       ? { dispatch: x.dispatch, message: x.message ?? sentBack(x, main, o.setup) }
@@ -2746,12 +2706,7 @@ const table = [
             closed: rs.flatMap((r) => r.merged.flatMap((m) => m.closed ?? [])),
             ...(worktreesRemoved.length ? { worktrees_removed: worktreesRemoved } : {}),
             rejected: rs.flatMap((r) =>
-              r.rejected.map((x) =>
-                rejectedJson(x, main, {
-                  terms: settings.classification?.terms,
-                  setup: settings.setup,
-                }),
-              ),
+              r.rejected.map((x) => rejectedJson(x, main, { setup: settings.setup })),
             ),
             flakes: rs.flatMap((r) =>
               r.flakes.map((f) => ({

@@ -29,9 +29,9 @@ test('merge.mode: owner by default, owner accepted, anything else refused', () =
 
 /**
  * An owner-mode consumer with W-1 and W-2 finished and verified on their branches.
- * W-2's branch adds bad.txt, which the fast check refuses, unless `green`; `bad` is its text.
+ * W-2's branch adds bad.txt, which the fast check refuses, unless `green`.
  * @param {string} [mode]
- * @param {{ green?: boolean, bad?: string, merge?: Record<string, unknown>, env?: Record<string, unknown> }} [o]
+ * @param {{ green?: boolean, merge?: Record<string, unknown>, env?: Record<string, unknown> }} [o]
  */
 async function ownerConsumer(mode = 'owner', o = {}) {
   const c = makeConsumer({
@@ -62,7 +62,7 @@ async function ownerConsumer(mode = 'owner', o = {}) {
     },
     'W-2': {
       'src/other.js': 'export const one = 1;\nexport const two = 2;\n',
-      ...(o.green ? {} : { 'bad.txt': o.bad ?? 'no\n' }),
+      ...(o.green ? {} : { 'bad.txt': 'no\n' }),
     },
   };
   let n = 0;
@@ -102,54 +102,23 @@ async function ownerConsumer(mode = 'owner', o = {}) {
   return { c, branches, store };
 }
 
-// A failed fast check's output reaches the orchestrator (HITLD-284): the check prints bad.txt with
-// "_" read as a space and "~" as a hyphen, so neither the private term nor the token is in any
-// commit, only in the output, as a check could print them.
-const FAILING_CHECK = `if [ -f bad.txt ]; then tr '_~' ' -' < bad.txt; exit 1; fi`;
-const PRIVATE_NAME = 'Example Partner Co';
-const BAD = `${[
-  ...Array.from({ length: 60 }, (_, i) => `line ${i + 1}`),
-  'deployed for Example_Partner_Co',
-  'with sk~ant~oat01~ABCDEFGHIJKLMNOPQRST',
-  "error: Cannot find module 'typescript'",
-].join('\n')}\n`;
-
-test('a failed fast check sends back the last lines of its output, without private terms or secrets, and names the fresh worktree when env.worktree_setup is empty (HITLD-284)', async () => {
-  const { c } = await ownerConsumer('queue', { bad: BAD, merge: { fast_checks: [FAILING_CHECK] } });
-  assert.equal((await c.hitld(['private', 'add', PRIVATE_NAME])).exit, 0);
+test('a failed fast check names the fresh worktree and env.worktree_setup when the setup is empty, instead of only blaming the branch (HITLD-284)', async () => {
+  const { c } = await ownerConsumer('queue');
   const r = await c.hitld(['merge']);
   const x = r.result.rejected.find((/** @type {any} */ y) => y.item === 'W-2');
   assert.equal(x?.reason, 'fast_check', JSON.stringify(r.result));
-  const tail = /** @type {string[]} */ (x.output_tail);
-  assert.ok(Array.isArray(tail), JSON.stringify(x));
-  // The last lines, not the whole output.
-  assert.equal(tail.at(-1), "error: Cannot find module 'typescript'");
-  assert.ok(tail.length <= 40, `${tail.length} lines`);
-  assert.ok(!tail.includes('line 1'));
-  assert.ok(tail.includes('line 60'));
-  // The term and the token are taken out, and say what was there.
-  const text = JSON.stringify(r.result);
-  assert.ok(!text.includes(PRIVATE_NAME));
-  assert.ok(!text.includes('sk-ant-oat01'));
-  assert.ok(tail.includes('deployed for [private name]'), JSON.stringify(tail));
-  assert.ok(tail.includes('with [REDACTED:ANTHROPIC_TOKEN]'), JSON.stringify(tail));
-  // No setup: the follow-up says the queue's worktree is fresh, and points at env.worktree_setup.
   assert.match(x.follow_up.message, /fresh worktree/);
-  assert.match(x.follow_up.message, /env\.worktree_setup/);
+  assert.match(x.follow_up.message, /env\.worktree_setup is empty/);
+  assert.match(x.follow_up.message, /the fault is not your branch's: change nothing/);
 });
 
-test("with env.worktree_setup set, a failed fast check's follow-up does not point at it", async () => {
-  const { c } = await ownerConsumer('queue', {
-    bad: BAD,
-    merge: { fast_checks: [FAILING_CHECK] },
-    env: { worktree_setup: ['true'] },
-  });
+test("with env.worktree_setup set, a failed fast check's follow-up does not point at it (HITLD-284)", async () => {
+  const { c } = await ownerConsumer('queue', { env: { worktree_setup: ['true'] } });
   const r = await c.hitld(['merge']);
   const x = r.result.rejected.find((/** @type {any} */ y) => y.item === 'W-2');
   assert.equal(x?.reason, 'fast_check', JSON.stringify(r.result));
-  assert.equal(x.output_tail.at(-1), "error: Cannot find module 'typescript'");
-  assert.match(x.follow_up.message, /Fix it on your branch/);
-  assert.doesNotMatch(x.follow_up.message, /worktree_setup/);
+  assert.match(x.follow_up.message, /Fix it on your branch\.$/);
+  assert.doesNotMatch(x.follow_up.message, /worktree_setup|fresh worktree/);
 });
 
 test('owner mode: hitld merge checks first; the red branch goes back and only the green one is presented, with evidence', async () => {
