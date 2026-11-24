@@ -37,13 +37,13 @@
       "$ref": "common#/$defs/texts"
     },
     "calls": {
-      "description": "Logged calls, each marked reversible.",
+      "description": "Logged calls, each marked (reversible) or (one-way) at the end of its line; reversible is false for a one-way call (HITLD-853).",
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "text": { "$ref": "common#/$defs/text" },
-          "reversible": { "const": true }
+          "reversible": { "type": "boolean" }
         },
         "required": ["text", "reversible"],
         "additionalProperties": false

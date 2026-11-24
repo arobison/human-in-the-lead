@@ -149,6 +149,38 @@ test('parseReport reads the design example', () => {
   assert.deepEqual(parseReport('```\n' + GOOD + '```').errors, []);
 });
 
+// HITLD-853: the contract and the briefs say a call line ends (reversible) or (one-way); a
+// one-way call is recorded as one, and a line with neither is refused, naming it.
+test('parseReport reads a call ending (reversible) or (one-way), and refuses one with neither', () => {
+  const withCalls = (/** @type {string[]} */ calls) =>
+    GOOD.replace(/^calls:\n.*\n/m, `calls:\n${calls.map((c) => `  - ${c}\n`).join('')}`);
+  const both = parseReport(
+    withCalls([
+      'kept the old cache directory name (reversible)',
+      'renamed the published cache flag (one-way)',
+      'dropped the v1 reader (One-Way).',
+    ]),
+  );
+  assert.deepEqual(both.errors, []);
+  assert.deepEqual(both.report?.calls, [
+    { text: 'kept the old cache directory name', reversible: true },
+    { text: 'renamed the published cache flag', reversible: false },
+    { text: 'dropped the v1 reader', reversible: false },
+  ]);
+  const neither = parseReport(
+    withCalls(['kept the old cache directory name (reversible)', 'renamed the flag (two-way)']),
+  );
+  assert.equal(neither.report, null);
+  assert.deepEqual(neither.errors, [
+    'call not marked (reversible) or (one-way): renamed the flag (two-way)',
+  ]);
+  // The mark is the end of the line, not a word inside it.
+  const inside = parseReport(withCalls(['a (one-way) door left open']));
+  assert.deepEqual(inside.errors, [
+    'call not marked (reversible) or (one-way): a (one-way) door left open',
+  ]);
+});
+
 test('parseReport refuses departures from the shape, each named', () => {
   const bad = (/** @type {string} */ text, /** @type {RegExp} */ re) => {
     const r = parseReport(text);

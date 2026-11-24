@@ -983,10 +983,20 @@ test('dispatch complete refuses a report with parse errors and records nothing, 
     );
   }
 
-  // The executor resends: recorded once, as today, and queued.
-  const done = await complete(good);
+  // The executor resends: recorded once, as today, and queued. A one-way call keeps its mark in
+  // what the orchestrator reads, and a reversible one is its text alone (HITLD-853).
+  const done = await complete(
+    good.replace(
+      'calls: none',
+      'calls:\n  - kept the old name (reversible)\n  - renamed the published flag (one-way)',
+    ),
+  );
   assert.equal(done.exit, 0, JSON.stringify(done.result));
   assert.equal(done.result.queued_to_merge, branch, JSON.stringify(done.result));
+  assert.deepEqual(done.result.calls, [
+    'kept the old name',
+    'renamed the published flag (one-way)',
+  ]);
   assert.equal(ledger().filter((e) => e.event === 'reported').length, 1);
   const again = await complete(good);
   assert.equal(again.result.already, true, JSON.stringify(again.result));

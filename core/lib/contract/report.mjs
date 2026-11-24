@@ -20,7 +20,8 @@ const LISTS = new Set(['evidence', 'bench_runs', 'deviations', 'calls', 'questio
  */
 const OLD_FIELDS = /** @type {Record<string, string>} */ ({ status: 'result', runs: 'bench_runs' });
 const NONE = /^none$/i;
-const REVERSIBLE = /\s*\(reversible\)\.?\s*$/i;
+/** A call line ends with its door (HITLD-853): `(reversible)` or `(one-way)`, either case. */
+const DOOR = /\s*\((reversible|one-way)\)\.?\s*$/i;
 
 /**
  * Parse a report. `report` is the parsed data when there are no errors, else null.
@@ -99,8 +100,12 @@ export function parseReport(text) {
   /** @type {string[]} */
   const calls = !raw.calls || (raw.calls.length === 1 && NONE.test(raw.calls[0])) ? [] : raw.calls;
   report.calls = calls.map((/** @type {string} */ call) => {
-    if (!REVERSIBLE.test(call)) errors.push(`call not marked (reversible): ${call.slice(0, 80)}`);
-    return { text: call.replace(REVERSIBLE, ''), reversible: true };
+    const door = DOOR.exec(call);
+    if (!door) errors.push(`call not marked (reversible) or (one-way): ${call.slice(0, 80)}`);
+    return {
+      text: call.replace(DOOR, ''),
+      reversible: door?.[1].toLowerCase() !== 'one-way',
+    };
   });
 
   if (errors.length) return { report: null, errors, warnings };
