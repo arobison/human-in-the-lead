@@ -108,7 +108,40 @@ claude plugin list             # human-in-the-lead@human-in-the-lead is installe
 
 `hitld work check` reports `0 files` when it finds no items. In a project that has items, that means it is looking in the wrong folder, not that all is well.
 
-Until the first-run setup is done, `hitld dispatch plan` holds all autonomous work, and only work you start by hand (`hitld dispatch start <ID> --by-hand`) runs. Until the status-line capture is on, the default quota (your plan's weekly window) has no reading, and dispatch stops at the quota gate. Some plans also have a five-hour window (Pro, Max, and seat-based Team and Enterprise plans, per their documentation); Ultra and usage-based plans do not. The gate watches it once the capture reports it, or when you declare it. On a Team or Enterprise seat the status line may not report it, so you may need to declare it by hand. Either install the capture (`hitld install --statusline`, your choice) or declare limits as described in [design 12.5](../design/0001-human-in-the-lead/12-reporting-and-limits.md#125-quotas-and-budgets).
+Until the first-run setup is done, `hitld dispatch plan` holds all autonomous work, and only work you start by hand (`hitld dispatch start <ID> --by-hand`) runs.
+
+## Quotas: why dispatch stops at first
+
+The quota gate lets autonomous work start only while each limit it watches has a reading with room above your reserve. A limit with no reading stops dispatch; the gate fails closed.
+
+At `v0.1.0-rc.1` the gate watches two limits by default, both in percent of your Claude plan and both read from the status-line usage capture:
+
+- `claude-five-hour`, the five-hour window;
+- `claude-weekly`, the weekly window.
+
+The reserve, the share of each limit kept for your own use, is 25%. Until the capture is on, neither limit has a reading, and the gate stops on `claude-five-hour`, the first in the list. At rc.1 the reason reads `stop at the reserve: claude-five-hour: its use, limit or headroom is unknown or not a number (no snapshot yet, and the ledger cannot estimate this unit)`. Nothing has reached the reserve: the limit has no reading yet.
+
+Some plans have a five-hour window (Pro, Max, and seat-based Team and Enterprise plans, per their documentation); Ultra and usage-based plans do not. On a plan without one, or on a Team or Enterprise seat whose status line does not report it, `claude-five-hour` never gets a reading at rc.1, and the gate stays stopped even with the capture on. Declare your limits instead.
+
+You have two ways out:
+
+1. **Install the capture** (`hitld install --statusline`, your choice). It works when your status line reports both windows.
+2. **Declare your limits** in your person file. Your list replaces the default list. At rc.1 a limit in percent of your plan gets a reading only from the capture, so declare one that the ledger can read: a budget of tokens per week for autonomous work, counted from what HITLd's own dispatches report. `--merge` keeps the rest of your person file; `--check` first validates it and writes nothing:
+
+   ```bash
+   hitld config write person --merge --check --data '{"schema_version":1,"quota":{"limits":[{"id":"weekly-tokens","unit":"tokens","window":"weekly","limit":20000000,"source":"estimated","hard":false}]}}'
+   hitld config write person --merge --data '{"schema_version":1,"quota":{"limits":[{"id":"weekly-tokens","unit":"tokens","window":"weekly","limit":20000000,"source":"estimated","hard":false}]}}'
+   ```
+
+   Every limit needs all six keys: `id`, `unit` (`tokens`, `requests`, `usd`, `credits` or `plan-percent`), `window` (`rolling_5h`, `weekly`, `monthly_utc`, `run`, or a period such as `P14D`), `limit`, `source` (`measured`, `estimated` or `declared`) and `hard`. Choose the `limit` figure yourself: it is what autonomous work may spend in the window, not your plan's limit. This budget does not see your own interactive use, so it does not protect your plan's windows. `hitld quota status` then returns `"mode": "normal"`, with `weekly-tokens` in `quotas` at `"used": 0`. The full schema is in [design 12.5](../design/0001-human-in-the-lead/12-reporting-and-limits.md#125-quotas-and-budgets).
+
+**After rc.1.** These are true on `main`, not in `v0.1.0-rc.1`:
+
+- The default list is `claude-weekly` alone. The gate adds `claude-five-hour` while your status line reports a five-hour window that has not reset, unless you declare a limit on the `rolling_5h` window. With no reading, the gate stops on `claude-weekly`.
+- The default reserve is 10%.
+- With no reading, the gate's reason reads `no reading yet: claude-weekly has no usage reading (…)`, not `stop at the reserve`.
+- `hitld quota declare --used <figure> --resets-at <reset> [--limit <ID>]` records a usage figure you read on your own account, so a limit in percent of your plan has a reading without the capture, such as in a cloud session.
+- The declared-limit example above works unchanged.
 
 ## Undo it
 
