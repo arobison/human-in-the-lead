@@ -23,6 +23,7 @@ import { apiResponse, fieldFilter } from '../../tracker/files/api.mjs';
 import { MIGRATIONS } from '../../tracker/files/migrations/index.mjs';
 import { SWEEP_KINDS, sweepTracker } from '../../tracker/files/sweep.mjs';
 import { readLedger } from '../../ledger/ledger.mjs';
+import { budgetOf } from '../../dispatch/budget.mjs';
 import { openStore, privateStorePath } from '../../store/store.mjs';
 import { CodedError } from '../errors.mjs';
 import { realPath } from '../../platform/fs.mjs';
@@ -46,6 +47,26 @@ export const where = [
       'A directory holding policy.json and tracker.json (default: <repo>/.human-in-the-lead)',
   },
 ];
+
+/**
+ * The dispatch's token cap from the ledger in the private store (dispatch/budget.mjs), or null
+ * when there is no store, no such dispatch or no estimate. Never fails the claim.
+ * @param {string} root @param {CommandContext} ctx @param {string} dispatch
+ * @returns {number | null}
+ */
+function ledgerCapOf(root, ctx, dispatch) {
+  try {
+    const policy = /** @type {Record<string, any> | undefined} */ (
+      loadPolicy({ cwd: root })?.policy
+    );
+    if (!policy?.project?.id) return null;
+    const dir = privateStorePath(policy.project.id, { env: ctx.env, repoRoot: root });
+    if (!existsSync(dir)) return null;
+    return budgetOf(readLedger(openStore(dir)).events, dispatch, policy.dispatch)?.cap ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Open the tracker the command's options point at.
@@ -375,12 +396,28 @@ export const commands = [
         type: 'string',
         description: 'Refuse unless the working tree is on this branch',
       },
+      {
+        name: 'budget-tokens',
+        type: 'integer',
+        description:
+          "The dispatch's token cap, the brief's report-at figure: written as a Budget-Tokens trailer so the budget hook enforces it where there is no private store, such as a cloud executor (HITLD-841). The ledger's cap is written instead when the private store has the dispatch",
+      },
       ...where,
     ],
     run(input, ctx) {
       const t = open(input, ctx);
-      const ref = t.claim(idOf(input), String(input.dispatch), String(input.branch ?? ''));
-      return { ok: true, id: idOf(input), dispatch: input.dispatch, ...ref };
+      const dispatch = String(input.dispatch);
+      const given = input['budget-tokens'];
+      const budget =
+        ledgerCapOf(t.root(), ctx, dispatch) ?? (given === undefined ? null : Number(given));
+      const ref = t.claim(idOf(input), dispatch, String(input.branch ?? ''), budget);
+      return {
+        ok: true,
+        id: idOf(input),
+        dispatch: input.dispatch,
+        ...ref,
+        ...(budget ? { budget_tokens: budget } : {}),
+      };
     },
   },
   {

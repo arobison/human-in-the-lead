@@ -62,7 +62,19 @@ function holdsExecutorClaim(dir) {
  * @param {string} dir @returns {string[] | null}
  */
 export function claimedDispatches(dir) {
-  return readClaims(dir).dispatches;
+  const claims = readClaims(dir).claims;
+  return claims && claims.map((c) => c.dispatch);
+}
+
+/**
+ * The claims on HEAD (and on no main branch), newest first, each with the token cap its claim
+ * commit carries in a `Budget-Tokens` trailer (HITLD-841), or null when it carries none; null when
+ * git cannot answer. For the budget hook in a session with no private store (a cloud executor),
+ * where the ledger that holds the cap cannot be read.
+ * @param {string} dir @returns {{ dispatch: string, cap: number | null }[] | null}
+ */
+export function claimedBudgets(dir) {
+  return readClaims(dir).claims;
 }
 
 /**
@@ -74,7 +86,7 @@ export function claimedDispatches(dir) {
  */
 export function ownClaimBranch(dir) {
   const c = readClaims(dir);
-  if (!c.dispatches?.length) return null;
+  if (!c.claims?.length) return null;
   const head = c.run(['symbolic-ref', '--short', '-q', 'HEAD']);
   const branch = !head.error && head.status === 0 ? head.stdout.trim() || null : null;
   if (
@@ -133,9 +145,9 @@ export function originPushProblem(dir) {
 }
 
 /**
- * What the checkout at `dir` holds: the dispatches its claim commits name (null when git cannot
- * answer, empty outside a repository or with no claim), the main branches read, and the way git
- * was run there.
+ * What the checkout at `dir` holds: the dispatches its claim commits name, each with the cap its
+ * `Budget-Tokens` trailer carries (null when git cannot answer, empty outside a repository or with
+ * no claim), the main branches read, and the way git was run there.
  * @param {string} dir
  */
 function readClaims(dir) {
@@ -150,8 +162,8 @@ function readClaims(dir) {
       // Untranslated, so "not a git repository" reads the same in every locale.
       env: { ...process.env, LC_ALL: 'C' },
     });
-  /** @param {string[] | null} dispatches */
-  const out = (dispatches) => ({ dispatches, bases, run });
+  /** @param {{ dispatch: string, cap: number | null }[] | null} claims */
+  const out = (claims) => ({ claims, bases, run });
   const refs = run([
     'for-each-ref',
     '--format=%(refname)%09%(symref)',
@@ -181,9 +193,11 @@ function readClaims(dir) {
     log.stdout.split('\x1e').flatMap((message) => {
       const lines = message.trim().split('\n');
       if (!/^claim: \S+$/.test(lines[0] ?? '')) return [];
+      const budget = lines.map((l) => /^Budget-Tokens: ([1-9]\d{0,11})\s*$/.exec(l)).find(Boolean);
+      const cap = budget ? Number(budget[1]) : null;
       return lines.flatMap((l) => {
         const m = /^Dispatch: (\S+)\s*$/.exec(l);
-        return m !== null && DISPATCH_ID.test(m[1]) ? [m[1]] : [];
+        return m !== null && DISPATCH_ID.test(m[1]) ? [{ dispatch: m[1], cap }] : [];
       });
     }),
   );

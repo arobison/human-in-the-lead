@@ -598,7 +598,8 @@ export function openTracker({
       }
     },
 
-    claim: (id, claimant, branch) => claimItem(root, layout, id, claimant, { branch }),
+    claim: (id, claimant, branch, budgetTokens) =>
+      claimItem(root, layout, id, claimant, { branch, budgetTokens }),
 
     history(id) {
       const it = mustFind(id);

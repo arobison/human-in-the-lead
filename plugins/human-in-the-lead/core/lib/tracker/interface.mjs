@@ -44,7 +44,8 @@
  * @property {(id: Id, patch: Patch, expectedVersion: Version) => Version} update
  * @property {(id: Id, to: State, reason: string, via: ChangeRef) => Version} transition
  * @property {(from: Id, relation: Relation, to: Id) => void} link
- * @property {(id: Id, claimant: DispatchId, branch: string) => ChangeRef} claim
+ * @property {(id: Id, claimant: DispatchId, branch: string, budgetTokens?: number | null) => ChangeRef} claim
+ *   budgetTokens: the dispatch's token cap, carried in the claim (HITLD-841)
  * @property {(id: Id) => Change[]} history
  * @property {() => void} renderViews
  */
