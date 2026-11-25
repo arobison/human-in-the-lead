@@ -407,8 +407,10 @@ export const pathWeight = (it) => {
 
 /**
  * Each open item's weight on a path by its sizing estimate (HITLD-995), as the ready queue weighs
- * it: a work item's own `estimate_tokens`, else what sizing derives for it under the policy (the
- * tier's default, with no ledger here); a decision or an external item its own estimate or 1.
+ * it: a work item's own `estimate_tokens`, else what sizing derives for it under the policy. The
+ * tracker reads no ledger, so that is the tier's default (after any `tier_override`), never the
+ * median of past completions the queue may use; a decision or an external item its own estimate
+ * or 1.
  * @param {Record<string, any>} policy @param {{ workDir?: string }} [o]
  * @returns {(it: Node) => number}
  */
@@ -421,7 +423,11 @@ export function sizingWeight(policy, o = {}) {
     const id = String(it.data.id);
     const hit = memo.get(id);
     if (hit !== undefined) return hit;
-    const item = /** @type {any} */ ({ ...it.data, body: it.body });
+    // Front matter reads a tier_override as text; the queue reads the tracker's entity, whose
+    // tier_override is a number, so it is read the same way here.
+    const t = it.data.tier_override;
+    const tier = typeof t === 'string' && /^\d+$/.test(t) ? Number(t) : t;
+    const item = /** @type {any} */ ({ ...it.data, tier_override: tier, body: it.body });
     const w = Math.max(0, Number(sizeItem(item, policy, [], o).estimate_tokens) || 0);
     memo.set(id, w);
     return w;

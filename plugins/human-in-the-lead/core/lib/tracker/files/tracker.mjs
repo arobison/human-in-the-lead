@@ -861,7 +861,7 @@ export function openTracker({
       }
       const warnings = [
         ...unplacedWork(items),
-        ...unnumberedReleaseLinks(items),
+        ...unnumberedReleaseLinks(items, weightOf()),
         ...descriptionWarnings(items),
         ...retiredConstraintLines(items),
         ...legacyReleaseWarnings(records, layout),

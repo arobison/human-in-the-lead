@@ -11,6 +11,7 @@ import {
   unblockCounts,
   weightsOf,
 } from '../lib/dispatch/queue.mjs';
+import { sizingWeight } from '../lib/tracker/files/views.mjs';
 
 /**
  * A planned work item. @param {string} id @param {Record<string, any>} [more]
@@ -348,4 +349,31 @@ test('every open item weighs its sizing estimate: its own, else the tier default
   // W-1's own estimate, W-2 through the milestone, and the release item itself, each unplanned
   // item at the tier-3 default.
   assert.equal(chain[0].remaining_tokens, 1234 + 400000 + 400000);
+});
+
+test('critical path only falls back to the most unblocked when no open release holds a ready item', () => {
+  // The release waits on W-3, which is in progress; W-1 and W-2 serve no release.
+  const items = [
+    work('W-1'),
+    work('W-2'),
+    work('W-3', { state: 'in-progress' }),
+    work('W-4', { needs: ['W-2'] }),
+    release('W-9', ['W-3']),
+  ];
+  const r = rank(items);
+  assert.equal(r.releases.length, 1);
+  assert.deepEqual(r.ids, ['W-2', 'W-1']);
+  assert.deepEqual([...r.critical], ['W-2'], 'the rule with no release, not an empty set');
+});
+
+test('the views size an item as the queue does: a stored estimate, else the default for its tier, a text tier_override read as a number', () => {
+  const policy = { dispatch: { default_estimates: { 1: 50000, 2: 150000, 3: 400000 } } };
+  const weight = sizingWeight(policy);
+  const node = (/** @type {Record<string, unknown>} */ data) =>
+    /** @type {any} */ ({ data: { kind: 'work', state: 'planned', ...data }, body: '\nBody.\n' });
+  // Front matter reads numbers as text.
+  assert.equal(weight(node({ id: 'W-1', estimate_tokens: '1234' })), 1234);
+  assert.equal(weight(node({ id: 'W-2' })), 400000, 'no plan: tier 3');
+  assert.equal(weight(node({ id: 'W-3', tier_override: '1' })), 50000);
+  assert.equal(weight(node({ id: 'W-4', kind: 'decision' })), 1);
 });

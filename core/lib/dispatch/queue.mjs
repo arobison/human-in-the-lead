@@ -53,8 +53,8 @@ import { sizeItem } from './sizing.mjs';
  * @property {Map<string, RankKey>} keys by item ID
  * @property {Release[]} releases the open releases, nearest first
  * @property {Set<string>} critical the items the quota gate lets through in critical-path-only
- *   mode: the first tier with ready work, those on its longest path; with no open release, the
- *   ready items that unblock the most
+ *   mode: the first tier with ready work, those on its longest path; with no open release, or no
+ *   open release holding a ready item, the ready items that unblock the most
  */
 
 const ITEM_KINDS = ['work', 'decision', 'external'];
@@ -392,7 +392,9 @@ export function rankQueue(r) {
   );
 
   // Critical path only: the first tier that has ready work, its items on its longest path. A
-  // ready item has no open needs, so the longest chain through it starts at it.
+  // ready item has no open needs, so the longest chain through it starts at it. When no open
+  // release holds a ready item, the rule with no release stands: the ready items that unblock the
+  // most, so the gate does not pass nothing while ready work waits.
   const first = queue
     .map((i) => keys.get(String(i.id)))
     .find((k) => k?.release_tier !== null && k?.release_tier !== undefined)?.release_tier;
@@ -404,8 +406,9 @@ export function rankQueue(r) {
     for (const i of inTier) {
       if (keys.get(String(i.id))?.longest_path_tokens === max) critical.add(String(i.id));
     }
+    return { queue, keys, releases, critical };
   }
-  return { queue, keys, releases, critical };
+  return { queue, keys, releases, critical: criticalPath(r.ready, unblocks) };
 }
 
 /**

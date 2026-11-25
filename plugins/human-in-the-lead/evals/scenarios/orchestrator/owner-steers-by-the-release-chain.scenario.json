@@ -3,7 +3,7 @@
   "id": "orchestrator/owner-steers-by-the-release-chain",
   "suite": "orchestrator",
   "category": "queue-order",
-  "description": "The ready queue is ordered by the release chain, with no priority to set (design part 2.4, HITLD-995): the work the nearest release needs goes first, a stray priority key changes nothing, and work no release needs is listed apart with how long it has waited. When the owner wants other work sooner, the chief of staff records the choice as a decision and the owner's steer is a change to a release's needs, after which the queue follows the graph.",
+  "description": "The ready queue is ordered by the release chain, with no priority to set (design part 2.4, HITLD-995): the work the nearest release needs goes first, ahead of an item that unblocks as much and carries a stray urgent priority (which the order before the release chain put first), a stray priority key changes nothing, and work no release needs is listed apart with how long it has waited. When the owner wants other work sooner, the chief of staff records the choice as a decision and the owner's steer is a change to a release's needs, after which the queue follows the graph.",
   "mode": "offline",
   "fixture": {
     "generator": "repo",
@@ -40,6 +40,14 @@
       "with": {
         "path": "work/items/FX-12-color-the-headers.md",
         "content": "---\nid: FX-12\ntitle: Color the headers\nkind: work\nstate: planned\nproject: FX-1\npriority: urgent\ncreated: 2026-11-02\n---\n\n## Done when\n\nThe headers are colored.\n"
+      }
+    },
+    {
+      "id": "after-colors",
+      "action": "file.write",
+      "with": {
+        "path": "work/items/FX-14-theme-the-headers.md",
+        "content": "---\nid: FX-14\ntitle: Theme the headers\nkind: work\nstate: planned\nproject: FX-1\nneeds: [FX-12]\n---\n\n## Done when\n\nThe headers follow the theme.\n"
       }
     },
     {

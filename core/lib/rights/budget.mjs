@@ -228,7 +228,7 @@ export function deliveryGate(candidates, r) {
     const fills = Math.min(idleLeft, c.unblocks_ready.length);
     idleLeft -= fills;
     const why = c.critical_path
-      ? `it blocks the critical path (${count(c.blocks.length, 'item', 'items')}, cost of delay ${c.cost_of_delay})`
+      ? `it blocks the critical path (${count(c.blocks.length, 'item', 'items')}, cost of delay ${Number(c.cost_of_delay).toLocaleString('en-US')} estimated tokens)`
       : fills > 0
         ? `no ready work is left for ${count(idle, 'idle slot', 'idle slots')}, and answering it makes ${count(c.unblocks_ready.length, 'item', 'items')} ready`
         : null;

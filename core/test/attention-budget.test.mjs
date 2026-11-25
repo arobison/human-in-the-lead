@@ -113,12 +113,22 @@ test('quiet hours cross midnight, are read in the person’s zone, and say when 
 
 test('a question that blocks the critical path goes now, and uses an interrupt', () => {
   const g = deliveryGate(
-    [candidate({ id: 'W-1', critical_path: true, blocks: ['W-8', 'W-9'], cost_of_delay: 4 })],
+    [
+      candidate({
+        id: 'W-1',
+        critical_path: true,
+        blocks: ['W-8', 'W-9'],
+        cost_of_delay: 1200000,
+      }),
+    ],
     readings(),
   );
   const d = of(g, 'W-1');
   assert.equal(d.deliver, 'now');
-  assert.match(d.reason, /blocks the critical path \(2 items, cost of delay 4\); interrupt 1 of 3/);
+  assert.match(
+    d.reason,
+    /blocks the critical path \(2 items, cost of delay 1,200,000 estimated tokens\); interrupt 1 of 3/,
+  );
   assert.equal(
     g.budget.interrupts_per_day.left,
     3,
