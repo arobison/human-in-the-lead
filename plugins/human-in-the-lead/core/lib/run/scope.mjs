@@ -16,6 +16,7 @@
 // Starts under it are ordinary `dispatched` events that carry the scope's decision and the session
 // that started them (`by`), so what a scope has spent is read from the ledger.
 
+import { createHash } from 'node:crypto';
 import { matchesAny } from '../precedent/glob.mjs';
 import { waitsForOwner } from '../merge/owner.mjs';
 
@@ -43,6 +44,9 @@ import { waitsForOwner } from '../merge/owner.mjs';
 
 export const SCOPE_KEY = 'run/scope.json';
 
+/** How a follow-up's dispatched event names the dispatch it continues (its notes). */
+export const FOLLOW_UP_OF = 'follow-up of ';
+
 /** The longest a scope may run, from the owner's yes: per run, never standing. */
 export const SCOPE_MAX_HOURS = 168;
 
@@ -50,44 +54,84 @@ export const SCOPE_MAX_HOURS = 168;
 export const SCOPE_YES = 'Yes, start them';
 const SCOPE_NO = 'No';
 const TITLE = /^Run scope: start (.+) within ([1-9]\d*) tokens until (\S+)$/;
+/** The scope as the yes option states it, inside the answer the rights flow records. */
+const IN_ANSWER = /may start (.+?) within ([1-9]\d*) tokens until (\S+?), by itself/;
 
 /**
  * The paths whose changes are the owner's: guard, policy, rights and skills. A scope is refused
  * unless owner merge mode holds a change to each for the owner's yes (the owner's ruling on
  * HITLD-877). `in_repo` entries count only where the directory exists, as in this repository.
+ * The check is by sample files under each glob, shallow and deep, not by every possible path: a
+ * policy that carves out a narrower path inside one of these (a "!" glob or an area) is not seen.
  */
 export const OWNER_ONLY = Object.freeze([
   {
     what: 'policy and rights',
     glob: '.human-in-the-lead/**',
-    sample: '.human-in-the-lead/policy.json',
+    samples: ['.human-in-the-lead/policy.json', '.human-in-the-lead/any/deep/file.json'],
   },
-  { what: 'guard and harness settings', glob: '.claude/**', sample: '.claude/settings.json' },
-  { what: 'skills', glob: 'skills/**', sample: 'skills/any/SKILL.md' },
+  {
+    what: 'guard and harness settings',
+    glob: '.claude/**',
+    samples: ['.claude/settings.json', '.claude/skills/any/SKILL.md', '.claude/hooks/any.mjs'],
+  },
+  {
+    what: 'skills',
+    glob: 'skills/**',
+    samples: ['skills/any/SKILL.md', 'skills/any/deep/file.md'],
+  },
   {
     what: 'guard',
     glob: 'core/lib/guard/**',
-    sample: 'core/lib/guard/any.mjs',
+    samples: ['core/lib/guard/any.mjs', 'core/lib/guard/deep/any.mjs'],
     in_repo: 'core/lib/guard',
   },
   {
     what: 'rights',
     glob: 'core/lib/rights/**',
-    sample: 'core/lib/rights/any.mjs',
+    samples: ['core/lib/rights/any.mjs', 'core/lib/rights/deep/any.mjs'],
     in_repo: 'core/lib/rights',
   },
 ]);
 
+/** The scope in one canonical line. @param {ScopeSpec} s */
+export const scopeLine = (s) =>
+  `start ${s.items.join(', ')} within ${s.budget_tokens} tokens until ${s.until}`;
+
 /** The title the decision carries: the scope as the owner reads it. @param {ScopeSpec} s */
-export const scopeTitle = (s) =>
-  `Run scope: start ${s.items.join(', ')} within ${s.budget_tokens} tokens until ${s.until}`;
+export const scopeTitle = (s) => `Run scope: ${scopeLine(s)}`;
 
 /**
  * The scope a decision's title states, or null when the title is not a run-scope question.
  * @param {unknown} title @returns {ScopeSpec | null}
  */
-export function parseScopeTitle(title) {
-  const m = TITLE.exec(String(title ?? ''));
+export const parseScopeTitle = (title) => specOf(TITLE.exec(String(title ?? '')));
+
+/**
+ * The scope the owner's recorded answer states (the yes option names it in full), or null.
+ * @param {unknown} text @returns {ScopeSpec | null}
+ */
+export const parseScopeAnswer = (text) => specOf(IN_ANSWER.exec(String(text ?? '')));
+
+/**
+ * What differs between the scope the owner said yes to and the one the decision states now.
+ * @param {ScopeSpec} agreed @param {ScopeSpec} now @returns {string[]}
+ */
+export function scopeDiff(agreed, now) {
+  const out = [];
+  const added = now.items.filter((i) => !agreed.items.includes(i));
+  const dropped = agreed.items.filter((i) => !now.items.includes(i));
+  if (added.length) out.push(`items added: ${added.join(', ')}`);
+  if (dropped.length) out.push(`items removed: ${dropped.join(', ')}`);
+  if (agreed.budget_tokens !== now.budget_tokens) {
+    out.push(`budget ${agreed.budget_tokens} became ${now.budget_tokens} tokens`);
+  }
+  if (agreed.until !== now.until) out.push(`end time ${agreed.until} became ${now.until}`);
+  return out;
+}
+
+/** @param {RegExpExecArray | null} m @returns {ScopeSpec | null} */
+function specOf(m) {
   if (!m) return null;
   const items = m[1].split(', ').map((s) => s.trim());
   const until = Date.parse(m[3]);
@@ -114,7 +158,8 @@ export function scopeQuestion(s, sensitive) {
     options: [
       {
         label: SCOPE_YES,
-        what_happens: `the chief of staff starts these items itself, within the cap and the quota gate, until ${s.until} or ${s.budget_tokens} tokens`,
+        // The whole scope, so the answer the rights flow records in the ledger holds it.
+        what_happens: `the chief of staff may ${scopeLine(s)}, by itself, within the cap and the quota gate`,
         reversible: true,
       },
       {
@@ -159,13 +204,13 @@ export function ownerHoldsChanges(policy, exists) {
     };
   }
   const open = OWNER_ONLY.filter(
-    (o) => (!o.in_repo || exists(o.in_repo)) && !waitsForOwner([o.sample], policy),
+    (o) => (!o.in_repo || exists(o.in_repo)) && o.samples.some((f) => !waitsForOwner([f], policy)),
   );
   if (open.length) {
     return {
       ok: false,
       code: 'scope-merge-unguarded',
-      why: `merge.owner_paths does not hold ${open.map((o) => `${o.what} (${o.glob})`).join(', ')} for the owner's yes: a run scope needs it to`,
+      why: `merge.owner_paths and owner_areas do not hold ${open.map((o) => `${o.what} (${o.glob})`).join(', ')} for the owner's yes, checked by sample files under each: a run scope needs them to`,
     };
   }
   return { ok: true };
@@ -180,7 +225,9 @@ export function touchingOwnerPaths(items) {
     .map((i) => ({
       item: String(i.id),
       touches: (i.touches ?? []).filter((t) =>
-        OWNER_ONLY.some((o) => matchesAny([o.glob], t) || matchesAny([t], o.sample)),
+        OWNER_ONLY.some(
+          (o) => matchesAny([o.glob], t) || o.samples.some((f) => matchesAny([t], f)),
+        ),
       ),
     }))
     .filter((x) => x.touches.length);
@@ -214,7 +261,8 @@ const isYes = (text) => String(text ?? '').startsWith(`A. ${SCOPE_YES}:`);
  *   events: LedgerEntry[],
  *   run: { id: string, started_at?: string } | null,
  *   now: number,
- * }} o
+ *   issuedAt: (line: string) => string | null,
+ * }} o issuedAt: when hitld run scope question wrote the question for that scope line, or null
  * @returns {{ ok: true, scope: RunScope } | ScopeRefusal}
  */
 export function deriveScope(o) {
@@ -231,6 +279,15 @@ export function deriveScope(o) {
     };
   }
   if (!o.run) return { ok: false, code: 'no-run', why: 'no run has started' };
+  // The owner's end is in the ledger: a scope ended once stays ended, whatever the store file says.
+  const ended = o.events.find((e) => e.event === 'scope-ended' && e.decision === o.id);
+  if (ended) {
+    return {
+      ok: false,
+      code: 'scope-ended',
+      why: `the run scope of ${o.id} was ended at ${ended.at}${ended.notes ? ` (${ended.notes})` : ''}; it does not open again: ask the owner for a new one`,
+    };
+  }
   const answered = o.events.filter(
     (e) => e.event === 'answered' && e.decision === o.id && e.corrects === undefined,
   );
@@ -246,7 +303,25 @@ export function deriveScope(o) {
     return {
       ok: false,
       code: 'scope-not-confirmed',
-      why: `the owner's answer to ${o.id} is not "${SCOPE_YES}": no scope is open`,
+      why: `the owner's answer to ${o.id} is not "${SCOPE_YES}": no scope is open for ${spec.items.join(', ')}`,
+    };
+  }
+  // What the owner agreed to is what the yes option stated when the answer was recorded, in the
+  // ledger; the decision's title, a tracker file a branch can change, must still say the same.
+  const agreed = parseScopeAnswer(yes.text);
+  if (!agreed) {
+    return {
+      ok: false,
+      code: 'scope-not-confirmed',
+      why: `the owner's recorded answer to ${o.id} states no scope: it was not asked with the question hitld run scope question writes`,
+    };
+  }
+  const changed = scopeDiff(agreed, spec);
+  if (changed.length) {
+    return {
+      ok: false,
+      code: 'scope-changed',
+      why: `${o.id} no longer states the scope the owner said yes to: ${changed.join('; ')}`,
     };
   }
   // In this run: after it started, and in it where the event names a run (on a device that holds
@@ -264,6 +339,14 @@ export function deriveScope(o) {
       why: `${o.id} was answered outside this run (${o.run.id}): a scope is per run, never standing`,
     };
   }
+  const issued = o.issuedAt(scopeLine(agreed));
+  if (issued === null || !(Date.parse(issued) <= at)) {
+    return {
+      ok: false,
+      code: 'scope-not-confirmed',
+      why: `no question for this scope (${scopeLine(agreed)}) was written by hitld run scope question before the owner's answer to ${o.id}`,
+    };
+  }
   const until = Date.parse(spec.until);
   if (!(at <= o.now) || until <= at || until - at > SCOPE_MAX_HOURS * 3600_000) {
     return {
@@ -274,9 +357,26 @@ export function deriveScope(o) {
   }
   return {
     ok: true,
-    scope: { ...spec, run: o.run.id, decision: o.id, granted_at: String(yes.at) },
+    scope: { ...agreed, run: o.run.id, decision: o.id, granted_at: String(yes.at) },
   };
 }
+
+/** Where hitld run scope question records the question it wrote for a scope line. @param {string} line */
+export const issuedKey = (line) =>
+  `run/scope-questions/${createHash('sha256').update(line).digest('hex').slice(0, 32)}.json`;
+
+/**
+ * When hitld run scope question wrote the question for a scope line, from the store.
+ * @param {PrivateStore} store @returns {(line: string) => string | null}
+ */
+export const issuedIn = (store) => (line) => {
+  try {
+    const r = JSON.parse(store.read(issuedKey(line)) ?? 'null');
+    return r && r.line === line && typeof r.at === 'string' ? r.at : null;
+  } catch {
+    return null;
+  }
+};
 
 /**
  * What a scope has spent: for each start under it, the tokens its reports recorded, else its start
@@ -291,7 +391,16 @@ export function spentOf(scope, events) {
   const reported = new Map();
   for (const e of events) {
     const d = String(e.dispatch);
-    if (e.event === 'dispatched' && e.decision === scope.decision && e.run === scope.run) {
+    // A start under the scope, or a follow-up of one (which carries no decision of its own).
+    const follows =
+      typeof e.notes === 'string' && e.notes.startsWith(FOLLOW_UP_OF)
+        ? e.notes.slice(FOLLOW_UP_OF.length)
+        : null;
+    if (
+      e.event === 'dispatched' &&
+      ((e.decision === scope.decision && e.run === scope.run) ||
+        (follows !== null && estimate.has(follows)))
+    ) {
       estimate.set(d, typeof e.estimate_tokens === 'number' ? e.estimate_tokens : 0);
     } else if (e.event === 'reported' && typeof e.tokens === 'number') {
       reported.set(d, (reported.get(d) ?? 0) + e.tokens);
@@ -353,6 +462,7 @@ export function scopeStatus(scope, file, at) {
  *   run: { id: string, started_at?: string } | null,
  *   events: LedgerEntry[],
  *   lookup: (id: string) => Record<string, any> | null,
+ *   issuedAt: (line: string) => string | null,
  * }} start
  * @returns {{ ok: true, scope: RunScope, spent: number, left: number } | ScopeRefusal}
  */
@@ -385,6 +495,7 @@ export function checkScopeStart(file, start) {
     events: start.events,
     run: start.run,
     now: start.now,
+    issuedAt: start.issuedAt,
   });
   if (!derived.ok) return derived;
   const scope = derived.scope;

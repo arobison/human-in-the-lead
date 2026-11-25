@@ -110,7 +110,7 @@ export const ERROR_CODES = Object.freeze({
   'scope-invalid':
     "The run scope's times do not hold: its record or the owner's yes is dated after now, or it ends before the yes or more than 168 hours after it.",
   'scope-changed':
-    "The decision no longer states the scope the owner said yes to (items, budget or end time changed since), so nothing starts under it.",
+    'The decision no longer states the scope the owner said yes to (items, budget or end time changed since), so nothing starts under it.',
   'start-lock-timeout':
     'Another start on this machine held the start lock past the wait, so nothing was started; run it again once that start has finished.',
   'scope-merge-unguarded':
