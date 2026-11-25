@@ -2,10 +2,11 @@
 id: HITLD-274
 title: Feedback render shows the private record, not the draft that will be filed
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-64 c2, HITLD-67 c2]
+claimed_by: D-01M88NBXC1S1YK3C
 ---
 
 ## Why
