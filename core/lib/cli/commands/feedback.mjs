@@ -16,9 +16,8 @@ import {
   readRecords,
   recordFeedback,
 } from '../../feedback/record.mjs';
-import { renderIssueBody } from '../../feedback/render.mjs';
 import { SOURCES, routeFeedback } from '../../feedback/route.mjs';
-import { answerPublication, pending, recordDraft } from '../../feedback/publish.mjs';
+import { answerPublication, pending, recordDraft, renderView } from '../../feedback/publish.mjs';
 import { ghFiler } from '../../feedback/filer.mjs';
 import { GateRefusal, approvalRefusal } from '../../sendgate/gate.mjs';
 import { CodedError } from '../errors.mjs';
@@ -214,7 +213,7 @@ export function makeCommands({ makeFiler }) {
     {
       name: 'feedback render',
       summary:
-        "Print a record's issue body under the headings of the issue forms (HITLd version, Harness, Loop, What happened, What you expected, Evidence)",
+        "Print a record's issue under the headings of the issue forms (HITLd version, Harness, Loop, What happened, What you expected, Evidence): once it has a public draft, the issue as it will be filed (title, labels, body); otherwise, or with --record, the private record. `shows` says which",
       built_by: 'feedback',
       args: [
         {
@@ -224,17 +223,25 @@ export function makeCommands({ makeFiler }) {
           required: true,
           description: 'The record, such as FB-3',
         },
+        {
+          name: 'record',
+          type: 'boolean',
+          description:
+            "Show the private record (the person's own words), not the draft that will be filed",
+        },
         STORE,
       ],
       run: (input, ctx) => {
         const store = openPrivate(input, ctx);
         const record = readRecord(store, String(input.id));
+        const view = renderView(record, { record: input.record === true });
         return {
           ok: true,
           id: record.id,
           kind: record.kind,
-          classification: record.classification,
-          body: renderIssueBody(record),
+          state: record.state,
+          classification: view.shows === 'draft' ? 'public' : record.classification,
+          ...view,
         };
       },
     },

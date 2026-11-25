@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-24
 project: HITLD-15
-constraint_of: [HITLD-405 c?]
+constraint_of: [HITLD-67 c?]
 ---
 
 ## Done when
@@ -20,4 +20,4 @@ GitHub issue 606 (v0.1.0-rc.1): a measurement waited more than an hour for a qui
 
 ## Notes
 
-rc.3. Platform-specific (macOS), confidence on the numbers: Guessing, taken from the report. Related: HITLD-42 (load-aware admission), HITLD-882 (env status names the top processes, indexer folders), HITLD-983 (a job can request a quiet machine).
+rc.2 (the owner moved it in on 2026-11-25). Platform-specific (macOS), confidence on the numbers: Guessing, taken from the report. Related: HITLD-42 (load-aware admission), HITLD-882 (env status names the top processes, indexer folders), HITLD-983 (a job can request a quiet machine).
