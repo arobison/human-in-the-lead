@@ -10,6 +10,12 @@
 // holder in its own file under <resource>.holders/, admitted under a mutex while the live weights
 // fit. Either way only the first in the queue may try, so a heavy holder waiting at the head is
 // not overtaken by light ones that arrive after it.
+//
+// A holder name is one process's (HITLD-1050): a record names its holder and the process it
+// follows (pid and start time). A live holder that asks again from that process is renewed
+// before the queue is looked at, so it never waits behind waiters that wait on it. Another process
+// asking under a name a live holder has is refused, with the holder named; once that holder is
+// stale, the name is taken over like any other lock.
 
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
@@ -121,11 +127,11 @@ function readHolders(ctx, resource) {
 }
 
 /**
- * Write a weighted holder's record whole: a reader under the admission mutex would take a
- * half-written file for an unreadable, stale one and remove it.
+ * Write a lock record whole, for a weighted holder's record and for a renewal of the single lock:
+ * a reader would take a half-written file for an unreadable, stale one and remove it.
  * @param {string} path @param {LockRecord} record
  */
-function writeHolder(path, record) {
+function writeWhole(path, record) {
   const tmp = `${path}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`;
   writeFileSync(tmp, JSON.stringify(record) + '\n');
   renameSync(tmp, path);
@@ -178,6 +184,57 @@ function staleReason(record, now, starts) {
     }
   }
   if (Date.parse(record.expires_at) < now) return 'it expired without being renewed';
+  return null;
+}
+
+/**
+ * Whether a record was written for the caller's process: the same pid on this host, with the same
+ * start time when both are known (a pid alone may have been reused).
+ * @param {LockRecord | null | undefined} record @param {number} pid
+ * @param {() => string | null} startOf the caller's start time, looked up only when the pids match
+ */
+function sameProcess(record, pid, startOf) {
+  if (!record || record.host !== hostname() || record.pid !== pid) return false;
+  if (!record.pid_start) return true;
+  const start = startOf();
+  return !start || start === record.pid_start;
+}
+
+/**
+ * The caller's own live hold on a resource, looked at before the queue: the single lock or its
+ * weighted record, under its name and written for its process. Its own hold is renewed at once
+ * and kept at the weight it has; a holder that asks again never takes a ticket behind waiters
+ * that wait on it. The renewal is made under the mutex a takeover or an admission takes, so it
+ * never brings back a record another caller has just judged stale and removed. The name held by
+ * another live process is a conflict. A stale record under the name is neither, whoever wrote it:
+ * a hold that has lapsed is not renewed ahead of the queue, and the attempt takes it like any
+ * stale lock.
+ * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
+ * @param {() => string | null} startOf @param {number} ttlMs
+ * @returns {Promise<{ renewed: LockRecord } | { conflict: LockRecord } | null>}
+ */
+async function ownHold(ctx, resource, holder, pid, startOf, ttlMs) {
+  const single = lockFile(ctx, resource);
+  const places = [
+    { path: single, mutex: `${single}.takeover` },
+    { path: holderFile(ctx, resource, holder), mutex: `${holdersDir(ctx, resource)}.admit` },
+  ];
+  for (const { path, mutex } of places) {
+    const seen = readLock(path);
+    if (!seen || seen.holder !== holder || staleReason(seen, Date.now())) continue;
+    if (!sameProcess(seen, pid, startOf)) return { conflict: seen };
+    const renewed = await withMutex(mutex, () => {
+      const cur = readLock(path);
+      if (!cur || cur.holder !== holder || !sameProcess(cur, pid, startOf)) return null;
+      if (staleReason(cur, Date.now())) return null;
+      /** @type {LockRecord} */
+      const record = newRecord(resource, holder, pid, startOf(), ttlMs, cur.acquired_at);
+      if (path !== single) record.weight = weightOf(cur);
+      writeWhole(path, record);
+      return record;
+    });
+    if (renewed) return { renewed };
+  }
   return null;
 }
 
@@ -255,10 +312,10 @@ async function attempt(ctx, resource, holder, pid, pidStart, ttlMs) {
     }
     const current = readLock(path);
     if (current === undefined) continue; // released between our two looks
-    if (current && current.holder === holder) {
-      // Asking again as the holder renews.
+    if (current && current.holder === holder && sameProcess(current, pid, () => pidStart)) {
+      // Taken by this process since ownHold looked (a second ask from it at the same moment).
       const renewed = { ...record, acquired_at: current.acquired_at };
-      writeFileSync(path, JSON.stringify(renewed) + '\n');
+      writeWhole(path, renewed);
       return { taken: true, record: renewed, renewed: true };
     }
     const reason = staleReason(current, Date.now());
@@ -285,8 +342,8 @@ async function attempt(ctx, resource, holder, pid, pidStart, ttlMs) {
 /**
  * One attempt to take `weight` units of a resource with a capacity above 1. Under the resource's
  * admission mutex: stale holders are removed (and logged as takeovers), the live weights are
- * summed, and the holder is recorded if its weight fits. Asking again as a holder renews it and
- * keeps the weight it holds.
+ * summed, and the holder is recorded if its weight fits. Asking again as a holder, from its
+ * process, renews it and keeps the weight it holds; its name held by another live process refuses.
  * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
  * @param {string | null} pidStart @param {number} ttlMs @param {number} weight @param {number} capacity
  * @returns {Promise<{ taken: true, record: LockRecord, renewed?: boolean }
@@ -303,14 +360,16 @@ async function attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weig
     const singlePath = lockFile(ctx, resource);
     const single = readLock(singlePath);
     const starts = startsFor([...holders.map((h) => h.record), single], now);
+    const mine = (/** @type {LockRecord | null | undefined} */ r) =>
+      !!r && r.holder === holder && sameProcess(r, pid, () => pidStart);
     // The caller already holds the single lock (taken while this resource had capacity 1):
     // asking again renews that, rather than taking a second hold beside it.
-    if (single && single.holder === holder && !staleReason(single, now, starts)) {
+    if (mine(single) && !staleReason(/** @type {LockRecord} */ (single), now, starts)) {
       const renewed = {
         ...newRecord(resource, holder, pid, pidStart, ttlMs),
-        acquired_at: single.acquired_at,
+        acquired_at: /** @type {LockRecord} */ (single).acquired_at,
       };
-      writeFileSync(singlePath, JSON.stringify(renewed) + '\n');
+      writeWhole(singlePath, renewed);
       return { taken: /** @type {const} */ (true), record: renewed, renewed: true };
     }
     /** @type {LockRecord | null} */
@@ -318,7 +377,7 @@ async function attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weig
     /** @type {LockRecord[]} */
     const live = [];
     for (const h of holders) {
-      if (h.record && h.record.holder === holder) {
+      if (mine(h.record)) {
         own = h.record;
         continue;
       }
@@ -333,13 +392,16 @@ async function attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weig
     // A live single lock file (taken by a caller that sees capacity 1) fills the resource.
     const singleLive = single && !staleReason(single, now, starts);
     const used = singleLive ? capacity : live.reduce((n, r) => n + weightOf(r), 0);
+    // The caller's name, held by another live process: refused, never a second record beside it.
+    const namesake = live.find((r) => r.holder === holder);
+    if (namesake) return { taken: /** @type {const} */ (false), held_by: namesake, used };
     const path = holderFile(ctx, resource, holder);
     if (own) {
       const renewed = {
         ...newRecord(resource, holder, pid, pidStart, ttlMs, own.acquired_at),
         weight: weightOf(own),
       };
-      writeHolder(path, renewed);
+      writeWhole(path, renewed);
       return { taken: /** @type {const} */ (true), record: renewed, renewed: true };
     }
     if (used + weight > capacity) {
@@ -350,12 +412,12 @@ async function attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weig
       };
     }
     const record = { ...newRecord(resource, holder, pid, pidStart, ttlMs), weight };
-    writeHolder(path, record);
+    writeWhole(path, record);
     // The single lock is taken without this mutex, by a caller that sees capacity 1. Each side
     // writes its own record first and then looks for the other's, so of two that arrive together
     // at least one sees the other and backs out: at worst both refuse, never both hold.
     const after = readLock(singlePath);
-    if (after && after.holder !== holder && !staleReason(after, Date.now())) {
+    if (after && !mine(after) && !staleReason(after, Date.now())) {
       rmSync(path, { force: true });
       return { taken: /** @type {const} */ (false), held_by: after, used: capacity };
     }
@@ -366,25 +428,29 @@ async function attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weig
 }
 
 /**
- * The live weighted holders of a resource, other than `holder`. They exist beside a caller that
- * sees capacity 1 only when the machine profile's capacity changed under live holders, or when
- * callers read different profiles.
- * @param {LockContext} ctx @param {string} resource @param {string} holder
+ * The live weighted holders of a resource, other than the caller's own (its name and process). They
+ * exist beside a caller that sees capacity 1 only when the machine profile's capacity changed under
+ * live holders, or when callers read different profiles.
+ * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
+ * @param {string | null} pidStart
  * @returns {LockRecord[]}
  */
-function liveWeightedBesides(ctx, resource, holder) {
+function liveWeightedBesides(ctx, resource, holder, pid, pidStart) {
   const now = Date.now();
   const holders = readHolders(ctx, resource).map((h) => h.record);
   const starts = startsFor(holders, now);
+  const mine = (/** @type {LockRecord} */ r) =>
+    r.holder === holder && sameProcess(r, pid, () => pidStart);
   return /** @type {LockRecord[]} */ (
-    holders.filter((r) => r && r.holder !== holder && !staleReason(r, now, starts))
+    holders.filter((r) => r && !mine(r) && !staleReason(r, now, starts))
   );
 }
 
 /**
  * Take a resource that has capacity 1 for this caller: the single lock, unchanged, with two checks
  * for weighted holders written by callers that see a larger capacity. Before: a live weighted
- * holder keeps it held, and the caller's own weighted hold is renewed instead of taking a second.
+ * holder keeps it held, and the caller's own weighted hold (its name and process) is renewed
+ * instead of taking a second.
  * After: having written the lock, it looks again (the other side does the same, see
  * attemptWeighted), and backs out if a weighted holder came in meanwhile.
  * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
@@ -394,19 +460,24 @@ function liveWeightedBesides(ctx, resource, holder) {
 async function attemptSerial(ctx, resource, holder, pid, pidStart, ttlMs) {
   const ownPath = holderFile(ctx, resource, holder);
   const own = readLock(ownPath);
-  if (own && own.holder === holder && !staleReason(own, Date.now())) {
+  if (
+    own &&
+    own.holder === holder &&
+    sameProcess(own, pid, () => pidStart) &&
+    !staleReason(own, Date.now())
+  ) {
     const renewed = {
       ...newRecord(resource, holder, pid, pidStart, ttlMs, own.acquired_at),
       weight: weightOf(own),
     };
-    writeHolder(ownPath, renewed);
+    writeWhole(ownPath, renewed);
     return { taken: true, record: renewed, renewed: true };
   }
-  const before = liveWeightedBesides(ctx, resource, holder);
+  const before = liveWeightedBesides(ctx, resource, holder, pid, pidStart);
   if (before.length) return { taken: false, held_by: before[0] };
   const r = await attempt(ctx, resource, holder, pid, pidStart, ttlMs);
   if (!r.taken || r.renewed) return r;
-  const after = liveWeightedBesides(ctx, resource, holder);
+  const after = liveWeightedBesides(ctx, resource, holder, pid, pidStart);
   if (!after.length) return r;
   const path = lockFile(ctx, resource);
   if (readLock(path)?.holder === holder) rmSync(path, { force: true });
@@ -428,13 +499,22 @@ function currentHolder(ctx, resource) {
  * weight above the resource's capacity could never be granted and is refused.
  *
  * Without `wait`, returns at once, taken or not. With `wait`, the caller queues behind earlier
- * arrivals and polls until it is first and the lock is free, or `timeoutMs` passes. A holder that
- * asks for a lock it already holds renews it. The lock follows `pid` (default: this process); an
- * in-process handle renews it on a timer, so it expires only if this process stops.
+ * arrivals and polls until it is first and the lock is free, or `timeoutMs` passes. The lock
+ * follows `pid` (default: this process); an in-process handle renews it on a timer, so it expires
+ * only if this process stops.
+ *
+ * A holder that asks for a lock it already holds renews it, at once, with or without `wait` and
+ * whether or not others are queued: its hold is looked for before the queue, and it keeps the
+ * weight it holds (`renewed` is true). Its hold is the live record under its name written for the
+ * same process (`pid` and that process's start time). A hold that has lapsed (expired, or its
+ * process gone) is no longer held: asking again then waits its turn like any caller. Another
+ * process asking under a name a live holder has is refused at once, never queued, with that
+ * holder in `held_by`; once that holder is stale, the name is taken over like any other lock.
  * @param {LockContext} ctx
  * @param {{ resource: string, holder: string, pid?: number, ttlSeconds?: number, wait?: boolean,
  *   timeoutMs?: number, pollMs?: number, autoRenew?: boolean, weight?: number }} request
- * @returns {Promise<{ acquired: true, handle: LockHandle, record: LockRecord, waited_ms: number }
+ * @returns {Promise<{ acquired: true, handle: LockHandle, record: LockRecord, waited_ms: number,
+ *       renewed: boolean }
  *   | { acquired: false, held_by: LockRecord | null, waited_ms: number, timed_out: boolean,
  *       capacity: number }>}
  */
@@ -466,46 +546,66 @@ export async function acquireLock(ctx, request) {
     ticket = null;
   };
 
-  /** @type {string | null | undefined} looked up at the first attempt, then reused */
+  /** @type {string | null | undefined} looked up when first needed, then reused */
   let pidStart;
+  const startOf = () => (pidStart === undefined ? (pidStart = processStart(pid)) : pidStart);
+
+  /** @param {{ record: LockRecord, renewed?: boolean }} r */
+  const granted = (r) => {
+    dropTicket();
+    const waited = Date.now() - started;
+    const renewed = r.renewed ?? false;
+    if (queued) ctx.log?.('lock_wait', { resource, holder, waited_ms: waited });
+    ctx.log?.('lock_acquired', {
+      resource,
+      holder,
+      pid,
+      renewed,
+      ...(r.record.weight === undefined ? {} : { weight: r.record.weight, capacity }),
+    });
+    return {
+      acquired: /** @type {const} */ (true),
+      record: r.record,
+      waited_ms: waited,
+      renewed,
+      handle: makeHandle(
+        ctx,
+        resource,
+        holder,
+        pid,
+        startOf(),
+        ttlMs,
+        request.autoRenew !== false,
+        r.record.weight ?? null,
+      ),
+    };
+  };
+  /** Refused because another live process holds the resource under the caller's name. @param {LockRecord} by */
+  const nameInUse = (by) => ({
+    acquired: /** @type {const} */ (false),
+    held_by: by,
+    waited_ms: Date.now() - started,
+    timed_out: false,
+    capacity,
+  });
 
   try {
     for (;;) {
+      // The caller's own hold first, before the queue: asking again renews it at once, and never
+      // takes a ticket behind waiters that wait on this very holder.
+      const own = await ownHold(ctx, resource, holder, pid, startOf, ttlMs);
+      if (own && 'renewed' in own) return granted({ record: own.renewed, renewed: true });
+      if (own) return nameInUse(own.conflict);
       const queue = liveQueue(ctx, resource);
       // Only the first in line may try; a newcomer with others waiting joins the queue instead.
       const myTurn = queue.length === 0 || (ticket !== null && queue[0] === ticket);
       if (myTurn) {
-        if (pidStart === undefined) pidStart = processStart(pid);
         const r = weighted
-          ? await attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weight, capacity)
-          : await attemptSerial(ctx, resource, holder, pid, pidStart, ttlMs);
-        if (r.taken) {
-          dropTicket();
-          const waited = Date.now() - started;
-          if (queued) ctx.log?.('lock_wait', { resource, holder, waited_ms: waited });
-          ctx.log?.('lock_acquired', {
-            resource,
-            holder,
-            pid,
-            renewed: r.renewed ?? false,
-            ...(r.record.weight === undefined ? {} : { weight: r.record.weight, capacity }),
-          });
-          return {
-            acquired: true,
-            record: r.record,
-            waited_ms: waited,
-            handle: makeHandle(
-              ctx,
-              resource,
-              holder,
-              pid,
-              pidStart,
-              ttlMs,
-              request.autoRenew !== false,
-              r.record.weight ?? null,
-            ),
-          };
-        }
+          ? await attemptWeighted(ctx, resource, holder, pid, startOf(), ttlMs, weight, capacity)
+          : await attemptSerial(ctx, resource, holder, pid, startOf(), ttlMs);
+        if (r.taken) return granted(r);
+        // Its name taken by another process since ownHold looked: refused, not waited for.
+        if (r.held_by?.holder === holder) return nameInUse(r.held_by);
         if (!request.wait) {
           return { acquired: false, held_by: r.held_by, waited_ms: 0, timed_out: false, capacity };
         }
@@ -548,10 +648,10 @@ function makeHandle(ctx, resource, holder, pid, pidStart, ttlMs, autoRenew, weig
   let timer = null;
   const renew = () => {
     const cur = readLock(path);
-    if (!cur || cur.holder !== holder) return;
+    // Only its own record: one another process took over under the same name is not this hold.
+    if (!cur || cur.holder !== holder || !sameProcess(cur, pid, () => pidStart)) return;
     const record = newRecord(resource, holder, pid, pidStart, ttlMs, cur.acquired_at);
-    if (weight === null) writeFileSync(path, JSON.stringify(record) + '\n');
-    else writeHolder(path, { ...record, weight });
+    writeWhole(path, weight === null ? record : { ...record, weight });
   };
   if (autoRenew) {
     timer = setInterval(renew, Math.max(1000, Math.floor(ttlMs / 3)));
