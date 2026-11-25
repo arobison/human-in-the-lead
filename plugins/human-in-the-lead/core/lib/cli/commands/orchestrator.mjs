@@ -233,11 +233,12 @@ const dueFor = (run, policy, input) =>
  * The private terms the merge checks every commit against. A list that does not read stops the
  * merge: nothing goes to main unchecked. One that is not there (a store not pulled) adds its
  * warning to `notes`, which the merge's result carries (HITLD-187); with merge.require_private_list
- * on, the owner's choice, it stops the merge instead.
+ * on, the owner's choice, it stops the merge instead. `said.list_found` records whether the list
+ * was read, for the presentation to say (HITLD-824).
  * @param {import('../../store/store.mjs').PrivateStore} store @param {Record<string, any>} policy
- * @param {NodeJS.ProcessEnv} env @param {string[]} notes
+ * @param {NodeJS.ProcessEnv} env @param {string[]} notes @param {{ list_found?: boolean }} said
  */
-function mergeTerms(store, policy, env, notes) {
+function mergeTerms(store, policy, env, notes, said) {
   /** @type {ReturnType<typeof loadTerms>} */
   let t;
   try {
@@ -256,6 +257,7 @@ function mergeTerms(store, policy, env, notes) {
     );
   }
   notes.push(...t.warnings);
+  said.list_found = t.list_found;
   return t.matchers;
 }
 
@@ -1121,7 +1123,7 @@ function approveHead(o) {
  * @param {{ p: any, run: any, ctx: Ctx, input: Record<string, unknown>, owner: boolean,
  *   approve: { all: boolean, names: string[] | null } | null,
  *   entries: import('../../merge/queue.mjs').Entry[],
- *   settings: import('../../merge/queue.mjs').Settings,
+ *   settings: import('../../merge/queue.mjs').Settings, listFound: boolean,
  *   layout: ReturnType<ReturnType<typeof openTracker>['layout']>, env: any }} o
  */
 async function pullRequestMerge(o) {
@@ -1278,6 +1280,10 @@ async function pullRequestMerge(o) {
       ? { approved_ahead: result.ahead }
       : {}),
     presented: waiting,
+    // Whether the private term list was read for this run's check of the pull requests' diffs and
+    // commit messages, or only the terms implied here were checked (HITLD-824): one value for the
+    // whole run. Only the pull-request merge result carries it.
+    list_found: o.listFound,
     question: waiting.length
       ? waiting.length === 1
         ? `Merge ${waiting[0].url}? yes, or no`
@@ -1292,6 +1298,9 @@ async function pullRequestMerge(o) {
             : '',
           waiting.length
             ? 'put the question to the owner in one message, one line per pull request (item, link, the checks passed, the files changed); merge only on the owner\'s own message: hitld merge --all or --only <branch> with --signoff "<the owner\'s sign-off>" (or the chief of staff records it with hitld merge approve)'
+            : '',
+          waiting.length && !o.listFound
+            ? "tell the owner the private term list was not read for this run, so these pull requests' diffs and commit messages were checked only against the terms implied here (list_found false, one value for the run, given with merge.via pull-request; the warnings say why), and present them again from where the store is read before the owner answers"
             : '',
           waiting.some((w) => w.no_signoff)
             ? `the ones marked no_signoff would merge without asking under ${pr.delegated_by}, but no sign-off of the owner's is recorded yet: their approval records it, and later ones merge with it`
@@ -2558,6 +2567,8 @@ const table = [
         });
         const layout = tracker.layout();
         const main = p.policy.merge.main_branch;
+        /** @type {{ list_found?: boolean }} */
+        const termsSaid = {};
         /** @type {import('../../merge/queue.mjs').Settings} */
         const settings = {
           mainBranch: main,
@@ -2602,7 +2613,7 @@ const table = [
             ceiling: layout.classificationCeiling,
             defaultClassification: layout.defaultClassification,
             privatePaths: layout.privatePaths,
-            terms: mergeTerms(p.store, p.policy, ctx.env, notes),
+            terms: mergeTerms(p.store, p.policy, ctx.env, notes, termsSaid),
           },
         };
         /** @param {string} dir */
@@ -2740,6 +2751,7 @@ const table = [
               approve: approving ? { all, names } : null,
               entries: waiting.map(entryOf),
               settings,
+              listFound: termsSaid.list_found === true,
               layout,
               env,
             });

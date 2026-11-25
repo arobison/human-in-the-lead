@@ -47,7 +47,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
+import { STRICT, checkCommits, isTermRefusal } from '../guard/classification.mjs';
 import { findTerms, matchMessage } from '../guard/private-terms.mjs';
 import { UNASSIGNED } from '../rights/trust.mjs';
 import { matchesAny } from '../precedent/glob.mjs';
@@ -317,6 +317,56 @@ export function pullRequestText(o) {
   return { title: `${o.at.title} (${o.item})`, body };
 }
 
+/** What stands in for a path that holds a private term, wherever the queue would print it. */
+export const HIDDEN_PATH = 'a file whose path holds a private term';
+
+/**
+ * The rejection for a branch whose commits the classification check refused (HITLD-824). A path
+ * that holds a private term is never printed: not in `files`, not in `output` (which the merge
+ * prints as `problems`), not in the follow-up, and so not in the ledger's note. When a term is
+ * found, the follow-up says where, by kind and line (a path, by its role), and also names every
+ * other refusal on the branch, so none goes untold.
+ * @param {string} item @param {import('../guard/classification.mjs').Refused[]} refused
+ * @param {import('../guard/private-terms.mjs').Matcher[]} terms
+ * @returns {{ reason: 'classification', files: string[], output: string, message?: string }}
+ */
+export function classificationRejection(item, refused, terms) {
+  /** @param {string} path */
+  const shown = (path) =>
+    terms.length && findTerms(path, terms, { limit: 1 }).length ? HIDDEN_PATH : path;
+  /** @param {import('../guard/classification.mjs').Refused} r */
+  const line = (r) => `${shown(r.path)}: ${r.message}`;
+  const files = [
+    ...new Set(
+      refused
+        .filter((x) => !x.commit)
+        .map((x) => x.path)
+        .filter((p) => shown(p) === p),
+    ),
+  ];
+  const out = {
+    reason: /** @type {const} */ ('classification'),
+    files,
+    output: refused.map(line).join('\n'),
+  };
+  const termed = refused.filter(isTermRefusal);
+  if (!termed.length) return out;
+  // A message or a file's content names its line; a path that holds a term names none.
+  const where = termed.map((r) =>
+    r.line
+      ? `${shown(r.path)}, ${r.message}`
+      : `the path of a file the branch adds or changes holds a private ${r.kind ?? 'term'} from the private term list`,
+  );
+  const others = refused.filter((r) => !isTermRefusal(r));
+  const also = others.length
+    ? ` The queue also refuses the branch for these: ${others.map(line).join('; ')}. A file above the repository's classification ceiling belongs in the private store, out of every commit on the branch; lowering a classification is the owner's decision, so if one is wrong, say so under questions.`
+    : '';
+  return {
+    ...out,
+    message: `The queue checked your branch's diff and commit messages against the private term list before presenting the pull request for ${item}, and found a private term: ${where.join('; ')}. The pull request is not presented. Write each again by role, never by name. The branch's history holds every commit, so a later commit does not clear one: replacing commits on a pushed branch is not your call, so say under questions which commits hold it and the owner decides.${also}`,
+  };
+}
+
 /**
  * The squash commit's message: the trailers the branch's own commits carry (the queue's updates
  * aside), the item's at least, and the owner's sign-off when they approved it or when the merge
@@ -556,13 +606,11 @@ export async function runPullRequestQueue(r) {
       checkout(head);
 
       // The guards the local queue runs whatever the policy says.
+      // With the private term list's terms, this is the check hitld publish check runs, on every
+      // file each commit changes and each commit's message, before the pull request is presented.
       const guard = checkCommits(dir, base, head, s.classification ?? STRICT);
       if (guard.refused.length) {
-        reject(e, {
-          reason: 'classification',
-          files: [...new Set(guard.refused.filter((x) => !x.commit).map((x) => x.path))],
-          output: problemLines(guard.refused).join('\n'),
-        });
+        reject(e, classificationRejection(e.item, guard.refused, s.classification?.terms ?? []));
         continue;
       }
       const duplicates = s.trackerCheck?.(dir) ?? [];
@@ -799,7 +847,7 @@ export async function runPullRequestQueue(r) {
         // The queue's own commits skip hooks, so the rule runs on them directly.
         const again = checkCommits(dir, head, fresh, s.classification ?? STRICT);
         if (again.refused.length) {
-          reject(e, { reason: 'classification', output: problemLines(again.refused).join('\n') });
+          reject(e, classificationRejection(e.item, again.refused, s.classification?.terms ?? []));
           continue;
         }
         const pushed = git(dir, ['push', '--quiet', remote, `HEAD:refs/heads/${e.branch}`]);
