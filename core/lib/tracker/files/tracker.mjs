@@ -610,7 +610,7 @@ export function openTracker({
     },
 
     claim: (id, claimant, branch, budgetTokens) =>
-      claimItem(root, layout, id, claimant, { branch, budgetTokens }),
+      claimItem(root, layout, id, claimant, { branch, budgetTokens, env }),
 
     history(id) {
       const it = mustFind(id);
@@ -795,7 +795,7 @@ export function openTracker({
     close: (
       /** @type {string} */ id,
       /** @type {{ commit?: boolean, report?: string } | undefined} */ options,
-    ) => closeItem(root, layout, id, options),
+    ) => closeItem(root, layout, id, { ...options, env }),
 
     /**
      * The batch check. `branches` adds ID collisions across every worktree and branch and

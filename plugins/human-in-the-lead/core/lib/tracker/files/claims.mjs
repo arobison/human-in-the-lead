@@ -16,8 +16,9 @@
 // - Claim branches made before HITLD-82 hold the old keys (`status: In progress`, `claimed:`);
 //   the branches are read through `fromLegacy` (tree.mjs), so those claims still count.
 //
-// Claim and close commits carry `Work-Item:` and `Dispatch:`; the executor's own commits add the
-// `Agent-*` trailers (the owner's answer to Q5, 2026-11-14)
+// Claim and close commits carry `Work-Item:`, `Dispatch:` and, from HITLD_ROLE, `Agent-Role:`
+// (HITLD-1037); the executor's own commits add the other `Agent-*` trailers (the owner's answer to
+// Q5, 2026-11-14)
 // (design part 22). Nothing here pushes.
 
 import { applyPatch } from './format.mjs';
@@ -254,23 +255,41 @@ function commitOnly(root, files, message) {
 /** The largest token cap a claim carries: twelve digits, as the budget hook reads it. */
 export const MAX_BUDGET_TOKENS = 999_999_999_999;
 
-/** @param {string} id @param {string} claimant @param {number | null} [budget] */
-const trailers = (id, claimant, budget = null) =>
+/** A role name as the Agent-Role trailer takes it. */
+const ROLE = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * The claim and close commits' trailers: `Work-Item`, `Dispatch` when the claimant is a dispatch,
+ * `Agent-Role` when the environment names a role (HITLD_ROLE), as every other agent commit carries
+ * it (HITLD-1037), so an executor never amends its claim or close to add it; and the claim's token
+ * cap.
+ * @param {string} id @param {string} claimant @param {NodeJS.ProcessEnv} env
+ * @param {number | null} [budget]
+ */
+const trailers = (id, claimant, env, budget = null) =>
   [
     `Work-Item: ${id}`,
     ...(DISPATCH_ID.test(claimant) ? [`Dispatch: ${claimant}`] : []),
+    ...(ROLE.test(env.HITLD_ROLE ?? '') ? [`Agent-Role: ${env.HITLD_ROLE}`] : []),
     ...(budget ? [`Budget-Tokens: ${budget}`] : []),
   ].join('\n');
 
 /**
  * Write the claim commit for an item on the current (executor) branch.
  * @param {string} root @param {Layout} layout @param {string} id @param {string} claimant
- * @param {{ branch?: string, budgetTokens?: number | null }} [options] branch: refuse unless HEAD
- *   is on it; budgetTokens: the dispatch's token cap, written as a `Budget-Tokens` trailer so the
- *   budget hook can read it where there is no private store (HITLD-841)
+ * @param {{ branch?: string, budgetTokens?: number | null, env?: NodeJS.ProcessEnv }} [options]
+ *   branch: refuse unless HEAD is on it; budgetTokens: the dispatch's token cap, written as a
+ *   `Budget-Tokens` trailer so the budget hook can read it where there is no private store
+ *   (HITLD-841); env: where HITLD_ROLE is read for the Agent-Role trailer (default process.env)
  * @returns {{ commit: string, branch: string }}
  */
-export function claimItem(root, layout, id, claimant, { branch, budgetTokens = null } = {}) {
+export function claimItem(
+  root,
+  layout,
+  id,
+  claimant,
+  { branch, budgetTokens = null, env = process.env } = {},
+) {
   const here = currentBranch(root);
   if (!here) throw new Error('claim from a branch, not a detached HEAD');
   if (here === layout.mainBranch) {
@@ -312,7 +331,7 @@ export function claimItem(root, layout, id, claimant, { branch, budgetTokens = n
   writeStored(root, layout, entry.path, stored, entry.body);
   const commit = commitOnly(root, [entry.path], {
     subject: `claim: ${id}`,
-    body: trailers(id, claimant, budgetTokens),
+    body: trailers(id, claimant, env, budgetTokens),
   });
   return { commit, branch: here };
 }
@@ -320,11 +339,12 @@ export function claimItem(root, layout, id, claimant, { branch, budgetTokens = n
 /**
  * Set an item to done in the working tree, and commit that one file unless told not to.
  * @param {string} root @param {Layout} layout @param {string} id
- * @param {{ commit?: boolean, report?: string }} [options] report: the executor's report in the
- *   fixed shape, written into the closing commit's message body
+ * @param {{ commit?: boolean, report?: string, env?: NodeJS.ProcessEnv }} [options] report: the
+ *   executor's report in the fixed shape, written into the closing commit's message body; env:
+ *   where HITLD_ROLE is read for the Agent-Role trailer (default process.env)
  * @returns {{ commit: string | null, branch: string | null, path: string, version: string }}
  */
-export function closeItem(root, layout, id, { commit = true, report } = {}) {
+export function closeItem(root, layout, id, { commit = true, report, env = process.env } = {}) {
   const entry = findEntry(root, layout, id);
   if (!entry?.data) throw new CodedError('not-found', `${id} is not in this working tree`);
   const d = entry.data;
@@ -358,7 +378,7 @@ export function closeItem(root, layout, id, { commit = true, report } = {}) {
   const sha = commit
     ? commitOnly(root, [entry.path], {
         subject: `close: ${id}`,
-        body: told ? `${told}\n\n${trailers(id, claimant)}` : trailers(id, claimant),
+        body: told ? `${told}\n\n${trailers(id, claimant, env)}` : trailers(id, claimant, env),
       })
     : null;
   return { commit: sha, branch: here, path: entry.path, version };
