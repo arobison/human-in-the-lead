@@ -211,7 +211,7 @@
       "enum": ["item", "derived"]
     },
     "decision": {
-      "description": "The decision item a question, its showing or its answer is about.",
+      "description": "The decision item a question, its showing or its answer is about. On dispatched: the owner's run-scope decision the chief of staff started it under (HITLD-877).",
       "$ref": "common#/$defs/id"
     },
     "delivery": {
@@ -269,7 +269,7 @@
       "$ref": "common#/$defs/timestamp"
     },
     "by": {
-      "description": "On lease-released and merge-approved: the session that recorded it (the holder itself, or the chief of staff).",
+      "description": "On lease-released and merge-approved: the session that recorded it (the holder itself, or the chief of staff). On dispatched under a run scope: the chief of staff's session that started it (HITLD-877).",
       "$ref": "common#/$defs/text"
     },
     "policy_hash": {

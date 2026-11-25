@@ -96,6 +96,17 @@ export const ERROR_CODES = Object.freeze({
   'cannot-follow-up':
     'The dispatch cannot be continued: a follow-up that resumes a run needs its earlier session ID and worktree. Nothing was recorded.',
   'handover-due': "This session's hand-over is due, so nothing new starts.",
+  'no-scope': "No run scope of the owner's is recorded, so the chief of staff starts nothing.",
+  'outside-scope':
+    "The item, or the decision named, is not in the owner's run scope: starting it is the owner's to ask for.",
+  'scope-expired':
+    "The owner's run scope has passed its end time, so nothing more starts under it.",
+  'scope-budget':
+    "The owner's run scope has spent its token budget, or this start's estimate would pass it.",
+  'scope-ended':
+    "The owner's run scope was ended, or belongs to another run, so nothing more starts under it.",
+  'scope-not-in-answer':
+    "The owner's answer does not name every item given: a run scope holds only the items the owner named.",
   draining: 'Executors still report to this session, and no successor would hear of them.',
   cap: 'The maximum number of live executors is reached.',
   'merge-busy': 'The merge queue is held by another process.',

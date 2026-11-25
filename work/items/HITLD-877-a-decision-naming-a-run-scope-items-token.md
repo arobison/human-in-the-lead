@@ -7,6 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M88NC212A0QAEE
+release_note: "The owner can name a run scope in one decision (items, a token budget and an end time) with hitld run scope set; within it the chief of staff starts those items itself with hitld dispatch start --scope, without the lease, so a hand-over between orchestrators needs no typed start line."
 ---
 
 ## Why
