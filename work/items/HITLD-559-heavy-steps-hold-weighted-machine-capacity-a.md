@@ -34,3 +34,5 @@ The consumer's session reported timing measurements that shared an 8-core machin
 
 
 GitHub issues 668 and 669 (feedback, 2026-11-25) ask for the same machine-wide quiet this item gates: a measurement holds the machine exclusively while heavy jobs from any project hold it shared, one status that every project reads, and work that needs a quiet machine told apart from ordinary heavy work so a strict load rule does not stall everything else. They belong with the benchmark gate here and with HITLD-983 and HITLD-1013; no new item. Replies are posted on both issues.
+
+GitHub issue 677 (2026-11-25): the dispatcher's count should also follow the merge queue's backlog; that hold is HITLD-1046's (derived from `merge.batch_max`). The merge gate's priority for machine capacity belongs with this item and HITLD-1011.

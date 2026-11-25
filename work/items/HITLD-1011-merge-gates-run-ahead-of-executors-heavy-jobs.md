@@ -22,3 +22,5 @@ GitHub issue 604 (v0.1.0-rc.1): with every executor slot full, finished branches
 ## Notes
 
 rc.3. Not an issue on the pull-request path this repository uses, where the gates run on the forge. Related: HITLD-559 (heavy steps hold weighted machine capacity), HITLD-42, HITLD-814, HITLD-817. Check how much overlaps HITLD-559 before building.
+
+GitHub issue 677 (2026-11-25): finished branches pile up while the refill keeps starting executors, which loads the machine and slows the merge gates this item is about. Giving the merge gate priority over executors' heavy jobs is the capacity half of that report; the start hold on a full batch is HITLD-1046's.
