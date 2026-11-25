@@ -29,6 +29,7 @@ import { runVersionCheck } from '../install/drift.mjs';
  * @property {number} [expirySeconds] policy run.lease_expiry_seconds
  * @property {string} [harnessRef] this session's own reference in its harness, where it has one:
  *   recorded with the lease, so wakes for the run can be sent to it
+ * @property {boolean} [afterHandover] a merge-only pass by the session that handed over (HITLD-823)
  * @property {string} [cwd] where the command runs: the project whose pin `startRun` and `resumeRun`
  *   compare with this release (design part 16.5, Upgrades)
  *
@@ -61,6 +62,9 @@ export class Run {
     this.state = state;
     /** @type {import('../install/drift.mjs').Drift | null} what startRun found about versions */
     this.drift = null;
+    /** A merge-only pass after this session's own hand-over (HITLD-823): it may still record, on
+     * the lease it released, until a successor takes it. Only hitld merge sets it. */
+    this.afterHandover = options.afterHandover === true;
   }
 
   /**
@@ -93,7 +97,15 @@ export class Run {
     if (!state) {
       throw new Error(`no run state (${problems.join('; ')}); run hitld run rebuild`);
     }
-    assertHolds(state, this.session, this.host);
+    try {
+      assertHolds(state, this.session, this.host);
+    } catch (e) {
+      const ownHandover =
+        e instanceof LeaseError &&
+        e.code === 'released' &&
+        state.lease.released?.reason === 'handover';
+      if (!this.afterHandover || !ownHandover) throw e;
+    }
     return state;
   }
 
@@ -101,7 +113,8 @@ export class Run {
   #checkpoint(previous, events) {
     const next = structuredClone(previous);
     absorb(next, events);
-    next.lease.renewed_at = this.now().toISOString();
+    // A released lease is not renewed: a merge-only pass after a hand-over leaves it free.
+    if (!next.lease.released) next.lease.renewed_at = this.now().toISOString();
     this.state = saveCheckpoint(this.store, previous, next, { kept: this.kept });
   }
 }
@@ -242,8 +255,10 @@ export function takeLease(store, options) {
  * longer record (assertHolds). The release is a ledger event, then a checkpoint; the lease's renewal
  * time is left as it was. Releasing a lease already released is a no-op.
  * @param {PrivateStore} store
- * @param {RunOptions & { reason: 'handover' | 'ended', holder?: { session: string, host?: string }, notes?: string }} options
- *   `session` and `host` are the caller's; `holder` is the session to retire (reason ended)
+ * @param {RunOptions & { reason: 'handover' | 'ended', holder?: { session: string, host?: string }, notes?: string, branches?: string[] }} options
+ *   `session` and `host` are the caller's; `holder` is the session to retire (reason ended);
+ *   `branches`, on a hand-over: the approved or presented merges still waiting, which the
+ *   handing-over session may still apply (handedOverMerges)
  * @returns {{ released: { at: string, reason: string, by: string }, appended: boolean, state: RunState }}
  */
 export function releaseLease(store, options) {
@@ -283,6 +298,7 @@ export function releaseLease(store, options) {
       host: holder.host,
       reason: options.reason,
       by: options.session,
+      ...(self && options.branches?.length ? { branches: options.branches } : {}),
       ...(options.notes ? { notes: options.notes } : {}),
     },
     { now },
@@ -293,6 +309,56 @@ export function releaseLease(store, options) {
     kept: options.kept ?? DEFAULTS.kept,
   });
   return { released: written.lease.released, appended: true, state: written };
+}
+
+/**
+ * The merges a session that handed over may still apply (HITLD-823): the branches its hand-over
+ * named, while the lease it released is still free, and for at most `windowSeconds` after the
+ * release (policy run.lease_expiry_seconds, default 1800: as long as a held lease lasts without a
+ * renewal). `open` is false once that window has closed: then the successor merges them. Null when
+ * the session did not hand over, or a successor holds the lease now.
+ * @param {PrivateStore} store @param {{ session: string, host: string }} me
+ * @param {{ windowSeconds?: number, now?: () => Date }} [o]
+ * @returns {{ branches: string[], until: string | null, open: boolean } | null} until: null, and open
+ *   false, when the window's end does not read (mergeWindow)
+ */
+export function handedOverMerges(store, me, o = {}) {
+  const { state } = loadState(store);
+  if (!state) return null;
+  const events = readLedger(store).events;
+  const lease = structuredClone(state);
+  absorb(lease, events);
+  const l = lease.lease;
+  if (l.session !== me.session || l.host !== me.host || l.released?.reason !== 'handover') {
+    return null;
+  }
+  const released = events.findLast(
+    (e) =>
+      e.event === 'lease-released' &&
+      e.reason === 'handover' &&
+      e.session === me.session &&
+      e.host === me.host,
+  );
+  const branches = Array.isArray(released?.branches) ? released.branches.map(String) : [];
+  return { branches, ...mergeWindow(released?.at ?? l.released?.at, o.windowSeconds, o.now) };
+}
+
+/**
+ * The end of the merge-only window after a hand-over (HITLD-823): `windowSeconds` after the
+ * release time. A release time that is missing or does not read, or an end past what a date can
+ * hold (a very large run.lease_expiry_seconds), gives no window at all: closed, with until null,
+ * failing safe rather than throwing.
+ * @param {unknown} releasedAt @param {number} [windowSeconds] @param {() => Date} [now]
+ * @returns {{ until: string | null, open: boolean }}
+ */
+export function mergeWindow(releasedAt, windowSeconds, now) {
+  const start = typeof releasedAt === 'string' ? Date.parse(releasedAt) : NaN;
+  const end = new Date(start + (windowSeconds ?? DEFAULTS.expirySeconds) * 1000);
+  if (Number.isNaN(end.getTime())) return { until: null, open: false };
+  return {
+    until: end.toISOString(),
+    open: (now ?? (() => new Date()))().getTime() < end.getTime(),
+  };
 }
 
 /**
@@ -574,10 +640,23 @@ export function latestHandover(store, run) {
 }
 
 /**
- * The hand-over summary, generated from the state and the ledger, never from memory.
- * @param {RunState} state @param {LedgerEntry[]} events
+ * The line naming the merges the owner approved or was shown that have not happened yet
+ * (HITLD-823): the first line of a hand-over, so no successor misses them.
+ * @param {import('../merge/pending.mjs').PendingMerge[]} pending
  */
-export function handOver(state, events) {
+export function pendingMergesLine(pending) {
+  const one = (/** @type {import('../merge/pending.mjs').PendingMerge} */ x) =>
+    `${x.item ?? x.branch} ${x.status}${x.number ? ` (#${x.number})` : ` (${x.branch})`}`;
+  return `Merges pending (${pending.length}): ${pending.map(one).join('; ') || 'none'}.`;
+}
+
+/**
+ * The hand-over summary, generated from the state and the ledger, never from memory. Merges the
+ * owner approved or was shown that are still waiting (merge/pending.mjs) come first.
+ * @param {RunState} state @param {LedgerEntry[]} events
+ * @param {import('../merge/pending.mjs').PendingMerge[]} [pending]
+ */
+export function handOver(state, events, pending = []) {
   const recent = events.slice(-5).map((e) => ({
     id: e.id,
     event: e.event,
@@ -586,6 +665,7 @@ export function handOver(state, events) {
     at: e.at,
   }));
   const lines = [
+    ...(pending.length ? [pendingMergesLine(pending)] : []),
     `Run ${state.run.id}, started ${state.run.started_at}. Checkpoint ${state.checkpoint.number}, ledger at ${state.ledger_position}.`,
     `Lease: session ${state.lease.session} on ${state.lease.host}, renewed ${state.lease.renewed_at}${state.lease.released ? `; released (${state.lease.released.reason}) by ${state.lease.released.by} at ${state.lease.released.at}` : ''}.`,
     `In flight (${state.in_flight.length}): ${
@@ -610,6 +690,7 @@ export function handOver(state, events) {
   ];
   return {
     run: state.run.id,
+    merges_pending: pending,
     checkpoint: state.checkpoint.number,
     ledger_position: state.ledger_position,
     lease: state.lease,

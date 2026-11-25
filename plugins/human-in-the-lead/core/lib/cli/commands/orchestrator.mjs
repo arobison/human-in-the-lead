@@ -25,14 +25,18 @@ import {
 } from '../../ledger/ledger.mjs';
 import { effectiveEvents } from '../../ledger/summary.mjs';
 import { recordedAnswers } from '../../merge/answers.mjs';
+import { pendingMerges } from '../../merge/pending.mjs';
 import { loadState } from '../../run/checkpoint.mjs';
-import { LeaseError } from '../../run/lease.mjs';
+import { LeaseError, assertHolds } from '../../run/lease.mjs';
 import { NO_SESSION, resolveIdentity } from '../../run/identity.mjs';
 import {
   Run,
   handOver,
+  handedOverMerges,
   handoverDue,
   handoverKey,
+  latestHandover,
+  pendingMergesLine,
   releaseLease,
   reportingHere,
 } from '../../run/run.mjs';
@@ -421,8 +425,9 @@ export const identityOf = (p, input, ctx) =>
 /**
  * This session's handle on the run; every record through it is refused unless it holds the lease.
  * @param {ReturnType<typeof project>} p @param {Record<string, unknown>} input @param {Ctx} ctx
+ * @param {{ afterHandover?: boolean }} [extra] a merge-only pass after this session's hand-over (HITLD-823)
  */
-export function runOf(p, input, ctx) {
+export function runOf(p, input, ctx, extra = {}) {
   if (!p.state) throw new Refusal('no-run', 'no run has started: hitld run start');
   const { session, host } = identityOf(p, input, ctx);
   if (!session) throw new Refusal('usage', NO_SESSION);
@@ -434,6 +439,7 @@ export function runOf(p, input, ctx) {
       kept: p.policy.run?.checkpoints_kept,
       expirySeconds: p.policy.run?.lease_expiry_seconds,
       ...(ctx.now ? { now: ctx.now } : {}),
+      ...(extra.afterHandover ? { afterHandover: true } : {}),
     },
     p.state,
   );
@@ -1116,6 +1122,115 @@ function approveHead(o) {
 }
 
 /**
+ * The merge-only window after a hand-over, as the note and the refusals say it (HITLD-823): in
+ * minutes when policy run.lease_expiry_seconds is a whole number of them, in seconds otherwise, so
+ * 90 reads "90 seconds", never a rounded "2 minutes". Unset, the default of 1800: "30 minutes".
+ * @param {number | undefined} seconds
+ */
+export function windowText(seconds) {
+  const s = seconds ?? 1800;
+  if (s % 60 !== 0) return `${s} second${s === 1 ? '' : 's'}`;
+  const m = s / 60;
+  return `${m} minute${m === 1 ? '' : 's'}`;
+}
+
+/**
+ * Whether this session may record a merge now; throws when it may not. It may when it holds the
+ * lease (returns null), or after its own hand-over, until a successor takes the lease and within
+ * run.lease_expiry_seconds of the release (HITLD-823): then it returns the branches its hand-over
+ * named, the only ones the pass may see. Checked before the merge pass, window and all, and again
+ * just before its results are written, the lease only (`window: false`): a pass that started inside
+ * the window may finish after it, but not after a successor took the lease.
+ * @param {any} p @param {{ session: string, host: string }} run @param {Ctx} ctx
+ * @param {{ window?: boolean }} [o]
+ * @returns {string[] | null}
+ */
+function mayMergeNow(p, run, ctx, o = {}) {
+  const w = handedOverMerges(
+    p.store,
+    { session: run.session, host: run.host },
+    {
+      windowSeconds: p.policy.run?.lease_expiry_seconds,
+      ...(ctx.now ? { now: ctx.now } : {}),
+    },
+  );
+  if (w && !w.branches.length) {
+    throw new Refusal(
+      'lease-released',
+      'this session handed over with no merge pending, so it records nothing more: a successor resumes the run and merges with hitld run resume',
+    );
+  }
+  if (w && !w.open && o.window !== false) {
+    throw new Refusal(
+      'lease-released',
+      `this session's merge-only window after its hand-over ${w.until ? `closed at ${w.until}` : 'is closed: its end does not read (the release time, or a run.lease_expiry_seconds too large for a date)'} (${windowText(p.policy.run?.lease_expiry_seconds)} after the release, policy run.lease_expiry_seconds): a successor merges ${w.branches.join(', ')} after hitld run resume; nothing was merged`,
+      { merges_pending: w.branches, until: w.until },
+    );
+  }
+  if (w) return w.branches;
+  const { state } = loadState(p.store);
+  if (state) {
+    assertHolds(
+      absorb(structuredClone(state), readLedger(p.store).events).state,
+      run.session,
+      run.host,
+    );
+  }
+  return null;
+}
+
+/**
+ * The owner's selection for a merge-only pass after a hand-over (HITLD-823), limited to the
+ * branches the hand-over named: --all becomes the named ones among those presented, so a branch
+ * presented later is never approved through it. Refused when nothing named is left.
+ * @param {string[]} named @param {{ branch: string }[]} presented
+ * @param {{ all: boolean, names: string[] | null }} pick
+ * @returns {{ all: boolean, names: string[] | null }}
+ */
+export function handoverSelection(named, presented, pick) {
+  if (!pick.all) return pick;
+  const set = new Set(named);
+  if (presented.length && presented.every((b) => set.has(b.branch))) return pick;
+  const names = presented.filter((b) => set.has(b.branch)).map((b) => b.branch);
+  if (!names.length) {
+    throw new Refusal(
+      'lease-released',
+      `this session handed over: --all may approve only ${named.join(', ')}, as its hand-over named them, and none of them is presented; nothing was merged`,
+      { merges_pending: named },
+    );
+  }
+  return { all: false, names };
+}
+
+/**
+ * The pull-request queue's state after a pass that saw only `only` (a merge-only pass after a
+ * hand-over, HITLD-823): the pass's own word on those branches, and every other branch, approval
+ * and presented pull request kept as it was, for the successor.
+ * @param {import('../../merge/pull-request.mjs').PullQueueState} prior
+ * @param {import('../../merge/pull-request.mjs').PullQueueState} next @param {Set<string>} only
+ * @returns {import('../../merge/pull-request.mjs').PullQueueState}
+ */
+export function keepOthers(prior, next, only) {
+  /** @template T @param {Record<string, T>} from @returns {Record<string, T>} */
+  const others = (from) => Object.fromEntries(Object.entries(from).filter(([b]) => !only.has(b)));
+  const shown = [
+    ...(prior.presented?.branches ?? []).filter((b) => !only.has(b.branch)),
+    ...(next.presented?.branches ?? []),
+  ];
+  return {
+    ...next,
+    branches: { ...others(prior.branches), ...next.branches },
+    approved_ahead: { ...others(prior.approved_ahead ?? {}), ...(next.approved_ahead ?? {}) },
+    presented: shown.length
+      ? {
+          at: next.presented?.at ?? /** @type {{ at: string }} */ (prior.presented).at,
+          branches: shown,
+        }
+      : null,
+  };
+}
+
+/**
  * hitld merge with merge.via pull-request: record the owner's approval given in this session, if
  * any, then one pass of the pull-request queue (merge/pull-request.mjs), recorded in the ledger as
  * the local queue's results are: merged items, branches sent back, the worktrees of merged branches
@@ -1124,7 +1239,9 @@ function approveHead(o) {
  *   approve: { all: boolean, names: string[] | null } | null,
  *   entries: import('../../merge/queue.mjs').Entry[],
  *   settings: import('../../merge/queue.mjs').Settings, listFound: boolean,
- *   layout: ReturnType<ReturnType<typeof openTracker>['layout']>, env: any }} o
+ *   layout: ReturnType<ReturnType<typeof openTracker>['layout']>, env: any, only?: Set<string> | null }} o
+ *   only: a merge-only pass after a hand-over (HITLD-823): the entries are just these branches, and
+ *   what the queue remembers about every other branch is kept as it was
  */
 async function pullRequestMerge(o) {
   const { p, run, ctx } = o;
@@ -1145,6 +1262,7 @@ async function pullRequestMerge(o) {
     });
   }
   const layout = o.layout;
+  const prior = readPullState(p.store);
   const result = await runPullRequestQueue({
     repoRoot: p.repoRoot,
     entries: o.entries,
@@ -1180,7 +1298,7 @@ async function pullRequestMerge(o) {
     },
     policy: p.policy,
     github,
-    state: readPullState(p.store),
+    state: prior,
     evidence: (item) => {
       try {
         const r = JSON.parse(p.store.read(reportEvidenceKey(item)) ?? 'null');
@@ -1191,7 +1309,41 @@ async function pullRequestMerge(o) {
     },
     ...(ctx.now ? { now: ctx.now } : {}),
   });
-  p.store.write(PULL_STATE_KEY, JSON.stringify(result.state));
+  // A successor may have taken the lease while the pass ran (HITLD-823): then this session writes
+  // no queue state and records nothing in the ledger, so it overwrites none of the successor's
+  // state, and says what merged
+  // that it could not record, in its result and in its hand-over note. The lease only: a window
+  // that closed during the pass does not stop it recording what it did. This narrows the race, it
+  // does not close it: the store has no compare-and-swap, so a successor can still take the lease
+  // between this check and the write below, and a run.record after it can then throw partway,
+  // with the pull request already merged on GitHub.
+  try {
+    mayMergeNow(p, run, ctx, { window: false });
+  } catch (e) {
+    const unrecorded = result.merged.map((m) => ({
+      item: m.item,
+      branch: m.branch,
+      number: m.number,
+      commit: m.commit,
+    }));
+    const said = unrecorded.length
+      ? `Merged${o.only ? ' after the hand-over' : ''} but not recorded, since this session lost the lease while the pass ran: ${unrecorded.map((m) => `${m.item} (#${m.number}, ${m.commit.slice(0, 12)})`).join('; ')}. The ledger holds no merged event for them yet.`
+      : '';
+    const note = said && o.only ? latestHandover(p.store, run.state.run.id) : null;
+    if (note) p.store.write(note, `${p.store.read(note) ?? ''}\n${said}\n`);
+    return {
+      ok: false,
+      error:
+        e instanceof LeaseError ? `lease-${e.code}` : (/** @type {any} */ (e).code ?? 'lease-lost'),
+      message: `${/** @type {Error} */ (e).message}; this pass wrote no queue state and recorded nothing in the ledger${said ? `. ${said}` : ''}`,
+      merged_unrecorded: unrecorded,
+      ...(note ? { handover_file: join(p.store.root, note) } : {}),
+    };
+  }
+  p.store.write(
+    PULL_STATE_KEY,
+    JSON.stringify(o.only ? keepOthers(prior, result.state, o.only) : result.state),
+  );
   // An approval given before the presentation (HITLD-821), applied now: one record of it, naming
   // this pass as the presentation it answers and the head it was applied to.
   for (const a of result.ahead.applied) {
@@ -2448,7 +2600,7 @@ const table = [
     run: (input, ctx) =>
       guardedNoting(async (notes) => {
         const p = project(ctx);
-        const run = runOf(p, input, ctx);
+        let run = runOf(p, input, ctx);
         const owner = p.policy.merge.mode === 'owner';
         // Executors never merge, in either mode: the queue is the orchestrator's, and in owner
         // mode each merge is the owner's.
@@ -2459,6 +2611,12 @@ const table = [
             `${owner ? "in owner mode the merge is the owner's" : "the merge queue is the orchestrator's"}, run from the main session in the primary checkout (${why})`,
           );
         }
+        // After its own hand-over, and until a successor takes the lease, a session may still
+        // merge what its hand-over named, approved or presented, and nothing else (HITLD-823).
+        // A session that does not hold the lease merges nothing: refused before any pull request
+        // merges, not after, when its record of the merge would be refused.
+        const handedOver = mayMergeNow(p, run, ctx);
+        if (handedOver) run = runOf(p, input, ctx, { afterHandover: true });
         let all = input.all === true;
         let names =
           typeof input.only === 'string'
@@ -2538,6 +2696,24 @@ const table = [
             'not-presented',
             'nothing has been presented to the owner: run hitld merge first; it checks the waiting branches and presents the ones that pass; nothing was merged',
           );
+        }
+        if (handedOver) {
+          const named = new Set(handedOver);
+          const shown = viaPR
+            ? (readPullState(p.store).presented?.branches ?? [])
+            : (presented?.branches ?? []);
+          ({ all, names } = handoverSelection(handedOver, shown, { all, names }));
+          waiting = waiting.filter((w) => named.has(String(w.branch)));
+          const outside = (names ?? []).filter(
+            (n) => !named.has(n) && !waiting.some((w) => w.item === n),
+          );
+          if (outside.length || !waiting.length || (!viaPR && !approving)) {
+            throw new Refusal(
+              'lease-released',
+              `this session handed over: until a successor takes the lease it may only ${viaPR ? 'run the merge pass' : "apply the owner's approval"} for ${handedOver.join(', ')}, as its hand-over named them${outside.length ? `, not ${outside.join(', ')}` : !waiting.length ? ', and none of them waits to merge any more' : ''}; nothing was merged`,
+              { merges_pending: handedOver },
+            );
+          }
         }
         if (!approving && !waiting.length) {
           return {
@@ -2750,6 +2926,7 @@ const table = [
               owner,
               approve: approving ? { all, names } : null,
               entries: waiting.map(entryOf),
+              only: handedOver ? new Set(handedOver) : null,
               settings,
               listFound: termsSaid.list_found === true,
               layout,
@@ -2790,7 +2967,9 @@ const table = [
                 presented_at: pres.at,
                 commit: pres.commit,
                 by: run.session,
-                notes: "from the owner's own message in the session holding the lease",
+                notes: run.afterHandover
+                  ? "from the owner's own message in the session that handed over, applied in its merge-only window after the hand-over"
+                  : "from the owner's own message in the session holding the lease",
               });
             }
             await record(result);
@@ -3112,7 +3291,13 @@ const table = [
           );
         }
         const due = dueFor(run, p.policy, input);
-        const h = handOver(state, readLedger(p.store).events);
+        // The merges the owner approved or was shown that have not happened (HITLD-823): the
+        // note's first line, and recorded with the release, so this session may still apply them.
+        const events = readLedger(p.store).events;
+        const pending = pendingMerges(p.store, events, state.merge_queue.waiting);
+        // The merge-only window after this hand-over (handedOverMerges), in whole minutes.
+        const windowSaid = windowText(p.policy.run?.lease_expiry_seconds);
+        const h = handOver(state, events);
         const sessions = state.in_flight
           .filter((/** @type {any} */ d) => d.mode === 'interactive')
           .map((/** @type {any} */ d) => d.dispatch);
@@ -3128,6 +3313,11 @@ const table = [
         const text = [
           `# Hand-over: run ${h.run}`,
           '',
+          ...(pending.length
+            ? [
+                `${pendingMergesLine(pending)} ${keep ? 'This session still merges them.' : `Until a successor takes the lease, and for at most ${windowSaid} after this hand-over (run.lease_expiry_seconds), the session that wrote this note may still run hitld merge limited to them, and nothing else; after that, the successor merges them.`}`,
+              ]
+            : []),
           h.text,
           `Ready next: ${next || 'none'}.`,
           ...(due.due ? [`Why now: ${due.reasons.join('; ')}.`] : []),
@@ -3153,17 +3343,20 @@ const table = [
               host: run.host,
               kept: p.policy.run?.checkpoints_kept,
               reason: 'handover',
+              branches: pending.map((x) => x.branch),
               notes: due.reasons.join('; ') || (input.now === true ? 'at once' : 'asked'),
             }).released;
+        const approved = pending.filter((x) => x.status === 'approved');
         return {
           ok: true,
+          merges_pending: pending,
           file: join(p.store.root, key),
           text,
           released,
           handover: due,
           next: keep
             ? 'give the owner the text and the file; this session still drives the run'
-            : 'stop driving the run: tell the chief of staff the file (when you are both, the owner); a successor session resumes from it with hitld run resume',
+            : `stop driving the run: tell the chief of staff the file (when you are both, the owner)${pending.length ? `, and that ${pending.length} merge${pending.length === 1 ? ' is' : 's are'} pending (${pending.map((x) => x.item ?? x.branch).join(', ')})` : ''}; a successor session resumes from it with hitld run resume${approved.length ? `. Until one takes the lease, and for at most ${windowSaid} (run.lease_expiry_seconds), this session may still run hitld merge limited to the branches the hand-over named, ${approved.map((x) => x.item ?? x.branch).join(', ')} approved and not merged among them: start nothing` : ''}`,
         };
       }),
   },
