@@ -85,6 +85,8 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *   delegated merging, without asking, the pull requests that do not wait for them
  * @property {string} [workDir] the tracker's folder: what a merge without the owner may change in it
  *   is held to the branch's own item (delegatedTrackerScope, HITLD-871); 'work' when not given
+ * @property {(id: string) => import('../rights/flow.mjs').AskedRecord | null} [asked] a decision's
+ *   ask record when the ledger records it asked: an added decision true to it is a recorded choice
  *
  * @typedef {{ number: number, head: string, signed_off_by: string, at: string, by: string,
  *   presented_at?: string, as_presented?: boolean, ahead?: string }} Approval the owner's approval
@@ -769,6 +771,7 @@ export async function runPullRequestQueue(r) {
               workDir: s.workDir,
               claimed: e.item,
               unverified: unverified.map((x) => x.path),
+              ...(s.asked ? { asked: s.asked } : {}),
             })
           : { waits: [], refused: [] };
       if (scope.refused.length) {

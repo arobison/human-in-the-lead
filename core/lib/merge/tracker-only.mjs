@@ -10,27 +10,34 @@
 //   3. the queue's guards  the commit guard on every commit the branch brings (classification and
 //                          the private term list), the quarantine file, two items with one ID in
 //                          the merged tree, a conflict with main
-//   4. who decides         a symbolic link, or a path under merge.owner_paths, waits for the owner;
-//                          a changed decision answer must be one the rights flow recorded
-//                          (answers.mjs); beyond that the branch changes only the item its dispatch
-//                          claimed, and an item promoted out of proposed is refused
-//                          (delegatedTrackerScope)
+//   4. who decides         in owner mode: a symbolic link, or a path under merge.owner_paths, waits
+//                          for the owner; a changed decision answer must be one the rights flow
+//                          recorded (answers.mjs); beyond that the branch changes only what
+//                          delegatedTrackerScope allows (the item a live dispatch on it claimed, a
+//                          recorded answer, a recorded choice), and an item promoted out of proposed
+//                          is refused
 //   5. the checks          the named checks this change waits for are green on the head
 //   6. merge               a squash of that head, carrying the owner's sign-off: under their
 //                          delegation (merge.pull_request.delegated_by) the one their latest
-//                          approval gave, with a Delegated-by trailer; or, given their own yes to
-//                          this pull request, the sign-off they gave with it. With their yes, what
-//                          waits for them (step 4) is theirs to merge; the guards still hold.
+//                          approval gave, with a Delegated-by trailer; or, with their own yes to this
+//                          pull request, the sign-off that yes carries. Their yes is only an approval
+//                          `hitld merge approve` recorded in the queue's state for this pull request,
+//                          holding for this head (approvalHolds): no flag stands in for it. With it,
+//                          what waits for them (step 4) is theirs to merge; the guards still hold.
 //
-// Each refusal names its reason and what to do; nothing is merged then.
+// Outside owner mode (merge.mode queue) step 4 and the sign-off are skipped, as the queue skips
+// them: the merge is not signed. Each refusal names its reason and what to do; nothing is merged
+// then.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { STRICT, checkCommits } from '../guard/classification.mjs';
+import { parseItem } from '../tracker/files/frontmatter.mjs';
 import { delegatedTrackerScope, unverifiedAnswers } from './answers.mjs';
 import {
+  approvalHolds,
   changedFiles,
   checksFor,
   classificationRejection,
@@ -52,13 +59,88 @@ import { QUARANTINE_PATH } from './quarantine.mjs';
  * @property {(dir: string) => string[]} [trackerCheck] two items with one ID in a checked-out tree
  * @property {Record<string, any>[]} [answers] what the rights flow recorded (recordedAnswers)
  * @property {string | null} [delegatedBy] merge.pull_request.delegated_by
+ * @property {(id: string) => import('../rights/flow.mjs').AskedRecord | null} [asked] a decision's
+ *   ask record, when the ledger records it asked (delegatedTrackerScope)
  *
  * @typedef {{ code: string, message: string, findings?: { path?: string, item?: string | null,
  *   decision?: string, why: string }[], files?: string[] }} TrackerOnlyRefusal
  * @typedef {{ number: number, url: string, branch: string, head: string, commit: string,
  *   claimed: string | null, signed_off_by: string, delegated_by: string | null,
- *   approved_by_owner: boolean, changed: string[], reverse: string }} TrackerOnlyMerged
+ *   approved_by_owner: boolean, approval: { source: 'presented' | 'ahead', at: string, by: string,
+ *   head: string } | null, changed: string[], reverse: string }} TrackerOnlyMerged approval: the
+ *   owner's recorded yes it merged with, for the caller to mark used
  */
+
+/**
+ * The owner's recorded yes to this pull request that holds for this head, or null; `stale` when one
+ * was recorded for it and the branch moved since.
+ * @param {string} dir @param {import('./pull-request.mjs').PullQueueState} state
+ * @param {string} branch @param {number} number @param {string} head
+ * @returns {{ approval: import('./pull-request.mjs').Approval, source: 'presented' | 'ahead', stale: false }
+ *   | { approval: null, source: null, stale: boolean }}
+ */
+export function ownerYes(dir, state, branch, number, head) {
+  const ps = state.branches[branch];
+  if (ps?.approval && approvalHolds(dir, ps, number, head)) {
+    return { approval: ps.approval, source: 'presented', stale: false };
+  }
+  const ahead = state.approved_ahead?.[branch];
+  if (ahead) {
+    /** @type {import('./pull-request.mjs').PullState} */
+    const shell = { item: '', number, url: '', head, since: '', updates: [], approval: ahead };
+    if (approvalHolds(dir, shell, number, head)) {
+      return { approval: ahead, source: 'ahead', stale: false };
+    }
+  }
+  const stale = [ps?.approval, ahead].some((a) => a?.number === number);
+  return { approval: null, source: null, stale };
+}
+
+/** The ledger events that end a dispatch's claim on its branch. */
+const CLAIM_ENDS = ['abandoned', 'unclaimed', 'interrupted'];
+
+/**
+ * The live dispatch on a branch and the item it claimed, from the ledger, or null: the latest
+ * `dispatched` event naming the branch, unless that dispatch was abandoned, unclaimed or
+ * interrupted since, or its item merged after it. A branch whose dispatch is over claims nothing,
+ * whatever its name.
+ * @param {Record<string, any>[]} events the ledger's events @param {string} branch
+ * @returns {{ item: string, dispatch: string } | null}
+ */
+export function liveClaim(events, branch) {
+  const live = events.filter((e) => e.corrects === undefined);
+  const at = live.findLastIndex(
+    (e) => e.event === 'dispatched' && e.branch === branch && typeof e.item === 'string',
+  );
+  if (at < 0) return null;
+  const d = live[at];
+  const over = live
+    .slice(at + 1)
+    .some(
+      (e) =>
+        (CLAIM_ENDS.includes(e.event) && e.dispatch === d.dispatch) ||
+        (e.event === 'merged' && e.item === d.item),
+    );
+  return over ? null : { item: String(d.item), dispatch: String(d.dispatch) };
+}
+
+/**
+ * Whether a live dispatch's claim is this branch's own: the item's file at the head names that
+ * dispatch as its claimant. A branch pushed later under the name of an earlier dispatch's branch
+ * does not inherit its claim.
+ * @param {string} dir @param {string} head @param {string[]} paths
+ * @param {{ item: string, dispatch: string }} claim
+ */
+function claimOnBranch(dir, head, paths, claim) {
+  for (const path of paths) {
+    if (!path.endsWith('.md')) continue;
+    const r = spawnSync('git', ['show', `${head}:${path}`], { cwd: dir, encoding: 'utf8' });
+    if (r.status !== 0) continue;
+    const data = parseItem(r.stdout).data;
+    if (data && String(data.id) === claim.item) return data.claimed_by === claim.dispatch;
+  }
+  return false;
+}
 
 /** @param {string} cwd @param {string[]} args @param {NodeJS.ProcessEnv} [env] */
 function git(cwd, args, env) {
@@ -82,10 +164,10 @@ const CHECK_IDENTITY = {
  * Check one tracker-only pull request and merge it when every step above holds.
  * @param {{ repoRoot: string, number: number, github: import('./github.mjs').GitHub,
  *   settings: TrackerOnlySettings, policy: Record<string, any>,
- *   claimedBy: (branch: string) => string | null, ownerSignoff: string | null,
- *   approvedSignoff?: string | null }} o claimedBy: the item a dispatch on that branch was for,
- *   from the ledger; ownerSignoff: the sign-off the owner's latest approval gave; approvedSignoff:
- *   the owner's own yes to this pull request, with their sign-off
+ *   claimOf: (branch: string) => { item: string, dispatch: string } | null,
+ *   state: import('./pull-request.mjs').PullQueueState }} o claimOf: the live dispatch on that
+ *   branch and the item it was for, from the ledger; state: the queue's state, which holds the
+ *   owner's recorded approvals and the sign-off their latest one gave
  * @returns {{ merged: TrackerOnlyMerged, refused: null } | { merged: null, refused: TrackerOnlyRefusal }}
  */
 export function mergeTrackerOnly(o) {
@@ -202,8 +284,11 @@ export function mergeTrackerOnly(o) {
 
   // Who decides.
   const owner = o.policy.merge?.mode === 'owner';
-  const approved = Boolean(o.approvedSignoff);
-  const claimed = o.claimedBy(pr.branch);
+  const yes = ownerYes(o.repoRoot, o.state, pr.branch, o.number, head);
+  const approved = yes.approval !== null;
+  const claim = o.claimOf(pr.branch);
+  const claimed = claim && claimOnBranch(o.repoRoot, head, changed, claim) ? claim.item : null;
+  const ask = `record the owner's own yes with hitld merge approve --only ${pr.branch} --head ${head} --signoff "<their sign-off>", then run this again${yes.stale ? ` (the approval recorded for #${o.number} was of another head: the branch moved since)` : ''}`;
   /** @type {{ path?: string, item?: string | null, decision?: string, why: string }[]} */
   const waits = [];
   /** @type {{ path?: string, item?: string | null, why: string }[]} */
@@ -231,6 +316,7 @@ export function mergeTrackerOnly(o) {
       workDir: s.workDir,
       claimed,
       unverified: unverified.map((x) => x.path),
+      ...(s.asked ? { asked: s.asked } : {}),
     });
     waits.push(...scope.waits);
     promoted = scope.refused;
@@ -238,14 +324,14 @@ export function mergeTrackerOnly(o) {
   if (promoted.length && !approved) {
     return refuse(
       'owner-only-state',
-      `pull request #${o.number} makes a change only the owner's decision makes: ${promoted.map((x) => x.why).join('; ')}. Put it to the owner; with their own yes, run this again with --signoff`,
+      `pull request #${o.number} makes a change only the owner's decision makes: ${promoted.map((x) => x.why).join('; ')}. Put it to the owner; on their own yes, ${ask}`,
       { findings: promoted },
     );
   }
   if (waits.length && !approved) {
     return refuse(
       'waits-for-owner',
-      `pull request #${o.number} waits for the owner: ${waits.map((x) => x.why).join('; ')}. Put it to the owner with these reasons; with their own yes, run this again with --signoff "<their sign-off>"`,
+      `pull request #${o.number} waits for the owner: ${waits.map((x) => x.why).join('; ')}. Put it to the owner with these reasons; on their own yes, ${ask}`,
       { findings: waits },
     );
   }
@@ -276,14 +362,18 @@ export function mergeTrackerOnly(o) {
   if (owner && !approved && !delegatedBy) {
     return refuse(
       'no-signoff',
-      `the owner has not delegated merging without asking (merge.pull_request.delegated_by is not set): put #${o.number} to them`,
+      `the owner has not delegated merging without asking (merge.pull_request.delegated_by is not set): put #${o.number} to them; on their own yes, ${ask}`,
     );
   }
-  const signedOffBy = approved ? o.approvedSignoff : delegatedBy ? o.ownerSignoff : null;
+  const signedOffBy = yes.approval
+    ? yes.approval.signed_off_by
+    : delegatedBy
+      ? (o.state.owner_signoff ?? null)
+      : null;
   if (owner && !signedOffBy) {
     return refuse(
       'no-signoff',
-      `no sign-off of the owner's is known yet for a merge under ${delegatedBy}: put #${o.number} to them, and with their own yes run this again with --signoff`,
+      `no sign-off of the owner's is known yet for a merge under ${delegatedBy}: put #${o.number} to them; on their own yes, ${ask}`,
     );
   }
   const done = o.github.mergePull(o.number, {
@@ -311,6 +401,15 @@ export function mergeTrackerOnly(o) {
       signed_off_by: String(signedOffBy ?? ''),
       delegated_by: delegatedBy,
       approved_by_owner: approved,
+      approval:
+        yes.approval && yes.source
+          ? {
+              source: yes.source,
+              at: yes.approval.at,
+              by: yes.approval.by,
+              head: yes.approval.head,
+            }
+          : null,
       changed,
       reverse: revertCommand({ item: claimed ?? `#${o.number}`, commit: done.sha }),
     },

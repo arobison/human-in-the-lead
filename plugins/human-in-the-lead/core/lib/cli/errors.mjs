@@ -102,7 +102,8 @@ export const ERROR_CODES = Object.freeze({
   'not-presented': 'The branch was not presented to the owner, or nothing has been presented yet.',
   'not-waiting': 'The branch is not waiting to merge.',
   stale: 'A presented branch changed after the owner saw it.',
-  'no-pull-request': 'The branch has no open pull request to approve.',
+  'no-pull-request':
+    'There is no such pull request, or it is not open: nothing to approve or merge.',
   'not-tracker-only':
     "The pull request changes a file outside the tracker's folder, changes nothing, or does not merge into the main branch; it goes through the merge queue. Nothing was merged.",
   'foreign-head':

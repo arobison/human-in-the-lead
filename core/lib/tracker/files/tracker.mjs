@@ -168,7 +168,7 @@ const letter = (i) => String.fromCharCode(65 + i);
  * recorded in the front matter.
  * @param {Record<string, any>} d @returns {string}
  */
-function decisionBody(d) {
+export function decisionBody(d) {
   const out = ['', '## Question', ''];
   if (d.question) out.push(String(d.question), '');
   if (d.context) out.push(String(d.context), '');

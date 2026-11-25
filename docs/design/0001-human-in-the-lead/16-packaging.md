@@ -173,7 +173,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `not-presented`: The branch was not presented to the owner, or nothing has been presented yet.
 - `not-waiting`: The branch is not waiting to merge.
 - `stale`: A presented branch changed after the owner saw it.
-- `no-pull-request`: The branch has no open pull request to approve.
+- `no-pull-request`: There is no such pull request, or it is not open: nothing to approve or merge.
 - `not-tracker-only`: The pull request changes a file outside the tracker's folder, changes nothing, or does not merge into the main branch; it goes through the merge queue. Nothing was merged.
 - `foreign-head`: The pull request's head branch is in another repository, or the remote's branch is not at the pull request's head. Nothing was merged.
 - `duplicate-id`: Merged into the main branch, the pull request would leave two tracker items with one ID. Nothing was merged.

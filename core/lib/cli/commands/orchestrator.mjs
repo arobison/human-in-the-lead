@@ -107,7 +107,8 @@ import {
   validSignoff,
 } from '../../merge/pull-request.mjs';
 import { duplicateIds } from '../../tracker/files/check.mjs';
-import { mergeTrackerOnly } from '../../merge/tracker-only.mjs';
+import { liveClaim, mergeTrackerOnly } from '../../merge/tracker-only.mjs';
+import { readAsked } from '../../rights/flow.mjs';
 import { closeByTrailer } from '../../tracker/files/closing.mjs';
 import { parseItem } from '../../tracker/files/frontmatter.mjs';
 import { git, loadWorkTree } from '../../tracker/files/tree.mjs';
@@ -1046,11 +1047,20 @@ function githubFor(p, ctx) {
 /**
  * `hitld merge --tracker-only <pull request>` (HITLD-871): one pull request whose every file is in
  * the tracker, checked by the queue's guards and merged under the owner's delegation, or with their
- * own yes (--signoff), by the chief of staff. It needs no lease: it touches no queue state.
+ * own yes as `hitld merge approve` recorded it, by the chief of staff: the right is theirs (design
+ * part 4), so any other role is refused. It needs no lease; of the queue's state it changes only the
+ * approval it used, which it marks used.
  * @param {any} p @param {any} ctx @param {Record<string, unknown>} input
  * @param {string[]} notes
  */
 function trackerOnlyMerge(p, ctx, input, notes) {
+  const role = String(input.role ?? ctx.env.HITLD_ROLE ?? '');
+  if (role !== 'chief-of-staff') {
+    throw new Refusal(
+      'not-permitted',
+      `merging a tracker-only pull request is the chief of staff's right (design part 4); this session's role is ${role || 'not given'} (--role or HITLD_ROLE); nothing was merged`,
+    );
+  }
   if (p.policy.merge.via !== 'pull-request') {
     throw new Refusal(
       'usage',
@@ -1066,7 +1076,12 @@ function trackerOnlyMerge(p, ctx, input, notes) {
   if (input.all === true || typeof input.only === 'string') {
     throw new Refusal('usage', 'give --tracker-only alone, without --all or --only');
   }
-  const approvedSignoff = typeof input.signoff === 'string' ? signoffOf(input) : null;
+  if (input.signoff !== undefined) {
+    throw new Refusal(
+      'usage',
+      "--tracker-only takes no --signoff: the owner's yes is the approval hitld merge approve --only <branch> --head <commit> --signoff records from their own message, and the sign-off comes from it; nothing was merged",
+    );
+  }
   const pr = p.policy.merge.pull_request;
   const tracker = openTracker({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
   const layout = tracker.layout();
@@ -1074,6 +1089,7 @@ function trackerOnlyMerge(p, ctx, input, notes) {
   const said = {};
   const terms = mergeTerms(p.store, p.policy, ctx.env, notes, said);
   const events = readLedger(p.store).events;
+  const state = readPullState(p.store);
   const r = mergeTrackerOnly({
     repoRoot: p.repoRoot,
     number: Number(raw),
@@ -1100,19 +1116,43 @@ function trackerOnlyMerge(p, ctx, input, notes) {
       },
       answers: recordedAnswers(effectiveEvents(events), readTrustEvents(p.store)),
       delegatedBy: pr.delegated_by ?? null,
+      // A decision's ask record, only when the ledger records it asked.
+      asked: (id) =>
+        events.some((e) => e.event === 'asked' && e.decision === id && e.corrects === undefined)
+          ? readAsked(p.store, id)
+          : null,
     },
     policy: p.policy,
-    // The item a dispatch on that branch was for: from the ledger, never from the branch.
-    claimedBy: (branch) =>
-      events
-        .filter((e) => e.event === 'dispatched' && e.branch === branch && e.corrects === undefined)
-        .at(-1)?.item ?? null,
-    ownerSignoff: readPullState(p.store).owner_signoff ?? null,
-    approvedSignoff,
+    // The live dispatch on that branch: from the ledger, never from the branch.
+    claimOf: (branch) => liveClaim(events, branch),
+    state,
   });
   if (r.refused) {
     const { code, message, ...more } = r.refused;
     throw new Refusal(code, message, { ...more, list_found: said.list_found === true });
+  }
+  // The owner's yes it merged with is used: it is not kept for another head.
+  const used = r.merged.approval;
+  if (used) {
+    const branch = r.merged.branch;
+    if (used.source === 'ahead') {
+      const { [branch]: _, ...rest } = state.approved_ahead ?? {};
+      state.approved_ahead = rest;
+    } else if (state.branches[branch]) {
+      const { approval: _, ...kept } = state.branches[branch];
+      state.branches[branch] = kept;
+    }
+    p.store.write(PULL_STATE_KEY, JSON.stringify(state));
+    if (used.source === 'ahead') {
+      appendEvent(p.store, {
+        event: 'merge-approved',
+        branches: [branch],
+        presented_at: new Date().toISOString(),
+        commit: r.merged.head,
+        by: used.by,
+        notes: `from the owner's own message at ${used.at}, applied by hitld merge --tracker-only to pull request #${r.merged.number}; approved head ${used.head}, with the owner's sign-off`,
+      });
+    }
   }
   return {
     ok: true,
@@ -1393,6 +1433,12 @@ async function pullRequestMerge(o) {
       delegatedBy: o.owner ? (pr.delegated_by ?? null) : null,
       // A merge without the owner changes only the branch's own item in it (HITLD-871).
       workDir: layout.workDir,
+      asked: (id) =>
+        readLedger(p.store).events.some(
+          (e) => e.event === 'asked' && e.decision === id && e.corrects === undefined,
+        )
+          ? readAsked(p.store, id)
+          : null,
       generated: p.policy.merge.generated,
       setup: o.settings.setup,
       classification: o.settings.classification,
@@ -2710,13 +2756,19 @@ const table = [
         name: 'signoff',
         type: 'string',
         description:
-          'With merge.via pull-request, in owner mode: the owner\'s sign-off for the squash commits they approve, "Name <email>". With --tracker-only: the owner\'s own yes to that pull request, with their sign-off',
+          'With merge.via pull-request, in owner mode: the owner\'s sign-off for the squash commits they approve, "Name <email>"',
       },
       {
         name: 'tracker-only',
         type: 'string',
         description:
-          "A pull request number whose every changed file is in the tracker: run the queue's guards on it (answers, symbolic links, quarantine, duplicate IDs, private terms, the head branch's origin, its checks) and merge it under the owner's delegation when it changes only the item its branch claimed; anything else waits for the owner. Needs no lease",
+          "The chief of staff's: a pull request number whose every changed file is in the tracker: run the queue's guards on it (answers, symbolic links, quarantine, duplicate IDs, private terms, the head branch's origin, its checks) and merge it under the owner's delegation when it changes only the item a live dispatch on its branch claimed, recorded answers and recorded choices; anything else waits for the owner's yes, recorded with hitld merge approve --only <branch> --head <commit>. Outside owner mode the merge is not signed. Needs no lease",
+      },
+      {
+        name: 'role',
+        type: 'string',
+        description:
+          'With --tracker-only: the role of the session running it (or HITLD_ROLE); only chief-of-staff may',
       },
       SESSION,
       HOST,

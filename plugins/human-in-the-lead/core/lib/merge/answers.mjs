@@ -9,7 +9,9 @@
 // The changes are read from the diff alone: the item at the merge base and at the head.
 
 import { spawnSync } from 'node:child_process';
+import { checkCode } from '../rights/flow.mjs';
 import { parseItem } from '../tracker/files/frontmatter.mjs';
+import { decisionBody } from '../tracker/files/tracker.mjs';
 
 /** The front matter fields that make up a decision's answer. */
 export const ANSWER_FIELDS = ['answer', 'answered_at', 'answered_via', 'answered_by'];
@@ -135,18 +137,86 @@ export function recordedAnswers(ledger, trust) {
 // above reads four fields of a decision, so on its own it let a branch whose files are all under
 // the tracker's folder rewrite a decision's question or options, another item's Done-when, or add
 // items whose bodies become later executors' briefs, and merge under the owner's delegation. Such a
-// merge may change only the file of the item its branch claimed, and a decision already on main
-// only by the answer the rights flow recorded (state, answer and what answering writes; its
-// question, options and body as they were). Anything else in the tracker waits for the owner: a
-// decision changed any other way or added, another item, a milestone, a project, a view, any other
-// tracker file. A change no merge without the owner may carry, whichever file holds it, is refused:
-// an item promoted out of `proposed`, which only the owner's decision does.
+// merge may change three things in the tracker:
+//   - the file of the item its branch claimed, except the fields that carry rights or ordering
+//     (OWNER_FIELDS) and any state change the claim and close flow does not make (CLAIM_FLOW);
+//   - a decision already on main, only by the answer the rights flow recorded (state, answer and
+//     what answering writes; its question, options and body as they were);
+//   - a decision it adds, answered by the owner, when its title and body are exactly what the
+//     rights flow renders from the question it recorded asking (the ask record in the private
+//     store, true to its own check code) and its answer is the one recorded: a choice the chief of
+//     staff recorded and published.
+// Anything else in the tracker waits for the owner: a decision changed any other way or added
+// otherwise, another item, a milestone, a project, a view, any other tracker file. A change no
+// merge without the owner may carry, whichever file holds it, is refused: an item promoted out of
+// `proposed`, which only the owner's decision does.
 
 /** What answering a decision writes besides ANSWER_FIELDS (an answer, a default, a precedent). */
 const ANSWERING_WRITES = ['state', 'reason', 'rationale', 'precedent', 'resolved_by_precedent'];
 
 /** The states an item reaches from `proposed` only by the owner's decision. */
 const PROMOTED = ['planned', 'in-progress', 'done'];
+
+/** The fields of the claimed item that carry rights or ordering: they change only with the owner's yes. */
+export const OWNER_FIELDS = ['constraint_of', 'project', 'needs', 'holds'];
+
+/** The state changes the claim and close flow makes to the claimed item, from main's state. */
+const CLAIM_FLOW = /** @type {Record<string, string[]>} */ ({
+  planned: ['in-progress', 'done'],
+  'in-progress': ['done'],
+});
+
+/** Whitespace collapsed: a body Prettier wrapped reads the same. @param {string} t */
+const squash = (t) => t.replace(/\s+/g, ' ').trim();
+
+/**
+ * Why the claimed item's file changes beyond what its branch may change without the owner: the
+ * fields that carry rights or ordering, and a state change outside the claim and close flow.
+ * @param {Record<string, any>} b @param {Record<string, any>} a @returns {string[]}
+ */
+function ownBeyond(b, a) {
+  const out = OWNER_FIELDS.filter((k) => JSON.stringify(b[k]) !== JSON.stringify(a[k])).map(
+    (k) => `its ${k} changes`,
+  );
+  if (b.state !== a.state && !(CLAIM_FLOW[String(b.state)] ?? []).includes(String(a.state))) {
+    out.push(
+      `its state goes from ${b.state} to ${a.state}, which the claim and close flow never does`,
+    );
+  }
+  return out;
+}
+
+/**
+ * Why a decision the branch adds is not a choice the rights flow recorded, or null when it is: it
+ * is done and answered by the owner, its ask record is there and true to its check code, and its
+ * title and body are what the rights flow renders from that record. Its answer is the answer
+ * check's to verify.
+ * @param {Record<string, any>} a its front matter @param {string} body
+ * @param {import('../rights/flow.mjs').AskedRecord | null} rec
+ */
+function addedNotRecorded(a, body, rec) {
+  if (a.state !== 'done' || a.answer === undefined || a.answer === null) {
+    return 'it is added unanswered';
+  }
+  if (a.answered_by !== 'owner') return "it is added with an answer that is not the owner's";
+  if (!rec) return 'no question under its ID is recorded as asked';
+  if (!rec.check || checkCode(rec) !== rec.check) {
+    return 'the recorded question does not match its own check code';
+  }
+  if (String(a.title) !== rec.title) return 'its title is not the one recorded asking it';
+  const rendered = decisionBody({
+    question: rec.question,
+    context: rec.context,
+    options: rec.options,
+    recommendation: rec.recommendation,
+    ...(rec.basis ? { rights_basis: rec.basis } : {}),
+    ...(rec.reversibility ? { reversibility: rec.reversibility } : {}),
+    ...(rec.default_if_unanswered ? { default_if_unanswered: rec.default_if_unanswered } : {}),
+    ...(rec.offer ? { precedent_offer: rec.offer } : {}),
+  });
+  if (squash(body) !== squash(rendered)) return 'its body is not the question recorded asking it';
+  return null;
+}
 
 /**
  * @typedef {{ path: string, item: string | null, why: string }} ScopeFinding a tracker file a
@@ -177,9 +247,11 @@ function onlyAnswered(before, after) {
  * owner. `refused`: each refuses it outright, whoever would merge it without the owner's decision.
  * A file the answer check already holds back (`unverified`, by path) is left to it.
  * @param {{ dir: string, base: string, head: string, paths: string[], workDir?: string,
- *   claimed: string | null, unverified?: string[] }} o claimed: the item the branch was dispatched
- *   for, from the ledger, never from the branch; null for a branch no dispatch claimed (a
- *   published tracker change)
+ *   claimed: string | null, unverified?: string[],
+ *   asked?: (id: string) => import('../rights/flow.mjs').AskedRecord | null }} o claimed: the item
+ *   the branch was dispatched for, from the ledger, never from the branch; null for a branch no
+ *   dispatch claimed (a published tracker change). asked: a decision's ask record, from the
+ *   private store, when the ledger records it asked; null otherwise, and when not given
  * @returns {{ waits: ScopeFinding[], refused: ScopeFinding[] }}
  */
 export function delegatedTrackerScope(o) {
@@ -212,9 +284,18 @@ export function delegatedTrackerScope(o) {
       a?.id === o.claimed &&
       b?.kind === 'work' &&
       a?.kind === 'work';
-    if (own) continue;
     /** @param {string} why */
     const wait = (why) => waits.push({ path, item: id, why });
+    if (own) {
+      const beyond = ownBeyond(
+        /** @type {Record<string, any>} */ (b),
+        /** @type {Record<string, any>} */ (a),
+      );
+      if (beyond.length) {
+        wait(`${name}, the claimed item, changes beyond its claim and close: ${beyond.join('; ')}`);
+      }
+      continue;
+    }
     const kinds = [b?.kind, a?.kind];
     if (kinds.includes('decision')) {
       const answered =
@@ -225,9 +306,14 @@ export function delegatedTrackerScope(o) {
             )
           : false;
       if (answered) continue;
+      const notRecorded =
+        !b && a?.kind === 'decision' && after
+          ? addedNotRecorded(a, after.body, id ? (o.asked?.(id) ?? null) : null)
+          : 'not added';
+      if (notRecorded === null) continue;
       wait(
         !b
-          ? `decision ${name} is added: its question was never on main`
+          ? `decision ${name} is added, and it is not a choice the rights flow recorded: ${notRecorded}`
           : !a
             ? `decision ${name} is removed or is no longer an item`
             : `decision ${name} changes beyond the answer that was recorded (its question, options, body or another field)`,
