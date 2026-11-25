@@ -316,7 +316,10 @@ out(${JSON.stringify(STREAM_RESULT)});
   const head = git(worktree, 'rev-parse', 'HEAD');
   const message = git(worktree, 'log', '-1', '--format=%B');
   assert.match(message, /^close: W-4\n\nitem: W-4\nresult: done\n/, 'the commit is the report');
-  assert.match(message, new RegExp(`\\n\\nWork-Item: W-4\\nDispatch: ${dispatch}$`));
+  assert.match(
+    message,
+    new RegExp(`\\n\\nWork-Item: W-4\\nDispatch: ${dispatch}\\nAgent-Role: executor$`),
+  );
 
   // A later pass, by any orchestrator holding the lease, records it once.
   const pass = await c.hitld(['dispatch', 'reconcile']);

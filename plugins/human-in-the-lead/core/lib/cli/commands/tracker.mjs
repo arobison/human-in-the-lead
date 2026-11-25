@@ -514,7 +514,7 @@ export const commands = [
         name: 'report-file',
         type: 'string',
         description:
-          "A file holding the executor's report in the fixed shape: it becomes the closing commit's message body, before its Work-Item and Dispatch trailers, so the commit is the report (HITLD-746). Its commit line names the branch, since a commit cannot name its own hash; hitld dispatch reconcile fills in the head it read",
+          "A file holding the executor's report in the fixed shape: it becomes the closing commit's message body, before its Work-Item, Dispatch and Agent-Role trailers, so the commit is the report (HITLD-746). Its commit line names the branch, since a commit cannot name its own hash; hitld dispatch reconcile fills in the head it read",
       },
       ...where,
     ],
