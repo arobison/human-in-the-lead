@@ -6,7 +6,7 @@ import { schemas } from '../lib/schema/registry.mjs';
 import { parseItem, renderItem, setKeys, slugify } from '../lib/tracker/files/frontmatter.mjs';
 import { checkBlocks, loadTrackerConfig, resolveLayout } from '../lib/tracker/files/config.mjs';
 import { keyOrder, toEntity } from '../lib/tracker/files/format.mjs';
-import { checkItems, unplacedWork } from '../lib/tracker/files/check.mjs';
+import { checkItems, unnumberedReleaseLinks, unplacedWork } from '../lib/tracker/files/check.mjs';
 import { buildGraph } from '../lib/tracker/files/graph.mjs';
 import { loadWorkTree } from '../lib/tracker/files/tree.mjs';
 import {
@@ -863,4 +863,147 @@ test('setKeys changes only the keys it is given, leaving the other lines where t
     setKeys('---\r\nid: W-1\r\nstate: planned\r\n---\r\nBody.\r\n', { state: 'done' }, order),
     '---\nid: W-1\nstate: done\n---\nBody.\n',
   );
+});
+
+test('items that reach a release only through an unnumbered constraint link are one warning per milestone (HITLD-995)', () => {
+  const root = makeRepo({
+    commit: false,
+    files: {
+      'work/milestones/W-20-held.md': itemText({
+        id: 'W-20',
+        title: 'Held',
+        kind: 'milestone',
+        state: 'planned',
+        project: 'W-2',
+        done_when: ['"c1: Held."'],
+      }),
+      // W-21 is linked by a numbered clause; W-23 and W-25 only by c?; W-24 by c? but also needed
+      // by W-21; W-26 is linked to nothing, needed only by W-25, which moves with it.
+      'work/items/W-21-numbered.md': itemText({
+        id: 'W-21',
+        title: 'Numbered',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        needs: ['W-24'],
+        constraint_of: ['W-20 c1'],
+      }),
+      'work/items/W-23-unnumbered.md': itemText({
+        id: 'W-23',
+        title: 'Unnumbered',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        constraint_of: ['W-20 c?'],
+      }),
+      'work/items/W-24-needed-too.md': itemText({
+        id: 'W-24',
+        title: 'Needed too',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        constraint_of: ['W-20 c?'],
+      }),
+      'work/items/W-25-also-unnumbered.md': itemText({
+        id: 'W-25',
+        title: 'Also unnumbered',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        needs: ['W-26'],
+        constraint_of: ['W-20 c?'],
+      }),
+      'work/items/W-26-linked-to-nothing.md': itemText({
+        id: 'W-26',
+        title: 'Linked to nothing',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+      }),
+      'work/items/W-22-the-release.md': itemText({
+        id: 'W-22',
+        title: 'The release',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        release: '0.2.0',
+        needs: ['W-20'],
+      }),
+    },
+  });
+  const layout = layoutOf(root);
+  const items = loadWorkTree(root, layout);
+  const warnings = unnumberedReleaseLinks(items);
+  assert.deepEqual(warnings, [
+    'work/milestones/W-20-held.md: W-20: 2 items reach a release only through W-20 c?: W-23, W-25; name the clause each serves, so the queue ranks it by the release it is meant for',
+  ]);
+  assert.ok(
+    warnings.every((w) => !w.includes('()')),
+    'no line names an empty list of milestones',
+  );
+});
+
+test('an unnumbered link that moves an item to a nearer release than its numbered links give is a warning (HITLD-995)', () => {
+  // W-25 is constraint_of [W-20 c?, W-30 c1]: W-20 is under the near release W-22, W-30 under the
+  // far one W-32, which needs W-22. Its c? link alone puts it in W-22's tier.
+  const root = makeRepo({
+    commit: false,
+    files: {
+      'work/milestones/W-20-near.md': itemText({
+        id: 'W-20',
+        title: 'Near',
+        kind: 'milestone',
+        state: 'planned',
+        project: 'W-2',
+        done_when: ['"c1: Near."'],
+      }),
+      'work/milestones/W-30-far.md': itemText({
+        id: 'W-30',
+        title: 'Far',
+        kind: 'milestone',
+        state: 'planned',
+        project: 'W-2',
+        done_when: ['"c1: Far."'],
+      }),
+      'work/items/W-21-near-work.md': itemText({
+        id: 'W-21',
+        title: 'Near work',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        constraint_of: ['W-20 c1'],
+      }),
+      'work/items/W-25-mislinked.md': itemText({
+        id: 'W-25',
+        title: 'Mislinked',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        constraint_of: ['W-20 c?', 'W-30 c1'],
+      }),
+      'work/items/W-22-near-release.md': itemText({
+        id: 'W-22',
+        title: 'Near release',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        release: '0.2.0',
+        needs: ['W-20'],
+      }),
+      'work/items/W-32-far-release.md': itemText({
+        id: 'W-32',
+        title: 'Far release',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        release: '0.5.0',
+        needs: ['W-22', 'W-30'],
+      }),
+    },
+  });
+  const layout = layoutOf(root);
+  const items = loadWorkTree(root, layout);
+  assert.deepEqual(unnumberedReleaseLinks(items), [
+    "work/milestones/W-20-near.md: W-20: 1 item takes another release's tier through W-20 c? than the numbered links give: W-25 (0.2.0, else 0.5.0); number the link or drop it, so the queue ranks each by the release it is meant for",
+  ]);
 });

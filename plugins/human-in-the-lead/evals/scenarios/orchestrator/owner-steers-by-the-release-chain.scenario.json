@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "id": "orchestrator/owner-steers-by-the-release-chain",
+  "suite": "orchestrator",
+  "category": "queue-order",
+  "description": "The ready queue is ordered by the release chain, with no priority to set (design part 2.4, HITLD-995): the work the nearest release needs goes first, ahead of an item that unblocks as much and carries a stray urgent priority (which the order before the release chain put first), a stray priority key changes nothing, and work no release needs is listed apart with how long it has waited. When the owner wants other work sooner, the chief of staff records the choice as a decision and the owner's steer is a change to a release's needs, after which the queue follows the graph.",
+  "mode": "offline",
+  "fixture": {
+    "generator": "repo",
+    "options": {
+      "git": true,
+      "policy": {
+        "project": {
+          "id": "fixture-queue",
+          "key": "FX"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "project",
+      "action": "file.write",
+      "with": {
+        "path": "work/projects/FX-1-report-writer.md",
+        "content": "---\nid: FX-1\ntitle: Report writer\nkind: project\nstate: planned\nproblem: The report writer's tables are hard to read.\n---\n\n## Notes\n\nThe report writer.\n"
+      }
+    },
+    {
+      "id": "padding",
+      "action": "file.write",
+      "with": {
+        "path": "work/items/FX-11-pad-the-tables.md",
+        "content": "---\nid: FX-11\ntitle: Pad the tables\nkind: work\nstate: planned\nproject: FX-1\ncreated: 2026-11-01\n---\n\n## Done when\n\nThe tables are padded.\n"
+      }
+    },
+    {
+      "id": "colors",
+      "action": "file.write",
+      "with": {
+        "path": "work/items/FX-12-color-the-headers.md",
+        "content": "---\nid: FX-12\ntitle: Color the headers\nkind: work\nstate: planned\nproject: FX-1\npriority: urgent\ncreated: 2026-11-02\n---\n\n## Done when\n\nThe headers are colored.\n"
+      }
+    },
+    {
+      "id": "after-colors",
+      "action": "file.write",
+      "with": {
+        "path": "work/items/FX-14-theme-the-headers.md",
+        "content": "---\nid: FX-14\ntitle: Theme the headers\nkind: work\nstate: planned\nproject: FX-1\nneeds: [FX-12]\n---\n\n## Done when\n\nThe headers follow the theme.\n"
+      }
+    },
+    {
+      "id": "release",
+      "action": "file.write",
+      "with": {
+        "path": "work/items/FX-13-release-0-2-0.md",
+        "content": "---\nid: FX-13\ntitle: Release 0.2.0\nkind: work\nstate: planned\nproject: FX-1\nrelease: 0.2.0\nneeds: [FX-11]\n---\n\n## Done when\n\nThe release is made.\n"
+      }
+    },
+    { "id": "before", "action": "cli", "with": { "argv": ["ready"] } },
+    {
+      "id": "record",
+      "action": "cli",
+      "with": {
+        "argv": [
+          "rights",
+          "record",
+          "--question",
+          "{\"title\": \"Which work does release 0.2.0 wait for?\", \"question\": \"The owner wants the header colors sooner. Which work does release 0.2.0 wait for?\", \"context\": \"The queue is ordered by the release chain: the owner steers it by a release's needs or an item's constraint_of, never a rank.\", \"options\": [{\"label\": \"Colors instead\", \"what_happens\": \"release 0.2.0 needs FX-12 instead of FX-11: the colors go first, the padding waits for a later release\"}, {\"label\": \"Keep padding\", \"what_happens\": \"release 0.2.0 keeps needing FX-11: the padding goes first\"}], \"recommendation\": {\"option\": \"A\", \"why\": \"the owner asked for the colors sooner, and the release's needs is how the order is steered\"}, \"paths\": [\"work/items/FX-13-release-0-2-0.md\"], \"item_kind\": \"decision\", \"classification\": \"public\", \"parent\": \"FX-1\"}",
+          "--answer",
+          "A",
+          "--via",
+          "chat"
+        ]
+      }
+    },
+    {
+      "id": "steer",
+      "action": "file.write",
+      "with": {
+        "path": "work/items/FX-13-release-0-2-0.md",
+        "content": "---\nid: FX-13\ntitle: Release 0.2.0\nkind: work\nstate: planned\nproject: FX-1\nrelease: 0.2.0\nneeds: [FX-12]\n---\n\n## Done when\n\nThe release is made.\n"
+      }
+    },
+    { "id": "after", "action": "cli", "with": { "argv": ["ready"] } }
+  ],
+  "graders": [
+    {
+      "id": "the-nearest-release-goes-first",
+      "grader": "equals",
+      "with": { "path": "steps.before.result.queue[0].id", "value": "FX-11" }
+    },
+    {
+      "id": "a-stray-priority-ranks-nothing",
+      "grader": "equals",
+      "with": { "path": "steps.before.result.queue[1].id", "value": "FX-12" }
+    },
+    {
+      "id": "the-next-release-is-named",
+      "grader": "equals",
+      "with": { "path": "steps.before.result.next_release.release", "value": "0.2.0" }
+    },
+    {
+      "id": "each-item-carries-its-tier-release",
+      "grader": "equals",
+      "with": { "path": "steps.before.result.queue[0].rank.release", "value": "FX-13" }
+    },
+    {
+      "id": "work-outside-every-release-is-listed",
+      "grader": "equals",
+      "with": { "path": "steps.before.result.outside_releases[0].id", "value": "FX-12" }
+    },
+    {
+      "id": "the-steer-is-recorded-as-a-decision",
+      "grader": "equals",
+      "with": { "path": "steps.record.result.recorded", "value": "chat" }
+    },
+    {
+      "id": "the-steer-took-the-graph-change",
+      "grader": "equals",
+      "with": { "path": "steps.record.result.option", "value": "A" }
+    },
+    {
+      "id": "the-queue-follows-the-release-needs",
+      "grader": "equals",
+      "with": { "path": "steps.after.result.queue[0].id", "value": "FX-12" }
+    },
+    {
+      "id": "the-padding-now-waits-outside-the-release",
+      "grader": "equals",
+      "with": { "path": "steps.after.result.outside_releases[0].id", "value": "FX-11" }
+    }
+  ]
+}

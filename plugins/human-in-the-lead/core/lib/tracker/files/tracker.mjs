@@ -20,7 +20,13 @@ import {
   findOrphans,
   unclaimItem,
 } from './claims.mjs';
-import { checkItems, findCollisions, retiredConstraintLines, unplacedWork } from './check.mjs';
+import {
+  checkItems,
+  findCollisions,
+  retiredConstraintLines,
+  unnumberedReleaseLinks,
+  unplacedWork,
+} from './check.mjs';
 import { mainMismatches } from './closing.mjs';
 import { descriptionWarnings } from './descriptions.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
@@ -79,6 +85,7 @@ import {
   renderLists,
   renderMilestonesView,
   replaceBetweenMarkers,
+  sizingWeight,
   viewBlocked,
   viewCriticalPath,
   viewDecisions,
@@ -231,6 +238,8 @@ export function openTracker({
     );
   }
   const layout = resolveLayout(loaded.config, policy);
+  // Every open item on a path weighs its sizing estimate, as the ready queue weighs it (HITLD-995).
+  const weightOf = () => sizingWeight(policy, { workDir: layout.workDir });
   // The paths from settings must stay inside the repository, through no symbolic link.
   for (const rel of [
     layout.workDir,
@@ -326,6 +335,7 @@ export function openTracker({
    */
   const graphOf = (ctx, tokens) =>
     milestoneGraph(ctx.g, {
+      weight: weightOf(),
       checkOf: (m) => {
         const d = /** @type {Record<string, unknown>} */ (m.data);
         if (passingCheck(readMilestone(d), milestoneRoles(ctx, m))) return 'passed';
@@ -851,6 +861,7 @@ export function openTracker({
       }
       const warnings = [
         ...unplacedWork(items),
+        ...unnumberedReleaseLinks(items, weightOf()),
         ...descriptionWarnings(items),
         ...retiredConstraintLines(items),
         ...legacyReleaseWarnings(records, layout),
@@ -892,7 +903,7 @@ export function openTracker({
         blocked: viewBlocked(g),
         decisions: viewDecisions(g, who),
         projects: viewProjects(g),
-        'critical-path': viewCriticalPath(g),
+        'critical-path': viewCriticalPath(g, 5, weightOf()),
         milestones: viewMilestones(g, (m) => derivedOf(ctx, m)),
         unreleased: viewUnreleased(g, ctx.released),
         lists: renderLists(g, { level: 2 }),

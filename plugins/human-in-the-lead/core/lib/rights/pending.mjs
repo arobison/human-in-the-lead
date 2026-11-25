@@ -15,6 +15,8 @@
 
 import { readLedger } from '../ledger/ledger.mjs';
 import { inflight } from '../ledger/inflight.mjs';
+import { weightsOf } from '../dispatch/queue.mjs';
+import { historyFromLedger } from '../dispatch/sizing.mjs';
 import { decisionLives, recordDecisionEvent } from './attention.mjs';
 import { deliveryGate } from './budget.mjs';
 import { describeOption, optionIndex } from './format.mjs';
@@ -58,9 +60,15 @@ export function askedRecord(deps, id) {
 export function pendingDecisions(deps, settings) {
   const now = Date.parse(nowOf(deps));
   const items = deps.tracker.query({ state: /** @type {any} */ (GRAPH_STATES) });
-  const urgency = decisionUrgency(items);
+  const events = readLedger(deps.store).events;
+  // Each blocked item weighs its sizing estimate, as the ready queue weighs it (HITLD-995).
+  const byId = new Map(items.map((i) => [String(i.id), i]));
+  const history = historyFromLedger(events, (id) => /** @type {any} */ (byId.get(id)));
+  const urgency = decisionUrgency(items, {
+    weight: weightsOf(/** @type {any[]} */ (items), deps.policy, history),
+  });
   const lives = decisionLives(deps.store);
-  const running = inflight(readLedger(deps.store).events);
+  const running = inflight(events);
   const ready = readyWork(
     items,
     running.map((d) => d.item),

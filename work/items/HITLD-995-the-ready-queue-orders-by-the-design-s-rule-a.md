@@ -2,11 +2,13 @@
 id: HITLD-995
 title: The ready queue ranks work by the nearest release it serves, weighs paths by estimated tokens, and puts work that feeds open decisions first, with no priority label and nothing for the owner to set
 kind: work
-state: planned
+state: done
 created: 2026-11-24
 project: HITLD-15
 needs: [HITLD-298]
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M88B43S4E5AJ6A
+release_note: "The ready queue puts first the work the nearest release needs, weighs paths by estimated tokens and reads no priority key; hitld ready and the plan name the next release and each item's tier."
 ---
 
 ## Done when

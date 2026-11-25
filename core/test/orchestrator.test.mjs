@@ -227,6 +227,15 @@ test('plan: proposals hold nothing; a running dispatch holds its serial resource
   );
   assert.deepEqual(idle.held, []);
   assert.equal(idle.waiting, 2);
+  // Two proposals whose touches overlap are not offered together, and the plan says why
+  // (HITLD-995); W-3 shares only the serial resource, which waits as before.
+  assert.deepEqual(idle.not_together, [
+    {
+      item: 'W-2',
+      with: ['W-1'],
+      why: '100% of its touches overlap W-1, proposed in this plan (dispatch.serialize_overlap_share 0.5): it waits for a later plan',
+    },
+  ]);
   assert.equal(idle.free, 2);
   assert.equal(idle.slots, 'cap 2, 0 running, 2 free');
   // Planned alone, as dispatch start plans it, W-2 starts although W-1 ranks first.
@@ -1486,4 +1495,114 @@ test('a completion records its start estimate, refuses a figure far above it, an
   ]);
   // The correction is not a second completion: the dispatch is still done once.
   assert.equal((await complete([])).result.already, true);
+});
+
+test('ready and the plan name the next release, give each item its tier and keys, and list work outside every release (HITLD-995)', async () => {
+  const c = makeConsumer({
+    files: {
+      // The release needs W-2 only: W-1 unblocks more, but W-2 serves the next release.
+      'work/items/W-9-release.md': item({
+        id: 'W-9',
+        title: 'Release 0.2.0',
+        kind: 'work',
+        state: 'planned',
+        release: '0.2.0',
+        needs: ['W-2'],
+        touches: ['CHANGELOG.md'],
+      }),
+    },
+  });
+  const ready = await c.hitld(['ready']);
+  assert.equal(ready.exit, 0, JSON.stringify(ready.result));
+  assert.deepEqual(
+    ready.result.queue.map((/** @type {any} */ q) => q.id),
+    ['W-2', 'W-1'],
+  );
+  assert.deepEqual(
+    [ready.result.next_release.id, ready.result.next_release.release],
+    ['W-9', '0.2.0'],
+  );
+  assert.deepEqual(
+    [
+      ready.result.next_release.ready,
+      ready.result.next_release.blocked,
+      ready.result.next_release.awaiting_merge,
+    ],
+    [1, 1, 0],
+    'W-2 is ready; the release item itself waits for it',
+  );
+  const w2 = ready.result.queue[0].rank;
+  assert.deepEqual(
+    [w2.release, w2.release_version, w2.release_tier, w2.releases_behind],
+    ['W-9', '0.2.0', 0, 1],
+  );
+  for (const k of ['feeds_decisions', 'longest_path_tokens', 'unblocks_in_tier', 'estimate_tokens'])
+    assert.equal(typeof w2[k], 'number', k);
+  assert.equal(ready.result.queue[1].rank.release, null);
+  assert.deepEqual(
+    ready.result.outside_releases.map((/** @type {any} */ o) => o.id),
+    ['W-1'],
+  );
+  assert.ok('waited_days' in ready.result.outside_releases[0]);
+
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  await c.hitld(['run', 'start']);
+  const plan = await c.hitld(['dispatch', 'plan']);
+  assert.equal(plan.exit, 0, JSON.stringify(plan.result));
+  assert.equal(plan.result.start[0].item, 'W-2');
+  assert.equal(plan.result.start[0].rank.release, 'W-9');
+  assert.equal(plan.result.next_release.id, 'W-9');
+  assert.deepEqual(
+    plan.result.outside_releases.map((/** @type {any} */ o) => o.id),
+    ['W-1'],
+  );
+});
+
+test('when the next release has nothing ready, the plan says so and offers the next tier (HITLD-995)', async () => {
+  const c = makeConsumer({
+    files: {
+      // W-10 waits on W-3, which waits on W-1 (still proposed); W-11 needs W-10 and W-2.
+      'work/items/W-1-add-numbers.md': item({
+        id: 'W-1',
+        title: 'Add numbers',
+        kind: 'work',
+        state: 'proposed',
+        touches: ['src/calc.js'],
+      }),
+      'work/items/W-10-release.md': item({
+        id: 'W-10',
+        title: 'Release 0.2.0',
+        kind: 'work',
+        state: 'planned',
+        release: '0.2.0',
+        needs: ['W-3'],
+      }),
+      'work/items/W-11-release.md': item({
+        id: 'W-11',
+        title: 'Release 0.3.0',
+        kind: 'work',
+        state: 'planned',
+        release: '0.3.0',
+        needs: ['W-10', 'W-2'],
+      }),
+    },
+  });
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  await c.hitld(['run', 'start']);
+  const plan = await c.hitld(['dispatch', 'plan']);
+  assert.equal(plan.exit, 0, JSON.stringify(plan.result));
+  assert.equal(plan.result.next_release.id, 'W-10');
+  assert.equal(plan.result.next_release.ready, 0);
+  assert.ok(
+    plan.result.notes.some((/** @type {string} */ n) =>
+      /^the next release W-10 \(0\.2\.0\) has nothing ready: .*the plan offers the next tier, W-11 \(0\.3\.0\)$/.test(
+        n,
+      ),
+    ),
+    JSON.stringify(plan.result.notes),
+  );
+  assert.deepEqual(
+    plan.result.start.map((/** @type {any} */ s) => [s.item, s.rank.release]),
+    [['W-2', 'W-11']],
+  );
 });

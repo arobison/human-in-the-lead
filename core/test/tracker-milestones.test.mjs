@@ -712,11 +712,14 @@ test('the milestone graph: nodes, the one edge, progress, the check and the crit
   const t = open(graphRepo());
   assert.deepEqual(t.check().problems, []);
   const mg = t.milestoneGraph();
+  // W-4 weighs its own estimate; W-5 has none, so it weighs its sizing estimate (HITLD-995): with
+  // no plan, the tier-3 default.
+  const tier3 = Number(policyFor().dispatch?.default_estimates?.['3'] ?? 150000);
   assert.deepEqual(
     mg.nodes.map((n) => [n.id, n.state, n.constraints, n.check, n.remaining_tokens, n.critical]),
     [
       ['W-1', 'planned', { done: 0, total: 1 }, 'not yet due', 0, true],
-      ['W-7', 'planned', { done: 0, total: 2 }, 'not yet due', 301, true],
+      ['W-7', 'planned', { done: 0, total: 2 }, 'not yet due', 300 + tier3, true],
       ['W-8', 'done', { done: 1, total: 1 }, 'passed', 0, false],
     ],
   );

@@ -67,7 +67,7 @@ import {
   historyFromLedger,
   sizeItem,
 } from '../../dispatch/sizing.mjs';
-import { criticalPath, orderQueue, unblockCounts } from '../../dispatch/queue.mjs';
+import { rankQueue, releaseSummary, unblockCounts, weightsOf } from '../../dispatch/queue.mjs';
 import { awaitingMerge, planDispatch, queuedBranches } from '../../dispatch/plan.mjs';
 import {
   PERMISSIONS_REASON,
@@ -476,12 +476,32 @@ export function readyQueue(p, ctx) {
     ready.map((i) => [String(i.id), sizeItem(i, p.policy, history, { workDir })]),
   );
   const unblocks = unblockCounts(work.items);
-  const queue = orderQueue(ready, sizes, unblocks);
-  const critical = criticalPath(ready, unblocks);
+  // The release chain orders the queue (design part 2.4): every open item on a path weighs its
+  // sizing estimate, the ready items' own sizes reused.
+  const weight = weightsOf(work.items, p.policy, history, { workDir, sizes });
+  const ranking = rankQueue({ items: work.items, ready, sizes, weight, unblocks });
+  const { queue, critical, keys } = ranking;
   // Only the awaiting items the tracker would otherwise call ready are shown: one that merged
   // without a merged event recorded is done on main and needs no mention.
   const awaitingReady = awaiting.filter((a) => work.ready.has(a.item));
-  return { work, byId, queue, sizes, unblocks, critical, inFlight, awaiting: awaitingReady };
+  const releases = releaseSummary(ranking, work.items, {
+    ready,
+    awaiting: awaitingReady.map((a) => a.item),
+    inFlight: inFlight.map((d) => d.item),
+    ...(ctx.now ? { now: nowOf(ctx) } : {}),
+  });
+  return {
+    work,
+    byId,
+    queue,
+    sizes,
+    unblocks,
+    critical,
+    keys,
+    releases,
+    inFlight,
+    awaiting: awaitingReady,
+  };
 }
 
 /**
@@ -670,6 +690,8 @@ export function plan(p, ctx, byHand, only, mergeFix = false) {
       disk: diskWarning(disk),
       awaiting_merge: q.awaiting,
       estimates: estimatesText(p.policy),
+      releases: q.releases,
+      keys: q.keys,
     },
     setup: p.setup,
     running,
@@ -715,13 +737,21 @@ export const planJson = (r, setup) => ({
     touches: s.touches.touches,
     touches_source: s.touches.source,
     ...(s.modes ? { mode: s.mode ?? null, modes: s.modes } : {}),
+    rank: r.keys?.get(s.item) ?? null,
     notes: s.notes,
   })),
   inline: r.inline.map((s) => s.item),
   held: r.held,
   waiting: r.waiting,
+  not_together: r.not_together,
   awaiting_merge: r.awaiting_merge,
-  notes: r.notes,
+  ...(r.releases
+    ? {
+        next_release: r.releases.next_release,
+        outside_releases: r.releases.outside_releases,
+      }
+    : {}),
+  notes: r.releases?.note ? [...r.notes, r.releases.note] : r.notes,
   ...(r.estimates ? { estimates: r.estimates } : {}),
   ...(r.disk ? { disk: r.disk } : {}),
   next: !setup.done
@@ -1791,7 +1821,8 @@ export function completeDispatch(input, ctx, given = null) {
 const table = [
   {
     name: 'ready',
-    summary: 'The ready queue in priority order, with tiers and estimates',
+    summary:
+      "The ready queue in release-chain order (the nearest release first), with each item's release tier and sort keys, tiers and estimates",
     built_by: 'h',
     args: [],
     run: (_input, ctx) =>
@@ -1817,9 +1848,11 @@ const table = [
               estimate_basis: s.estimate_basis,
               unblocks: q.unblocks.get(String(i.id)) ?? 0,
               critical_path: q.critical.has(String(i.id)),
+              rank: q.keys.get(String(i.id)) ?? null,
               reasons: s.reasons,
             };
           }),
+          ...q.releases,
           in_flight: q.inFlight.map((d) => ({ dispatch: d.dispatch, item: d.item })),
           awaiting_merge: q.awaiting,
         };

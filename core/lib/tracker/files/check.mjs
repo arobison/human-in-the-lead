@@ -45,6 +45,8 @@ import { readProject } from './projects.mjs';
 import { insidePath } from './safe.mjs';
 import { idNumber, patterns } from './tree.mjs';
 import { SEMVER } from '../../release/semver.mjs';
+import { releaseChain } from '../../dispatch/queue.mjs';
+import { pathWeight } from './views.mjs';
 
 /** Where a project turns keys on, as the check names it. */
 const TRACKER_CONFIG_FILE = '.human-in-the-lead/tracker.json';
@@ -93,6 +95,100 @@ export function unplacedWork(items) {
       (it) =>
         `${it.path}: ${it.data.id} is open and under no milestone; make it a constraint of the milestone clause it serves`,
     );
+}
+
+/**
+ * Warnings, not problems: the open items whose release tier an unnumbered constraint link decides,
+ * `constraint_of: [<milestone ID> c?]` (HITLD-995). The ready queue gives each ready item the
+ * tier of the nearest open release whose closure holds it, through item `needs`, release `needs`
+ * and a milestone's constraints, and a link still to be numbered counts there. So an item whose
+ * only way into a release is such a link, or whose tier would move to another release without its
+ * unnumbered links (a mislink: `[M1 c?, M2 c3]` with M1 under a nearer release than M2), is ranked
+ * by a link nobody has confirmed. Only an item that holds an unnumbered link itself is named: an
+ * item that reaches a release only through one held by an item that needs it moves with that item.
+ * One line per milestone, in the milestone's file, each kind with its count and the items:
+ * "<path>: <ID>: <n> items reach a release only through <ID> c?: <IDs>; ...".
+ * @param {Entry[]} items
+ * @param {(it: import('./graph.mjs').Node) => number} [weight] each item's weight on a path, as the
+ *   queue weighs it (views.mjs `sizingWeight`); its own `estimate_tokens` or 1 without one
+ * @returns {string[]}
+ */
+export function unnumberedReleaseLinks(items, weight = pathWeight) {
+  const g = buildGraph(items);
+  /** Whether a milestone's link to `id` is unnumbered. @param {import('./graph.mjs').Node} m @param {string} id */
+  const unnumbered = (m, id) => g.constraintsOf(m).some((c) => c.id === id && c.clause === null);
+  /**
+   * The graph as the queue reads it, without the unnumbered links into items when `numberedOnly`
+   * (a milestone under a milestone by c? is the shaping's, and stays).
+   * @param {boolean} numberedOnly
+   */
+  const asItems = (numberedOnly) =>
+    g.all.map((it) => {
+      const d = it.data;
+      const base = { id: String(d.id), kind: String(d.kind), state: String(d.state) };
+      const extra = d.release === undefined ? {} : { release: String(d.release) };
+      if (!g.isMilestone(it)) return { ...base, ...extra, needs: g.needs(it) };
+      const constraints = g.constraintsOf(it).filter((c) => {
+        const target = g.get(c.id);
+        return !(numberedOnly && c.clause === null && target && g.isItem(target));
+      });
+      return { ...base, constraints };
+    });
+  const weightOf = (/** @type {string} */ id) => {
+    const it = g.get(id);
+    return it ? weight(it) : 0;
+  };
+  /** Each item's tier release. @param {boolean} numberedOnly @returns {Map<string, string>} */
+  const tiers = (numberedOnly) => {
+    /** @type {Map<string, string>} */
+    const out = new Map();
+    for (const r of releaseChain(/** @type {any[]} */ (asItems(numberedOnly)), weightOf)) {
+      for (const id of r.closure) if (!out.has(id)) out.set(id, r.id);
+    }
+    return out;
+  };
+  const all = tiers(false);
+  const numbered = tiers(true);
+  const versionOf = (/** @type {string} */ id) => String(g.get(id)?.data.release ?? id);
+
+  /** @type {Map<string, { only: string[], moved: string[] }>} by milestone ID */
+  const byMilestone = new Map();
+  for (const it of g.items) {
+    if (!g.isOpen(it)) continue;
+    const id = String(it.data.id);
+    const full = all.get(id);
+    if (full === undefined || numbered.get(id) === full) continue;
+    const via = g.constraintOf(id).filter((m) => g.isOpen(m) && unnumbered(m, id));
+    if (!via.length) continue;
+    const without = numbered.get(id);
+    for (const m of via) {
+      const entry = byMilestone.get(String(m.data.id)) ?? { only: [], moved: [] };
+      if (without === undefined) entry.only.push(id);
+      else entry.moved.push(`${id} (${versionOf(full)}, else ${versionOf(without)})`);
+      byMilestone.set(String(m.data.id), entry);
+    }
+  }
+  /** @type {string[]} */
+  const out = [];
+  for (const m of g.milestones) {
+    const mid = String(m.data.id);
+    const entry = byMilestone.get(mid);
+    if (!entry) continue;
+    const link = `${mid} ${UNLINKED}`;
+    /** @param {number} n */
+    const items_ = (n) => `${n} ${n === 1 ? 'item' : 'items'}`;
+    if (entry.only.length) {
+      out.push(
+        `${m.path}: ${mid}: ${items_(entry.only.length)} ${entry.only.length === 1 ? 'reaches' : 'reach'} a release only through ${link}: ${entry.only.join(', ')}; name the clause each serves, so the queue ranks it by the release it is meant for`,
+      );
+    }
+    if (entry.moved.length) {
+      out.push(
+        `${m.path}: ${mid}: ${items_(entry.moved.length)} ${entry.moved.length === 1 ? 'takes' : 'take'} another release's tier through ${link} than the numbered links give: ${entry.moved.join(', ')}; number the link or drop it, so the queue ranks each by the release it is meant for`,
+      );
+    }
+  }
+  return out;
 }
 
 /**
