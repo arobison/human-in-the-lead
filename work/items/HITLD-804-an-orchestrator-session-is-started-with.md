@@ -6,7 +6,7 @@ state: planned
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-254]
-constraint_of: [HITLD-407 c?]
+constraint_of: [HITLD-67 c?]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ The owner decided (HITLD-803, 2026-11-22) how their decisions reach the orchestr
 - A permission and guard change reaches main only with the owner's own yes.
 
 Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-973 (2026-11-23).
+
+Moved from rc.3 back into rc.2 at the owner's word (2026-11-25): the owner types an allow in the orchestrator's session for every merge pass (two per pull request: the pass that merges main in, then the pass after checks re-run), and asked why. HITLD-803 already settled the fix; this puts its three pieces (this item, HITLD-804, HITLD-805) in rc.2. Owner-held: a permission and guard surface.

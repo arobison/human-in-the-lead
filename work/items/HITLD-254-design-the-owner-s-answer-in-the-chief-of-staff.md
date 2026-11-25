@@ -6,7 +6,7 @@ state: proposed
 created: 2026-11-16
 project: HITLD-15
 needs: [HITLD-135]
-constraint_of: [HITLD-404 c4]
+constraint_of: [HITLD-67 c?]
 ---
 
 ## Why
@@ -36,3 +36,5 @@ On the owner's decision HITLD-607, this item moved from milestone HITLD-407 (c1)
 The owner chose standing allow rules plus a signed decision check. The build is HITLD-804 and the design text HITLD-805. This item also joins milestone HITLD-67 (second clause) because the owner never wants to type in the orchestrator's session, and it stays proposed only until the design PR for HITLD-805 is approved.
 
 Moved from rc.2 to rc.3 by the owner's cut-line decision HITLD-972 (2026-11-23).
+
+Moved from rc.3 back into rc.2 at the owner's word (2026-11-25): the owner types an allow in the orchestrator's session for every merge pass (two per pull request: the pass that merges main in, then the pass after checks re-run), and asked why. HITLD-803 already settled the fix; this puts its three pieces (this item, HITLD-804, HITLD-805) in rc.2. Owner-held: a permission and guard surface.
