@@ -2,10 +2,12 @@
 id: HITLD-387
 title: The chief of staff files investigations and bug reports itself when it sees an error repeat, without being asked
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+release_note: "The chief of staff files investigations and bug reports on its own with `hitld work sighting`: a first sighting is recorded in the private store, the second (or a first whose cause is known and that changes a decision or a safety rule) files one proposed item with the evidence, a later one appends to the item that tracks the cause, an item the owner dropped is never filed again, and a security finding stays out of the tracker. Text with a key, token, absolute path, hostname, model ID, environment ID or private term is refused, and without the private term list the sighting is held in the private store."
+claimed_by: D-01M88NBYZA0M0GVA
 ---
 
 ## Done when

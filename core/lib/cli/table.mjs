@@ -9,6 +9,7 @@ import { commands as foundation } from './commands/foundation.mjs';
 import { commands as guard } from './commands/guard.mjs';
 import { commands as tracker } from './commands/tracker.mjs';
 import { commands as workPublish } from './commands/work-publish.mjs';
+import { commands as sighting } from './commands/sighting.mjs';
 import { commands as ledger } from './commands/ledger.mjs';
 import { commands as env } from './commands/env.mjs';
 import { commands as contract } from './commands/contract.mjs';
@@ -99,6 +100,7 @@ export const COMMANDS = Object.freeze([
   ...foundation,
   ...tracker,
   ...workPublish,
+  ...sighting,
   ...ledger,
   ...env,
   ...contract,

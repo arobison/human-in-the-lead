@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "id": "tracker/chief-of-staff-appends-to-tracked-error",
+  "suite": "tracker",
+  "category": "self-filing",
+  "description": "With the private term list in the store, the error the chief of staff sees again is already tracked by an item filed by hand. Its search of the tracker finds the item; the sighting appends the new evidence to it as a dated note and files nothing new, and the next sighting, worded differently, finds the same item on its own. The item keeps its state.",
+  "mode": "offline",
+  "steps": [
+    {
+      "id": "consumer",
+      "action": "orchestrator.consumer",
+      "with": {}
+    },
+    {
+      "id": "project",
+      "action": "file.write",
+      "with": {
+        "path": "consumer/work/projects/W-9-the-project.md",
+        "content": "---\nid: W-9\ntitle: The project\nkind: project\nstate: planned\n---\n\n## Summary\n\nThe fixture's project.\n"
+      }
+    },
+    {
+      "id": "term-list",
+      "action": "orchestrator.cli",
+      "with": {
+        "session": "cos-1",
+        "argv": ["private", "add", "quillfeather-box", "--kind", "device"]
+      }
+    },
+    {
+      "id": "tracked",
+      "action": "file.write",
+      "with": {
+        "path": "consumer/work/items/W-5-the-tracker-check-run-reads-in-progress.md",
+        "content": "---\nid: W-5\ntitle: The tracker check run reads in_progress after it has succeeded\nkind: work\nstate: proposed\nproject: W-9\n---\n\n## Done when\n\n- The tracker check run reads success on a pull request whose checks passed.\n\n## Why\n\nTracker-only pull requests merge on green checks.\n"
+      }
+    },
+    {
+      "id": "search",
+      "action": "orchestrator.cli",
+      "with": {
+        "session": "cos-1",
+        "argv": ["work", "query", "--kind", "work", "--text", "check run reads in_progress"]
+      }
+    },
+    {
+      "id": "again",
+      "action": "orchestrator.cli",
+      "with": {
+        "session": "cos-1",
+        "argv": [
+          "work",
+          "sighting",
+          "--from",
+          "event",
+          "--cause",
+          "The tracker check run reads in_progress after it succeeded",
+          "--what",
+          "check run tracker on the pull request",
+          "--output",
+          "status: in_progress (conclusion: success)",
+          "--where",
+          "pull request #14",
+          "--blocks",
+          "merging tracker-only pull requests on green checks",
+          "--parent",
+          "W-9",
+          "--duplicate-of",
+          "{{steps.search.result.entities[0].id}}"
+        ]
+      }
+    },
+    {
+      "id": "once-more",
+      "action": "orchestrator.cli",
+      "with": {
+        "session": "cos-2",
+        "argv": [
+          "work",
+          "sighting",
+          "--from",
+          "event",
+          "--cause",
+          "the tracker check-run reads IN_PROGRESS after it succeeded.",
+          "--what",
+          "check run tracker on the pull request",
+          "--where",
+          "pull request #15",
+          "--blocks",
+          "merging tracker-only pull requests on green checks",
+          "--parent",
+          "W-9"
+        ]
+      }
+    },
+    {
+      "id": "show",
+      "action": "orchestrator.cli",
+      "with": {
+        "session": "cos-2",
+        "argv": ["work", "show", "W-5"]
+      }
+    },
+    {
+      "id": "items",
+      "action": "orchestrator.cli",
+      "with": {
+        "session": "cos-2",
+        "argv": ["work", "query", "--kind", "work"]
+      }
+    }
+  ],
+  "graders": [
+    {
+      "id": "term-list-there",
+      "grader": "equals",
+      "with": {
+        "path": "steps.term-list.result.ok",
+        "value": true
+      }
+    },
+    {
+      "id": "search-finds-it",
+      "grader": "equals",
+      "with": {
+        "path": "steps.search.result.count",
+        "value": 1
+      }
+    },
+    {
+      "id": "appended",
+      "grader": "equals",
+      "with": {
+        "path": "steps.again.result.action",
+        "value": "appended"
+      }
+    },
+    {
+      "id": "to-the-tracked-item",
+      "grader": "equals",
+      "with": {
+        "path": "steps.again.result.item",
+        "value": "W-5"
+      }
+    },
+    {
+      "id": "next-sighting-finds-it-alone",
+      "grader": "equals",
+      "with": {
+        "path": "steps.once-more.result.item",
+        "value": "W-5"
+      }
+    },
+    {
+      "id": "next-sighting-appended",
+      "grader": "equals",
+      "with": {
+        "path": "steps.once-more.result.action",
+        "value": "appended"
+      }
+    },
+    {
+      "id": "nothing-new-filed",
+      "grader": "equals",
+      "with": {
+        "path": "steps.items.result.count",
+        "value": 4
+      }
+    },
+    {
+      "id": "dated-note",
+      "grader": "matches",
+      "with": {
+        "path": "steps.show.result.entity.body",
+        "pattern": "## Seen again on \\d{4}-\\d{2}-\\d{2}\\n\\nIn pull request #14\\. Sightings recorded so far: 1\\."
+      }
+    },
+    {
+      "id": "second-dated-note",
+      "grader": "contains",
+      "with": {
+        "path": "steps.show.result.entity.body",
+        "value": "In pull request #15. Sightings recorded so far: 2."
+      }
+    },
+    {
+      "id": "note-holds-the-output",
+      "grader": "contains",
+      "with": {
+        "path": "steps.show.result.entity.body",
+        "value": "status: in_progress (conclusion: success)"
+      }
+    },
+    {
+      "id": "state-kept",
+      "grader": "equals",
+      "with": {
+        "path": "steps.show.result.entity.state",
+        "value": "proposed"
+      }
+    },
+    {
+      "id": "no-owner-message-per-occurrence",
+      "grader": "equals",
+      "with": {
+        "path": "steps.again.result.tell_owner",
+        "value": null
+      }
+    }
+  ]
+}
