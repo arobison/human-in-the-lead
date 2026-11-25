@@ -1,7 +1,8 @@
-// The owner's run scope (HITLD-877): one decision in the owner's own words names items, a token
-// budget and an end time, and the chief of staff starts those items itself, without the lease,
-// within the cap and the quota gate. A start outside the scope, after its end time or past its
-// budget is refused. Unit tests on run/scope.mjs, then the commands in a fixture consumer.
+// The owner's run scope (HITLD-877): the owner says yes to one question whose title states items,
+// a token budget and an end time, and the chief of staff starts those items itself, without the
+// lease, within the cap and the quota gate. Every start derives the scope again from the owner's
+// decision and the ledger; the store file grants nothing. Unit tests on run/scope.mjs, then the
+// commands in a fixture consumer, then two sessions with two stores.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,75 +11,161 @@ import { join } from 'node:path';
 import { readLedger } from '../lib/ledger/ledger.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import {
+  SCOPE_YES,
   checkScopeStart,
-  readScope,
-  scopeStatus,
+  deriveScope,
+  ownerHoldsChanges,
+  parseScopeTitle,
+  readScopeFile,
+  scopeTitle,
   spentOf,
+  touchingOwnerPaths,
   unnamedItems,
-  writeScope,
+  writeScopeFile,
 } from '../lib/run/scope.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
-import { STATUS_INPUT, git, item, makeConsumer, put, report } from './orchestrator-fixture.mjs';
+import { main } from '../lib/cli/main.mjs';
+import { generateIdentity } from '../lib/store/age.mjs';
+import { buildConsumer, fixtureGit, writeSetupDone } from '../lib/eval/orchestrator-fixtures.mjs';
+import { approve } from './helpers/devices.mjs';
+import { tempDir } from './helpers/tmp.mjs';
+import { STATUS_INPUT, git, item, makeConsumer, report } from './orchestrator-fixture.mjs';
 
 const NOW = Date.parse('2026-11-25T12:00:00Z');
 const HOUR = 3600_000;
+const iso = (/** @type {number} */ t) => new Date(t).toISOString();
+const RUN = { id: 'R-1', started_at: iso(NOW - 2 * HOUR) };
+const SPEC = { items: ['W-1', 'W-2'], budget_tokens: 100_000, until: iso(NOW + HOUR) };
+const YES = `A. ${SCOPE_YES}: the chief of staff starts these items itself`;
 
-/** @returns {import('../lib/run/scope.mjs').RunScope} */
-const scope = (over = {}) => ({
-  run: 'R-1',
-  decision: 'W-9',
-  items: ['W-1', 'W-2'],
-  budget_tokens: 100_000,
-  until: new Date(NOW + HOUR).toISOString(),
-  granted_at: new Date(NOW - HOUR).toISOString(),
-  granted_by: 'cos',
+/** A decision item as the rights flow leaves it. @param {Record<string, unknown>} [over] */
+const decision = (over = {}) => ({
+  id: 'W-9',
+  kind: 'decision',
+  title: scopeTitle(SPEC),
+  state: 'done',
+  answer: YES,
+  answered_by: 'owner',
   ...over,
 });
+/** The rights flow's answered event. @param {Record<string, unknown>} [over] */
+const answered = (over = {}) =>
+  /** @type {any} */ ({
+    event: 'answered',
+    decision: 'W-9',
+    run: 'R-1',
+    text: YES,
+    at: iso(NOW - HOUR),
+    ...over,
+  });
+/** @type {import('../lib/run/scope.mjs').ScopeFile} */
+const FILE = { run: 'R-1', decision: 'W-9', set_at: iso(NOW - HOUR), set_by: 'cos' };
 
-/** @param {import('../lib/run/scope.mjs').RunScope | null} s @param {Record<string, unknown>} [over] */
-const start = (s, over = {}) =>
-  checkScopeStart(s, {
+/** @param {Record<string, any>} [o] */
+const start = (o = {}) =>
+  checkScopeStart(o.file === undefined ? FILE : o.file, {
     decision: 'W-9',
     item: 'W-1',
     estimate: 40_000,
     now: NOW,
-    run: 'R-1',
-    events: [],
-    ...over,
+    run: RUN,
+    events: [answered(), ...(o.events ?? [])],
+    lookup: (id) => (id === 'W-9' ? decision(o.decision) : null),
+    ...o.start,
   });
 
-test('the owner names each item in their own words, as a whole ID', () => {
-  assert.deepEqual(
-    unnamedItems('Yes: run W-1 and W-2 with 400k tokens until Friday', ['W-1', 'W-2']),
-    [],
-  );
-  assert.deepEqual(unnamedItems('Yes, w-1 only', ['W-1', 'W-2']), ['W-2']);
-  assert.deepEqual(unnamedItems('W-12 and W-10', ['W-1']), ['W-1'], 'W-12 does not name W-1');
+test('an ID is named only as a whole ID: not by W-12, nor by W-1-foo', () => {
+  assert.deepEqual(unnamedItems('start W-1 and W-2', ['W-1', 'W-2']), []);
+  assert.deepEqual(unnamedItems('W-12 and W-10', ['W-1']), ['W-1']);
+  assert.deepEqual(unnamedItems('HITLD-87-foo', ['HITLD-87']), ['HITLD-87']);
   assert.deepEqual(unnamedItems('(W-1)', ['W-1']), []);
 });
 
-test('a start inside the scope passes; outside it, expired, ended, another run or past the budget it is refused', () => {
-  const s = scope();
-  assert.deepEqual(start(s), { ok: true, spent: 0, left: 100_000 });
+test('the scope is the title the owner read: written and read back, nothing else parses', () => {
+  assert.deepEqual(parseScopeTitle(scopeTitle(SPEC)), SPEC);
+  assert.equal(parseScopeTitle('Run scope: start W-1 within 10 tokens until tomorrow'), null);
+  assert.equal(parseScopeTitle('Should we start W-1?'), null);
+  assert.equal(parseScopeTitle(`Run scope: start W-1 within 0 tokens until ${SPEC.until}`), null);
+});
 
-  const outside = start(s, { item: 'W-3' });
-  assert.equal(outside.ok, false);
-  assert.equal(!outside.ok && outside.code, 'outside-scope');
-  const other = start(s, { decision: 'W-8' });
-  assert.equal(!other.ok && other.code, 'outside-scope', 'another decision is not the scope');
-
-  const expired = start(s, { now: NOW + 2 * HOUR });
-  assert.equal(!expired.ok && expired.code, 'scope-expired');
-
-  const ended = start(
-    scope({ ended: { at: new Date(NOW).toISOString(), by: 'cos', reason: 'stop' } }),
+test('a scope needs owner merge mode holding guard, policy, rights and skill paths', () => {
+  const has = () => true;
+  assert.equal(ownerHoldsChanges({ merge: { mode: 'queue' } }, has).ok, false);
+  const narrow = ownerHoldsChanges({ merge: { mode: 'owner', owner_paths: ['src/**'] } }, has);
+  assert.equal(!narrow.ok && narrow.code, 'scope-merge-unguarded');
+  assert.match(!narrow.ok ? narrow.why : '', /skills/);
+  assert.equal(ownerHoldsChanges({ merge: { mode: 'owner' } }, has).ok, true, 'no paths: all');
+  const repo = { merge: { mode: 'owner', owner_paths: ['**', '!work/**'] } };
+  assert.equal(ownerHoldsChanges(repo, has).ok, true);
+  assert.deepEqual(
+    touchingOwnerPaths([
+      { id: 'W-1', touches: ['src/calc.js'] },
+      { id: 'W-2', touches: ['skills/execute/SKILL.md', 'src/x.js'] },
+    ]),
+    [{ item: 'W-2', touches: ['skills/execute/SKILL.md'] }],
   );
-  assert.equal(!ended.ok && ended.code, 'scope-ended');
-  const nextRun = start(s, { run: 'R-2' });
-  assert.equal(!nextRun.ok && nextRun.code, 'scope-ended', 'a scope is per run, never standing');
+});
 
-  const none = start(null);
-  assert.equal(!none.ok && none.code, 'no-scope');
+test("only the owner's yes, in this run, through the rights flow, opens a scope", () => {
+  /** @param {Record<string, any>} o */
+  const derive = (o) =>
+    deriveScope({
+      decision: decision(o.decision),
+      id: 'W-9',
+      events: o.events ?? [answered(o.answered)],
+      run: RUN,
+      now: NOW,
+    });
+  const ok = derive({});
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.ok && ok.scope.items, ['W-1', 'W-2']);
+  assert.equal(ok.ok && ok.scope.granted_at, iso(NOW - HOUR), 'granted when the owner said yes');
+
+  const no = `B. No: nothing starts under a scope; W-1 and W-2 wait`;
+  assert.equal(derive({ decision: { answer: no }, answered: { text: no } }).ok, false);
+  const noCode = derive({ decision: { answer: no }, answered: { text: no } });
+  assert.equal(!noCode.ok && noCode.code, 'scope-not-confirmed', 'a no that names the IDs');
+  const frontMatterOnly = derive({ events: [] });
+  assert.equal(!frontMatterOnly.ok && frontMatterOnly.code, 'not-answered');
+  const stale = derive({ answered: { run: 'R-0', at: iso(NOW - 5 * HOUR) } });
+  assert.equal(!stale.ok && stale.code, 'scope-ended', 'answered in an earlier run');
+  const notScope = derive({ decision: { title: 'Start W-1 and W-2?' } });
+  assert.equal(!notScope.ok && notScope.code, 'scope-not-confirmed');
+  const long = { ...SPEC, until: iso(NOW + 200 * HOUR) };
+  const standing = derive({ decision: { title: scopeTitle(long) } });
+  assert.equal(!standing.ok && standing.code, 'scope-invalid', 'more than 168 hours');
+  const future = derive({ answered: { at: iso(NOW + 60_000) } });
+  assert.equal(!future.ok && future.code, 'scope-invalid', 'a yes dated after now');
+});
+
+test('a start inside the scope passes; outside it, expired, ended, edited or past the budget it is refused', () => {
+  assert.deepEqual((({ ok, spent, left }) => ({ ok, spent, left }))(/** @type {any} */ (start())), {
+    ok: true,
+    spent: 0,
+    left: 100_000,
+  });
+  const code = (/** @type {any} */ r) => !r.ok && r.code;
+  assert.equal(code(start({ start: { item: 'W-3' } })), 'outside-scope');
+  assert.equal(code(start({ start: { decision: 'W-8' } })), 'outside-scope');
+  assert.equal(code(start({ start: { now: NOW + 2 * HOUR } })), 'scope-expired');
+  assert.equal(
+    code(start({ file: { ...FILE, ended: { at: iso(NOW), by: 'cos', reason: 'stop' } } })),
+    'scope-ended',
+  );
+  assert.equal(code(start({ start: { run: { id: 'R-2' } } })), 'scope-ended');
+  assert.equal(code(start({ file: null })), 'no-scope');
+
+  // The file grants nothing: items, a budget or an end time written into it are not read, a time
+  // to come is refused, and a decision without the owner's yes opens nothing.
+  const edited = /** @type {any} */ ({
+    ...FILE,
+    items: ['W-3'],
+    budget_tokens: 1e9,
+    until: iso(NOW + 1e9),
+  });
+  assert.equal(code(start({ file: edited, start: { item: 'W-3' } })), 'outside-scope');
+  assert.equal(code(start({ file: { ...FILE, set_at: iso(NOW + HOUR) } })), 'scope-invalid');
+  assert.equal(code(start({ decision: { answered_by: 'chief-of-staff' } })), 'not-answered');
 
   // Spent: a start in flight counts at its estimate, a reported one at its tokens.
   const events = /** @type {any[]} */ ([
@@ -101,152 +188,134 @@ test('a start inside the scope passes; outside it, expired, ended, another run o
     { event: 'reported', run: 'R-1', dispatch: 'D-1', item: 'W-1', result: 'done', tokens: 55_000 },
     { event: 'dispatched', run: 'R-1', dispatch: 'D-3', item: 'W-2', estimate_tokens: 40_000 },
   ]);
-  assert.deepEqual(spentOf(s, events), { spent: 95_000, starts: ['D-1', 'D-2'] });
-  const over = start(s, { item: 'W-2', events });
-  assert.equal(!over.ok && over.code, 'scope-budget', 'this start would pass the budget');
-  const spent = scopeStatus(scope({ budget_tokens: 90_000 }), { now: NOW, run: 'R-1', events });
-  assert.equal(spent.active, false);
-  assert.equal(spent.code, 'scope-budget', 'an exhausted budget ends the scope');
+  const scope = { ...SPEC, run: 'R-1', decision: 'W-9', granted_at: iso(NOW - HOUR) };
+  assert.deepEqual(spentOf(scope, events), { spent: 95_000, starts: ['D-1', 'D-2'] });
+  assert.equal(code(start({ events, start: { item: 'W-2' } })), 'scope-budget');
 });
 
 // --- The commands ---------------------------------------------------------------------------
 
-/** A decision the owner answered in their own words, naming the scope. @param {string} answer */
-const decisionFile = (answer) =>
-  item(
-    {
-      id: 'W-9',
-      title: 'Run scope for the next items',
-      kind: 'decision',
-      state: 'done',
-      decider: 'owner',
-      answer: JSON.stringify(answer),
-      answered_at: '2026-11-25T10:00:00.000Z',
-      answered_via: 'chat',
-      answered_by: 'owner',
-    },
-    '\n## Question\n\nWhich items may the chief of staff start in this run?\n',
-  );
-
-/** @param {string} answer */
-function consumerWithScope(answer) {
-  const c = makeConsumer();
-  put(c.root, { 'work/items/W-9-run-scope.md': decisionFile(answer) });
-  git(c.root, 'add', '-A');
-  git(c.root, 'commit', '-q', '-m', 'The owner names a run scope');
-  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
-  return c;
-}
-
 const ORCH1 = { env: { HITLD_SESSION: 'orch-1' } };
 const ORCH2 = { env: { HITLD_SESSION: 'orch-2' } };
 const COS = { env: { HITLD_SESSION: 'cos' } };
-const until = () => new Date(Date.now() + 4 * HOUR).toISOString();
-const setScope = (/** @type {string[]} */ extra = []) => [
-  'run',
-  'scope',
-  'set',
-  '--decision',
-  'W-9',
-  '--items',
-  'W-1,W-2',
-  '--budget-tokens',
-  '2000000',
-  '--until',
-  until(),
-  ...extra,
-];
-
-test('commands: the scope holds only what the owner answered; the chief of staff starts inside it without the lease, and nothing outside it', async () => {
-  const c = consumerWithScope('Yes: start W-1 and W-2, 2M tokens, until tonight');
-  assert.equal((await c.hitld(['run', 'start', '--harness-ref', 'cloud-orch-1'], ORCH1)).exit, 0);
-
-  // The answer names W-1 and W-2, not W-3; a decision the owner did not answer is no scope.
-  const unnamed = await c.hitld(
-    [
-      'run',
-      'scope',
-      'set',
-      '--decision',
-      'W-9',
-      '--items',
-      'W-1,W-3',
-      '--budget-tokens',
-      '1000',
-      '--until',
-      until(),
-    ],
-    COS,
-  );
-  assert.equal(unnamed.result.error, 'scope-not-in-answer', JSON.stringify(unnamed.result));
-  const notDecision = await c.hitld(
-    [
-      'run',
-      'scope',
-      'set',
-      '--decision',
-      'W-1',
-      '--items',
-      'W-1',
-      '--budget-tokens',
-      '1000',
-      '--until',
-      until(),
-    ],
-    COS,
-  );
-  assert.equal(notDecision.result.error, 'not-found');
-  const standing = await c.hitld(
-    [
-      'run',
-      'scope',
-      'set',
-      '--decision',
-      'W-9',
-      '--items',
-      'W-1',
-      '--budget-tokens',
-      '1000',
-      '--until',
-      new Date(Date.now() + 30 * 24 * HOUR).toISOString(),
-    ],
-    COS,
-  );
-  assert.equal(standing.result.error, 'usage', 'never standing');
-  const executor = await c.hitld(setScope(), {
-    env: { HITLD_SESSION: 'x', HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' },
+const tier3 = (/** @type {string} */ id, /** @type {string} */ file) =>
+  item({
+    id,
+    title: `redesign ${id}`,
+    kind: 'work',
+    state: 'planned',
+    tier_override: '3',
+    touches: [file],
   });
-  assert.equal(executor.result.error, 'not-permitted');
 
-  // Before a scope is set, the chief of staff starts nothing.
-  const early = await c.hitld(['dispatch', 'start', 'W-1', '--scope', 'W-9'], COS);
-  assert.equal(early.result.error, 'no-scope', JSON.stringify(early.result));
+/** The project the scope's decision items are filed under. */
+const PROJECT = {
+  'work/initiatives/W-16-run.md': item(
+    { id: 'W-16', title: 'Run', kind: 'initiative', state: 'planned', owner: 'owner' },
+    '\n## Goal\n\n',
+  ),
+  'work/projects/W-17-run-work.md': item(
+    {
+      id: 'W-17',
+      title: 'Run work',
+      kind: 'project',
+      state: 'planned',
+      initiative: 'W-16',
+      owner: 'owner',
+    },
+    '\n## Summary\n\n',
+  ),
+};
 
-  const set = await c.hitld(setScope(), COS);
-  assert.equal(set.exit, 0, JSON.stringify(set.result));
-  assert.deepEqual(set.result.scope.items, ['W-1', 'W-2']);
+/**
+ * A consumer in owner merge mode with a run started by orch-1.
+ * @param {{ policy?: Record<string, unknown>, files?: Record<string, string>, started?: boolean }} [o]
+ */
+async function consumer(o = {}) {
+  const c = makeConsumer({
+    policy: {
+      merge: { mode: 'owner', full_suite: ['node --test "test/*.test.js"'] },
+      ...(o.policy ?? {}),
+    },
+    files: { ...PROJECT, ...(o.files ?? {}) },
+  });
+  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+  if (o.started !== false) {
+    const started = await c.hitld(['run', 'start', '--harness-ref', 'cloud-orch-1'], ORCH1);
+    assert.equal(started.exit, 0, JSON.stringify(started.result));
+  }
+  const store = openStore(privateStorePath('orch-fixture', { env: c.env, repoRoot: c.root }));
+  return { c, store };
+}
 
-  // Inside the scope: started by the chief of staff, which does not hold the lease.
-  const inside = await c.hitld(['dispatch', 'start', 'W-1', '--scope', 'W-9'], COS);
+/**
+ * The chief of staff asks the owner, records the owner's answer and, on a yes, sets the scope.
+ * @param {ReturnType<typeof makeConsumer>} c
+ * @param {{ items?: string, budget?: number, untilMs?: number, answer?: string, set?: boolean }} [o]
+ */
+async function ask(c, o = {}) {
+  const question = await c.hitld(
+    [
+      'run',
+      'scope',
+      'question',
+      '--items',
+      o.items ?? 'W-1,W-2',
+      '--budget-tokens',
+      String(o.budget ?? 2_000_000),
+      '--until',
+      iso(Date.now() + (o.untilMs ?? 4 * HOUR)),
+      '--parent',
+      'W-17',
+    ],
+    COS,
+  );
+  assert.equal(question.exit, 0, JSON.stringify(question.result));
+  const recorded = await c.hitld(
+    [
+      'rights',
+      'record',
+      '--question',
+      // The fixture's tracker is public; the question as printed is otherwise recorded unchanged.
+      JSON.stringify({ ...question.result.question, classification: 'public' }),
+      '--answer',
+      o.answer ?? 'A',
+      '--via',
+      'question-tool',
+      '--shown-at',
+      iso(Date.now() - 1000),
+    ],
+    COS,
+  );
+  assert.equal(recorded.exit, 0, JSON.stringify(recorded.result));
+  const id = String(recorded.result.decision ?? recorded.result.id);
+  const set =
+    o.set === false ? null : await c.hitld(['run', 'scope', 'set', '--decision', id], COS);
+  return { id, question, set };
+}
+
+test('commands: the owner says yes; the chief of staff starts inside the scope without the lease, and nothing outside it', async () => {
+  const { c, store } = await consumer();
+  const { id, set } = await ask(c);
+  assert.equal(set?.exit, 0, JSON.stringify(set?.result));
+  assert.deepEqual(set?.result.scope.items, ['W-1', 'W-2']);
+
+  const inside = await c.hitld(['dispatch', 'start', 'W-1', '--scope', id], COS);
   assert.equal(inside.exit, 0, JSON.stringify(inside.result));
-  assert.equal(inside.result.scope.decision, 'W-9');
-  assert.match(inside.result.then, /--scope W-9/);
+  assert.equal(inside.result.scope.decision, id);
   const d1 = inside.result.dispatch;
   const handled = await c.hitld(
-    ['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'agent-1', '--scope', 'W-9'],
+    ['dispatch', 'handle', '--dispatch', d1, '--harness-ref', 'agent-1', '--scope', id],
     COS,
   );
   assert.equal(handled.exit, 0, JSON.stringify(handled.result));
-  const store = openStore(privateStorePath('orch-fixture', { env: c.env, repoRoot: c.root }));
   const dispatched = readLedger(store).events.find(
     (e) => e.event === 'dispatched' && e.dispatch === d1,
   );
-  assert.equal(dispatched?.decision, 'W-9');
+  assert.equal(dispatched?.decision, id);
   assert.equal(dispatched?.by, 'cos');
 
   // The orchestrator holding the lease sees it in flight and handles its completion.
-  const status = await c.hitld(['run', 'status'], COS);
-  assert.equal(status.result.lease.free, false);
   const again = await c.hitld(['dispatch', 'start', 'W-1'], ORCH1);
   assert.equal(again.result.error, 'not-planned', 'W-1 is in flight');
   const note = join(c.base, 'report.txt');
@@ -265,79 +334,133 @@ test('commands: the scope holds only what the owner answered; the chief of staff
   );
   assert.equal(done.exit, 0, JSON.stringify(done.result));
 
-  // Outside the scope: refused, and nothing is recorded.
   const before = readLedger(store).events.length;
-  const outside = await c.hitld(['dispatch', 'start', 'W-3', '--scope', 'W-9'], COS);
-  assert.equal(outside.result.error, 'outside-scope', JSON.stringify(outside.result));
-  const otherDecision = await c.hitld(['dispatch', 'start', 'W-2', '--scope', 'W-8'], COS);
-  assert.equal(otherDecision.result.error, 'outside-scope');
-  // Without --scope the chief of staff is not the lease holder, as before.
-  const noScope = await c.hitld(['dispatch', 'start', 'W-2'], COS);
-  assert.equal(noScope.result.error, 'lease-lost');
-  assert.equal(readLedger(store).events.length, before);
+  assert.equal(
+    (await c.hitld(['dispatch', 'start', 'W-3', '--scope', id], COS)).result.error,
+    'outside-scope',
+  );
+  assert.equal(
+    (await c.hitld(['dispatch', 'start', 'W-2', '--scope', 'W-1'], COS)).result.error,
+    'outside-scope',
+  );
+  assert.equal((await c.hitld(['dispatch', 'start', 'W-2'], COS)).result.error, 'lease-lost');
+  assert.equal(readLedger(store).events.length, before, 'nothing recorded');
+
+  // A scope file edited by hand grants nothing.
+  const file = /** @type {any} */ (readScopeFile(store));
+  writeScopeFile(store, {
+    ...file,
+    items: ['W-3'],
+    budget_tokens: 1e12,
+    until: '2099-01-01T00:00:00.000Z',
+  });
+  assert.equal(
+    (await c.hitld(['dispatch', 'start', 'W-3', '--scope', id], COS)).result.error,
+    'outside-scope',
+  );
+  writeScopeFile(store, { ...file, set_at: '2099-01-01T00:00:00.000Z' });
+  assert.equal(
+    (await c.hitld(['dispatch', 'start', 'W-2', '--scope', id], COS)).result.error,
+    'scope-invalid',
+  );
+  writeScopeFile(store, file);
 
   // The owner's word ends it.
-  const ended = await c.hitld(['run', 'scope', 'end', '--reason', 'enough for today'], COS);
-  assert.equal(ended.exit, 0, JSON.stringify(ended.result));
-  const after = await c.hitld(['dispatch', 'start', 'W-2', '--scope', 'W-9'], COS);
-  assert.equal(after.result.error, 'scope-ended');
+  assert.equal(
+    (await c.hitld(['run', 'scope', 'end', '--reason', 'enough for today'], COS)).exit,
+    0,
+  );
+  assert.equal(
+    (await c.hitld(['dispatch', 'start', 'W-2', '--scope', id], COS)).result.error,
+    'scope-ended',
+  );
 });
 
-test('commands: an expired scope and an exhausted budget start nothing', async () => {
-  const c = consumerWithScope('Yes: W-1 and W-2, with a small budget');
+test('commands: a no, a stale decision, queue merge mode and a decision that is not the scope question open nothing', async () => {
+  // Answered before this run started: the answer belongs to no run.
+  const { c } = await consumer({ started: false });
+  const stale = await ask(c, { set: false });
   assert.equal((await c.hitld(['run', 'start', '--harness-ref', 'cloud-orch-1'], ORCH1)).exit, 0);
-  const store = openStore(privateStorePath('orch-fixture', { env: c.env, repoRoot: c.root }));
+  const staleSet = await c.hitld(['run', 'scope', 'set', '--decision', stale.id], COS);
+  assert.equal(staleSet.result.error, 'scope-ended', JSON.stringify(staleSet.result));
 
-  // A budget smaller than the item's estimate.
-  const small = await c.hitld(
+  const no = await ask(c, { answer: 'B' });
+  assert.equal(no.set?.result.error, 'scope-not-confirmed', JSON.stringify(no.set?.result));
+  assert.equal(
+    (await c.hitld(['dispatch', 'start', 'W-1', '--scope', no.id], COS)).result.error,
+    'no-scope',
+  );
+  const notScope = await c.hitld(['run', 'scope', 'set', '--decision', 'W-1'], COS);
+  assert.equal(notScope.result.error, 'not-found');
+
+  const queue = makeConsumer();
+  const refused = await queue.hitld(
     [
       'run',
       'scope',
-      'set',
-      '--decision',
-      'W-9',
+      'question',
       '--items',
-      'W-1,W-2',
+      'W-1',
       '--budget-tokens',
-      '10',
+      '1000',
       '--until',
-      until(),
+      iso(Date.now() + HOUR),
     ],
     COS,
   );
-  assert.equal(small.exit, 0, JSON.stringify(small.result));
-  const over = await c.hitld(['dispatch', 'start', 'W-1', '--scope', 'W-9'], COS);
-  assert.equal(over.result.error, 'scope-budget', JSON.stringify(over.result));
-
-  // The end time has passed (the scope as the store holds it, an hour later).
-  const s = /** @type {import('../lib/run/scope.mjs').RunScope} */ (readScope(store));
-  writeScope(store, {
-    ...s,
-    budget_tokens: 2_000_000,
-    until: new Date(Date.now() - 1000).toISOString(),
+  assert.equal(refused.result.error, 'scope-merge-unguarded');
+  const executor = await c.hitld(['run', 'scope', 'set', '--decision', no.id], {
+    env: { HITLD_SESSION: 'x', HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' },
   });
-  const expired = await c.hitld(['dispatch', 'start', 'W-1', '--scope', 'W-9'], COS);
+  assert.equal(executor.result.error, 'not-permitted');
+});
+
+test('commands: the question lists the named items whose touches reach guard, policy, rights or skill paths', async () => {
+  const { c } = await consumer({
+    files: {
+      'work/items/W-5-skill.md': item({
+        id: 'W-5',
+        title: 'skill',
+        kind: 'work',
+        state: 'planned',
+        touches: ['skills/execute/SKILL.md'],
+      }),
+    },
+  });
+  const { question, set } = await ask(c, { items: 'W-1,W-5' });
+  assert.deepEqual(question.result.touching_owner_paths, [
+    { item: 'W-5', touches: ['skills/execute/SKILL.md'] },
+  ]);
+  assert.match(question.result.question.question, /W-5 \(skills\/execute\/SKILL\.md\)/);
+  assert.deepEqual(set?.result.touching_owner_paths, question.result.touching_owner_paths);
+});
+
+test('commands: an expired scope and an exhausted budget start nothing', async () => {
+  const { c, store } = await consumer();
+  const small = await ask(c, { budget: 10 });
+  assert.equal(small.set?.exit, 0, JSON.stringify(small.set?.result));
+  assert.equal(
+    (await c.hitld(['dispatch', 'start', 'W-1', '--scope', small.id], COS)).result.error,
+    'scope-budget',
+  );
+
+  const brief = await ask(c, { untilMs: 1500 });
+  assert.equal(brief.set?.exit, 0, JSON.stringify(brief.set?.result));
+  await new Promise((r) => setTimeout(r, 1600));
+  const expired = await c.hitld(['dispatch', 'start', 'W-1', '--scope', brief.id], COS);
   assert.equal(expired.result.error, 'scope-expired', JSON.stringify(expired.result));
-  const shown = await c.hitld(['run', 'scope', 'show'], COS);
-  assert.equal(shown.result.status.active, false);
+  assert.equal((await c.hitld(['run', 'scope', 'show'], COS)).result.status.active, false);
   assert.equal(readLedger(store).events.filter((e) => e.event === 'dispatched').length, 0);
 });
 
 test('commands: across a hand-over the chief of staff starts the scope with no typed start line, and the successor completes it', async () => {
-  const c = consumerWithScope('Yes, W-1 and W-2 within 2M tokens today');
-  assert.equal((await c.hitld(['run', 'start', '--harness-ref', 'cloud-orch-1'], ORCH1)).exit, 0);
-  assert.equal((await c.hitld(setScope(), COS)).exit, 0);
-  const handed = await c.hitld(['handover'], ORCH1);
-  assert.equal(handed.exit, 0, JSON.stringify(handed.result));
-  assert.equal((await c.hitld(['run', 'status'], COS)).result.lease.free, true);
-
-  // No orchestrator holds the lease, and the start goes ahead.
-  const started = await c.hitld(['dispatch', 'start', 'W-2', '--scope', 'W-9'], COS);
+  const { c } = await consumer();
+  const { id } = await ask(c);
+  assert.equal((await c.hitld(['handover'], ORCH1)).exit, 0);
+  const started = await c.hitld(['dispatch', 'start', 'W-2', '--scope', id], COS);
   assert.equal(started.exit, 0, JSON.stringify(started.result));
   const d = started.result.dispatch;
   assert.match(started.result.then, /relay its report/i);
-
-  // The successor takes the lease, keeps the start live, and handles its completion.
   const resumed = await c.hitld(
     ['run', 'resume', '--live', d, '--harness-ref', 'cloud-orch-2'],
     ORCH2,
@@ -361,47 +484,151 @@ test('commands: across a hand-over the chief of staff starts the scope with no t
   assert.equal(done.exit, 0, JSON.stringify(done.result));
 });
 
-test('commands: a session the chief of staff starts under the scope reports to the orchestrator holding the lease', async () => {
-  const c = makeConsumer({
-    policy: { execution: { max_executors: { value: 4 } } },
+test('commands: a session started under the scope reports to the lease holder; two starts racing for the last slot take it once', async () => {
+  const { c, store } = await consumer({
+    policy: { execution: { max_executors: { value: 1 } } },
     files: {
-      'work/items/W-4-redesign.md': item({
-        id: 'W-4',
-        title: 'redesign',
-        kind: 'work',
-        state: 'planned',
-        tier_override: '3',
-        touches: ['src/redesign.js'],
-      }),
-      'work/items/W-9-run-scope.md': decisionFile('Yes: W-4, 2M tokens, today'),
+      'work/items/W-4-redesign.md': tier3('W-4', 'src/four.js'),
+      'work/items/W-6-redesign.md': tier3('W-6', 'src/six.js'),
     },
   });
-  recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
-  assert.equal((await c.hitld(['run', 'start', '--harness-ref', 'cloud-orch-1'], ORCH1)).exit, 0);
-  const set = await c.hitld(
-    [
-      'run',
-      'scope',
-      'set',
-      '--decision',
-      'W-9',
-      '--items',
-      'W-4',
-      '--budget-tokens',
-      '2000000',
-      '--until',
-      until(),
-    ],
-    COS,
-  );
-  assert.equal(set.exit, 0, JSON.stringify(set.result));
-  const started = await c.hitld(
-    ['dispatch', 'start', 'W-4', '--mode', 'interactive', '--scope', 'W-9'],
-    COS,
-  );
+  const { id } = await ask(c, { items: 'W-4,W-6' });
+  // The chief of staff's start and the orchestrator's, at once, for a cap of one.
+  const [a, b] = await Promise.all([
+    c.hitld(['dispatch', 'start', 'W-4', '--mode', 'interactive', '--scope', id], COS),
+    c.hitld(['dispatch', 'start', 'W-6', '--mode', 'interactive'], ORCH1),
+  ]);
+  const ok = [a, b].filter((r) => r.exit === 0);
+  assert.equal(ok.length, 1, JSON.stringify([a.result, b.result]));
+  assert.equal([a, b].find((r) => r.exit !== 0)?.result.error, 'not-planned');
+  assert.equal(readLedger(store).events.filter((e) => e.event === 'dispatched').length, 1);
+  if (a.exit === 0) {
+    assert.equal(a.result.instruction.tool, 'session');
+    assert.equal(a.result.scope.report_to, 'cloud-orch-1');
+    assert.match(readFileSync(a.result.brief_file, 'utf8'), /cloud-orch-1/);
+  }
+});
+
+// --- Two sessions, two stores ---------------------------------------------------------------
+
+test('two stores: the orchestrator sees the chief of staff’s scoped start, starts no duplicate, and completes it', async () => {
+  const dir = tempDir('hitld-scope-two-');
+  const project = buildConsumer(join(dir, 'project'), {
+    policy: {
+      merge: { mode: 'owner', full_suite: ['node --test "test/*.test.js"'] },
+      store: { remote: { required: true } },
+    },
+    files: PROJECT,
+  });
+  const origin = join(dir, 'origin.git');
+  fixtureGit(dir, 'init', '-q', '--bare', '-b', 'main', origin);
+  fixtureGit(project, 'remote', 'add', 'origin', origin);
+  fixtureGit(project, 'push', '-q', 'origin', 'main');
+  const host = join(dir, 'host', 'store.git');
+  fixtureGit(dir, 'init', '-q', '--bare', host);
+  const deviceA = generateIdentity();
+  const deviceB = generateIdentity();
+
+  /** One session on a device of its own: its own data directory, so its own private store. */
+  const session = (/** @type {string} */ name, /** @type {{ identity: string }} */ device) => {
+    /** @type {NodeJS.ProcessEnv} */
+    const env = {
+      PATH: process.env.PATH,
+      HOME: join(dir, 'home', name),
+      XDG_DATA_HOME: join(dir, 'data', name),
+      XDG_CONFIG_HOME: join(dir, 'config', name),
+      HITLD_STORE_REMOTE: `file://${host}`,
+      HITLD_STORE_IDENTITY: device.identity,
+      HITLD_SESSION: name,
+    };
+    writeSetupDone(env);
+    recordStatusLine(STATUS_INPUT(project), { cwd: project, env });
+    const store = openStore(privateStorePath('orch-fixture', { env, repoRoot: project }));
+    /** @param {string[]} argv */
+    const hitld = async (argv) => {
+      let out = '';
+      const exit = await main(argv, { out: (t) => (out += t), err: () => {}, cwd: project, env });
+      return { exit, result: /** @type {Record<string, any>} */ (JSON.parse(out)) };
+    };
+    return { store, hitld };
+  };
+  const orch = session('orch-1', deviceA);
+  approve(orch.store, ['device-a', deviceA], ['device-b', deviceB]);
+  const started = await orch.hitld(['run', 'start', '--harness-ref', 'cloud-orch-1']);
   assert.equal(started.exit, 0, JSON.stringify(started.result));
-  assert.equal(started.result.instruction.tool, 'session');
-  assert.equal(started.result.scope.report_to, 'cloud-orch-1');
-  assert.match(readFileSync(started.result.brief_file, 'utf8'), /cloud-orch-1/);
-  assert.match(started.result.then, /the orchestrator holding the lease, which completes it/);
+  assert.equal((await orch.hitld(['run', 'checkpoint'])).exit, 0);
+
+  // The chief of staff, on another device: its store learns the run from the remote.
+  const cos = session('cos', deviceB);
+  const plan = await cos.hitld(['dispatch', 'plan']);
+  assert.equal(plan.exit, 0, JSON.stringify(plan.result));
+  assert.notEqual(cos.store.root, orch.store.root, 'two stores');
+  const question = await cos.hitld([
+    'run',
+    'scope',
+    'question',
+    '--items',
+    'W-1,W-2',
+    '--budget-tokens',
+    '2000000',
+    '--until',
+    iso(Date.now() + 4 * HOUR),
+    '--parent',
+    'W-17',
+  ]);
+  assert.equal(question.exit, 0, JSON.stringify(question.result));
+  const recorded = await cos.hitld([
+    'rights',
+    'record',
+    '--question',
+    JSON.stringify({ ...question.result.question, classification: 'public' }),
+    '--answer',
+    'A',
+    '--via',
+    'question-tool',
+    '--shown-at',
+    iso(Date.now() - 1000),
+  ]);
+  assert.equal(recorded.exit, 0, JSON.stringify(recorded.result));
+  const id = String(recorded.result.decision ?? recorded.result.id);
+  const set = await cos.hitld(['run', 'scope', 'set', '--decision', id]);
+  assert.equal(set.exit, 0, JSON.stringify(set.result));
+  const scoped = await cos.hitld(['dispatch', 'start', 'W-1', '--scope', id]);
+  assert.equal(scoped.exit, 0, JSON.stringify(scoped.result));
+  assert.equal(scoped.result.store_sync?.push?.status, 'done', 'the start is pushed');
+  const d = scoped.result.dispatch;
+  assert.equal(
+    readLedger(orch.store).events.some((e) => e.dispatch === d),
+    false,
+    'not yet in the orchestrator’s store',
+  );
+
+  // The orchestrator pulls before it starts: W-1 is in flight, and no second executor starts.
+  const duplicate = await orch.hitld(['dispatch', 'start', 'W-1']);
+  assert.equal(duplicate.result.error, 'not-planned', JSON.stringify(duplicate.result));
+  assert.equal(
+    readLedger(orch.store).events.some((e) => e.dispatch === d),
+    true,
+  );
+  const note = join(dir, 'report.txt');
+  writeFileSync(
+    note,
+    report({
+      item: 'W-1',
+      sha: git(project, 'rev-parse', 'HEAD'),
+      branch: scoped.result.branch,
+      result: 'blocked',
+    }),
+  );
+  const done = await orch.hitld([
+    'dispatch',
+    'complete',
+    '--dispatch',
+    d,
+    '--report-file',
+    note,
+    '--tokens',
+    '1000',
+  ]);
+  assert.equal(done.exit, 0, JSON.stringify(done.result));
 });

@@ -115,7 +115,7 @@ Make worktrees only through `hitld env` (`hitld dispatch start` does it for tier
 
 Then do useful work between notices: merge, answer questions, triage. Do not wait.
 
-**Starts under the owner's run scope.** When the owner has named a run scope (`hitld run scope show`), the chief of staff starts its items itself (`hitld dispatch start --scope`), without the lease and without a start line typed here, and its wake says `started <dispatch> (<item>) under the run scope`. They are in flight in your plan as any start, take slots in the same cap, and report to you: complete and merge them as your own (step 4). Do not start a scope item yourself as well. Your hand-over holds your starts only, not the chief of staff's.
+**Starts under the owner's run scope.** When the owner has named a run scope (`hitld run scope show`), the chief of staff starts its items itself (`hitld dispatch start --scope`), without the lease and without a start line typed here, and its wake says `started <dispatch> (<item>) under the run scope`. `hitld dispatch plan`, `start`, `handle` and `complete` pull the store first when it has a remote, so they are in flight in your plan as any start, take slots in the same cap (a start and its cap check hold one lock on this machine), and report to you: complete and merge them as your own (step 4). Do not start a scope item yourself as well. Your hand-over holds your starts only, not the chief of staff's.
 
 ## 4. On each completion notice
 

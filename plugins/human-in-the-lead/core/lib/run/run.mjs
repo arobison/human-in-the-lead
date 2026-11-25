@@ -80,8 +80,9 @@ export class Run {
    */
   record(event) {
     if (this.scoped) {
-      const { state, problems } = loadState(this.store);
-      if (!state) throw new Error(`no run state (${problems.join('; ')})`);
+      // The chief of staff's device may hold no run state, only the pulled ledger: fold it.
+      const state = loadState(this.store).state ?? foldLedger(readLedger(this.store).events);
+      if (!state.run?.id) throw new Error('no run in the run state or the ledger');
       const written = appendEvent(this.store, { ...event, run: state.run.id }, { now: this.now });
       this.state = absorb(structuredClone(state), written.events).state;
       return { event: written.event, appended: written.appended };

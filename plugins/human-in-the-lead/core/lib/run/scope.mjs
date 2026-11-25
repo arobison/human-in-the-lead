@@ -1,37 +1,193 @@
-// A run scope (HITLD-877, decision HITLD-876): one decision of the owner's, in their own words,
-// names a list of items, a token budget and an end time. Within it the chief of staff starts the
-// items itself (hitld dispatch start --scope), so a hand-over between orchestrators needs no start
-// line typed in the orchestrator's session. It is per run, never standing: it ends at its end time,
-// once its budget is spent, or on the owner's word (hitld run scope end), and a new run does not
-// inherit it. It allows starts and nothing else: a guard, policy, rights or skill change is still
-// the owner's to make.
+// A run scope (HITLD-877, decision HITLD-876): one decision of the owner's names a list of items,
+// a token budget and an end time, and within it the chief of staff starts those items itself
+// (hitld dispatch start --scope), so a hand-over between orchestrators needs no start line typed
+// in the orchestrator's session. It is per run, never standing: it ends at its end time, once its
+// budget is spent, or on the owner's word (hitld run scope end), and a new run does not inherit it.
+// It allows starts and nothing else: a guard, policy, rights or skill change is still the owner's.
 //
-// The scope lives in the private store (run/scope.json), written by the chief of staff. Starts
-// under it are ordinary `dispatched` events that carry the scope's decision and the session that
-// started them (`by`), so what a scope has spent is read from the ledger.
+// What grants a scope is the owner's yes, and nothing else. The question is put to the owner with
+// the scope written into its title (scopeQuestion): the items, the budget and the end time the
+// owner reads are the ones the answer confirms. The answer counts only as the yes option, recorded
+// in this run by the rights flow (its `answered` ledger event) and on the decision item. The store
+// file run/scope.json names which decision is in force and whether the owner ended it; it grants
+// nothing by itself, and every start derives the scope from the decision and the ledger again
+// (deriveScope), so a file edited by hand adds no item, budget or time.
+//
+// Starts under it are ordinary `dispatched` events that carry the scope's decision and the session
+// that started them (`by`), so what a scope has spent is read from the ledger.
+
+import { matchesAny } from '../precedent/glob.mjs';
+import { waitsForOwner } from '../merge/owner.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
  * @typedef {import('../ledger/ledger.mjs').LedgerEntry} LedgerEntry
  *
- * @typedef {object} RunScope
- * @property {string} run the run it belongs to
- * @property {string} decision the owner's decision that names it
- * @property {string[]} items the items it covers
- * @property {number} budget_tokens what its starts may spend, in tokens
- * @property {string} until when it ends
- * @property {string} granted_at
- * @property {string} granted_by the session that recorded it
- * @property {{ at: string, by: string, reason: string }} [ended] ended before its end time
+ * @typedef {object} ScopeSpec what the owner is asked to agree to
+ * @property {string[]} items
+ * @property {number} budget_tokens
+ * @property {string} until an ISO 8601 time, as toISOString writes it
+ *
+ * @typedef {ScopeSpec & { run: string, decision: string, granted_at: string }} RunScope
+ *   granted_at: when the owner answered yes, from the ledger
+ *
+ * @typedef {object} ScopeFile what the store holds: which decision is in force, and its end
+ * @property {string} run
+ * @property {string} decision
+ * @property {string} set_at
+ * @property {string} set_by
+ * @property {{ at: string, by: string, reason: string }} [ended]
+ *
+ * @typedef {{ ok: false, code: string, why: string }} ScopeRefusal
  */
 
 export const SCOPE_KEY = 'run/scope.json';
 
-/** The longest a scope may run: per run, never standing. */
+/** The longest a scope may run, from the owner's yes: per run, never standing. */
 export const SCOPE_MAX_HOURS = 168;
 
-/** @param {PrivateStore} store @returns {RunScope | null} */
-export function readScope(store) {
+/** The option that grants the scope; the other option is no. */
+export const SCOPE_YES = 'Yes, start them';
+const SCOPE_NO = 'No';
+const TITLE = /^Run scope: start (.+) within ([1-9]\d*) tokens until (\S+)$/;
+
+/**
+ * The paths whose changes are the owner's: guard, policy, rights and skills. A scope is refused
+ * unless owner merge mode holds a change to each for the owner's yes (the owner's ruling on
+ * HITLD-877). `in_repo` entries count only where the directory exists, as in this repository.
+ */
+export const OWNER_ONLY = Object.freeze([
+  {
+    what: 'policy and rights',
+    glob: '.human-in-the-lead/**',
+    sample: '.human-in-the-lead/policy.json',
+  },
+  { what: 'guard and harness settings', glob: '.claude/**', sample: '.claude/settings.json' },
+  { what: 'skills', glob: 'skills/**', sample: 'skills/any/SKILL.md' },
+  {
+    what: 'guard',
+    glob: 'core/lib/guard/**',
+    sample: 'core/lib/guard/any.mjs',
+    in_repo: 'core/lib/guard',
+  },
+  {
+    what: 'rights',
+    glob: 'core/lib/rights/**',
+    sample: 'core/lib/rights/any.mjs',
+    in_repo: 'core/lib/rights',
+  },
+]);
+
+/** The title the decision carries: the scope as the owner reads it. @param {ScopeSpec} s */
+export const scopeTitle = (s) =>
+  `Run scope: start ${s.items.join(', ')} within ${s.budget_tokens} tokens until ${s.until}`;
+
+/**
+ * The scope a decision's title states, or null when the title is not a run-scope question.
+ * @param {unknown} title @returns {ScopeSpec | null}
+ */
+export function parseScopeTitle(title) {
+  const m = TITLE.exec(String(title ?? ''));
+  if (!m) return null;
+  const items = m[1].split(', ').map((s) => s.trim());
+  const until = Date.parse(m[3]);
+  if (!items.length || items.some((i) => !/^[A-Za-z][A-Za-z0-9]*-[0-9]+$/.test(i))) return null;
+  if (Number.isNaN(until) || new Date(until).toISOString() !== m[3]) return null;
+  if (unnamedItems(m[1], items).length) return null;
+  return { items, budget_tokens: Number(m[2]), until: m[3] };
+}
+
+/**
+ * The question to put to the owner, for hitld rights record: the scope in its title and its
+ * question, the yes option first, and the named items whose touches reach the owner's paths.
+ * @param {ScopeSpec} s @param {{ item: string, touches: string[] }[]} sensitive
+ */
+export function scopeQuestion(s, sensitive) {
+  const reach = sensitive.length
+    ? ` Of these, ${sensitive.map((x) => `${x.item} (${x.touches.join(', ')})`).join('; ')} change guard, policy, rights or skill paths; each still reaches main only with your own yes.`
+    : '';
+  return {
+    title: scopeTitle(s),
+    question: `May the chief of staff start ${s.items.join(', ')} itself in this run, spending at most ${s.budget_tokens} tokens, until ${s.until}?${reach}`,
+    context:
+      'An orchestrator can start executors only on a start line you type in its session, so the run stalls at each hand-over (HITLD-877). A scope covers starts only, ends at its end time, its budget or your word, and no other run inherits it.',
+    options: [
+      {
+        label: SCOPE_YES,
+        what_happens: `the chief of staff starts these items itself, within the cap and the quota gate, until ${s.until} or ${s.budget_tokens} tokens`,
+        reversible: true,
+      },
+      {
+        label: SCOPE_NO,
+        what_happens:
+          'nothing starts under a scope; orchestrators start work on your typed start line',
+        reversible: true,
+      },
+    ],
+    recommendation: {
+      option: SCOPE_YES,
+      why: 'it keeps the run going across hand-overs without your typed start lines',
+    },
+    tags: ['run-scope'],
+    reversibility: 'two-way',
+  };
+}
+
+/**
+ * The item IDs a text does not name as a whole ID: W-1 is not named by W-12, nor by W-1-foo.
+ * @param {string} words @param {string[]} items
+ */
+export function unnamedItems(words, items) {
+  const text = String(words).toUpperCase();
+  return items.filter((id) => {
+    const escaped = id.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return !new RegExp(`(^|[^A-Z0-9-])${escaped}(?![0-9A-Z-])`).test(text);
+  });
+}
+
+/**
+ * Whether owner merge mode holds a change to every owner-only path for the owner's yes.
+ * @param {Record<string, any>} policy @param {(dir: string) => boolean} exists
+ * @returns {{ ok: true } | ScopeRefusal}
+ */
+export function ownerHoldsChanges(policy, exists) {
+  if (policy.merge?.mode !== 'owner') {
+    return {
+      ok: false,
+      code: 'scope-merge-unguarded',
+      why: `merge.mode is ${policy.merge?.mode ?? 'unset'}, not owner: a run scope needs every guard, policy, rights or skill change to wait for the owner's own yes`,
+    };
+  }
+  const open = OWNER_ONLY.filter(
+    (o) => (!o.in_repo || exists(o.in_repo)) && !waitsForOwner([o.sample], policy),
+  );
+  if (open.length) {
+    return {
+      ok: false,
+      code: 'scope-merge-unguarded',
+      why: `merge.owner_paths does not hold ${open.map((o) => `${o.what} (${o.glob})`).join(', ')} for the owner's yes: a run scope needs it to`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * The items whose declared touches reach an owner-only path.
+ * @param {{ id: string, touches?: string[] }[]} items
+ */
+export function touchingOwnerPaths(items) {
+  return items
+    .map((i) => ({
+      item: String(i.id),
+      touches: (i.touches ?? []).filter((t) =>
+        OWNER_ONLY.some((o) => matchesAny([o.glob], t) || matchesAny([t], o.sample)),
+      ),
+    }))
+    .filter((x) => x.touches.length);
+}
+
+/** @param {PrivateStore} store @returns {ScopeFile | null} */
+export function readScopeFile(store) {
   const raw = store.read(SCOPE_KEY);
   if (raw === null) return null;
   try {
@@ -42,80 +198,125 @@ export function readScope(store) {
   }
 }
 
-/** @param {PrivateStore} store @param {RunScope} scope */
-export function writeScope(store, scope) {
-  store.write(SCOPE_KEY, `${JSON.stringify(scope, null, 2)}\n`);
+/** @param {PrivateStore} store @param {ScopeFile} file */
+export function writeScopeFile(store, file) {
+  store.write(SCOPE_KEY, `${JSON.stringify(file, null, 2)}\n`);
 }
 
+/** The owner's yes, as the rights flow writes an answer to the scope question. @param {unknown} text */
+const isYes = (text) => String(text ?? '').startsWith(`A. ${SCOPE_YES}:`);
+
 /**
- * The item IDs a decision's answer names, as the owner wrote them: each of `items` must appear in
- * the words as a whole ID (W-1 is not named by W-12). Returns those it does not name.
- * @param {string} words @param {string[]} items
+ * The scope a decision grants now, derived from the decision item and the ledger alone.
+ * @param {{
+ *   decision: Record<string, any> | null,
+ *   id: string,
+ *   events: LedgerEntry[],
+ *   run: { id: string, started_at?: string } | null,
+ *   now: number,
+ * }} o
+ * @returns {{ ok: true, scope: RunScope } | ScopeRefusal}
  */
-export function unnamedItems(words, items) {
-  const text = String(words).toUpperCase();
-  return items.filter((id) => {
-    const escaped = id.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return !new RegExp(`(^|[^A-Z0-9-])${escaped}(?![0-9A-Z])`).test(text);
-  });
+export function deriveScope(o) {
+  const d = o.decision;
+  if (!d || d.kind !== 'decision') {
+    return { ok: false, code: 'not-found', why: `${o.id} is not a decision in the tracker` };
+  }
+  const spec = parseScopeTitle(d.title);
+  if (!spec) {
+    return {
+      ok: false,
+      code: 'scope-not-confirmed',
+      why: `${o.id} is not a run-scope question (its title is not one hitld run scope question writes): the owner has not agreed to a scope`,
+    };
+  }
+  if (!o.run) return { ok: false, code: 'no-run', why: 'no run has started' };
+  const answered = o.events.filter(
+    (e) => e.event === 'answered' && e.decision === o.id && e.corrects === undefined,
+  );
+  const yes = answered.at(-1);
+  if (d.state !== 'done' || d.answered_by !== 'owner' || !yes) {
+    return {
+      ok: false,
+      code: 'not-answered',
+      why: `${o.id} has no answer from the owner recorded through the rights flow`,
+    };
+  }
+  if (!isYes(d.answer) || !isYes(yes.text)) {
+    return {
+      ok: false,
+      code: 'scope-not-confirmed',
+      why: `the owner's answer to ${o.id} is not "${SCOPE_YES}": no scope is open`,
+    };
+  }
+  // In this run: after it started, and in it where the event names a run (on a device that holds
+  // no run state, as the chief of staff's may, the rights flow records none).
+  const startedAt = Date.parse(String(o.run.started_at ?? ''));
+  const at = Date.parse(String(yes.at));
+  if (
+    (yes.run !== undefined && yes.run !== o.run.id) ||
+    !Number.isFinite(startedAt) ||
+    !(at >= startedAt)
+  ) {
+    return {
+      ok: false,
+      code: 'scope-ended',
+      why: `${o.id} was answered outside this run (${o.run.id}): a scope is per run, never standing`,
+    };
+  }
+  const until = Date.parse(spec.until);
+  if (!(at <= o.now) || until <= at || until - at > SCOPE_MAX_HOURS * 3600_000) {
+    return {
+      ok: false,
+      code: 'scope-invalid',
+      why: `${o.id} runs from ${yes.at} to ${spec.until}: a scope ends after the owner's yes and at most ${SCOPE_MAX_HOURS} hours after it`,
+    };
+  }
+  return {
+    ok: true,
+    scope: { ...spec, run: o.run.id, decision: o.id, granted_at: String(yes.at) },
+  };
 }
 
 /**
- * What a scope has spent: for each start under it, the tokens its report recorded, else its start
- * estimate (a start in flight counts at its estimate, so the budget is never passed by starting
- * many at once).
+ * What a scope has spent: for each start under it, the tokens its reports recorded, else its start
+ * estimate (a start in flight counts at its estimate, so starting many at once cannot pass the
+ * budget). One pass over the ledger.
  * @param {RunScope} scope @param {LedgerEntry[]} events
  */
 export function spentOf(scope, events) {
-  const starts = events.filter(
-    (e) => e.event === 'dispatched' && e.decision === scope.decision && e.run === scope.run,
-  );
-  let spent = 0;
-  for (const s of starts) {
-    const reported = events.filter(
-      (e) => e.event === 'reported' && e.dispatch === s.dispatch && typeof e.tokens === 'number',
-    );
-    spent += reported.length
-      ? reported.reduce((n, e) => n + /** @type {number} */ (e.tokens), 0)
-      : typeof s.estimate_tokens === 'number'
-        ? s.estimate_tokens
-        : 0;
+  /** @type {Map<string, number>} */
+  const estimate = new Map();
+  /** @type {Map<string, number>} */
+  const reported = new Map();
+  for (const e of events) {
+    const d = String(e.dispatch);
+    if (e.event === 'dispatched' && e.decision === scope.decision && e.run === scope.run) {
+      estimate.set(d, typeof e.estimate_tokens === 'number' ? e.estimate_tokens : 0);
+    } else if (e.event === 'reported' && typeof e.tokens === 'number') {
+      reported.set(d, (reported.get(d) ?? 0) + e.tokens);
+    }
   }
-  return { spent, starts: starts.map((s) => /** @type {string} */ (s.dispatch)) };
+  let spent = 0;
+  for (const [d, est] of estimate) spent += reported.get(d) ?? est;
+  return { spent, starts: [...estimate.keys()] };
 }
 
 /**
- * Whether the scope is in force now, and if not, why.
- * @param {RunScope | null} scope @param {{ now: number, run: string | null, events: LedgerEntry[] }} at
+ * Whether the scope is in force now, and if not, why: the file's end, the end time, the budget.
+ * @param {RunScope} scope @param {ScopeFile | null} file
+ * @param {{ now: number, events: LedgerEntry[] }} at
  * @returns {{ active: boolean, code?: string, why?: string, spent: number, left: number, starts: string[] }}
  */
-export function scopeStatus(scope, at) {
-  if (!scope) {
-    return {
-      active: false,
-      code: 'no-scope',
-      why: 'no run scope is recorded',
-      spent: 0,
-      left: 0,
-      starts: [],
-    };
-  }
+export function scopeStatus(scope, file, at) {
   const { spent, starts } = spentOf(scope, at.events);
   const left = Math.max(0, scope.budget_tokens - spent);
   const base = { spent, left, starts };
-  if (scope.ended) {
+  if (file?.ended) {
     return {
       active: false,
       code: 'scope-ended',
-      why: `the run scope of ${scope.decision} was ended at ${scope.ended.at} (${scope.ended.reason})`,
-      ...base,
-    };
-  }
-  if (at.run !== scope.run) {
-    return {
-      active: false,
-      code: 'scope-ended',
-      why: `the run scope of ${scope.decision} belongs to run ${scope.run}, not the run now (${at.run ?? 'none'}): a scope is per run`,
+      why: `the run scope of ${scope.decision} was ended at ${file.ended.at} (${file.ended.reason})`,
       ...base,
     };
   }
@@ -139,22 +340,55 @@ export function scopeStatus(scope, at) {
 }
 
 /**
- * Whether the scope lets the chief of staff start an item now. Refusals: `no-scope`, `scope-ended`,
- * `scope-expired`, `scope-budget` (spent, or this start's estimate would pass it) and
- * `outside-scope` (the item is not one it names, or the decision named is not the scope's).
- * @param {RunScope | null} scope
- * @param {{ decision: string, item: string, estimate: number, now: number, run: string | null, events: LedgerEntry[] }} start
- * @returns {{ ok: true, spent: number, left: number } | { ok: false, code: string, why: string }}
+ * Whether the chief of staff may start an item now under the scope the file names, the scope
+ * derived again from its decision. Refusals: `no-scope`, `outside-scope` (another decision, or an
+ * item the scope does not name), `scope-invalid` (the file names another run or a time to come),
+ * the refusals of deriveScope, and those of scopeStatus.
+ * @param {ScopeFile | null} file
+ * @param {{
+ *   decision: string,
+ *   item: string,
+ *   estimate: number,
+ *   now: number,
+ *   run: { id: string, started_at?: string } | null,
+ *   events: LedgerEntry[],
+ *   lookup: (id: string) => Record<string, any> | null,
+ * }} start
+ * @returns {{ ok: true, scope: RunScope, spent: number, left: number } | ScopeRefusal}
  */
-export function checkScopeStart(scope, start) {
-  if (scope && scope.decision !== start.decision) {
+export function checkScopeStart(file, start) {
+  if (!file) return { ok: false, code: 'no-scope', why: 'no run scope is recorded' };
+  if (file.decision !== start.decision) {
     return {
       ok: false,
       code: 'outside-scope',
-      why: `${start.decision} is not the decision of the run scope recorded now (${scope.decision})`,
+      why: `${start.decision} is not the decision of the run scope in force (${file.decision})`,
     };
   }
-  const status = scopeStatus(scope, start);
+  if (!start.run || file.run !== start.run.id) {
+    return {
+      ok: false,
+      code: 'scope-ended',
+      why: `the run scope of ${file.decision} belongs to run ${file.run}, not the run now (${start.run?.id ?? 'none'})`,
+    };
+  }
+  if (!(Date.parse(file.set_at) <= start.now)) {
+    return {
+      ok: false,
+      code: 'scope-invalid',
+      why: `the run scope's record is dated ${file.set_at}, after now`,
+    };
+  }
+  const derived = deriveScope({
+    decision: start.lookup(file.decision),
+    id: file.decision,
+    events: start.events,
+    run: start.run,
+    now: start.now,
+  });
+  if (!derived.ok) return derived;
+  const scope = derived.scope;
+  const status = scopeStatus(scope, file, start);
   if (!status.active) {
     return {
       ok: false,
@@ -162,20 +396,19 @@ export function checkScopeStart(scope, start) {
       why: /** @type {string} */ (status.why),
     };
   }
-  const s = /** @type {RunScope} */ (scope);
-  if (!s.items.includes(start.item)) {
+  if (!scope.items.includes(start.item)) {
     return {
       ok: false,
       code: 'outside-scope',
-      why: `${start.item} is not in the run scope of ${s.decision} (${s.items.join(', ')})`,
+      why: `${start.item} is not in the run scope of ${scope.decision} (${scope.items.join(', ')})`,
     };
   }
-  if (status.spent + start.estimate > s.budget_tokens) {
+  if (status.spent + start.estimate > scope.budget_tokens) {
     return {
       ok: false,
       code: 'scope-budget',
-      why: `${start.item}'s estimate of ${start.estimate} tokens would pass the run scope's budget: ${status.spent} of ${s.budget_tokens} spent, ${status.left} left`,
+      why: `${start.item}'s estimate of ${start.estimate} tokens would pass the run scope's budget: ${status.spent} of ${scope.budget_tokens} spent, ${status.left} left`,
     };
   }
-  return { ok: true, spent: status.spent, left: status.left };
+  return { ok: true, scope, spent: status.spent, left: status.left };
 }

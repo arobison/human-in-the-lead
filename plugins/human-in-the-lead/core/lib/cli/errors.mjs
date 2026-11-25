@@ -104,9 +104,15 @@ export const ERROR_CODES = Object.freeze({
   'scope-budget':
     "The owner's run scope has spent its token budget, or this start's estimate would pass it.",
   'scope-ended':
-    "The owner's run scope was ended, or belongs to another run, so nothing more starts under it.",
-  'scope-not-in-answer':
-    "The owner's answer does not name every item given: a run scope holds only the items the owner named.",
+    "The owner's run scope was ended, or was answered in or belongs to another run, so nothing more starts under it.",
+  'scope-not-confirmed':
+    "The decision is not the owner's yes to a run-scope question, so it opens no scope.",
+  'scope-invalid':
+    "The run scope's times do not hold: its record or the owner's yes is dated after now, or it ends before the yes or more than 168 hours after it.",
+  'scope-merge-unguarded':
+    "Owner merge mode does not hold every guard, policy, rights or skill change for the owner's yes, so no run scope is allowed.",
+  'state-behind-ledger':
+    'The run state names a ledger event the ledger does not hold; hitld run rebuild remakes the state.',
   draining: 'Executors still report to this session, and no successor would hear of them.',
   cap: 'The maximum number of live executors is reached.',
   'merge-busy': 'The merge queue is held by another process.',
