@@ -261,7 +261,7 @@
       "$ref": "common#/$defs/timestamp"
     },
     "branches": {
-      "description": "On merge-approved: the presented branches the owner approved. On lease-released with reason handover: the branches whose pull requests the owner approved or was shown and that still waited to merge (HITLD-823); the session that handed over may still run merge-only passes for them until a successor takes the lease.",
+      "description": "On merge-approved: the presented branches the owner approved. On lease-released with reason handover: the branches whose pull requests the owner approved or was shown and that still waited to merge (HITLD-823); the session that handed over may still run hitld merge limited to these branches, until a successor takes the lease and for at most policy run.lease_expiry_seconds (1800 by default) after the release.",
       "$ref": "common#/$defs/texts"
     },
     "presented_at": {

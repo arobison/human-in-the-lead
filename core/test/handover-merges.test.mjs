@@ -1,7 +1,9 @@
 // A hand-over does not leave approved merges with no orchestrator to apply them (HITLD-823): the
 // hand-over names every approved or presented pull request still waiting, first in its note and
-// on the lease's release; the session that handed over may still run merge-only passes for those
-// and nothing else, until a successor takes the lease; the successor's resume shows them first.
+// on the lease's release; the session that handed over may still run hitld merge limited to those
+// branches, and nothing else, until a successor takes the lease and for at most
+// run.lease_expiry_seconds (1800 by default) after the release; the successor's resume shows them
+// first.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -292,8 +294,8 @@ async function handedOverWithTwo(o = {}) {
       return [{ name: 'test', state: 'success' }];
     },
   });
-  /** @param {string[]} argv @param {string} [session] */
-  const hitld = async (argv, session = 'orch-1') => {
+  /** @param {string[]} argv @param {string} [session] @param {() => Date} [now] */
+  const hitld = async (argv, session = 'orch-1', now) => {
     let out = '';
     const exit = await main(argv, {
       out: (t) => (out += t),
@@ -301,6 +303,7 @@ async function handedOverWithTwo(o = {}) {
       cwd: c.root,
       env: { ...c.env, HITLD_SESSION: session },
       github: () => github,
+      ...(now ? { now } : {}),
     });
     return { exit, result: JSON.parse(out) };
   };
@@ -383,8 +386,14 @@ test('commands: a hand-over with an approved and a presented pull request names 
     );
     const lines = readFileSync(handed.result.file, 'utf8').split('\n');
     assert.match(lines[2], /^Merges pending \(2\): W-1 approved \(#1\); W-2 presented \(#2\)\./);
-    assert.match(lines[2], /may still run hitld merge for them, and nothing else/);
-    assert.match(handed.result.next, /this session may still run hitld merge for W-1/);
+    assert.match(
+      lines[2],
+      /for at most 30 minutes after this hand-over \(run\.lease_expiry_seconds\), the session that wrote this note may still run hitld merge limited to them, and nothing else/,
+    );
+    assert.match(
+      handed.result.next,
+      /for at most 30 minutes \(run\.lease_expiry_seconds\), this session may still run hitld merge limited to the branches the hand-over named, W-1 approved/,
+    );
     const release = readLedger(store).events.findLast((e) => e.event === 'lease-released');
     assert.deepEqual(release?.branches, [one, two]);
 
@@ -456,7 +465,7 @@ test('commands: a successor taking the lease during a merge-only pass: the pass 
     assert.equal(merged.result.handover_file, handed.result.file);
     assert.match(
       readFileSync(handed.result.file, 'utf8'),
-      /Merged after the hand-over but not recorded, since the lease was taken meanwhile: W-1 \(#1, /,
+      /Merged after the hand-over but not recorded, since this session lost the lease while the pass ran: W-1 \(#1, /,
     );
   } finally {
     rmSync(t.c.base, { recursive: true, force: true });
@@ -481,5 +490,111 @@ test('commands: the merge-only window closes run.lease_expiry_seconds after the 
     assert.deepEqual(r.merges_pending, [t.one, t.two]);
   } finally {
     rmSync(t.c.base, { recursive: true, force: true });
+  }
+});
+
+test('commands: a pass that starts inside the merge-only window and ends after it still records what it merged', async () => {
+  let late = false;
+  const t = await handedOverWithTwo({
+    onChecks: () => {
+      late = true;
+    },
+  });
+  try {
+    const release = readLedger(t.store).events.findLast((e) => e.event === 'lease-released');
+    const at = Date.parse(String(release?.at));
+    // The clock jumps past the window once the pass is under way.
+    const now = () => new Date(late ? at + 1801 * 1000 : Date.now());
+    const merged = await t.hitld(['merge'], 'orch-1', now);
+    assert.ok(late, 'the pass asked for checks');
+    assert.equal(merged.exit, 0, JSON.stringify(merged.result));
+    assert.deepEqual(merged.result.merged, ['W-1']);
+    assert.ok(readLedger(t.store).events.some((e) => e.event === 'merged' && e.item === 'W-1'));
+  } finally {
+    rmSync(t.c.base, { recursive: true, force: true });
+  }
+});
+
+test('commands, local owner mode: after a hand-over, --all approves only the branches it named, and the ledger says the approval was applied after the hand-over', async () => {
+  const c = makeConsumer({
+    policy: {
+      merge: { mode: 'owner', fast_checks: ['true'], full_suite: ['node --test "test/*.test.js"'] },
+    },
+  });
+  try {
+    recordStatusLine(STATUS_INPUT(c.root), { cwd: c.root, env: c.env });
+    assert.equal((await c.hitld(['run', 'start'])).exit, 0);
+    /** @type {Record<string, string>} */
+    const branches = {};
+    const files = {
+      'W-1': {
+        'work/items/W-1-add-numbers.md': item({
+          id: 'W-1',
+          title: 'Add numbers',
+          kind: 'work',
+          state: 'done',
+          touches: ['src/calc.js'],
+        }),
+        'src/calc.js': 'export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n',
+      },
+      'W-2': { 'src/other.js': 'export const one = 1;\nexport const two = 2;\n' },
+    };
+    for (const id of /** @type {const} */ (['W-1', 'W-2'])) {
+      const start = await c.hitld(['dispatch', 'start', id]);
+      assert.equal(start.exit, 0, JSON.stringify(start.result));
+      await c.hitld([
+        'dispatch',
+        'handle',
+        '--dispatch',
+        start.result.dispatch,
+        '--harness-ref',
+        `agent-${id}`,
+      ]);
+      branches[id] = start.result.branch;
+      git(c.root, 'switch', '-q', '-c', branches[id]);
+      put(c.root, files[id]);
+      git(c.root, 'add', '-A');
+      git(c.root, 'commit', '-q', '-m', id);
+      const sha = git(c.root, 'rev-parse', 'HEAD');
+      git(c.root, 'switch', '-q', 'main');
+      const note = join(c.base, `note-${id}.txt`);
+      writeFileSync(note, report({ item: id, sha, branch: branches[id] }));
+      const done = await c.hitld([
+        'dispatch',
+        'complete',
+        '--dispatch',
+        start.result.dispatch,
+        '--report-file',
+        note,
+      ]);
+      assert.equal(done.result.queued_to_merge, branches[id], JSON.stringify(done.result));
+    }
+    const shown = await c.hitld(['merge']);
+    assert.deepEqual(
+      shown.result.presented.map((/** @type {any} */ b) => b.item),
+      ['W-1', 'W-2'],
+    );
+    // A hand-over that named W-1 only, as one written before W-2 was presented would.
+    const store = openStore(join(c.data, 'human-in-the-lead', 'orch-fixture'));
+    const lease = JSON.parse(readFileSync(join(store.root, 'run-state.json'), 'utf8')).lease;
+    releaseLease(store, {
+      session: lease.session,
+      host: lease.host,
+      reason: 'handover',
+      branches: [branches['W-1']],
+    });
+    const r = await c.hitld(['merge', '--all']);
+    assert.equal(r.exit, 0, JSON.stringify(r.result));
+    assert.deepEqual(r.result.merged, ['W-1']);
+    assert.equal(r.result.as_presented, false);
+    assert.doesNotMatch(git(c.root, 'log', '--format=%s', 'main'), /^W-2$/m);
+    const approval = readLedger(store).events.findLast((e) => e.event === 'merge-approved');
+    assert.deepEqual(approval?.branches, [branches['W-1']]);
+    assert.equal(
+      approval?.notes,
+      "from the owner's own message in the session that handed over, applied in its merge-only window after the hand-over",
+    );
+  } finally {
+    rmSync(c.base, { recursive: true, force: true });
   }
 });

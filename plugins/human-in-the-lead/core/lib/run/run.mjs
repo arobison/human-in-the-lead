@@ -319,7 +319,8 @@ export function releaseLease(store, options) {
  * the session did not hand over, or a successor holds the lease now.
  * @param {PrivateStore} store @param {{ session: string, host: string }} me
  * @param {{ windowSeconds?: number, now?: () => Date }} [o]
- * @returns {{ branches: string[], until: string, open: boolean } | null}
+ * @returns {{ branches: string[], until: string | null, open: boolean } | null} until: null, and open
+ *   false, when the release time does not read
  */
 export function handedOverMerges(store, me, o = {}) {
   const { state } = loadState(store);
@@ -339,11 +340,14 @@ export function handedOverMerges(store, me, o = {}) {
       e.host === me.host,
   );
   const window = (o.windowSeconds ?? DEFAULTS.expirySeconds) * 1000;
-  const until = new Date(Date.parse(released?.at ?? l.released.at) + window);
+  const end = Date.parse(released?.at ?? l.released?.at ?? '') + window;
+  const branches = Array.isArray(released?.branches) ? released.branches.map(String) : [];
+  // A release time that does not read gives no window at all: closed, failing safe.
+  if (!Number.isFinite(end)) return { branches, until: null, open: false };
   return {
-    branches: Array.isArray(released?.branches) ? released.branches.map(String) : [],
-    until: until.toISOString(),
-    open: (o.now ?? (() => new Date()))().getTime() < until.getTime(),
+    branches,
+    until: new Date(end).toISOString(),
+    open: (o.now ?? (() => new Date()))().getTime() < end,
   };
 }
 
