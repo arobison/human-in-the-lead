@@ -144,7 +144,9 @@ function setup(o = {}) {
     put(root, files);
     if (b.link) {
       mkdirSync(dirname(join(root, b.link)), { recursive: true });
-      symlinkSync('../../shared.txt', join(root, b.link));
+      // An absolute target inside this test's directory: a relative one would be read against the
+      // process's working directory, which may sit under the real home (a CI checkout does).
+      symlinkSync(join(root, 'shared.txt'), join(root, b.link));
     }
     git(root, 'add', '-A');
     git(
