@@ -23,3 +23,5 @@ Work that only means something on a quiet machine, such as a cold-start timing c
 ## Notes
 
 GitHub issue 428. rc.3. The tool side is HITLD-559 (heavy steps hold weighted machine capacity); this is the orchestrator side that makes the machine quiet.
+
+GitHub issues 668 and 669 (2026-11-25) also ask for a machine-wide quiet shared across projects on the same machine, not only per project; the machine-level half is HITLD-559.

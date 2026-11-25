@@ -32,3 +32,5 @@ Builds on HITLD-41 (resource capacities), HITLD-42 (load-aware admission) and HI
 
 The consumer's session reported timing measurements that shared an 8-core machine with test suites at a load average near 50, so the measurements proved nothing. Its orchestrator had to pass a hand-written rule ("wait for a one-minute load under 4") into every brief. This is the case this item exists for: heavy steps must be gated by measured load, not by a rule in a brief. A status call from the tool that makes the measurement (HITLD-609) would give HITLD the gate.
 
+
+GitHub issues 668 and 669 (feedback, 2026-11-25) ask for the same machine-wide quiet this item gates: a measurement holds the machine exclusively while heavy jobs from any project hold it shared, one status that every project reads, and work that needs a quiet machine told apart from ordinary heavy work so a strict load rule does not stall everything else. They belong with the benchmark gate here and with HITLD-983 and HITLD-1013; no new item. Replies are posted on both issues.

@@ -40,7 +40,24 @@ import {
   releaseLease,
   reportingHere,
 } from '../../run/run.mjs';
-import { absorb } from '../../run/state.mjs';
+import { absorb, foldLedger } from '../../run/state.mjs';
+import {
+  FOLLOW_UP_OF as SCOPE_FOLLOW_UP_OF,
+  SCOPE_MAX_HOURS,
+  issuedIn,
+  noteIssued,
+  noteUsed,
+  checkScopeStart,
+  deriveScope,
+  ownerHoldsChanges,
+  readScopeFile,
+  scopeQuestion,
+  scopeStatus,
+  touchingOwnerPaths,
+  writeScopeFile,
+} from '../../run/scope.mjs';
+import { readAsked } from '../../rights/flow.mjs';
+import { withMutex } from '../../env/mutex.mjs';
 import { TOKENS_FAR_ABOVE_ESTIMATE, farAboveEstimate, reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
@@ -139,19 +156,21 @@ import { headlessCompletion } from '../../../harness/claude-code/completion.mjs'
 import { SESSION_ID_PATTERN } from '../../../harness/claude-code/session.mjs';
 import { install } from '../../install/install.mjs';
 import { dispatchedOn, reportVersion } from '../../install/drift.mjs';
-import { pushingAfter } from '../../store/auto-sync.mjs';
+import { SyncRefused, pullBeforeRun, pushAfter, pushingAfter } from '../../store/auto-sync.mjs';
 import { loadTerms } from '../../store/private-terms.mjs';
 
 /**
  * @typedef {import('../table.mjs').CommandContext} Ctx
  * @typedef {import('../table.mjs').CommandResult} Result
  * @typedef {import('../../dispatch/item.mjs').Item} Item
+ * @typedef {import('../../run/scope.mjs').RunScope} RunScope
  * @typedef {import('../../merge/owner.mjs').QueueResult} QueueResult
  * @typedef {import('../../merge/owner.mjs').Presentation} Presentation
  */
 
 /** The notes of a follow-up's dispatched event; `dispatch complete` reads it to name the follow-up. */
-const FOLLOW_UP_OF = 'follow-up of ';
+/** How a follow-up's dispatched event names the dispatch it continues: scope.mjs's. */
+const FOLLOW_UP_OF = SCOPE_FOLLOW_UP_OF;
 
 /**
  * A follow-up that launches a run of its own (a headless resume) waits here until
@@ -202,6 +221,95 @@ const HOST = {
   description:
     "The machine. Default: the host run start or run resume recorded for this session, else this machine's host name",
 };
+/** @type {import('../args.mjs').ArgSpec} */
+const SCOPE = {
+  name: 'scope',
+  type: 'string',
+  description:
+    "The chief of staff's: the decision of the owner's run scope (hitld run scope set) this start or handle falls under. It needs no lease, only an item the scope names, before its end time and within its budget, inside the cap and the quota gate (HITLD-877)",
+};
+
+/**
+ * Where an executor started under the run scope reports: the orchestrator holding the lease, by
+ * the reference its harness gave it; null while none holds it. A lease not released counts as
+ * held however old, as a pulled one does (run/pulled.mjs): its renewals stay on its machine. If its
+ * session is gone, the chief of staff retires it, and the watchdog lists the start as unreported.
+ * @param {Record<string, any> | null} state
+ */
+function holderAddress(state) {
+  const l = state?.lease;
+  if (!l || l.released) return null;
+  const ref = String(l.harness_ref ?? l.session);
+  return SESSION_ID_PATTERN.test(ref) ? ref : null;
+}
+
+/**
+ * Pull the store before a command that plans, starts, handles or completes a dispatch, so this
+ * session sees the starts other sessions made (HITLD-877). Nothing happens without a remote.
+ * @param {string} command @param {Record<string, unknown>} input @param {Ctx} ctx
+ */
+async function pullFirst(command, input, ctx) {
+  try {
+    return await pullBeforeRun(command, input, ctx);
+  } catch (e) {
+    if (e instanceof SyncRefused) throw new Refusal(e.code, e.message);
+    throw e;
+  }
+}
+
+/** How long a start waits for another start on this machine to finish. */
+const START_LOCK = { timeoutMs: 300_000 };
+
+/**
+ * Run a start under the start lock; a lock that stays taken past the wait is a refusal.
+ * @template T
+ * @param {string} dir @param {() => Promise<T>} fn @param {{ timeoutMs: number }} o
+ * @returns {Promise<T>}
+ */
+async function startLocked(dir, fn, o) {
+  let entered = false;
+  try {
+    return await withMutex(
+      dir,
+      () => {
+        entered = true;
+        return fn();
+      },
+      o,
+    );
+  } catch (e) {
+    if (entered) throw e;
+    throw new Refusal(
+      'start-lock-timeout',
+      `another start on this machine held the start lock for ${o.timeoutMs / 1000}s; nothing was started. Run it again once that start has finished (${/** @type {Error} */ (e).message})`,
+    );
+  }
+}
+
+/**
+ * The lock a start holds from its plan to its record, one per project on this machine.
+ * @param {{ machineRoot: string, policy: Record<string, any> }} p
+ */
+const startLockOf = (p) => join(p.machineRoot, 'locks', `dispatch-start-${p.policy.project.id}`);
+
+/**
+ * Read tracker items by ID, opening the tracker once, on first use; null for an ID it does not hold.
+ * @param {{ repoRoot: string, policy: Record<string, any> }} p @param {Ctx} ctx
+ * @returns {(id: string) => Record<string, any> | null}
+ */
+function decisionLookup(p, ctx) {
+  /** @type {ReturnType<typeof openTracker> | null} */
+  let tracker = null;
+  return (id) => {
+    tracker ??= openTracker({ repoRoot: p.repoRoot, policy: p.policy, env: ctx.env });
+    try {
+      return /** @type {Record<string, any>} */ (tracker.get(id));
+    } catch {
+      return null;
+    }
+  };
+}
+
 /** @type {import('../args.mjs').ArgSpec} */
 const DISPATCH = {
   name: 'dispatch',
@@ -369,8 +477,10 @@ async function guardedNoting(fn) {
 /**
  * The project the command runs in: repository, policy, store and run state.
  * @param {Ctx} ctx
+ * @param {{ fresh?: boolean, events?: import('../../ledger/ledger.mjs').LedgerEntry[] }} [o]
+ *   fresh: fold the ledger into the state (events: the ledger, when already read)
  */
-export function project(ctx) {
+export function project(ctx, o = {}) {
   // The primary checkout, even from inside a linked worktree: policy, tracker and main are the
   // owner's there, never an executor's copy (as piece (c) does for env exec).
   const repoRoot = ownerCheckoutOf(ctx.cwd);
@@ -382,7 +492,23 @@ export function project(ctx) {
     });
   }
   const store = openStore(privateStorePath(loaded.policy.project.id, { env: ctx.env, repoRoot }));
-  const state = loadState(store).state;
+  // With `fresh`, the state with the ledger folded in: another session's events since the last
+  // checkpoint (a start the chief of staff made under the run scope, HITLD-877) count as in flight
+  // at once. Only the commands that plan, start, handle or complete a dispatch ask for it: the fold
+  // reads the whole ledger.
+  // The run state never leaves its machine (run/pulled.mjs): on another device, such as the chief
+  // of staff's, it is folded from the pulled ledger, in memory.
+  let state = loadState(store).state;
+  const events = o.fresh ? (o.events ?? readLedger(store).events) : null;
+  if (state && events) {
+    try {
+      state = absorb(structuredClone(state), events).state;
+    } catch (e) {
+      throw new Refusal('state-behind-ledger', `${/** @type {Error} */ (e).message}`);
+    }
+  } else if (!state && events?.some((e) => e.event === 'run-started')) {
+    state = foldLedger(events);
+  }
   // The person's and machine's settings layered over the project's (design part 13.4), less the
   // executors other projects already have running on this machine (the machine registry).
   const machineRoot = machineRootFor(store.root);
@@ -404,6 +530,8 @@ export function project(ctx) {
     setup: setupState(layered.files),
     store,
     state,
+    /** The ledger as `fresh` folded it, or null. */
+    events,
     machineRoot,
     person: layered.layers?.person ?? null,
     /** The machine profile's capacity per resource, for the locks (design 13.4). */
@@ -425,7 +553,8 @@ export const identityOf = (p, input, ctx) =>
 /**
  * This session's handle on the run; every record through it is refused unless it holds the lease.
  * @param {ReturnType<typeof project>} p @param {Record<string, unknown>} input @param {Ctx} ctx
- * @param {{ afterHandover?: boolean }} [extra] a merge-only pass after this session's hand-over (HITLD-823)
+ * @param {{ afterHandover?: boolean, scoped?: boolean }} [extra] a merge-only pass after this session's
+ *   hand-over (HITLD-823); a start under the owner's run scope, by a session without the lease (HITLD-877)
  */
 export function runOf(p, input, ctx, extra = {}) {
   if (!p.state) throw new Refusal('no-run', 'no run has started: hitld run start');
@@ -440,6 +569,7 @@ export function runOf(p, input, ctx, extra = {}) {
       expirySeconds: p.policy.run?.lease_expiry_seconds,
       ...(ctx.now ? { now: ctx.now } : {}),
       ...(extra.afterHandover ? { afterHandover: true } : {}),
+      ...(extra.scoped ? { scoped: true } : {}),
     },
     p.state,
   );
@@ -1539,7 +1669,7 @@ function reportErrors(p, r, entry) {
  * @returns {Result}
  */
 export function completeDispatch(input, ctx, given = null) {
-  const p = project(ctx);
+  const p = project(ctx, { fresh: true });
   const run = runOf(p, input, ctx);
   const d = String(input.dispatch);
   const entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
@@ -1858,6 +1988,7 @@ const table = [
         };
       }),
   },
+  ...scopeCommands(),
   {
     name: 'dispatch plan',
     summary:
@@ -1865,8 +1996,9 @@ const table = [
     built_by: 'h',
     args: [SESSION, HOST],
     run: (input, ctx) =>
-      guarded(() => {
-        const p = project(ctx);
+      guarded(async () => {
+        await pullFirst('dispatch plan', input, ctx);
+        const p = project(ctx, { fresh: true });
         const run = p.state && identityOf(p, input, ctx).session ? runOf(p, input, ctx) : null;
         const pause = notePause(p, ctx, run);
         return { ok: true, ...planWithPause(plan(p, ctx), pause) };
@@ -1902,369 +2034,455 @@ const table = [
         description:
           'The item (or branch) awaiting merge whose stuck merge this item fixes. With every slot taken, it may take one past the cap, so branches waiting to merge cannot hold the only slot from their own fix',
       },
+      SCOPE,
       SESSION,
       HOST,
     ],
     run: (input, ctx) =>
       guarded(async () => {
-        const p = project(ctx);
-        // A session ID given by hand (--session, $HITLD_SESSION) is checked for the shape a
-        // harness gives one before anything uses it: an executor's brief names it (HITLD-147), so
-        // a space or a line break in it would change the brief's text.
-        const given = identityOf(p, input, ctx);
-        if (
-          (given.source === 'flag' || given.source === 'env') &&
-          !SESSION_ID_PATTERN.test(String(given.session))
-        ) {
-          throw new Refusal(
-            'usage',
-            `the session ID from ${given.source === 'flag' ? '--session' : '$HITLD_SESSION'} is not one a harness gives: one word of letters, digits and . _ : -, at most 128 characters, with no spaces or line breaks`,
-          );
-        }
-        const run = runOf(p, input, ctx);
-        const id = String(input.item);
-        const due = dueFor(run, p.policy, input);
-        if (due.due && input['by-hand'] !== true) {
-          throw new Refusal(
-            'handover-due',
-            `this session's hand-over is due (${due.reasons.join('; ')}): start nothing new; once the work it started has reported, hitld handover. A successor dispatches ${id}`,
-            { handover: due },
-          );
-        }
-        // A follow-up launched as a run of its own is in flight in all but the ledger until
-        // dispatch handle records it: a second executor on the item would work its branch too.
-        const waiting = pendingFollowUps(p, readLedger(p.store).events).find((f) => f.item === id);
-        if (waiting) {
-          throw new Refusal(
-            'follow-up-pending',
-            `${id} has a follow-up waiting to be recorded: ${waiting.dispatch} (follow-up of ${waiting.follows}). Once its launch printed the process ID, hitld dispatch handle --dispatch ${waiting.dispatch} --harness-ref <that pid>; a launch that fails removes it, and the item can be started again`,
-            { dispatch: waiting.dispatch, follows: waiting.follows },
-          );
-        }
-        const byHand = input['by-hand'] === true ? id : undefined;
-        // A fix for a stuck merge names the merge: an item, or a branch, the plan has awaiting
-        // merge (HITLD-978). Nothing else earns the slot past the cap.
-        const fixes = typeof input['fixes-merge'] === 'string' ? input['fixes-merge'].trim() : null;
-        /** @type {{ item: string, branch: string } | null} */
-        let stuck = null;
-        if (fixes !== null) {
-          const awaiting = readyQueue(p, ctx).awaiting;
-          stuck = awaiting.find((a) => a.item === fixes || a.branch === fixes) ?? null;
-          if (!stuck) {
-            throw new Refusal(
-              'not-awaiting',
-              `--fixes-merge names ${fixes || 'nothing'}, which is not awaiting merge: name an item or branch from the plan's awaiting_merge${awaiting.length ? ` (${awaiting.map((a) => a.item).join(', ')})` : ', which is empty'}; nothing was started`,
-            );
-          }
-          if (stuck.item === id) {
+        // A start under the owner's run scope (HITLD-877) is the chief of staff's, which holds no
+        // lease: it reads the run as the store's remote has it, and pushes what it records.
+        const scopeId = typeof input.scope === 'string' ? input.scope.trim() : null;
+        if (scopeId !== null) {
+          if (!scopeId || input['by-hand'] === true || input['fixes-merge'] !== undefined) {
             throw new Refusal(
               'usage',
-              `${id} awaits merge itself: a fix for its merge is another item, or a follow-up on its branch; nothing was started`,
+              '--scope names the decision of the run scope, and goes with neither --by-hand nor --fixes-merge',
             );
           }
-        }
-        // The item is planned alone, against what runs: its place in the plan's start list does
-        // not matter, and the plan's other proposals hold nothing (HITLD-153).
-        const { q, result, setup, running } = plan(p, ctx, byHand, id, stuck !== null);
-        const planned = result.start.find((s) => s.item === id);
-        if (!planned && result.disk?.state === 'below') {
-          throw new Refusal('disk-floor', `${id} waits: ${result.disk.reason}`, {
-            disk: result.disk,
-          });
-        }
-        if (!planned) {
-          const held = result.held.find((h) => h.item === id);
-          const awaiting = result.awaiting_merge.find((a) => a.item === id);
-          const why = held
-            ? `${id} is held: ${held.why}`
-            : result.inline.some((s) => s.item === id)
-              ? `${id} is tier 0: the orchestrator does it itself`
-              : q.queue.some((i) => String(i.id) === id)
-                ? `${id} is ready but no slot is free: ${result.slots}`
-                : awaiting
-                  ? awaitingText(awaiting)
-                  : `${id} is not ready (or is already in flight)`;
-          const whole = plan(p, ctx, byHand).result;
-          throw new Refusal('not-planned', why, { plan: planJson(whole, setup) });
-        }
-        const item = /** @type {Item} */ (q.byId.get(id));
-        const dispatch = nextDispatchId(readLedger(p.store).events);
-        const wanted = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
-        const tier = planned.tier;
-        // A durable headless process below tier 3 (HITLD-746, HITLD-768): asked for with
-        // --mode headless, never from the tier-3 default.
-        if (tier < 3 && input.mode !== undefined && input.mode !== 'headless') {
-          throw new Refusal(
-            'usage',
-            `--mode at tier ${tier} is headless (a durable process) or not given (a background agent); ${String(input.mode)} is for tier 3`,
-          );
-        }
-        const durable = tier < 3 && input.mode === 'headless';
-        // Tier 3, and a durable run, cut their own worktree. An earlier dispatch of the item,
-        // abandoned, may have left its branch behind (HITLD-194): settle the name now, so the
-        // ledger and the brief carry the branch the worktree gets. A branch with unmerged commits
-        // is never touched.
-        const env =
-          tier === 3 || durable
-            ? openEnv({
-                repoRoot: p.repoRoot,
-                store: p.store,
-                policy: p.policy,
-                env: ctx.env,
-                capacity: p.capacity,
-              })
-            : null;
-        /** @type {import('../../env/worktree.mjs').BranchChoice | null} */
-        let branchChoice = null;
-        if (env) {
-          try {
-            branchChoice = await chooseBranch(p.repoRoot, wanted, env.settings.mainBranch);
-          } catch (e) {
-            // Before the ledger write: nothing is recorded, and the item stays ready.
-            if (e instanceof CodedError) throw new Refusal(e.code, e.message);
-            throw e;
+          if (executorSignal(ctx.env, ctx.cwd)) {
+            throw new Refusal('not-permitted', 'an executor starts nothing, under a scope or not');
           }
         }
-        const branch = branchChoice?.branch ?? wanted;
-        const mode = /** @type {'headless' | 'interactive'} */ (
-          String(input.mode ?? planned.mode ?? p.policy.dispatch.tier3_mode)
-        );
-        if (tier === 3 && !['headless', 'interactive'].includes(mode)) {
-          throw new Refusal('usage', '--mode is headless or interactive');
-        }
-        if (tier === 3 && planned.modes?.[mode] === 'unable') {
-          throw new Refusal(
-            PERMISSIONS_REASON,
-            `${id} does not run ${mode}: ${mode === 'headless' ? 'headless runs' : 'interactive sessions'} here cannot run the contract's commands (${planned.notes.join('; ')}); start it without --mode`,
-            { plan: planJson(result, setup) },
-          );
-        }
-        // An executor that reports by message gets the communication block (HITLD-147), naming
-        // this session as its commands here already name it: --session, $HITLD_SESSION or the
-        // harness's session ID. One only the run's own record holds is not an address the harness
-        // can send to, so it gives no block, and the start is refused below.
-        const byMessage = reportsByMessage({ tier, mode });
-        const reportTo =
-          byMessage && given.session && ['flag', 'env', 'harness'].includes(String(given.source))
-            ? given.session
-            : null;
-        const xenv = executorEnv(dispatch, p.policy.project.id);
-        const briefPath = join(p.store.root, briefKey(dispatch));
-        const resultPath = join(p.store.root, resultKey(dispatch));
-        const isolation = tier <= 2 && !durable ? 'worktree' : 'none';
-        const sizing = planned.sizing;
-        const touches = planned.touches;
-        // What the brief says about overlapping work: the dispatches in flight on the same paths,
-        // and what merged on them since the item was planned.
-        const overlaps = overlapsInFlight(touches.touches, running);
-        const merged = mergedSincePlanned({
-          repoRoot: p.repoRoot,
-          main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
-          path: typeof item.path === 'string' ? item.path : undefined,
-          touches: touches.touches,
-        });
-        /** @param {string | null} worktree */
-        const briefFor = (worktree) =>
-          renderBrief({
-            item,
-            sizing,
-            dispatch,
-            branch,
-            policy: p.policy,
-            isolation,
-            worktree,
-            touches,
-            overlaps,
-            merged,
-            reportTo,
-          });
-        // Refused before anything is recorded or made: a brief without the block leaves the
-        // executor ending its turns where no one hears them. The check reads the rendered brief,
-        // not reportTo alone, so that a later change to renderBrief that drops or rewords the
-        // block is refused here instead of reaching an executor.
-        if (byMessage && !(reportTo && hasReportBlock(briefFor(null), reportTo))) {
-          throw new Refusal(
-            'no-report-block',
-            `${id} runs as an interactive session, which reports by message, and its brief has no communication block: this session's ID (${given.session}) comes only from the run's record, not from --session, $HITLD_SESSION or the harness. Pass --session <your harness session ID> or set HITLD_SESSION, then start it again`,
-          );
-        }
-
-        // Write ahead: the dispatch is in the ledger before anything starts.
-        run.record({
-          id: lifecycleId('dispatched', dispatch),
-          event: 'dispatched',
-          dispatch,
-          item: id,
-          tier,
-          role: 'executor',
-          model: sizing.model,
-          effort: sizing.effort,
-          branch,
-          brief_hash: createHash('sha256').update(briefFor(null)).digest('hex'),
-          skill_versions: { hitld_version: VERSION },
-          estimate_tokens: sizing.estimate_tokens,
-          // Where the estimate came from and how many completions it rests on (HITLD-450).
-          estimate_source: sizing.estimate_source,
-          ...(sizing.estimate_samples !== undefined
-            ? { estimate_samples: sizing.estimate_samples }
-            : {}),
-          ...(touches.source !== 'none'
-            ? { touches: touches.touches, touches_source: touches.source }
-            : {}),
-          ...(sizing.areas[0] ? { area: sizing.areas[0] } : {}),
-          host: run.host,
-          ...(tier === 3 || durable ? { mode } : {}),
-          ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
-          ...(stuck ? { notes: `fixes the stuck merge of ${stuck.item} on ${stuck.branch}` } : {}),
-        });
-
-        // Count it in the machine registry, against the person's and the machine's maxima. The
-        // plan already left room for it; this check, under the registry's lock, is what keeps two
-        // projects dispatching at once from passing a cap together.
-        const counted = registerExecutor(
-          p.machineRoot,
-          {
-            project: p.policy.project.id,
-            dispatch,
-            item: id,
-            store_root: p.store.root,
-            resources: planned.serial,
-          },
-          p.max,
-        );
-        if (!counted.ok) {
-          run.record({
-            id: lifecycleId('abandoned', dispatch),
-            event: 'abandoned',
-            dispatch,
-            item: id,
-            notes: `the ${counted.layer} maximum of ${counted.max} executors is reached (${counted.live} live on this machine)`,
-          });
-          throw new Refusal(
-            'cap',
-            `the ${counted.layer} maximum of ${counted.max} executors is reached (${counted.live} live on this machine, across projects); ${id} waits`,
-            { dispatch },
-          );
-        }
-
-        /** @type {string | null} */
-        let worktree = null;
-        if (env) {
-          // Its own worktree from hitld env, set up before the executor starts.
-          try {
-            const made = await env.createWorktree({
-              holder: dispatch,
-              itemId: id,
-              branch,
-              ...(branchChoice ? { choice: branchChoice } : {}),
-            });
-            if (made.lease.branch !== branch) {
-              throw new Error(
-                `the worktree got ${made.lease.branch}, not ${branch} as recorded: the branch changed while ${dispatch} started`,
+        // Every start reads the run as the store's remote has it: the chief of staff's starts and
+        // the orchestrator's are made in sessions of their own (HITLD-877).
+        await pullFirst('dispatch start', input, ctx);
+        // The plan's cap check and the start's record are made under one lock on this machine, so
+        // two sessions starting at once cannot both take the last slot.
+        return startLocked(
+          startLockOf(project(ctx)),
+          async () => {
+            const p = project(ctx, { fresh: true });
+            const events = p.events ?? readLedger(p.store).events;
+            // A session ID given by hand (--session, $HITLD_SESSION) is checked for the shape a
+            // harness gives one before anything uses it: an executor's brief names it (HITLD-147), so
+            // a space or a line break in it would change the brief's text.
+            const given = identityOf(p, input, ctx);
+            if (
+              (given.source === 'flag' || given.source === 'env') &&
+              !SESSION_ID_PATTERN.test(String(given.session))
+            ) {
+              throw new Refusal(
+                'usage',
+                `the session ID from ${given.source === 'flag' ? '--session' : '$HITLD_SESSION'} is not one a harness gives: one word of letters, digits and . _ : -, at most 128 characters, with no spaces or line breaks`,
               );
             }
-            worktree = made.lease.path;
-            const setup = await env.runSetup({ holder: dispatch });
-            if (!setup.ok) {
-              // Nobody has worked in it yet: take it back with its branch, so a retry starts clean
-              // (HITLD-934). The lease stays for `hitld env status`.
-              /** @type {{ discarded: boolean, reason?: string, branch_deleted?: boolean, branch_error?: string, branch_note?: string }} */
-              const gone = made.existing
-                ? { discarded: false, reason: 'it was there before this start' }
-                : await env
-                    .discardFailedSetup({ holder: dispatch })
-                    .catch((/** @type {Error} */ err) => ({
-                      discarded: false,
-                      reason: `removing it failed: ${err.message}`,
-                    }));
-              throw new Error(setupFailedMessage(setup, dispatch, gone));
+            const run = runOf(p, input, ctx, scopeId ? { scoped: true } : {});
+            const id = String(input.item);
+            if (scopeId) {
+              const guard = ownerHoldsChanges(p.policy, (dir) => existsSync(join(p.repoRoot, dir)));
+              if (!guard.ok) throw new Refusal(guard.code, `${guard.why}; nothing was started`);
             }
-          } catch (e) {
+            const lookup = decisionLookup(p, ctx);
+            /** @param {number} estimate */
+            const inScope = (estimate) => {
+              if (!scopeId) return null;
+              // The scope again from the owner's decision and the ledger: the store file grants nothing.
+              const verdict = checkScopeStart(readScopeFile(p.store), {
+                decision: scopeId,
+                item: id,
+                estimate,
+                now: nowOf(ctx),
+                run: p.state?.run ?? null,
+                events,
+                lookup,
+                asked: (d) => readAsked(p.store, d),
+                issued: issuedIn(p.store),
+              });
+              if (!verdict.ok) {
+                throw new Refusal(
+                  verdict.code,
+                  `${verdict.why}; nothing was started. A start outside the scope is the owner's to ask for, or the orchestrator's to make`,
+                );
+              }
+              return verdict;
+            };
+            inScope(0);
+            // The orchestrator's hand-over holds its own starts, not the chief of staff's: that is
+            // what the run scope is for.
+            const due = scopeId ? { due: false, reasons: [] } : dueFor(run, p.policy, input);
+            if (due.due && input['by-hand'] !== true) {
+              throw new Refusal(
+                'handover-due',
+                `this session's hand-over is due (${due.reasons.join('; ')}): start nothing new; once the work it started has reported, hitld handover. A successor dispatches ${id}`,
+                { handover: due },
+              );
+            }
+            // A follow-up launched as a run of its own is in flight in all but the ledger until
+            // dispatch handle records it: a second executor on the item would work its branch too.
+            const waiting = pendingFollowUps(p, events).find((f) => f.item === id);
+            if (waiting) {
+              throw new Refusal(
+                'follow-up-pending',
+                `${id} has a follow-up waiting to be recorded: ${waiting.dispatch} (follow-up of ${waiting.follows}). Once its launch printed the process ID, hitld dispatch handle --dispatch ${waiting.dispatch} --harness-ref <that pid>; a launch that fails removes it, and the item can be started again`,
+                { dispatch: waiting.dispatch, follows: waiting.follows },
+              );
+            }
+            const byHand = input['by-hand'] === true ? id : undefined;
+            // A fix for a stuck merge names the merge: an item, or a branch, the plan has awaiting
+            // merge (HITLD-978). Nothing else earns the slot past the cap.
+            const fixes =
+              typeof input['fixes-merge'] === 'string' ? input['fixes-merge'].trim() : null;
+            /** @type {{ item: string, branch: string } | null} */
+            let stuck = null;
+            if (fixes !== null) {
+              const awaiting = readyQueue(p, ctx).awaiting;
+              stuck = awaiting.find((a) => a.item === fixes || a.branch === fixes) ?? null;
+              if (!stuck) {
+                throw new Refusal(
+                  'not-awaiting',
+                  `--fixes-merge names ${fixes || 'nothing'}, which is not awaiting merge: name an item or branch from the plan's awaiting_merge${awaiting.length ? ` (${awaiting.map((a) => a.item).join(', ')})` : ', which is empty'}; nothing was started`,
+                );
+              }
+              if (stuck.item === id) {
+                throw new Refusal(
+                  'usage',
+                  `${id} awaits merge itself: a fix for its merge is another item, or a follow-up on its branch; nothing was started`,
+                );
+              }
+            }
+            // The item is planned alone, against what runs: its place in the plan's start list does
+            // not matter, and the plan's other proposals hold nothing (HITLD-153).
+            const { q, result, setup, running } = plan(p, ctx, byHand, id, stuck !== null);
+            const planned = result.start.find((s) => s.item === id);
+            if (!planned && result.disk?.state === 'below') {
+              throw new Refusal('disk-floor', `${id} waits: ${result.disk.reason}`, {
+                disk: result.disk,
+              });
+            }
+            if (!planned) {
+              const held = result.held.find((h) => h.item === id);
+              const awaiting = result.awaiting_merge.find((a) => a.item === id);
+              const why = held
+                ? `${id} is held: ${held.why}`
+                : result.inline.some((s) => s.item === id)
+                  ? `${id} is tier 0: the orchestrator does it itself`
+                  : q.queue.some((i) => String(i.id) === id)
+                    ? `${id} is ready but no slot is free: ${result.slots}`
+                    : awaiting
+                      ? awaitingText(awaiting)
+                      : `${id} is not ready (or is already in flight)`;
+              const whole = plan(p, ctx, byHand).result;
+              throw new Refusal('not-planned', why, { plan: planJson(whole, setup) });
+            }
+            const scoped = inScope(planned.sizing.estimate_tokens ?? 0);
+            const item = /** @type {Item} */ (q.byId.get(id));
+            const dispatch = nextDispatchId(readLedger(p.store).events);
+            const wanted = `${p.policy.env.branch_prefix}/${id}-${slugify(item.title)}`;
+            const tier = planned.tier;
+            // A durable headless process below tier 3 (HITLD-746, HITLD-768): asked for with
+            // --mode headless, never from the tier-3 default.
+            if (tier < 3 && input.mode !== undefined && input.mode !== 'headless') {
+              throw new Refusal(
+                'usage',
+                `--mode at tier ${tier} is headless (a durable process) or not given (a background agent); ${String(input.mode)} is for tier 3`,
+              );
+            }
+            const durable = tier < 3 && input.mode === 'headless';
+            // Tier 3, and a durable run, cut their own worktree. An earlier dispatch of the item,
+            // abandoned, may have left its branch behind (HITLD-194): settle the name now, so the
+            // ledger and the brief carry the branch the worktree gets. A branch with unmerged commits
+            // is never touched.
+            const env =
+              tier === 3 || durable
+                ? openEnv({
+                    repoRoot: p.repoRoot,
+                    store: p.store,
+                    policy: p.policy,
+                    env: ctx.env,
+                    capacity: p.capacity,
+                  })
+                : null;
+            /** @type {import('../../env/worktree.mjs').BranchChoice | null} */
+            let branchChoice = null;
+            if (env) {
+              try {
+                branchChoice = await chooseBranch(p.repoRoot, wanted, env.settings.mainBranch);
+              } catch (e) {
+                // Before the ledger write: nothing is recorded, and the item stays ready.
+                if (e instanceof CodedError) throw new Refusal(e.code, e.message);
+                throw e;
+              }
+            }
+            const branch = branchChoice?.branch ?? wanted;
+            const mode = /** @type {'headless' | 'interactive'} */ (
+              String(input.mode ?? planned.mode ?? p.policy.dispatch.tier3_mode)
+            );
+            if (tier === 3 && !['headless', 'interactive'].includes(mode)) {
+              throw new Refusal('usage', '--mode is headless or interactive');
+            }
+            if (tier === 3 && planned.modes?.[mode] === 'unable') {
+              throw new Refusal(
+                PERMISSIONS_REASON,
+                `${id} does not run ${mode}: ${mode === 'headless' ? 'headless runs' : 'interactive sessions'} here cannot run the contract's commands (${planned.notes.join('; ')}); start it without --mode`,
+                { plan: planJson(result, setup) },
+              );
+            }
+            // An executor that reports by message gets the communication block (HITLD-147), naming
+            // this session as its commands here already name it: --session, $HITLD_SESSION or the
+            // harness's session ID. One only the run's own record holds is not an address the harness
+            // can send to, so it gives no block, and the start is refused below.
+            const byMessage = reportsByMessage({ tier, mode });
+            // Under the run scope, the executor reports to the orchestrator holding the lease, which
+            // handles completions; while none holds it (a hand-over), to the chief of staff, which
+            // relays the report to the successor (HITLD-877).
+            const holder = scopeId ? holderAddress(p.state) : null;
+            const reportTo = !byMessage
+              ? null
+              : holder
+                ? holder
+                : given.session && ['flag', 'env', 'harness'].includes(String(given.source))
+                  ? given.session
+                  : null;
+            const xenv = executorEnv(dispatch, p.policy.project.id);
+            const briefPath = join(p.store.root, briefKey(dispatch));
+            const resultPath = join(p.store.root, resultKey(dispatch));
+            const isolation = tier <= 2 && !durable ? 'worktree' : 'none';
+            const sizing = planned.sizing;
+            const touches = planned.touches;
+            // What the brief says about overlapping work: the dispatches in flight on the same paths,
+            // and what merged on them since the item was planned.
+            const overlaps = overlapsInFlight(touches.touches, running);
+            const merged = mergedSincePlanned({
+              repoRoot: p.repoRoot,
+              main: mainRefOf(p.repoRoot, p.policy.merge.main_branch),
+              path: typeof item.path === 'string' ? item.path : undefined,
+              touches: touches.touches,
+            });
+            /** @param {string | null} worktree */
+            const briefFor = (worktree) =>
+              renderBrief({
+                item,
+                sizing,
+                dispatch,
+                branch,
+                policy: p.policy,
+                isolation,
+                worktree,
+                touches,
+                overlaps,
+                merged,
+                reportTo,
+              });
+            // Refused before anything is recorded or made: a brief without the block leaves the
+            // executor ending its turns where no one hears them. The check reads the rendered brief,
+            // not reportTo alone, so that a later change to renderBrief that drops or rewords the
+            // block is refused here instead of reaching an executor.
+            if (byMessage && !(reportTo && hasReportBlock(briefFor(null), reportTo))) {
+              throw new Refusal(
+                'no-report-block',
+                `${id} runs as an interactive session, which reports by message, and its brief has no communication block: this session's ID (${given.session}) comes only from the run's record, not from --session, $HITLD_SESSION or the harness. Pass --session <your harness session ID> or set HITLD_SESSION, then start it again`,
+              );
+            }
+
+            // Write ahead: the dispatch is in the ledger before anything starts.
             run.record({
-              id: lifecycleId('abandoned', dispatch),
-              event: 'abandoned',
+              id: lifecycleId('dispatched', dispatch),
+              event: 'dispatched',
               dispatch,
               item: id,
-              notes: 'the worktree could not be prepared',
+              tier,
+              role: 'executor',
+              model: sizing.model,
+              effort: sizing.effort,
+              branch,
+              brief_hash: createHash('sha256').update(briefFor(null)).digest('hex'),
+              skill_versions: { hitld_version: VERSION },
+              estimate_tokens: sizing.estimate_tokens,
+              // Where the estimate came from and how many completions it rests on (HITLD-450).
+              estimate_source: sizing.estimate_source,
+              ...(sizing.estimate_samples !== undefined
+                ? { estimate_samples: sizing.estimate_samples }
+                : {}),
+              ...(touches.source !== 'none'
+                ? { touches: touches.touches, touches_source: touches.source }
+                : {}),
+              ...(sizing.areas[0] ? { area: sizing.areas[0] } : {}),
+              host: run.host,
+              ...(tier === 3 || durable ? { mode } : {}),
+              ...(planned.serial.length ? { serial_resources: planned.serial } : {}),
+              ...(stuck
+                ? { notes: `fixes the stuck merge of ${stuck.item} on ${stuck.branch}` }
+                : {}),
+              // Started under the owner's run scope: its decision, and the session that started it.
+              ...(scopeId ? { decision: scopeId, by: String(given.session) } : {}),
             });
-            throw new Refusal('setup-failed', /** @type {Error} */ (e).message, { dispatch });
-          }
-        }
-        const brief = briefFor(worktree);
-        p.store.write(briefKey(dispatch), brief);
-        // The session process that starts it: a background agent dies with it (HITLD-737).
-        recordParent(p.store, dispatch, {
-          env: ctx.env,
-          host: run.host,
-          now: new Date(nowOf(ctx)),
-        });
-        mkdirSync(dirname(resultPath), { recursive: true });
-        mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
 
-        const call = instructionFor(
-          {
-            dispatch,
-            item: id,
-            brief,
-            tier,
-            role: 'executor',
-            model: sizing.model,
-            effort: sizing.effort,
-            isolation,
-            branch,
-            budgetTokens: sizing.estimate_tokens,
-            classification: item.classification ?? 'internal',
-          },
-          {
-            worktree: worktree ?? undefined,
-            briefPath,
-            resultPath,
-            pidPath: join(p.store.root, pidKey(dispatch)),
-            ...(tier === 3 || durable ? { tier3Mode: mode } : {}),
-            permissionMode: p.policy.dispatch.headless_permission_mode,
-            env: xenv,
-            machineDir: p.machineRoot,
-          },
-        );
-        const then =
-          call.tool === 'session'
-            ? `ask the chief of staff to start a session in ${worktree} with the brief in ${briefPath} (when you are both, start it yourself; without a way to start sessions, ask the owner); then hitld dispatch handle --dispatch ${dispatch} --harness-ref <the session's reference>`
-            : call.tool === 'Bash'
-              ? `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the pid the call prints>. The run is a durable process: nothing waits for it, and you may end your turn`
-              : `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the agent ID the call returns>`;
-        return {
-          ok: true,
-          dispatch,
-          item: id,
-          tier,
-          branch,
-          // What the item's branch name held and which branch this dispatch took (HITLD-194).
-          ...(branchChoice && branchChoice.chose !== 'new'
-            ? {
-                branch_found: branchChoice.found,
-                branch_chose: branchChoice.chose,
-                branch_note: branchChoice.note,
+            // Count it in the machine registry, against the person's and the machine's maxima. The
+            // plan already left room for it; this check, under the registry's lock, is what keeps two
+            // projects dispatching at once from passing a cap together.
+            const counted = registerExecutor(
+              p.machineRoot,
+              {
+                project: p.policy.project.id,
+                dispatch,
+                item: id,
+                store_root: p.store.root,
+                resources: planned.serial,
+              },
+              p.max,
+            );
+            if (!counted.ok) {
+              run.record({
+                id: lifecycleId('abandoned', dispatch),
+                event: 'abandoned',
+                dispatch,
+                item: id,
+                notes: `the ${counted.layer} maximum of ${counted.max} executors is reached (${counted.live} live on this machine)`,
+              });
+              throw new Refusal(
+                'cap',
+                `the ${counted.layer} maximum of ${counted.max} executors is reached (${counted.live} live on this machine, across projects); ${id} waits`,
+                { dispatch },
+              );
+            }
+
+            /** @type {string | null} */
+            let worktree = null;
+            if (env) {
+              // Its own worktree from hitld env, set up before the executor starts.
+              try {
+                const made = await env.createWorktree({
+                  holder: dispatch,
+                  itemId: id,
+                  branch,
+                  ...(branchChoice ? { choice: branchChoice } : {}),
+                });
+                if (made.lease.branch !== branch) {
+                  throw new Error(
+                    `the worktree got ${made.lease.branch}, not ${branch} as recorded: the branch changed while ${dispatch} started`,
+                  );
+                }
+                worktree = made.lease.path;
+                const setup = await env.runSetup({ holder: dispatch });
+                if (!setup.ok) {
+                  // Nobody has worked in it yet: take it back with its branch, so a retry starts clean
+                  // (HITLD-934). The lease stays for `hitld env status`.
+                  /** @type {{ discarded: boolean, reason?: string, branch_deleted?: boolean, branch_error?: string, branch_note?: string }} */
+                  const gone = made.existing
+                    ? { discarded: false, reason: 'it was there before this start' }
+                    : await env
+                        .discardFailedSetup({ holder: dispatch })
+                        .catch((/** @type {Error} */ err) => ({
+                          discarded: false,
+                          reason: `removing it failed: ${err.message}`,
+                        }));
+                  throw new Error(setupFailedMessage(setup, dispatch, gone));
+                }
+              } catch (e) {
+                run.record({
+                  id: lifecycleId('abandoned', dispatch),
+                  event: 'abandoned',
+                  dispatch,
+                  item: id,
+                  notes: 'the worktree could not be prepared',
+                });
+                throw new Refusal('setup-failed', /** @type {Error} */ (e).message, { dispatch });
               }
-            : {}),
-          worktree,
-          // A fix for a stuck merge, and whether it took a slot past the cap (HITLD-978).
-          ...(stuck
-            ? {
-                fixes_merge: { item: stuck.item, branch: stuck.branch },
-                past_cap: running.length >= result.cap,
-              }
-            : {}),
-          brief_file: briefPath,
-          executor_env: envPrefix(xenv),
-          instruction: call,
-          then,
-          on_complete:
-            call.tool === 'Bash'
-              ? `nothing to wait for: hitld dispatch reconcile, at any later turn, records it once its process has ended with its result and its branch head is its closing commit with the report; by hand, once it has ended: hitld dispatch complete --dispatch ${dispatch} --result-file ${resultPath}`
+            }
+            const brief = briefFor(worktree);
+            p.store.write(briefKey(dispatch), brief);
+            // The session process that starts it: a background agent dies with it (HITLD-737).
+            recordParent(p.store, dispatch, {
+              env: ctx.env,
+              host: run.host,
+              now: new Date(nowOf(ctx)),
+            });
+            mkdirSync(dirname(resultPath), { recursive: true });
+            mkdirSync(dirname(join(p.store.root, pidKey(dispatch))), { recursive: true });
+
+            const call = instructionFor(
+              {
+                dispatch,
+                item: id,
+                brief,
+                tier,
+                role: 'executor',
+                model: sizing.model,
+                effort: sizing.effort,
+                isolation,
+                branch,
+                budgetTokens: sizing.estimate_tokens,
+                classification: item.classification ?? 'internal',
+              },
+              {
+                worktree: worktree ?? undefined,
+                briefPath,
+                resultPath,
+                pidPath: join(p.store.root, pidKey(dispatch)),
+                ...(tier === 3 || durable ? { tier3Mode: mode } : {}),
+                permissionMode: p.policy.dispatch.headless_permission_mode,
+                env: xenv,
+                machineDir: p.machineRoot,
+              },
+            );
+            const handleWith = scopeId ? ` --scope ${scopeId}` : '';
+            const then = scopeId
+              ? call.tool === 'session'
+                ? `start a session for it with the brief in ${briefPath} (in the cloud, on branch ${branch}, with the brief's text as its prompt); then hitld dispatch handle --dispatch ${dispatch} --harness-ref <the session's reference>${handleWith}. It reports to ${reportTo === given.session ? `you: relay its report to the orchestrator holding the lease as reported ${dispatch}` : 'the orchestrator holding the lease, which completes it'}`
+                : `make the call; then hitld dispatch handle --dispatch ${dispatch} --harness-ref <its reference>${handleWith}. Relay its report to the orchestrator holding the lease as reported ${dispatch}`
               : call.tool === 'session'
-                ? `save the session's record, its result events (the event list of kind result), to a file; hitld dispatch complete --dispatch ${dispatch} --session-record <file> [--report-file <the report, when it came apart>]. Only when the record is not available: --report-file <file> --tokens N, which the ledger records as typed`
-                : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-calls N --duration-ms N], --tokens only when the notification shows no usage block`,
-        };
+                ? `ask the chief of staff to start a session in ${worktree} with the brief in ${briefPath} (when you are both, start it yourself; without a way to start sessions, ask the owner); then hitld dispatch handle --dispatch ${dispatch} --harness-ref <the session's reference>`
+                : call.tool === 'Bash'
+                  ? `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the pid the call prints>. The run is a durable process: nothing waits for it, and you may end your turn`
+                  : `hitld dispatch handle --dispatch ${dispatch} --harness-ref <the agent ID the call returns>`;
+            return {
+              ok: true,
+              dispatch,
+              item: id,
+              tier,
+              branch,
+              // What the item's branch name held and which branch this dispatch took (HITLD-194).
+              ...(branchChoice && branchChoice.chose !== 'new'
+                ? {
+                    branch_found: branchChoice.found,
+                    branch_chose: branchChoice.chose,
+                    branch_note: branchChoice.note,
+                  }
+                : {}),
+              worktree,
+              // A fix for a stuck merge, and whether it took a slot past the cap (HITLD-978).
+              ...(stuck
+                ? {
+                    fixes_merge: { item: stuck.item, branch: stuck.branch },
+                    past_cap: running.length >= result.cap,
+                  }
+                : {}),
+              // What the owner's run scope has left after this start (HITLD-877).
+              ...(scopeId && scoped
+                ? {
+                    scope: {
+                      decision: scopeId,
+                      spent: scoped.spent + (sizing.estimate_tokens ?? 0),
+                      left: Math.max(0, scoped.left - (sizing.estimate_tokens ?? 0)),
+                      report_to: reportTo,
+                    },
+                  }
+                : {}),
+              brief_file: briefPath,
+              executor_env: envPrefix(xenv),
+              instruction: call,
+              then,
+              on_complete:
+                call.tool === 'Bash'
+                  ? `nothing to wait for: hitld dispatch reconcile, at any later turn, records it once its process has ended with its result and its branch head is its closing commit with the report; by hand, once it has ended: hitld dispatch complete --dispatch ${dispatch} --result-file ${resultPath}`
+                  : call.tool === 'session'
+                    ? `save the session's record, its result events (the event list of kind result), to a file; hitld dispatch complete --dispatch ${dispatch} --session-record <file> [--report-file <the report, when it came apart>]. Only when the record is not available: --report-file <file> --tokens N, which the ledger records as typed`
+                    : `save the notification to a file; hitld dispatch complete --dispatch ${dispatch} --report-file <file> [--tokens N --tool-calls N --duration-ms N], --tokens only when the notification shows no usage block`,
+            };
+          },
+          START_LOCK,
+        );
       }),
   },
   {
@@ -2287,13 +2505,21 @@ const table = [
         description:
           'How a follow-up that launched a run of its own actually ran, when not as instructed: headless, interactive or subagent',
       },
+      SCOPE,
       SESSION,
       HOST,
     ],
     run: (input, ctx) =>
-      guarded(() => {
-        const p = project(ctx);
-        const run = runOf(p, input, ctx);
+      guarded(async () => {
+        await pullFirst('dispatch handle', input, ctx);
+        const p = project(ctx, { fresh: true });
+        // The chief of staff handles only a start it made under the run scope (HITLD-877),
+        // whether or not the scope has ended since.
+        const scopeId = typeof input.scope === 'string' ? input.scope.trim() : null;
+        if (scopeId !== null && executorSignal(ctx.env, ctx.cwd)) {
+          throw new Refusal('not-permitted', 'an executor handles no dispatch');
+        }
+        const run = runOf(p, input, ctx, scopeId !== null ? { scoped: true } : {});
         const d = String(input.dispatch);
         const ref = String(input['harness-ref']);
         const mode = typeof input.mode === 'string' ? input.mode : null;
@@ -2302,6 +2528,12 @@ const table = [
         }
         const events = readLedger(p.store).events;
         const dispatched = events.find((e) => e.event === 'dispatched' && e.dispatch === d);
+        if (scopeId !== null && (!dispatched || dispatched.decision !== scopeId)) {
+          throw new Refusal(
+            'outside-scope',
+            `${d} was not started under the run scope of ${scopeId || 'no decision'}: the orchestrator holding the lease handles it`,
+          );
+        }
         let entry = run.state.in_flight.find((/** @type {any} */ x) => x.dispatch === d);
         /** @type {import('../../ledger/ledger.mjs').LedgerEntry | null} */
         let recordedFollowUp = null;
@@ -2397,7 +2629,11 @@ const table = [
       SESSION,
       HOST,
     ],
-    run: (input, ctx) => guarded(() => completeDispatch(input, ctx)),
+    run: (input, ctx) =>
+      guarded(async () => {
+        await pullFirst('dispatch complete', input, ctx);
+        return completeDispatch(input, ctx);
+      }),
   },
   {
     name: 'dispatch follow-up',
@@ -3443,5 +3679,316 @@ const table = [
   },
 ];
 
+/**
+ * The owner's run scope (HITLD-877): the question to put to the owner, the scope set from the
+ * owner's yes to it, ended on the owner's word, and shown. The chief of staff's commands; see
+ * run/scope.mjs.
+ * @returns {import('../table.mjs').Command[]}
+ */
+function scopeCommands() {
+  /** @param {Ctx} ctx */
+  const refuseExecutor = (ctx) => {
+    if (executorSignal(ctx.env, ctx.cwd)) {
+      throw new Refusal('not-permitted', "the run scope is the owner's, set by the chief of staff");
+    }
+  };
+  /** Owner merge mode must hold every guard, policy, rights and skill change. @param {ReturnType<typeof project>} p */
+  const requireOwnerMerge = (p) => {
+    const guard = ownerHoldsChanges(p.policy, (dir) => existsSync(join(p.repoRoot, dir)));
+    if (!guard.ok) throw new Refusal(guard.code, `${guard.why}; nothing was written`);
+  };
+  /**
+   * The named items whose declared touches reach guard, policy, rights or skill paths.
+   * @param {(id: string) => Record<string, any> | null} lookup @param {string[]} items
+   */
+  const sensitiveOf = (lookup, items) =>
+    touchingOwnerPaths(
+      items.map((id) => ({ id, touches: /** @type {string[]} */ (lookup(id)?.touches ?? []) })),
+    );
+  /**
+   * The scope the file names, derived again from its decision, with its status.
+   * @param {ReturnType<typeof project>} p @param {Ctx} ctx
+   */
+  const current = (p, ctx) => {
+    const file = readScopeFile(p.store);
+    if (!file) return { file: null, scope: null, status: null, refused: null };
+    const events = readLedger(p.store).events;
+    const now = nowOf(ctx);
+    const derived =
+      p.state && file.run === p.state.run.id
+        ? deriveScope({
+            decision: decisionLookup(p, ctx)(file.decision),
+            id: file.decision,
+            events,
+            run: p.state.run,
+            now,
+            asked: readAsked(p.store, file.decision),
+            issued: issuedIn(p.store),
+          })
+        : { ok: false, code: 'scope-ended', why: `the scope belongs to run ${file.run}` };
+    if (!derived.ok) return { file, scope: null, status: null, refused: derived };
+    const scope = /** @type {RunScope} */ (/** @type {any} */ (derived).scope);
+    return { file, scope, status: scopeStatus(scope, file, { now, events }), refused: null };
+  };
+  return [
+    {
+      name: 'run scope question',
+      summary:
+        "Write the question that asks the owner for a run scope: the items, the token budget and the end time in its title, the yes option first, and the named items whose touches reach guard, policy, rights or skill paths. Record the owner's answer to it with hitld rights record, then hitld run scope set",
+      built_by: 'h',
+      args: [
+        {
+          name: 'items',
+          type: 'string',
+          required: true,
+          description: 'The items, comma-separated, as the owner named them',
+        },
+        {
+          name: 'budget-tokens',
+          type: 'integer',
+          required: true,
+          description: "What the scope's starts may spend, in tokens, as the owner said",
+        },
+        {
+          name: 'until',
+          type: 'string',
+          required: true,
+          description: `When it ends, as the owner said: a date and time (ISO 8601), at most ${SCOPE_MAX_HOURS} hours ahead`,
+        },
+        {
+          name: 'parent',
+          type: 'string',
+          description: 'The project the decision item is filed under, where the tracker needs one',
+        },
+      ],
+      run: (input, ctx) =>
+        guarded(async () => {
+          refuseExecutor(ctx);
+          // The run the question belongs to, as run scope set will read it: a question written in
+          // one run opens no scope in the next.
+          await pullFirst('run scope question', input, ctx);
+          const p = project(ctx, { fresh: true });
+          requireOwnerMerge(p);
+          const items = [
+            ...new Set(
+              String(input.items)
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean),
+            ),
+          ];
+          if (!items.length) throw new Refusal('usage', '--items names at least one item');
+          const lookup = decisionLookup(p, ctx);
+          const unknown = items.filter((id) => lookup(id)?.kind !== 'work');
+          if (unknown.length) {
+            throw new Refusal('not-found', `not work items in the tracker: ${unknown.join(', ')}`);
+          }
+          const budget = Number(input['budget-tokens']);
+          if (!Number.isInteger(budget) || budget <= 0) {
+            throw new Refusal('usage', '--budget-tokens is a whole number of tokens above 0');
+          }
+          const now = nowOf(ctx);
+          // With its offset, as the owner meant it: a time without one is read in this machine's
+          // zone, which may not be the owner's.
+          const given = String(input.until);
+          const until = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(given) ? Date.parse(given) : NaN;
+          if (Number.isNaN(until)) {
+            throw new Refusal(
+              'usage',
+              `--until ${given} is not a date and time with its offset, such as 2026-11-25T18:00:00Z or 2026-11-25T10:00:00-08:00`,
+            );
+          }
+          if (until <= now || until - now > SCOPE_MAX_HOURS * 3600_000) {
+            throw new Refusal(
+              'usage',
+              `--until is after now and at most ${SCOPE_MAX_HOURS} hours ahead: a run scope is never standing`,
+            );
+          }
+          const spec = { items, budget_tokens: budget, until: new Date(until).toISOString() };
+          const sensitive = sensitiveOf(lookup, items);
+          const question = scopeQuestion(spec, sensitive);
+          // What run scope set looks for: this question, word for word, written here, once more.
+          noteIssued(p.store, question, spec, {
+            at: new Date(now).toISOString(),
+            by: String(identityOf(p, input, ctx).session ?? 'unknown'),
+            run: p.state?.run.id ? String(p.state.run.id) : null,
+          });
+          return {
+            ok: true,
+            question: {
+              ...question,
+              ...(typeof input.parent === 'string' ? { parent: input.parent } : {}),
+            },
+            touching_owner_paths: sensitive,
+            next: "put the question to the owner as it is, and record their answer with hitld rights record --question <this question's JSON>; only the first option, in this run, opens the scope: then hitld run scope set --decision <its ID>",
+          };
+        }),
+    },
+    {
+      name: 'run scope set',
+      summary:
+        "Put the owner's run scope in force from their yes to the run-scope question (hitld run scope question). Within it the chief of staff starts its items itself (hitld dispatch start --scope); it is per run, never standing, and ends at its end time, its budget or the owner's word",
+      built_by: 'h',
+      args: [
+        {
+          name: 'decision',
+          type: 'string',
+          required: true,
+          description:
+            'The decision that records the owner\'s answer to the run-scope question. Its items, budget and end time are the ones its title states; only the answer "Yes, start them", recorded in this run, opens it',
+        },
+        SESSION,
+        HOST,
+      ],
+      run: (input, ctx) =>
+        guarded(async () => {
+          refuseExecutor(ctx);
+          await pullFirst('run scope set', input, ctx);
+          const p = project(ctx, { fresh: true });
+          if (!p.state) throw new Refusal('no-run', 'no run has started: hitld run start');
+          requireOwnerMerge(p);
+          const { session } = identityOf(p, input, ctx);
+          if (!session) throw new Refusal('usage', NO_SESSION);
+          const id = String(input.decision).trim();
+          const lookup = decisionLookup(p, ctx);
+          const now = nowOf(ctx);
+          const derived = deriveScope({
+            decision: lookup(id),
+            id,
+            events: p.events ?? readLedger(p.store).events,
+            run: p.state.run,
+            now,
+            asked: readAsked(p.store, id),
+            issued: issuedIn(p.store),
+          });
+          if (!derived.ok) throw new Refusal(derived.code, `${derived.why}; nothing was written`);
+          const scope = derived.scope;
+          // The items that touch guard, policy, rights or skill paths now are the ones the owner
+          // was told of: an item that has come to touch one since is asked about again.
+          const asked = readAsked(p.store, id);
+          const reachNow = sensitiveOf(lookup, scope.items);
+          if (scopeQuestion(scope, reachNow).question !== asked?.question) {
+            throw new Refusal(
+              'scope-changed',
+              `the items of ${id} touch other guard, policy, rights or skill paths now (${reachNow.map((x) => `${x.item}: ${x.touches.join(', ')}`).join('; ') || 'none'}) than the question the owner answered named; nothing was written: ask the owner again with a new question`,
+            );
+          }
+          if (Date.parse(scope.until) <= now) {
+            throw new Refusal(
+              'scope-expired',
+              `${id} ended at ${scope.until}; nothing was written`,
+            );
+          }
+          const before = current(p, ctx);
+          /** @type {import('../../run/scope.mjs').ScopeFile} */
+          const file = {
+            run: String(p.state.run.id),
+            decision: id,
+            set_at: new Date(now).toISOString(),
+            set_by: String(session),
+          };
+          writeScopeFile(p.store, file);
+          // The question it was asked with is used: another decision recorded with it opens nothing.
+          noteUsed(p.store, asked, id, file.set_at);
+          return {
+            ok: true,
+            scope,
+            // The owner saw these in the question; they still reach main only with their yes.
+            touching_owner_paths: sensitiveOf(lookup, scope.items),
+            ...(before.status?.active && before.file?.decision !== id
+              ? { replaced: before.file?.decision }
+              : {}),
+            next: `start the scope's items as the plan offers them: hitld dispatch start <ID> --scope ${id}. Anything outside it, and every guard, policy, rights or skill change, is still the owner's to decide`,
+          };
+        }),
+    },
+    {
+      name: 'run scope end',
+      summary:
+        "End the owner's run scope before its end time, on the owner's word. Nothing more starts under it; what it started runs on",
+      built_by: 'h',
+      args: [
+        {
+          name: 'reason',
+          type: 'string',
+          description: "Why, in the owner's words. Default: the owner's word",
+        },
+        SESSION,
+        HOST,
+      ],
+      run: (input, ctx) =>
+        guarded(async () => {
+          refuseExecutor(ctx);
+          await pullFirst('run scope end', input, ctx);
+          const p = project(ctx);
+          const file = readScopeFile(p.store);
+          if (!file) throw new Refusal('no-scope', 'no run scope is recorded');
+          const { session } = identityOf(p, input, ctx);
+          const at = new Date(nowOf(ctx)).toISOString();
+          const by = String(session ?? 'unknown');
+          const reason = typeof input.reason === 'string' ? input.reason : "the owner's word";
+          // The end is in the ledger, which the decision is checked against at every start: setting
+          // the scope again, or removing the store file, does not open it again.
+          const { event, appended } = appendEvent(
+            p.store,
+            {
+              id: `scope-ended-${file.decision}`,
+              event: 'scope-ended',
+              decision: file.decision,
+              by,
+              notes: reason,
+            },
+            ctx.now ? { now: ctx.now } : {},
+          );
+          const ended = file.ended ? file : { ...file, ended: { at, by, reason } };
+          writeScopeFile(p.store, ended);
+          noteUsed(p.store, readAsked(p.store, file.decision), file.decision, at);
+          return { ok: true, scope: ended, event, ...(appended ? {} : { already: true }) };
+        }),
+    },
+    {
+      name: 'run scope show',
+      summary:
+        "The owner's run scope, derived from the owner's decision: its items, budget and end time, what its starts have spent, and whether it is in force",
+      built_by: 'h',
+      args: [],
+      run: (input, ctx) =>
+        guarded(() => {
+          const p = project(ctx, { fresh: true });
+          const c = current(p, ctx);
+          return {
+            ok: true,
+            decision: c.file?.decision ?? null,
+            scope: c.scope,
+            status: c.status ?? {
+              active: false,
+              code: c.refused?.code ?? 'no-scope',
+              why: c.refused?.why ?? 'no run scope is recorded',
+            },
+          };
+        }),
+    },
+  ];
+}
+
+/**
+ * Under the run scope, a start and its handle are the chief of staff's, which holds no lease: they
+ * push the store, so the orchestrator holding the lease reads them (HITLD-877).
+ * @param {NonNullable<import('../table.mjs').Command['run']>} run
+ * @returns {NonNullable<import('../table.mjs').Command['run']>}
+ */
+const pushWhenScoped = (run) => (input, ctx) =>
+  typeof input.scope === 'string' ? pushAfter(run)(input, ctx) : run(input, ctx);
+
 /** A merge and a hand-over end by pushing the store (design 0003, section 8). */
-export const commands = pushingAfter(table, ['merge', 'handover']);
+export const commands = pushingAfter(table, [
+  'merge',
+  'handover',
+  'run scope question',
+  'run scope set',
+  'run scope end',
+]).map((c) =>
+  c.run && ['dispatch start', 'dispatch handle'].includes(c.name)
+    ? { ...c, run: pushWhenScoped(c.run) }
+    : c,
+);
