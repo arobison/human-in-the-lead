@@ -26,7 +26,7 @@ import { findTerms, matchMessage } from '../guard/private-terms.mjs';
 import { PrivateTermsError, loadTerms } from '../store/private-terms.mjs';
 import { FEEDBACK_REPO, issueUrlPattern } from './filer.mjs';
 import { assertPrivate, checkRecord, keyOf, readRecord, readRecords } from './record.mjs';
-import { HEADINGS, harnessText } from './render.mjs';
+import { HEADINGS, harnessText, renderIssueBody } from './render.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
@@ -365,6 +365,27 @@ export function publication(record, draft) {
     body: `${body}\n${FOOTER}\n`,
     labels: ['feedback', record.kind],
   };
+}
+
+/**
+ * What `feedback render` shows (HITLD-274): once a record has a public draft (drafted or filed),
+ * the issue as it is filed, from the draft, so a reviewer never approves text they did not see;
+ * otherwise, or with `record`, the private record under the same headings, with the reason.
+ * `shows` says which text it is.
+ * @param {FeedbackRecord} record @param {{ record?: boolean }} [o]
+ */
+export function renderView(record, o = {}) {
+  const hasDraft = record.draft && ['drafted', 'filed'].includes(record.state);
+  if (hasDraft && !o.record) {
+    const { title, labels, body } = publication(record, record.draft);
+    return { shows: 'draft', title, labels, body };
+  }
+  const why = o.record
+    ? 'asked for the private record (--record); it is never filed'
+    : record.state === 'withheld'
+      ? `its draft was withheld (${record.reason}); nothing is filed until a new draft passes`
+      : `it has no public draft (state ${record.state}); this is the private record, never filed`;
+  return { shows: 'record', why, body: renderIssueBody(record) };
 }
 
 /**

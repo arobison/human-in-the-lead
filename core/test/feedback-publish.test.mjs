@@ -541,3 +541,39 @@ test('issueUrlPattern treats every character of the repository name literally', 
     ),
   );
 });
+
+test('render: a drafted record shows the issue as it will be filed, and --record the private record (HITLD-274)', async () => {
+  const id = await record('render showed my own words, not the draft that went out');
+  assert.equal((await draft(id, { ...clean, evidence: 'render on a drafted record' })).ok, true);
+  const filed = (await run(['feedback', 'publish', '--store', store])).waiting.find(
+    (/** @type {{ id: string }} */ w) => w.id === id,
+  ).issue;
+
+  const r = await run(['feedback', 'render', id, '--store', store]);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.shows, 'draft');
+  assert.equal(r.title, filed.title);
+  assert.deepEqual(r.labels, filed.labels);
+  assert.equal(r.body, filed.body);
+  assert.match(r.body, /### What happened\n\nThe orchestrator asked/);
+  assert.match(r.body, /### Evidence\n\n```\nrender on a drafted record\n```/);
+  assert.doesNotMatch(r.body, /render showed my own words/);
+
+  const own = await run(['feedback', 'render', id, '--record', '--store', store]);
+  assert.equal(own.shows, 'record');
+  assert.match(own.body, /### What happened\n\nrender showed my own words/);
+  assert.equal(own.title, undefined);
+});
+
+test('render: a record with no public draft shows the private record and says why (HITLD-274)', async () => {
+  const id = await record('a record with no draft yet');
+  const local = await run(['feedback', 'render', id, '--store', store]);
+  assert.equal(local.shows, 'record');
+  assert.match(local.why, /no public draft/);
+  assert.match(local.body, /a record with no draft yet/);
+
+  await draft(id, { ...clean, classification: 'confidential' });
+  const withheld = await run(['feedback', 'render', id, '--store', store]);
+  assert.equal(withheld.shows, 'record');
+  assert.match(withheld.why, /withheld/);
+});

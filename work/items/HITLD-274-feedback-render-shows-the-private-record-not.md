@@ -7,6 +7,7 @@ created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-64 c2, HITLD-67 c2]
 claimed_by: D-01M88NBXC1S1YK3C
+release_note: "`hitld feedback render` shows a record that has a public draft as the issue will be filed (title, labels and body from the draft), and says which text it shows (`shows`: `draft` or `record`, with `why`). `--record` shows the private record instead."
 ---
 
 ## Why
