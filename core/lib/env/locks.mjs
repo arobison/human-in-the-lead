@@ -271,11 +271,13 @@ function createWhole(path, text) {
 
 /**
  * Apply a decision's changes in order, stopping at an exclusive create that finds the lock file
- * taken (by an older copy, which creates it without the critical section).
+ * taken (by an older copy, which creates it without the critical section). A ticket is reported
+ * to `onEnqueue` as soon as it is written, so a waiter whose later change throws still removes it.
  * @param {LockContext} ctx @param {string} resource @param {Effect[]} effects
+ * @param {(ticket: string) => void} [onEnqueue]
  * @returns {{ ok: boolean, logs: Effect[] }}
  */
-function apply(ctx, resource, effects) {
+function apply(ctx, resource, effects, onEnqueue) {
   /** @type {Effect[]} */
   const logs = [];
   for (const e of effects) {
@@ -304,6 +306,7 @@ function apply(ctx, resource, effects) {
           join(dir, e.ticket.name),
           JSON.stringify({ holder: e.ticket.holder ?? null, pid: e.ticket.pid }) + '\n',
         );
+        onEnqueue?.(e.ticket.name);
         break;
       }
       case 'dequeue':
@@ -335,16 +338,17 @@ function critical(ctx, resource, fn) {
  * An exclusive create that loses to an older copy decides again on what is there now; a weighted
  * grant is confirmed against a single lock created meanwhile. Logs are written after it.
  * @param {LockContext} ctx @param {string} resource @param {LockEvent} event
+ * @param {(ticket: string) => void} [onEnqueue] told of a ticket as soon as it is written
  * @returns {Outcome}
  */
-function step(ctx, resource, event) {
+function step(ctx, resource, event, onEnqueue) {
   /** @type {Effect[]} */
   const logs = [];
   const outcome = critical(ctx, resource, () => {
     let ev = event;
     for (let tries = 0; ; tries++) {
       const d = decide(readState(ctx, resource), ev);
-      const done = apply(ctx, resource, d.effects);
+      const done = apply(ctx, resource, d.effects, onEnqueue);
       logs.push(...done.logs);
       const enqueued = d.effects.find((e) => e.op === 'enqueue');
       if (enqueued && enqueued.op === 'enqueue' && ev.type === 'ask') {
@@ -490,7 +494,13 @@ export async function acquireLock(ctx, request) {
   try {
     for (;;) {
       /** @type {Outcome} */
-      const r = (ticket !== null && peek(ctx, resource, ask())) || step(ctx, resource, ask());
+      // The ticket is known from the moment it is written: if anything after it in the same
+      // decision throws, the `finally` below still removes it, and it never holds the line.
+      const r =
+        (ticket !== null && peek(ctx, resource, ask())) ||
+        step(ctx, resource, ask(), (t) => {
+          ticket = t;
+        });
       if (r.kind === 'granted') {
         ticket = null;
         return granted(r);

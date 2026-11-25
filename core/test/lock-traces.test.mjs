@@ -2,7 +2,9 @@
 // files, a real process behind each holder, the clock mocked. Each trace is the one the model runs
 // in lockcore.test.mjs, and both must give the expected results, so the model cannot pass while
 // the code fails. They use only acquireLock, releaseLock and lockStatus, and so also run against
-// locks.mjs from before this change, where they fail.
+// older versions of locks.mjs: on the HITLD-1050 version (47740e4) the first two traces (a holder
+// that asks again, the same name from two processes) pass, since that change fixed them, and the
+// other four fail; on the version before it (52dc59b) all six fail.
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -267,3 +269,33 @@ for (const t of TRACES) {
     assert.equal(disk.holder, model.holder);
   });
 }
+
+test('a ticket is removed when the decision that wrote it fails after writing it', async () => {
+  const ctx = { machineRoot: tempDir('hitld-lock-fail-') };
+  // The waiter's first decision writes its ticket and then creates the lock file; the create
+  // fails with an I/O error, once.
+  const original = fs.linkSync;
+  let failed = false;
+  fs.linkSync = /** @type {typeof fs.linkSync} */ (
+    function (/** @type {any[]} */ ...args) {
+      if (!failed) {
+        failed = true;
+        throw Object.assign(new Error('injected I/O failure'), { code: 'EIO' });
+      }
+      return /** @type {any} */ (original).apply(fs, args);
+    }
+  );
+  syncBuiltinESMExports();
+  try {
+    const request = { resource: 'gpu', holder: 'D-1', wait: true, autoRenew: false, pollMs: 10 };
+    await assert.rejects(acquireLock(ctx, { ...request, timeoutMs: 2000 }), /injected I\/O/);
+  } finally {
+    fs.linkSync = original;
+    syncBuiltinESMExports();
+  }
+  assert.ok(failed, 'the failure was injected');
+  assert.deepEqual(lockStatus(ctx, ['gpu'])[0].waiting, [], 'no ticket is left in line');
+  const next = await acquireLock(ctx, { resource: 'gpu', holder: 'D-2', autoRenew: false });
+  assert.ok(next.acquired, 'the next caller is not held behind a ticket the failure left');
+  next.acquired && next.handle.release();
+});

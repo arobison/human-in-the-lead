@@ -151,8 +151,10 @@ const setActor = (w, id, s) => ({ ...w, actors: { ...w.actors, [id]: s } });
 export function runStep(m, w, s) {
   if (s.do === 'clock') return { world: { ...w, now: w.now + s.ms }, result: 'ok' };
   if (s.do === 'halfWritten') {
+    // An older copy creates the lock file only when it is not there (an exclusive open) and it has
+    // seen no live weighted holder; one that finds such a holder after creating it backs out.
     const f = w.files[s.r];
-    if (f.single) return null;
+    if (f.single || Object.values(f.holders).some((h) => live(w, h))) return null;
     const single = { slot: SINGLE, record: null, mtime: w.now };
     return { world: { ...w, files: { ...w.files, [s.r]: { ...f, single } } }, result: 'ok' };
   }
@@ -210,6 +212,9 @@ export function runStep(m, w, s) {
   if (s.do === 'release' || s.do === 'releaseByName') {
     const r = s.do === 'release' ? st.at?.r : s.r;
     if (!r || (s.do === 'release' && st.at?.mode !== 'held')) return null;
+    // By name, as the command line releases for a holder: not while that holder's process is
+    // blocked waiting in an ask, which it would not leave.
+    if (s.do === 'releaseByName' && st.at?.mode === 'waiting') return null;
     /** @type {LockEvent} */
     const ev =
       s.do === 'release'
