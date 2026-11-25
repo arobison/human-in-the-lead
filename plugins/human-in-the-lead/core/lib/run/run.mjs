@@ -320,7 +320,7 @@ export function releaseLease(store, options) {
  * @param {PrivateStore} store @param {{ session: string, host: string }} me
  * @param {{ windowSeconds?: number, now?: () => Date }} [o]
  * @returns {{ branches: string[], until: string | null, open: boolean } | null} until: null, and open
- *   false, when the release time does not read
+ *   false, when the window's end does not read (mergeWindow)
  */
 export function handedOverMerges(store, me, o = {}) {
   const { state } = loadState(store);
@@ -339,15 +339,25 @@ export function handedOverMerges(store, me, o = {}) {
       e.session === me.session &&
       e.host === me.host,
   );
-  const window = (o.windowSeconds ?? DEFAULTS.expirySeconds) * 1000;
-  const end = Date.parse(released?.at ?? l.released?.at ?? '') + window;
   const branches = Array.isArray(released?.branches) ? released.branches.map(String) : [];
-  // A release time that does not read gives no window at all: closed, failing safe.
-  if (!Number.isFinite(end)) return { branches, until: null, open: false };
+  return { branches, ...mergeWindow(released?.at ?? l.released?.at, o.windowSeconds, o.now) };
+}
+
+/**
+ * The end of the merge-only window after a hand-over (HITLD-823): `windowSeconds` after the
+ * release time. A release time that is missing or does not read, or an end past what a date can
+ * hold (a very large run.lease_expiry_seconds), gives no window at all: closed, with until null,
+ * failing safe rather than throwing.
+ * @param {unknown} releasedAt @param {number} [windowSeconds] @param {() => Date} [now]
+ * @returns {{ until: string | null, open: boolean }}
+ */
+export function mergeWindow(releasedAt, windowSeconds, now) {
+  const start = typeof releasedAt === 'string' ? Date.parse(releasedAt) : NaN;
+  const end = new Date(start + (windowSeconds ?? DEFAULTS.expirySeconds) * 1000);
+  if (Number.isNaN(end.getTime())) return { until: null, open: false };
   return {
-    branches,
-    until: new Date(end).toISOString(),
-    open: (o.now ?? (() => new Date()))().getTime() < end,
+    until: end.toISOString(),
+    open: (now ?? (() => new Date()))().getTime() < end.getTime(),
   };
 }
 

@@ -1122,6 +1122,19 @@ function approveHead(o) {
 }
 
 /**
+ * The merge-only window after a hand-over, as the note and the refusals say it (HITLD-823): in
+ * minutes when policy run.lease_expiry_seconds is a whole number of them, in seconds otherwise, so
+ * 90 reads "90 seconds", never a rounded "2 minutes". Unset, the default of 1800: "30 minutes".
+ * @param {number | undefined} seconds
+ */
+export function windowText(seconds) {
+  const s = seconds ?? 1800;
+  if (s % 60 !== 0) return `${s} second${s === 1 ? '' : 's'}`;
+  const m = s / 60;
+  return `${m} minute${m === 1 ? '' : 's'}`;
+}
+
+/**
  * Whether this session may record a merge now; throws when it may not. It may when it holds the
  * lease (returns null), or after its own hand-over, until a successor takes the lease and within
  * run.lease_expiry_seconds of the release (HITLD-823): then it returns the branches its hand-over
@@ -1150,7 +1163,7 @@ function mayMergeNow(p, run, ctx, o = {}) {
   if (w && !w.open && o.window !== false) {
     throw new Refusal(
       'lease-released',
-      `this session's merge-only window after its hand-over ${w.until ? `closed at ${w.until}` : 'is closed: its release time does not read'} (policy run.lease_expiry_seconds after the release, 1800 seconds by default): a successor merges ${w.branches.join(', ')} after hitld run resume; nothing was merged`,
+      `this session's merge-only window after its hand-over ${w.until ? `closed at ${w.until}` : 'is closed: its end does not read (the release time, or a run.lease_expiry_seconds too large for a date)'} (${windowText(p.policy.run?.lease_expiry_seconds)} after the release, policy run.lease_expiry_seconds): a successor merges ${w.branches.join(', ')} after hitld run resume; nothing was merged`,
       { merges_pending: w.branches, until: w.until },
     );
   }
@@ -1297,7 +1310,8 @@ async function pullRequestMerge(o) {
     ...(ctx.now ? { now: ctx.now } : {}),
   });
   // A successor may have taken the lease while the pass ran (HITLD-823): then this session writes
-  // and records nothing, so it overwrites none of the successor's state, and says what merged
+  // no queue state and records nothing in the ledger, so it overwrites none of the successor's
+  // state, and says what merged
   // that it could not record, in its result and in its hand-over note. The lease only: a window
   // that closed during the pass does not stop it recording what it did. This narrows the race, it
   // does not close it: the store has no compare-and-swap, so a successor can still take the lease
@@ -1321,7 +1335,7 @@ async function pullRequestMerge(o) {
       ok: false,
       error:
         e instanceof LeaseError ? `lease-${e.code}` : (/** @type {any} */ (e).code ?? 'lease-lost'),
-      message: `${/** @type {Error} */ (e).message}; this pass's results were not written${said ? `. ${said}` : ''}`,
+      message: `${/** @type {Error} */ (e).message}; this pass wrote no queue state and recorded nothing in the ledger${said ? `. ${said}` : ''}`,
       merged_unrecorded: unrecorded,
       ...(note ? { handover_file: join(p.store.root, note) } : {}),
     };
@@ -3282,7 +3296,7 @@ const table = [
         const events = readLedger(p.store).events;
         const pending = pendingMerges(p.store, events, state.merge_queue.waiting);
         // The merge-only window after this hand-over (handedOverMerges), in whole minutes.
-        const windowMinutes = Math.round((p.policy.run?.lease_expiry_seconds ?? 1800) / 60);
+        const windowSaid = windowText(p.policy.run?.lease_expiry_seconds);
         const h = handOver(state, events);
         const sessions = state.in_flight
           .filter((/** @type {any} */ d) => d.mode === 'interactive')
@@ -3301,7 +3315,7 @@ const table = [
           '',
           ...(pending.length
             ? [
-                `${pendingMergesLine(pending)} ${keep ? 'This session still merges them.' : `Until a successor takes the lease, and for at most ${windowMinutes} minutes after this hand-over (run.lease_expiry_seconds), the session that wrote this note may still run hitld merge limited to them, and nothing else; after that, the successor merges them.`}`,
+                `${pendingMergesLine(pending)} ${keep ? 'This session still merges them.' : `Until a successor takes the lease, and for at most ${windowSaid} after this hand-over (run.lease_expiry_seconds), the session that wrote this note may still run hitld merge limited to them, and nothing else; after that, the successor merges them.`}`,
               ]
             : []),
           h.text,
@@ -3342,7 +3356,7 @@ const table = [
           handover: due,
           next: keep
             ? 'give the owner the text and the file; this session still drives the run'
-            : `stop driving the run: tell the chief of staff the file (when you are both, the owner)${pending.length ? `, and that ${pending.length} merge${pending.length === 1 ? ' is' : 's are'} pending (${pending.map((x) => x.item ?? x.branch).join(', ')})` : ''}; a successor session resumes from it with hitld run resume${approved.length ? `. Until one takes the lease, and for at most ${windowMinutes} minutes (run.lease_expiry_seconds), this session may still run hitld merge limited to the branches the hand-over named, ${approved.map((x) => x.item ?? x.branch).join(', ')} approved and not merged among them: start nothing` : ''}`,
+            : `stop driving the run: tell the chief of staff the file (when you are both, the owner)${pending.length ? `, and that ${pending.length} merge${pending.length === 1 ? ' is' : 's are'} pending (${pending.map((x) => x.item ?? x.branch).join(', ')})` : ''}; a successor session resumes from it with hitld run resume${approved.length ? `. Until one takes the lease, and for at most ${windowSaid} (run.lease_expiry_seconds), this session may still run hitld merge limited to the branches the hand-over named, ${approved.map((x) => x.item ?? x.branch).join(', ')} approved and not merged among them: start nothing` : ''}`,
         };
       }),
   },

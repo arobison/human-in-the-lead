@@ -11,14 +11,21 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from '../lib/cli/main.mjs';
-import { handoverSelection, keepOthers } from '../lib/cli/commands/orchestrator.mjs';
+import { handoverSelection, keepOthers, windowText } from '../lib/cli/commands/orchestrator.mjs';
 import { fakeGitHub } from '../lib/merge/github.mjs';
 import { pendingMerges } from '../lib/merge/pending.mjs';
 import { PULL_STATE_KEY, emptyPullState, readPullState } from '../lib/merge/pull-request.mjs';
 import { PRESENTED_KEY } from '../lib/merge/owner.mjs';
 import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
 import { openStore } from '../lib/store/store.mjs';
-import { handOver, handedOverMerges, releaseLease, startRun, takeLease } from '../lib/run/run.mjs';
+import {
+  handOver,
+  handedOverMerges,
+  mergeWindow,
+  releaseLease,
+  startRun,
+  takeLease,
+} from '../lib/run/run.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { memoryStore } from './helpers/memory-store.mjs';
 import { STATUS_INPUT, item, makeConsumer, put, report } from './orchestrator-fixture.mjs';
@@ -269,11 +276,13 @@ test('commands: a hand-over with nothing pending says so, and the session can me
 /**
  * A consumer in owner mode through pull requests, with W-1 and W-2 finished and presented, the
  * owner's approval of W-1 recorded by the chief of staff, and orch-1 handed over.
- * @param {{ onChecks?: () => void }} [o] called each time the fake GitHub is asked for checks
+ * @param {{ onChecks?: () => void, run?: Record<string, unknown> }} [o] onChecks: called each time
+ *   the fake GitHub is asked for checks; run: the policy's run section
  */
 async function handedOverWithTwo(o = {}) {
   const c = makeConsumer({
     policy: {
+      ...(o.run ? { run: o.run } : {}),
       merge: {
         mode: 'owner',
         via: 'pull-request',
@@ -596,5 +605,67 @@ test('commands, local owner mode: after a hand-over, --all approves only the bra
     );
   } finally {
     rmSync(c.base, { recursive: true, force: true });
+  }
+});
+
+test('windowText: whole minutes in minutes, anything else in seconds, never rounded', () => {
+  assert.equal(windowText(undefined), '30 minutes');
+  assert.equal(windowText(1800), '30 minutes');
+  assert.equal(windowText(60), '1 minute');
+  assert.equal(windowText(120), '2 minutes');
+  assert.equal(windowText(90), '90 seconds');
+  assert.equal(windowText(20), '20 seconds');
+  assert.equal(windowText(1), '1 second');
+});
+
+test('mergeWindow: a missing or unreadable release time, or an end no date can hold, is a closed window with until null, not a RangeError', () => {
+  const now = () => new Date('2026-11-24T10:00:30Z');
+  assert.deepEqual(mergeWindow(undefined, 1800, now), { until: null, open: false });
+  assert.deepEqual(mergeWindow(null, 1800, now), { until: null, open: false });
+  assert.deepEqual(mergeWindow('not a time', 1800, now), { until: null, open: false });
+  assert.deepEqual(mergeWindow('2026-11-24T10:00:00Z', 1e13, now), { until: null, open: false });
+  assert.deepEqual(mergeWindow('2026-11-24T10:00:00Z', 60, now), {
+    until: '2026-11-24T10:01:00.000Z',
+    open: true,
+  });
+});
+
+test('commands: a window that is not whole minutes is said in seconds, in the note, in next and in the refusal once it has closed', async () => {
+  const t = await handedOverWithTwo({ run: { lease_expiry_seconds: 90 } });
+  try {
+    const lines = readFileSync(t.handed.result.file, 'utf8').split('\n');
+    assert.match(
+      lines[2],
+      /for at most 90 seconds after this hand-over \(run\.lease_expiry_seconds\)/,
+    );
+    assert.match(t.handed.result.next, /for at most 90 seconds \(run\.lease_expiry_seconds\)/);
+    assert.doesNotMatch(`${lines[2]} ${t.handed.result.next}`, /minute/);
+    const release = readLedger(t.store).events.findLast((e) => e.event === 'lease-released');
+    const late = new Date(Date.parse(String(release?.at)) + 91 * 1000);
+    const r = await t.hitld(['merge'], 'orch-1', () => late);
+    assert.equal(r.result.error, 'lease-released', JSON.stringify(r.result));
+    assert.match(
+      r.result.message,
+      /\(90 seconds after the release, policy run\.lease_expiry_seconds\)/,
+    );
+    assert.doesNotMatch(r.result.message, /1800/);
+  } finally {
+    rmSync(t.c.base, { recursive: true, force: true });
+  }
+});
+
+test('commands: a window whose end no date can hold refuses the merge-only pass, structured, with until null', async () => {
+  const t = await handedOverWithTwo({ run: { lease_expiry_seconds: 10000000000000 } });
+  try {
+    const r = await t.hitld(['merge']);
+    assert.equal(r.result.error, 'lease-released', JSON.stringify(r.result));
+    assert.equal(r.result.until, null);
+    assert.match(
+      r.result.message,
+      /merge-only window after its hand-over is closed: its end does not read/,
+    );
+    assert.deepEqual(r.result.merges_pending, [t.one, t.two]);
+  } finally {
+    rmSync(t.c.base, { recursive: true, force: true });
   }
 });
