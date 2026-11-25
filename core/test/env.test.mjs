@@ -1446,6 +1446,211 @@ test('a holder asking again with another weight renews and keeps the weight it h
   env.releaseLock({ resource: 'gpu', holder: 'D-1' });
 });
 
+// ---------------------------------------------------------------------------------------------
+// Asking again as the holder (HITLD-1050): a renewal never queues, and a holder name is one
+// process's
+
+/**
+ * Holder A holds, holder B waits behind it, and A asks again with wait and a short timeout: A's
+ * request is renewed at once, ahead of the queue, and B stays queued until A releases.
+ * @param {{ capacity?: Record<string, number>, weightA: number, weightB: number }} o
+ */
+async function askAgainWhileOthersWait(o) {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot, capacity: o.capacity });
+  const gpu = () => env.lockStatus().find((l) => l.resource === 'gpu');
+  const a = await env.acquireLock({ resource: 'gpu', holder: 'D-A', weight: o.weightA });
+  assert.ok(a.acquired);
+  const b = env.acquireLock({
+    resource: 'gpu',
+    holder: 'D-B',
+    weight: o.weightB,
+    wait: true,
+    timeoutMs: 10_000,
+    pollMs: 10,
+  });
+  for (let i = 0; i < 200 && !gpu()?.waiting.includes('D-B'); i++) await sleep(5);
+  assert.deepEqual(gpu()?.waiting, ['D-B'], 'B waits for A');
+  const again = await env.acquireLock({
+    resource: 'gpu',
+    holder: 'D-A',
+    weight: o.weightA,
+    wait: true,
+    timeoutMs: 1000,
+    pollMs: 10,
+  });
+  assert.equal(again.acquired, true, "A's second request is not queued behind B");
+  assert.equal(again.acquired && again.renewed, true);
+  assert.equal(again.acquired && again.record.acquired_at, a.record.acquired_at);
+  assert.ok(again.waited_ms < 500, `renewed at once, not after ${again.waited_ms} ms`);
+  assert.deepEqual(gpu()?.waiting, ['D-B'], 'B stays queued');
+  assert.equal(gpu()?.used, o.capacity ? o.weightA : 1, 'renewing adds no weight');
+  const renewedEvent = env
+    .events()
+    .findLast((e) => e.kind === 'lock_acquired' && e.holder === 'D-A');
+  assert.equal(renewedEvent?.renewed, true);
+  a.handle.release();
+  const got = await b;
+  assert.ok(got.acquired, 'B takes it once A releases');
+  assert.equal(got.acquired && got.renewed, false);
+  got.acquired && got.handle.release();
+}
+
+test('a holder asking again while another waits is renewed at once, and the waiter stays queued', async () => {
+  await askAgainWhileOthersWait({ weightA: 1, weightB: 1 });
+});
+
+test('a weighted holder asking again while a heavier one waits is renewed at once', async () => {
+  await askAgainWhileOthersWait({ capacity: { gpu: 4 }, weightA: 3, weightB: 2 });
+});
+
+/**
+ * A separate process that takes a lock and keeps it until it is killed.
+ * @param {Record<string, unknown>} ctxValue @param {Record<string, unknown>} request
+ */
+async function holdInChild(ctxValue, request) {
+  const code = `
+    import { acquireLock } from ${JSON.stringify(pathToFileURL(LOCKS_MJS).href)};
+    const r = await acquireLock(${JSON.stringify(ctxValue)}, ${JSON.stringify(request)});
+    console.log(r.acquired ? 'held' : 'failed');
+    setInterval(() => {}, 1000);`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', code], {
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  children.add(child);
+  await new Promise((resolve, reject) => {
+    child.stdout.once('data', (d) =>
+      String(d).includes('held') ? resolve(undefined) : reject(new Error(String(d))),
+    );
+    child.once('error', reject);
+  });
+  return child;
+}
+
+/** @param {import('node:child_process').ChildProcess} child */
+const killChild = async (child) => {
+  child.kill('SIGKILL');
+  await new Promise((r) => child.once('exit', r));
+};
+
+test('another process asking under a live holder name is refused with the holder named, at once', async () => {
+  const repoRoot = makeRepo();
+  const machineRoot = dir('machine');
+  const { env } = await makeEnv({ repoRoot, machineRoot });
+  const child = await holdInChild(
+    { machineRoot },
+    { resource: 'gpu', holder: 'D-1', autoRenew: false },
+  );
+  const now = await env.acquireLock({ resource: 'gpu', holder: 'D-1' });
+  assert.equal(now.acquired, false, 'not let in as a renewal');
+  assert.equal(!now.acquired && now.held_by?.holder, 'D-1');
+  assert.equal(!now.acquired && now.held_by?.pid, child.pid);
+  const waited = await env.acquireLock({
+    resource: 'gpu',
+    holder: 'D-1',
+    wait: true,
+    timeoutMs: 3000,
+    pollMs: 10,
+  });
+  assert.equal(waited.acquired, false);
+  assert.equal(!waited.acquired && waited.timed_out, false, 'refused, not queued');
+  assert.ok(waited.waited_ms < 1500, `refused at once, not after ${waited.waited_ms} ms`);
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.held_by, 'D-1');
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.record?.pid, child.pid);
+
+  // Once that process is gone, its lock is stale and the name is taken over like any other.
+  await killChild(child);
+  const taken = await env.acquireLock({ resource: 'gpu', holder: 'D-1' });
+  assert.ok(taken.acquired);
+  assert.equal(taken.acquired && taken.renewed, false);
+  assert.equal(taken.acquired && taken.record.pid, process.pid);
+  assert.equal(env.events().findLast((e) => e.kind === 'lock_takeover')?.previous_holder, 'D-1');
+  env.releaseLock({ resource: 'gpu', holder: 'D-1' });
+});
+
+test('another process asking under a live weighted holder name is refused; the room stays for others', async () => {
+  const repoRoot = makeRepo();
+  const machineRoot = dir('machine');
+  const capacity = { gpu: 4 };
+  const { env } = await makeEnv({ repoRoot, machineRoot, capacity });
+  const child = await holdInChild(
+    { machineRoot, capacity },
+    { resource: 'gpu', holder: 'D-1', weight: 1, autoRenew: false },
+  );
+  for (const wait of [false, true]) {
+    const r = await env.acquireLock({
+      resource: 'gpu',
+      holder: 'D-1',
+      weight: 2,
+      wait,
+      timeoutMs: 3000,
+    });
+    assert.equal(r.acquired, false, `wait ${wait}: not let in as a renewal`);
+    assert.equal(!r.acquired && r.held_by?.holder, 'D-1');
+    assert.equal(!r.acquired && r.timed_out, false);
+  }
+  const other = await env.acquireLock({ resource: 'gpu', holder: 'D-2', weight: 3 });
+  assert.ok(other.acquired, 'the rest of the capacity is still free');
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.used, 4);
+  other.acquired && other.handle.release();
+  await killChild(child);
+  const taken = await env.acquireLock({ resource: 'gpu', holder: 'D-1', weight: 2 });
+  assert.ok(taken.acquired);
+  assert.equal(taken.acquired && taken.record.weight, 2, 'a new hold, not the dead one renewed');
+  env.releaseLock({ resource: 'gpu', holder: 'D-1' });
+});
+
+test("a second merge under the merge queue's holder name is refused while the first holds it", async () => {
+  const repoRoot = makeRepo();
+  const machineRoot = dir('machine');
+  const { env } = await makeEnv({ repoRoot, machineRoot });
+  const child = await holdInChild(
+    { machineRoot, repoRoot: real(repoRoot) },
+    { resource: 'merge-queue', holder: 'merge-queue' },
+  );
+  // As the orchestrator's merge asks for it.
+  const second = await env.acquireLock({
+    resource: 'merge-queue',
+    holder: 'merge-queue',
+    wait: false,
+  });
+  assert.equal(second.acquired, false, 'two merges never run at once');
+  assert.equal(!second.acquired && second.held_by?.holder, 'merge-queue');
+  assert.equal(!second.acquired && second.held_by?.pid, child.pid);
+  await killChild(child);
+  const next = await env.acquireLock({
+    resource: 'merge-queue',
+    holder: 'merge-queue',
+    wait: false,
+  });
+  assert.ok(next.acquired);
+  next.acquired && next.handle.release();
+});
+
+test('the process a lock follows is its identity: the same pid renews, another is refused', async () => {
+  const repoRoot = makeRepo();
+  const { env } = await makeEnv({ repoRoot });
+  // As the command line takes it: following the caller's parent, a process that outlives this ask.
+  const first = await env.acquireLock({
+    resource: 'benchmark',
+    holder: 'D-1',
+    pid: process.ppid,
+    autoRenew: false,
+  });
+  assert.ok(first.acquired);
+  const same = await env.acquireLock({
+    resource: 'benchmark',
+    holder: 'D-1',
+    pid: process.ppid,
+    autoRenew: false,
+  });
+  assert.equal(same.acquired && same.renewed, true);
+  const other = await env.acquireLock({ resource: 'benchmark', holder: 'D-1', autoRenew: false });
+  assert.equal(other.acquired, false);
+  assert.equal(!other.acquired && other.held_by?.pid, process.ppid);
+  assert.deepEqual(env.releaseLock({ resource: 'benchmark', holder: 'D-1' }), { released: true });
+});
+
 test('holders whose names differ only by case keep separate records', async () => {
   const repoRoot = makeRepo();
   const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
@@ -2276,6 +2481,24 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   const busy = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-8']);
   assert.equal(busy.code, 1);
   assert.equal(busy.json.held_by, 'D-7');
+  // Asking again as the holder, for the same process, renews; for another process it is refused.
+  const renewal = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7', '--wait']);
+  assert.equal(renewal.code, 0, renewal.out);
+  assert.equal(renewal.json.renewed, true);
+  const pid = String(process.pid);
+  const elsewhere = await hitld([
+    'env',
+    'lock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--pid',
+    pid,
+  ]);
+  assert.equal(elsewhere.code, 1);
+  assert.equal(elsewhere.json.held_by, 'D-7');
+  assert.match(elsewhere.json.message, /held by D-7 for another process \(pid \d+\)/);
 
   const status = await hitld(['env', 'status']);
   assert.equal(status.json.worktrees.length, 1);

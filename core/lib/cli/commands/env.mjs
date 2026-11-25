@@ -509,7 +509,7 @@ export const commands = [
         name: 'ttl-seconds',
         type: 'integer',
         description:
-          'Expiry if not renewed; default env.lock_expiry_seconds. Asking again as the holder renews',
+          'Expiry if not renewed; default env.lock_expiry_seconds. Asking again as the holder, with the same --pid while it holds, renews at once, even with others queued; another process under the same dispatch is refused',
       },
       {
         name: 'pid',
@@ -540,11 +540,15 @@ export const commands = [
             ...(r.record.weight === undefined ? {} : { weight: r.record.weight }),
             expires_at: r.record.expires_at,
             waited_ms: r.waited_ms,
+            renewed: r.renewed,
           }
         : {
             ok: false,
             error: r.timed_out ? 'lock-timeout' : 'lock-held',
-            message: `${input.resource} is held by ${r.held_by?.holder ?? 'someone else'}`,
+            message:
+              r.held_by?.holder === String(input.dispatch)
+                ? `${input.resource} is held by ${r.held_by.holder} for another process (pid ${r.held_by.pid}); a holder name is one process's, and its lock follows the --pid it was taken with`
+                : `${input.resource} is held by ${r.held_by?.holder ?? 'someone else'}`,
             held_by: r.held_by?.holder ?? null,
             waited_ms: r.waited_ms,
           };
