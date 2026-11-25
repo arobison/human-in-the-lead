@@ -7,7 +7,7 @@
 // a new turn and goes to `dispatch complete`, which records it and plans the refill.
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { mergeErrors as kbMergeErrors } from '../../kb/kb.mjs';
 import { loadPolicy } from '../../policy/policy.mjs';
@@ -3102,12 +3102,11 @@ const table = [
             });
           }
         }
-        const lock = env.settings.serialResources.includes('merge-queue')
-          ? await env.acquireLock({ resource: 'merge-queue', holder: 'merge-queue', wait: false })
-          : null;
-        if (lock && !lock.acquired) {
-          throw new Refusal('merge-busy', `the merge queue is held by ${lock.held_by?.holder}`);
-        }
+        // The merge queue's lock, under a name unique to this run (HITLD-1052): two merges never
+        // share one hold, and one's release never frees the other's. It is taken inside the `try`
+        // whose `finally` releases it, so no exit leaves it held; a signal releases it too.
+        /** @type {Awaited<ReturnType<typeof env.acquireLock>> | null} */
+        let lock = null;
         const scanners = /** @type {{ name: string }[]} */ (p.policy.merge.scanners);
         const security = securityGate({
           store: p.store,
@@ -3186,6 +3185,16 @@ const table = [
           };
         };
         try {
+          if (env.settings.serialResources.includes('merge-queue')) {
+            lock = await env.acquireLock({
+              resource: 'merge-queue',
+              holder: `merge-queue.${process.pid}.${randomBytes(3).toString('hex')}`,
+              wait: false,
+            });
+            if (!lock.acquired) {
+              throw new Refusal('merge-busy', `the merge queue is held by ${lock.held_by?.holder}`);
+            }
+          }
           if (viaPR) {
             return await pullRequestMerge({
               p,

@@ -25,8 +25,17 @@
 //    live weights fit; a weighted grant is confirmed against a single lock taken meanwhile by an
 //    older copy that does not take this critical section.
 //
-// A release, by a handle, removes only records written for the handle's process; by name (the
-// command line, the manager) it removes the name's records. Either is idempotent.
+// A holder is its name and its process: pid, start time and the machine's boot (HITLD-1052). Each
+// grant carries a random token, kept while the same process renews it. A holder whose process can
+// be seen alive and is the very one it was written for is never taken over when its expiry
+// passes: the expiry is the limit only for a holder whose liveness cannot be checked (another
+// host, or no start time to compare). A hung but live holder is ended by a forced release (the
+// command line's `env unlock --force`, or the watchdog's teardown), which is logged.
+//
+// A release by a handle removes only the record with its grant's token; by a process (the command
+// line), the name's records written for that process, and any that are stale; forced, the name's
+// records whoever holds them. Each is idempotent. Tickets carry their waiter's start time and
+// boot too, so a dead waiter whose pid was reused never holds the head of the queue.
 
 import { Buffer } from 'node:buffer';
 
@@ -36,6 +45,11 @@ export const PID_REUSE_CHECK_AFTER_MS = 10_000;
 export const UNREADABLE_GRACE_MS = 1_000;
 /** The slot of the single lock file; a weighted holder's slot is its hex-encoded name. */
 export const SINGLE = 'single';
+/**
+ * The record and ticket format this copy writes. Records and tickets without it were written by
+ * an older copy (rc.1, or rc.2 before HITLD-1052): they are still respected, and status flags them.
+ */
+export const LOCK_FORMAT = 2;
 
 /**
  * @typedef {object} LockRecord
@@ -48,6 +62,9 @@ export const SINGLE = 'single';
  * @property {string} renewed_at
  * @property {string} expires_at
  * @property {number} [weight] the units it holds of a resource with a capacity above 1
+ * @property {string} [token] the grant's random token, kept by renewals (absent in older records)
+ * @property {string | null} [boot] the machine's boot the holder's process belongs to
+ * @property {number} [v] LOCK_FORMAT; absent in a record an older copy wrote
  *
  * @typedef {object} Slot a record file as it was read
  * @property {string} slot SINGLE, or a weighted holder's hex-encoded name (its file's name)
@@ -59,6 +76,9 @@ export const SINGLE = 'single';
  * @property {number} n
  * @property {number} pid the waiting process
  * @property {string | null} [holder]
+ * @property {string | null} [pidStart] the waiting process's start time (absent in older tickets)
+ * @property {string | null} [boot] the machine's boot it belongs to
+ * @property {number} [v] LOCK_FORMAT; absent in a ticket an older copy wrote
  *
  * @typedef {Record<number, { alive: boolean, start?: string | null }>} Procs the processes the
  *   records and tickets name: alive, and the start time where staleReason will ask for it
@@ -69,6 +89,7 @@ export const SINGLE = 'single';
  * @property {number} capacity as the caller sees it: 1 takes the single lock, more a weighted hold
  * @property {number} now
  * @property {string} host
+ * @property {string | null} [boot] this machine's boot, when it can be read
  * @property {Slot | null} single
  * @property {Slot[]} holders
  * @property {Ticket[]} queue
@@ -77,12 +98,13 @@ export const SINGLE = 'single';
  * @typedef {{ holder: string, pid: number, pidStart: string | null }} Who
  *
  * @typedef {{ type: 'ask', holder: string, pid: number, pidStart: string | null, self: number,
- *     weight: number, wait: boolean, ticket: string | null, ttlMs: number, nonce: string }
+ *     selfStart?: string | null, weight: number, wait: boolean, ticket: string | null,
+ *     ttlMs: number, nonce: string, token: string }
  *   | { type: 'confirm', holder: string, pid: number, pidStart: string | null, wait: boolean,
  *     ticket: string | null }
- *   | { type: 'renew', holder: string, pid: number, pidStart: string | null, ttlMs: number,
- *     weight: number | null }
- *   | { type: 'release', holder: string, pid?: number, pidStart?: string | null }
+ *   | { type: 'renew', holder: string, token: string, ttlMs: number, weight: number | null }
+ *   | { type: 'release', holder: string, token?: string, pid?: number,
+ *     pidStart?: string | null, force?: boolean }
  *   | { type: 'leave', ticket: string }} LockEvent
  *
  * @typedef {{ op: 'create', slot: string, record: LockRecord }
@@ -99,7 +121,7 @@ export const SINGLE = 'single';
  *   | { kind: 'renewed', record: LockRecord }
  *   | { kind: 'lost' }
  *   | { kind: 'released' }
- *   | { kind: 'kept', held_by: string | null }
+ *   | { kind: 'kept', held_by: string | null, by?: LockRecord | null }
  *   | { kind: 'left' }} Outcome
  *
  * @typedef {{ outcome: Outcome, effects: Effect[] }} Decision
@@ -134,23 +156,34 @@ const byAcquired = (a, b) => at(a.record) - at(b.record);
 const at = (r) => (r ? Date.parse(r.acquired_at) || 0 : 0);
 
 /**
- * The pids whose start time staleReason will ask for: records on this host, with a start time,
- * that have not been renewed lately. Looking one up costs a process, so only these are.
- * @param {(LockRecord | null | undefined)[]} records @param {number} now @param {string} host
+ * Whether a record is plainly its holder's without looking further: renewed lately and not past
+ * its expiry. A record that is not has its holder's start time compared.
+ * @param {LockRecord} r @param {number} now
  */
-export function startsWanted(records, now, host) {
+const fresh = (r, now) =>
+  Date.parse(r.expires_at) >= now && now - Date.parse(r.renewed_at) <= PID_REUSE_CHECK_AFTER_MS;
+
+/**
+ * The pids whose start time staleReason and ticketGone will ask for: records on this host, with
+ * a start time, that are not fresh, and waiters whose tickets carry one. A lookup may cost a
+ * process, so only these are looked up (and the shell caches them).
+ * @param {(LockRecord | null | undefined)[]} records @param {number} now @param {string} host
+ * @param {Ticket[]} [queue]
+ */
+export function startsWanted(records, now, host, queue = []) {
   /** @type {number[]} */
   const pids = [];
   for (const r of records) {
     if (!r || r.host !== host || !r.pid_start) continue;
-    if (now - Date.parse(r.renewed_at) > PID_REUSE_CHECK_AFTER_MS) pids.push(r.pid);
+    if (!fresh(r, now)) pids.push(r.pid);
   }
-  return pids;
+  for (const t of queue) if (t.pidStart) pids.push(t.pid);
+  return [...new Set(pids)];
 }
 
 /**
  * Whether a record can be taken over, and why; null while it is live.
- * @param {Slot} slot @param {{ now: number, host: string, procs: Procs }} s
+ * @param {Slot} slot @param {{ now: number, host: string, boot?: string | null, procs: Procs }} s
  * @returns {string | null}
  */
 export function staleReason(slot, s) {
@@ -160,35 +193,57 @@ export function staleReason(slot, s) {
     // more than the grace makes it stale at once; a half-written file lasts microseconds.
     return Math.abs(s.now - slot.mtime) > UNREADABLE_GRACE_MS ? 'its record is unreadable' : null;
   }
-  if (record.host !== s.host) return Date.parse(record.expires_at) < s.now ? 'it expired' : null;
+  const expired = Date.parse(record.expires_at) < s.now;
+  // On another host its process cannot be looked at: the expiry is all there is.
+  if (record.host !== s.host) return expired ? 'it expired (its holder is on another host)' : null;
+  if (record.boot && s.boot && record.boot !== s.boot) {
+    return 'the machine restarted since it was taken';
+  }
   const proc = s.procs[record.pid];
   if (!proc?.alive) return `its holder's process ${record.pid} is gone`;
-  if (record.pid_start && s.now - Date.parse(record.renewed_at) > PID_REUSE_CHECK_AFTER_MS) {
-    if (proc.start && proc.start !== record.pid_start) {
-      return `process ${record.pid} is no longer the holder's (its ID was reused)`;
-    }
+  if (fresh(record, s.now)) return null;
+  // Its process is alive: when it can be told to be the very one, the hold stands, expired or not.
+  if (record.pid_start && proc.start) {
+    return proc.start === record.pid_start
+      ? null
+      : `process ${record.pid} is no longer the holder's (its ID was reused)`;
   }
-  if (Date.parse(record.expires_at) < s.now) return 'it expired without being renewed';
-  return null;
+  // No start time to compare: the expiry is the limit.
+  return expired
+    ? "it expired without being renewed, and its holder's liveness cannot be checked"
+    : null;
 }
 
 /**
- * Whether a record was written for the caller's process: the same pid on this host, with the same
- * start time when both are known (a pid alone may have been reused).
- * @param {LockRecord | null | undefined} record @param {{ pid: number, pidStart?: string | null }} who
- * @param {string} host
+ * Whether a waiter's ticket is dead: its process gone, from another boot, or a later process
+ * that reused its pid (when the ticket carries a start time and the process's can be read).
+ * @param {Ticket} t @param {{ boot?: string | null, procs: Procs }} s
  */
-export function sameProcess(record, who, host) {
-  if (!record || record.host !== host || record.pid !== who.pid) return false;
+export function ticketGone(t, s) {
+  const p = s.procs[t.pid];
+  if (!p?.alive) return true;
+  if (t.boot && s.boot && t.boot !== s.boot) return true;
+  return !!(t.pidStart && p.start && p.start !== t.pidStart);
+}
+
+/**
+ * Whether a record was written for the caller's process: the same pid on this host and boot, with
+ * the same start time when both are known (a pid alone may have been reused).
+ * @param {LockRecord | null | undefined} record @param {{ pid: number, pidStart?: string | null }} who
+ * @param {{ host: string, boot?: string | null }} s
+ */
+export function sameProcess(record, who, s) {
+  if (!record || record.host !== s.host || record.pid !== who.pid) return false;
+  if (record.boot && s.boot && record.boot !== s.boot) return false;
   return !record.pid_start || !who.pidStart || who.pidStart === record.pid_start;
 }
 
 /**
- * @param {LockState} s @param {Who} who @param {number} ttlMs @param {string} [acquiredAt]
- * @param {number} [weight]
+ * @param {LockState} s @param {Who} who @param {number} ttlMs @param {string} token
+ * @param {string} [acquiredAt] @param {number} [weight]
  * @returns {LockRecord}
  */
-export function newRecord(s, who, ttlMs, acquiredAt, weight) {
+export function newRecord(s, who, ttlMs, token, acquiredAt, weight) {
   const now = new Date(s.now).toISOString();
   /** @type {LockRecord} */
   const record = {
@@ -202,6 +257,9 @@ export function newRecord(s, who, ttlMs, acquiredAt, weight) {
     expires_at: new Date(s.now + ttlMs).toISOString(),
   };
   if (weight !== undefined) record.weight = weight;
+  record.token = token;
+  record.boot = s.boot ?? null;
+  record.v = LOCK_FORMAT;
   return record;
 }
 
@@ -253,12 +311,13 @@ function ask(s, e) {
   /** @type {Effect[]} */
   const effects = [];
   const mine = (/** @type {Slot | null | undefined} */ sl) =>
-    !!sl?.record && sl.record.holder === who.holder && sameProcess(sl.record, who, s.host);
+    !!sl?.record && sl.record.holder === who.holder && sameProcess(sl.record, who, s);
   const stale = (/** @type {Slot} */ sl) => staleReason(sl, s);
 
-  // The queue as it stands: dead waiters' tickets go, whoever finds them.
+  // The queue as it stands: dead waiters' tickets go, whoever finds them, and so do those of
+  // processes that reused a dead waiter's pid.
   const queue = [...s.queue].sort(byNumber);
-  const live = queue.filter((t) => s.procs[t.pid]?.alive);
+  const live = queue.filter((t) => !ticketGone(t, s));
   for (const t of queue) if (!live.includes(t)) effects.push({ op: 'dequeue', name: t.name });
   let ticket = e.ticket !== null && live.some((t) => t.name === e.ticket) ? e.ticket : null;
   const drop = () => {
@@ -279,6 +338,7 @@ function ask(s, e) {
       s,
       who,
       e.ttlMs,
+      sl.record.token ?? e.token,
       sl.record.acquired_at,
       sl.slot === SINGLE ? undefined : weightOf(sl.record),
     );
@@ -291,7 +351,15 @@ function ask(s, e) {
   if (e.wait && !ticket) {
     const n = nextTicket(queue, s.now);
     /** @type {Ticket} */
-    const t = { name: ticketName(n, e.nonce, e.self), n, pid: e.self, holder: who.holder };
+    const t = {
+      name: ticketName(n, e.nonce, e.self),
+      n,
+      pid: e.self,
+      holder: who.holder,
+      pidStart: e.selfStart ?? null,
+      boot: s.boot ?? null,
+      v: LOCK_FORMAT,
+    };
     effects.push({ op: 'enqueue', ticket: t });
     live.push(t);
     ticket = t.name;
@@ -360,17 +428,18 @@ function attemptSerial(s, e, who, mine, stale) {
   if (others.length) return { outcome: refused(others[0].record), effects: [] };
   const cur = s.single;
   if (!cur) {
-    const record = newRecord(s, who, e.ttlMs);
+    const record = newRecord(s, who, e.ttlMs, e.token);
     return { outcome: granted(record, false), effects: [{ op: 'create', slot: SINGLE, record }] };
   }
   if (mine(cur)) {
     // Its own record, lapsed (a live one was renewed before the queue): renewed at its turn.
-    const record = newRecord(s, who, e.ttlMs, /** @type {LockRecord} */ (cur.record).acquired_at);
+    const own = /** @type {LockRecord} */ (cur.record);
+    const record = newRecord(s, who, e.ttlMs, own.token ?? e.token, own.acquired_at);
     return { outcome: granted(record, true), effects: [{ op: 'write', slot: SINGLE, record }] };
   }
   const reason = stale(cur);
   if (!reason) return { outcome: refused(cur.record), effects: [] };
-  const record = newRecord(s, who, e.ttlMs);
+  const record = newRecord(s, who, e.ttlMs, e.token);
   return {
     outcome: granted(record, false),
     effects: [
@@ -414,12 +483,14 @@ function attemptWeighted(s, e, who, mine, stale) {
   const namesake = live.find((h) => h.record?.holder === who.holder);
   if (namesake) return { outcome: refused(namesake.record), effects };
   if (own) {
+    const prior = /** @type {LockRecord} */ (own.record);
     const record = newRecord(
       s,
       who,
       e.ttlMs,
-      /** @type {LockRecord} */ (own.record).acquired_at,
-      weightOf(own.record),
+      prior.token ?? e.token,
+      prior.acquired_at,
+      weightOf(prior),
     );
     effects.push({ op: 'write', slot: own.slot, record });
     return { outcome: granted(record, true), effects };
@@ -428,7 +499,7 @@ function attemptWeighted(s, e, who, mine, stale) {
     const by = singleLive ? (s.single?.record ?? null) : (live[0]?.record ?? null);
     return { outcome: refused(by), effects };
   }
-  const record = newRecord(s, who, e.ttlMs, undefined, e.weight);
+  const record = newRecord(s, who, e.ttlMs, e.token, undefined, e.weight);
   effects.push({ op: 'write', slot: holderSlot(who.holder), record });
   return { outcome: granted(record, false, true), effects };
 }
@@ -447,7 +518,7 @@ function confirm(s, e) {
   const single = s.single;
   const foreign =
     !!single &&
-    !(single.record?.holder === e.holder && sameProcess(single.record, who, s.host)) &&
+    !(single.record?.holder === e.holder && sameProcess(single.record, who, s)) &&
     !staleReason(single, s);
   if (!foreign && slot?.record) {
     return {
@@ -457,7 +528,7 @@ function confirm(s, e) {
   }
   /** @type {Effect[]} */
   const effects =
-    slot && sameProcess(slot.record, who, s.host) ? [{ op: 'remove', slot: slot.slot }] : [];
+    slot && sameProcess(slot.record, who, s) ? [{ op: 'remove', slot: slot.slot }] : [];
   const held = single?.record ?? null;
   if (e.wait && ticketed) {
     return {
@@ -475,19 +546,19 @@ function confirm(s, e) {
 }
 
 /**
- * A handle's renewal (its timer, or a call): only its own record, written for its process. One
- * another process took over, under the same name or not, is not this hold, and is left alone.
+ * A handle's renewal (its timer, or a call): only the record with its grant's token. One another
+ * process took over, under the same name or not, carries another token and is left alone.
  * @param {LockState} s @param {Extract<LockEvent, { type: 'renew' }>} e @returns {Decision}
  */
 function renew(s, e) {
-  const who = { holder: e.holder, pid: e.pid, pidStart: e.pidStart };
   const slot =
     e.weight === null ? s.single : s.holders.find((h) => h.slot === holderSlot(e.holder));
   const cur = slot?.record;
-  if (!slot || !cur || cur.holder !== e.holder || !sameProcess(cur, who, s.host)) {
+  if (!slot || !cur || cur.holder !== e.holder || cur.token !== e.token) {
     return { outcome: { kind: 'lost' }, effects: [] };
   }
-  const record = newRecord(s, who, e.ttlMs, cur.acquired_at, e.weight ?? undefined);
+  const who = { holder: cur.holder, pid: cur.pid, pidStart: cur.pid_start };
+  const record = newRecord(s, who, e.ttlMs, e.token, cur.acquired_at, e.weight ?? undefined);
   return {
     outcome: { kind: 'renewed', record },
     effects: [{ op: 'write', slot: slot.slot, record }],
@@ -495,31 +566,60 @@ function renew(s, e) {
 }
 
 /**
- * A release. With a process (a handle's), only records written for that process go; without (by
- * name, from the command line or the manager), the name's records go. Asking again removes nothing.
+ * A release, matched inside the critical section and idempotent. By a token (a handle's), only the
+ * record with that token goes. By a process (the command line's, without force), the name's
+ * records written for that process go, and any that are stale; one a live process of another
+ * identity holds stays, and is named (`by`). Forced (the command line's `--force`, the
+ * watchdog's teardown), the name's records go whoever holds them, logged as `lock_forced`.
  * @param {LockState} s @param {Extract<LockEvent, { type: 'release' }>} e @returns {Decision}
  */
 function release(s, e) {
-  const byProcess = e.pid !== undefined;
-  const who = { pid: /** @type {number} */ (e.pid), pidStart: e.pidStart ?? null };
-  const matches = (/** @type {Slot | null | undefined} */ sl) =>
-    !!sl?.record &&
-    sl.record.holder === e.holder &&
-    (!byProcess || sameProcess(sl.record, who, s.host));
   const own = s.holders.find((h) => h.slot === holderSlot(e.holder));
+  const named = /** @type {Slot[]} */ (
+    [own, s.single].filter((sl) => !!sl?.record && sl.record.holder === e.holder)
+  );
+  /** @type {Slot[]} */
+  let gone;
+  if (e.token !== undefined) gone = named.filter((sl) => sl.record?.token === e.token);
+  else if (e.force) gone = named;
+  else {
+    const who = { pid: /** @type {number} */ (e.pid), pidStart: e.pidStart ?? null };
+    gone = named.filter(
+      (sl) => (e.pid !== undefined && sameProcess(sl.record, who, s)) || !!staleReason(sl, s),
+    );
+  }
   /** @type {Effect[]} */
-  const effects = [];
-  for (const sl of [own, s.single])
-    if (sl && matches(sl)) effects.push({ op: 'remove', slot: sl.slot });
-  if (effects.length) {
-    effects.push({
-      op: 'log',
-      kind: 'lock_released',
-      data: { resource: s.resource, holder: e.holder },
-    });
+  const effects = gone.map((sl) => ({ op: /** @type {const} */ ('remove'), slot: sl.slot }));
+  if (gone.length) {
+    const live = gone.filter((sl) => !staleReason(sl, s));
+    effects.push(
+      e.force && live.length
+        ? {
+            op: 'log',
+            kind: 'lock_forced',
+            data: {
+              resource: s.resource,
+              holder: e.holder,
+              holders: live.map((sl) => {
+                const r = /** @type {LockRecord} */ (sl.record);
+                return {
+                  pid: r.pid,
+                  pid_start: r.pid_start,
+                  host: r.host,
+                  renewed_at: r.renewed_at,
+                };
+              }),
+            },
+          }
+        : { op: 'log', kind: 'lock_released', data: { resource: s.resource, holder: e.holder } },
+    );
     return { outcome: { kind: 'released' }, effects };
   }
-  return { outcome: { kind: 'kept', held_by: s.single?.record?.holder ?? null }, effects };
+  const by = named.find((sl) => !gone.includes(sl))?.record ?? null;
+  return {
+    outcome: { kind: 'kept', held_by: by?.holder ?? s.single?.record?.holder ?? null, by },
+    effects,
+  };
 }
 
 /**

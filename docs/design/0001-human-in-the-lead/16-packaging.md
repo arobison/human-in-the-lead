@@ -137,6 +137,7 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `lease-host-mismatch`: This session holds the run lease, but on another host than the call gives; the lease is not lost.
 - `lease-released`: This session released the run lease, so it can no longer record.
 - `lock-held`: A named resource lock is held by someone else.
+- `lock-held-elsewhere`: The holder name holds the lock for another live process: release it with that --pid, or end it with --force.
 - `lock-timeout`: A named resource lock was not free before the wait ended.
 
 **Quotas**

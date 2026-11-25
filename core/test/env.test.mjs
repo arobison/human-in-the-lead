@@ -1251,9 +1251,29 @@ test('a lock whose holder process is gone is taken over; a live holder is not', 
   env.releaseLock({ resource: 'gpu', holder: 'D-NEW' });
 });
 
-test('a lock past its expiry without renewal is stale; renewing keeps it', async (t) => {
+/**
+ * Make the lock records under a machine directory ones whose holder's liveness cannot be checked:
+ * no start time, as a copy that could not read it writes them. Their expiry is then the limit.
+ * @param {string} machineRoot
+ */
+function withoutStartTimes(machineRoot) {
+  const locks = join(machineRoot, 'locks');
+  const files = readdirSync(locks).flatMap((n) =>
+    n.endsWith('.lock')
+      ? [join(locks, n)]
+      : n.endsWith('.holders')
+        ? readdirSync(join(locks, n)).map((h) => join(locks, n, h))
+        : [],
+  );
+  for (const f of files) {
+    const r = JSON.parse(readFileSync(f, 'utf8'));
+    writeFileSync(f, JSON.stringify({ ...r, pid_start: null }) + '\n');
+  }
+}
+
+test('a live holder past its expiry keeps its lock; one whose liveness cannot be checked is stale past it', async (t) => {
   const repoRoot = makeRepo();
-  const { env } = await makeEnv({ repoRoot });
+  const { env, machineRoot } = await makeEnv({ repoRoot });
   // Only Date is mocked: the lock reads the clock, and its expiry passes without a real wait.
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const a = await env.acquireLock({
@@ -1264,6 +1284,15 @@ test('a lock past its expiry without renewal is stale; renewing keeps it', async
   });
   assert.ok(a.acquired);
   t.mock.timers.tick(1200);
+  // Its process is this one, alive, and its start time says it is the very one: the clock never
+  // revokes it (HITLD-1052), and another caller is refused, past the pid-reuse window too.
+  assert.equal(env.lockStatus().find((l) => l.resource === 'benchmark')?.stale, null);
+  t.mock.timers.tick(20_000);
+  assert.equal(env.lockStatus().find((l) => l.resource === 'benchmark')?.stale, null);
+  const other = await env.acquireLock({ resource: 'benchmark', holder: 'D-2', autoRenew: false });
+  assert.equal(other.acquired, false);
+  // Without a start time to compare, the expiry is the limit.
+  withoutStartTimes(machineRoot);
   assert.match(String(env.lockStatus().find((l) => l.resource === 'benchmark')?.stale), /expired/);
   // the same holder asking again renews, so it is no longer stale
   const again = await env.acquireLock({ resource: 'benchmark', holder: 'D-1', ttlSeconds: 60 });
@@ -1402,6 +1431,8 @@ test('a weighted holder whose process is gone, or that expired, is taken over', 
   });
   assert.ok(a.acquired);
   t.mock.timers.tick(1200);
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.stale, null, 'a live holder');
+  withoutStartTimes(machineRoot);
   assert.match(String(env.lockStatus().find((l) => l.resource === 'gpu')?.stale), /expired/);
   const again = await env.acquireLock({ resource: 'gpu', holder: 'D-1', ttlSeconds: 60 });
   assert.ok(again.acquired, 'asking again as the holder renews');
@@ -1490,7 +1521,13 @@ async function askAgainWhileOthersWait(o) {
     .events()
     .findLast((e) => e.kind === 'lock_acquired' && e.holder === 'D-A');
   assert.equal(renewedEvent?.renewed, true);
-  a.handle.release();
+  // The two requests share one grant (HITLD-1052): one handle's release leaves the other's hold.
+  assert.equal(again.acquired && again.handle.token, a.handle.token, 'the same grant');
+  assert.ok(a.handle.release());
+  assert.equal(a.handle.release(), false, 'a second release of one handle gives up nothing');
+  assert.equal(gpu()?.held_by, 'D-A', "the other handle's hold stays");
+  assert.deepEqual(gpu()?.waiting, ['D-B']);
+  assert.ok(again.acquired && again.handle.release());
   const got = await b;
   assert.ok(got.acquired, 'B takes it once A releases');
   assert.equal(got.acquired && got.renewed, false);
@@ -1649,7 +1686,15 @@ test('the process a lock follows is its identity: the same pid renews, another i
   const other = await env.acquireLock({ resource: 'benchmark', holder: 'D-1', autoRenew: false });
   assert.equal(other.acquired, false);
   assert.equal(!other.acquired && other.held_by?.pid, process.ppid);
-  assert.deepEqual(env.releaseLock({ resource: 'benchmark', holder: 'D-1' }), { released: true });
+  // Released by name for another process: left alone, and that process named; for its own, gone.
+  assert.deepEqual(env.releaseLock({ resource: 'benchmark', holder: 'D-1' }), {
+    released: false,
+    held_by: 'D-1',
+    pid: process.ppid,
+  });
+  assert.deepEqual(env.releaseLock({ resource: 'benchmark', holder: 'D-1', pid: process.ppid }), {
+    released: true,
+  });
 });
 
 test('holders whose names differ only by case keep separate records', async () => {
@@ -1667,10 +1712,12 @@ test('holders whose names differ only by case keep separate records', async () =
 
 test('status names a live holder when the oldest weighted one is stale, so the planner waits', async (t) => {
   const repoRoot = makeRepo();
-  const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
+  const { env, machineRoot } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const old = { resource: 'gpu', holder: 'D-1', ttlSeconds: 1, autoRenew: false };
   assert.ok((await env.acquireLock(old)).acquired);
+  // D-1's liveness cannot be checked, so its expiry is its limit.
+  withoutStartTimes(machineRoot);
   t.mock.timers.tick(10);
   const live = { resource: 'gpu', holder: 'D-2', ttlSeconds: 60, autoRenew: false };
   assert.ok((await env.acquireLock(live)).acquired);

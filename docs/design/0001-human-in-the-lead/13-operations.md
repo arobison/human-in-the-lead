@@ -142,6 +142,7 @@ The core records the ledger and the tracker, and never calls a harness ([part 15
 ### Locks on serial resources
 
 - Serial resources (a hardware device such as a GPU or an attached phone, benchmark runs, a shared test database, the merge queue) are locks with a holder, a queue in arrival order, and an expiry renewed while the holder is alive. Locks are machine-wide, except the merge queue's, which is per repository. Capacities and quiet-machine holds generalize them (13.4).
+- A holder is its name and its process (pid, start time and the machine's boot), and each grant carries a random token that its renewals and releases match. A holder whose process can be seen alive, and seen to be the very one, is never taken over by the clock: the expiry (`env.lock_expiry_seconds`) is the limit only for a holder whose liveness cannot be checked (another host, or no start time). A hung but live holder is ended by a logged `hitld env unlock --force`, or by the watchdog when its dispatch ends. Tickets carry their waiter's start time, so a reused pid never holds the line; waiters back off from 50 ms to 1 s and wake early on changes to the locks directory (HITLD-1052).
 - The dispatch planner consults the locks, so an item needing a device is not started while another holds it.
 - Time spent waiting for a lock is recorded per resource; it is the sensor for serial-resource contention ([part 11](11-metrics-and-control.md#114-feedback-controllers)).
 

@@ -12,6 +12,7 @@ import { POLICY_PATH, findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { readPrimaryCheckout } from '../../env/primary.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
+import { outdatedCopies } from '../../env/locks.mjs';
 import {
   credentialLine,
   setupSteps,
@@ -196,6 +197,29 @@ const withEnv = (body) => (input, ctx) => {
   if ('error' in opened) return opened.error;
   return body(input, opened.env, ctx, opened.cwd);
 };
+
+/**
+ * What `env status` says about the locks: each resource's holders and waiters (identity, age,
+ * last renewal, wait), and, when any record or ticket was written by an older copy (no format
+ * marker), a warning naming the copies on PATH that write that format: they keep its failures
+ * (a live holder taken over at its expiry), so every copy should be upgraded (HITLD-1052).
+ * @param {ReturnType<ReturnType<typeof openEnv>['lockStatus']>} locks @param {NodeJS.ProcessEnv} env
+ */
+function lockReport(locks, env) {
+  const legacy = locks.filter((l) => l.legacy);
+  if (!legacy.length) return { locks };
+  const copies = outdatedCopies(env.PATH ?? '');
+  const where = legacy.map((l) => l.resource).join(', ');
+  return {
+    locks,
+    outdated_copies: copies,
+    warnings: [
+      copies.length
+        ? `${where}: records or tickets written by an older copy; upgrade ${copies.map((c) => `${c.path}${c.version ? ` (${c.version})` : ''}`).join(', ')}`
+        : `${where}: records or tickets written by an older copy, not on this PATH; upgrade every copy that shares this machine`,
+    ],
+  };
+}
 
 /**
  * What `env status` says about the credential detached executors run on (HITLD-880): which one,
@@ -509,13 +533,13 @@ export const commands = [
         name: 'ttl-seconds',
         type: 'integer',
         description:
-          'Expiry if not renewed; default env.lock_expiry_seconds. Asking again as the holder, with the same --pid while it holds, renews at once, even with others queued; another process under the same dispatch is refused',
+          'The limit for a holder whose liveness cannot be checked (another host, or no start time); default env.lock_expiry_seconds. A holder whose process is alive and is the very one keeps the lock past it. Asking again as the holder, with the same --pid while it holds, renews at once (renewed: true), even with others queued; another process under the same dispatch is refused',
       },
       {
         name: 'pid',
         type: 'integer',
         description:
-          "The process whose life the lock follows; default the caller's parent. The lock is stale once it is gone",
+          "The process whose life the lock follows; default the caller's parent. The lock is stale once it is gone (or its ID is reused, or the machine restarts). While waiting, an interrupt removes this caller's place in the line",
       },
     ],
     run: withEnv(async (input, env) => {
@@ -539,6 +563,8 @@ export const commands = [
             holder: r.record.holder,
             ...(r.record.weight === undefined ? {} : { weight: r.record.weight }),
             expires_at: r.record.expires_at,
+            renewed: r.renewed,
+            pid: r.record.pid,
             waited_ms: r.waited_ms,
           }
         : {
@@ -555,7 +581,8 @@ export const commands = [
   },
   {
     name: 'env unlock',
-    summary: 'Release a lock the holder has',
+    summary:
+      "Release a lock the holder has: the one taken for --pid (default the caller's parent, as env lock takes it), or, with --force, whoever's it is (logged)",
     built_by: 'c',
     args: [
       { name: 'resource', type: 'string', required: true, description: 'The resource' },
@@ -565,13 +592,36 @@ export const commands = [
         required: true,
         description: 'The dispatch ID that holds it',
       },
+      {
+        name: 'pid',
+        type: 'integer',
+        description:
+          "The process the lock was taken for (env lock's --pid); default the caller's parent. A hold under the dispatch that another live process has is left alone without --force",
+      },
+      {
+        name: 'force',
+        type: 'boolean',
+        description:
+          "Remove the dispatch's hold whatever process has it, even a live one that hangs. Logged as lock_forced, with the holder's identity",
+      },
     ],
     run: withEnv((input, env) => {
+      const resource = String(input.resource);
+      const holder = String(input.dispatch);
       const r = env.releaseLock({
-        resource: String(input.resource),
-        holder: String(input.dispatch),
+        resource,
+        holder,
+        ...(input.force === true
+          ? { force: true }
+          : { pid: typeof input.pid === 'number' ? input.pid : process.ppid }),
       });
-      return { ok: r.released, ...r };
+      if (r.released || r.pid === undefined) return { ok: r.released, ...r };
+      return {
+        ok: false,
+        ...r,
+        error: 'lock-held-elsewhere',
+        message: `${resource} is held by ${holder} for another live process (pid ${r.pid}); give that process with --pid, or end its hold with --force`,
+      };
     }),
   },
   {
@@ -584,13 +634,22 @@ export const commands = [
       if ('error' in opened) return opened.error;
       const { env } = opened;
       const registry = env.registry();
+      const locks = lockReport(env.lockStatus(), ctx.env);
+      const credential = credentialStatus(
+        opened.storeRoot,
+        ctx.env,
+        (ctx.now ?? (() => new Date()))().getTime(),
+      );
+      const warnings = [...(credential.warnings ?? []), ...(locks.warnings ?? [])];
       return {
         ok: true,
         worktrees: Object.values(registry.worktrees),
         ports: Object.values(registry.ports),
-        locks: env.lockStatus(),
+        locks: locks.locks,
+        ...(locks.outdated_copies ? { outdated_copies: locks.outdated_copies } : {}),
         lock_waits: env.lockWaits(),
-        ...credentialStatus(opened.storeRoot, ctx.env, (ctx.now ?? (() => new Date()))().getTime()),
+        ...credential,
+        ...(warnings.length ? { warnings } : {}),
       };
     },
   },

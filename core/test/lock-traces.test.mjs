@@ -84,7 +84,7 @@ const duringChild = (machineRoot, dir, steps, actors) => `
   for (const s of steps) {
     const a = actors.find((x) => x.id === s.actor);
     if (s.do === 'releaseByName') {
-      results.push(releaseLock(ctx, { resource: s.r, holder: a.name }).released ? 'released' : 'kept');
+      results.push(releaseLock(ctx, { resource: s.r, holder: a.name, force: true }).released ? 'released' : 'kept');
     } else {
       const r = await acquireLock(ctx, { resource: s.r, holder: a.name, pid: process.pid, autoRenew: false });
       results.push(r.acquired ? (r.renewed ? 'renewed' : 'granted') : r.held_by?.holder === a.name ? 'conflict' : 'refused');
@@ -131,7 +131,10 @@ async function runTraceOnDisk(t, tc) {
   const pidOf = (/** @type {string} */ id) => /** @type {number} */ (procs.get(id)?.pid);
   /** @param {string} id @param {Awaited<ReturnType<typeof acquireLock>>} r */
   const record = (id, r) => {
-    if (r.acquired) handles.set(id, { handle: r.handle });
+    // An actor holds one handle, as in the model: a renewal's handle shares the grant (HITLD-1052),
+    // so it is given back at once and the first one kept.
+    if (r.acquired && r.renewed && handles.has(id)) r.handle.release();
+    else if (r.acquired) handles.set(id, { handle: r.handle });
     return resultOf(r, actor(id).name);
   };
   /** Wait for a pending ask to end, up to `ms`; null while it still waits. @param {string} id @param {number} ms */
@@ -191,11 +194,13 @@ async function runTraceOnDisk(t, tc) {
       }
     } else if (s.do === 'poll') result = (await settle(s.actor, 1000)) ?? 'queued';
     else if (s.do === 'release') {
+      // A handle released twice: the second time removes nothing (and says so).
       const h = handles.get(s.actor);
-      handles.delete(s.actor);
       result = h?.handle.release() ? 'released' : 'kept';
     } else if (s.do === 'releaseByName') {
-      result = releaseLock(ctx, { resource: s.r, holder: actor(s.actor).name }).released
+      // Forced, as the command line's --force and the watchdog release a holder by name.
+      result = releaseLock(ctx, { resource: s.r, holder: actor(s.actor).name, force: true })
+        .released
         ? 'released'
         : 'kept';
     } else throw new Error(`no file-system step for ${s.do}`);
@@ -258,7 +263,7 @@ function armHook(lockPath, signals) {
   return { armed: () => armed, disarm };
 }
 
-for (const t of TRACES) {
+for (const t of TRACES.filter((x) => !x.modelOnly)) {
   test(`trace on disk: ${t.name}`, async (tc) => {
     const want = expected(t);
     const model = runTraceInModel(t);

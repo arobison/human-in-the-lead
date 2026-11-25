@@ -29,7 +29,8 @@ import {
 
 /**
  * Three actors: a and b share a holder name from two processes (as the merge queue's callers
- * do), c is heavier. r0 is taken whole (the single lock); r1 has a capacity of 2. Each actor
+ * did before HITLD-1052), c is heavier, and its start time cannot be read, so its liveness cannot
+ * be checked and its expiry is the limit (a and b, whose can, are never revoked by the clock). r0 is taken whole (the single lock); r1 has a capacity of 2. Each actor
  * works on one resource at a time: ordering several resources is left to rc.3 (acquireAll).
  * @type {Model}
  */
@@ -37,7 +38,7 @@ const MODEL = {
   actors: [
     { id: 'a', name: 'D-X', pid: 101, weight: 1 },
     { id: 'b', name: 'D-X', pid: 102, weight: 1 },
-    { id: 'c', name: 'D-Y', pid: 103, weight: 2 },
+    { id: 'c', name: 'D-Y', pid: 103, weight: 2, noStart: true },
   ],
   capacity: { r0: 1, r1: 2 },
   ttlMs: 12_000,
@@ -287,6 +288,7 @@ test("a waiter's first ask writes its ticket before its attempt, in one decision
     ticket: null,
     ttlMs: 60_000,
     nonce: 'n',
+    token: 't',
   });
   assert.equal(d.outcome.kind, 'queued');
   assert.deepEqual(
