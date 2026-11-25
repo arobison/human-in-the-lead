@@ -313,12 +313,15 @@ export function releaseLease(store, options) {
 
 /**
  * The merges a session that handed over may still apply (HITLD-823): the branches its hand-over
- * named, while the lease it released is still free. Null when the session did not hand over, or a
- * successor holds the lease now (the successor merges them then).
+ * named, while the lease it released is still free, and for at most `windowSeconds` after the
+ * release (policy run.lease_expiry_seconds, default 1800: as long as a held lease lasts without a
+ * renewal). `open` is false once that window has closed: then the successor merges them. Null when
+ * the session did not hand over, or a successor holds the lease now.
  * @param {PrivateStore} store @param {{ session: string, host: string }} me
- * @returns {string[] | null}
+ * @param {{ windowSeconds?: number, now?: () => Date }} [o]
+ * @returns {{ branches: string[], until: string, open: boolean } | null}
  */
-export function handedOverMerges(store, me) {
+export function handedOverMerges(store, me, o = {}) {
   const { state } = loadState(store);
   if (!state) return null;
   const events = readLedger(store).events;
@@ -335,7 +338,13 @@ export function handedOverMerges(store, me) {
       e.session === me.session &&
       e.host === me.host,
   );
-  return Array.isArray(released?.branches) ? released.branches.map(String) : [];
+  const window = (o.windowSeconds ?? DEFAULTS.expirySeconds) * 1000;
+  const until = new Date(Date.parse(released?.at ?? l.released.at) + window);
+  return {
+    branches: Array.isArray(released?.branches) ? released.branches.map(String) : [],
+    until: until.toISOString(),
+    open: (o.now ?? (() => new Date()))().getTime() < until.getTime(),
+  };
 }
 
 /**
@@ -623,7 +632,7 @@ export function latestHandover(store, run) {
  */
 export function pendingMergesLine(pending) {
   const one = (/** @type {import('../merge/pending.mjs').PendingMerge} */ x) =>
-    `${x.item ?? x.branch} ${x.status}${x.url ? ` (${x.url})` : x.number ? ` (#${x.number})` : ` (${x.branch})`}`;
+    `${x.item ?? x.branch} ${x.status}${x.number ? ` (#${x.number})` : ` (${x.branch})`}`;
   return `Merges pending (${pending.length}): ${pending.map(one).join('; ') || 'none'}.`;
 }
 
