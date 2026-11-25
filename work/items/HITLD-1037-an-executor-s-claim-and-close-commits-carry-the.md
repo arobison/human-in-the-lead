@@ -1,11 +1,13 @@
 ---
 id: HITLD-1037
-title: An executor's claim and close commits carry the Agent-Role trailer the dco check needs, and the executor guard accepts a push chained with a fetch
+title: An executor's claim and close commits carry the Agent-Role trailer the dco check needs, and the executor guard's refusal of a push chained with a fetch says to run them as two commands
 kind: work
-state: planned
+state: done
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M88NWF6AKKD2D4
+release_note: "`hitld work claim` and `hitld work close` add an `Agent-Role: executor` trailer when `HITLD_ROLE` is `executor`, so an executor's claim and close commits need no amend; the executor guard's refusal of a push chained with other commands says to run them as two commands."
 ---
 
 ## Done when

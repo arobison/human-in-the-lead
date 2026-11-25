@@ -40,6 +40,9 @@ const hitldCalls = (text) =>
   [...text.matchAll(/\bhitld(?:\.mjs)?\b/g)].map((m) => text.slice(m.index + m[0].length));
 const PUSH_RULE =
   'executors push only their own claim branch, alone: git push -u origin <the hitld/ branch you are on>; never main, another branch, a tag, a delete, another remote, or with force';
+/** The executor's push, the whole line; its group is the branch. */
+const OWN_PUSH =
+  /^\s*git\s+push\s+(?:(?:-u|--set-upstream)\s+)?origin\s+(hitld\/[A-Za-z0-9._/-]+)\s*$/;
 /**
  * The one push an executor may make (HITLD-746, HITLD-791, HITLD-793): `git push [-u |
  * --set-upstream] origin hitld/<item>`, alone on the command line, where the branch is the one its
@@ -50,15 +53,29 @@ const PUSH_RULE =
  * @param {string} text the command @param {string} dir where it runs @returns {string | null}
  */
 const ownBranchPushRefusal = (text, dir) => {
-  const m =
-    /^\s*git\s+push\s+(?:(?:-u|--set-upstream)\s+)?origin\s+(hitld\/[A-Za-z0-9._/-]+)\s*$/.exec(
-      text,
-    );
-  if (!m) return PUSH_RULE;
+  const m = OWN_PUSH.exec(text);
+  if (!m) return chainedPushRefusal(text, dir) ?? PUSH_RULE;
   const branch = ownClaimBranch(dir);
   if (branch === null || m[1] !== branch) return PUSH_RULE;
   const problem = originPushProblem(dir);
   return problem && `${problem}; ${PUSH_RULE}`;
+};
+/**
+ * The refusal for the allowed push chained with other commands, such as `git fetch origin &&
+ * git push -u origin <own branch>` (HITLD-1037): still refused, since the whole line is matched,
+ * but the reason says to run the two as separate commands, so the executor does not lose a round
+ * guessing. Null when no part of the line is the executor's own push.
+ * @param {string} text @param {string} dir @returns {string | null}
+ */
+const chainedPushRefusal = (text, dir) => {
+  const parts = text.split(/&&|\|\||[;|\n]/);
+  if (parts.length < 2) return null;
+  const branch = ownClaimBranch(dir);
+  if (branch === null) return null;
+  const own = parts.some((p) => OWN_PUSH.exec(p)?.[1] === branch);
+  return own
+    ? `run the push as a command of its own, with nothing chained before or after it: run the other commands (such as git fetch) first, as a separate call, then git push -u origin ${branch} alone; ${PUSH_RULE}`
+    : null;
 };
 /** @type {string | null} */
 let why = null;

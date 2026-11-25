@@ -200,6 +200,40 @@ test('an executor may push its own claim branch, alone, and nothing else (HITLD-
   assert.equal(decide('git push -u origin hitld/W-1-fix', { cwd: root }), 'deny', 'detached');
 });
 
+test('a fetch chained with the own branch push is refused with a reason that says to run them as two commands (HITLD-1037)', () => {
+  const root = repo();
+  withOrigin(root);
+  /** @param {string} command */
+  const reason = (command) => {
+    const out = hook('guard.mjs', { tool_name: 'Bash', tool_input: { command }, cwd: root });
+    const o = out.stdout ? JSON.parse(out.stdout).hookSpecificOutput : {};
+    assert.equal(o.permissionDecision, 'deny', command);
+    return String(o.permissionDecisionReason);
+  };
+  for (const chained of [
+    'git fetch origin main && git push -u origin hitld/W-1-fix',
+    'git fetch origin; git push origin hitld/W-1-fix',
+    'git push -u origin hitld/W-1-fix && git fetch origin',
+    'git fetch origin\ngit push --set-upstream origin hitld/W-1-fix',
+  ]) {
+    const why = reason(chained);
+    assert.match(why, /as a command of its own/, chained);
+    assert.match(why, /git push -u origin hitld\/W-1-fix alone/, chained);
+  }
+  // Anything chained with another branch's push, or a push that is not the own one, gets the
+  // plain rule: the hint names only the push the executor may make.
+  for (const other of [
+    'git fetch origin && git push origin hitld/W-2-other',
+    'git fetch origin && git push origin main',
+    'git fetch origin && git push -f origin hitld/W-1-fix',
+  ]) {
+    assert.doesNotMatch(reason(other), /as a command of its own/, other);
+  }
+  // The two commands, run apart, are what the hint asks for: the push alone goes.
+  assert.equal(decide('git fetch origin main', { cwd: root }), '');
+  assert.equal(decide('git push -u origin hitld/W-1-fix', { cwd: root }), '');
+});
+
 test('the claim branch push goes only to the project remote, and every other push is refused (HITLD-791, HITLD-793)', () => {
   const root = repo();
   const url = withOrigin(root);

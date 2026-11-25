@@ -31,7 +31,7 @@ import { mainMismatches } from './closing.mjs';
 import { descriptionWarnings } from './descriptions.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { LEVELS, checkTree, problemLines } from '../../guard/classification.mjs';
-import { writeStored } from './edit.mjs';
+import { versionOf, writeStored } from './edit.mjs';
 import {
   createExclusive,
   insidePath,
@@ -118,6 +118,8 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean, report?: string }) => ReturnType<typeof closeItem>} close
+ * @property {(id: string, note: string, expectedVersion?: string) => { path: string, version: string }} appendNote append a
+ *   note to an entity's body, its front matter untouched (a later sighting of the cause it tracks)
  * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[], consistency?: boolean }) => { problems: string[], files: number, warnings: string[], consistency?: Consistency }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
@@ -610,7 +612,7 @@ export function openTracker({
     },
 
     claim: (id, claimant, branch, budgetTokens) =>
-      claimItem(root, layout, id, claimant, { branch, budgetTokens }),
+      claimItem(root, layout, id, claimant, { branch, budgetTokens, env }),
 
     history(id) {
       const it = mustFind(id);
@@ -784,6 +786,44 @@ export function openTracker({
     /** Claims read from branches. */
     claims,
 
+    /**
+     * Append a note to an entity's body (HITLD-387: a later sighting of the cause it tracks),
+     * leaving its front matter and the rest of its text as they are.
+     * Like creating one, it is the orchestrator's and the chief of staff's, on the main branch.
+     * `expectedVersion` refuses a write over a change not seen (two appends at once); an item an
+     * executor has claimed (in progress with claimed_by, or claimed on a branch) is refused, since
+     * its branch owns the file until it closes.
+     * @param {string} id @param {string} note Markdown, starting with its own heading
+     * @param {string} [expectedVersion] the version the caller read
+     * @returns {{ path: string, version: string }}
+     */
+    appendNote(id, note, expectedVersion) {
+      assertOrchestrator(root, layout, env);
+      const it = mustFind(id);
+      if (expectedVersion !== undefined && it.version !== expectedVersion) {
+        throw new CodedError(
+          'item-changed',
+          `${id} changed since it was read (version ${it.version}, expected ${expectedVersion}); read it again`,
+        );
+      }
+      // A claimed_by key counts only while the item is in progress: one left behind on an item that
+      // went back to proposed or planned by hand, or on a done one, claims nothing.
+      const inProgress = it.data?.state === 'in-progress' ? it.data?.claimed_by : undefined;
+      const claim = inProgress ?? claims().find((c) => c.id === id)?.claims[0]?.claimant;
+      if (claim) {
+        throw new CodedError(
+          'item-claimed',
+          `${id} is claimed (${String(claim)}): its branch owns the file until it closes; add the evidence after it closes, or tell the orchestrator`,
+        );
+      }
+      const full = insidePath(root, it.path);
+      const text = `${readNoFollow(full).replace(/\s*$/, '')}\n\n${note.replace(/\s*$/, '')}\n`;
+      const parsed = parseItem(text);
+      if (parsed.data?.id !== id) throw new Error(`not changed: ${id} would not read back`);
+      writeNoFollow(full, text);
+      return { path: it.path, version: versionOf(text) };
+    },
+
     /** Give up an abandoned claim on the main branch, with the reason. */
     unclaim: (
       /** @type {string} */ id,
@@ -795,7 +835,7 @@ export function openTracker({
     close: (
       /** @type {string} */ id,
       /** @type {{ commit?: boolean, report?: string } | undefined} */ options,
-    ) => closeItem(root, layout, id, options),
+    ) => closeItem(root, layout, id, { ...options, env }),
 
     /**
      * The batch check. `branches` adds ID collisions across every worktree and branch and
