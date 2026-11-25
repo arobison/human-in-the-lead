@@ -2,10 +2,11 @@
 id: HITLD-387
 title: The chief of staff files investigations and bug reports itself when it sees an error repeat, without being asked
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M88NBYZA0M0GVA
 ---
 
 ## Done when
