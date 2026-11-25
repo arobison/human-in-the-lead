@@ -2,7 +2,7 @@
 id: HITLD-871
 title: Delegated tracker-only merges change only the claimed item and run the queue's answer checks
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c1]
