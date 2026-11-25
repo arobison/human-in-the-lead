@@ -16,10 +16,9 @@
 // - Claim branches made before HITLD-82 hold the old keys (`status: In progress`, `claimed:`);
 //   the branches are read through `fromLegacy` (tree.mjs), so those claims still count.
 //
-// Claim and close commits carry `Work-Item:`, `Dispatch:` and, from HITLD_ROLE, `Agent-Role:`
-// (HITLD-1037); the executor's own commits add the other `Agent-*` trailers (the owner's answer to
-// Q5, 2026-11-14)
-// (design part 22). Nothing here pushes.
+// Claim and close commits carry `Work-Item:`, `Dispatch:` and, when HITLD_ROLE is executor,
+// `Agent-Role: executor` (HITLD-1037); the executor's own commits add the other `Agent-*`
+// trailers (the owner's answer to Q5, 2026-11-14) (design part 22). Nothing here pushes.
 
 import { applyPatch } from './format.mjs';
 import { findEntry, writeKeys, writeStored } from './edit.mjs';
@@ -255,14 +254,13 @@ function commitOnly(root, files, message) {
 /** The largest token cap a claim carries: twelve digits, as the budget hook reads it. */
 export const MAX_BUDGET_TOKENS = 999_999_999_999;
 
-/** A role name as the Agent-Role trailer takes it. */
-const ROLE = /^[a-z][a-z0-9-]*$/;
-
 /**
  * The claim and close commits' trailers: `Work-Item`, `Dispatch` when the claimant is a dispatch,
- * `Agent-Role` when the environment names a role (HITLD_ROLE), as every other agent commit carries
- * it (HITLD-1037), so an executor never amends its claim or close to add it; and the claim's token
- * cap.
+ * `Agent-Role: executor` when the environment names the executor role (HITLD_ROLE), as every
+ * other executor commit carries it (HITLD-1037), so an executor never amends its claim or close to
+ * add it; and the claim's token cap. Only the executor role is written: another role on a claim or
+ * close would stop counting as an independent milestone check (authorRoles), and a person with
+ * HITLD_ROLE set would get an agent commit that skips the sign-off (dco/check.mjs).
  * @param {string} id @param {string} claimant @param {NodeJS.ProcessEnv} env
  * @param {number | null} [budget]
  */
@@ -270,7 +268,7 @@ const trailers = (id, claimant, env, budget = null) =>
   [
     `Work-Item: ${id}`,
     ...(DISPATCH_ID.test(claimant) ? [`Dispatch: ${claimant}`] : []),
-    ...(ROLE.test(env.HITLD_ROLE ?? '') ? [`Agent-Role: ${env.HITLD_ROLE}`] : []),
+    ...(env.HITLD_ROLE === 'executor' ? ['Agent-Role: executor'] : []),
     ...(budget ? [`Budget-Tokens: ${budget}`] : []),
   ].join('\n');
 

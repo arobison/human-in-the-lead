@@ -70,8 +70,13 @@ test("work close under an executor's environment writes them too, after the repo
   assert.deepEqual(checkCommits(commits, 'pr').findings, []);
 });
 
-test('with no role in the environment, or one that is not a role name, no Agent-Role is written', async () => {
-  for (const env of [{ HITLD_ROLE: '' }, { HITLD_ROLE: 'Executor\nSigned-off-by: x <x@x>' }]) {
+test('only the executor role is written: another role, none, or a forged value writes no Agent-Role', async () => {
+  for (const env of [
+    { HITLD_ROLE: 'orchestrator' },
+    { HITLD_ROLE: 'chief-of-staff' },
+    { HITLD_ROLE: '' },
+    { HITLD_ROLE: 'executor\nSigned-off-by: x <x@x>' },
+  ]) {
     const c = setup();
     const claim = await c.hitld(['work', 'claim', 'W-9', '--dispatch', DISPATCH], { env });
     assert.equal(claim.exit, 0, JSON.stringify(claim.result));
