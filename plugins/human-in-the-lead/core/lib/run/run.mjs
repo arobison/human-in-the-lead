@@ -30,6 +30,9 @@ import { runVersionCheck } from '../install/drift.mjs';
  * @property {string} [harnessRef] this session's own reference in its harness, where it has one:
  *   recorded with the lease, so wakes for the run can be sent to it
  * @property {boolean} [afterHandover] a merge-only pass by the session that handed over (HITLD-823)
+ * @property {boolean} [scoped] a start the owner's run scope allows (HITLD-877), recorded by the
+ *   chief of staff, which does not hold the lease: it appends to the ledger and writes no
+ *   checkpoint; the holder's next checkpoint, or a successor's resume, absorbs it
  * @property {string} [cwd] where the command runs: the project whose pin `startRun` and `resumeRun`
  *   compare with this release (design part 16.5, Upgrades)
  *
@@ -65,6 +68,7 @@ export class Run {
     /** A merge-only pass after this session's own hand-over (HITLD-823): it may still record, on
      * the lease it released, until a successor takes it. Only hitld merge sets it. */
     this.afterHandover = options.afterHandover === true;
+    this.scoped = options.scoped === true;
   }
 
   /**
@@ -75,6 +79,25 @@ export class Run {
    * @returns {{ event: LedgerEntry, appended: boolean }}
    */
   record(event) {
+    if (this.scoped) {
+      // The state as the ledger has it now, never the disk's alone: the chief of staff's device may
+      // hold no run state, or one of an earlier run, and the start belongs to the run the ledger
+      // shows (HITLD-877).
+      const events = readLedger(this.store).events;
+      const disk = loadState(this.store).state;
+      let state = foldLedger(events);
+      if (disk) {
+        try {
+          state = absorb(structuredClone(disk), events).state;
+        } catch {
+          // A disk state the ledger does not reach: the fold above is the ledger's own account.
+        }
+      }
+      if (!state.run?.id) throw new Error('no run in the run state or the ledger');
+      const written = appendEvent(this.store, { ...event, run: state.run.id }, { now: this.now });
+      this.state = absorb(structuredClone(state), written.events).state;
+      return { event: written.event, appended: written.appended };
+    }
     const persisted = this.#persisted();
     const {
       event: written,

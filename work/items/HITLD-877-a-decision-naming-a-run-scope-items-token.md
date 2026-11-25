@@ -2,10 +2,12 @@
 id: HITLD-877
 title: A decision naming a run scope (items, token budget, end time) lets the chief of staff start that run's work
 kind: work
-state: planned
+state: done
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M88NC212A0QAEE
+release_note: "In owner merge mode the owner can agree to a run scope (items, a token budget and an end time) by saying yes to the question hitld run scope question writes; hitld run scope set opens it, and within it the chief of staff starts those items itself with hitld dispatch start --scope, without the lease, so a hand-over between orchestrators needs no typed start line. dispatch plan, start, handle and complete now pull the store first."
 ---
 
 ## Why

@@ -167,6 +167,17 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `follow-up-pending`: The item has a follow-up launched as a run of its own that dispatch handle has not recorded yet; handle it with its reference, or let a failed launch remove it, before starting the item again.
 - `cannot-follow-up`: The dispatch cannot be continued: a follow-up that resumes a run needs its earlier session ID and worktree. Nothing was recorded.
 - `handover-due`: This session's hand-over is due, so nothing new starts.
+- `no-scope`: No run scope of the owner's is recorded, so the chief of staff starts nothing.
+- `outside-scope`: The item, or the decision named, is not in the owner's run scope: starting it is the owner's to ask for.
+- `scope-expired`: The owner's run scope has passed its end time, so nothing more starts under it.
+- `scope-budget`: The owner's run scope has spent its token budget, or this start's estimate would pass it.
+- `scope-ended`: The owner's run scope was ended, or was answered in or belongs to another run, so nothing more starts under it.
+- `scope-not-confirmed`: The decision is not the owner's yes to a run-scope question, so it opens no scope.
+- `scope-invalid`: The run scope's times do not hold: its record or the owner's yes is dated after now, or it ends before the yes or more than 168 hours after it.
+- `scope-changed`: The decision no longer states the scope the owner said yes to (items, budget or end time changed since), so nothing starts under it.
+- `start-lock-timeout`: Another start on this machine held the start lock past the wait, so nothing was started; run it again once that start has finished.
+- `scope-merge-unguarded`: Owner merge mode does not hold every guard, policy, rights or skill change for the owner's yes, so no run scope is allowed.
+- `state-behind-ledger`: The run state names a ledger event the ledger does not hold; hitld run rebuild remakes the state.
 - `draining`: Executors still report to this session, and no successor would hear of them.
 - `cap`: The maximum number of live executors is reached.
 - `merge-busy`: The merge queue is held by another process.
