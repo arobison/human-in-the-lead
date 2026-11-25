@@ -45,8 +45,8 @@ import {
   FOLLOW_UP_OF as SCOPE_FOLLOW_UP_OF,
   SCOPE_MAX_HOURS,
   issuedIn,
-  issuedKey,
-  scopeLine,
+  noteIssued,
+  noteUsed,
   checkScopeStart,
   deriveScope,
   ownerHoldsChanges,
@@ -56,6 +56,7 @@ import {
   touchingOwnerPaths,
   writeScopeFile,
 } from '../../run/scope.mjs';
+import { readAsked } from '../../rights/flow.mjs';
 import { withMutex } from '../../env/mutex.mjs';
 import { TOKENS_FAR_ABOVE_ESTIMATE, farAboveEstimate, reportedEvent } from '../../run/protocol.mjs';
 import { VERSION } from '../../version.mjs';
@@ -2095,7 +2096,8 @@ const table = [
                 run: p.state?.run ?? null,
                 events,
                 lookup,
-                issuedAt: issuedIn(p.store),
+                asked: (d) => readAsked(p.store, d),
+                issued: issuedIn(p.store),
               });
               if (!verdict.ok) {
                 throw new Refusal(
@@ -3720,7 +3722,8 @@ function scopeCommands() {
             events,
             run: p.state.run,
             now,
-            issuedAt: issuedIn(p.store),
+            asked: readAsked(p.store, file.decision),
+            issued: issuedIn(p.store),
           })
         : { ok: false, code: 'scope-ended', why: `the scope belongs to run ${file.run}` };
     if (!derived.ok) return { file, scope: null, status: null, refused: derived };
@@ -3800,16 +3803,16 @@ function scopeCommands() {
           }
           const spec = { items, budget_tokens: budget, until: new Date(until).toISOString() };
           const sensitive = sensitiveOf(lookup, items);
-          // The marker run scope set looks for: this scope was asked with the question written here.
-          const line = scopeLine(spec);
-          p.store.write(
-            issuedKey(line),
-            `${JSON.stringify({ line, at: new Date(now).toISOString(), by: String(identityOf(p, input, ctx).session ?? 'unknown') }, null, 2)}\n`,
-          );
+          const question = scopeQuestion(spec, sensitive);
+          // What run scope set looks for: this question, word for word, written here, once more.
+          noteIssued(p.store, question, spec, {
+            at: new Date(now).toISOString(),
+            by: String(identityOf(p, input, ctx).session ?? 'unknown'),
+          });
           return {
             ok: true,
             question: {
-              ...scopeQuestion(spec, sensitive),
+              ...question,
               ...(typeof input.parent === 'string' ? { parent: input.parent } : {}),
             },
             touching_owner_paths: sensitive,
@@ -3851,7 +3854,8 @@ function scopeCommands() {
             events: p.events ?? readLedger(p.store).events,
             run: p.state.run,
             now,
-            issuedAt: issuedIn(p.store),
+            asked: readAsked(p.store, id),
+            issued: issuedIn(p.store),
           });
           if (!derived.ok) throw new Refusal(derived.code, `${derived.why}; nothing was written`);
           const scope = derived.scope;
@@ -3870,6 +3874,8 @@ function scopeCommands() {
             set_by: String(session),
           };
           writeScopeFile(p.store, file);
+          // The question it was asked with is used: another decision recorded with it opens nothing.
+          noteUsed(p.store, readAsked(p.store, id), id, file.set_at);
           return {
             ok: true,
             scope,
@@ -3922,6 +3928,7 @@ function scopeCommands() {
           );
           const ended = file.ended ? file : { ...file, ended: { at, by, reason } };
           writeScopeFile(p.store, ended);
+          noteUsed(p.store, readAsked(p.store, file.decision), file.decision, at);
           return { ok: true, scope: ended, event, ...(appended ? {} : { already: true }) };
         }),
     },

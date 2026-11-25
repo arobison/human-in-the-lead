@@ -8,10 +8,18 @@
 // What grants a scope is the owner's yes, and nothing else. The question is put to the owner with
 // the scope written into its title (scopeQuestion): the items, the budget and the end time the
 // owner reads are the ones the answer confirms. The answer counts only as the yes option, recorded
-// in this run by the rights flow (its `answered` ledger event) and on the decision item. The store
+// in this run by the rights flow (its `answered` ledger event) and on the decision item, to the
+// question exactly as hitld run scope question writes it for that scope (the rights flow's ask
+// record: title, question, context and options, and its check code), which that command noted it
+// wrote (run/scope-questions/<hash>.json). Each question written opens one decision's scope: once
+// a decision opened it, or its scope ended, a new scope needs the question asked again. The store
 // file run/scope.json names which decision is in force and whether the owner ended it; it grants
-// nothing by itself, and every start derives the scope from the decision and the ledger again
-// (deriveScope), so a file edited by hand adds no item, budget or time.
+// nothing by itself, and every start derives the scope from the decision, the ask record and the
+// ledger again (deriveScope), so a file edited by hand adds no item, budget or time.
+// A marker alone opens nothing: the question recorded must be the one the command writes for the
+// scope agreed, word for word. What these checks cannot tell apart is someone who writes the
+// store's ask record, ledger and marker by hand as the two commands would; the store is the
+// boundary they stand on, and signed answers (design part 22) are the strong fix.
 //
 // Starts under it are ordinary `dispatched` events that carry the scope's decision and the session
 // that started them (`by`), so what a scope has spent is read from the ledger.
@@ -19,10 +27,20 @@
 import { createHash } from 'node:crypto';
 import { matchesAny } from '../precedent/glob.mjs';
 import { waitsForOwner } from '../merge/owner.mjs';
+import { canonicalJson } from '../policy/policy.mjs';
+import { checkCode } from '../rights/flow.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
  * @typedef {import('../ledger/ledger.mjs').LedgerEntry} LedgerEntry
+ * @typedef {import('../rights/flow.mjs').AskedRecord} AskedRecord
+ *
+ * @typedef {object} IssuedRecord what hitld run scope question notes of the questions it wrote
+ *   with one check code: each time it wrote one, and each decision that one opened or ended
+ * @property {string} check the check code of the question as written
+ * @property {string} line the scope, in one line
+ * @property {{ at: string, by: string }[]} issued
+ * @property {{ decision: string, at: string }[]} used
  *
  * @typedef {object} ScopeSpec what the owner is asked to agree to
  * @property {string[]} items
@@ -141,6 +159,61 @@ function specOf(m) {
   return { items, budget_tokens: Number(m[2]), until: m[3] };
 }
 
+/** The question's first sentence: the scope as the owner is asked it. @param {ScopeSpec} s */
+const scopeAsk = (s) =>
+  `May the chief of staff start ${s.items.join(', ')} itself in this run, spending at most ${s.budget_tokens} tokens, until ${s.until}?`;
+/** How the sentence naming the items that touch owner paths ends. */
+const REACH_END =
+  ' change guard, policy, rights or skill paths; each still reaches main only with your own yes.';
+const SCOPE_CONTEXT =
+  'An orchestrator can start executors only on a start line you type in its session, so the run stalls at each hand-over (HITLD-877). A scope covers starts only, ends at its end time, its budget or your word, and no other run inherits it.';
+/** @param {ScopeSpec} s */
+const scopeOptions = (s) => [
+  {
+    label: SCOPE_YES,
+    // The whole scope, so the answer the rights flow records in the ledger holds it.
+    what_happens: `the chief of staff may ${scopeLine(s)}, by itself, within the cap and the quota gate`,
+    reversible: true,
+  },
+  {
+    label: SCOPE_NO,
+    what_happens: 'nothing starts under a scope; orchestrators start work on your typed start line',
+    reversible: true,
+  },
+];
+
+/**
+ * A question's check code, as the rights flow computes it for a recorded choice (no precedent
+ * text is added to a recorded question's context). @param {Record<string, any>} q
+ */
+export const questionCheck = (q) =>
+  checkCode({ question: q.question, context: q.context, options: q.options });
+
+/**
+ * Why the question recorded for a decision is not one hitld run scope question writes for the
+ * scope the owner said yes to, or null when it is: its title, first sentence, context and options
+ * exactly, the sentence naming owner-path items only in the form the command writes, and its check
+ * code its own. So no rewritten question text, context or option opens a scope.
+ * @param {AskedRecord | null} asked @param {ScopeSpec} agreed @returns {string | null}
+ */
+export function notAsWritten(asked, agreed) {
+  if (!asked) return 'the question asked under it is not in the store';
+  if (asked.binds || typeof asked.check !== 'string' || questionCheck(asked) !== asked.check) {
+    return 'its ask record does not match its own check code';
+  }
+  if (asked.title !== scopeTitle(agreed)) return 'its title is not the scope it was answered for';
+  const q = String(asked.question ?? '');
+  const base = scopeAsk(agreed);
+  if (q !== base && !(q.startsWith(`${base} Of these, `) && q.endsWith(REACH_END))) {
+    return 'its question text was changed';
+  }
+  if (asked.context !== SCOPE_CONTEXT) return 'its context was changed';
+  if (canonicalJson(asked.options) !== canonicalJson(scopeOptions(agreed))) {
+    return 'its options were changed';
+  }
+  return null;
+}
+
 /**
  * The question to put to the owner, for hitld rights record: the scope in its title and its
  * question, the yes option first, and the named items whose touches reach the owner's paths.
@@ -148,27 +221,13 @@ function specOf(m) {
  */
 export function scopeQuestion(s, sensitive) {
   const reach = sensitive.length
-    ? ` Of these, ${sensitive.map((x) => `${x.item} (${x.touches.join(', ')})`).join('; ')} change guard, policy, rights or skill paths; each still reaches main only with your own yes.`
+    ? ` Of these, ${sensitive.map((x) => `${x.item} (${x.touches.join(', ')})`).join('; ')}${REACH_END}`
     : '';
   return {
     title: scopeTitle(s),
-    question: `May the chief of staff start ${s.items.join(', ')} itself in this run, spending at most ${s.budget_tokens} tokens, until ${s.until}?${reach}`,
-    context:
-      'An orchestrator can start executors only on a start line you type in its session, so the run stalls at each hand-over (HITLD-877). A scope covers starts only, ends at its end time, its budget or your word, and no other run inherits it.',
-    options: [
-      {
-        label: SCOPE_YES,
-        // The whole scope, so the answer the rights flow records in the ledger holds it.
-        what_happens: `the chief of staff may ${scopeLine(s)}, by itself, within the cap and the quota gate`,
-        reversible: true,
-      },
-      {
-        label: SCOPE_NO,
-        what_happens:
-          'nothing starts under a scope; orchestrators start work on your typed start line',
-        reversible: true,
-      },
-    ],
+    question: `${scopeAsk(s)}${reach}`,
+    context: SCOPE_CONTEXT,
+    options: scopeOptions(s),
     recommendation: {
       option: SCOPE_YES,
       why: 'it keeps the run going across hand-overs without your typed start lines',
@@ -261,8 +320,10 @@ const isYes = (text) => String(text ?? '').startsWith(`A. ${SCOPE_YES}:`);
  *   events: LedgerEntry[],
  *   run: { id: string, started_at?: string } | null,
  *   now: number,
- *   issuedAt: (line: string) => string | null,
- * }} o issuedAt: when hitld run scope question wrote the question for that scope line, or null
+ *   asked: AskedRecord | null,
+ *   issued: (hash: string) => IssuedRecord | null,
+ * }} o asked: the rights flow's ask record of the decision; issued: what hitld run scope question
+ *   noted of the question with that hash (issuedIn)
  * @returns {{ ok: true, scope: RunScope } | ScopeRefusal}
  */
 export function deriveScope(o) {
@@ -339,12 +400,26 @@ export function deriveScope(o) {
       why: `${o.id} was answered outside this run (${o.run.id}): a scope is per run, never standing`,
     };
   }
-  const issued = o.issuedAt(scopeLine(agreed));
-  if (issued === null || !(Date.parse(issued) <= at)) {
+  // The question the owner answered is the one the command writes for this scope, word for word,
+  // and the command noted writing it before the answer, for no other decision.
+  const wrong = notAsWritten(o.asked, agreed);
+  if (wrong) {
     return {
       ok: false,
       code: 'scope-not-confirmed',
-      why: `no question for this scope (${scopeLine(agreed)}) was written by hitld run scope question before the owner's answer to ${o.id}`,
+      why: `${o.id} was not asked with the question hitld run scope question writes for ${scopeLine(agreed)}: ${wrong}`,
+    };
+  }
+  const unissued = issueRefusal(
+    o.issued(questionHash(/** @type {AskedRecord} */ (o.asked))),
+    o.id,
+    at,
+  );
+  if (unissued) {
+    return {
+      ok: false,
+      code: 'scope-not-confirmed',
+      why: `${unissued} (${scopeLine(agreed)}), so ${o.id} opens no scope: ask the owner again with a new question`,
     };
   }
   const until = Date.parse(spec.until);
@@ -361,22 +436,89 @@ export function deriveScope(o) {
   };
 }
 
-/** Where hitld run scope question records the question it wrote for a scope line. @param {string} line */
-export const issuedKey = (line) =>
-  `run/scope-questions/${createHash('sha256').update(line).digest('hex').slice(0, 32)}.json`;
+/**
+ * A question's full hash: SHA-256 over its question, context and options, what the owner reads.
+ * The check code is its short form for typing; the record is keyed by the whole.
+ * @param {Record<string, any>} q
+ */
+export const questionHash = (q) =>
+  createHash('sha256')
+    .update(
+      canonicalJson({
+        question: q.question ?? null,
+        context: q.context ?? null,
+        options: q.options ?? [],
+      }),
+    )
+    .digest('hex');
+
+/** Where hitld run scope question notes the questions it wrote with one hash. @param {string} hash */
+export const issuedKey = (hash) => `run/scope-questions/${hash}.json`;
 
 /**
- * When hitld run scope question wrote the question for a scope line, from the store.
- * @param {PrivateStore} store @returns {(line: string) => string | null}
+ * What hitld run scope question noted of the question with a hash, from the store, or null.
+ * @param {PrivateStore} store @returns {(hash: string) => IssuedRecord | null}
  */
-export const issuedIn = (store) => (line) => {
+export const issuedIn = (store) => (hash) => {
   try {
-    const r = JSON.parse(store.read(issuedKey(line)) ?? 'null');
-    return r && r.line === line && typeof r.at === 'string' ? r.at : null;
+    const r = JSON.parse(store.read(issuedKey(hash)) ?? 'null');
+    if (!r || typeof r.check !== 'string' || !Array.isArray(r.issued)) return null;
+    return { ...r, used: Array.isArray(r.used) ? r.used : [] };
   } catch {
     return null;
   }
 };
+
+/**
+ * Note that hitld run scope question wrote this question, once more.
+ * @param {PrivateStore} store @param {Record<string, any>} q the question as written
+ * @param {ScopeSpec} s @param {{ at: string, by: string }} issue
+ */
+export function noteIssued(store, q, s, issue) {
+  const hash = questionHash(q);
+  const before = issuedIn(store)(hash);
+  /** @type {IssuedRecord} */
+  const record = {
+    check: questionCheck(q),
+    line: scopeLine(s),
+    issued: [...(before?.issued ?? []), issue],
+    used: before?.used ?? [],
+  };
+  store.write(issuedKey(hash), `${JSON.stringify(record, null, 2)}\n`);
+}
+
+/**
+ * Note that a decision used a question written once: it opened its scope, or its scope ended.
+ * Nothing is written when the decision is already noted, or no written question is left for it.
+ * @param {PrivateStore} store @param {AskedRecord | null} asked @param {string} decision
+ * @param {string} at
+ */
+export function noteUsed(store, asked, decision, at) {
+  if (!asked) return;
+  const hash = questionHash(asked);
+  const record = issuedIn(store)(hash);
+  if (!record || record.used.some((u) => u.decision === decision)) return;
+  if (record.used.length >= record.issued.length) return;
+  const next = { ...record, used: [...record.used, { decision, at }] };
+  store.write(issuedKey(hash), `${JSON.stringify(next, null, 2)}\n`);
+}
+
+/**
+ * Why a written question does not open a decision's scope, or null when it does: the command must
+ * have written it before the owner's answer, and each time it wrote it opens one decision only.
+ * @param {IssuedRecord | null} record @param {string} decision @param {number} answeredAt
+ * @returns {string | null}
+ */
+export function issueRefusal(record, decision, answeredAt) {
+  if (!record) return 'hitld run scope question did not write this question';
+  const before = record.issued.filter((i) => Date.parse(i.at) <= answeredAt).length;
+  if (!before) return 'hitld run scope question wrote this question only after the answer';
+  if (record.used.some((u) => u.decision === decision)) return null;
+  const others = record.used.filter((u) => u.decision !== decision).length;
+  return before > others
+    ? null
+    : `each question hitld run scope question wrote was already used, by ${record.used.map((u) => u.decision).join(', ')}`;
+}
 
 /**
  * What a scope has spent: for each start under it, the tokens its reports recorded, else its start
@@ -462,8 +604,9 @@ export function scopeStatus(scope, file, at) {
  *   run: { id: string, started_at?: string } | null,
  *   events: LedgerEntry[],
  *   lookup: (id: string) => Record<string, any> | null,
- *   issuedAt: (line: string) => string | null,
- * }} start
+ *   asked: (id: string) => AskedRecord | null,
+ *   issued: (hash: string) => IssuedRecord | null,
+ * }} start asked: the rights flow's ask record of a decision; issued: as for deriveScope
  * @returns {{ ok: true, scope: RunScope, spent: number, left: number } | ScopeRefusal}
  */
 export function checkScopeStart(file, start) {
@@ -495,7 +638,8 @@ export function checkScopeStart(file, start) {
     events: start.events,
     run: start.run,
     now: start.now,
-    issuedAt: start.issuedAt,
+    asked: start.asked(file.decision),
+    issued: start.issued,
   });
   if (!derived.ok) return derived;
   const scope = derived.scope;

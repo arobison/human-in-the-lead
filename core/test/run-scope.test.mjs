@@ -17,6 +17,13 @@ import {
   SCOPE_YES,
   scopeQuestion,
   checkScopeStart,
+  issuedIn,
+  issuedKey,
+  issueRefusal,
+  notAsWritten,
+  questionCheck,
+  questionHash,
+  scopeLine,
   deriveScope,
   ownerHoldsChanges,
   parseScopeTitle,
@@ -42,7 +49,29 @@ const RUN = { id: 'R-1', started_at: iso(NOW - 2 * HOUR) };
 const SPEC = { items: ['W-1', 'W-2'], budget_tokens: 100_000, until: iso(NOW + HOUR) };
 /** The yes as the rights flow records it: the option as scopeQuestion wrote it. */
 const YES = `A. ${SCOPE_YES}: ${scopeQuestion(SPEC, []).options[0].what_happens}`;
-const ISSUED = () => iso(NOW - 2 * HOUR);
+/** The rights flow's ask record of a question as recorded. @param {Record<string, any>} q */
+const askedOf = (q) => ({
+  deciders: ['owner'],
+  area: null,
+  basis: null,
+  classification: 'public',
+  offer: null,
+  title: q.title,
+  question: q.question,
+  context: q.context,
+  options: q.options,
+  check: questionCheck(q),
+});
+const ASKED = askedOf(scopeQuestion(SPEC, []));
+/** What run scope question noted of the question it wrote. @param {Record<string, any>} [over] */
+const issuedRecord = (over = {}) => ({
+  check: ASKED.check,
+  line: scopeLine(SPEC),
+  issued: [{ at: iso(NOW - 2 * HOUR), by: 'cos' }],
+  used: [],
+  ...over,
+});
+const ISSUED = () => issuedRecord();
 
 /** A decision item as the rights flow leaves it. @param {Record<string, unknown>} [over] */
 const decision = (over = {}) => ({
@@ -77,7 +106,8 @@ const start = (o = {}) =>
     run: RUN,
     events: [answered(), ...(o.events ?? [])],
     lookup: (id) => (id === 'W-9' ? decision(o.decision) : null),
-    issuedAt: ISSUED,
+    asked: () => ASKED,
+    issued: ISSUED,
     ...o.start,
   });
 
@@ -122,7 +152,8 @@ test("only the owner's yes, in this run, through the rights flow, opens a scope"
       events: o.events ?? [answered(o.answered)],
       run: RUN,
       now: NOW,
-      issuedAt: o.issuedAt ?? ISSUED,
+      asked: o.asked === undefined ? ASKED : o.asked,
+      issued: o.issued ?? ISSUED,
     });
   const ok = derive({});
   assert.equal(ok.ok, true);
@@ -134,9 +165,9 @@ test("only the owner's yes, in this run, through the rights flow, opens a scope"
   assert.equal(!noCode.ok && noCode.code, 'scope-not-confirmed', 'a no that names the IDs');
   assert.match(!noCode.ok ? noCode.why : '', /W-1, W-2/, 'the refusal names the items');
   // Not asked with the question run scope question wrote, or asked only after the answer.
-  const unasked = derive({ issuedAt: () => null });
+  const unasked = derive({ issued: () => null });
   assert.equal(!unasked.ok && unasked.code, 'scope-not-confirmed');
-  const late = derive({ issuedAt: () => iso(NOW) });
+  const late = derive({ issued: () => issuedRecord({ issued: [{ at: iso(NOW), by: 'cos' }] }) });
   assert.equal(!late.ok && late.code, 'scope-not-confirmed');
   // The owner's end in the ledger holds, whatever the store file says.
   const endedEvent = { event: 'scope-ended', decision: 'W-9', by: 'cos', at: iso(NOW - 60_000) };
@@ -153,6 +184,7 @@ test("only the owner's yes, in this run, through the rights flow, opens a scope"
   const standing = derive({
     decision: { title: scopeTitle(long), answer: longYes },
     answered: { text: longYes },
+    asked: askedOf(scopeQuestion(long, [])),
   });
   assert.equal(!standing.ok && standing.code, 'scope-invalid', 'more than 168 hours');
   const future = derive({ answered: { at: iso(NOW + 60_000) } });
@@ -168,7 +200,8 @@ test('a title rewritten after the yes refuses the scope, naming what differs', (
       events: [answered()],
       run: RUN,
       now: NOW,
-      issuedAt: ISSUED,
+      asked: ASKED,
+      issued: ISSUED,
     });
   const added = rewritten({ items: ['W-1', 'W-2', 'W-3'] });
   assert.equal(!added.ok && added.code, 'scope-changed');
@@ -178,6 +211,59 @@ test('a title rewritten after the yes refuses the scope, naming what differs', (
   const moved = rewritten({ until: iso(NOW + 3 * HOUR) });
   assert.match(!moved.ok ? moved.why : '', /end time .* became/);
   assert.equal(!moved.ok && moved.code, 'scope-changed');
+});
+
+test('only the question run scope question wrote, word for word and not used before, opens a scope', () => {
+  /** @param {Record<string, any>} o */
+  const derive = (o) =>
+    deriveScope({
+      decision: decision(),
+      id: 'W-9',
+      events: [answered()],
+      run: RUN,
+      now: NOW,
+      asked: o.asked === undefined ? ASKED : o.asked,
+      issued: o.issued ?? ISSUED,
+    });
+  const code = (/** @type {any} */ r) => !r.ok && r.code;
+  assert.equal(derive({}).ok, true, 'the question as written');
+  const q = scopeQuestion(SPEC, []);
+  // The same title and yes option, with the question, the context or the no option rewritten:
+  // refused even when a marker is noted for the rewritten question itself.
+  for (const change of [
+    { question: 'May the chief of staff start W-1, W-2 and whatever else it finds useful?' },
+    { context: 'Routine; nothing to read here.' },
+    {
+      options: [q.options[0], { ...q.options[1], what_happens: 'the items start anyway' }],
+    },
+  ]) {
+    const rewritten = askedOf({ ...q, ...change });
+    assert.ok(notAsWritten(rewritten, SPEC), JSON.stringify(change));
+    const marker = issuedRecord({ check: rewritten.check });
+    const refused = derive({
+      asked: rewritten,
+      issued: (/** @type {string} */ h) => (h === questionHash(rewritten) ? marker : null),
+    });
+    assert.equal(code(refused), 'scope-not-confirmed', JSON.stringify(change));
+  }
+  assert.equal(code(derive({ asked: { ...ASKED, check: '00000000' } })), 'scope-not-confirmed');
+  assert.equal(code(derive({ asked: null })), 'scope-not-confirmed', 'no ask record');
+  // The marker is the one for the question asked, by its full hash.
+  const onlyOther = (/** @type {string} */ h) =>
+    h === questionHash(ASKED) ? null : issuedRecord();
+  assert.equal(code(derive({ issued: onlyOther })), 'scope-not-confirmed');
+  // Each question written opens one decision: used by another, refused; by this one, still open;
+  // written again, open once more.
+  const usedByW8 = issuedRecord({ used: [{ decision: 'W-8', at: iso(NOW - HOUR) }] });
+  assert.equal(code(derive({ issued: () => usedByW8 })), 'scope-not-confirmed');
+  assert.match(issueRefusal(usedByW8, 'W-9', NOW) ?? '', /already used, by W-8/);
+  const usedHere = issuedRecord({ used: [{ decision: 'W-9', at: iso(NOW - HOUR) }] });
+  assert.equal(derive({ issued: () => usedHere }).ok, true);
+  const again = {
+    ...usedByW8,
+    issued: [...usedByW8.issued, { at: iso(NOW - 90 * 60_000), by: 'cos' }],
+  };
+  assert.equal(derive({ issued: () => again }).ok, true, 'asked again');
 });
 
 test('a scoped start on a device holding an earlier run’s state is charged to the run the ledger shows', () => {
@@ -578,6 +664,88 @@ test('commands: a no, a stale decision, queue merge mode and a decision that is 
     env: { HITLD_SESSION: 'x', HITLD_ROLE: 'executor', HITLD_DISPATCH: 'D-1' },
   });
   assert.equal(executor.result.error, 'not-permitted');
+});
+
+test('commands: a rewritten question, a marker written by hand and a question used before open nothing', async () => {
+  const { c, store } = await consumer();
+  /** Record a question with the owner's answer, then try to set its scope. @param {Record<string, any>} question */
+  const recordAndSet = async (question) => {
+    const recorded = await c.hitld(
+      [
+        'rights',
+        'record',
+        '--question',
+        JSON.stringify({ ...question, parent: 'W-17', classification: 'public' }),
+        '--answer',
+        'A',
+        '--via',
+        'question-tool',
+        '--shown-at',
+        iso(Date.now() - 1000),
+      ],
+      COS,
+    );
+    assert.equal(recorded.exit, 0, JSON.stringify(recorded.result));
+    const id = String(recorded.result.decision ?? recorded.result.id);
+    return { id, set: await c.hitld(['run', 'scope', 'set', '--decision', id], COS) };
+  };
+  const until = iso(Date.now() + 4 * HOUR);
+  const askArgs = ['run', 'scope', 'question', '--items', 'W-1,W-2', '--budget-tokens', '2000000'];
+  const written = await c.hitld([...askArgs, '--until', until], COS);
+  assert.equal(written.exit, 0, JSON.stringify(written.result));
+  const q = written.result.question;
+
+  // The question the command wrote, recorded with its title and yes option kept and its question
+  // text, context and no option rewritten.
+  const rewritten = await recordAndSet({
+    ...q,
+    question: 'May the chief of staff start whatever it finds useful?',
+    context: 'Routine; nothing to read here.',
+    options: [q.options[0], { ...q.options[1], what_happens: 'the items start anyway' }],
+  });
+  assert.equal(rewritten.set.result.error, 'scope-not-confirmed');
+  assert.match(JSON.stringify(rewritten.set.result), /question text was changed/);
+
+  // A marker written into the store by hand, for a question written by hand with a 100-hour end
+  // and a budget of 9,000,000 tokens.
+  const big = {
+    items: ['W-1', 'W-2'],
+    budget_tokens: 9_000_000,
+    until: iso(Date.now() + 100 * HOUR),
+  };
+  const hand = {
+    ...scopeQuestion(big, []),
+    question: 'May the chief of staff start W-1 and W-2, spending what it needs?',
+  };
+  store.write(
+    issuedKey(questionHash(hand)),
+    JSON.stringify({
+      check: questionCheck(hand),
+      line: scopeLine(big),
+      issued: [{ at: iso(Date.now() - 60_000), by: 'cos' }],
+      used: [],
+    }),
+  );
+  assert.ok(issuedIn(store)(questionHash(hand)), 'the hand-written marker reads back');
+  const forged = await recordAndSet(hand);
+  assert.equal(forged.set.result.error, 'scope-not-confirmed');
+
+  // The question as written, answered yes, still opens.
+  const opened = await recordAndSet(q);
+  assert.equal(opened.set.exit, 0, JSON.stringify(opened.set.result));
+
+  // Once used, the same question recorded again opens nothing, and after the owner's end neither;
+  // asked again, the same question opens once more.
+  const reused = await recordAndSet(q);
+  assert.equal(reused.set.result.error, 'scope-not-confirmed');
+  assert.match(JSON.stringify(reused.set.result), new RegExp(`already used, by ${opened.id}`));
+  assert.equal((await c.hitld(['run', 'scope', 'end', '--reason', 'enough'], COS)).exit, 0);
+  const afterEnd = await recordAndSet(q);
+  assert.equal(afterEnd.set.result.error, 'scope-not-confirmed');
+  const askedAgain = await c.hitld([...askArgs, '--until', until], COS);
+  assert.deepEqual(askedAgain.result.question, q, 'the same question, written again');
+  const reopened = await recordAndSet(q);
+  assert.equal(reopened.set.exit, 0, JSON.stringify(reopened.set.result));
 });
 
 test('commands: the question lists the named items whose touches reach guard, policy, rights or skill paths', async () => {
