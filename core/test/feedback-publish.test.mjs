@@ -577,3 +577,44 @@ test('render: a record with no public draft shows the private record and says wh
   assert.equal(withheld.shows, 'record');
   assert.match(withheld.why, /withheld/);
 });
+
+test('render: a filed record shows the issue that was filed, and a dropped one the private record (HITLD-274)', async () => {
+  const id = await record('the filed issue should be what render shows afterward');
+  await draft(id, clean);
+  const answered = await run(['feedback', 'publish', id, '--answer', 'approve', '--store', store]);
+  assert.equal(answered.state, 'filed', JSON.stringify(answered));
+  const sent = filer.sent.at(-1);
+  const filed = await run(['feedback', 'render', id, '--store', store]);
+  assert.deepEqual([filed.shows, filed.state, filed.classification], ['draft', 'filed', 'public']);
+  assert.deepEqual(
+    { title: filed.title, labels: filed.labels, body: filed.body },
+    { title: sent?.title, labels: sent?.labels, body: sent?.body },
+  );
+
+  const edited = await record('an edited draft is filed as edited');
+  await draft(edited, clean);
+  await run([
+    'feedback',
+    'publish',
+    edited,
+    '--answer',
+    'edit',
+    '--title',
+    'The edited title is the one filed',
+    '--store',
+    store,
+  ]);
+  const afterEdit = await run(['feedback', 'render', edited, '--store', store]);
+  assert.equal(afterEdit.title, filer.sent.at(-1)?.title);
+  assert.match(String(afterEdit.title), /The edited title is the one filed/);
+
+  const gone = await record('a dropped record keeps its draft but is never filed');
+  await draft(gone, clean);
+  await run(['feedback', 'publish', gone, '--answer', 'drop', '--store', store]);
+  assert.ok(stored(gone).draft, 'the dropped record keeps its draft');
+  const dropped = await run(['feedback', 'render', gone, '--store', store]);
+  assert.deepEqual([dropped.shows, dropped.state], ['record', 'dropped']);
+  assert.match(dropped.why, /dropped; nothing is filed/);
+  assert.match(dropped.body, /a dropped record keeps its draft/);
+  assert.equal(dropped.title, undefined);
+});

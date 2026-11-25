@@ -380,11 +380,15 @@ export function renderView(record, o = {}) {
     const { title, labels, body } = publication(record, record.draft);
     return { shows: 'draft', title, labels, body };
   }
+  /** @type {Record<string, string>} */
+  const because = {
+    withheld: `its draft was withheld (${record.reason}); nothing is filed until a new draft passes`,
+    dropped: 'it was dropped; nothing is filed',
+  };
   const why = o.record
     ? 'asked for the private record (--record); it is never filed'
-    : record.state === 'withheld'
-      ? `its draft was withheld (${record.reason}); nothing is filed until a new draft passes`
-      : `it has no public draft (state ${record.state}); this is the private record, never filed`;
+    : (because[record.state] ??
+      `it has no public draft (state ${record.state}); this is the private record, never filed`);
   return { shows: 'record', why, body: renderIssueBody(record) };
 }
 
