@@ -2,11 +2,12 @@
 id: HITLD-1052
 title: "A live lock holder is never revoked by the clock: owner identity, liveness, release by token, backoff and signal handlers; the merge queue's holder name is unique per run"
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-25
 project: HITLD-15
 needs: [HITLD-1051]
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M8AF3VD9RNKH04
 ---
 
 ## Done when
