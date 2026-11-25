@@ -251,17 +251,26 @@ function commitOnly(root, files, message) {
   return git(root, ['rev-parse', 'HEAD']).trim();
 }
 
-/** @param {string} id @param {string} claimant */
-const trailers = (id, claimant) =>
-  [`Work-Item: ${id}`, ...(DISPATCH_ID.test(claimant) ? [`Dispatch: ${claimant}`] : [])].join('\n');
+/** The largest token cap a claim carries: twelve digits, as the budget hook reads it. */
+export const MAX_BUDGET_TOKENS = 999_999_999_999;
+
+/** @param {string} id @param {string} claimant @param {number | null} [budget] */
+const trailers = (id, claimant, budget = null) =>
+  [
+    `Work-Item: ${id}`,
+    ...(DISPATCH_ID.test(claimant) ? [`Dispatch: ${claimant}`] : []),
+    ...(budget ? [`Budget-Tokens: ${budget}`] : []),
+  ].join('\n');
 
 /**
  * Write the claim commit for an item on the current (executor) branch.
  * @param {string} root @param {Layout} layout @param {string} id @param {string} claimant
- * @param {{ branch?: string }} [options] branch: refuse unless HEAD is on it
+ * @param {{ branch?: string, budgetTokens?: number | null }} [options] branch: refuse unless HEAD
+ *   is on it; budgetTokens: the dispatch's token cap, written as a `Budget-Tokens` trailer so the
+ *   budget hook can read it where there is no private store (HITLD-841)
  * @returns {{ commit: string, branch: string }}
  */
-export function claimItem(root, layout, id, claimant, { branch } = {}) {
+export function claimItem(root, layout, id, claimant, { branch, budgetTokens = null } = {}) {
   const here = currentBranch(root);
   if (!here) throw new Error('claim from a branch, not a detached HEAD');
   if (here === layout.mainBranch) {
@@ -272,6 +281,16 @@ export function claimItem(root, layout, id, claimant, { branch } = {}) {
   }
   if (branch && branch !== here) throw new Error(`this working tree is on ${here}, not ${branch}`);
   if (!claimant.trim()) throw new Error('a claim needs a claimant (a dispatch ID)');
+  // At most twelve digits: the budget hook reads no longer figure (hooks/input.mjs).
+  if (
+    budgetTokens !== null &&
+    !(Number.isSafeInteger(budgetTokens) && budgetTokens > 0 && budgetTokens <= MAX_BUDGET_TOKENS)
+  ) {
+    throw new CodedError(
+      'usage',
+      `a token cap is a whole number of tokens from 1 to ${MAX_BUDGET_TOKENS}`,
+    );
+  }
   const entry = findEntry(root, layout, id);
   if (!entry?.data) throw new CodedError('not-found', `${id} is not in this working tree`);
   const d = entry.data;
@@ -293,7 +312,7 @@ export function claimItem(root, layout, id, claimant, { branch } = {}) {
   writeStored(root, layout, entry.path, stored, entry.body);
   const commit = commitOnly(root, [entry.path], {
     subject: `claim: ${id}`,
-    body: trailers(id, claimant),
+    body: trailers(id, claimant, budgetTokens),
   });
   return { commit, branch: here };
 }

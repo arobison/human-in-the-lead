@@ -2,7 +2,7 @@
 id: HITLD-298
 title: estimate_tokens is not enabled in tracker.json, so critical paths weigh every item as 1
 kind: work
-state: planned
+state: done
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-189 c2]
@@ -28,3 +28,7 @@ The audit of 2026-11-19 found that an open design touches this item (509,291): e
 ## Moved on 2026-11-20 (HITLD-592)
 
 On the owner's approval of the nine roadmap moves (HITLD-592), this item moved from milestone HITLD-408 (c1) to milestone HITLD-189 (c2) in v0.1.0-rc.3 (HITLD-400): the planner offers only items that can start, and estimates must be on so critical paths weigh items.
+
+## Done on 2026-11-25
+
+The owner asked for it directly: `estimate_tokens` is now in `optional_keys` in `.human-in-the-lead/tracker.json`, so an item may carry a stored estimate and the critical path, the milestone graph and the decision urgency read it. No item carries one yet; HITLD-995 weighs every open item by sizing's derived estimate when it has no stored one. Made by the chief of staff on the owner's word, outside a dispatch, so the item has no claim commit.
