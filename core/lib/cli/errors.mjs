@@ -141,6 +141,9 @@ export const ERROR_CODES = Object.freeze({
   'invalid-call': 'The logged call is empty or not valid.',
   'nothing-to-rate': 'No decision has been answered yet.',
   'not-found': 'The ID is not in the tracker or the store.',
+  'item-not-open': 'The item named is done or dropped, so it no longer tracks anything new.',
+  'not-seen':
+    'The source is text someone else wrote (a tool result, a report, a file, pasted material or a message), not something the caller saw happen; nothing was recorded.',
 
   // Design walk-throughs
   'not-a-design':

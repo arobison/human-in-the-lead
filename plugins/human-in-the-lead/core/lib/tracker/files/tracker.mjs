@@ -31,7 +31,7 @@ import { mainMismatches } from './closing.mjs';
 import { descriptionWarnings } from './descriptions.mjs';
 import { feedbackProblem, feedbackRecordsIn } from '../../feedback/guard.mjs';
 import { LEVELS, checkTree, problemLines } from '../../guard/classification.mjs';
-import { writeStored } from './edit.mjs';
+import { versionOf, writeStored } from './edit.mjs';
 import {
   createExclusive,
   insidePath,
@@ -118,6 +118,8 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean, report?: string }) => ReturnType<typeof closeItem>} close
+ * @property {(id: string, note: string) => { path: string, version: string }} appendNote append a
+ *   note to an entity's body, its front matter untouched (a later sighting of the cause it tracks)
  * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[], consistency?: boolean }) => { problems: string[], files: number, warnings: string[], consistency?: Consistency }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
  * @property {(options?: { outDir?: string, who?: string }) => { dir: string, written: string[], unchanged: string[] }} writeViews
@@ -783,6 +785,22 @@ export function openTracker({
 
     /** Claims read from branches. */
     claims,
+
+    /**
+     * Append a note to an entity's body (HITLD-387: a later sighting of the cause it tracks),
+     * leaving its front matter and the rest of its text as they are.
+     * @param {string} id @param {string} note Markdown, starting with its own heading
+     * @returns {{ path: string, version: string }}
+     */
+    appendNote(id, note) {
+      const it = mustFind(id);
+      const full = insidePath(root, it.path);
+      const text = `${readNoFollow(full).replace(/\s*$/, '')}\n\n${note.replace(/\s*$/, '')}\n`;
+      const parsed = parseItem(text);
+      if (parsed.data?.id !== id) throw new Error(`not changed: ${id} would not read back`);
+      writeNoFollow(full, text);
+      return { path: it.path, version: versionOf(text) };
+    },
 
     /** Give up an abandoned claim on the main branch, with the reason. */
     unclaim: (

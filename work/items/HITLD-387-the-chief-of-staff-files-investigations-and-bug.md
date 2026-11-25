@@ -6,6 +6,7 @@ state: in-progress
 created: 2026-11-16
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+release_note: "The chief of staff files investigations and bug reports on its own with `hitld work sighting`: a first sighting is recorded in the private store, the second (or a first that changes a decision or a safety rule) files one proposed item with the evidence, a later one appends to the item that tracks the cause, and a security finding stays out of the tracker."
 claimed_by: D-01M88NBYZA0M0GVA
 ---
 
