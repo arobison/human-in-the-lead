@@ -3762,9 +3762,12 @@ function scopeCommands() {
         },
       ],
       run: (input, ctx) =>
-        guarded(() => {
+        guarded(async () => {
           refuseExecutor(ctx);
-          const p = project(ctx);
+          // The run the question belongs to, as run scope set will read it: a question written in
+          // one run opens no scope in the next.
+          await pullFirst('run scope question', input, ctx);
+          const p = project(ctx, { fresh: true });
           requireOwnerMerge(p);
           const items = [
             ...new Set(
@@ -3808,6 +3811,7 @@ function scopeCommands() {
           noteIssued(p.store, question, spec, {
             at: new Date(now).toISOString(),
             by: String(identityOf(p, input, ctx).session ?? 'unknown'),
+            run: p.state?.run.id ? String(p.state.run.id) : null,
           });
           return {
             ok: true,
@@ -3859,6 +3863,16 @@ function scopeCommands() {
           });
           if (!derived.ok) throw new Refusal(derived.code, `${derived.why}; nothing was written`);
           const scope = derived.scope;
+          // The items that touch guard, policy, rights or skill paths now are the ones the owner
+          // was told of: an item that has come to touch one since is asked about again.
+          const asked = readAsked(p.store, id);
+          const reachNow = sensitiveOf(lookup, scope.items);
+          if (scopeQuestion(scope, reachNow).question !== asked?.question) {
+            throw new Refusal(
+              'scope-changed',
+              `the items of ${id} touch other guard, policy, rights or skill paths now (${reachNow.map((x) => `${x.item}: ${x.touches.join(', ')}`).join('; ') || 'none'}) than the question the owner answered named; nothing was written: ask the owner again with a new question`,
+            );
+          }
           if (Date.parse(scope.until) <= now) {
             throw new Refusal(
               'scope-expired',
@@ -3875,7 +3889,7 @@ function scopeCommands() {
           };
           writeScopeFile(p.store, file);
           // The question it was asked with is used: another decision recorded with it opens nothing.
-          noteUsed(p.store, readAsked(p.store, id), id, file.set_at);
+          noteUsed(p.store, asked, id, file.set_at);
           return {
             ok: true,
             scope,

@@ -13,6 +13,7 @@ import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { Run, startRun } from '../lib/run/run.mjs';
 import { loadState } from '../lib/run/checkpoint.mjs';
 import { memoryStore } from './helpers/memory-store.mjs';
+import { formatQuestion } from '../lib/rights/format.mjs';
 import {
   SCOPE_YES,
   scopeQuestion,
@@ -21,6 +22,8 @@ import {
   issuedKey,
   issueRefusal,
   notAsWritten,
+  asWritten,
+  reachIn,
   questionCheck,
   questionHash,
   scopeLine,
@@ -49,25 +52,42 @@ const RUN = { id: 'R-1', started_at: iso(NOW - 2 * HOUR) };
 const SPEC = { items: ['W-1', 'W-2'], budget_tokens: 100_000, until: iso(NOW + HOUR) };
 /** The yes as the rights flow records it: the option as scopeQuestion wrote it. */
 const YES = `A. ${SCOPE_YES}: ${scopeQuestion(SPEC, []).options[0].what_happens}`;
-/** The rights flow's ask record of a question as recorded. @param {Record<string, any>} q */
-const askedOf = (q) => ({
-  deciders: ['owner'],
-  area: null,
-  basis: null,
-  classification: 'public',
-  offer: null,
-  title: q.title,
-  question: q.question,
-  context: q.context,
-  options: q.options,
-  check: questionCheck(q),
-});
+/**
+ * The rights flow's ask record of a question recorded as given, with the text it shows and its
+ * check code. @param {Record<string, any>} q
+ */
+const askedOf = (q) => {
+  const check = questionCheck(q);
+  const shown = {
+    id: 'W-9',
+    reversibility: q.reversibility,
+    question: q.question,
+    context: q.context,
+    recommendation: q.recommendation,
+    options: q.options,
+  };
+  return {
+    deciders: ['owner'],
+    area: null,
+    basis: null,
+    classification: 'public',
+    offer: null,
+    title: q.title,
+    question: q.question,
+    context: q.context,
+    options: q.options,
+    recommendation: q.recommendation,
+    reversibility: q.reversibility,
+    check,
+    text: formatQuestion(shown, { blocks: 0, check }),
+  };
+};
 const ASKED = askedOf(scopeQuestion(SPEC, []));
 /** What run scope question noted of the question it wrote. @param {Record<string, any>} [over] */
 const issuedRecord = (over = {}) => ({
   check: ASKED.check,
   line: scopeLine(SPEC),
-  issued: [{ at: iso(NOW - 2 * HOUR), by: 'cos' }],
+  issued: [{ at: iso(NOW - 2 * HOUR), by: 'cos', run: 'R-1' }],
   used: [],
   ...over,
 });
@@ -167,7 +187,9 @@ test("only the owner's yes, in this run, through the rights flow, opens a scope"
   // Not asked with the question run scope question wrote, or asked only after the answer.
   const unasked = derive({ issued: () => null });
   assert.equal(!unasked.ok && unasked.code, 'scope-not-confirmed');
-  const late = derive({ issued: () => issuedRecord({ issued: [{ at: iso(NOW), by: 'cos' }] }) });
+  const late = derive({
+    issued: () => issuedRecord({ issued: [{ at: iso(NOW), by: 'cos', run: 'R-1' }] }),
+  });
   assert.equal(!late.ok && late.code, 'scope-not-confirmed');
   // The owner's end in the ledger holds, whatever the store file says.
   const endedEvent = { event: 'scope-ended', decision: 'W-9', by: 'cos', at: iso(NOW - 60_000) };
@@ -185,6 +207,7 @@ test("only the owner's yes, in this run, through the rights flow, opens a scope"
     decision: { title: scopeTitle(long), answer: longYes },
     answered: { text: longYes },
     asked: askedOf(scopeQuestion(long, [])),
+    issued: () => issuedRecord({ check: askedOf(scopeQuestion(long, [])).check }),
   });
   assert.equal(!standing.ok && standing.code, 'scope-invalid', 'more than 168 hours');
   const future = derive({ answered: { at: iso(NOW + 60_000) } });
@@ -238,7 +261,7 @@ test('only the question run scope question wrote, word for word and not used bef
     },
   ]) {
     const rewritten = askedOf({ ...q, ...change });
-    assert.ok(notAsWritten(rewritten, SPEC), JSON.stringify(change));
+    assert.ok(notAsWritten(rewritten, SPEC, 'W-9'), JSON.stringify(change));
     const marker = issuedRecord({ check: rewritten.check });
     const refused = derive({
       asked: rewritten,
@@ -256,14 +279,119 @@ test('only the question run scope question wrote, word for word and not used bef
   // written again, open once more.
   const usedByW8 = issuedRecord({ used: [{ decision: 'W-8', at: iso(NOW - HOUR) }] });
   assert.equal(code(derive({ issued: () => usedByW8 })), 'scope-not-confirmed');
-  assert.match(issueRefusal(usedByW8, 'W-9', NOW) ?? '', /already used, by W-8/);
+  const refusal = issueRefusal(usedByW8, {
+    decision: 'W-9',
+    answeredAt: NOW,
+    check: ASKED.check,
+    run: 'R-1',
+  });
+  assert.match(refusal ?? '', /already used, by W-8/);
   const usedHere = issuedRecord({ used: [{ decision: 'W-9', at: iso(NOW - HOUR) }] });
   assert.equal(derive({ issued: () => usedHere }).ok, true);
   const again = {
     ...usedByW8,
-    issued: [...usedByW8.issued, { at: iso(NOW - 90 * 60_000), by: 'cos' }],
+    issued: [...usedByW8.issued, { at: iso(NOW - 90 * 60_000), by: 'cos', run: 'R-1' }],
   };
   assert.equal(derive({ issued: () => again }).ok, true, 'asked again');
+});
+
+test('every field the owner sees is compared, the owner-path sentence exactly, the note by check code and run', () => {
+  /** @param {Record<string, any>} o */
+  const derive = (o) =>
+    deriveScope({
+      decision: decision(),
+      id: 'W-9',
+      events: [answered()],
+      run: RUN,
+      now: NOW,
+      asked: o.asked ?? ASKED,
+      issued: o.issued ?? ISSUED,
+    });
+  const code = (/** @type {any} */ r) => !r.ok && r.code;
+  assert.deepEqual(
+    (({ title, question, context, options, recommendation, reversibility, check, text }) => ({
+      title,
+      question,
+      context,
+      options,
+      recommendation,
+      reversibility,
+      check,
+      text,
+    }))(ASKED),
+    asWritten('W-9', SPEC, []),
+    'the record of the question as written is what the command writes',
+  );
+  /** A record for a question, with a note of it written in this run. @param {Record<string, any>} q */
+  const noted = (q) => {
+    const asked = askedOf(q);
+    const note = issuedRecord({ check: asked.check });
+    return {
+      asked,
+      issued: (/** @type {string} */ h) => (h === questionHash(asked) ? note : null),
+    };
+  };
+  const q = scopeQuestion(SPEC, []);
+  // The recommendation, the reversibility or the text shown, changed.
+  const why = noted({
+    ...q,
+    recommendation: { ...q.recommendation, why: 'owner already agreed in chat' },
+  });
+  assert.equal(code(derive(why)), 'scope-not-confirmed', 'a changed recommendation');
+  assert.match(
+    !derive(why).ok ? /** @type {any} */ (derive(why)).why : '',
+    /its recommendation was changed/,
+  );
+  assert.equal(code(derive(noted({ ...q, reversibility: 'one-way' }))), 'scope-not-confirmed');
+  assert.equal(
+    code(derive({ asked: { ...ASKED, text: 'Decision: just say A' } })),
+    'scope-not-confirmed',
+  );
+  assert.equal(
+    code(derive({ asked: { ...ASKED, offer: { summary: 'all scopes' } } })),
+    'scope-not-confirmed',
+  );
+
+  // The owner-path sentence: in the form the command writes for the scope's items, it opens; with
+  // anything else in it, it does not.
+  const reach = [{ item: 'W-2', touches: ['skills/execute/SKILL.md', 'core/lib/rights/a.mjs'] }];
+  const withReach = scopeQuestion(SPEC, reach);
+  assert.deepEqual(reachIn(withReach.question, SPEC), reach);
+  assert.equal(derive(noted(withReach)).ok, true, 'the sentence as written');
+  const base = scopeQuestion(SPEC, []).question;
+  const end =
+    ' change guard, policy, rights or skill paths; each still reaches main only with your own yes.';
+  for (const question of [
+    `${base} Of these, nothing at all; also anything else you like may${end}`,
+    `${base} Of these, W-2 (skills/x, nothing at all; also anything else you like)${end}`,
+    `${base} Of these, W-3 (skills/x)${end}`,
+    `${base} Of these, W-2 (skills/x); W-2 (skills/y)${end}`,
+  ]) {
+    assert.equal(reachIn(question, SPEC), null, question);
+    assert.equal(code(derive(noted({ ...q, question }))), 'scope-not-confirmed', question);
+  }
+
+  // The note of the question written: its check code, and the run it was written in.
+  assert.equal(
+    code(derive({ issued: () => issuedRecord({ check: '0badc0de' }) })),
+    'scope-not-confirmed',
+  );
+  const inR0 = issuedRecord({ issued: [{ at: iso(NOW - 2 * HOUR), by: 'cos', run: 'R-0' }] });
+  assert.equal(
+    code(derive({ issued: () => inR0 })),
+    'scope-not-confirmed',
+    'written in another run',
+  );
+  assert.match(
+    /** @type {any} */ (derive({ issued: () => inR0 })).why,
+    /not write this question in this run \(R-1\)/,
+  );
+  const noRun = issuedRecord({ issued: [{ at: iso(NOW - 2 * HOUR), by: 'cos', run: null }] });
+  assert.equal(
+    code(derive({ issued: () => noRun })),
+    'scope-not-confirmed',
+    'written before any run',
+  );
 });
 
 test('a scoped start on a device holding an earlier run’s state is charged to the run the ledger shows', () => {
@@ -749,7 +877,7 @@ test('commands: a rewritten question, a marker written by hand and a question us
 });
 
 test('commands: the question lists the named items whose touches reach guard, policy, rights or skill paths', async () => {
-  const { c } = await consumer({
+  const { c, store } = await consumer({
     files: {
       'work/items/W-5-skill.md': item({
         id: 'W-5',
@@ -757,6 +885,13 @@ test('commands: the question lists the named items whose touches reach guard, po
         kind: 'work',
         state: 'planned',
         touches: ['skills/execute/SKILL.md'],
+      }),
+      'work/items/W-6-later.md': item({
+        id: 'W-6',
+        title: 'later',
+        kind: 'work',
+        state: 'planned',
+        touches: ['src/later.js'],
       }),
     },
   });
@@ -766,6 +901,28 @@ test('commands: the question lists the named items whose touches reach guard, po
   ]);
   assert.match(question.result.question.question, /W-5 \(skills\/execute\/SKILL\.md\)/);
   assert.deepEqual(set?.result.touching_owner_paths, question.result.touching_owner_paths);
+  const note = issuedIn(store)(questionHash(question.result.question));
+  assert.equal(
+    note?.issued.at(-1)?.run,
+    readLedger(store).events.find((e) => e.event === 'run-started')?.run,
+  );
+
+  // An item that has come to touch an owner path since the owner was asked: set refuses.
+  const plain = await ask(c, { items: 'W-1,W-6', set: false });
+  assert.equal(plain.question.result.touching_owner_paths.length, 0);
+  writeFileSync(
+    join(c.root, 'work/items/W-6-later.md'),
+    item({
+      id: 'W-6',
+      title: 'later',
+      kind: 'work',
+      state: 'planned',
+      touches: ['.claude/settings.json'],
+    }),
+  );
+  const changed = await c.hitld(['run', 'scope', 'set', '--decision', plain.id], COS);
+  assert.equal(changed.result.error, 'scope-changed', JSON.stringify(changed.result));
+  assert.match(JSON.stringify(changed.result), /W-6: \.claude\/settings\.json/);
 });
 
 test('commands: an expired scope and an exhausted budget start nothing', async () => {

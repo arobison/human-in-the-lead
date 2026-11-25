@@ -10,9 +10,11 @@
 // owner reads are the ones the answer confirms. The answer counts only as the yes option, recorded
 // in this run by the rights flow (its `answered` ledger event) and on the decision item, to the
 // question exactly as hitld run scope question writes it for that scope (the rights flow's ask
-// record: title, question, context and options, and its check code), which that command noted it
-// wrote (run/scope-questions/<hash>.json). Each question written opens one decision's scope: once
-// a decision opened it, or its scope ended, a new scope needs the question asked again. The store
+// record: every field the owner sees, asWritten), which that command noted it wrote in this run
+// (run/scope-questions/<hash>.json, with its check code and the run). Each question written opens
+// one decision's scope: once a decision opened it, or its scope ended, a new scope needs the
+// question asked again. run scope set also refuses when the items touching guard, policy, rights
+// or skill paths are not the ones the question named. The store
 // file run/scope.json names which decision is in force and whether the owner ended it; it grants
 // nothing by itself, and every start derives the scope from the decision, the ask record and the
 // ledger again (deriveScope), so a file edited by hand adds no item, budget or time.
@@ -29,6 +31,7 @@ import { matchesAny } from '../precedent/glob.mjs';
 import { waitsForOwner } from '../merge/owner.mjs';
 import { canonicalJson } from '../policy/policy.mjs';
 import { checkCode } from '../rights/flow.mjs';
+import { formatQuestion } from '../rights/format.mjs';
 
 /**
  * @typedef {import('../store/store.mjs').PrivateStore} PrivateStore
@@ -39,7 +42,7 @@ import { checkCode } from '../rights/flow.mjs';
  *   with one check code: each time it wrote one, and each decision that one opened or ended
  * @property {string} check the check code of the question as written
  * @property {string} line the scope, in one line
- * @property {{ at: string, by: string }[]} issued
+ * @property {{ at: string, by: string, run: string | null }[]} issued each time, in which run
  * @property {{ decision: string, at: string }[]} used
  *
  * @typedef {object} ScopeSpec what the owner is asked to agree to
@@ -190,26 +193,78 @@ export const questionCheck = (q) =>
   checkCode({ question: q.question, context: q.context, options: q.options });
 
 /**
- * Why the question recorded for a decision is not one hitld run scope question writes for the
- * scope the owner said yes to, or null when it is: its title, first sentence, context and options
- * exactly, the sentence naming owner-path items only in the form the command writes, and its check
- * code its own. So no rewritten question text, context or option opens a scope.
- * @param {AskedRecord | null} asked @param {ScopeSpec} agreed @returns {string | null}
+ * The items and touches a question's owner-path sentence names, read back from it: [] when it has
+ * none, null when the question is not the scope's first sentence followed by that sentence in the
+ * form the command writes (each part an item of the scope, once, and its touches, without spaces).
+ * @param {string} question @param {ScopeSpec} s
+ * @returns {{ item: string, touches: string[] }[] | null}
  */
-export function notAsWritten(asked, agreed) {
+export function reachIn(question, s) {
+  const base = scopeAsk(s);
+  if (question === base) return [];
+  const prefix = `${base} Of these, `;
+  if (!question.startsWith(prefix) || !question.endsWith(REACH_END)) return null;
+  /** @type {{ item: string, touches: string[] }[]} */
+  const out = [];
+  for (const part of question.slice(prefix.length, -REACH_END.length).split('; ')) {
+    const m = /^(\S+) \((\S+(?:, \S+)*)\)$/.exec(part);
+    if (!m || !s.items.includes(m[1]) || out.some((x) => x.item === m[1])) return null;
+    out.push({ item: m[1], touches: m[2].split(', ') });
+  }
+  return out;
+}
+
+/**
+ * Every field of a question the owner sees, as the rights flow records hitld run scope question's
+ * question for a decision when it is recorded unchanged: title, question, context, options,
+ * recommendation, reversibility, the text shown and the check code.
+ * @param {string} id the decision @param {ScopeSpec} s
+ * @param {{ item: string, touches: string[] }[]} reach
+ */
+export function asWritten(id, s, reach) {
+  const q = scopeQuestion(s, reach);
+  const check = questionCheck(q);
+  const shown = {
+    id,
+    reversibility: q.reversibility,
+    question: q.question,
+    context: q.context,
+    recommendation: q.recommendation,
+    options: q.options,
+  };
+  return {
+    title: q.title,
+    question: q.question,
+    context: q.context,
+    options: q.options,
+    recommendation: q.recommendation,
+    reversibility: q.reversibility,
+    check,
+    text: formatQuestion(shown, { blocks: 0, check }),
+  };
+}
+
+/**
+ * Why the question recorded for a decision is not the one hitld run scope question writes for the
+ * scope the owner said yes to, or null when it is. Every field the owner sees must equal what the
+ * command writes (asWritten), the owner-path sentence included, rebuilt from the items and touches
+ * it names; and the record carries no offer, default or action the command never writes.
+ * @param {AskedRecord | null} asked @param {ScopeSpec} agreed @param {string} id the decision
+ * @returns {string | null}
+ */
+export function notAsWritten(asked, agreed, id) {
   if (!asked) return 'the question asked under it is not in the store';
-  if (asked.binds || typeof asked.check !== 'string' || questionCheck(asked) !== asked.check) {
-    return 'its ask record does not match its own check code';
+  const reach = reachIn(String(asked.question ?? ''), agreed);
+  if (!reach) return 'its question text was changed';
+  const want = /** @type {Record<string, unknown>} */ (asWritten(id, agreed, reach));
+  const record = /** @type {Record<string, unknown>} */ (asked);
+  for (const [key, value] of Object.entries(want)) {
+    if (canonicalJson(record[key] ?? null) !== canonicalJson(value)) {
+      return key === 'question' ? 'its question text was changed' : `its ${key} was changed`;
+    }
   }
-  if (asked.title !== scopeTitle(agreed)) return 'its title is not the scope it was answered for';
-  const q = String(asked.question ?? '');
-  const base = scopeAsk(agreed);
-  if (q !== base && !(q.startsWith(`${base} Of these, `) && q.endsWith(REACH_END))) {
-    return 'its question text was changed';
-  }
-  if (asked.context !== SCOPE_CONTEXT) return 'its context was changed';
-  if (canonicalJson(asked.options) !== canonicalJson(scopeOptions(agreed))) {
-    return 'its options were changed';
+  if (asked.offer || asked.default_if_unanswered || asked.binds) {
+    return 'it carries an offer, a default or an action the command does not write';
   }
   return null;
 }
@@ -401,8 +456,8 @@ export function deriveScope(o) {
     };
   }
   // The question the owner answered is the one the command writes for this scope, word for word,
-  // and the command noted writing it before the answer, for no other decision.
-  const wrong = notAsWritten(o.asked, agreed);
+  // and the command noted writing it in this run, before the answer, for no other decision.
+  const wrong = notAsWritten(o.asked, agreed, o.id);
   if (wrong) {
     return {
       ok: false,
@@ -410,11 +465,13 @@ export function deriveScope(o) {
       why: `${o.id} was not asked with the question hitld run scope question writes for ${scopeLine(agreed)}: ${wrong}`,
     };
   }
-  const unissued = issueRefusal(
-    o.issued(questionHash(/** @type {AskedRecord} */ (o.asked))),
-    o.id,
-    at,
-  );
+  const asked = /** @type {AskedRecord} */ (o.asked);
+  const unissued = issueRefusal(o.issued(questionHash(asked)), {
+    decision: o.id,
+    answeredAt: at,
+    check: String(asked.check),
+    run: o.run.id,
+  });
   if (unissued) {
     return {
       ok: false,
@@ -472,7 +529,7 @@ export const issuedIn = (store) => (hash) => {
 /**
  * Note that hitld run scope question wrote this question, once more.
  * @param {PrivateStore} store @param {Record<string, any>} q the question as written
- * @param {ScopeSpec} s @param {{ at: string, by: string }} issue
+ * @param {ScopeSpec} s @param {{ at: string, by: string, run: string | null }} issue
  */
 export function noteIssued(store, q, s, issue) {
   const hash = questionHash(q);
@@ -504,20 +561,26 @@ export function noteUsed(store, asked, decision, at) {
 }
 
 /**
- * Why a written question does not open a decision's scope, or null when it does: the command must
- * have written it before the owner's answer, and each time it wrote it opens one decision only.
- * @param {IssuedRecord | null} record @param {string} decision @param {number} answeredAt
+ * Why a written question does not open a decision's scope, or null when it does: the record is the
+ * one for this question (its check code), the command wrote it in this run before the owner's
+ * answer, and each time it wrote it opens one decision only.
+ * @param {IssuedRecord | null} record
+ * @param {{ decision: string, answeredAt: number, check: string, run: string }} o
  * @returns {string | null}
  */
-export function issueRefusal(record, decision, answeredAt) {
+export function issueRefusal(record, o) {
   if (!record) return 'hitld run scope question did not write this question';
-  const before = record.issued.filter((i) => Date.parse(i.at) <= answeredAt).length;
+  if (record.check !== o.check) return 'the note of the question written names another check code';
+  const inRun = record.issued.filter((i) => i.run === o.run);
+  if (!inRun.length)
+    return `hitld run scope question did not write this question in this run (${o.run})`;
+  const before = inRun.filter((i) => Date.parse(i.at) <= o.answeredAt).length;
   if (!before) return 'hitld run scope question wrote this question only after the answer';
-  if (record.used.some((u) => u.decision === decision)) return null;
-  const others = record.used.filter((u) => u.decision !== decision).length;
+  if (record.used.some((u) => u.decision === o.decision)) return null;
+  const others = record.used.length;
   return before > others
     ? null
-    : `each question hitld run scope question wrote was already used, by ${record.used.map((u) => u.decision).join(', ')}`;
+    : `each question hitld run scope question wrote in this run was already used, by ${record.used.map((u) => u.decision).join(', ')}`;
 }
 
 /**
