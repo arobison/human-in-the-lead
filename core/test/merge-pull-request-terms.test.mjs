@@ -1,9 +1,10 @@
 // HITLD-824: before the queue presents a pull request (merge.via pull-request), it checks the
 // branch's diff and commit messages against the private term list, read from the private store.
-// A branch that names a term goes back to its executor, told where by kind and line, never the
-// term, and is not presented; a clean one is presented, and the presentation says the list was read
-// (list_found true). With no list there it says list_found false (HITLD-187), and a list that
-// cannot be read stops the merge.
+// A branch that names a term goes back to its executor, told where (by kind and line, a path by
+// its role), never the term, and is not presented; a clean one is presented, and the merge says
+// the list was read (list_found true, one value for the run). With no list there it says
+// list_found false (HITLD-187); a list that cannot be read, or no list with
+// merge.require_private_list on, stops the merge.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +14,8 @@ import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { main } from '../lib/cli/main.mjs';
 import { compileTerms } from '../lib/guard/private-terms.mjs';
 import { fakeGitHub } from '../lib/merge/github.mjs';
-import { emptyPullState, runPullRequestQueue } from '../lib/merge/pull-request.mjs';
+import { HIDDEN_PATH, emptyPullState, runPullRequestQueue } from '../lib/merge/pull-request.mjs';
+import { readLedger } from '../lib/ledger/ledger.mjs';
 import { TERMS_KEY, addTerm } from '../lib/store/private-terms.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
 import { STATUS_INPUT, git, item, makeConsumer, put, report } from './orchestrator-fixture.mjs';
@@ -30,8 +32,9 @@ const RULES = {
 /**
  * A consumer in owner mode merging through pull requests, against a fake GitHub whose repository
  * is a bare remote, with W-1 finished on its pushed branch and waiting to merge.
- * @param {{ files?: Record<string, string>, message?: string, list?: (store: any) => void }} [o]
- *   list: what the private store holds before the merge reads it
+ * @param {{ files?: Record<string, string>, message?: string, list?: (store: any) => void,
+ *   merge?: Record<string, unknown> }} [o]
+ *   list: what the private store holds before the merge reads it; merge: more merge policy
  */
 async function waiting(o = {}) {
   const c = makeConsumer({
@@ -41,6 +44,7 @@ async function waiting(o = {}) {
         via: 'pull-request',
         pull_request: { checks: ['test'] },
         full_suite: ['node --test "test/*.test.js"'],
+        ...(o.merge ?? {}),
       },
     },
   });
@@ -162,7 +166,7 @@ test('no list there: the pull request is presented with list_found false, and th
     );
     assert.match(
       shown.result.next,
-      /tell the owner the private term list was not checked on these pull requests' diffs and commit messages/,
+      /tell the owner the private term list was not read for this run, so these pull requests' diffs and commit messages were checked only against the terms implied here \(list_found false, one value for the run/,
     );
   } finally {
     rmSync(t.c.base, { recursive: true, force: true });
@@ -188,30 +192,95 @@ test('a list that cannot be read stops the merge: nothing is presented, and the 
   }
 });
 
-test('the queue checks each commit message too: a term there goes back, named by commit and line (HITLD-824)', async () => {
+test('merge.require_private_list on and no list: the merge refuses, and no pull request is opened or presented (HITLD-187, HITLD-824)', async () => {
+  const t = await waiting({ merge: { require_private_list: true } });
+  try {
+    const refused = await t.hitld(['merge']);
+    assert.equal(refused.result.ok, false, JSON.stringify(refused.result));
+    assert.equal(refused.result.error, 'private-list-invalid');
+    assert.match(refused.result.message, /merge\.require_private_list is on, so nothing merged/);
+    assert.ok(!refused.result.message.includes(t.root), 'never the store path');
+    assert.equal(t.github.pulls.length, 0, 'no pull request opened');
+  } finally {
+    rmSync(t.c.base, { recursive: true, force: true });
+  }
+});
+
+test('a path that holds a term is never printed: not in the result, its problems, the follow-up or the ledger (HITLD-824)', async () => {
+  const dir = TERM.replaceAll(' ', '-');
   const t = await waiting({
-    message: `W-1: as agreed with ${TERM}`,
-    list: (store) => addTerm(store, { term: TERM }),
+    files: { [`docs/${dir}/notes.md`]: 'notes\n' },
+    list: (store) => addTerm(store, { term: dir }),
   });
   try {
-    // The same branch, checked by the queue alone with the list's matchers.
-    const result = await runPullRequestQueue({
-      repoRoot: t.c.root,
-      entries: [{ item: 'W-1', branch: t.branch, dispatch: t.dispatch }],
-      settings: {
-        mainBranch: 'main',
-        remote: 'origin',
-        checks: ['test'],
-        checkTimeoutMinutes: 60,
-        generated: [],
-        classification: RULES,
-        itemAt: () => ({ state: 'done', title: 'Add numbers', release_note: null, body: '' }),
-      },
-      policy: { merge: { mode: 'owner' } },
-      github: t.github,
-      state: emptyPullState(),
-      evidence: () => [],
-    });
+    const shown = await t.hitld(['merge']);
+    assert.equal(shown.exit, 0, JSON.stringify(shown.result));
+    const [back] = shown.result.rejected;
+    assert.equal(back.reason, 'classification');
+    assert.deepEqual(back.files, []);
+    assert.equal(back.problems.length, 1);
+    assert.ok(back.problems[0].startsWith(`${HIDDEN_PATH}: its path holds a private name`));
+    assert.match(
+      back.follow_up.message,
+      /the path of a file the branch adds or changes holds a private name/,
+    );
+    assert.equal(t.github.pulls.length, 0, 'no pull request opened');
+    const printed = JSON.stringify(shown.result);
+    assert.ok(!printed.includes(dir), 'the result never holds the path');
+    const ledger = JSON.stringify(readLedger(openStore(t.root)).events);
+    assert.ok(
+      ledger.includes('merge queue (pull request): classification'),
+      'the refusal is recorded',
+    );
+    assert.ok(!ledger.includes(dir), 'the ledger never holds the path');
+  } finally {
+    rmSync(t.c.base, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The queue alone, with the list's matchers, over the given branches of the consumer.
+ * @param {Awaited<ReturnType<typeof waiting>>} t @param {import('../lib/merge/queue.mjs').Entry[]} entries
+ */
+const queue = (t, entries) =>
+  runPullRequestQueue({
+    repoRoot: t.c.root,
+    entries,
+    settings: {
+      mainBranch: 'main',
+      remote: 'origin',
+      checks: ['test'],
+      checkTimeoutMinutes: 60,
+      generated: [],
+      classification: RULES,
+      itemAt: () => ({ state: 'done', title: 'Add numbers', release_note: null, body: '' }),
+    },
+    policy: { merge: { mode: 'owner' } },
+    github: t.github,
+    state: emptyPullState(),
+    evidence: () => [],
+  });
+
+/**
+ * Another branch from main, committed and pushed, beside W-1.
+ * @param {Awaited<ReturnType<typeof waiting>>} t @param {string} id
+ * @param {Record<string, string>} files
+ */
+function another(t, id, files) {
+  const branch = `hitld/${id}`;
+  git(t.c.root, 'switch', '-q', '-c', branch, 'main');
+  put(t.c.root, files);
+  git(t.c.root, 'add', '-A');
+  git(t.c.root, 'commit', '-q', '--no-verify', '-m', id, '-m', `Work-Item: ${id}`);
+  git(t.c.root, 'push', '-q', 'origin', branch);
+  git(t.c.root, 'switch', '-q', 'main');
+  return { item: id, branch, dispatch: `D-${id}` };
+}
+
+test('the queue checks each commit message too: a term there goes back, named by commit and line (HITLD-824)', async () => {
+  const t = await waiting({ message: `W-1: as agreed with ${TERM}` });
+  try {
+    const result = await queue(t, [{ item: 'W-1', branch: t.branch, dispatch: t.dispatch }]);
     const [back] = result.rejected;
     assert.equal(back.reason, 'classification');
     assert.match(
@@ -226,33 +295,46 @@ test('the queue checks each commit message too: a term there goes back, named by
   }
 });
 
-test('a path that holds a term is named by its role, not repeated (HITLD-824)', async () => {
-  const dir = TERM.replaceAll(' ', '-');
-  const t = await waiting({ files: { [`docs/${dir}.md`]: 'notes\n' } });
+test('a branch with a term and a file above the ceiling is told both (HITLD-824)', async () => {
+  const t = await waiting({
+    files: {
+      'docs/notes.md': `# Notes\n\nSynced with ${TERM} weekly.\n`,
+      'docs/plan.md': '---\nclassification: confidential\n---\n\n# Plan\n',
+    },
+  });
   try {
-    const result = await runPullRequestQueue({
-      repoRoot: t.c.root,
-      entries: [{ item: 'W-1', branch: t.branch, dispatch: t.dispatch }],
-      settings: {
-        mainBranch: 'main',
-        remote: 'origin',
-        checks: ['test'],
-        checkTimeoutMinutes: 60,
-        generated: [],
-        classification: { ...RULES, terms: compileTerms([{ term: dir, kind: 'name' }]) },
-        itemAt: () => ({ state: 'done', title: 'Add numbers', release_note: null, body: '' }),
-      },
-      policy: { merge: { mode: 'owner' } },
-      github: t.github,
-      state: emptyPullState(),
-      evidence: () => [],
-    });
+    const result = await queue(t, [{ item: 'W-1', branch: t.branch, dispatch: t.dispatch }]);
     const [back] = result.rejected;
-    assert.match(
-      /** @type {string} */ (back.message),
-      /the path of a file the branch adds or changes holds a private name/,
+    const message = /** @type {string} */ (back.message);
+    assert.match(message, /docs\/notes\.md, line 3: holds a private name/);
+    assert.match(message, /The queue also refuses the branch for these: docs\/plan\.md: /);
+    assert.match(message, /classification ceiling belongs in the private store/);
+    assert.deepEqual(back.files?.sort(), ['docs/notes.md', 'docs/plan.md']);
+    assert.ok(!JSON.stringify(result).includes(TERM), 'never the term');
+  } finally {
+    rmSync(t.c.base, { recursive: true, force: true });
+  }
+});
+
+test('two pull requests in one run: the clean one is presented, the one that names a term goes back (HITLD-824)', async () => {
+  const t = await waiting();
+  try {
+    const w2 = another(t, 'W-2', { 'docs/w2.md': `# W-2\n\nFor ${TERM}.\n` });
+    const result = await queue(t, [{ item: 'W-1', branch: t.branch, dispatch: t.dispatch }, w2]);
+    assert.deepEqual(
+      result.awaiting_owner.map((w) => w.item),
+      ['W-1'],
     );
-    assert.ok(!(/** @type {string} */ (back.message).includes(dir)), 'the path is not repeated');
+    assert.deepEqual(
+      result.rejected.map((x) => [x.item, x.reason]),
+      [['W-2', 'classification']],
+    );
+    assert.match(
+      /** @type {string} */ (result.rejected[0].message),
+      /docs\/w2\.md, line 3: holds a private name/,
+    );
+    assert.equal(t.github.pulls.length, 1, 'only the clean branch has a pull request');
+    assert.ok(!JSON.stringify(result).includes(TERM), 'never the term');
   } finally {
     rmSync(t.c.base, { recursive: true, force: true });
   }

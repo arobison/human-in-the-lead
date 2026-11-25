@@ -1280,8 +1280,9 @@ async function pullRequestMerge(o) {
       ? { approved_ahead: result.ahead }
       : {}),
     presented: waiting,
-    // Whether each pull request's diff and commit messages were checked against the private term
-    // list before it was presented, or only against the terms implied here (HITLD-824).
+    // Whether the private term list was read for this run's check of the pull requests' diffs and
+    // commit messages, or only the terms implied here were checked (HITLD-824): one value for the
+    // whole run. Only the pull-request merge result carries it.
     list_found: o.listFound,
     question: waiting.length
       ? waiting.length === 1
@@ -1299,7 +1300,7 @@ async function pullRequestMerge(o) {
             ? 'put the question to the owner in one message, one line per pull request (item, link, the checks passed, the files changed); merge only on the owner\'s own message: hitld merge --all or --only <branch> with --signoff "<the owner\'s sign-off>" (or the chief of staff records it with hitld merge approve)'
             : '',
           waiting.length && !o.listFound
-            ? "tell the owner the private term list was not checked on these pull requests' diffs and commit messages (list_found false; the warnings say why), and present them again from where the store is read before the owner answers"
+            ? "tell the owner the private term list was not read for this run, so these pull requests' diffs and commit messages were checked only against the terms implied here (list_found false, one value for the run, given with merge.via pull-request; the warnings say why), and present them again from where the store is read before the owner answers"
             : '',
           waiting.some((w) => w.no_signoff)
             ? `the ones marked no_signoff would merge without asking under ${pr.delegated_by}, but no sign-off of the owner's is recorded yet: their approval records it, and later ones merge with it`

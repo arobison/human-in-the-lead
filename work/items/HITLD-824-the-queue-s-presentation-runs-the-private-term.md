@@ -7,7 +7,7 @@ created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
 claimed_by: D-01M87Y64MS9N571H
-release_note: "With merge.via pull-request, `hitld merge` says whether each presented pull request's diff and commit messages were checked against the private term list (`list_found`), and a branch that names a term goes back to its executor told where, by kind and line, never the term."
+release_note: "With merge.via pull-request, `hitld merge` says whether the private term list was read for the merge (`list_found`), one value for the whole run, not each pull request; a branch whose diff or commit messages name a term goes back to its executor told where (a file or message by its kind and line, a path by its role), never the term."
 ---
 
 ## Why
