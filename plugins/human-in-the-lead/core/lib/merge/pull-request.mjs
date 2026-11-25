@@ -22,7 +22,9 @@
 //                when merge.pull_request.delegated_by names the owner's decision that delegated
 //                it, the squash carries the owner's sign-off (the one their latest approval gave)
 //                and a Delegated-by trailer naming that decision, and with no sign-off known yet
-//                it waits for the owner instead
+//                it waits for the owner instead. In the tracker, one merged without the owner may
+//                change only its own item's file and a decision's recorded answer: anything else
+//                there waits, and an item promoted out of proposed sends it back (HITLD-871)
 //   6. update    a green branch behind main is brought up to date: main merged in (never a rebase,
 //                never a force-push), generated files rebuilt and committed, pushed, and checked
 //                again; a conflict goes back to the executor. An approval holds across the queue's
@@ -51,7 +53,7 @@ import { STRICT, checkCommits, isTermRefusal } from '../guard/classification.mjs
 import { findTerms, matchMessage } from '../guard/private-terms.mjs';
 import { UNASSIGNED } from '../rights/trust.mjs';
 import { matchesAny } from '../precedent/glob.mjs';
-import { unverifiedAnswers } from './answers.mjs';
+import { delegatedTrackerScope, unverifiedAnswers } from './answers.mjs';
 import { areasOf, waitsForOwner } from './owner.mjs';
 import { QUARANTINE_PATH } from './quarantine.mjs';
 import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
@@ -81,6 +83,8 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *   answer merges without asking only when one of them records it (answers.mjs); none, none does
  * @property {string | null} [delegatedBy] merge.pull_request.delegated_by: the owner's decision that
  *   delegated merging, without asking, the pull requests that do not wait for them
+ * @property {string} [workDir] the tracker's folder: what a merge without the owner may change in it
+ *   is held to the branch's own item (delegatedTrackerScope, HITLD-871); 'work' when not given
  *
  * @typedef {{ number: number, head: string, signed_off_by: string, at: string, by: string,
  *   presented_at?: string, as_presented?: boolean, ahead?: string }} Approval the owner's approval
@@ -111,16 +115,18 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, changed: string[],
  *   checks: string[], dispatch?: string, no_signoff?: true, links?: string[],
- *   answer_unverified?: { decision: string, path: string, why: string }[] }} Presented no_signoff: it
+ *   answer_unverified?: { decision: string, path: string, why: string }[],
+ *   outside_claim?: import('./answers.mjs').ScopeFinding[] }} Presented no_signoff: it
  *   would merge under the owner's delegation, but no sign-off of theirs is known yet; links: the
  *   symbolic links it adds, changes or removes, which make it wait; answer_unverified: the decision
- *   answers it changes that no recorded answer matches, which make it wait
+ *   answers it changes that no recorded answer matches, which make it wait; outside_claim: the
+ *   tracker files it changes beyond its own item and recorded answers (HITLD-871), which make it wait
  * @typedef {{ item: string, branch: string, number: number, url: string, commit: string, signed_off: boolean,
  *   changed: string[], approval: { at: string, presented_at: string | null, as_presented: boolean } | null,
  *   delegated_by: string | null, dispatch?: string }} PullMerged approval: the owner's, when they
  *   approved it; delegated_by: the decision it was merged under without asking, with the owner's sign-off
  * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'duplicate_id' | 'knowledge_base' | 'quarantine'
- *   | 'not_closed' | 'publish' | 'checks' | 'missing' | 'needs_rejected', files?: string[], checks?: Check[],
+ *   | 'not_closed' | 'publish' | 'checks' | 'missing' | 'needs_rejected' | 'owner_state', files?: string[], checks?: Check[],
  *   output?: string, message?: string, number?: number, url?: string, dispatch?: string }} PullRejected
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, checks: string[],
  *   waited_ms: number, dispatch?: string }} PullWaiting a pull request whose named checks have not all finished
@@ -235,7 +241,8 @@ export function changedFiles(dir, main, head) {
  * conditional check unless every changed file matches its unless_only globs (a check CI reports
  * only for some changes, such as the code scanning result for code CodeQL analyzes). An empty
  * change waits for them all.
- * @param {string[]} paths @param {PullSettings} s @returns {string[]}
+ * @param {string[]} paths @param {Pick<PullSettings, 'checks' | 'conditionalChecks'>} s
+ * @returns {string[]}
  */
 export function checksFor(paths, s) {
   const extra = (s.conditionalChecks ?? [])
@@ -371,8 +378,9 @@ export function classificationRejection(item, refused, terms) {
  * The squash commit's message: the trailers the branch's own commits carry (the queue's updates
  * aside), the item's at least, and the owner's sign-off when they approved it or when the merge
  * was delegated; a delegated one adds a Delegated-by trailer naming the owner's decision.
- * @param {{ dir: string, base: string, head: string, item: string, signedOffBy?: string | null,
- *   delegatedBy?: string | null }} o
+ * @param {{ dir: string, base: string, head: string, item: string | null, signedOffBy?: string | null,
+ *   delegatedBy?: string | null }} o item: null for a branch no dispatch claimed (a tracker-only
+ *   pull request), which then gets no Work-Item of its own
  */
 export function squashMessage(o) {
   const raw = git(o.dir, [
@@ -391,7 +399,7 @@ export function squashMessage(o) {
       if (m && values && !values.includes(m[2])) values.push(m[2]);
     }
   }
-  if (!found.get('Work-Item')?.length) found.set('Work-Item', [o.item]);
+  if (!found.get('Work-Item')?.length && o.item) found.set('Work-Item', [o.item]);
   const lines = [...found].flatMap(([k, vs]) => vs.map((v) => `${k}: ${v}`));
   if (o.signedOffBy) lines.push(`Signed-off-by: ${o.signedOffBy}`);
   if (o.signedOffBy && o.delegatedBy) lines.push(`Delegated-by: ${o.delegatedBy}`);
@@ -748,9 +756,35 @@ export async function runPullRequestQueue(r) {
         !waits && owner
           ? unverifiedAnswers({ dir, base, head, paths: changed, events: s.answers ?? [] })
           : [];
+      // In the tracker, a merge without the owner changes only the branch's own item, and a
+      // decision only by its recorded answer; anything else waits, and a promotion out of
+      // proposed is refused (HITLD-871).
+      const scope =
+        !waits && owner
+          ? delegatedTrackerScope({
+              dir,
+              base,
+              head,
+              paths: changed,
+              workDir: s.workDir,
+              claimed: e.item,
+              unverified: unverified.map((x) => x.path),
+            })
+          : { waits: [], refused: [] };
+      if (scope.refused.length) {
+        reject(e, {
+          reason: 'owner_state',
+          files: scope.refused.map((x) => x.path),
+          output: scope.refused.map((x) => x.why).join('\n'),
+          number: pr.number,
+          url: pr.url,
+          message: `Your branch makes a change in the tracker that only the owner's decision makes: ${scope.refused.map((x) => x.why).join('; ')}. Take it out of the branch; if the item should be promoted, say so under questions.`,
+        });
+        continue;
+      }
       const delegatedBy = !waits && owner ? (s.delegatedBy ?? null) : null;
       const noSignoff = Boolean(delegatedBy) && !state.owner_signoff;
-      const holds = waits || noSignoff || unverified.length > 0;
+      const holds = waits || noSignoff || unverified.length > 0 || scope.waits.length > 0;
       let approved = holds && approvalHolds(dir, ps, pr.number, head);
       // An approval given before this point (HITLD-821) is used here, where the queue would put
       // the pull request to the owner, once: applied to this head, or dropped.
@@ -780,6 +814,7 @@ export async function runPullRequestQueue(r) {
           ...(diff.links.length ? { links: diff.links } : {}),
           ...(noSignoff ? { no_signoff: /** @type {const} */ (true) } : {}),
           ...(unverified.length ? { answer_unverified: unverified } : {}),
+          ...(scope.waits.length ? { outside_claim: scope.waits } : {}),
         };
         presented.push(shown);
         result.awaiting_owner.push(shown);
