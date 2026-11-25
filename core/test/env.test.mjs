@@ -12,6 +12,7 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer, connect } from 'node:net';
@@ -1683,13 +1684,22 @@ test('status names a live holder when the oldest weighted one is stale, so the p
   env.releaseLock({ resource: 'gpu', holder: 'D-2' });
 });
 
-test('an unreadable lock record shows as stale, with or without a capacity', async () => {
+test('an unreadable lock record shows as stale once it has stayed so, with or without a capacity', async () => {
   for (const capacity of [undefined, { benchmark: 4 }]) {
     const repoRoot = makeRepo();
     const machineRoot = dir('machine');
     const { env } = await makeEnv({ repoRoot, machineRoot, capacity });
     mkdirSync(join(machineRoot, 'locks'), { recursive: true });
-    writeFileSync(join(machineRoot, 'locks', 'benchmark.lock'), '{not json');
+    const path = join(machineRoot, 'locks', 'benchmark.lock');
+    writeFileSync(path, '{not json');
+    // Just written: a copy that creates the file and then writes it is seen half-written between
+    // the two (HITLD-1051), so it is held for a moment, not taken over.
+    const fresh = env.lockStatus().find((l) => l.resource === 'benchmark');
+    assert.equal(fresh?.stale, null, `capacity ${JSON.stringify(capacity)}`);
+    assert.equal(fresh?.record, null);
+    assert.equal(fresh?.used, capacity ? 4 : 1);
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(path, old, old);
     const status = env.lockStatus().find((l) => l.resource === 'benchmark');
     assert.equal(status?.stale, 'its record is unreadable', `capacity ${JSON.stringify(capacity)}`);
     assert.equal(status?.record, null);

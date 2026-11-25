@@ -2,11 +2,12 @@
 id: HITLD-1051
 title: The machine locks decide through one pure function, and a model checker proves their invariants
 kind: work
-state: planned
+state: done
 created: 2026-11-25
 project: HITLD-15
 needs: [HITLD-1050]
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M8A9WX985TN39E
 ---
 
 ## Done when

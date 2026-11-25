@@ -7,35 +7,60 @@
 // A resource has a capacity (design 13.4, HITLD-41): the machine profile's `capacity` gives the
 // weight units it takes, and each holder takes a weight. A resource with no entry has capacity 1
 // and keeps the single lock file above, unchanged. A resource with a larger capacity records each
-// holder in its own file under <resource>.holders/, admitted under a mutex while the live weights
-// fit. Either way only the first in the queue may try, so a heavy holder waiting at the head is
-// not overtaken by light ones that arrive after it.
+// holder in its own file under <resource>.holders/, admitted while the live weights fit. Either
+// way only the first in the queue may try, so a heavy holder waiting at the head is not overtaken
+// by light ones that arrive after it.
 //
 // A holder name is one process's (HITLD-1050): a record names its holder and the process it
 // follows (pid and start time). A live holder that asks again from that process is renewed
 // before the queue is looked at, so it never waits behind waiters that wait on it. Another process
 // asking under a name a live holder has is refused, with the holder named; once that holder is
 // stale, the name is taken over like any other lock.
+//
+// Every decision is made by `decide` in lockcore.mjs (HITLD-1051); this file is its shell. It
+// reads the resource's files and the processes they name into a state, and, inside the resource's
+// one critical section, asks `decide` and applies what it returns. The critical section is the
+// resource's `.admit` mutex, which weighted admissions have always taken, used now for the single
+// lock too, with the single lock's `.takeover` mutex inside it, which older copies take to take it
+// over. Records are written whole, through a temporary file and a rename, so a reader never sees
+// one half-written; the first creation of the single lock stays an exclusive create (a hard link
+// of the written file), so older copies, which create it with an exclusive open, are still
+// excluded. The files and paths are those older copies use; the ticket numbering and the fields
+// are compatible with them.
 
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { checkHolder } from './config.mjs';
-import { withMutex } from './mutex.mjs';
+import { withMutexSync } from './mutex.mjs';
 import { isAlive, processStart, processStarts, sleep } from './proc.mjs';
+import {
+  SINGLE,
+  decide,
+  holderSlot,
+  parseTicket,
+  staleReason,
+  startsWanted,
+  weightOf,
+} from './lockcore.mjs';
 
 /**
- * @typedef {object} LockRecord
- * @property {string} resource
- * @property {string} holder
- * @property {number} pid the process whose life the lock follows
- * @property {string | null} pid_start that process's start time, to tell it from a successor
- * @property {string} host
- * @property {string} acquired_at
- * @property {string} renewed_at
- * @property {string} expires_at
- * @property {number} [weight] the units it holds of a resource with a capacity above 1
+ * @typedef {import('./lockcore.mjs').LockRecord} LockRecord
+ * @typedef {import('./lockcore.mjs').LockState} LockState
+ * @typedef {import('./lockcore.mjs').LockEvent} LockEvent
+ * @typedef {import('./lockcore.mjs').Effect} Effect
+ * @typedef {import('./lockcore.mjs').Outcome} Outcome
+ * @typedef {import('./lockcore.mjs').Slot} Slot
  *
  * @typedef {object} LockContext
  * @property {string} machineRoot the machine-wide directory, with locks/ beneath it
@@ -50,7 +75,6 @@ import { isAlive, processStart, processStarts, sleep } from './proc.mjs';
  * @property {() => boolean} release
  */
 
-const PID_REUSE_CHECK_AFTER_MS = 10_000;
 const NAME = /^[a-z0-9][a-z0-9._-]*$/;
 
 /** @param {string} resource */
@@ -92,406 +116,279 @@ export function capacityOf(ctx, resource) {
   return Number.isInteger(c) && /** @type {number} */ (c) >= 1 ? /** @type {number} */ (c) : 1;
 }
 
+/** @param {LockContext} ctx */
+const locksDir = (ctx) => join(ctx.machineRoot, 'locks');
 /** @param {LockContext} ctx @param {string} resource */
-const holdersDir = (ctx, resource) =>
-  join(ctx.machineRoot, 'locks', `${physical(ctx, resource)}.holders`);
-/**
- * A holder's file. Holder names may differ only by case (D-1 and d-1), which a case-insensitive
- * file system would fold into one file, so the name is hex-encoded; the record names the holder.
- * @param {LockContext} ctx @param {string} resource @param {string} holder
- */
-const holderFile = (ctx, resource, holder) =>
-  join(holdersDir(ctx, resource), `${Buffer.from(holder).toString('hex')}.json`);
+const holdersDir = (ctx, resource) => join(locksDir(ctx), `${physical(ctx, resource)}.holders`);
+/** @param {LockContext} ctx @param {string} resource */
+const lockFile = (ctx, resource) => join(locksDir(ctx), `${physical(ctx, resource)}.lock`);
+/** @param {LockContext} ctx @param {string} resource */
+const queueDir = (ctx, resource) => join(locksDir(ctx), `${physical(ctx, resource)}.queue`);
 
 /**
- * The holders recorded for a resource with a capacity, oldest first.
- * @param {LockContext} ctx @param {string} resource
- * @returns {{ path: string, record: LockRecord | null }[]}
+ * A slot's file: the single lock, or a weighted holder's file, named by its hex-encoded name
+ * (names may differ only by case, which a case-insensitive file system would fold together).
+ * @param {LockContext} ctx @param {string} resource @param {string} slot
  */
-function readHolders(ctx, resource) {
-  const dir = holdersDir(ctx, resource);
-  let names;
-  try {
-    names = readdirSync(dir).filter((n) => n.endsWith('.json'));
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const name of names) {
-    const path = join(dir, name);
-    const record = readLock(path);
-    if (record !== undefined) out.push({ path, record });
-  }
-  const at = (/** @type {LockRecord | null} */ r) => (r ? Date.parse(r.acquired_at) || 0 : 0);
-  return out.sort((a, b) => at(a.record) - at(b.record));
-}
+const slotPath = (ctx, resource, slot) =>
+  slot === SINGLE ? lockFile(ctx, resource) : join(holdersDir(ctx, resource), `${slot}.json`);
 
 /**
- * Write a lock record whole, for a weighted holder's record and for a renewal of the single lock:
- * a reader would take a half-written file for an unreadable, stale one and remove it.
- * @param {string} path @param {LockRecord} record
+ * A record file as it is now: absent (null), or its record (null when it cannot be read whole) and
+ * when it was last written.
+ * @param {string} path @param {string} slot @returns {Slot | null}
  */
-function writeWhole(path, record) {
-  const tmp = `${path}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`;
-  writeFileSync(tmp, JSON.stringify(record) + '\n');
-  renameSync(tmp, path);
-}
-
-/** @param {LockRecord | null} r */
-const weightOf = (r) => (r && Number.isInteger(r.weight) ? /** @type {number} */ (r.weight) : 1);
-
-/** @param {LockContext} ctx @param {string} resource */
-const lockFile = (ctx, resource) =>
-  join(ctx.machineRoot, 'locks', `${physical(ctx, resource)}.lock`);
-/** @param {LockContext} ctx @param {string} resource */
-const queueDir = (ctx, resource) =>
-  join(ctx.machineRoot, 'locks', `${physical(ctx, resource)}.queue`);
-
-/** @param {string} path @returns {LockRecord | null | undefined} undefined: absent; null: unreadable */
-function readLock(path) {
+function readSlot(path, slot) {
   let text;
+  let mtime;
   try {
     text = readFileSync(path, 'utf8');
-  } catch {
-    return undefined;
-  }
-  try {
-    const r = JSON.parse(text);
-    return typeof r?.holder === 'string' && Number.isInteger(r.pid) ? r : null;
+    mtime = statSync(path).mtimeMs;
   } catch {
     return null;
   }
+  try {
+    const r = JSON.parse(text);
+    const ok = typeof r?.holder === 'string' && Number.isInteger(r.pid);
+    return { slot, record: ok ? r : null, mtime };
+  } catch {
+    return { slot, record: null, mtime };
+  }
+}
+
+/** @param {string} dir @returns {string[]} */
+function list(dir) {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Whether a recorded lock can be taken over, and why.
- * @param {LockRecord | null} record null for a file that cannot be read
- * @param {number} now
- * @param {Map<number, string>} [starts] process start times looked up together beforehand
- *   (startsFor), so judging several holders costs one process lookup, not one each
- * @returns {string | null}
+ * The processes the records and tickets name: whether each is alive, and the start time of those
+ * staleReason will ask for. `starts: false` skips the start times, which cost a process to look
+ * up: enough for a waiter to learn it is still not first in line.
+ * @param {(LockRecord | null)[]} records @param {number[]} ticketPids @param {number} now
+ * @param {string} host @param {boolean} starts
+ * @returns {import('./lockcore.mjs').Procs}
  */
-function staleReason(record, now, starts) {
-  if (!record) return 'its record is unreadable';
-  if (record.host !== hostname()) return Date.parse(record.expires_at) < now ? 'it expired' : null;
-  if (!isAlive(record.pid)) return `its holder's process ${record.pid} is gone`;
-  // Telling a process from a successor that reused its ID costs a ps call, so it is done only for a
-  // lock that has not been renewed lately; a holder that renews is plainly itself.
-  if (record.pid_start && now - Date.parse(record.renewed_at) > PID_REUSE_CHECK_AFTER_MS) {
-    const start = starts ? starts.get(record.pid) : processStart(record.pid);
-    if (start && start !== record.pid_start) {
-      return `process ${record.pid} is no longer the holder's (its ID was reused)`;
+function procsFor(records, ticketPids, now, host, starts) {
+  /** @type {import('./lockcore.mjs').Procs} */
+  const procs = {};
+  for (const r of records) if (r && r.host === host) procs[r.pid] = { alive: isAlive(r.pid) };
+  for (const pid of ticketPids) procs[pid] ??= { alive: isAlive(pid) };
+  if (starts) {
+    const wanted = startsWanted(records, now, host).filter((p) => procs[p]?.alive);
+    if (wanted.length) {
+      const found = processStarts(wanted);
+      for (const p of wanted) procs[p].start = found.get(p) ?? null;
     }
   }
-  if (Date.parse(record.expires_at) < now) return 'it expired without being renewed';
-  return null;
+  return procs;
 }
 
 /**
- * Whether a record was written for the caller's process: the same pid on this host, with the same
- * start time when both are known (a pid alone may have been reused).
- * @param {LockRecord | null | undefined} record @param {number} pid
- * @param {() => string | null} startOf the caller's start time, looked up only when the pids match
+ * Everything `decide` looks at for a resource, read now.
+ * @param {LockContext} ctx @param {string} resource @param {{ starts?: boolean }} [o]
+ * @returns {LockState}
  */
-function sameProcess(record, pid, startOf) {
-  if (!record || record.host !== hostname() || record.pid !== pid) return false;
-  if (!record.pid_start) return true;
-  const start = startOf();
-  return !start || start === record.pid_start;
-}
-
-/**
- * The caller's own live hold on a resource, looked at before the queue: the single lock or its
- * weighted record, under its name and written for its process. Its own hold is renewed at once
- * and kept at the weight it has; a holder that asks again never takes a ticket behind waiters
- * that wait on it. The renewal is made under the mutex a takeover or an admission takes, so it
- * never brings back a record another caller has just judged stale and removed. The name held by
- * another live process is a conflict. A stale record under the name is neither, whoever wrote it:
- * a hold that has lapsed is not renewed ahead of the queue, and the attempt takes it like any
- * stale lock.
- * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
- * @param {() => string | null} startOf @param {number} ttlMs
- * @returns {Promise<{ renewed: LockRecord } | { conflict: LockRecord } | null>}
- */
-async function ownHold(ctx, resource, holder, pid, startOf, ttlMs) {
-  const single = lockFile(ctx, resource);
-  const places = [
-    { path: single, mutex: `${single}.takeover` },
-    { path: holderFile(ctx, resource, holder), mutex: `${holdersDir(ctx, resource)}.admit` },
-  ];
-  for (const { path, mutex } of places) {
-    const seen = readLock(path);
-    if (!seen || seen.holder !== holder || staleReason(seen, Date.now())) continue;
-    if (!sameProcess(seen, pid, startOf)) return { conflict: seen };
-    const renewed = await withMutex(mutex, () => {
-      const cur = readLock(path);
-      if (!cur || cur.holder !== holder || !sameProcess(cur, pid, startOf)) return null;
-      if (staleReason(cur, Date.now())) return null;
-      /** @type {LockRecord} */
-      const record = newRecord(resource, holder, pid, startOf(), ttlMs, cur.acquired_at);
-      if (path !== single) record.weight = weightOf(cur);
-      writeWhole(path, record);
-      return record;
-    });
-    if (renewed) return { renewed };
-  }
-  return null;
-}
-
-/**
- * The start times staleReason will ask for, for the given records, in one lookup.
- * @param {(LockRecord | null | undefined)[]} records @param {number} now
- * @returns {Map<number, string>}
- */
-function startsFor(records, now) {
-  const pids = [];
-  for (const r of records) {
-    if (!r || r.host !== hostname() || !r.pid_start) continue;
-    if (now - Date.parse(r.renewed_at) > PID_REUSE_CHECK_AFTER_MS) pids.push(r.pid);
-  }
-  return pids.length ? processStarts(pids) : new Map();
-}
-
-/**
- * @param {string} resource @param {string} holder @param {number} pid
- * @param {string | null} pidStart the process's start time, looked up once by the caller (a lookup
- *   costs a process, and on Windows most of a second)
- * @param {number} ttlMs @param {string} [acquiredAt]
- * @returns {LockRecord}
- */
-function newRecord(resource, holder, pid, pidStart, ttlMs, acquiredAt) {
-  const now = new Date();
+function readState(ctx, resource, o = {}) {
+  const now = Date.now();
+  const host = hostname();
+  const single = readSlot(lockFile(ctx, resource), SINGLE);
+  const hdir = holdersDir(ctx, resource);
+  const holders = /** @type {Slot[]} */ (
+    list(hdir)
+      .filter((n) => n.endsWith('.json'))
+      .map((n) => readSlot(join(hdir, n), n.slice(0, -'.json'.length)))
+      .filter(Boolean)
+  );
+  const queue = list(queueDir(ctx, resource))
+    .filter((n) => n.endsWith('.t'))
+    .map(parseTicket);
+  const records = [single?.record ?? null, ...holders.map((h) => h.record)];
   return {
     resource,
-    holder,
-    pid,
-    pid_start: pidStart,
-    host: hostname(),
-    acquired_at: acquiredAt ?? now.toISOString(),
-    renewed_at: now.toISOString(),
-    expires_at: new Date(now.getTime() + ttlMs).toISOString(),
+    capacity: capacityOf(ctx, resource),
+    now,
+    host,
+    single,
+    holders,
+    queue,
+    procs: procsFor(
+      records,
+      queue.map((t) => t.pid),
+      now,
+      host,
+      o.starts !== false,
+    ),
   };
 }
 
 /**
- * The live waiters of a resource, in arrival order; dead waiters are dropped.
- * @param {LockContext} ctx @param {string} resource @returns {string[]} ticket file names */
-function liveQueue(ctx, resource) {
-  const dir = queueDir(ctx, resource);
-  let names;
+ * Write a file whole: a reader sees the old one or the new one, never half of either.
+ * @param {string} path @param {string} text
+ */
+function writeWhole(path, text) {
+  const tmp = `${path}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`;
+  writeFileSync(tmp, text);
   try {
-    names = readdirSync(dir).sort();
-  } catch {
-    return [];
+    renameSync(tmp, path);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
   }
-  const live = [];
-  for (const name of names) {
-    const pid = Number(name.split('.').at(-2));
-    if (isAlive(pid)) live.push(name);
-    else rmSync(join(dir, name), { force: true });
-  }
-  return live;
 }
 
 /**
- * One attempt to take the lock. Returns the new record if taken, or the current holder's.
- * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
- * @param {string | null} pidStart @param {number} ttlMs
- * @returns {Promise<{ taken: true, record: LockRecord, renewed?: boolean } | { taken: false, held_by: LockRecord | null }>}
+ * Create a file only if there is none, whole: written aside, then hard-linked into place, which
+ * fails if the path is taken, as an exclusive open does. Where hard links are not supported it
+ * falls back to the exclusive open.
+ * @param {string} path @param {string} text @returns {boolean} whether it was created
  */
-async function attempt(ctx, resource, holder, pid, pidStart, ttlMs) {
-  const path = lockFile(ctx, resource);
-  mkdirSync(join(ctx.machineRoot, 'locks'), { recursive: true });
-  for (let tries = 0; tries < 5; tries++) {
-    const record = newRecord(resource, holder, pid, pidStart, ttlMs);
-    try {
-      writeFileSync(path, JSON.stringify(record) + '\n', { flag: 'wx' });
-      return { taken: true, record };
-    } catch (e) {
-      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
-    }
-    const current = readLock(path);
-    if (current === undefined) continue; // released between our two looks
-    if (current && current.holder === holder && sameProcess(current, pid, () => pidStart)) {
-      // Taken by this process since ownHold looked (a second ask from it at the same moment).
-      const renewed = { ...record, acquired_at: current.acquired_at };
-      writeWhole(path, renewed);
-      return { taken: true, record: renewed, renewed: true };
-    }
-    const reason = staleReason(current, Date.now());
-    if (!reason) return { taken: false, held_by: current };
-    // Take over under a mutex, re-checking inside it, so two takers cannot both win.
-    const won = await withMutex(`${path}.takeover`, () => {
-      const again = readLock(path);
-      if (again === undefined) return { ok: true, previous: null };
-      if (!staleReason(again, Date.now())) return { ok: false, previous: again };
-      rmSync(path, { force: true });
-      return { ok: true, previous: again };
-    });
-    if (!won.ok) return { taken: false, held_by: won.previous };
-    ctx.log?.('lock_takeover', {
-      resource,
-      holder,
-      previous_holder: won.previous?.holder ?? null,
-      reason,
-    });
+function createWhole(path, text) {
+  const tmp = `${path}.${process.pid}.${randomBytes(3).toString('hex')}.tmp`;
+  writeFileSync(tmp, text);
+  try {
+    linkSync(tmp, path);
+    return true;
+  } catch (e) {
+    const code = /** @type {NodeJS.ErrnoException} */ (e).code;
+    if (code === 'EEXIST') return false;
+    if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'ENOSYS' && code !== 'EXDEV') throw e;
+  } finally {
+    rmSync(tmp, { force: true });
   }
-  return { taken: false, held_by: readLock(path) ?? null };
+  try {
+    writeFileSync(path, text, { flag: 'wx' });
+    return true;
+  } catch (e) {
+    if (/** @type {NodeJS.ErrnoException} */ (e).code === 'EEXIST') return false;
+    throw e;
+  }
 }
 
 /**
- * One attempt to take `weight` units of a resource with a capacity above 1. Under the resource's
- * admission mutex: stale holders are removed (and logged as takeovers), the live weights are
- * summed, and the holder is recorded if its weight fits. Asking again as a holder, from its
- * process, renews it and keeps the weight it holds; its name held by another live process refuses.
- * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
- * @param {string | null} pidStart @param {number} ttlMs @param {number} weight @param {number} capacity
- * @returns {Promise<{ taken: true, record: LockRecord, renewed?: boolean }
- *   | { taken: false, held_by: LockRecord | null, used: number }>}
+ * Apply a decision's changes in order, stopping at an exclusive create that finds the lock file
+ * taken (by an older copy, which creates it without the critical section). A ticket is reported
+ * to `onEnqueue` as soon as it is written, so a waiter whose later change throws still removes it.
+ * @param {LockContext} ctx @param {string} resource @param {Effect[]} effects
+ * @param {(ticket: string) => void} [onEnqueue]
+ * @returns {{ ok: boolean, logs: Effect[] }}
  */
-async function attemptWeighted(ctx, resource, holder, pid, pidStart, ttlMs, weight, capacity) {
-  const dir = holdersDir(ctx, resource);
-  mkdirSync(dir, { recursive: true });
-  /** @type {{ previous_holder: string | null, reason: string }[]} */
-  const takeovers = [];
-  const result = await withMutex(`${dir}.admit`, () => {
-    const now = Date.now();
-    const holders = readHolders(ctx, resource);
-    const singlePath = lockFile(ctx, resource);
-    const single = readLock(singlePath);
-    const starts = startsFor([...holders.map((h) => h.record), single], now);
-    const mine = (/** @type {LockRecord | null | undefined} */ r) =>
-      !!r && r.holder === holder && sameProcess(r, pid, () => pidStart);
-    // The caller already holds the single lock (taken while this resource had capacity 1):
-    // asking again renews that, rather than taking a second hold beside it.
-    if (mine(single) && !staleReason(/** @type {LockRecord} */ (single), now, starts)) {
-      const renewed = {
-        ...newRecord(resource, holder, pid, pidStart, ttlMs),
-        acquired_at: /** @type {LockRecord} */ (single).acquired_at,
-      };
-      writeWhole(singlePath, renewed);
-      return { taken: /** @type {const} */ (true), record: renewed, renewed: true };
-    }
-    /** @type {LockRecord | null} */
-    let own = null;
-    /** @type {LockRecord[]} */
-    const live = [];
-    for (const h of holders) {
-      if (mine(h.record)) {
-        own = h.record;
-        continue;
+function apply(ctx, resource, effects, onEnqueue) {
+  /** @type {Effect[]} */
+  const logs = [];
+  for (const e of effects) {
+    switch (e.op) {
+      case 'create':
+        mkdirSync(locksDir(ctx), { recursive: true });
+        if (!createWhole(slotPath(ctx, resource, e.slot), JSON.stringify(e.record) + '\n')) {
+          return { ok: false, logs };
+        }
+        break;
+      case 'write': {
+        const path = slotPath(ctx, resource, e.slot);
+        mkdirSync(e.slot === SINGLE ? locksDir(ctx) : holdersDir(ctx, resource), {
+          recursive: true,
+        });
+        writeWhole(path, JSON.stringify(e.record) + '\n');
+        break;
       }
-      const reason = staleReason(h.record, now, starts);
-      if (reason) {
-        rmSync(h.path, { force: true });
-        takeovers.push({ previous_holder: h.record?.holder ?? null, reason });
-        continue;
+      case 'remove':
+        rmSync(slotPath(ctx, resource, e.slot), { force: true });
+        break;
+      case 'enqueue': {
+        const dir = queueDir(ctx, resource);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(
+          join(dir, e.ticket.name),
+          JSON.stringify({ holder: e.ticket.holder ?? null, pid: e.ticket.pid }) + '\n',
+        );
+        onEnqueue?.(e.ticket.name);
+        break;
       }
-      live.push(/** @type {LockRecord} */ (h.record));
+      case 'dequeue':
+        rmSync(join(queueDir(ctx, resource), e.name), { force: true });
+        break;
+      case 'log':
+        logs.push(e);
+        break;
     }
-    // A live single lock file (taken by a caller that sees capacity 1) fills the resource.
-    const singleLive = single && !staleReason(single, now, starts);
-    const used = singleLive ? capacity : live.reduce((n, r) => n + weightOf(r), 0);
-    // The caller's name, held by another live process: refused, never a second record beside it.
-    const namesake = live.find((r) => r.holder === holder);
-    if (namesake) return { taken: /** @type {const} */ (false), held_by: namesake, used };
-    const path = holderFile(ctx, resource, holder);
-    if (own) {
-      const renewed = {
-        ...newRecord(resource, holder, pid, pidStart, ttlMs, own.acquired_at),
-        weight: weightOf(own),
-      };
-      writeWhole(path, renewed);
-      return { taken: /** @type {const} */ (true), record: renewed, renewed: true };
-    }
-    if (used + weight > capacity) {
-      return {
-        taken: /** @type {const} */ (false),
-        held_by: singleLive ? single : (live[0] ?? null),
-        used,
-      };
-    }
-    const record = { ...newRecord(resource, holder, pid, pidStart, ttlMs), weight };
-    writeWhole(path, record);
-    // The single lock is taken without this mutex, by a caller that sees capacity 1. Each side
-    // writes its own record first and then looks for the other's, so of two that arrive together
-    // at least one sees the other and backs out: at worst both refuse, never both hold.
-    const after = readLock(singlePath);
-    if (after && !mine(after) && !staleReason(after, Date.now())) {
-      rmSync(path, { force: true });
-      return { taken: /** @type {const} */ (false), held_by: after, used: capacity };
-    }
-    return { taken: /** @type {const} */ (true), record };
-  });
-  for (const t of takeovers) ctx.log?.('lock_takeover', { resource, holder, ...t });
-  return result;
+  }
+  return { ok: true, logs };
 }
 
 /**
- * The live weighted holders of a resource, other than the caller's own (its name and process). They
- * exist beside a caller that sees capacity 1 only when the machine profile's capacity changed under
- * live holders, or when callers read different profiles.
- * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
- * @param {string | null} pidStart
- * @returns {LockRecord[]}
+ * Run `fn` inside the resource's one critical section: its `.admit` mutex, and inside it the
+ * single lock's `.takeover` mutex, so older copies' admissions and takeovers are excluded too
+ * (they take one or the other, never both, so the order cannot deadlock). It is synchronous, so
+ * no other work in this process runs inside it, and it is held for a few file operations.
+ * @template T @param {LockContext} ctx @param {string} resource @param {() => T} fn @returns {T}
  */
-function liveWeightedBesides(ctx, resource, holder, pid, pidStart) {
-  const now = Date.now();
-  const holders = readHolders(ctx, resource).map((h) => h.record);
-  const starts = startsFor(holders, now);
-  const mine = (/** @type {LockRecord} */ r) =>
-    r.holder === holder && sameProcess(r, pid, () => pidStart);
-  return /** @type {LockRecord[]} */ (
-    holders.filter((r) => r && !mine(r) && !staleReason(r, now, starts))
+function critical(ctx, resource, fn) {
+  return withMutexSync(`${holdersDir(ctx, resource)}.admit`, () =>
+    withMutexSync(`${lockFile(ctx, resource)}.takeover`, fn),
   );
 }
 
 /**
- * Take a resource that has capacity 1 for this caller: the single lock, unchanged, with two checks
- * for weighted holders written by callers that see a larger capacity. Before: a live weighted
- * holder keeps it held, and the caller's own weighted hold (its name and process) is renewed
- * instead of taking a second.
- * After: having written the lock, it looks again (the other side does the same, see
- * attemptWeighted), and backs out if a weighted holder came in meanwhile.
- * @param {LockContext} ctx @param {string} resource @param {string} holder @param {number} pid
- * @param {string | null} pidStart @param {number} ttlMs
- * @returns {Promise<{ taken: true, record: LockRecord, renewed?: boolean } | { taken: false, held_by: LockRecord | null }>}
+ * Decide an event on the state as it is now, and apply the decision, inside the critical section.
+ * An exclusive create that loses to an older copy decides again on what is there now; a weighted
+ * grant is confirmed against a single lock created meanwhile. Logs are written after it.
+ * @param {LockContext} ctx @param {string} resource @param {LockEvent} event
+ * @param {(ticket: string) => void} [onEnqueue] told of a ticket as soon as it is written
+ * @returns {Outcome}
  */
-async function attemptSerial(ctx, resource, holder, pid, pidStart, ttlMs) {
-  const ownPath = holderFile(ctx, resource, holder);
-  const own = readLock(ownPath);
-  if (
-    own &&
-    own.holder === holder &&
-    sameProcess(own, pid, () => pidStart) &&
-    !staleReason(own, Date.now())
-  ) {
-    const renewed = {
-      ...newRecord(resource, holder, pid, pidStart, ttlMs, own.acquired_at),
-      weight: weightOf(own),
-    };
-    writeWhole(ownPath, renewed);
-    return { taken: true, record: renewed, renewed: true };
-  }
-  const before = liveWeightedBesides(ctx, resource, holder, pid, pidStart);
-  if (before.length) return { taken: false, held_by: before[0] };
-  const r = await attempt(ctx, resource, holder, pid, pidStart, ttlMs);
-  if (!r.taken || r.renewed) return r;
-  const after = liveWeightedBesides(ctx, resource, holder, pid, pidStart);
-  if (!after.length) return r;
-  const path = lockFile(ctx, resource);
-  if (readLock(path)?.holder === holder) rmSync(path, { force: true });
-  return { taken: false, held_by: after[0] };
-}
-
-/**
- * Who holds a resource now, for a refusal: the single lock's holder, else the oldest weighted one.
- * @param {LockContext} ctx @param {string} resource @returns {LockRecord | null}
- */
-function currentHolder(ctx, resource) {
-  const single = readLock(lockFile(ctx, resource));
-  if (single) return single;
-  return readHolders(ctx, resource).find((h) => h.record)?.record ?? null;
+function step(ctx, resource, event, onEnqueue) {
+  /** @type {Effect[]} */
+  const logs = [];
+  const outcome = critical(ctx, resource, () => {
+    let ev = event;
+    for (let tries = 0; ; tries++) {
+      const d = decide(readState(ctx, resource), ev);
+      const done = apply(ctx, resource, d.effects, onEnqueue);
+      logs.push(...done.logs);
+      const enqueued = d.effects.find((e) => e.op === 'enqueue');
+      if (enqueued && enqueued.op === 'enqueue' && ev.type === 'ask') {
+        ev = { ...ev, ticket: enqueued.ticket.name };
+      }
+      if (!done.ok) {
+        if (tries < 4) continue;
+        if (ev.type === 'ask' && ev.wait && ev.ticket) {
+          return /** @type {Outcome} */ ({
+            kind: 'queued',
+            ticket: ev.ticket,
+            held_by: readSlot(lockFile(ctx, resource), SINGLE)?.record ?? null,
+            turn: true,
+          });
+        }
+        return /** @type {Outcome} */ ({
+          kind: 'refused',
+          held_by: readSlot(lockFile(ctx, resource), SINGLE)?.record ?? null,
+          conflict: false,
+        });
+      }
+      if (d.outcome.kind === 'granted' && d.outcome.confirm && ev.type === 'ask') {
+        const c = decide(readState(ctx, resource), {
+          type: 'confirm',
+          holder: ev.holder,
+          pid: ev.pid,
+          pidStart: ev.pidStart,
+          wait: ev.wait,
+          ticket: ev.ticket,
+        });
+        apply(ctx, resource, c.effects);
+        return c.outcome.kind === 'granted'
+          ? { ...c.outcome, record: d.outcome.record }
+          : c.outcome;
+      }
+      return d.outcome;
+    }
+  });
+  for (const l of logs) if (l.op === 'log') ctx.log?.(l.kind, l.data);
+  return outcome;
 }
 
 /**
@@ -499,9 +396,10 @@ function currentHolder(ctx, resource) {
  * weight above the resource's capacity could never be granted and is refused.
  *
  * Without `wait`, returns at once, taken or not. With `wait`, the caller queues behind earlier
- * arrivals and polls until it is first and the lock is free, or `timeoutMs` passes. The lock
- * follows `pid` (default: this process); an in-process handle renews it on a timer, so it expires
- * only if this process stops.
+ * arrivals and polls until it is first and the lock is free, or `timeoutMs` passes. Its ticket is
+ * written in the same decision as its first attempt, so no one who asks after it gets in first.
+ * The lock follows `pid` (default: this process); an in-process handle renews it on a timer, so it
+ * expires only if this process stops.
  *
  * A holder that asks for a lock it already holds renews it, at once, with or without `wait` and
  * whether or not others are queued: its hold is looked for before the queue, and it keeps the
@@ -531,109 +429,158 @@ export async function acquireLock(ctx, request) {
       `weight ${weight} is more than ${resource}'s capacity of ${capacity} (the machine profile's capacity.${resource})`,
     );
   }
-  const weighted = capacity > 1;
   const pid = request.pid ?? process.pid;
+  const pidStart = processStart(pid);
   const ttlMs = (request.ttlSeconds ?? 300) * 1000;
   const pollMs = request.pollMs ?? 50;
+  const wait = request.wait === true;
   const started = Date.now();
   const deadline = request.timeoutMs === undefined ? Infinity : started + request.timeoutMs;
   /** @type {string | null} */
   let ticket = null;
   let queued = false;
-  const tdir = queueDir(ctx, resource);
-  const dropTicket = () => {
-    if (ticket) rmSync(join(tdir, ticket), { force: true });
-    ticket = null;
-  };
 
-  /** @type {string | null | undefined} looked up when first needed, then reused */
-  let pidStart;
-  const startOf = () => (pidStart === undefined ? (pidStart = processStart(pid)) : pidStart);
+  /** @returns {LockEvent} */
+  const ask = () => ({
+    type: 'ask',
+    holder,
+    pid,
+    pidStart,
+    self: process.pid,
+    weight,
+    wait,
+    ticket,
+    ttlMs,
+    nonce: randomBytes(3).toString('hex'),
+  });
 
-  /** @param {{ record: LockRecord, renewed?: boolean }} r */
+  /** @param {{ record: LockRecord, renewed: boolean }} r */
   const granted = (r) => {
-    dropTicket();
     const waited = Date.now() - started;
-    const renewed = r.renewed ?? false;
     if (queued) ctx.log?.('lock_wait', { resource, holder, waited_ms: waited });
     ctx.log?.('lock_acquired', {
       resource,
       holder,
       pid,
-      renewed,
+      renewed: r.renewed,
       ...(r.record.weight === undefined ? {} : { weight: r.record.weight, capacity }),
     });
     return {
       acquired: /** @type {const} */ (true),
       record: r.record,
       waited_ms: waited,
-      renewed,
+      renewed: r.renewed,
       handle: makeHandle(
         ctx,
         resource,
         holder,
         pid,
-        startOf(),
+        pidStart,
         ttlMs,
         request.autoRenew !== false,
         r.record.weight ?? null,
       ),
     };
   };
-  /** Refused because another live process holds the resource under the caller's name. @param {LockRecord} by */
-  const nameInUse = (by) => ({
+  /** @param {LockRecord | null} by @param {boolean} timedOut */
+  const notAcquired = (by, timedOut) => ({
     acquired: /** @type {const} */ (false),
     held_by: by,
     waited_ms: Date.now() - started,
-    timed_out: false,
+    timed_out: timedOut,
     capacity,
   });
 
   try {
     for (;;) {
-      // The caller's own hold first, before the queue: asking again renews it at once, and never
-      // takes a ticket behind waiters that wait on this very holder.
-      const own = await ownHold(ctx, resource, holder, pid, startOf, ttlMs);
-      if (own && 'renewed' in own) return granted({ record: own.renewed, renewed: true });
-      if (own) return nameInUse(own.conflict);
-      const queue = liveQueue(ctx, resource);
-      // Only the first in line may try; a newcomer with others waiting joins the queue instead.
-      const myTurn = queue.length === 0 || (ticket !== null && queue[0] === ticket);
-      if (myTurn) {
-        const r = weighted
-          ? await attemptWeighted(ctx, resource, holder, pid, startOf(), ttlMs, weight, capacity)
-          : await attemptSerial(ctx, resource, holder, pid, startOf(), ttlMs);
-        if (r.taken) return granted(r);
-        // Its name taken by another process since ownHold looked: refused, not waited for.
-        if (r.held_by?.holder === holder) return nameInUse(r.held_by);
-        if (!request.wait) {
-          return { acquired: false, held_by: r.held_by, waited_ms: 0, timed_out: false, capacity };
-        }
-      } else if (!request.wait) {
-        const held = currentHolder(ctx, resource);
-        return { acquired: false, held_by: held, waited_ms: 0, timed_out: false, capacity };
+      /** @type {Outcome} */
+      // The ticket is known from the moment it is written: if anything after it in the same
+      // decision throws, the `finally` below still removes it, and it never holds the line.
+      const r =
+        (ticket !== null && peek(ctx, resource, ask())) ||
+        step(ctx, resource, ask(), (t) => {
+          ticket = t;
+        });
+      if (r.kind === 'granted') {
+        ticket = null;
+        return granted(r);
       }
-      if (Date.now() >= deadline) {
-        dropTicket();
-        return {
-          acquired: false,
-          held_by: currentHolder(ctx, resource),
-          waited_ms: Date.now() - started,
-          timed_out: true,
-          capacity,
-        };
+      if (r.kind === 'refused') {
+        ticket = null;
+        // Its name held by another process: refused, not waited for.
+        if (r.conflict) return notAcquired(r.held_by, false);
+        return { ...notAcquired(r.held_by, false), waited_ms: 0 };
       }
-      if (!ticket) {
-        mkdirSync(tdir, { recursive: true });
-        queued = true;
-        ticket = `${String(Date.now()).padStart(15, '0')}.${randomBytes(3).toString('hex')}.${process.pid}.t`;
-        writeFileSync(join(tdir, ticket), JSON.stringify({ holder, pid: process.pid }) + '\n');
-      }
+      if (r.kind !== 'queued') throw new Error(`an ask was decided as ${r.kind}`);
+      ticket = r.ticket;
+      queued = true;
+      if (Date.now() >= deadline) return notAcquired(currentHolder(ctx, resource), true);
       await sleep(pollMs);
     }
   } finally {
-    dropTicket();
+    if (ticket !== null) leave(ctx, resource, ticket);
   }
+}
+
+/**
+ * A waiter's poll, read without the critical section: when it is still not first in line and
+ * nothing needs changing, that is the answer, and the waiter has not taken the mutex every poll.
+ * Anything else (its turn, a dead ticket to drop) is decided again inside the critical section.
+ * Start times are not looked up here: they bear only on whether a record is stale, which decides
+ * nothing for a waiter that is not first in line.
+ * @param {LockContext} ctx @param {string} resource @param {LockEvent} event
+ * @returns {Outcome | null}
+ */
+function peek(ctx, resource, event) {
+  const d = decide(readState(ctx, resource, { starts: false }), event);
+  return d.outcome.kind === 'queued' && !d.outcome.turn && d.effects.length === 0
+    ? d.outcome
+    : null;
+}
+
+/**
+ * A waiter leaves the queue (granted elsewhere, timed out, or stopped): its own ticket goes. Only
+ * the waiter removes its own ticket and no one else's place depends on its staying, so this needs
+ * no critical section.
+ * @param {LockContext} ctx @param {string} resource @param {string} ticket
+ */
+function leave(ctx, resource, ticket) {
+  const queue = list(queueDir(ctx, resource))
+    .filter((n) => n === ticket)
+    .map(parseTicket);
+  apply(
+    ctx,
+    resource,
+    decide({ ...emptyState(resource), queue }, { type: 'leave', ticket }).effects,
+  );
+}
+
+/** @param {string} resource @returns {LockState} */
+const emptyState = (resource) => ({
+  resource,
+  capacity: 1,
+  now: Date.now(),
+  host: hostname(),
+  single: null,
+  holders: [],
+  queue: [],
+  procs: {},
+});
+
+/**
+ * Who holds a resource now, for a refusal: the single lock's holder, else the oldest weighted one.
+ * @param {LockContext} ctx @param {string} resource @returns {LockRecord | null}
+ */
+function currentHolder(ctx, resource) {
+  const single = readSlot(lockFile(ctx, resource), SINGLE)?.record;
+  if (single) return single;
+  const hdir = holdersDir(ctx, resource);
+  const records = list(hdir)
+    .filter((n) => n.endsWith('.json'))
+    .map((n) => readSlot(join(hdir, n), n)?.record)
+    .filter((r) => !!r);
+  const at = (/** @type {LockRecord} */ r) => Date.parse(r.acquired_at) || 0;
+  return /** @type {LockRecord[]} */ (records).sort((a, b) => at(a) - at(b))[0] ?? null;
 }
 
 /**
@@ -643,15 +590,11 @@ export async function acquireLock(ctx, request) {
  * @returns {LockHandle}
  */
 function makeHandle(ctx, resource, holder, pid, pidStart, ttlMs, autoRenew, weight) {
-  const path = weight === null ? lockFile(ctx, resource) : holderFile(ctx, resource, holder);
   /** @type {NodeJS.Timeout | null} */
   let timer = null;
+  // Only its own record: one another process took over under the same name is not this hold.
   const renew = () => {
-    const cur = readLock(path);
-    // Only its own record: one another process took over under the same name is not this hold.
-    if (!cur || cur.holder !== holder || !sameProcess(cur, pid, () => pidStart)) return;
-    const record = newRecord(resource, holder, pid, pidStart, ttlMs, cur.acquired_at);
-    writeWhole(path, weight === null ? record : { ...record, weight });
+    step(ctx, resource, { type: 'renew', holder, pid, pidStart, ttlMs, weight });
   };
   if (autoRenew) {
     timer = setInterval(renew, Math.max(1000, Math.floor(ttlMs / 3)));
@@ -663,33 +606,26 @@ function makeHandle(ctx, resource, holder, pid, pidStart, ttlMs, autoRenew, weig
     renew,
     release() {
       if (timer) clearInterval(timer);
-      return releaseLock(ctx, { resource, holder }).released;
+      // Its own records only, for its process: a release by a handle whose hold lapsed and was
+      // taken over under the same name leaves the new holder's record in place.
+      return step(ctx, resource, { type: 'release', holder, pid, pidStart }).kind === 'released';
     },
   };
 }
 
 /**
- * Release a lock. Only the holder's own lock is removed; asking for someone else's is a no-op.
+ * Release a lock by its holder's name. Only the holder's own lock is removed; asking for someone
+ * else's is a no-op, and so is asking again.
  * @param {LockContext} ctx @param {{ resource: string, holder: string }} request
  * @returns {{ released: boolean, held_by?: string }}
  */
 export function releaseLock(ctx, request) {
   const resource = checkResource(request.resource);
   const holder = checkHolder(request.holder);
-  // Both of the holder's records go: its weighted one and the single lock, if it has either.
-  const own = holderFile(ctx, resource, holder);
-  const ownWeighted = readLock(own)?.holder === holder;
-  if (ownWeighted) rmSync(own, { force: true });
-  const path = lockFile(ctx, resource);
-  const cur = readLock(path);
-  const ownSingle = cur?.holder === holder;
-  if (ownSingle) rmSync(path, { force: true });
-  if (ownWeighted || ownSingle) {
-    ctx.log?.('lock_released', { resource, holder });
-    return { released: true };
-  }
-  if (!cur) return { released: false };
-  return { released: false, held_by: cur.holder };
+  const r = step(ctx, resource, { type: 'release', holder });
+  if (r.kind === 'released') return { released: true };
+  if (r.kind !== 'kept' || r.held_by === null) return { released: false };
+  return { released: false, held_by: r.held_by };
 }
 
 /**
@@ -698,46 +634,49 @@ export function releaseLock(ctx, request) {
  * `held_by && !stale` means "some live holder"; otherwise the single lock's record, stale or
  * unreadable, as before. `holders` lists every holder with its weight; `used` counts a live single
  * lock as the whole capacity, else sums the live weights, as admission does. It passes `capacity`
- * only when the profile's capacity was lowered under live holders.
+ * only when the profile's capacity was lowered under live holders. It only reads: dead waiters'
+ * tickets are left for the next decision to drop.
  * @param {LockContext} ctx @param {string[]} resources
  */
 export function lockStatus(ctx, resources) {
-  const now = Date.now();
   return resources.map((resource) => {
-    const capacity = capacityOf(ctx, checkResource(resource));
-    const single = readLock(lockFile(ctx, resource));
-    const weighted = readHolders(ctx, resource);
-    const starts = startsFor([single, ...weighted.map((h) => h.record)], now);
+    checkResource(resource);
+    const s = readState(ctx, resource);
+    const capacity = s.capacity;
+    const at = (/** @type {Slot} */ h) => (h.record ? Date.parse(h.record.acquired_at) || 0 : 0);
+    const weighted = [...s.holders].sort((a, b) => at(a) - at(b));
     const all = [
-      ...(single === undefined ? [] : [{ record: single, weight: capacity, single: true }]),
-      ...weighted.map((h) => ({ record: h.record, weight: weightOf(h.record), single: false })),
-    ].map((h) => ({ ...h, stale: staleReason(h.record, now, starts) }));
+      ...(s.single ? [{ slot: s.single, weight: capacity, single: true }] : []),
+      ...weighted.map((h) => ({ slot: h, weight: weightOf(h.record), single: false })),
+    ].map((h) => ({ ...h, stale: staleReason(h.slot, s) }));
     const live = all.find((h) => !h.stale);
-    /** @type {LockRecord | null | undefined} */
-    const record = live ? live.record : single !== undefined ? single : weighted[0]?.record;
+    const chosen = live ?? all.find((h) => h.single) ?? all[0];
     const singleLive = all.some((h) => h.single && !h.stale);
     const used = singleLive
       ? capacity
       : all.filter((h) => !h.stale).reduce((n, h) => n + h.weight, 0);
     const holders = all.map((h) => ({
-      holder: h.record?.holder ?? null,
+      holder: h.slot.record?.holder ?? null,
       weight: h.weight,
       stale: h.stale,
     }));
-    const waiting = liveQueue(ctx, resource).map((t) => {
-      try {
-        return JSON.parse(readFileSync(join(queueDir(ctx, resource), t), 'utf8')).holder;
-      } catch {
-        return null;
-      }
-    });
+    const waiting = [...s.queue]
+      .filter((t) => s.procs[t.pid]?.alive)
+      .sort((a, b) => a.n - b.n || (a.name < b.name ? -1 : 1))
+      .map((t) => {
+        try {
+          return JSON.parse(readFileSync(join(queueDir(ctx, resource), t.name), 'utf8')).holder;
+        } catch {
+          return null;
+        }
+      });
     return {
       resource,
       capacity,
       used,
-      held_by: record?.holder ?? null,
-      stale: record === undefined ? false : staleReason(record, now, starts),
-      record: record ?? null,
+      held_by: chosen?.slot.record?.holder ?? null,
+      stale: chosen ? chosen.stale : false,
+      record: chosen?.slot.record ?? null,
       holders,
       waiting,
     };
