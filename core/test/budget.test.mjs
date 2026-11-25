@@ -6,7 +6,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLedger } from '../lib/ledger/ledger.mjs';
@@ -18,6 +26,7 @@ import {
   transcriptUsage,
 } from '../lib/dispatch/budget.mjs';
 import { closingAllowance } from '../lib/cli/commands/reconcile.mjs';
+import { renderBrief } from '../lib/dispatch/brief.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { STATUS_INPUT, item, makeConsumer } from './orchestrator-fixture.mjs';
 
@@ -335,4 +344,247 @@ test('reconcile stops an overrun the hook missed, from the harness record, and l
   // Stopping it by hand now says it is not in flight.
   const byHand = await c.hitld(['dispatch', 'stop', '--dispatch', dispatch]);
   assert.equal(byHand.result.error, 'not-in-flight');
+});
+
+test('a cloud executor with no store: the cap rides in its claim commit, and the hook stops it there (HITLD-841)', async () => {
+  const c = makeConsumer({
+    files: {
+      'work/items/W-9-change.md': item({
+        id: 'W-9',
+        title: 'change W-9',
+        kind: 'work',
+        state: 'planned',
+        touches: ['src/w9.js'],
+      }),
+    },
+  });
+  const dispatch = 'D-01M87Y65JTA2QW5M';
+  spawnSync('git', ['-C', c.root, 'checkout', '-q', '-b', 'hitld/W-9'], { encoding: 'utf8' });
+  // A dispatch the ledger does not hold (there is no store): the figure given is the one written.
+  const claim = await c.hitld([
+    'work',
+    'claim',
+    'W-9',
+    '--dispatch',
+    dispatch,
+    '--budget-tokens',
+    '15000',
+  ]);
+  assert.equal(claim.exit, 0, JSON.stringify(claim.result));
+  assert.equal(claim.result.budget_tokens, 15000);
+  const message = spawnSync('git', ['-C', c.root, 'log', '-1', '--format=%B'], {
+    encoding: 'utf8',
+  }).stdout;
+  assert.match(message, /^claim: W-9\n/);
+  assert.match(message, /^Dispatch: D-01M87Y65JTA2QW5M$/m);
+  assert.match(message, /^Budget-Tokens: 15000$/m);
+  assert.equal(
+    existsSync(join(c.data, 'human-in-the-lead/orch-fixture')),
+    false,
+    'no private store',
+  );
+
+  const dir = join(c.base, 'transcripts');
+  mkdirSync(join(dir, 'sess', 'subagents'), { recursive: true });
+  const transcript = join(dir, 'sess.jsonl');
+  // The hook's environment has no HITLD_DISPATCH: a cloud session is known by its claim commit.
+  /** @param {string} script @param {Record<string, any>} tool */
+  const hook = (script, tool) =>
+    spawnSync(process.execPath, [script], {
+      input: JSON.stringify({
+        session_id: 'sess',
+        transcript_path: transcript,
+        cwd: c.root,
+        hook_event_name: script === GUARD ? 'PreToolUse' : 'PostToolUse',
+        ...tool,
+      }),
+      encoding: 'utf8',
+      cwd: c.root,
+      env: c.env,
+    });
+  const edit = { tool_name: 'Edit', tool_input: { file_path: join(c.root, 'src/w9.js') } };
+  // Usage counts from the claim: the session's earlier usage (an earlier dispatch's) does not.
+  const claimed = Date.parse(
+    spawnSync('git', ['-C', c.root, 'log', '-1', '--format=%aI'], {
+      encoding: 'utf8',
+    }).stdout.trim(),
+  );
+  const after = (/** @type {number} */ s) => new Date(claimed + s * 1000).toISOString();
+  const at = after(10);
+
+  writeFileSync(
+    transcript,
+    [
+      response({ id: 'old', at: after(-60), output: 900_000 }),
+      response({ id: 'a', at, output: 4_000, write: 5_000 }),
+    ].join('\n') + '\n',
+  );
+  assert.equal(hook(PROGRESS, edit).stdout, '', 'under the cap: nothing said');
+  assert.equal(hook(GUARD, edit).stdout, '', 'under the cap: nothing refused');
+
+  // A subagent's usage is the executor's too: 9k + 7k passes the 15k cap.
+  writeFileSync(
+    join(dir, 'sess', 'subagents', 'agent-x1.jsonl'),
+    response({ id: 'b', at, output: 7_000 }) + '\n',
+  );
+  const said = JSON.parse(hook(PROGRESS, edit).stdout);
+  assert.match(said.hookSpecificOutput.additionalContext, new RegExp(BUDGET_REACHED));
+  assert.match(said.hookSpecificOutput.additionalContext, /16000 of its 15000 tokens/);
+  const refused = JSON.parse(hook(GUARD, edit).stdout);
+  assert.equal(refused.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(refused.hookSpecificOutput.permissionDecisionReason, /D-01M87Y65JTA2QW5M/);
+  for (const t of [
+    { tool_name: 'Bash', tool_input: { command: "git add -A && git commit -m 'W-9'" } },
+    { tool_name: 'mcp__claude-code-remote__send_message', tool_input: { message: 'report' } },
+  ]) {
+    assert.equal(hook(GUARD, t).stdout, '', `the closing steps stay open: ${JSON.stringify(t)}`);
+  }
+
+  // A follow-up in the same session starts after the item's close: the usage before it is spent.
+  const closed = spawnSync(
+    'git',
+    [
+      '-C',
+      c.root,
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'close: W-9',
+      '-m',
+      `Dispatch: ${dispatch}`,
+    ],
+    { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_DATE: after(100) } },
+  );
+  assert.equal(closed.status, 0, closed.stderr);
+  writeFileSync(
+    transcript,
+    readFileSync(transcript, 'utf8') + response({ id: 'c', at: after(200), output: 5_000 }) + '\n',
+  );
+  assert.equal(hook(PROGRESS, edit).stdout, '', 'the follow-up: 5k since the close');
+  assert.equal(hook(GUARD, edit).stdout, '', 'the follow-up: nothing refused');
+});
+
+test('a store that holds the dispatch decides: one no longer in flight is not metered from its claim', async () => {
+  const { c, dispatch, later } = await setUp();
+  spawnSync('git', ['-C', c.root, 'checkout', '-q', '-b', 'hitld/W-9'], { encoding: 'utf8' });
+  const claim = await c.hitld(['work', 'claim', 'W-9', '--dispatch', dispatch]);
+  assert.equal(claim.exit, 0, JSON.stringify(claim.result));
+  assert.equal(claim.result.budget_tokens, 15000, 'the ledger cap, with no figure given');
+  const stopped = await c.hitld(['dispatch', 'stop', '--dispatch', dispatch]);
+  assert.equal(stopped.exit, 0, JSON.stringify(stopped.result));
+  const transcript = join(c.base, 'sess.jsonl');
+  writeFileSync(transcript, response({ id: 'a', at: later(5), output: 20_000 }) + '\n');
+  const r = spawnSync(process.execPath, [GUARD], {
+    input: JSON.stringify({
+      transcript_path: transcript,
+      cwd: c.root,
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Edit',
+      tool_input: { file_path: join(c.root, 'src/w9.js') },
+    }),
+    encoding: 'utf8',
+    cwd: c.root,
+    env: c.env,
+  });
+  assert.equal(r.stdout, '', 'the ledger says the dispatch is over: its claim cap is not read');
+});
+
+test('a token cap past twelve digits is refused, since the hook would not read it', async () => {
+  const c = makeConsumer({
+    files: {
+      'work/items/W-9-change.md': item({
+        id: 'W-9',
+        title: 'change W-9',
+        kind: 'work',
+        state: 'planned',
+      }),
+    },
+  });
+  spawnSync('git', ['-C', c.root, 'checkout', '-q', '-b', 'hitld/W-9'], { encoding: 'utf8' });
+  const args = ['work', 'claim', 'W-9', '--dispatch', 'D-01M87Y65JTA2QW5M', '--budget-tokens'];
+  const big = await c.hitld([...args, '1000000000000']);
+  assert.notEqual(big.exit, 0);
+  assert.equal(big.result.error, 'usage');
+  const zero = await c.hitld([...args, '0']);
+  assert.equal(zero.result.error, 'usage');
+  assert.equal((await c.hitld([...args, '999999999999'])).exit, 0);
+});
+
+test('a store that cannot be read gives no reading: the claim cap is not read in its place', async () => {
+  const { c, store, later } = await setUp();
+  spawnSync('git', ['-C', c.root, 'checkout', '-q', '-b', 'hitld/W-9'], { encoding: 'utf8' });
+  // A dispatch the ledger does not hold, so only a store read that throws keeps its cap unread.
+  const other = 'D-01M87Y65JTA2QW5M';
+  const claim = await c.hitld([
+    'work',
+    'claim',
+    'W-9',
+    '--dispatch',
+    other,
+    '--budget-tokens',
+    '1000',
+  ]);
+  assert.equal(claim.exit, 0, JSON.stringify(claim.result));
+  const transcript = join(c.base, 'sess.jsonl');
+  writeFileSync(transcript, response({ id: 'a', at: later(5), output: 20_000 }) + '\n');
+  const guard = () =>
+    spawnSync(process.execPath, [GUARD], {
+      input: JSON.stringify({
+        transcript_path: transcript,
+        cwd: c.root,
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Edit',
+        tool_input: { file_path: join(c.root, 'src/w9.js') },
+      }),
+      encoding: 'utf8',
+      cwd: c.root,
+      env: c.env,
+    }).stdout;
+  assert.match(guard(), /"deny"/, 'a readable store without the dispatch: the claim cap holds');
+  // The ledger's legacy file becomes a directory: reading the store now throws.
+  const legacy = join(store.root, 'ledger.jsonl');
+  rmSync(legacy, { force: true });
+  mkdirSync(legacy);
+  assert.throws(() => readLedger(store));
+  assert.equal(guard(), '', 'a store that throws: no reading, as before HITLD-841');
+});
+
+test('the brief passes the cap to the claim only when there is one', () => {
+  /** @param {number} estimate */
+  const brief = (estimate) =>
+    renderBrief({
+      item: { id: 'W-1', title: 'x', path: 'work/items/W-1-x.md' },
+      sizing: /** @type {any} */ ({ areas: [], estimate_tokens: estimate, owner_review: null }),
+      dispatch: 'D-1',
+      branch: 'hitld/W-1-x',
+      policy: { project: { id: 'p' } },
+      isolation: 'none',
+    });
+  assert.match(
+    brief(10_000),
+    /hitld work claim W-1 --dispatch D-1 --branch hitld\/W-1-x --budget-tokens 15000\./,
+  );
+  const none = brief(0);
+  assert.match(none, /hitld work claim W-1 --dispatch D-1 --branch hitld\/W-1-x\./);
+  assert.doesNotMatch(none, /--budget-tokens/);
+});
+
+test('the claim writes the ledger cap when the store has the dispatch, over the figure given', async () => {
+  const { c, dispatch } = await setUp();
+  spawnSync('git', ['-C', c.root, 'checkout', '-q', '-b', 'hitld/W-9'], { encoding: 'utf8' });
+  const claim = await c.hitld([
+    'work',
+    'claim',
+    'W-9',
+    '--dispatch',
+    dispatch,
+    '--budget-tokens',
+    '99',
+  ]);
+  assert.equal(claim.exit, 0, JSON.stringify(claim.result));
+  const message = spawnSync('git', ['-C', c.root, 'log', '-1', '--format=%B'], {
+    encoding: 'utf8',
+  }).stdout;
+  assert.match(message, /^Budget-Tokens: 15000$/m);
 });
