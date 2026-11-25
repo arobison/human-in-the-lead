@@ -42,7 +42,11 @@ import {
 } from '../../run/run.mjs';
 import { absorb, foldLedger } from '../../run/state.mjs';
 import {
+  FOLLOW_UP_OF as SCOPE_FOLLOW_UP_OF,
   SCOPE_MAX_HOURS,
+  issuedIn,
+  issuedKey,
+  scopeLine,
   checkScopeStart,
   deriveScope,
   ownerHoldsChanges,
@@ -164,7 +168,8 @@ import { loadTerms } from '../../store/private-terms.mjs';
  */
 
 /** The notes of a follow-up's dispatched event; `dispatch complete` reads it to name the follow-up. */
-const FOLLOW_UP_OF = 'follow-up of ';
+/** How a follow-up's dispatched event names the dispatch it continues: scope.mjs's. */
+const FOLLOW_UP_OF = SCOPE_FOLLOW_UP_OF;
 
 /**
  * A follow-up that launches a run of its own (a headless resume) waits here until
@@ -253,6 +258,32 @@ async function pullFirst(command, input, ctx) {
 
 /** How long a start waits for another start on this machine to finish. */
 const START_LOCK = { timeoutMs: 300_000 };
+
+/**
+ * Run a start under the start lock; a lock that stays taken past the wait is a refusal.
+ * @template T
+ * @param {string} dir @param {() => Promise<T>} fn @param {{ timeoutMs: number }} o
+ * @returns {Promise<T>}
+ */
+async function startLocked(dir, fn, o) {
+  let entered = false;
+  try {
+    return await withMutex(
+      dir,
+      () => {
+        entered = true;
+        return fn();
+      },
+      o,
+    );
+  } catch (e) {
+    if (entered) throw e;
+    throw new Refusal(
+      'start-lock-timeout',
+      `another start on this machine held the start lock for ${o.timeoutMs / 1000}s; nothing was started. Run it again once that start has finished (${/** @type {Error} */ (e).message})`,
+    );
+  }
+}
 
 /**
  * The lock a start holds from its plan to its record, one per project on this machine.
@@ -2027,7 +2058,7 @@ const table = [
         await pullFirst('dispatch start', input, ctx);
         // The plan's cap check and the start's record are made under one lock on this machine, so
         // two sessions starting at once cannot both take the last slot.
-        return withMutex(
+        return startLocked(
           startLockOf(project(ctx)),
           async () => {
             const p = project(ctx, { fresh: true });
@@ -2064,6 +2095,7 @@ const table = [
                 run: p.state?.run ?? null,
                 events,
                 lookup,
+                issuedAt: issuedIn(p.store),
               });
               if (!verdict.ok) {
                 throw new Refusal(
@@ -3688,6 +3720,7 @@ function scopeCommands() {
             events,
             run: p.state.run,
             now,
+            issuedAt: issuedIn(p.store),
           })
         : { ok: false, code: 'scope-ended', why: `the scope belongs to run ${file.run}` };
     if (!derived.ok) return { file, scope: null, status: null, refused: derived };
@@ -3749,9 +3782,15 @@ function scopeCommands() {
             throw new Refusal('usage', '--budget-tokens is a whole number of tokens above 0');
           }
           const now = nowOf(ctx);
-          const until = Date.parse(String(input.until));
+          // With its offset, as the owner meant it: a time without one is read in this machine's
+          // zone, which may not be the owner's.
+          const given = String(input.until);
+          const until = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(given) ? Date.parse(given) : NaN;
           if (Number.isNaN(until)) {
-            throw new Refusal('usage', `--until ${String(input.until)} is not a date and time`);
+            throw new Refusal(
+              'usage',
+              `--until ${given} is not a date and time with its offset, such as 2026-11-25T18:00:00Z or 2026-11-25T10:00:00-08:00`,
+            );
           }
           if (until <= now || until - now > SCOPE_MAX_HOURS * 3600_000) {
             throw new Refusal(
@@ -3761,6 +3800,12 @@ function scopeCommands() {
           }
           const spec = { items, budget_tokens: budget, until: new Date(until).toISOString() };
           const sensitive = sensitiveOf(lookup, items);
+          // The marker run scope set looks for: this scope was asked with the question written here.
+          const line = scopeLine(spec);
+          p.store.write(
+            issuedKey(line),
+            `${JSON.stringify({ line, at: new Date(now).toISOString(), by: String(identityOf(p, input, ctx).session ?? 'unknown') }, null, 2)}\n`,
+          );
           return {
             ok: true,
             question: {
@@ -3803,9 +3848,10 @@ function scopeCommands() {
           const derived = deriveScope({
             decision: lookup(id),
             id,
-            events: readLedger(p.store).events,
+            events: p.events ?? readLedger(p.store).events,
             run: p.state.run,
             now,
+            issuedAt: issuedIn(p.store),
           });
           if (!derived.ok) throw new Refusal(derived.code, `${derived.why}; nothing was written`);
           const scope = derived.scope;
@@ -3851,23 +3897,32 @@ function scopeCommands() {
         HOST,
       ],
       run: (input, ctx) =>
-        guarded(() => {
+        guarded(async () => {
           refuseExecutor(ctx);
+          await pullFirst('run scope end', input, ctx);
           const p = project(ctx);
           const file = readScopeFile(p.store);
           if (!file) throw new Refusal('no-scope', 'no run scope is recorded');
-          if (file.ended) return { ok: true, scope: file, already: true };
           const { session } = identityOf(p, input, ctx);
-          const ended = {
-            ...file,
-            ended: {
-              at: new Date(nowOf(ctx)).toISOString(),
-              by: String(session ?? 'unknown'),
-              reason: typeof input.reason === 'string' ? input.reason : "the owner's word",
+          const at = new Date(nowOf(ctx)).toISOString();
+          const by = String(session ?? 'unknown');
+          const reason = typeof input.reason === 'string' ? input.reason : "the owner's word";
+          // The end is in the ledger, which the decision is checked against at every start: setting
+          // the scope again, or removing the store file, does not open it again.
+          const { event, appended } = appendEvent(
+            p.store,
+            {
+              id: `scope-ended-${file.decision}`,
+              event: 'scope-ended',
+              decision: file.decision,
+              by,
+              notes: reason,
             },
-          };
+            ctx.now ? { now: ctx.now } : {},
+          );
+          const ended = file.ended ? file : { ...file, ended: { at, by, reason } };
           writeScopeFile(p.store, ended);
-          return { ok: true, scope: ended };
+          return { ok: true, scope: ended, event, ...(appended ? {} : { already: true }) };
         }),
     },
     {
@@ -3908,6 +3963,7 @@ const pushWhenScoped = (run) => (input, ctx) =>
 export const commands = pushingAfter(table, [
   'merge',
   'handover',
+  'run scope question',
   'run scope set',
   'run scope end',
 ]).map((c) =>

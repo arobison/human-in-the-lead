@@ -80,8 +80,19 @@ export class Run {
    */
   record(event) {
     if (this.scoped) {
-      // The chief of staff's device may hold no run state, only the pulled ledger: fold it.
-      const state = loadState(this.store).state ?? foldLedger(readLedger(this.store).events);
+      // The state as the ledger has it now, never the disk's alone: the chief of staff's device may
+      // hold no run state, or one of an earlier run, and the start belongs to the run the ledger
+      // shows (HITLD-877).
+      const events = readLedger(this.store).events;
+      const disk = loadState(this.store).state;
+      let state = foldLedger(events);
+      if (disk) {
+        try {
+          state = absorb(structuredClone(disk), events).state;
+        } catch {
+          // A disk state the ledger does not reach: the fold above is the ledger's own account.
+        }
+      }
       if (!state.run?.id) throw new Error('no run in the run state or the ledger');
       const written = appendEvent(this.store, { ...event, run: state.run.id }, { now: this.now });
       this.state = absorb(structuredClone(state), written.events).state;

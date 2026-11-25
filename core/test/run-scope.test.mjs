@@ -6,12 +6,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readLedger } from '../lib/ledger/ledger.mjs';
+import { appendEvent, readLedger } from '../lib/ledger/ledger.mjs';
 import { openStore, privateStorePath } from '../lib/store/store.mjs';
+import { Run, startRun } from '../lib/run/run.mjs';
+import { loadState } from '../lib/run/checkpoint.mjs';
+import { memoryStore } from './helpers/memory-store.mjs';
 import {
   SCOPE_YES,
+  scopeQuestion,
   checkScopeStart,
   deriveScope,
   ownerHoldsChanges,
@@ -36,7 +40,9 @@ const HOUR = 3600_000;
 const iso = (/** @type {number} */ t) => new Date(t).toISOString();
 const RUN = { id: 'R-1', started_at: iso(NOW - 2 * HOUR) };
 const SPEC = { items: ['W-1', 'W-2'], budget_tokens: 100_000, until: iso(NOW + HOUR) };
-const YES = `A. ${SCOPE_YES}: the chief of staff starts these items itself`;
+/** The yes as the rights flow records it: the option as scopeQuestion wrote it. */
+const YES = `A. ${SCOPE_YES}: ${scopeQuestion(SPEC, []).options[0].what_happens}`;
+const ISSUED = () => iso(NOW - 2 * HOUR);
 
 /** A decision item as the rights flow leaves it. @param {Record<string, unknown>} [over] */
 const decision = (over = {}) => ({
@@ -71,6 +77,7 @@ const start = (o = {}) =>
     run: RUN,
     events: [answered(), ...(o.events ?? [])],
     lookup: (id) => (id === 'W-9' ? decision(o.decision) : null),
+    issuedAt: ISSUED,
     ...o.start,
   });
 
@@ -115,6 +122,7 @@ test("only the owner's yes, in this run, through the rights flow, opens a scope"
       events: o.events ?? [answered(o.answered)],
       run: RUN,
       now: NOW,
+      issuedAt: o.issuedAt ?? ISSUED,
     });
   const ok = derive({});
   assert.equal(ok.ok, true);
@@ -122,9 +130,18 @@ test("only the owner's yes, in this run, through the rights flow, opens a scope"
   assert.equal(ok.ok && ok.scope.granted_at, iso(NOW - HOUR), 'granted when the owner said yes');
 
   const no = `B. No: nothing starts under a scope; W-1 and W-2 wait`;
-  assert.equal(derive({ decision: { answer: no }, answered: { text: no } }).ok, false);
   const noCode = derive({ decision: { answer: no }, answered: { text: no } });
   assert.equal(!noCode.ok && noCode.code, 'scope-not-confirmed', 'a no that names the IDs');
+  assert.match(!noCode.ok ? noCode.why : '', /W-1, W-2/, 'the refusal names the items');
+  // Not asked with the question run scope question wrote, or asked only after the answer.
+  const unasked = derive({ issuedAt: () => null });
+  assert.equal(!unasked.ok && unasked.code, 'scope-not-confirmed');
+  const late = derive({ issuedAt: () => iso(NOW) });
+  assert.equal(!late.ok && late.code, 'scope-not-confirmed');
+  // The owner's end in the ledger holds, whatever the store file says.
+  const endedEvent = { event: 'scope-ended', decision: 'W-9', by: 'cos', at: iso(NOW - 60_000) };
+  const ended = derive({ events: [answered(), endedEvent] });
+  assert.equal(!ended.ok && ended.code, 'scope-ended');
   const frontMatterOnly = derive({ events: [] });
   assert.equal(!frontMatterOnly.ok && frontMatterOnly.code, 'not-answered');
   const stale = derive({ answered: { run: 'R-0', at: iso(NOW - 5 * HOUR) } });
@@ -132,10 +149,86 @@ test("only the owner's yes, in this run, through the rights flow, opens a scope"
   const notScope = derive({ decision: { title: 'Start W-1 and W-2?' } });
   assert.equal(!notScope.ok && notScope.code, 'scope-not-confirmed');
   const long = { ...SPEC, until: iso(NOW + 200 * HOUR) };
-  const standing = derive({ decision: { title: scopeTitle(long) } });
+  const longYes = `A. ${SCOPE_YES}: ${scopeQuestion(long, []).options[0].what_happens}`;
+  const standing = derive({
+    decision: { title: scopeTitle(long), answer: longYes },
+    answered: { text: longYes },
+  });
   assert.equal(!standing.ok && standing.code, 'scope-invalid', 'more than 168 hours');
   const future = derive({ answered: { at: iso(NOW + 60_000) } });
   assert.equal(!future.ok && future.code, 'scope-invalid', 'a yes dated after now');
+});
+
+test('a title rewritten after the yes refuses the scope, naming what differs', () => {
+  /** @param {Record<string, any>} spec */
+  const rewritten = (spec) =>
+    deriveScope({
+      decision: decision({ title: scopeTitle({ ...SPEC, ...spec }) }),
+      id: 'W-9',
+      events: [answered()],
+      run: RUN,
+      now: NOW,
+      issuedAt: ISSUED,
+    });
+  const added = rewritten({ items: ['W-1', 'W-2', 'W-3'] });
+  assert.equal(!added.ok && added.code, 'scope-changed');
+  assert.match(!added.ok ? added.why : '', /items added: W-3/);
+  const raised = rewritten({ budget_tokens: 900_000 });
+  assert.match(!raised.ok ? raised.why : '', /budget 100000 became 900000 tokens/);
+  const moved = rewritten({ until: iso(NOW + 3 * HOUR) });
+  assert.match(!moved.ok ? moved.why : '', /end time .* became/);
+  assert.equal(!moved.ok && moved.code, 'scope-changed');
+});
+
+test('a scoped start on a device holding an earlier run’s state is charged to the run the ledger shows', () => {
+  const store = memoryStore();
+  startRun(store, { session: 'cos', host: 'device-b' });
+  // Another device starts a later run; this device's ledger learns it from the store, its state does not.
+  appendEvent(store, {
+    id: 'run-started-later',
+    event: 'run-started',
+    run: 'R-later',
+    session: 'orch-2',
+    host: 'device-a',
+  });
+  const disk = /** @type {any} */ (loadState(store).state);
+  assert.notEqual(disk.run.id, 'R-later', 'the disk holds the earlier run');
+  const run = new Run(store, { session: 'cos', host: 'device-b', scoped: true }, disk);
+  const { event } = run.record({
+    event: 'dispatched',
+    dispatch: 'D-9',
+    item: 'W-1',
+    decision: 'W-9',
+  });
+  assert.equal(event.run, 'R-later');
+  const scope = { ...SPEC, run: 'R-later', decision: 'W-9', granted_at: iso(NOW) };
+  assert.deepEqual(spentOf(scope, readLedger(store).events).starts, ['D-9']);
+});
+
+test('a follow-up of a start under the scope is charged to it', () => {
+  const scope = { ...SPEC, run: 'R-1', decision: 'W-9', granted_at: iso(NOW - HOUR) };
+  const events = /** @type {any[]} */ ([
+    {
+      event: 'dispatched',
+      run: 'R-1',
+      dispatch: 'D-1',
+      item: 'W-1',
+      decision: 'W-9',
+      estimate_tokens: 40_000,
+    },
+    {
+      event: 'reported',
+      run: 'R-1',
+      dispatch: 'D-1',
+      item: 'W-1',
+      result: 'partial',
+      tokens: 30_000,
+    },
+    { event: 'dispatched', run: 'R-1', dispatch: 'D-2', item: 'W-1', notes: 'follow-up of D-1' },
+    { event: 'reported', run: 'R-1', dispatch: 'D-2', item: 'W-1', result: 'done', tokens: 20_000 },
+    { event: 'dispatched', run: 'R-1', dispatch: 'D-3', item: 'W-1', notes: 'follow-up of D-2' },
+  ]);
+  assert.deepEqual(spentOf(scope, events), { spent: 50_000, starts: ['D-1', 'D-2', 'D-3'] });
 });
 
 test('a start inside the scope passes; outside it, expired, ended, edited or past the budget it is refused', () => {
@@ -365,15 +458,48 @@ test('commands: the owner says yes; the chief of staff starts inside the scope w
   );
   writeScopeFile(store, file);
 
-  // The owner's word ends it.
-  assert.equal(
-    (await c.hitld(['run', 'scope', 'end', '--reason', 'enough for today'], COS)).exit,
-    0,
+  // The decision's title rewritten after the yes (a branch may change tracker files) opens nothing
+  // more: adding an item, raising the budget or moving the end each refuses the start.
+  const decisionFile = join(
+    c.root,
+    'work/items',
+    /** @type {string} */ (
+      readdirSync(join(c.root, 'work/items')).find((n) => n.startsWith(`${id}-`))
+    ),
   );
+  const asAnswered = readFileSync(decisionFile, 'utf8');
+  const agreed = /** @type {any} */ (parseScopeTitle(/^title: "?(.*?)"?$/m.exec(asAnswered)?.[1]));
+  for (const change of [
+    { items: [...agreed.items, 'W-3'] },
+    { budget_tokens: agreed.budget_tokens * 10 },
+    { until: iso(Date.parse(agreed.until) + HOUR) },
+  ]) {
+    writeFileSync(
+      decisionFile,
+      asAnswered.replace(
+        /^title: .*$/m,
+        `title: ${JSON.stringify(scopeTitle({ ...agreed, ...change }))}`,
+      ),
+    );
+    const refused = await c.hitld(['dispatch', 'start', 'W-2', '--scope', id], COS);
+    assert.equal(refused.result.error, 'scope-changed', JSON.stringify(change));
+  }
+  writeFileSync(decisionFile, asAnswered);
+
+  // The owner's word ends it, in the ledger: setting it again, or removing the store file and
+  // setting it again, does not open it.
+  const ended = await c.hitld(['run', 'scope', 'end', '--reason', 'enough for today'], COS);
+  assert.equal(ended.exit, 0, JSON.stringify(ended.result));
+  assert.equal(ended.result.event.event, 'scope-ended');
   assert.equal(
     (await c.hitld(['dispatch', 'start', 'W-2', '--scope', id], COS)).result.error,
     'scope-ended',
   );
+  const reopened = await c.hitld(['run', 'scope', 'set', '--decision', id], COS);
+  assert.equal(reopened.result.error, 'scope-ended', JSON.stringify(reopened.result));
+  rmSync(join(store.root, 'run/scope.json'));
+  const fresh = await c.hitld(['run', 'scope', 'set', '--decision', id], COS);
+  assert.equal(fresh.result.error, 'scope-ended', JSON.stringify(fresh.result));
 });
 
 test('commands: a no, a stale decision, queue merge mode and a decision that is not the scope question open nothing', async () => {
@@ -392,6 +518,45 @@ test('commands: a no, a stale decision, queue merge mode and a decision that is 
   );
   const notScope = await c.hitld(['run', 'scope', 'set', '--decision', 'W-1'], COS);
   assert.equal(notScope.result.error, 'not-found');
+
+  // A scope-titled question recorded by hand, never written by run scope question, opens nothing.
+  const spec = { items: ['W-1'], budget_tokens: 1000, until: iso(Date.now() + HOUR) };
+  const forged = await c.hitld(
+    [
+      'rights',
+      'record',
+      '--question',
+      JSON.stringify({ ...scopeQuestion(spec, []), parent: 'W-17', classification: 'public' }),
+      '--answer',
+      'A',
+      '--via',
+      'question-tool',
+      '--shown-at',
+      iso(Date.now() - 1000),
+    ],
+    COS,
+  );
+  assert.equal(forged.exit, 0, JSON.stringify(forged.result));
+  const forgedId = String(forged.result.decision ?? forged.result.id);
+  const forgedSet = await c.hitld(['run', 'scope', 'set', '--decision', forgedId], COS);
+  assert.equal(forgedSet.result.error, 'scope-not-confirmed', JSON.stringify(forgedSet.result));
+
+  // An end time without its offset is refused: it would be read in this machine's zone.
+  const local = await c.hitld(
+    [
+      'run',
+      'scope',
+      'question',
+      '--items',
+      'W-1',
+      '--budget-tokens',
+      '1000',
+      '--until',
+      '2026-11-25T18:00:00',
+    ],
+    COS,
+  );
+  assert.equal(local.result.error, 'usage');
 
   const queue = makeConsumer();
   const refused = await queue.hitld(

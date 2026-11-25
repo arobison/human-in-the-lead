@@ -134,6 +134,7 @@ const REQUIRED = {
   resumed: ['reason'],
   friction: ['friction_class', 'source', 'evidence', 'decisions'],
   'context-measured': ['run', 'session', 'host', 'context_share', 'by'],
+  'scope-ended': ['decision', 'by'],
 };
 
 /** @type {Record<string, string[]>} */
