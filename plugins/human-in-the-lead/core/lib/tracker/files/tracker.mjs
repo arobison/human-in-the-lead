@@ -791,7 +791,8 @@ export function openTracker({
      * leaving its front matter and the rest of its text as they are.
      * Like creating one, it is the orchestrator's and the chief of staff's, on the main branch.
      * `expectedVersion` refuses a write over a change not seen (two appends at once); an item an
-     * executor has claimed is refused, since its branch owns the file until it closes.
+     * executor has claimed (in progress with claimed_by, or claimed on a branch) is refused, since
+     * its branch owns the file until it closes.
      * @param {string} id @param {string} note Markdown, starting with its own heading
      * @param {string} [expectedVersion] the version the caller read
      * @returns {{ path: string, version: string }}
@@ -805,7 +806,10 @@ export function openTracker({
           `${id} changed since it was read (version ${it.version}, expected ${expectedVersion}); read it again`,
         );
       }
-      const claim = it.data?.claimed_by ?? claims().find((c) => c.id === id)?.claims[0]?.claimant;
+      // A claimed_by key counts only while the item is in progress: one left behind on an item that
+      // went back to proposed or planned by hand, or on a done one, claims nothing.
+      const inProgress = it.data?.state === 'in-progress' ? it.data?.claimed_by : undefined;
+      const claim = inProgress ?? claims().find((c) => c.id === id)?.claims[0]?.claimant;
       if (claim) {
         throw new CodedError(
           'item-claimed',

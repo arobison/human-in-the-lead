@@ -140,6 +140,57 @@ function textProblems(input, matchers) {
 const passes = (s, matchers) =>
   SIGHTING_FIELDS.every(([, field]) => !findTerms(String(s[field] ?? ''), matchers).length);
 
+/** The refusals of an append that leave the item as it was: the sighting is kept all the same. */
+const APPEND_REFUSALS = ['item-claimed', 'item-changed'];
+
+/**
+ * Append a sighting's evidence to the item that tracks its cause. When the append is refused (an
+ * executor has claimed the item, or it changed since it was read), the sighting is still recorded,
+ * as noted, so it counts toward the filing rule, and the refusal is returned.
+ * @param {{ t: ReturnType<typeof open>, tracking: Record<string, unknown>, sighting: Sighting, count: number, record: (extra: Partial<Sighting>) => void }} o
+ * @returns {Result}
+ */
+export function appendSighting({ t, tracking, sighting, count, record }) {
+  const id = String(tracking.id);
+  const withKey = !tracks(String(tracking.body ?? ''), sighting.key);
+  let path;
+  try {
+    ({ path } = t.appendNote(
+      id,
+      seenAgainNote(sighting, count, { withKey }),
+      typeof tracking.version === 'string' ? tracking.version : undefined,
+    ));
+  } catch (e) {
+    const code = /** @type {{ code?: unknown }} */ (e).code;
+    if (typeof code !== 'string' || !APPEND_REFUSALS.includes(code)) throw e;
+    record({ action: 'noted' });
+    return {
+      ok: false,
+      error: code,
+      message: /** @type {Error} */ (e).message,
+      key: sighting.key,
+      sightings: count,
+      item: id,
+      tell_owner: null,
+      next:
+        code === 'item-claimed'
+          ? `the sighting is recorded and counts, but ${id} is claimed, so the evidence was not added to it; record the next sighting once it closes`
+          : `the sighting is recorded and counts, but ${id} changed while it was read, so the evidence was not added; the next sighting adds its own`,
+    };
+  }
+  record({ action: 'appended', item: id });
+  return {
+    ok: true,
+    action: 'appended',
+    key: sighting.key,
+    sightings: count,
+    item: id,
+    path,
+    tell_owner: null,
+    next: `${id} already tracks it: the new evidence is appended there and nothing new was filed; ${PUBLISH}`,
+  };
+}
+
 /** @type {import('../table.mjs').Command[]} */
 export const commands = [
   {
@@ -399,25 +450,13 @@ export const commands = [
       // Tracked already: the evidence goes to that item, and nothing new is filed.
       if (tracking) {
         if (!terms.list_found) return hold();
-        const id = String(tracking.id);
-        const count = all.filter((s) => s.key === key && !s.security).length + 1;
-        const withKey = !tracks(String(tracking.body ?? ''), key);
-        const { path } = t.appendNote(
-          id,
-          seenAgainNote(sighting, count, { withKey }),
-          typeof tracking.version === 'string' ? tracking.version : undefined,
-        );
-        record({ action: 'appended', item: id });
-        return {
-          ok: true,
-          action: 'appended',
-          key,
-          sightings: count,
-          item: id,
-          path,
-          tell_owner: null,
-          next: `${id} already tracks it: the new evidence is appended there and nothing new was filed; ${PUBLISH}`,
-        };
+        return appendSighting({
+          t,
+          tracking,
+          sighting,
+          count: all.filter((s) => s.key === key && !s.security).length + 1,
+          record,
+        });
       }
 
       const pending = [...sinceFiled(all, key), sighting];

@@ -11,12 +11,15 @@ import {
   fenced,
   files,
   itemBody,
+  keyLine,
   readSightings,
+  recordSighting,
   sightingKey,
   sinceFiled,
   tracks,
   unsafeShapes,
 } from '../lib/sighting/sighting.mjs';
+import { appendSighting } from '../lib/cli/commands/sighting.mjs';
 import { git, item, makeConsumer } from './orchestrator-fixture.mjs';
 
 const PROJECT = {
@@ -420,4 +423,92 @@ test('appendNote: only on main, not over an unseen change, and not to a claimed 
 
   git(c.root, 'switch', '-q', '-c', 'elsewhere');
   assert.throws(() => t.appendNote('W-1', note), { code: 'not-permitted' });
+});
+
+/** The default cause's key line, as a filed item carries it. */
+const KEY_LINE = keyLine(sightingKey('The tracker check run reads in_progress after it succeeded'));
+
+/** An item that tracks the default cause. @param {Record<string, string>} fields */
+const tracking = (fields) =>
+  item(
+    { kind: 'work', project: 'W-9', ...fields },
+    `\n## Done when\n\n- The check run reads success.\n\n## Evidence\n\n${KEY_LINE}\n`,
+  );
+
+test('an append refused because the item is claimed still counts the sighting toward filing', async () => {
+  const path = 'work/items/W-5-claimed.md';
+  const c = await consumer({
+    files: {
+      [path]: tracking({ id: 'W-5', title: 'Claimed', state: 'in-progress', claimed_by: 'D-7' }),
+    },
+  });
+  const refused = await c.hitld(seen());
+  assert.equal(refused.result.error, 'item-claimed', JSON.stringify(refused.result));
+  assert.equal(refused.result.item, 'W-5');
+  assert.deepEqual(
+    c.sightings().map((x) => x.action),
+    ['noted'],
+  );
+  assert.doesNotMatch(readFileSync(join(c.root, path), 'utf8'), /Seen again/);
+
+  // Once the item no longer tracks the cause, the refused sighting is one of the two that file.
+  const full = join(c.root, path);
+  writeFileSync(full, readFileSync(full, 'utf8').replace('state: in-progress', 'state: done'));
+  const second = await c.hitld(seen({ where: 'pull request #13' }));
+  assert.equal(second.result.action, 'filed', JSON.stringify(second.result));
+  assert.equal(second.result.sightings, 2);
+});
+
+test('an append refused on a stale version still counts the sighting toward filing', async () => {
+  const c = await consumer();
+  const policy = /** @type {Record<string, any>} */ (loadPolicy({ cwd: c.root }).policy);
+  const t = openTracker({ repoRoot: c.root, policy, env: c.env });
+  const store = openStore(privateStorePath('orch-fixture', { env: c.env, repoRoot: c.root }));
+  const sighting = {
+    at: new Date().toISOString(),
+    key: sightingKey('The tracker check run reads in_progress after it succeeded'),
+    cause: 'The tracker check run reads in_progress after it succeeded',
+    from: 'event',
+    what: 'check run "tracker" on the pull request',
+    where: 'pull request #12',
+    blocks: 'merging tracker-only pull requests on green checks',
+    action: /** @type {const} */ ('noted'),
+  };
+  const r = appendSighting({
+    t,
+    tracking: { ...t.get('W-2'), version: 'a version read before a change' },
+    sighting,
+    count: 1,
+    record: (extra) =>
+      recordSighting(store, { ...sighting, ...extra }, { env: c.env, cwd: c.root }),
+  });
+  assert.equal(r.error, 'item-changed', JSON.stringify(r));
+  assert.deepEqual(
+    c.sightings().map((x) => x.action),
+    ['noted'],
+  );
+  assert.doesNotMatch(
+    readFileSync(join(c.root, 'work/items/W-2-another-thing.md'), 'utf8'),
+    /Seen again/,
+  );
+
+  const second = await c.hitld(seen({ where: 'pull request #13' }));
+  assert.equal(second.result.action, 'filed', JSON.stringify(second.result));
+  assert.equal(second.result.sightings, 2);
+});
+
+test('a claimed_by left on an item that is no longer in progress does not refuse the append', async () => {
+  const c = await consumer({
+    files: {
+      'work/items/W-6-back-to-proposed.md': tracking({
+        id: 'W-6',
+        title: 'Back to proposed',
+        state: 'proposed',
+        claimed_by: 'D-8',
+      }),
+    },
+  });
+  const r = await c.hitld(seen());
+  assert.equal(r.result.action, 'appended', JSON.stringify(r.result));
+  assert.equal(r.result.item, 'W-6');
 });
