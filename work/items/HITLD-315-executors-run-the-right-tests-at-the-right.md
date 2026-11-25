@@ -30,3 +30,4 @@ The owner's motivating example, in their words: "making these UX tweaks should b
 
 Related: HITLD-131 (faster checks, done), HITLD-20 (flaky tests: defaults, quarantine), HITLD-284 (a failed fast check's output is dropped), HITLD-136 (briefs name overlapping work), HITLD-81 (calibrated estimates). Design choices are the owner's: the first step is a walk-through, one question at a time.
 
+GitHub issue 681 (2026-11-25) asks that integration tests at the merge gate be chosen by what the batch changes. Narrowing the merge gate is a guard change and the owner's to approve; the learning loop here is the way to earn it: record how often a full integration run caught something outside the touched areas, and propose narrowing only when it never does. Nothing narrows before that.
