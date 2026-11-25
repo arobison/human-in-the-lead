@@ -2,7 +2,7 @@
 id: HITLD-1050
 title: A lock holder that asks again renews its lock at once, and a second process using the same holder name is refused
 kind: work
-state: in-progress
+state: done
 created: 2026-11-25
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
