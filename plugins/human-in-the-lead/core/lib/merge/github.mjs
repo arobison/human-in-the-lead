@@ -10,6 +10,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 
 /**
  * @typedef {{ number: number, url: string, head: string, state: 'open' | 'closed', merged?: boolean }} PullRequest
+ * @typedef {PullRequest & { branch: string, base: string, title: string, head_repo: string | null }} PullDetail
+ *   one pull request read by number: its head branch, the repository that branch is in (owner/name;
+ *   null when GitHub no longer shows it), and the branch it merges into
  * @typedef {{ name: string, state: 'success' | 'failure' | 'pending', url?: string }} Check
  *   one check on a commit: a check run or a commit status, by its name or context
  * @typedef {{ merged: true, sha: string } | { merged: false, message: string }} MergeResult
@@ -18,6 +21,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
  * @property {string} name 'gh' or 'fake'
  * @property {string} repo owner/name
  * @property {(branch: string, base: string) => PullRequest | null} findPull the open pull request from this branch
+ * @property {(number: number) => PullDetail | null} pull a pull request by number; null when there is none
  * @property {(p: { head: string, base: string, title: string, body: string }) => PullRequest} createPull
  * @property {(number: number, p: { title: string, body: string }) => PullRequest} updatePull
  * @property {(sha: string) => Check[]} checks the checks reported on a commit
@@ -105,6 +109,18 @@ export function ghGitHub({ repo, env }) {
       const list = must(api('GET', `repos/${repo}/pulls?${q}`), 'listing pull requests');
       return Array.isArray(list) && list.length ? pull(list[0]) : null;
     },
+    pull(number) {
+      const r = api('GET', `repos/${repo}/pulls/${number}`);
+      if (!r.ok && /not found/i.test(r.message)) return null;
+      const p = must(r, `reading #${number}`);
+      return {
+        ...pull(p),
+        branch: String(p.head?.ref ?? ''),
+        base: String(p.base?.ref ?? ''),
+        title: String(p.title ?? ''),
+        head_repo: p.head?.repo?.full_name ?? null,
+      };
+    },
     createPull(p) {
       return pull(
         must(api('POST', `repos/${repo}/pulls`, p), `opening a pull request from ${p.head}`),
@@ -161,7 +177,7 @@ export function ghGitHub({ repo, env }) {
  * message given, only while the head is the commit named and the branch merges cleanly.
  * @param {{ remote: string, repo?: string, mainBranch?: string,
  *   checks?: (p: { branch: string, sha: string }) => Check[] }} o
- * @returns {GitHub & { pulls: (PullRequest & { branch: string, base: string, title: string, body: string })[],
+ * @returns {GitHub & { pulls: (PullRequest & { branch: string, base: string, title: string, body: string, head_repo?: string })[],
  *   merges: { number: number, sha: string, title: string, message: string }[] }}
  */
 export function fakeGitHub(o) {
@@ -187,7 +203,7 @@ export function fakeGitHub(o) {
     const r = git(['rev-parse', '--verify', '--quiet', `refs/heads/${ref}`]);
     return r.ok ? r.out : '';
   };
-  /** @type {(PullRequest & { branch: string, base: string, title: string, body: string })[]} */
+  /** @type {(PullRequest & { branch: string, base: string, title: string, body: string, head_repo?: string })[]} */
   const pulls = [];
   /** @type {{ number: number, sha: string, title: string, message: string }[]} */
   const merges = [];
@@ -204,6 +220,18 @@ export function fakeGitHub(o) {
     findPull(branch, base) {
       const p = pulls.find((x) => x.branch === branch && x.base === base && x.state === 'open');
       return p ? fresh(p) : null;
+    },
+    pull(number) {
+      const p = pulls.find((x) => x.number === number);
+      if (!p) return null;
+      // head_repo: a test sets it to stand for a branch in a fork.
+      return {
+        ...fresh(p),
+        branch: p.branch,
+        base: p.base,
+        title: p.title,
+        head_repo: p.head_repo ?? repo,
+      };
     },
     createPull(p) {
       if (!tip(p.head)) throw new Error(`opening a pull request from ${p.head}: no such branch`);

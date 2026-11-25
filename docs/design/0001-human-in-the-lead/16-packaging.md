@@ -173,7 +173,15 @@ The run-lease codes, `no-run` and `handover-due` go with the run object when HIT
 - `not-presented`: The branch was not presented to the owner, or nothing has been presented yet.
 - `not-waiting`: The branch is not waiting to merge.
 - `stale`: A presented branch changed after the owner saw it.
-- `no-pull-request`: The branch has no open pull request to approve.
+- `no-pull-request`: There is no such pull request, or it is not open: nothing to approve or merge.
+- `not-tracker-only`: The pull request changes a file outside the tracker's folder, changes nothing, or does not merge into the main branch; it goes through the merge queue. Nothing was merged.
+- `foreign-head`: The pull request's head branch is in another repository, or the remote's branch is not at the pull request's head. Nothing was merged.
+- `duplicate-id`: Merged into the main branch, the pull request would leave two tracker items with one ID. Nothing was merged.
+- `owner-only-state`: The pull request makes a tracker change only the owner's decision makes, such as promoting an item out of proposed; it merges only with the owner's own yes. Nothing was merged.
+- `waits-for-owner`: The pull request changes the tracker beyond the item its branch claimed and the answers the rights flow recorded, or adds a symbolic link, or changes an owner path; it merges only with the owner's own yes. Nothing was merged.
+- `checks-pending`: The named checks have not all passed on the head yet; run it again once they have. Nothing was merged.
+- `checks-failed`: A named check failed on the head. Nothing was merged.
+- `no-signoff`: No delegation of the owner's or no sign-off of theirs is known for a merge without asking; put it to the owner. Nothing was merged.
 - `ambiguous`: The name matches more than one presented branch, or a branch other than the item was dispatched on.
 - `no-github-remote`: merge.via is pull-request, and the git remote merge.pull_request.remote names no GitHub repository.
 - `no-forge-token`: hitld check forge found no read-only token in the environment variable it reads; nothing was read.

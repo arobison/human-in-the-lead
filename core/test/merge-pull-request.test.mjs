@@ -722,7 +722,7 @@ const OWNER = 'Owner Person <owner@example.com>';
 test('owner paths: a tracker-only pull request merges without asking, with the delegated sign-off; one outside work/, or touching both, waits', async () => {
   const t = setup();
   try {
-    const tracker = t.branch('W-1', { 'work/notes.md': 'a note\n' });
+    const tracker = t.branch('W-1', {});
     const code = t.branch('W-2', { 'a.txt': 'a\n' });
     const both = t.branch('W-3', { 'work/more.md': 'more\n', 'b.txt': 'b\n' });
     // No sign-off of the owner's is known yet: the tracker-only one waits for them too, marked so.
@@ -771,7 +771,7 @@ test('owner paths: a tracker-only pull request merges without asking, with the d
     const approvedMessage = git(t.remote, 'log', '-1', '--format=%B', 'main');
     assert.match(approvedMessage, /^Signed-off-by: Owner Person <owner@example\.com>$/m);
     assert.doesNotMatch(approvedMessage, /Delegated-by/);
-    assert.equal(git(t.remote, 'show', 'main:work/notes.md'), 'a note');
+    assert.match(git(t.remote, 'show', 'main:work/items/W-1.md'), /^state: done$/m);
     assert.equal(git(t.remote, 'show', 'main:a.txt'), 'a');
     assert.equal(second.merged[1].approval?.as_presented, false);
     assert.deepEqual(
@@ -796,11 +796,7 @@ test('owner paths: the decision comes from the diff alone, never the author, the
       },
     );
     // A tracker-only change by a stranger: it merges.
-    const tracker = t.branch(
-      'W-2',
-      { 'work/notes.md': 'n\n' },
-      { author: 'Stranger <x@example.org>' },
-    );
+    const tracker = t.branch('W-2', {}, { author: 'Stranger <x@example.org>' });
     const state = emptyPullState();
     state.owner_signoff = OWNER;
     const first = await t.pass([code, tracker], { ...DELEGATED, state });
@@ -1392,7 +1388,7 @@ test('hitld merge with owner paths and a delegation: the owner approves code, th
       'W-2',
       'work/items/W-2-another-thing.md',
       'Another thing',
-      { 'work/notes.md': 'a note\n' },
+      {},
       beforeW1,
     );
     const update = await hitld(['merge']);
