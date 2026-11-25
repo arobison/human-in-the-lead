@@ -2,10 +2,11 @@
 id: HITLD-877
 title: A decision naming a run scope (items, token budget, end time) lets the chief of staff start that run's work
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-22
 project: HITLD-15
 constraint_of: [HITLD-67 c2]
+claimed_by: D-01M88NC212A0QAEE
 ---
 
 ## Why
