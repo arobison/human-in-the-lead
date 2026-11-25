@@ -5,7 +5,7 @@ kind: work
 state: proposed
 created: 2026-11-25
 project: HITLD-15
-constraint_of: [HITLD-405 c?]
+constraint_of: [HITLD-67 c?]
 ---
 
 ## Done when
@@ -21,4 +21,4 @@ Reported from another project's production use of an earlier release: one execut
 
 ## Notes
 
-Filed by the chief of staff, 2026-11-25, as `proposed` for rc.3; the owner may pull it into rc.2. Reported by the chief of staff of another project that runs HITLd and keeps a local patch until a release has the fix; its suggested fix (check for an existing hold before the queue logic and renew) is the direction, to be built against main's weighted-capacity code (HITLD-41), which that report predates. Nearby: GitHub issues 635 and 604. A second request in the same report, counted locks with a benchmark that runs alone, is already built in part by HITLD-41 (weighted capacity) and the rest is HITLD-559 (a performance run takes the machine); it is not filed again. Ordinary code, reviewed independently before merge.
+Filed by the chief of staff, 2026-11-25, as `proposed`; the owner placed it in rc.2 the same day and asked for a more deterministic lock protocol, so the scope is being widened (design under way). Reported by the chief of staff of another project that runs HITLd and keeps a local patch until a release has the fix; its suggested fix (check for an existing hold before the queue logic and renew) is the direction, to be built against main's weighted-capacity code (HITLD-41), which that report predates. Nearby: GitHub issues 635 and 604. A second request in the same report, counted locks with a benchmark that runs alone, is already built in part by HITLD-41 (weighted capacity) and the rest is HITLD-559 (a performance run takes the machine); it is not filed again. Ordinary code, reviewed independently before merge.
