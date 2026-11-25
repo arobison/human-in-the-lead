@@ -22,3 +22,5 @@ GitHub issues 635 (merge queue) and 637 (dispatch worktree setup), both v0.1.0-r
 ## Notes
 
 rc.3. A design item, so the question to the owner comes before any code; the schema change and the policy keys need the owner's own yes at merge. Related: HITLD-41 (capacities, done), HITLD-559 (weighted heavy steps, hitld's own), HITLD-1011 (gates run ahead of executors' heavy jobs). Replies are posted on issues 635 and 637.
+
+GitHub issue 672 (closed as a duplicate of 635) adds the overload evidence: heavy browser-based test runs during a merge pushed the machine's load far above its core count, and the CPU-heavy lock is meant for build and test steps while the GPU lock covers rendering steps only. Reply posted on issue 672.
