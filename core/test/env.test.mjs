@@ -2484,7 +2484,7 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   // Asking again as the holder, for the same process, renews; for another process it is refused.
   const renewal = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7', '--wait']);
   assert.equal(renewal.code, 0, renewal.out);
-  assert.equal(renewal.json.renewed, true);
+  assert.equal(renewal.json.holder, 'D-7');
   const pid = String(process.pid);
   const elsewhere = await hitld([
     'env',

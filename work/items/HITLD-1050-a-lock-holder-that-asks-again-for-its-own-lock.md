@@ -7,7 +7,7 @@ created: 2026-11-25
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
 claimed_by: D-01M89TES3DCPMPR8
-release_note: "A lock holder that asks again for a lock it holds, for the same process, is renewed at once, ahead of any waiters, for a single lock and a weighted resource, with or without `--wait`; before, it queued behind waiters that were waiting on it until its lock expired. Another process asking under the name of a live holder (another `--pid`) is refused with `lock-held` and the holder named, instead of being let in as a renewal; two merges under the merge queue's name no longer run at once. `env lock` output carries `renewed`."
+release_note: "A lock holder that asks again for a lock it holds, for the same process, is renewed at once, ahead of any waiters, for a single lock and a weighted resource, with or without `--wait`; before, it queued behind waiters that were waiting on it until its lock expired. Another process asking under the name of a live holder (another `--pid`) is refused with `lock-held` and the holder named, instead of being let in as a renewal; two merges under the merge queue's name no longer run at once."
 ---
 
 ## Done when

@@ -540,7 +540,6 @@ export const commands = [
             ...(r.record.weight === undefined ? {} : { weight: r.record.weight }),
             expires_at: r.record.expires_at,
             waited_ms: r.waited_ms,
-            renewed: r.renewed,
           }
         : {
             ok: false,
