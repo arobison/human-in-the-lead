@@ -5,7 +5,7 @@ kind: work
 state: planned
 created: 2026-11-24
 project: HITLD-15
-constraint_of: [HITLD-189 c?]
+constraint_of: [HITLD-67 c?]
 ---
 
 ## Done when
@@ -24,4 +24,8 @@ The queue today orders by the critical path, then the priority field, then the s
 
 ## Notes
 
-rc.3. Depends on an owner decision: HITLD-67 and the other open milestones carry no cost-of-delay profile today, so the rule has nothing to rank them by until the owner sets one for each (a decision per milestone, or one decision that sets them all); the chief of staff puts it to the owner when this item is started. Design: part 2.4, the ordering rule and its milestone and value-of-information adjustments; part 3, milestones and the cost-of-delay profiles; the design leaves how a milestone's scope relates to a budget undecided, so settle it, or take its simplest reading, in the first slice. Related: HITLD-650 and HITLD-651 (the owner's steering without a priority label, and the scoped start order used while runs exist), HITLD-522 (the commitment that orders within a goal once runs go away), HITLD-978 (the planner's ready count). Until this is built the owner steers by a scoped start line to the orchestrator, recorded as a decision. From the owner's question of 2026-11-24 why the planner does not default to the next release.
+rc.2 (moved from rc.3 on 2026-11-25 at the owner's word: the whole item, not a slice). Depends on an owner decision: HITLD-67 and the other open milestones carry no cost-of-delay profile today, so the rule has nothing to rank them by until the owner sets one for each (a decision per milestone, or one decision that sets them all); the chief of staff puts it to the owner when this item is started. Design: part 2.4, the ordering rule and its milestone and value-of-information adjustments; part 3, milestones and the cost-of-delay profiles; the design leaves how a milestone's scope relates to a budget undecided, so settle it, or take its simplest reading, in the first slice. Related: HITLD-650 and HITLD-651 (the owner's steering without a priority label, and the scoped start order used while runs exist), HITLD-522 (the commitment that orders within a goal once runs go away), HITLD-978 (the planner's ready count). Until this is built the owner steers by a scoped start line to the orchestrator, recorded as a decision. From the owner's question of 2026-11-24 why the planner does not default to the next release.
+
+## Moved to rc.2 on 2026-11-25
+
+The owner chose to move the whole item to rc.2, not a narrow slice. It waits for the owner's cost-of-delay decision per milestone (the chief of staff puts it to them first), and the `prioritization.active_milestones_max` key in `policy.json` is owner-held: it reaches main only with the owner's own yes. Until it is built the owner steers with a scoped start line to the orchestrator.
