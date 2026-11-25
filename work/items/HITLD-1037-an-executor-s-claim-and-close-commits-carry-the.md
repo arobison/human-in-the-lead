@@ -2,7 +2,7 @@
 id: HITLD-1037
 title: An executor's claim and close commits carry the Agent-Role trailer the dco check needs, and the executor guard accepts a push chained with a fetch
 kind: work
-state: in-progress
+state: done
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
