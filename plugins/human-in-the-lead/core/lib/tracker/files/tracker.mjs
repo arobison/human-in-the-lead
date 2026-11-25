@@ -118,7 +118,7 @@ import { CodedError } from '../../cli/errors.mjs';
  * @property {() => ClaimedItem[]} claims claims read from branches
  * @property {(id: string, reason: string, branch?: string) => ReturnType<typeof unclaimItem>} unclaim
  * @property {(id: string, options?: { commit?: boolean, report?: string }) => ReturnType<typeof closeItem>} close
- * @property {(id: string, note: string) => { path: string, version: string }} appendNote append a
+ * @property {(id: string, note: string, expectedVersion?: string) => { path: string, version: string }} appendNote append a
  *   note to an entity's body, its front matter untouched (a later sighting of the cause it tracks)
  * @property {(options?: { branches?: boolean, inflight?: string[], terms?: import('../../guard/private-terms.mjs').Matcher[], consistency?: boolean }) => { problems: string[], files: number, warnings: string[], consistency?: Consistency }} check
  * @property {(options?: { who?: string }) => Record<string, string>} renderViewTexts
@@ -789,11 +789,29 @@ export function openTracker({
     /**
      * Append a note to an entity's body (HITLD-387: a later sighting of the cause it tracks),
      * leaving its front matter and the rest of its text as they are.
+     * Like creating one, it is the orchestrator's and the chief of staff's, on the main branch.
+     * `expectedVersion` refuses a write over a change not seen (two appends at once); an item an
+     * executor has claimed is refused, since its branch owns the file until it closes.
      * @param {string} id @param {string} note Markdown, starting with its own heading
+     * @param {string} [expectedVersion] the version the caller read
      * @returns {{ path: string, version: string }}
      */
-    appendNote(id, note) {
+    appendNote(id, note, expectedVersion) {
+      assertOrchestrator(root, layout, env);
       const it = mustFind(id);
+      if (expectedVersion !== undefined && it.version !== expectedVersion) {
+        throw new CodedError(
+          'item-changed',
+          `${id} changed since it was read (version ${it.version}, expected ${expectedVersion}); read it again`,
+        );
+      }
+      const claim = it.data?.claimed_by ?? claims().find((c) => c.id === id)?.claims[0]?.claimant;
+      if (claim) {
+        throw new CodedError(
+          'item-claimed',
+          `${id} is claimed (${String(claim)}): its branch owns the file until it closes; add the evidence after it closes, or tell the orchestrator`,
+        );
+      }
       const full = insidePath(root, it.path);
       const text = `${readNoFollow(full).replace(/\s*$/, '')}\n\n${note.replace(/\s*$/, '')}\n`;
       const parsed = parseItem(text);

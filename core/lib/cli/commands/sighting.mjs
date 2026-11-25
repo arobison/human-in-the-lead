@@ -2,16 +2,22 @@
 // a piece of friction it saw happen, and the command files the work item for it when the rule
 // says so, without the owner having to ask. The rule and the item's text are in
 // core/lib/sighting/sighting.mjs; this file runs the checks around them, in this order, and
-// writes nothing before the last of them passes:
+// writes nothing to the tracker before the last of them passes:
 //
 //   1. refuse executors: an executor raises what it finds in its report (HITLD-155);
 //   2. refuse a source that is text someone else wrote (--from): only what the chief of staff saw
 //      happen is recorded, never text in a tool result, a report or a file that asks to be filed;
-//   3. a security finding (--security) goes to the private store only, and is the owner's;
-//   4. refuse text that holds a private term, before anything reaches the tracker;
-//   5. an open item that tracks the cause gets the evidence as a dated note; otherwise the second
-//      sighting, or a first that changes a decision or a safety rule, files a proposed item;
-//      otherwise the sighting is only recorded.
+//   3. refuse a line break in a one-line option, which could forge a section of the item;
+//   4. a security finding (--security) goes to the private store only, and is the owner's;
+//   5. refuse text with a key or token, an absolute path, a hostname, a model ID or an environment
+//      ID, and text that holds a private term;
+//   6. an item the owner dropped for the cause stands: the sighting is only recorded, and the owner
+//      is told once;
+//   7. an open item that tracks the cause gets the evidence as a dated note; otherwise the second
+//      sighting, or a first whose cause is known and that changes a decision or a safety rule,
+//      files a proposed item; otherwise the sighting is only recorded;
+//   8. where the private term list cannot be read, a sighting that would reach the tracker is held
+//      in the private store instead, and still counts.
 //
 // Filing writes the item file in this checkout; `hitld work publish` takes it to main.
 
@@ -32,6 +38,7 @@ import {
   sightingKey,
   sinceFiled,
   tracks,
+  unsafeShapes,
 } from '../../sighting/sighting.mjs';
 import { CodedError } from '../errors.mjs';
 import { executorSignal } from '../executor.mjs';
@@ -41,9 +48,10 @@ import { open, where } from './tracker.mjs';
  * @typedef {import('../table.mjs').CommandContext} Ctx
  * @typedef {import('../table.mjs').CommandResult} Result
  * @typedef {import('../../sighting/sighting.mjs').Sighting} Sighting
+ * @typedef {import('../../guard/private-terms.mjs').Matcher} Matcher
  */
 
-/** The text options a filed item carries, each checked against the private term list. */
+/** The text options an item may carry, each checked before anything reaches the tracker. */
 const TEXT_FIELDS = [
   'cause',
   'what',
@@ -54,6 +62,20 @@ const TEXT_FIELDS = [
   'decision',
   'title',
 ];
+
+/** The options that go into a heading or a line of the item: a line break could forge a section. */
+const ONE_LINE = ['cause', 'what', 'where', 'blocks', 'known-cause', 'decision', 'title'];
+
+/** A sighting's fields that reach the tracker, by the option they came from. */
+const SIGHTING_FIELDS = /** @type {const} */ ([
+  ['cause', 'cause'],
+  ['what', 'what'],
+  ['output', 'output'],
+  ['where', 'where'],
+  ['blocks', 'blocks'],
+  ['known-cause', 'known_cause'],
+  ['decision', 'decision'],
+]);
 
 /** What the chief of staff does after publishing a filed or changed item. */
 const PUBLISH =
@@ -80,37 +102,50 @@ function storeOf(input, ctx) {
 }
 
 /**
- * The private terms in the text a filed item would carry, by option: refused before anything is
- * written. The refusal names the option and line, never the term.
+ * The private term list for the project, from the store.
  * @param {Record<string, unknown>} input @param {Ctx} ctx @param {string} storeRoot
  */
-function termCheck(input, ctx, storeRoot) {
+function termsOf(input, ctx, storeRoot) {
   const repo = input.repo ? resolve(ctx.cwd, String(input.repo)) : ctx.cwd;
-  const t = termsForProject({
+  return termsForProject({
     policy: loadPolicy({ cwd: repo }).policy,
     env: ctx.env,
     repoRoot: findRepoRoot(repo) ?? undefined,
     storeRoot,
   });
-  const refused = TEXT_FIELDS.flatMap((name) =>
-    findTerms(text(input[name]), t.matchers).map((m) => ({ ...m, where: `--${name}` })),
-  );
-  return {
-    problems: refused.map((r) => matchMessage(r, r.where)),
-    warnings: t.list_found
-      ? []
-      : [
-          'the private term list was not checked (it is not in the store here): the commit hooks and hitld work publish check the item again',
-        ],
-  };
 }
+
+/**
+ * The problems in the text an item would carry: the unsafe shapes, then the private terms, by
+ * option. Each names the option and the kind, never the text.
+ * @param {Record<string, unknown>} input @param {Matcher[]} matchers
+ */
+function textProblems(input, matchers) {
+  const shapes = TEXT_FIELDS.flatMap((name) =>
+    unsafeShapes(text(input[name])).map(
+      (kind) => `--${name}: holds ${/^[aeiou]/i.test(kind) ? 'an' : 'a'} ${kind}`,
+    ),
+  );
+  const terms = TEXT_FIELDS.flatMap((name) =>
+    findTerms(text(input[name]), matchers).map((m) => matchMessage(m, `--${name}`)),
+  );
+  return { shapes, terms };
+}
+
+/**
+ * Whether an earlier sighting's text passes the private term list: one recorded while the list
+ * could not be read is checked again before its text reaches an item.
+ * @param {Sighting} s @param {Matcher[]} matchers
+ */
+const passes = (s, matchers) =>
+  SIGHTING_FIELDS.every(([, field]) => !findTerms(String(s[field] ?? ''), matchers).length);
 
 /** @type {import('../table.mjs').Command[]} */
 export const commands = [
   {
     name: 'work sighting',
     summary:
-      "Record an error, refusal, anomaly or friction the chief of staff saw happen; it files a proposed item on the second sighting (or the first that changes a decision or a safety rule), appends to the open item that tracks the cause instead of filing again, and keeps a security finding out of the tracker. The chief of staff's; refused to executors",
+      "Record an error, refusal, anomaly or friction the chief of staff saw happen; it files a proposed item on the second sighting (or a first whose cause is known and that changes a decision or a safety rule), appends to the open item that tracks the cause instead of filing again, never files again after the owner dropped it, keeps a security finding out of the tracker, and holds the sighting in the private store when the private term list cannot be read. The chief of staff's; refused to executors",
     built_by: 'consumer-live',
     output: [
       'ok',
@@ -172,7 +207,7 @@ export const commands = [
         name: 'decision',
         type: 'string',
         description:
-          'The decision or safety rule it changes, when one hangs on it: the item is filed on this first sighting',
+          'The decision or safety rule it changes, when one hangs on it: with --known-cause, the item is filed on this first sighting',
       },
       {
         name: 'security',
@@ -194,7 +229,7 @@ export const commands = [
         name: 'duplicate-of',
         type: 'string',
         description:
-          'An open item you found already tracks this problem (hitld work query --text): the evidence is appended to it, and nothing is filed',
+          'The work item you found already tracks this problem (hitld work query --text): the evidence is appended to it when it is open; when the owner dropped it, the sighting is only recorded; nothing is filed',
       },
       {
         name: 'store',
@@ -228,6 +263,13 @@ export const commands = [
       }
       for (const name of ['cause', 'what', 'where', 'blocks']) {
         if (!text(input[name])) throw new CodedError('usage', `--${name} is empty`);
+      }
+      const broken = ONE_LINE.filter((name) => /[\r\n\u2028\u2029]/.test(text(input[name])));
+      if (broken.length) {
+        throw new CodedError(
+          'usage',
+          `${broken.map((n) => `--${n}`).join(', ')} must be one line: put what it printed in --output`,
+        );
       }
       const key = sightingKey(text(input.cause));
       if (!key) throw new CodedError('usage', '--cause holds no letters or digits');
@@ -265,17 +307,39 @@ export const commands = [
         };
       }
 
-      const terms = termCheck(input, ctx, store.root);
-      if (terms.problems.length) {
+      const terms = termsOf(input, ctx, store.root);
+      const problems = textProblems(input, terms.matchers);
+      if (problems.shapes.length) {
+        return {
+          ok: false,
+          error: 'unsafe-evidence',
+          message:
+            'refused: the text holds something that must not reach the tracker; nothing was recorded. Name it by its role or leave it out (a path relative to the repository, a pull request by number, no key, host, model or environment), or summarize the output, and record it again',
+          problems: problems.shapes,
+        };
+      }
+      if (problems.terms.length) {
         return {
           ok: false,
           error: 'private-term',
           message:
             'refused: the text holds a term from the private term list; nothing was recorded. Write it again, naming each thing by its role (for example "the store repository"), and record it again',
-          problems: terms.problems,
+          problems: problems.terms,
         };
       }
-      const warnings = terms.warnings;
+      // Where the list cannot be read, nothing reaches the tracker: the sighting is held here.
+      const hold = () => {
+        record({ action: 'held', held: 'term-list' });
+        return {
+          ok: true,
+          action: 'held',
+          key,
+          sightings: sinceFiled(all, key).length + 1,
+          tell_owner: null,
+          next: "the private term list is not in this session's store, so nothing reaches the tracker: the sighting is kept in the private store and still counts. Run hitld store pull (hitld store status says why it is missing); the next sighting after that files or appends with this one counted",
+          warnings: terms.warnings,
+        };
+      };
 
       const t = open(input, ctx);
       const work = t.query({ kind: 'work' });
@@ -283,25 +347,66 @@ export const commands = [
         OPEN_STATES.includes(String(e.state));
       /** @type {Record<string, unknown> | undefined} */
       let tracking;
+      /** @type {string | undefined} */
+      let dropped;
       const named = text(input['duplicate-of']);
       if (named) {
-        tracking = t.get(named);
-        if (!isOpen(tracking)) {
+        const e = t.get(named);
+        if (e.kind !== 'work') {
           throw new CodedError(
-            'item-not-open',
-            `${named} is ${String(tracking.state)}: it no longer tracks anything new. Leave out --duplicate-of; a sighting after a fix counts afresh`,
+            'usage',
+            `${named} is a ${String(e.kind)}: --duplicate-of names the work item that tracks the problem`,
           );
         }
+        if (e.state === 'dropped') dropped = named;
+        else if (!isOpen(e)) {
+          throw new CodedError(
+            'item-not-open',
+            `${named} is done: it no longer tracks anything new. Leave out --duplicate-of; sightings after a fix count afresh`,
+          );
+        } else tracking = e;
       } else {
         tracking = work.find((e) => isOpen(e) && tracks(String(e.body ?? ''), key));
+        if (!tracking) {
+          const stillDropped = (/** @type {unknown} */ id) =>
+            work.some((e) => e.id === id && e.state === 'dropped');
+          dropped =
+            /** @type {string | undefined} */ (
+              work.find((e) => e.state === 'dropped' && tracks(String(e.body ?? ''), key))?.id
+            ) ?? all.findLast((s) => s.key === key && stillDropped(s.dropped))?.dropped;
+        }
+      }
+
+      // The owner dropped the item for this cause: that stands. Recorded, told once.
+      if (dropped) {
+        const told = all.some((s) => s.key === key && s.dropped === dropped);
+        record({ action: 'noted', dropped });
+        return {
+          ok: true,
+          action: 'noted',
+          key,
+          sightings: all.filter((s) => s.key === key && !s.security).length + 1,
+          item: dropped,
+          tell_owner: told
+            ? null
+            : `Seen again in ${sighting.where}: ${sighting.cause}. ${dropped} for it was dropped, so nothing was filed; say if it should be looked at again.`,
+          next: told
+            ? `${dropped} was dropped by the owner, and the owner has been told once: nothing filed, nothing to say`
+            : `${dropped} was dropped by the owner: nothing was filed. Tell the owner the tell_owner line once; later sightings are recorded without telling`,
+        };
       }
 
       // Tracked already: the evidence goes to that item, and nothing new is filed.
       if (tracking) {
+        if (!terms.list_found) return hold();
         const id = String(tracking.id);
         const count = all.filter((s) => s.key === key && !s.security).length + 1;
         const withKey = !tracks(String(tracking.body ?? ''), key);
-        const { path } = t.appendNote(id, seenAgainNote(sighting, count, { withKey }));
+        const { path } = t.appendNote(
+          id,
+          seenAgainNote(sighting, count, { withKey }),
+          typeof tracking.version === 'string' ? tracking.version : undefined,
+        );
         record({ action: 'appended', item: id });
         return {
           ok: true,
@@ -312,7 +417,6 @@ export const commands = [
           path,
           tell_owner: null,
           next: `${id} already tracks it: the new evidence is appended there and nothing new was filed; ${PUBLISH}`,
-          ...(warnings.length ? { warnings } : {}),
         };
       }
 
@@ -325,10 +429,10 @@ export const commands = [
           key,
           sightings: pending.length,
           tell_owner: null,
-          next: 'a first sighting with no decision hanging on it: recorded, nothing filed. Run this again with the same --cause when you see it again: the second sighting files the item',
-          ...(warnings.length ? { warnings } : {}),
+          next: 'a first sighting, recorded and not filed (a first sighting files only when its cause is known and it changes a decision or a safety rule). Run this again with the same --cause when you see it again: the second sighting files the item',
         };
       }
+      if (!terms.list_found) return hold();
 
       const parent = text(input.parent);
       if (!parent) {
@@ -340,20 +444,21 @@ export const commands = [
       const earlier = work
         .filter((e) => !isOpen(e) && tracks(String(e.body ?? ''), key))
         .map((e) => ({ id: String(e.id), state: String(e.state) }));
+      const shown = pending.filter((s) => s === sighting || passes(s, terms.matchers));
       const title = text(input.title) || sighting.cause;
       const made = t.createEntity({
         title,
         kind: 'work',
         state: 'proposed',
         parent,
-        body: itemBody({ pending, earlier }),
+        body: itemBody({ pending: shown, earlier, withheld: pending.length - shown.length }),
       });
       record({ action: 'filed', item: made.id });
       const kind = pending.some((s) => s.known_cause) ? 'bug' : 'investigation';
-      const decision = pending.map((s) => s.decision).findLast((d) => !!d);
-      const reason = decision
-        ? `it changes ${decision}`
-        : `seen ${pending.length} times, last in ${sighting.where}`;
+      const reason =
+        pending.length === 1
+          ? `its cause is known and it changes ${String(sighting.decision)}`
+          : `seen ${pending.length} times, last in ${sighting.where}`;
       return {
         ok: true,
         action: 'filed',
@@ -364,9 +469,7 @@ export const commands = [
         kind,
         tell_owner: `Filed ${made.id}: ${title} (proposed, ${kind === 'bug' ? 'a bug report' : 'an investigation'}): ${reason}; it blocks ${sighting.blocks}.`,
         next: `tell the owner the tell_owner line now, without asking first (add the link from hitld work ref ${made.id} once it is pushed); then ${PUBLISH}`,
-        ...([...warnings, ...made.warnings].length
-          ? { warnings: [...warnings, ...made.warnings] }
-          : {}),
+        ...(made.warnings.length ? { warnings: made.warnings } : {}),
       };
     },
   },

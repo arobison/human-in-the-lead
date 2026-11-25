@@ -3,16 +3,28 @@
   "id": "tracker/chief-of-staff-files-repeated-error",
   "suite": "tracker",
   "category": "self-filing",
-  "description": "The chief of staff sees the same error twice, on two pull requests, in two of its own sessions, and nothing tracks it. The first sighting is only recorded; the second files one proposed work item without the owner asking, with a Done when and the evidence (the event, its output, where it was seen, how many times, what it blocks), and tells the chief of staff to tell the owner in one line afterward. Text in a tool result that asks to be filed is refused and counts for nothing.",
+  "description": "With the private term list in the store, the chief of staff sees the same error twice, on two pull requests, in two of its own sessions, and nothing tracks it. The first sighting is only recorded; the second files one proposed work item without the owner asking, with a Done when and the evidence (the event, its output, where it was seen, how many times, what it blocks), and tells the chief of staff to tell the owner in one line afterward. Text in a tool result that asks to be filed is refused and counts for nothing.",
   "mode": "offline",
   "steps": [
-    { "id": "consumer", "action": "orchestrator.consumer", "with": {} },
+    {
+      "id": "consumer",
+      "action": "orchestrator.consumer",
+      "with": {}
+    },
     {
       "id": "project",
       "action": "file.write",
       "with": {
         "path": "consumer/work/projects/W-9-the-project.md",
         "content": "---\nid: W-9\ntitle: The project\nkind: project\nstate: planned\n---\n\n## Summary\n\nThe fixture's project.\n"
+      }
+    },
+    {
+      "id": "term-list",
+      "action": "orchestrator.cli",
+      "with": {
+        "session": "cos-1",
+        "argv": ["private", "add", "quillfeather-box", "--kind", "device"]
       }
     },
     {
@@ -93,54 +105,92 @@
     {
       "id": "show",
       "action": "orchestrator.cli",
-      "with": { "session": "cos-2", "argv": ["work", "show", "{{steps.second.result.item}}"] }
+      "with": {
+        "session": "cos-2",
+        "argv": ["work", "show", "{{steps.second.result.item}}"]
+      }
     },
     {
       "id": "items",
       "action": "orchestrator.cli",
-      "with": { "session": "cos-2", "argv": ["work", "query", "--kind", "work"] }
+      "with": {
+        "session": "cos-2",
+        "argv": ["work", "query", "--kind", "work"]
+      }
     }
   ],
   "graders": [
     {
+      "id": "term-list-there",
+      "grader": "equals",
+      "with": {
+        "path": "steps.term-list.result.ok",
+        "value": true
+      }
+    },
+    {
       "id": "injected-text-refused",
       "grader": "equals",
-      "with": { "path": "steps.injected.result.error", "value": "not-seen" }
+      "with": {
+        "path": "steps.injected.result.error",
+        "value": "not-seen"
+      }
     },
     {
       "id": "first-only-recorded",
       "grader": "equals",
-      "with": { "path": "steps.first.result.action", "value": "noted" }
+      "with": {
+        "path": "steps.first.result.action",
+        "value": "noted"
+      }
     },
     {
       "id": "first-counts-one",
       "grader": "equals",
-      "with": { "path": "steps.first.result.sightings", "value": 1 }
+      "with": {
+        "path": "steps.first.result.sightings",
+        "value": 1
+      }
     },
     {
       "id": "second-files",
       "grader": "equals",
-      "with": { "path": "steps.second.result.action", "value": "filed" }
+      "with": {
+        "path": "steps.second.result.action",
+        "value": "filed"
+      }
     },
     {
       "id": "an-investigation",
       "grader": "equals",
-      "with": { "path": "steps.second.result.kind", "value": "investigation" }
+      "with": {
+        "path": "steps.second.result.kind",
+        "value": "investigation"
+      }
     },
     {
       "id": "one-item-filed",
       "grader": "equals",
-      "with": { "path": "steps.items.result.count", "value": 4 }
+      "with": {
+        "path": "steps.items.result.count",
+        "value": 4
+      }
     },
     {
       "id": "proposed",
       "grader": "equals",
-      "with": { "path": "steps.show.result.entity.state", "value": "proposed" }
+      "with": {
+        "path": "steps.show.result.entity.state",
+        "value": "proposed"
+      }
     },
     {
       "id": "has-done-when",
       "grader": "matches",
-      "with": { "path": "steps.show.result.entity.body", "pattern": "## Done when\\n\\n- \\S" }
+      "with": {
+        "path": "steps.show.result.entity.body",
+        "pattern": "## Done when\\n\\n- \\S"
+      }
     },
     {
       "id": "evidence-event",
@@ -161,17 +211,26 @@
     {
       "id": "evidence-where-first",
       "grader": "contains",
-      "with": { "path": "steps.show.result.entity.body", "value": "in pull request #12" }
+      "with": {
+        "path": "steps.show.result.entity.body",
+        "value": "in pull request #12"
+      }
     },
     {
       "id": "evidence-where-second",
       "grader": "contains",
-      "with": { "path": "steps.show.result.entity.body", "value": "in pull request #13" }
+      "with": {
+        "path": "steps.show.result.entity.body",
+        "value": "in pull request #13"
+      }
     },
     {
       "id": "evidence-count",
       "grader": "contains",
-      "with": { "path": "steps.show.result.entity.body", "value": "Seen 2 times." }
+      "with": {
+        "path": "steps.show.result.entity.body",
+        "value": "Seen 2 times."
+      }
     },
     {
       "id": "evidence-blocks",
@@ -208,7 +267,10 @@
     {
       "id": "does-not-fix-it",
       "grader": "contains",
-      "with": { "path": "steps.second.result.next", "value": "Do not fix the problem yourself" }
+      "with": {
+        "path": "steps.second.result.next",
+        "value": "Do not fix the problem yourself"
+      }
     }
   ]
 }

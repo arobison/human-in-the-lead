@@ -3,16 +3,28 @@
   "id": "tracker/chief-of-staff-appends-to-tracked-error",
   "suite": "tracker",
   "category": "self-filing",
-  "description": "The error the chief of staff sees again is already tracked by an item filed by hand. Its search of the tracker finds the item; the sighting appends the new evidence to it as a dated note and files nothing new, and the next sighting, worded differently, finds the same item on its own. The item keeps its state.",
+  "description": "With the private term list in the store, the error the chief of staff sees again is already tracked by an item filed by hand. Its search of the tracker finds the item; the sighting appends the new evidence to it as a dated note and files nothing new, and the next sighting, worded differently, finds the same item on its own. The item keeps its state.",
   "mode": "offline",
   "steps": [
-    { "id": "consumer", "action": "orchestrator.consumer", "with": {} },
+    {
+      "id": "consumer",
+      "action": "orchestrator.consumer",
+      "with": {}
+    },
     {
       "id": "project",
       "action": "file.write",
       "with": {
         "path": "consumer/work/projects/W-9-the-project.md",
         "content": "---\nid: W-9\ntitle: The project\nkind: project\nstate: planned\n---\n\n## Summary\n\nThe fixture's project.\n"
+      }
+    },
+    {
+      "id": "term-list",
+      "action": "orchestrator.cli",
+      "with": {
+        "session": "cos-1",
+        "argv": ["private", "add", "quillfeather-box", "--kind", "device"]
       }
     },
     {
@@ -84,44 +96,76 @@
     {
       "id": "show",
       "action": "orchestrator.cli",
-      "with": { "session": "cos-2", "argv": ["work", "show", "W-5"] }
+      "with": {
+        "session": "cos-2",
+        "argv": ["work", "show", "W-5"]
+      }
     },
     {
       "id": "items",
       "action": "orchestrator.cli",
-      "with": { "session": "cos-2", "argv": ["work", "query", "--kind", "work"] }
+      "with": {
+        "session": "cos-2",
+        "argv": ["work", "query", "--kind", "work"]
+      }
     }
   ],
   "graders": [
     {
+      "id": "term-list-there",
+      "grader": "equals",
+      "with": {
+        "path": "steps.term-list.result.ok",
+        "value": true
+      }
+    },
+    {
       "id": "search-finds-it",
       "grader": "equals",
-      "with": { "path": "steps.search.result.count", "value": 1 }
+      "with": {
+        "path": "steps.search.result.count",
+        "value": 1
+      }
     },
     {
       "id": "appended",
       "grader": "equals",
-      "with": { "path": "steps.again.result.action", "value": "appended" }
+      "with": {
+        "path": "steps.again.result.action",
+        "value": "appended"
+      }
     },
     {
       "id": "to-the-tracked-item",
       "grader": "equals",
-      "with": { "path": "steps.again.result.item", "value": "W-5" }
+      "with": {
+        "path": "steps.again.result.item",
+        "value": "W-5"
+      }
     },
     {
       "id": "next-sighting-finds-it-alone",
       "grader": "equals",
-      "with": { "path": "steps.once-more.result.item", "value": "W-5" }
+      "with": {
+        "path": "steps.once-more.result.item",
+        "value": "W-5"
+      }
     },
     {
       "id": "next-sighting-appended",
       "grader": "equals",
-      "with": { "path": "steps.once-more.result.action", "value": "appended" }
+      "with": {
+        "path": "steps.once-more.result.action",
+        "value": "appended"
+      }
     },
     {
       "id": "nothing-new-filed",
       "grader": "equals",
-      "with": { "path": "steps.items.result.count", "value": 4 }
+      "with": {
+        "path": "steps.items.result.count",
+        "value": 4
+      }
     },
     {
       "id": "dated-note",
@@ -150,12 +194,18 @@
     {
       "id": "state-kept",
       "grader": "equals",
-      "with": { "path": "steps.show.result.entity.state", "value": "proposed" }
+      "with": {
+        "path": "steps.show.result.entity.state",
+        "value": "proposed"
+      }
     },
     {
       "id": "no-owner-message-per-occurrence",
       "grader": "equals",
-      "with": { "path": "steps.again.result.tell_owner", "value": null }
+      "with": {
+        "path": "steps.again.result.tell_owner",
+        "value": null
+      }
     }
   ]
 }

@@ -9,11 +9,17 @@
 //
 //   - an open item that tracks the cause (its body holds the sighting key, or the chief of staff
 //     names it) gets the new evidence appended as a dated note, and nothing new is filed;
-//   - otherwise the second sighting since the cause was last filed, or a first one that changes a
-//     decision or a safety rule, files a proposed item with a Done when and the evidence;
-//   - a first sighting with nothing hanging on it is only recorded;
+//   - an item the owner dropped for the cause stands: a later sighting is only recorded;
+//   - otherwise the second sighting since the cause was last filed, or a first one whose cause is
+//     known and that changes a decision or a safety rule (the owner's ruling, 2026-11-24), files a
+//     proposed item with a Done when and the evidence;
+//   - any other first sighting is only recorded;
 //   - a security finding is never written to the tracker: it stays in the private store and is
 //     the owner's (design part 10.3: vulnerability reports are confidential, never the public queue).
+//
+// What reaches the tracker is public. Text with a key or token, an absolute path, a hostname, a
+// model ID or an environment ID is refused (unsafeShapes), and the command checks the private term
+// list; where the list cannot be read, the sighting is held in the private store, not filed.
 //
 // The command is the chief of staff's (core/lib/cli/commands/sighting.mjs); this file has no I/O
 // beyond the store it is given.
@@ -39,6 +45,47 @@ export const OPEN_STATES = Object.freeze(['proposed', 'planned', 'in-progress'])
 export const OUTPUT_LIMIT = 1500;
 
 /**
+ * Shapes that must never reach the tracker, whatever the private term list holds. A refusal names
+ * the kind, never the text. Commit hashes (lowercase hex) and dispatch, session and item IDs pass.
+ */
+const UNSAFE = Object.freeze([
+  {
+    kind: 'key',
+    re: /-----BEGIN [A-Z ]*PRIVATE KEY-----|AGE-SECRET-KEY-1|\bage1[0-9a-z]{50,}/,
+  },
+  {
+    kind: 'token',
+    re: /\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[\w-]{30,})/,
+  },
+  {
+    // A long run mixing lower case, upper case and digits, as a token or key is.
+    kind: 'token',
+    re: /(?<![\w+/-])(?!session_|cse_)(?=[\w+/-]*[a-z])(?=[\w+/-]*[A-Z])(?=[\w+/-]*\d)[\w+/-]{32,}/,
+  },
+  {
+    kind: 'absolute path',
+    re: /(?:^|[\s"'`(=:,])(?:~\/|\/(?:[\w.@-]+\/)+[\w.@-]*|\/(?:home|root|Users|tmp|var|etc|opt|usr|mnt|srv|private|Volumes)\b)|\b[A-Za-z]:\\/,
+  },
+  {
+    kind: 'hostname',
+    re: /\b(?:localhost|(?:\d{1,3}\.){3}\d{1,3}|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|net|org|io|dev|app|ai|co|cloud|internal|local|lan|corp|home|edu|gov|xyz|tech|site|online|run))\b/i,
+  },
+  {
+    kind: 'model ID',
+    re: /\b(?:claude-(?:opus|sonnet|haiku|fable|instant|\d)[\w.-]*|gpt-\d[\w.-]*|gemini-[\w.-]+|(?:opus|sonnet|haiku)[ -]?\d[\w.]*)/i,
+  },
+  { kind: 'environment ID', re: /\benv_[A-Za-z0-9]{6,}/ },
+]);
+
+/**
+ * The kinds of unsafe shape in a text, each once.
+ * @param {string} text @returns {string[]}
+ */
+export function unsafeShapes(text) {
+  return [...new Set(UNSAFE.filter((u) => u.re.test(String(text ?? ''))).map((u) => u.kind))];
+}
+
+/**
  * @typedef {object} Sighting
  * @property {string} at when it was recorded (ISO time)
  * @property {string} key the cause's sighting key
@@ -52,7 +99,10 @@ export const OUTPUT_LIMIT = 1500;
  * @property {string} [decision] the decision or safety rule it changes
  * @property {boolean} [security] a security finding: kept here, never in the tracker
  * @property {'noted' | 'filed' | 'appended' | 'held'} action what the command did with it
+ * @property {string} [held] why a sighting that would have reached the tracker was held instead
+ *   (term-list: the private term list could not be read); it still counts toward filing
  * @property {string} [item] the item it was filed as or appended to
+ * @property {string} [dropped] the dropped item for its cause: the owner's decision stands
  */
 
 /**
@@ -123,11 +173,13 @@ export function sinceFiled(all, key) {
 }
 
 /**
- * Whether the sightings so far file an item: a second one, or one that changes a decision or a
- * safety rule.
+ * Whether the sightings so far file an item: a second one, or a first whose cause is known and
+ * that changes a decision or a safety rule (the owner's ruling). A decision with no known cause
+ * waits for the problem to repeat.
  * @param {Sighting[]} pending the sightings since the cause was last filed, the new one included
  */
-export const files = (pending) => pending.length >= 2 || pending.some((s) => !!s.decision);
+export const files = (pending) =>
+  pending.length >= 2 || pending.some((s) => !!s.decision && !!s.known_cause);
 
 /**
  * Text in a fenced block, with a fence longer than any run of backticks in it, cut at the limit.
@@ -151,15 +203,16 @@ function evidence(s) {
 
 /**
  * The body of the item a cause is filed as: Done when, Why, the evidence of every sighting since
- * it was last filed, and how it was filed.
- * @param {{ pending: Sighting[], earlier?: { id: string, state: string }[] }} o
+ * it was last filed, and how it was filed. `withheld` counts earlier sightings whose text did not
+ * pass the private term list when it could be read: they count, and their text is left out.
+ * @param {{ pending: Sighting[], earlier?: { id: string, state: string }[], withheld?: number }} o
  * @returns {string}
  */
-export function itemBody({ pending, earlier = [] }) {
+export function itemBody({ pending, earlier = [], withheld = 0 }) {
   const last = pending[pending.length - 1];
   const known = pending.map((s) => s.known_cause).findLast((c) => !!c);
   const decision = pending.map((s) => s.decision).findLast((d) => !!d);
-  const n = pending.length;
+  const n = pending.length + withheld;
   const doneWhen = known
     ? 'The problem under Evidence no longer happens: a test reproduces it, failing before the fix and passing after it.'
     : 'The cause of the problem under Evidence is found and written in this item, and a bug report is filed for it or the fix lands with this item; or the item is dropped with the reason.';
@@ -172,8 +225,13 @@ export function itemBody({ pending, earlier = [] }) {
     : 'Investigation: the cause is not known yet.';
   const notes = [
     'Filed by the chief of staff on its own, without being asked, when it saw the problem ' +
-      (n > 1 ? 'again' : 'once with a decision hanging on it') +
+      (n > 1 ? 'again' : 'once, with its cause known and a decision hanging on it') +
       '. It is proposed: the owner can plan it or drop it. Later sightings are added here as dated notes, not filed again.',
+    ...(withheld
+      ? [
+          `The text of ${withheld} earlier ${withheld === 1 ? 'sighting is' : 'sightings is'} left out: it named a private thing.`,
+        ]
+      : []),
     ...earlier.map((e) => `Earlier item for the same cause: ${e.id} (${e.state}).`),
   ];
   return [
