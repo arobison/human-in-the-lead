@@ -9,6 +9,7 @@ import { ITEM_KINDS, describeProgress, findCycles, progress } from './graph.mjs'
 import { isLearning, readMilestone } from './milestones.mjs';
 import { readProject } from './projects.mjs';
 import { DEFAULT_OWNER, STATE_LABELS } from './format.mjs';
+import { sizeItem } from '../../dispatch/sizing.mjs';
 
 /**
  * @typedef {import('./graph.mjs').Graph} Graph
@@ -396,19 +397,48 @@ export function mermaidProjects(g) {
 // --- The critical path -----------------------------------------------------
 
 /**
- * The longest chain of open items by `needs`, weighted by `estimate_tokens` where an item has
- * one (the optional key) and by 1 where it does not. Derived, never stored (design part 3.2).
+ * An item's weight on a path with no policy at hand: its own `estimate_tokens`, or 1 without one.
+ * @param {Node | undefined} it
+ */
+export const pathWeight = (it) => {
+  const w = Number(it?.data.estimate_tokens);
+  return Number.isFinite(w) && w > 0 ? w : 1;
+};
+
+/**
+ * Each open item's weight on a path by its sizing estimate (HITLD-995), as the ready queue weighs
+ * it: a work item's own `estimate_tokens`, else what sizing derives for it under the policy (the
+ * tier's default, with no ledger here); a decision or an external item its own estimate or 1.
+ * @param {Record<string, any>} policy @param {{ workDir?: string }} [o]
+ * @returns {(it: Node) => number}
+ */
+export function sizingWeight(policy, o = {}) {
+  /** @type {Map<string, number>} */
+  const memo = new Map();
+  return (it) => {
+    // A stored estimate stands as it is (front matter reads it as text).
+    if (it.data.kind !== 'work' || Number(it.data.estimate_tokens) > 0) return pathWeight(it);
+    const id = String(it.data.id);
+    const hit = memo.get(id);
+    if (hit !== undefined) return hit;
+    const item = /** @type {any} */ ({ ...it.data, body: it.body });
+    const w = Math.max(0, Number(sizeItem(item, policy, [], o).estimate_tokens) || 0);
+    memo.set(id, w);
+    return w;
+  };
+}
+
+/**
+ * The longest chain of open items by `needs`, each item weighing `weight`: its sizing estimate
+ * where the caller has a policy to size it by (`sizingWeight`), else its own `estimate_tokens`
+ * or 1. Derived, never stored (design part 3.2).
  * Returns one chain per open item that nothing open needs, longest first, ties by ID.
- * @param {Graph} g
+ * @param {Graph} g @param {(it: Node) => number} [weightOf]
  * @returns {{ weight: number, chain: Node[] }[]}
  */
-export function criticalPaths(g) {
+export function criticalPaths(g, weightOf = pathWeight) {
   /** @type {Map<string, { weight: number, chain: Node[] }>} */
   const memo = new Map();
-  const weightOf = (/** @type {Node} */ it) => {
-    const w = Number(it.data.estimate_tokens);
-    return Number.isFinite(w) && w > 0 ? w : 1;
-  };
   /** @param {Node} it @param {Set<string>} seen @returns {{ weight: number, chain: Node[] }} */
   const best = (it, seen) => {
     const id = String(it.data.id);
@@ -439,9 +469,12 @@ export function criticalPaths(g) {
     );
 }
 
-/** The longest dependency chains among open items. @param {Graph} g @param {number} [top] */
-export function viewCriticalPath(g, top = 5) {
-  const paths = criticalPaths(g).slice(0, top);
+/**
+ * The longest dependency chains among open items.
+ * @param {Graph} g @param {number} [top] @param {(it: Node) => number} [weight]
+ */
+export function viewCriticalPath(g, top = 5, weight = pathWeight) {
+  const paths = criticalPaths(g, weight).slice(0, top);
   if (!paths.length) return 'no open items\n';
   /** @type {string[]} */
   const out = [];
@@ -579,23 +612,19 @@ export function compareVersions(a, b) {
   return parts(va.pre, vb.pre);
 }
 
-/** An item's weight on a critical path: its estimate, or 1 without one. @param {Node | undefined} it */
-const pathWeight = (it) => {
-  const w = Number(it?.data.estimate_tokens);
-  return Number.isFinite(w) && w > 0 ? w : 1;
-};
-
 /**
  * The milestone graph (design part 12.1.2): milestones as nodes, `needs` between milestones (a
  * milestone's constraints that name milestones) as edges. A constraint that names an item is not
  * an edge; it counts toward the node's progress. The critical path is the chain of milestones not
  * yet done with the most estimate tokens remaining, by the rule items use: each open item
- * constraint weighs its `estimate_tokens`, or 1 without one.
+ * constraint weighs `weight`, its sizing estimate where the caller sizes it (`sizingWeight`), else
+ * its own `estimate_tokens` or 1.
  * @param {Graph} g
- * @param {{ checkOf: (m: Node) => CheckStatus, tokensSpent?: (m: Node) => number | null }} how
+ * @param {{ checkOf: (m: Node) => CheckStatus, tokensSpent?: (m: Node) => number | null,
+ *   weight?: (it: Node) => number }} how
  * @returns {MilestoneGraph}
  */
-export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
+export function milestoneGraph(g, { checkOf, tokensSpent = () => null, weight = pathWeight }) {
   const isM = (/** @type {string} */ id) => {
     const n = g.get(id);
     return n !== undefined && g.isMilestone(n);
@@ -607,7 +636,7 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
   /** A milestone's open item constraints. @param {Node} m */
   const openItems = (m) => nodesOf(g.needs(m)).filter((n) => g.isItem(n) && g.isOpen(n));
   /** Estimate tokens remaining on a milestone. @param {Node} m */
-  const remaining = (m) => openItems(m).reduce((sum, n) => sum + pathWeight(n), 0);
+  const remaining = (m) => openItems(m).reduce((sum, n) => sum + weight(n), 0);
   /** @param {Node} m @returns {MilestoneStage} */
   const stageOf = (m) => {
     const s = String(m.data.state);
@@ -685,7 +714,9 @@ export function milestoneGraph(g, { checkOf, tokensSpent = () => null }) {
   const path = top && top.weight > 0 ? top.chain : [];
   const looped = new Set(findCycles(g).flat());
   const onPath = new Set(path);
-  const criticalItems = new Set((criticalPaths(g)[0]?.chain ?? []).map((it) => String(it.data.id)));
+  const criticalItems = new Set(
+    (criticalPaths(g, weight)[0]?.chain ?? []).map((it) => String(it.data.id)),
+  );
 
   const nodes = g.milestones.map((m) => {
     const id = String(m.data.id);

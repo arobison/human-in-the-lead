@@ -96,6 +96,63 @@ export function unplacedWork(items) {
 }
 
 /**
+ * Warnings, not problems: each open work item whose only link into a release is an unnumbered
+ * constraint link, `constraint_of: [<milestone ID> c?]` (HITLD-995). The ready queue ranks work by
+ * the nearest release whose closure holds it, through item `needs`, release `needs` and a
+ * milestone's constraints; a link still to be numbered counts there, so an item linked to the
+ * wrong milestone would take that release's tier unseen. One line each, naming the milestones.
+ * @param {Entry[]} items @returns {string[]}
+ */
+export function unnumberedReleaseLinks(items) {
+  const g = buildGraph(items);
+  const releases = g.items.filter(
+    (it) => it.data.kind === 'work' && it.data.release !== undefined && g.isOpen(it),
+  );
+  /** @param {boolean} numberedOnly @returns {Set<string>} */
+  const closure = (numberedOnly) => {
+    /** @type {Set<string>} */
+    const seen = new Set();
+    const stack = releases.map((r) => String(r.data.id));
+    while (stack.length) {
+      const id = /** @type {string} */ (stack.pop());
+      if (seen.has(id)) continue;
+      const it = g.get(id);
+      if (!it || !g.isOpen(it)) continue;
+      seen.add(id);
+      if (!g.isMilestone(it)) {
+        stack.push(...g.needs(it));
+        continue;
+      }
+      for (const c of g.constraintsOf(it)) {
+        const target = g.get(c.id);
+        // Only a link into an item is weighed: a milestone under a milestone is the shaping's.
+        if (numberedOnly && c.clause === null && target && g.isItem(target)) continue;
+        stack.push(c.id);
+      }
+    }
+    return seen;
+  };
+  const all = closure(false);
+  const numbered = closure(true);
+  return g.items
+    .filter(
+      (it) =>
+        it.data.kind === 'work' &&
+        ['proposed', 'planned'].includes(String(it.data.state)) &&
+        all.has(String(it.data.id)) &&
+        !numbered.has(String(it.data.id)),
+    )
+    .map((it) => {
+      const id = String(it.data.id);
+      const via = g
+        .constraintOf(id)
+        .filter((m) => g.constraintsOf(m).some((c) => c.id === id && c.clause === null))
+        .map((m) => String(m.data.id));
+      return `${it.path}: ${id} reaches a release only through an unnumbered constraint link (${via.map((m) => `${m} ${UNLINKED}`).join(', ')}); name the clause it serves, so the queue ranks it by the release it is meant for`;
+    });
+}
+
+/**
  * Warnings, not problems: each milestone that still holds a `constraints` line (HITLD-767). The
  * link lives on the item as `constraint_of`; the line is read until rc.3, the item side winning,
  * and `hitld work migrate constraints-on-items` moves it. One line each.

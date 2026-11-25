@@ -27,6 +27,7 @@ import {
 } from '../lib/quota/usage.mjs';
 import { FIVE_HOUR_LIMIT, evaluateQuotas, shownLimits } from '../lib/quota/quota.mjs';
 import { dispatchGate } from '../lib/quota/gate.mjs';
+import { rankQueue } from '../lib/dispatch/queue.mjs';
 import { buildReport, renderDigest, renderHtml } from '../lib/quota/report.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 import { makeConsumer } from './orchestrator-fixture.mjs';
@@ -449,6 +450,61 @@ test('a declared limit is estimated from the ledger, and a per-limit reserve ove
   assert.equal(q.reserve_share, 0.2);
   assert.ok(Math.abs((q.headroom ?? 0) - 0.4) < 1e-9);
   assert.equal(q.confidence, 'low');
+});
+
+test("critical path only lets through the first tier's items on its longest path; with no release, the most unblocked (HITLD-995)", () => {
+  const policy = policyWith({ limits: [tokenLimit()] });
+  /** @param {Record<string, any>[]} items @param {Record<string, number>} weights */
+  const gateFor = (items, weights) => {
+    const ready = items.filter((i) => i.kind === 'work' && !(i.needs ?? []).length);
+    const weight = (/** @type {string} */ id) => weights[id] ?? 1;
+    const sizes = new Map(
+      ready.map((i) => [i.id, /** @type {any} */ ({ estimate_tokens: weight(i.id) })]),
+    );
+    const r = rankQueue({
+      items: /** @type {any[]} */ (items),
+      ready: /** @type {any[]} */ (ready),
+      sizes,
+      weight,
+    });
+    // Headroom 0.75 - 0.65 = 10%: critical path only.
+    return Object.fromEntries(
+      ready.map((i) => [
+        i.id,
+        dispatchGate(
+          policy,
+          [],
+          { id: i.id, critical_path: r.critical.has(i.id) },
+          {
+            now: T0,
+            ledger: [entry('E-1', T0 - HOUR, 650)],
+          },
+        ).allow,
+      ]),
+    );
+  };
+  const w = (/** @type {string} */ id, /** @type {Record<string, any>} */ more = {}) => ({
+    id,
+    kind: 'work',
+    state: 'planned',
+    ...more,
+  });
+  // W-1 heads the heavy chain to the nearest release W-9; W-3 serves it on a lighter one; W-5
+  // unblocks the most, but only for the farther release W-10.
+  const items = [
+    w('W-1'),
+    w('W-2', { needs: ['W-1'] }),
+    w('W-3'),
+    w('W-5'),
+    w('W-6', { needs: ['W-5'] }),
+    w('W-7', { needs: ['W-6'] }),
+    w('W-9', { release: '1.0.0', needs: ['W-2', 'W-3'] }),
+    w('W-10', { release: '1.1.0', needs: ['W-9', 'W-7'] }),
+  ];
+  assert.deepEqual(gateFor(items, { 'W-2': 90000 }), { 'W-1': true, 'W-3': false, 'W-5': false });
+  // With no release item open, today's rule: the ready items that unblock the most.
+  const none = /** @type {Record<string, any>[]} */ (items).filter((i) => !i.release);
+  assert.deepEqual(gateFor(none, { 'W-2': 90000 }), { 'W-1': false, 'W-3': false, 'W-5': true });
 });
 
 test('the gate: normal, economize, critical path only, stop, each with its reason', () => {

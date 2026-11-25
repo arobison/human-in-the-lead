@@ -5,31 +5,25 @@
 // - blocks: the open items that need the decision, directly or through others.
 // - unblocks_ready: the items that become ready the moment it is answered (they need nothing
 //   else that is open): answering it puts work in the queue.
-// - critical_path: it sits on the longest chain of open work by `needs`, weighted by
-//   `estimate_tokens` where an item has one and by 1 where it does not, as the critical-path view
-//   weighs it. A decision that blocks nothing is never on the critical path.
-// - cost_of_delay: each blocked item adds a weight for its priority (urgent 8, high 4, medium 2,
-//   low 1), where the project declares a priority field; an item with none counts as medium. The
-//   tracker holds no cost-of-delay rate yet, so this is what the blocked items say: a decision
-//   that holds up more work, and more urgent work, costs more.
+// - critical_path: it sits on the longest chain of open work by `needs`, each item weighing its
+//   sizing estimate (the caller's `weight`; without one, its own `estimate_tokens` or 1), as the
+//   critical-path view weighs it. A decision that blocks nothing is never on the critical path.
+// - cost_of_delay: the summed estimate tokens of the open items it blocks, by the same weights:
+//   a decision that holds up more work costs more (design part 2.4). No priority, rate or profile
+//   is read: an item's retired `priority` key changes nothing.
 
 /** The kinds of item that sit in the dependency graph. */
 const GRAPH_KINDS = ['work', 'external', 'decision'];
 /** Work that may be started (a decision is answered, not started). */
 const WORK_KINDS = ['work', 'external'];
 const OPEN = ['proposed', 'planned', 'in-progress'];
-/** What a blocked item adds to a decision's cost of delay, by its priority. */
-export const PRIORITY_WEIGHT = Object.freeze(
-  /** @type {Record<string, number>} */ ({ urgent: 8, high: 4, medium: 2, low: 1 }),
-);
-
 /** @param {unknown} v @returns {string[]} */
 const list = (v) =>
   Array.isArray(v) ? v.map(String) : v === undefined || v === null ? [] : [String(v)];
 
-/** @param {Record<string, any>} item */
-const weightOf = (item) => {
-  const w = Number(item.estimate_tokens);
+/** An item's own `estimate_tokens`, or 1 without one. @param {Record<string, any> | undefined} item */
+const storedWeight = (item) => {
+  const w = Number(item?.estimate_tokens);
   return Number.isFinite(w) && w > 0 ? w : 1;
 };
 
@@ -44,12 +38,16 @@ const weightOf = (item) => {
 /**
  * Urgency of every open decision.
  * @param {Record<string, any>[]} items every item that is not done or dropped, of any kind
+ * @param {{ weight?: (id: string) => number }} [o] each open item's weight on a path, its sizing
+ *   estimate (dispatch/queue.mjs `weightsOf`); its own `estimate_tokens` or 1 without one
  * @returns {Map<string, Urgency>} by decision ID
  */
-export function decisionUrgency(items) {
+export function decisionUrgency(items, o = {}) {
   const open = items.filter((i) => OPEN.includes(i.state) && GRAPH_KINDS.includes(i.kind));
   /** @type {Map<string, Record<string, any>>} */
   const byId = new Map(open.map((i) => [String(i.id), i]));
+  const weightOf = (/** @type {Record<string, any>} */ item) =>
+    o.weight ? o.weight(String(item.id)) : storedWeight(item);
   /** @type {Map<string, string[]>} who needs me, among open items */
   const dependents = new Map();
   for (const i of open) {
@@ -127,7 +125,7 @@ export function decisionUrgency(items) {
       })
       .sort();
     const cost = blocks.reduce(
-      (sum, b) => sum + (PRIORITY_WEIGHT[byId.get(b)?.priority ?? 'medium'] ?? 2),
+      (sum, b) => sum + weightOf(/** @type {Record<string, any>} */ (byId.get(b))),
       0,
     );
     out.set(id, {

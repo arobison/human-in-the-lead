@@ -108,6 +108,8 @@ export function planDispatch(r) {
   const inline = [];
   /** @type {Held[]} */
   const held = [];
+  /** @type {{ item: string, with: string[], why: string }[]} proposals that overlap one before them */
+  const notTogether = [];
   // What running dispatches hold: an item they block is held. What the start list proposes holds
   // nothing: an item that would clash with a proposal waits behind it, and may start instead.
   const busy = new Set(r.running.flatMap((d) => d.serial_resources));
@@ -256,10 +258,24 @@ export function planDispatch(r) {
     const past = r.mergeFix && caps.parallel_subagents ? 1 : 0;
     if (
       r.running.length + start.length >= cap + past ||
-      serial.some((s) => proposedSerial.has(s)) ||
-      (proposedTouches.length &&
-        overlapShare(touches.touches, proposedTouches) >= (r.overlapSerialize ?? 0.5))
+      serial.some((s) => proposedSerial.has(s))
     ) {
+      waiting++;
+      continue;
+    }
+    // Two proposals whose touches overlap are not offered together (HITLD-995): the one the queue
+    // puts later waits, and the plan says why. A proposal holds nothing (HITLD-153), so it waits
+    // rather than being held: started alone, it may start.
+    const proposedShare = overlapShare(touches.touches, proposedTouches);
+    if (proposedTouches.length && proposedShare >= (r.overlapSerialize ?? 0.5)) {
+      const others = start
+        .filter((p) => overlapShare(touches.touches, p.touches.touches) > 0)
+        .map((p) => p.item);
+      notTogether.push({
+        item: id,
+        with: others,
+        why: `${Math.round(proposedShare * 100)}% of its touches overlap ${others.join(', ')}, proposed in this plan (dispatch.serialize_overlap_share ${r.overlapSerialize ?? 0.5}): it waits for a later plan`,
+      });
       waiting++;
       continue;
     }
@@ -308,6 +324,7 @@ export function planDispatch(r) {
     inline,
     held,
     waiting,
+    not_together: notTogether,
     notes,
   };
 }

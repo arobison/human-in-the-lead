@@ -384,11 +384,23 @@ test('urgency: what a decision blocks, what it makes ready, the critical path an
   assert.deepEqual(u.get('W-1')?.blocks, ['W-10', 'W-11']);
   assert.deepEqual(u.get('W-1')?.unblocks_ready, ['W-10']);
   assert.equal(u.get('W-1')?.critical_path, true, 'it heads the heaviest chain');
-  assert.equal(u.get('W-1')?.cost_of_delay, 4 + 2, 'high 4, no priority counts as medium 2');
+  assert.equal(
+    u.get('W-1')?.cost_of_delay,
+    50000 + 40000,
+    'the summed estimate tokens of what it blocks; a stray priority adds nothing',
+  );
   assert.deepEqual(u.get('W-2')?.blocks, ['W-12']);
   assert.deepEqual(u.get('W-2')?.unblocks_ready, [], 'W-12 also needs W-13, which is open');
   assert.equal(u.get('W-2')?.critical_path, false);
-  assert.equal(u.get('W-2')?.cost_of_delay, 1);
+  assert.equal(u.get('W-2')?.cost_of_delay, 1000);
+  // The caller's weights stand in for the stored estimates: sizing's, as the queue weighs them.
+  const sized = decisionUrgency(items, { weight: (id) => (id === 'W-11' ? 7 : 3) });
+  assert.equal(sized.get('W-1')?.cost_of_delay, 3 + 7);
+  // A stray priority key orders nothing: the same items without it cost the same.
+  const bare = decisionUrgency(
+    /** @type {Record<string, any>[]} */ (items).map(({ priority: _, ...rest }) => rest),
+  );
+  assert.deepEqual([...bare.entries()], [...u.entries()]);
   assert.deepEqual(u.get('W-3'), {
     blocks: [],
     unblocks_ready: [],
@@ -460,9 +472,11 @@ test('pending orders the open decisions by cost of delay and says where each goe
     [costly.decision, cheap.decision, none.decision],
     'what waits on it, most first',
   );
+  // Each blocked item weighs its sizing estimate: with no plan, the tier-3 default.
+  const tier3 = Number(deps.policy.dispatch.default_estimates['3']);
   assert.deepEqual(
     p.decisions.map((d) => d.cost_of_delay),
-    [4, 2, 0],
+    [2 * tier3, tier3, 0],
   );
   // Every slot is busy or has no ready work: nothing idles, and no estimates make a critical path
   // that picks one chain, so the work behind the costly one is the longest.

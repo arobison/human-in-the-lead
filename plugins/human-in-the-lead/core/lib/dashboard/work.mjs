@@ -80,6 +80,9 @@ export function stageOf(e, stateOf) {
  *   the tracker was read, and whether the clone's history is cut
  * @param {DeclaredField[]} [input.fields] the project's declared fields (tracker.json `fields`)
  * @param {string} [input.defaultClassification] the label of an entity that has none
+ * @param {(it: import('../tracker/files/graph.mjs').Node) => number} [input.weight] each open
+ *   item's weight on the critical path: its sizing estimate (views.mjs `sizingWeight`), else its
+ *   own `estimate_tokens` or 1
  */
 export function workModel({
   entities,
@@ -90,6 +93,7 @@ export function workModel({
   source = { commit: null, branch: null },
   fields = [],
   defaultClassification = 'public',
+  weight,
 }) {
   const labelOf = (/** @type {Entity} */ e) => String(e.classification ?? defaultClassification);
   /** The declared fields an entity sets. @param {Entity} e */
@@ -100,7 +104,7 @@ export function workModel({
   const g = buildGraph(entities.map(asNode));
   const byIdMap = new Map(entities.map((e) => [String(e.id), e]));
   const stateOf = (/** @type {string} */ id) => byIdMap.get(id)?.state;
-  const path = criticalPaths(g)[0]?.chain.map((n) => String(n.data.id)) ?? [];
+  const path = criticalPaths(g, weight)[0]?.chain.map((n) => String(n.data.id)) ?? [];
   const critical = new Set(path);
   const itemEntities = entities.filter((e) => ['work', 'decision', 'external'].includes(e.kind));
   // What waits on each item, through other items: open items only.

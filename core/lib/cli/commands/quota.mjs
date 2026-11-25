@@ -11,7 +11,7 @@ import { dispatchGate } from '../../quota/gate.mjs';
 import { buildReport, renderDigest, renderHtml, tokensPerItem } from '../../quota/report.mjs';
 import { openTracker } from '../../tracker/files/tracker.mjs';
 import { git } from '../../tracker/files/tree.mjs';
-import { forgeFileBase } from '../../tracker/files/views.mjs';
+import { forgeFileBase, sizingWeight } from '../../tracker/files/views.mjs';
 
 /**
  * Where the repository's files are on its forge, for the page's links to tracker files: from the
@@ -357,6 +357,7 @@ export const commands = [
               now: g.now,
               fields: layout.fields,
               defaultClassification: layout.defaultClassification,
+              weight: sizingWeight(g.policy, { workDir: layout.workDir }),
               source: {
                 commit: read(['rev-parse', '--short', 'HEAD']),
                 branch: read(['branch', '--show-current']),

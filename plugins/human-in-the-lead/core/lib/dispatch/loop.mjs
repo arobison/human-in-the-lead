@@ -9,7 +9,7 @@
 
 import { dispatchExecutor, reportedEvent } from '../run/protocol.mjs';
 import { nextDispatchId, readLedger } from '../ledger/ledger.mjs';
-import { criticalPath, deriveReady, orderQueue, unblockCounts } from './queue.mjs';
+import { deriveReady, rankQueue, weightsOf } from './queue.mjs';
 import { sizeItem } from './sizing.mjs';
 import { planDispatch } from './plan.mjs';
 import { renderBrief } from './brief.mjs';
@@ -82,16 +82,21 @@ export async function runDispatchLoop(r) {
     });
     const readyItems = r.items.filter((i) => ready.has(String(i.id)) && !refused.has(String(i.id)));
     const sizes = new Map(readyItems.map((i) => [String(i.id), sizeItem(i, r.policy)]));
-    const unblocks = unblockCounts(r.items);
+    const ranking = rankQueue({
+      items: r.items,
+      ready: readyItems,
+      sizes,
+      weight: weightsOf(r.items, r.policy, [], { sizes }),
+    });
     const plan = planDispatch({
-      queue: orderQueue(readyItems, sizes, unblocks),
+      queue: ranking.queue,
       sizes,
       running,
       cap,
       capabilities: caps,
       gate,
       overlapSerialize: r.policy.dispatch?.serialize_overlap_share,
-      critical: criticalPath(readyItems, unblocks),
+      critical: ranking.critical,
     });
 
     for (const p of plan.inline) {
