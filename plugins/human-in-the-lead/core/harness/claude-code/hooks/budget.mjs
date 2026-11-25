@@ -76,7 +76,7 @@ export function transcriptsOf(input, agent) {
  * undefined when there is no policy or the ledger does not hold the dispatch at all (no store, as
  * in a cloud executor, or a copy of the store without it): only then is the claim's cap read.
  * @param {Record<string, any>} input @param {NodeJS.ProcessEnv} env @param {string} cwd
- * @param {import('./input.mjs').Claim[]} claims
+ * @param {() => import('./input.mjs').Claim[]} claims read only when needed (git runs twice)
  * @returns {Promise<Cap | null | undefined>}
  */
 async function ledgerCap(input, env, cwd, claims) {
@@ -111,24 +111,24 @@ async function ledgerCap(input, env, cwd, claims) {
 
 /**
  * The executor's dispatch: HITLD_DISPATCH, or else the newest claim's.
- * @param {NodeJS.ProcessEnv} env @param {import('./input.mjs').Claim[]} claims
+ * @param {NodeJS.ProcessEnv} env @param {() => import('./input.mjs').Claim[]} claims
  */
 const namedDispatch = (env, claims) =>
   typeof env.HITLD_DISPATCH === 'string' && DISPATCH_ID.test(env.HITLD_DISPATCH)
     ? env.HITLD_DISPATCH
-    : claims[0]?.dispatch;
+    : claims()[0]?.dispatch;
 
 /**
  * The cap from the executor's own claim commit, for a session whose store does not hold the
  * dispatch (a cloud executor, HITLD-841): the `Budget-Tokens` trailer `hitld work claim` wrote.
  * Usage counts from the claim's time, or from the item's last close after it, where a follow-up in
  * the same session starts; the reading before the claim is not counted.
- * @param {NodeJS.ProcessEnv} env @param {import('./input.mjs').Claim[]} claims
+ * @param {NodeJS.ProcessEnv} env @param {() => import('./input.mjs').Claim[]} claims
  * @returns {Cap | null}
  */
 function claimCap(env, claims) {
   const named = namedDispatch(env, claims);
-  const found = claims.find((c) => c.dispatch === named && c.cap !== null);
+  const found = claims().find((c) => c.dispatch === named && c.cap !== null);
   return found?.cap
     ? { dispatch: found.dispatch, cap: found.cap, since: found.since, agent: false }
     : null;
@@ -144,7 +144,10 @@ function claimCap(env, claims) {
 export async function readBudget(input, env) {
   try {
     const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
-    const claims = claimedBudgets(cwd) ?? [];
+    // Read once, and only when a path needs them: the ledger path with HITLD_DISPATCH does not.
+    /** @type {import('./input.mjs').Claim[] | undefined} */
+    let read;
+    const claims = () => (read ??= claimedBudgets(cwd) ?? []);
     const fromLedger = await ledgerCap(input, env, cwd, claims);
     const b = fromLedger === undefined ? claimCap(env, claims) : fromLedger;
     if (!b) return null;

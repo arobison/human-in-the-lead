@@ -20,4 +20,9 @@ The HITLD-782 executor reported that in a cloud executor session there is no pri
 
 ## Limitations
 
-The executor writes its own claim commit, so it can leave the cap out or inflate it; a brief written by hand without `--budget-tokens` gets no enforcement where there is no store; the reconcile pass stays the backstop.
+Where there is no store, the cap and the count rest on commits the executor writes itself. The reconcile pass stays the backstop for every case below.
+
+- The executor can leave the cap out of its claim or inflate it.
+- The executor can reset or defeat its own count. An empty `close: <ID>` commit restarts the count. A future author date on the claim means nothing is counted. `--reset-author` on an amend moves the start.
+- A brief written by hand without `--budget-tokens` gets no enforcement.
+- A follow-up with no close commit before it is charged against the first dispatch's cap from that dispatch's claim. An example is a cloud executor the watchdog continues after a stall or a limit cut-off. The ledger path, by contrast, restarts at each dispatch's own start.

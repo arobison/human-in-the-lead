@@ -140,7 +140,8 @@ export function renderBrief({
     'Follow the executor contract in AGENTS.md and the execute skill: claim first, close in the same',
     'change, measure through the benchmark tool, report in the fixed shape.',
     // The cap rides in the claim commit, so the budget hook enforces it with no store (HITLD-841).
-    `Claim with ${prefix} hitld work claim ${id} --dispatch ${dispatch} --branch ${branch} --budget-tokens ${reportAt}.`,
+    // An item with no estimate has no cap: the claim refuses a cap of 0.
+    `Claim with ${prefix} hitld work claim ${id} --dispatch ${dispatch} --branch ${branch}${reportAt > 0 ? ` --budget-tokens ${reportAt}` : ''}.`,
     `Close last with ${prefix} hitld work close ${id} --report-file <file holding your report>: the`,
     'closing commit is your report, and it is what is recorded; any message you send is only a wake.',
     'Pass a question to hitld rights who and hitld precedent match as a JSON file with --file <path>,',

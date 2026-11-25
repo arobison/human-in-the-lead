@@ -6,7 +6,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLedger } from '../lib/ledger/ledger.mjs';
@@ -18,6 +26,7 @@ import {
   transcriptUsage,
 } from '../lib/dispatch/budget.mjs';
 import { closingAllowance } from '../lib/cli/commands/reconcile.mjs';
+import { renderBrief } from '../lib/dispatch/brief.mjs';
 import { recordStatusLine } from '../harness/claude-code/statusline.mjs';
 import { STATUS_INPUT, item, makeConsumer } from './orchestrator-fixture.mjs';
 
@@ -500,6 +509,65 @@ test('a token cap past twelve digits is refused, since the hook would not read i
   const zero = await c.hitld([...args, '0']);
   assert.equal(zero.result.error, 'usage');
   assert.equal((await c.hitld([...args, '999999999999'])).exit, 0);
+});
+
+test('a store that cannot be read gives no reading: the claim cap is not read in its place', async () => {
+  const { c, store, later } = await setUp();
+  spawnSync('git', ['-C', c.root, 'checkout', '-q', '-b', 'hitld/W-9'], { encoding: 'utf8' });
+  // A dispatch the ledger does not hold, so only a store read that throws keeps its cap unread.
+  const other = 'D-01M87Y65JTA2QW5M';
+  const claim = await c.hitld([
+    'work',
+    'claim',
+    'W-9',
+    '--dispatch',
+    other,
+    '--budget-tokens',
+    '1000',
+  ]);
+  assert.equal(claim.exit, 0, JSON.stringify(claim.result));
+  const transcript = join(c.base, 'sess.jsonl');
+  writeFileSync(transcript, response({ id: 'a', at: later(5), output: 20_000 }) + '\n');
+  const guard = () =>
+    spawnSync(process.execPath, [GUARD], {
+      input: JSON.stringify({
+        transcript_path: transcript,
+        cwd: c.root,
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Edit',
+        tool_input: { file_path: join(c.root, 'src/w9.js') },
+      }),
+      encoding: 'utf8',
+      cwd: c.root,
+      env: c.env,
+    }).stdout;
+  assert.match(guard(), /"deny"/, 'a readable store without the dispatch: the claim cap holds');
+  // The ledger's legacy file becomes a directory: reading the store now throws.
+  const legacy = join(store.root, 'ledger.jsonl');
+  rmSync(legacy, { force: true });
+  mkdirSync(legacy);
+  assert.throws(() => readLedger(store));
+  assert.equal(guard(), '', 'a store that throws: no reading, as before HITLD-841');
+});
+
+test('the brief passes the cap to the claim only when there is one', () => {
+  /** @param {number} estimate */
+  const brief = (estimate) =>
+    renderBrief({
+      item: { id: 'W-1', title: 'x', path: 'work/items/W-1-x.md' },
+      sizing: /** @type {any} */ ({ areas: [], estimate_tokens: estimate, owner_review: null }),
+      dispatch: 'D-1',
+      branch: 'hitld/W-1-x',
+      policy: { project: { id: 'p' } },
+      isolation: 'none',
+    });
+  assert.match(
+    brief(10_000),
+    /hitld work claim W-1 --dispatch D-1 --branch hitld\/W-1-x --budget-tokens 15000\./,
+  );
+  const none = brief(0);
+  assert.match(none, /hitld work claim W-1 --dispatch D-1 --branch hitld\/W-1-x\./);
+  assert.doesNotMatch(none, /--budget-tokens/);
 });
 
 test('the claim writes the ledger cap when the store has the dispatch, over the figure given', async () => {
