@@ -394,9 +394,22 @@ test('a cloud executor with no store: the cap rides in its claim commit, and the
       env: c.env,
     });
   const edit = { tool_name: 'Edit', tool_input: { file_path: join(c.root, 'src/w9.js') } };
-  const at = new Date().toISOString();
+  // Usage counts from the claim: the session's earlier usage (an earlier dispatch's) does not.
+  const claimed = Date.parse(
+    spawnSync('git', ['-C', c.root, 'log', '-1', '--format=%aI'], {
+      encoding: 'utf8',
+    }).stdout.trim(),
+  );
+  const after = (/** @type {number} */ s) => new Date(claimed + s * 1000).toISOString();
+  const at = after(10);
 
-  writeFileSync(transcript, response({ id: 'a', at, output: 4_000, write: 5_000 }) + '\n');
+  writeFileSync(
+    transcript,
+    [
+      response({ id: 'old', at: after(-60), output: 900_000 }),
+      response({ id: 'a', at, output: 4_000, write: 5_000 }),
+    ].join('\n') + '\n',
+  );
   assert.equal(hook(PROGRESS, edit).stdout, '', 'under the cap: nothing said');
   assert.equal(hook(GUARD, edit).stdout, '', 'under the cap: nothing refused');
 
@@ -417,6 +430,76 @@ test('a cloud executor with no store: the cap rides in its claim commit, and the
   ]) {
     assert.equal(hook(GUARD, t).stdout, '', `the closing steps stay open: ${JSON.stringify(t)}`);
   }
+
+  // A follow-up in the same session starts after the item's close: the usage before it is spent.
+  const closed = spawnSync(
+    'git',
+    [
+      '-C',
+      c.root,
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'close: W-9',
+      '-m',
+      `Dispatch: ${dispatch}`,
+    ],
+    { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_DATE: after(100) } },
+  );
+  assert.equal(closed.status, 0, closed.stderr);
+  writeFileSync(
+    transcript,
+    readFileSync(transcript, 'utf8') + response({ id: 'c', at: after(200), output: 5_000 }) + '\n',
+  );
+  assert.equal(hook(PROGRESS, edit).stdout, '', 'the follow-up: 5k since the close');
+  assert.equal(hook(GUARD, edit).stdout, '', 'the follow-up: nothing refused');
+});
+
+test('a store that holds the dispatch decides: one no longer in flight is not metered from its claim', async () => {
+  const { c, dispatch, later } = await setUp();
+  spawnSync('git', ['-C', c.root, 'checkout', '-q', '-b', 'hitld/W-9'], { encoding: 'utf8' });
+  const claim = await c.hitld(['work', 'claim', 'W-9', '--dispatch', dispatch]);
+  assert.equal(claim.exit, 0, JSON.stringify(claim.result));
+  assert.equal(claim.result.budget_tokens, 15000, 'the ledger cap, with no figure given');
+  const stopped = await c.hitld(['dispatch', 'stop', '--dispatch', dispatch]);
+  assert.equal(stopped.exit, 0, JSON.stringify(stopped.result));
+  const transcript = join(c.base, 'sess.jsonl');
+  writeFileSync(transcript, response({ id: 'a', at: later(5), output: 20_000 }) + '\n');
+  const r = spawnSync(process.execPath, [GUARD], {
+    input: JSON.stringify({
+      transcript_path: transcript,
+      cwd: c.root,
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Edit',
+      tool_input: { file_path: join(c.root, 'src/w9.js') },
+    }),
+    encoding: 'utf8',
+    cwd: c.root,
+    env: c.env,
+  });
+  assert.equal(r.stdout, '', 'the ledger says the dispatch is over: its claim cap is not read');
+});
+
+test('a token cap past twelve digits is refused, since the hook would not read it', async () => {
+  const c = makeConsumer({
+    files: {
+      'work/items/W-9-change.md': item({
+        id: 'W-9',
+        title: 'change W-9',
+        kind: 'work',
+        state: 'planned',
+      }),
+    },
+  });
+  spawnSync('git', ['-C', c.root, 'checkout', '-q', '-b', 'hitld/W-9'], { encoding: 'utf8' });
+  const args = ['work', 'claim', 'W-9', '--dispatch', 'D-01M87Y65JTA2QW5M', '--budget-tokens'];
+  const big = await c.hitld([...args, '1000000000000']);
+  assert.notEqual(big.exit, 0);
+  assert.equal(big.result.error, 'usage');
+  const zero = await c.hitld([...args, '0']);
+  assert.equal(zero.result.error, 'usage');
+  assert.equal((await c.hitld([...args, '999999999999'])).exit, 0);
 });
 
 test('the claim writes the ledger cap when the store has the dispatch, over the figure given', async () => {

@@ -17,3 +17,7 @@ The HITLD-782 executor reported that in a cloud executor session there is no pri
 
 - `hitld work claim` writes the dispatch's token cap as a `Budget-Tokens` trailer in the claim commit; the budget hook reads the cap from the executor's own claim commit and enforces it with no store.
 - A test shows the hook stopping a cloud-style executor with no store when its transcript passes the cap. A hook change reaches main only with the owner's own yes. `npm run check`, the offline eval gate and `hitld work check` pass.
+
+## Limitations
+
+The executor writes its own claim commit, so it can leave the cap out or inflate it; a brief written by hand without `--budget-tokens` gets no enforcement where there is no store; the reconcile pass stays the backstop.

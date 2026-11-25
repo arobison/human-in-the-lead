@@ -67,11 +67,16 @@ export function claimedDispatches(dir) {
 }
 
 /**
- * The claims on HEAD (and on no main branch), newest first, each with the token cap its claim
- * commit carries in a `Budget-Tokens` trailer (HITLD-841), or null when it carries none; null when
- * git cannot answer. For the budget hook in a session with no private store (a cloud executor),
- * where the ledger that holds the cap cannot be read.
- * @param {string} dir @returns {{ dispatch: string, cap: number | null }[] | null}
+ * @typedef {{ dispatch: string, cap: number | null, since: string }} Claim a claim commit's
+ *   dispatch; the token cap its `Budget-Tokens` trailer carries (HITLD-841), or null; and when its
+ *   usage starts: the claim's author time, or the newest close of the same item after it, where a
+ *   follow-up dispatch in the same session starts
+ */
+
+/**
+ * The claims on HEAD (and on no main branch), newest first; null when git cannot answer. For the
+ * budget hook in a session whose private store does not hold the dispatch (a cloud executor).
+ * @param {string} dir @returns {Claim[] | null}
  */
 export function claimedBudgets(dir) {
   return readClaims(dir).claims;
@@ -162,7 +167,7 @@ function readClaims(dir) {
       // Untranslated, so "not a git repository" reads the same in every locale.
       env: { ...process.env, LC_ALL: 'C' },
     });
-  /** @param {{ dispatch: string, cap: number | null }[] | null} claims */
+  /** @param {Claim[] | null} claims */
   const out = (claims) => ({ claims, bases, run });
   const refs = run([
     'for-each-ref',
@@ -185,20 +190,39 @@ function readClaims(dir) {
     'HEAD',
     ...(bases.size ? ['--not', ...bases] : []),
     '-E',
-    '--grep=^claim: ',
-    '--format=%B%x1e',
+    '--grep=^(claim|close): ',
+    '--format=%aI%x1f%B%x1e',
   ]);
   if (log.error || log.status !== 0) return out(null);
+  /** @type {{ dispatch: string, cap: number | null, item: string, at: string }[]} */
+  const claims = [];
+  /** @type {{ item: string, at: string }[]} */
+  const closes = [];
+  for (const record of log.stdout.split('\x1e')) {
+    const [at = '', message = ''] = record.replace(/^\n+/, '').split('\x1f');
+    const lines = message.trim().split('\n');
+    const head = /^(claim|close): (\S+)$/.exec(lines[0] ?? '');
+    if (!head) continue;
+    if (head[1] === 'close') {
+      closes.push({ item: head[2], at });
+      continue;
+    }
+    const budget = lines.map((l) => /^Budget-Tokens: ([1-9]\d{0,11})\s*$/.exec(l)).find(Boolean);
+    const cap = budget ? Number(budget[1]) : null;
+    for (const l of lines) {
+      const m = /^Dispatch: (\S+)\s*$/.exec(l);
+      if (m !== null && DISPATCH_ID.test(m[1]))
+        claims.push({ dispatch: m[1], cap, item: head[2], at });
+    }
+  }
   return out(
-    log.stdout.split('\x1e').flatMap((message) => {
-      const lines = message.trim().split('\n');
-      if (!/^claim: \S+$/.test(lines[0] ?? '')) return [];
-      const budget = lines.map((l) => /^Budget-Tokens: ([1-9]\d{0,11})\s*$/.exec(l)).find(Boolean);
-      const cap = budget ? Number(budget[1]) : null;
-      return lines.flatMap((l) => {
-        const m = /^Dispatch: (\S+)\s*$/.exec(l);
-        return m !== null && DISPATCH_ID.test(m[1]) ? [{ dispatch: m[1], cap }] : [];
-      });
+    claims.map((c) => {
+      // A follow-up continues the item after its last close: its usage counts from there.
+      const after = closes
+        .filter((x) => x.item === c.item && Date.parse(x.at) > Date.parse(c.at))
+        .map((x) => x.at)
+        .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+      return { dispatch: c.dispatch, cap: c.cap, since: after ?? c.at };
     }),
   );
 }

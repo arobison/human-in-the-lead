@@ -251,6 +251,9 @@ function commitOnly(root, files, message) {
   return git(root, ['rev-parse', 'HEAD']).trim();
 }
 
+/** The largest token cap a claim carries: twelve digits, as the budget hook reads it. */
+export const MAX_BUDGET_TOKENS = 999_999_999_999;
+
 /** @param {string} id @param {string} claimant @param {number | null} [budget] */
 const trailers = (id, claimant, budget = null) =>
   [
@@ -278,8 +281,15 @@ export function claimItem(root, layout, id, claimant, { branch, budgetTokens = n
   }
   if (branch && branch !== here) throw new Error(`this working tree is on ${here}, not ${branch}`);
   if (!claimant.trim()) throw new Error('a claim needs a claimant (a dispatch ID)');
-  if (budgetTokens !== null && !(Number.isSafeInteger(budgetTokens) && budgetTokens > 0)) {
-    throw new Error('a token cap is a whole number of tokens above zero');
+  // At most twelve digits: the budget hook reads no longer figure (hooks/input.mjs).
+  if (
+    budgetTokens !== null &&
+    !(Number.isSafeInteger(budgetTokens) && budgetTokens > 0 && budgetTokens <= MAX_BUDGET_TOKENS)
+  ) {
+    throw new CodedError(
+      'usage',
+      `a token cap is a whole number of tokens from 1 to ${MAX_BUDGET_TOKENS}`,
+    );
   }
   const entry = findEntry(root, layout, id);
   if (!entry?.data) throw new CodedError('not-found', `${id} is not in this working tree`);
