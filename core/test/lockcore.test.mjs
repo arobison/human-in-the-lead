@@ -10,7 +10,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, nextTicket, parseTicket, ticketName } from '../lib/env/lockcore.mjs';
+import {
+  decide,
+  nextTicket,
+  parseTicket,
+  sameStart,
+  staleReason,
+  ticketGone,
+  ticketName,
+} from '../lib/env/lockcore.mjs';
 import {
   TRACES,
   brokenInvariant,
@@ -297,4 +305,55 @@ test("a waiter's first ask writes its ticket before its attempt, in one decision
   );
   // The state given is unchanged.
   assert.equal(state.queue.length, 0);
+});
+
+test('identity: this copy compares start, an older copy pid_start only to keep a hold, never to end it', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  const iso = (/** @type {number} */ t) => new Date(t).toISOString();
+  // Expired and renewed long ago, so the identity is what decides.
+  const base = {
+    resource: 'gpu',
+    holder: 'D-1',
+    pid: 7,
+    host: 'h',
+    acquired_at: iso(now - 60_000),
+    renewed_at: iso(now - 60_000),
+    expires_at: iso(now - 1_000),
+  };
+  /** @param {object} record @param {object} proc */
+  const judge = (record, proc) =>
+    staleReason(
+      { slot: 'single', record: /** @type {any} */ (record), mtime: now },
+      { now, host: 'h', boot: 'b', procs: { 7: { alive: true, ...proc } } },
+    );
+  const ours = { ...base, pid_start: 'Mon 09:00', start: 'tick:100', boot: 'b', v: 2 };
+  assert.equal(judge(ours, { start: 'tick:100' }), null, 'the very one: kept past its expiry');
+  assert.match(String(judge(ours, { start: 'tick:200' })), /reused/, 'another process');
+  assert.equal(judge(ours, { start: null }), null, 'a lookup that failed this time ends nothing');
+  assert.equal(judge(ours, { start: 'utc:Mon 14:00' }), null, 'another kind of identity: unknown');
+  // A pid_start that differs (another caller's time zone) never ends this copy's record.
+  assert.equal(judge(ours, { start: 'tick:100', legacy: 'Mon 04:00' }), null);
+  const older = { ...base, pid_start: 'Mon 09:00' };
+  assert.equal(judge(older, { legacy: 'Mon 09:00' }), null, "an older copy's record, matching");
+  assert.match(
+    String(judge(older, { legacy: 'Mon 04:00' })),
+    /liveness cannot be checked/,
+    'a mismatch falls to the expiry, never "reused"',
+  );
+  assert.equal(
+    judge({ ...older, expires_at: iso(now + 60_000) }, { legacy: 'Mon 04:00' }),
+    null,
+    'and before its expiry it holds',
+  );
+  assert.equal(sameStart('tick:1', 'tick:1'), true);
+  assert.equal(sameStart('tick:1', 'tick:2'), false);
+  assert.equal(sameStart('tick:1', 'utc:x'), null);
+  assert.equal(sameStart(null, 'tick:1'), null);
+  // Tickets: this copy's by start; an older copy's by its pid alone.
+  const procs = { 9: { alive: true, start: 'tick:5' } };
+  const t = { name: 'x', n: 1, pid: 9 };
+  assert.equal(ticketGone({ ...t, start: 'tick:6', v: 2 }, { procs }), true);
+  assert.equal(ticketGone({ ...t, start: 'tick:5', v: 2 }, { procs }), false);
+  assert.equal(ticketGone({ ...t, start: 'utc:y', v: 2 }, { procs }), false);
+  assert.equal(ticketGone(t, { procs }), false);
 });

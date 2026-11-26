@@ -1195,10 +1195,8 @@ test('a lock that is held fails at once without wait, and a wait can time out', 
   });
   assert.equal(t.acquired, false);
   assert.equal(!t.acquired && t.timed_out, true);
-  assert.deepEqual(env.releaseLock({ resource: 'gpu', holder: 'D-2' }), {
-    released: false,
-    held_by: 'D-1',
-  });
+  // D-2 holds nothing: nothing goes, and D-1's hold is not this release's to name.
+  assert.deepEqual(env.releaseLock({ resource: 'gpu', holder: 'D-2' }), { released: false });
   assert.ok(a.handle.release());
   assert.ok((await env.acquireLock({ resource: 'gpu', holder: 'D-2' })).acquired);
   env.releaseLock({ resource: 'gpu', holder: 'D-2' });
@@ -1267,7 +1265,7 @@ function withoutStartTimes(machineRoot) {
   );
   for (const f of files) {
     const r = JSON.parse(readFileSync(f, 'utf8'));
-    writeFileSync(f, JSON.stringify({ ...r, pid_start: null }) + '\n');
+    writeFileSync(f, JSON.stringify({ ...r, pid_start: null, start: null }) + '\n');
   }
 }
 
@@ -2542,6 +2540,8 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   const renewal = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7', '--wait']);
   assert.equal(renewal.code, 0, renewal.out);
   assert.equal(renewal.json.holder, 'D-7');
+  assert.equal(renewal.json.renewed, true);
+  assert.equal(lock.json.renewed, false);
   const pid = String(process.pid);
   const elsewhere = await hitld([
     'env',
@@ -2564,6 +2564,78 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
     status.json.locks.find((/** @type {any} */ l) => l.resource === 'gpu').held_by,
     'D-7',
   );
+
+  // Unlock (HITLD-1052): for another process the hold stays, named, and the message says how to
+  // go on without inviting a borrowed --pid; --force takes no --pid; --force ends it, logged; and
+  // unlocking a name that holds nothing is not a failure.
+  const holderPid = status.json.locks.find((/** @type {any} */ l) => l.resource === 'gpu').record
+    .pid;
+  const notMine = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--pid',
+    pid,
+  ]);
+  assert.equal(notMine.code, 1, notMine.out);
+  assert.equal(notMine.json.error, 'lock-held-elsewhere');
+  assert.equal(notMine.json.pid, holderPid);
+  assert.match(
+    notMine.json.message,
+    /if that process is yours, pass --pid \d+; to end someone else's hold use --force \(logged\)/,
+  );
+  const both = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--force',
+    '--pid',
+    String(holderPid),
+  ]);
+  assert.notEqual(both.code, 0);
+  assert.equal(both.json.error, 'usage');
+  assert.match(both.json.message, /--force takes no --pid/);
+  const stillHeld = await hitld(['env', 'status']);
+  assert.equal(
+    stillHeld.json.locks.find((/** @type {any} */ l) => l.resource === 'gpu').held_by,
+    'D-7',
+  );
+  const forced = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--force',
+  ]);
+  assert.equal(forced.code, 0, forced.out);
+  assert.deepEqual([forced.json.ok, forced.json.released], [true, true]);
+  const noop = await hitld(['env', 'unlock', '--resource', 'gpu', '--dispatch', 'D-7']);
+  assert.equal(noop.code, 0, noop.out);
+  assert.deepEqual([noop.json.ok, noop.json.released, noop.json.held_by], [true, false, undefined]);
+  // Taken for the caller's parent (the default) and released for it (the default) too.
+  const retake = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7']);
+  assert.equal(retake.code, 0, retake.out);
+  const mine = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--pid',
+    String(holderPid),
+  ]);
+  assert.deepEqual([mine.code, mine.json.released], [0, true]);
+  const relock = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7']);
+  assert.equal(relock.code, 0, relock.out);
 
   // the executor's dispatch may run the declared task
   const exec = await asExecutor(['env', 'exec', 'publish'], 'D-7');

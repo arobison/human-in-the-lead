@@ -56,7 +56,12 @@ export const LOCK_FORMAT = 2;
  * @property {string} resource
  * @property {string} holder
  * @property {number} pid the process whose life the lock follows
- * @property {string | null} pid_start that process's start time, to tell it from a successor
+ * @property {string | null} pid_start that process's start time as `ps` printed it for the caller:
+ *   kept for older copies, which compare it; this copy compares it only in their records, since
+ *   it depends on the caller's time zone and locale
+ * @property {string | null} [start] that process's identity, read the same by every caller (on
+ *   Linux its start tick, elsewhere its start time in UTC), with its kind as a prefix; null when
+ *   it could not be read (HITLD-1052)
  * @property {string} host
  * @property {string} acquired_at
  * @property {string} renewed_at
@@ -76,13 +81,15 @@ export const LOCK_FORMAT = 2;
  * @property {number} n
  * @property {number} pid the waiting process
  * @property {string | null} [holder]
- * @property {string | null} [pidStart] the waiting process's start time (absent in older tickets)
+ * @property {string | null} [start] the waiting process's identity, as a record's `start`
  * @property {string | null} [boot] the machine's boot it belongs to
  * @property {number} [v] LOCK_FORMAT; absent in a ticket an older copy wrote
  *
- * @typedef {Record<number, { alive: boolean, start?: string | null }>} Procs the processes the
- *   records and tickets name: alive, and the start time where staleReason will ask for it
- *   (startsWanted); a pid missing from it is taken to be gone
+ * @typedef {Record<number, { alive: boolean, start?: string | null, legacy?: string | null }>}
+ *   Procs the processes the records and tickets name: alive; `start`, its identity as a record's
+ *   `start`, and `legacy`, its start time as `ps` prints it for the caller, where staleReason and
+ *   ticketGone will ask for them (startsWanted); null when the lookup failed. A pid missing from
+ *   it is taken to be gone
  *
  * @typedef {object} LockState
  * @property {string} resource
@@ -95,16 +102,17 @@ export const LOCK_FORMAT = 2;
  * @property {Ticket[]} queue
  * @property {Procs} procs
  *
- * @typedef {{ holder: string, pid: number, pidStart: string | null }} Who
+ * @typedef {{ holder: string, pid: number, pidStart: string | null, start?: string | null }} Who
  *
- * @typedef {{ type: 'ask', holder: string, pid: number, pidStart: string | null, self: number,
- *     selfStart?: string | null, weight: number, wait: boolean, ticket: string | null,
+ * @typedef {{ type: 'ask', holder: string, pid: number, pidStart: string | null,
+ *     start?: string | null, self: number, selfStart?: string | null, weight: number,
+ *     wait: boolean, ticket: string | null,
  *     ttlMs: number, nonce: string, token: string }
- *   | { type: 'confirm', holder: string, pid: number, pidStart: string | null, wait: boolean,
- *     ticket: string | null }
+ *   | { type: 'confirm', holder: string, pid: number, pidStart: string | null,
+ *     start?: string | null, wait: boolean, ticket: string | null }
  *   | { type: 'renew', holder: string, token: string, ttlMs: number, weight: number | null }
  *   | { type: 'release', holder: string, token?: string, pid?: number,
- *     pidStart?: string | null, force?: boolean }
+ *     pidStart?: string | null, start?: string | null, force?: boolean, self?: number }
  *   | { type: 'leave', ticket: string }} LockEvent
  *
  * @typedef {{ op: 'create', slot: string, record: LockRecord }
@@ -164,21 +172,41 @@ const fresh = (r, now) =>
   Date.parse(r.expires_at) >= now && now - Date.parse(r.renewed_at) <= PID_REUSE_CHECK_AFTER_MS;
 
 /**
- * The pids whose start time staleReason and ticketGone will ask for: records on this host, with
- * a start time, that are not fresh, and waiters whose tickets carry one. A lookup may cost a
- * process, so only these are looked up (and the shell caches them).
+ * The pids whose identity staleReason and ticketGone will ask for: records on this host that are
+ * not fresh, and waiters whose tickets carry one. `stable`: this copy's records and tickets, by
+ * their `start`; `legacy`: older copies' records, by `pid_start`. A lookup may cost a process,
+ * so only these are looked up (and the shell caches them).
  * @param {(LockRecord | null | undefined)[]} records @param {number} now @param {string} host
- * @param {Ticket[]} [queue]
+ * @param {Ticket[]} [queue] @returns {{ stable: number[], legacy: number[] }}
  */
 export function startsWanted(records, now, host, queue = []) {
-  /** @type {number[]} */
-  const pids = [];
+  /** @type {Set<number>} */
+  const stable = new Set();
+  /** @type {Set<number>} */
+  const legacy = new Set();
   for (const r of records) {
-    if (!r || r.host !== host || !r.pid_start) continue;
-    if (!fresh(r, now)) pids.push(r.pid);
+    if (!r || r.host !== host || fresh(r, now)) continue;
+    if (r.v !== undefined) {
+      if (r.start) stable.add(r.pid);
+    } else if (r.pid_start) legacy.add(r.pid);
   }
-  for (const t of queue) if (t.pidStart) pids.push(t.pid);
-  return [...new Set(pids)];
+  for (const t of queue) if (t.v !== undefined && t.start) stable.add(t.pid);
+  return { stable: [...stable], legacy: [...legacy] };
+}
+
+/**
+ * Whether two identities (a record's or ticket's `start`, and the process's) name one process:
+ * true or false when both are known and of one kind, null when either is not known or they are
+ * of different kinds (one caller could read the start tick and another could not), which tells
+ * nothing either way.
+ * @param {string | null | undefined} a @param {string | null | undefined} b
+ * @returns {boolean | null}
+ */
+export function sameStart(a, b) {
+  if (!a || !b) return null;
+  const kind = (/** @type {string} */ x) => x.slice(0, x.indexOf(':') + 1);
+  if (kind(a) !== kind(b)) return null;
+  return a === b;
 }
 
 /**
@@ -203,10 +231,18 @@ export function staleReason(slot, s) {
   if (!proc?.alive) return `its holder's process ${record.pid} is gone`;
   if (fresh(record, s.now)) return null;
   // Its process is alive: when it can be told to be the very one, the hold stands, expired or not.
-  if (record.pid_start && proc.start) {
-    return proc.start === record.pid_start
-      ? null
-      : `process ${record.pid} is no longer the holder's (its ID was reused)`;
+  if (record.v !== undefined) {
+    if (record.start) {
+      // Verified when it was taken: only a lookup that names another process ends it. One that
+      // failed this time, or read another kind of identity, leaves it standing.
+      return sameStart(record.start, proc.start) === false
+        ? `process ${record.pid} is no longer the holder's (its ID was reused)`
+        : null;
+    }
+  } else if (record.pid_start && proc.legacy && proc.legacy === record.pid_start) {
+    // An older copy's record: its start time is `ps`'s for that caller, which another time zone
+    // or locale prints differently, so a match keeps it and anything else falls to the expiry.
+    return null;
   }
   // No start time to compare: the expiry is the limit.
   return expired
@@ -216,25 +252,28 @@ export function staleReason(slot, s) {
 
 /**
  * Whether a waiter's ticket is dead: its process gone, from another boot, or a later process
- * that reused its pid (when the ticket carries a start time and the process's can be read).
+ * that reused its pid (when the ticket carries an identity and the process's reads otherwise).
  * @param {Ticket} t @param {{ boot?: string | null, procs: Procs }} s
  */
 export function ticketGone(t, s) {
   const p = s.procs[t.pid];
   if (!p?.alive) return true;
   if (t.boot && s.boot && t.boot !== s.boot) return true;
-  return !!(t.pidStart && p.start && p.start !== t.pidStart);
+  return t.v !== undefined && sameStart(t.start, p.start) === false;
 }
 
 /**
- * Whether a record was written for the caller's process: the same pid on this host and boot, with
- * the same start time when both are known (a pid alone may have been reused).
- * @param {LockRecord | null | undefined} record @param {{ pid: number, pidStart?: string | null }} who
+ * Whether a record was written for the caller's process: the same pid on this host and boot, and
+ * the same identity when both are known (a pid alone may have been reused). This copy's records
+ * compare `start`; an older copy's, `pid_start`, as that copy does.
+ * @param {LockRecord | null | undefined} record
+ * @param {{ pid: number, pidStart?: string | null, start?: string | null }} who
  * @param {{ host: string, boot?: string | null }} s
  */
 export function sameProcess(record, who, s) {
   if (!record || record.host !== s.host || record.pid !== who.pid) return false;
   if (record.boot && s.boot && record.boot !== s.boot) return false;
+  if (record.v !== undefined) return sameStart(record.start, who.start) !== false;
   return !record.pid_start || !who.pidStart || who.pidStart === record.pid_start;
 }
 
@@ -251,6 +290,7 @@ export function newRecord(s, who, ttlMs, token, acquiredAt, weight) {
     holder: who.holder,
     pid: who.pid,
     pid_start: who.pidStart,
+    start: who.start ?? null,
     host: s.host,
     acquired_at: acquiredAt ?? now,
     renewed_at: now,
@@ -307,7 +347,7 @@ export function decide(s, e) {
  */
 function ask(s, e) {
   /** @type {Who} */
-  const who = { holder: e.holder, pid: e.pid, pidStart: e.pidStart };
+  const who = { holder: e.holder, pid: e.pid, pidStart: e.pidStart, start: e.start ?? null };
   /** @type {Effect[]} */
   const effects = [];
   const mine = (/** @type {Slot | null | undefined} */ sl) =>
@@ -356,7 +396,7 @@ function ask(s, e) {
       n,
       pid: e.self,
       holder: who.holder,
-      pidStart: e.selfStart ?? null,
+      start: e.selfStart ?? null,
       boot: s.boot ?? null,
       v: LOCK_FORMAT,
     };
@@ -512,7 +552,7 @@ function attemptWeighted(s, e, who, mine, stale) {
  * @param {LockState} s @param {Extract<LockEvent, { type: 'confirm' }>} e @returns {Decision}
  */
 function confirm(s, e) {
-  const who = { holder: e.holder, pid: e.pid, pidStart: e.pidStart };
+  const who = { holder: e.holder, pid: e.pid, pidStart: e.pidStart, start: e.start ?? null };
   const slot = s.holders.find((h) => h.slot === holderSlot(e.holder));
   const ticketed = e.ticket !== null && s.queue.some((t) => t.name === e.ticket);
   const single = s.single;
@@ -557,7 +597,7 @@ function renew(s, e) {
   if (!slot || !cur || cur.holder !== e.holder || cur.token !== e.token) {
     return { outcome: { kind: 'lost' }, effects: [] };
   }
-  const who = { holder: cur.holder, pid: cur.pid, pidStart: cur.pid_start };
+  const who = { holder: cur.holder, pid: cur.pid, pidStart: cur.pid_start, start: cur.start };
   const record = newRecord(s, who, e.ttlMs, e.token, cur.acquired_at, e.weight ?? undefined);
   return {
     outcome: { kind: 'renewed', record },
@@ -583,7 +623,11 @@ function release(s, e) {
   if (e.token !== undefined) gone = named.filter((sl) => sl.record?.token === e.token);
   else if (e.force) gone = named;
   else {
-    const who = { pid: /** @type {number} */ (e.pid), pidStart: e.pidStart ?? null };
+    const who = {
+      pid: /** @type {number} */ (e.pid),
+      pidStart: e.pidStart ?? null,
+      start: e.start ?? null,
+    };
     gone = named.filter(
       (sl) => (e.pid !== undefined && sameProcess(sl.record, who, s)) || !!staleReason(sl, s),
     );
@@ -592,6 +636,11 @@ function release(s, e) {
   const effects = gone.map((sl) => ({ op: /** @type {const} */ ('remove'), slot: sl.slot }));
   if (gone.length) {
     const live = gone.filter((sl) => !staleReason(sl, s));
+    // Who released it, and for which process it asked: the audit of a release by name.
+    const asker = {
+      ...(e.self !== undefined ? { by_pid: e.self } : {}),
+      ...(e.pid !== undefined ? { pid: e.pid } : {}),
+    };
     effects.push(
       e.force && live.length
         ? {
@@ -600,26 +649,31 @@ function release(s, e) {
             data: {
               resource: s.resource,
               holder: e.holder,
+              ...asker,
               holders: live.map((sl) => {
                 const r = /** @type {LockRecord} */ (sl.record);
                 return {
                   pid: r.pid,
                   pid_start: r.pid_start,
+                  start: r.start ?? null,
                   host: r.host,
                   renewed_at: r.renewed_at,
                 };
               }),
             },
           }
-        : { op: 'log', kind: 'lock_released', data: { resource: s.resource, holder: e.holder } },
+        : {
+            op: 'log',
+            kind: 'lock_released',
+            data: { resource: s.resource, holder: e.holder, ...asker },
+          },
     );
     return { outcome: { kind: 'released' }, effects };
   }
+  // Kept: a live hold under the name for another process, named; or nothing under the name at
+  // all, which names no one (another name's hold on the resource is not this release's).
   const by = named.find((sl) => !gone.includes(sl))?.record ?? null;
-  return {
-    outcome: { kind: 'kept', held_by: by?.holder ?? s.single?.record?.holder ?? null, by },
-    effects,
-  };
+  return { outcome: { kind: 'kept', held_by: by?.holder ?? null, by }, effects };
 }
 
 /**

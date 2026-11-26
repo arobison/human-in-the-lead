@@ -12,18 +12,18 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { acquireLock, lockStatus, outdatedCopies, probes, releaseLock } from '../lib/env/locks.mjs';
+import {
+  acquireLock,
+  lockStatus,
+  outdatedCopies,
+  probes,
+  processIdentity,
+  releaseLock,
+} from '../lib/env/locks.mjs';
 import { processStart } from '../lib/env/proc.mjs';
 import { tempDir } from './helpers/tmp.mjs';
 
@@ -55,8 +55,9 @@ async function until(what, ms = 15_000) {
  * A child process running `body` with `acquireLock`, `releaseLock`, `ctx`, `bar` (a barrier
  * file's path by name), `until(name)` (wait for one) and `mark(name, text?)` (write one) in scope.
  * @param {string} dir the barrier directory @param {Record<string, unknown>} ctx @param {string} body
+ * @param {NodeJS.ProcessEnv} [env] its environment (default this process's)
  */
-function child(dir, ctx, body) {
+function child(dir, ctx, body, env = process.env) {
   const code = `
     import { acquireLock, releaseLock } from ${JSON.stringify(LOCKS)};
     import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
@@ -67,6 +68,7 @@ function child(dir, ctx, body) {
     const mark = (n, text = '') => writeFileSync(bar(n), text);
     ${body}`;
   const c = spawn(process.execPath, ['--input-type=module', '-e', code], {
+    env,
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   children.add(c);
@@ -373,7 +375,8 @@ test('a ticket whose pid now names another process does not hold the head of the
     JSON.stringify({
       holder: 'D-GHOST',
       pid: other.pid,
-      pid_start: 'Thu Jan  1 00:00:00 1998',
+      // Its identity as it was: another process's now.
+      start: `${processIdentity(/** @type {number} */ (other.pid))}0`,
       boot: null,
       v: 2,
     }) + '\n',
@@ -435,6 +438,7 @@ test('a waiter behind a holder the clock no longer vouches for does not start ps
   Object.assign(record, {
     renewed_at: new Date(long).toISOString(),
     acquired_at: new Date(long).toISOString(),
+    start: processIdentity(/** @type {number} */ (holder.pid)),
     v: 2,
   });
   mkdirSync(join(ctx.machineRoot, 'locks'), { recursive: true });
@@ -457,17 +461,68 @@ test('a waiter behind a holder the clock no longer vouches for does not start ps
 
 test('status names the copies on PATH that write the older lock format', () => {
   const root = tempDir('hitld-lockp-path-');
-  const old = join(root, 'old');
-  mkdirSync(join(old, 'core', 'lib', 'env'), { recursive: true });
-  mkdirSync(join(old, 'core', 'bin'), { recursive: true });
-  writeFileSync(join(old, 'core', 'lib', 'env', 'lockcore.mjs'), '// no format marker\n');
-  writeFileSync(join(old, 'package.json'), JSON.stringify({ version: '0.1.0-rc.1' }));
-  writeFileSync(join(old, 'core', 'bin', 'hitld'), '');
-  const here = fileURLToPath(new URL('../../', import.meta.url));
-  const found = outdatedCopies([join(old, 'core', 'bin'), join(here, 'core', 'bin')].join(':'));
+  /** @param {string} name @param {string} core @param {string} version */
+  const copy = (name, core, version) => {
+    const at = join(root, name);
+    mkdirSync(join(at, 'core', 'lib', 'env'), { recursive: true });
+    mkdirSync(join(at, 'core', 'bin'), { recursive: true });
+    writeFileSync(join(at, 'core', 'lib', 'env', 'lockcore.mjs'), core);
+    writeFileSync(join(at, 'package.json'), JSON.stringify({ version }));
+    writeFileSync(join(at, 'core', 'bin', 'hitld'), '');
+    return at;
+  };
+  const old = copy('old', '// no format marker\n', '0.1.0-rc.1');
+  const current = copy('current', 'export const LOCK_FORMAT = 2;\n', '0.1.0-rc.2');
+  const path = [join(old, 'core', 'bin'), join(current, 'core', 'bin'), join(root, 'none')];
   assert.deepEqual(
-    found.map((c) => [c.root, c.version]),
+    outdatedCopies(path.join(delimiter)).map((c) => [c.root, c.version]),
     [[old, '0.1.0-rc.1']],
   );
-  void appendFileSync;
+});
+
+test("a holder and a taker in different time zones: the taker is refused and the waiter's ticket stays", async () => {
+  const { ctx, dir } = setup('tz');
+  // `ps` prints a start time in its caller's time zone: these read one process five hours apart.
+  const utc = { ...process.env, TZ: 'UTC' };
+  const away = { ...process.env, TZ: 'America/New_York' };
+  const hold = child(
+    dir,
+    ctx,
+    `await acquireLock(ctx, { resource: 'gpu', holder: 'D-UTC', autoRenew: false });
+    mark('held'); setInterval(() => {}, 1000);`,
+    utc,
+  );
+  await until(join(dir, 'held'));
+  // Renewed long ago and past its expiry, as a command-line hold comes to be: only its identity
+  // keeps it now.
+  const file = join(ctx.machineRoot, 'locks', 'gpu.lock');
+  const long = Date.now() - 60_000;
+  writeFileSync(
+    file,
+    JSON.stringify({
+      ...JSON.parse(readFileSync(file, 'utf8')),
+      renewed_at: new Date(long).toISOString(),
+      expires_at: new Date(long + 1_000).toISOString(),
+    }) + '\n',
+  );
+  const waiter = child(
+    dir,
+    ctx,
+    `const r = await acquireLock(ctx, { resource: 'gpu', holder: 'D-W', wait: true, timeoutMs: 20000 });
+    console.log(r.acquired ? 'granted' : 'not');`,
+    utc,
+  );
+  await until(() => gpu(ctx).waiting.includes('D-W'));
+  const taker = child(
+    dir,
+    ctx,
+    `const r = await acquireLock(ctx, { resource: 'gpu', holder: 'D-AWAY', autoRenew: false });
+    console.log(JSON.stringify({ acquired: r.acquired, by: r.held_by?.holder ?? null }));`,
+    away,
+  );
+  assert.deepEqual(JSON.parse((await taker.exited()).out), { acquired: false, by: 'D-UTC' });
+  assert.equal(gpu(ctx).stale, null, 'the live holder is not judged reused');
+  assert.deepEqual(gpu(ctx).waiting, ['D-W'], "the waiter's ticket is not dropped as a ghost");
+  await stop(hold.proc);
+  assert.match((await waiter.exited()).out, /granted/);
 });

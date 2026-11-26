@@ -37,10 +37,16 @@ export function isAlive(pid) {
 /**
  * The start times of live processes, by ID, in one call: ps elsewhere, PowerShell on Windows. A
  * process that is gone, or whose start time cannot be read, is missing from the map.
- * @param {number[]} pids
+ *
+ * `ps` prints the start time in the caller's time zone and locale, so two callers in different
+ * ones read one process differently. With `utc`, it runs with TZ=UTC and LC_ALL=C, and every
+ * caller reads the same text (the machine locks compare it across processes, HITLD-1052).
+ * Without it the text is as before, which the records of older copies hold. Windows prints UTC
+ * either way.
+ * @param {number[]} pids @param {{ utc?: boolean }} [o]
  * @returns {Map<number, string>}
  */
-export function processStarts(pids) {
+export function processStarts(pids, o = {}) {
   /** @type {Map<number, string>} */
   const out = new Map();
   const live = [...new Set(pids)].filter((p) => isAlive(p));
@@ -71,6 +77,9 @@ export function processStarts(pids) {
       const text = execFileSync('ps', ['-o', 'pid=,lstart=', '-p', live.join(',')], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
+        // The machine locks look a process up inside their critical section: never wait long.
+        timeout: 5_000,
+        ...(o.utc ? { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } } : {}),
       });
       for (const line of text.split('\n')) {
         const m = /^\s*(\d+)\s+(.+)$/.exec(line);

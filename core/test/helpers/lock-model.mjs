@@ -106,6 +106,7 @@ export const askEvent = (m, a, r, wait, ticket) => ({
   holder: a.name,
   pid: a.pid,
   pidStart: startOf(a),
+  start: startOf(a),
   self: a.pid,
   selfStart: startOf(a),
   weight: m.capacity[r] > 1 ? a.weight : 1,
@@ -133,6 +134,7 @@ export function runAsk(m, w, r, ev) {
       holder: ev.holder,
       pid: ev.pid,
       pidStart: ev.pidStart,
+      start: ev.start,
       wait: ev.wait,
       ticket,
     });
@@ -291,7 +293,9 @@ export function live(w, sl) {
   if (!expired && w.now - Date.parse(r.renewed_at) <= PID_CHECK_MS) return true;
   // Past that, a process that can be told to be the very one holds, expired or not; one that
   // cannot be told holds until its expiry.
-  if (r.pid_start && p.start) return p.start === r.pid_start;
+  // This copy's records (the model writes no other kind) compare `start`: a verified holder ends
+  // only when its process reads as another one.
+  if (r.start) return !p.start || p.start === r.start;
   return !expired;
 }
 
@@ -315,7 +319,7 @@ const liveTickets = (w, r) =>
   Object.values(w.files[r].queue)
     .filter((t) => {
       const p = w.procs[t.pid];
-      return !!p?.alive && !(t.pidStart && p.start && p.start !== t.pidStart);
+      return !!p?.alive && !(t.start && p.start && p.start !== t.start);
     })
     .sort((a, b) => a.n - b.n || (a.name < b.name ? -1 : 1));
 
@@ -358,8 +362,8 @@ export function brokenInvariant(m, w) {
     // No ghost in line: a live ticket whose waiter's start time is known is that waiter's, and
     // it is waiting on it.
     for (const t of tickets) {
-      if (!t.pidStart) continue;
-      const a = actorOf(m, w, t.pid, t.pidStart);
+      if (!t.start) continue;
+      const a = actorOf(m, w, t.pid, t.start);
       if (!a || w.actors[a.id].at?.ticket !== t.name) return `${r}: ghost ticket ${t.name}`;
     }
     const waiters = tickets.map((t) => actorOf(m, w, t.pid, undefined)?.id ?? null);

@@ -596,7 +596,7 @@ export const commands = [
         name: 'pid',
         type: 'integer',
         description:
-          "The process the lock was taken for (env lock's --pid); default the caller's parent. A hold under the dispatch that another live process has is left alone without --force",
+          "The process the lock was taken for (env lock's --pid); default the caller's parent. A hold under the dispatch that another live process has is left alone without --force. Not with --force",
       },
       {
         name: 'force',
@@ -608,19 +608,27 @@ export const commands = [
     run: withEnv((input, env) => {
       const resource = String(input.resource);
       const holder = String(input.dispatch);
+      const pid = typeof input.pid === 'number' ? input.pid : null;
+      if (input.force === true && pid !== null) {
+        return {
+          ok: false,
+          error: 'usage',
+          message:
+            "--force takes no --pid: it removes the dispatch's hold whatever process has it (logged as lock_forced)",
+        };
+      }
       const r = env.releaseLock({
         resource,
         holder,
-        ...(input.force === true
-          ? { force: true }
-          : { pid: typeof input.pid === 'number' ? input.pid : process.ppid }),
+        ...(input.force === true ? { force: true } : { pid: pid ?? process.ppid }),
       });
-      if (r.released || r.pid === undefined) return { ok: r.released, ...r };
+      // Nothing under the name is held: releasing again, or for nothing, is not a failure.
+      if (r.released || r.pid === undefined) return { ok: true, ...r };
       return {
         ok: false,
         ...r,
         error: 'lock-held-elsewhere',
-        message: `${resource} is held by ${holder} for another live process (pid ${r.pid}); give that process with --pid, or end its hold with --force`,
+        message: `${resource} is held by ${holder} for another live process (pid ${r.pid}); if that process is yours, pass --pid ${r.pid}; to end someone else's hold use --force (logged)`,
       };
     }),
   },

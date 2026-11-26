@@ -217,19 +217,20 @@ export function bootId() {
 }
 
 /**
- * How long a start time looked up without a Linux start tick to key it by is trusted: a moment
- * where `ps` is cheap; longer on Windows, where each lookup is a PowerShell call of most of a
- * second, and a process reusing a pid within that time is all it could miss.
+ * How long a start time read by `ps` (or PowerShell) is trusted without a Linux start tick to key
+ * it by: a moment where `ps` is cheap; longer on Windows, where each lookup is a PowerShell call
+ * of most of a second, and a process reusing a pid within that time is all it could miss.
  */
 const START_CACHE_MS = process.platform === 'win32' ? 30_000 : 2_000;
-/** @type {Map<number, { key: string | null, start: string | null, at: number }>} */
+/** @type {Map<string, { key: string | null, start: string | null, at: number }>} */
 const startCache = new Map();
-/** How many times a start-time lookup ran (a process each), for the tests. */
+/** How many times a start-time lookup started a process (`ps`, PowerShell), for the tests. */
 export const probes = { runs: 0 };
 
 /**
- * A process's start tick on Linux (field 22 of /proc/<pid>/stat): a file read, not a process, and
- * a different value for a later process that reuses the pid. Null elsewhere.
+ * A process's start tick on Linux (field 22 of /proc/<pid>/stat): a file read, not a process, the
+ * same for every reader whatever its time zone or locale, and a different value for a later
+ * process that reuses the pid. Null elsewhere, or where /proc does not show it.
  * @param {number} pid @returns {string | null}
  */
 function startTick(pid) {
@@ -242,43 +243,75 @@ function startTick(pid) {
 }
 
 /**
- * The start times of live processes, cached: on Linux for as long as the pid has the same start
- * tick, elsewhere for a moment. The value is `ps`'s, the format older copies wrote in records.
- * @param {number[]} pids @returns {Map<number, string>}
+ * Start times read by `ps`, cached: on Linux for as long as the pid has the same start tick,
+ * elsewhere for a moment. `utc`: read in UTC with the C locale, the same for every caller;
+ * otherwise as the caller's `ps` prints it, the text older copies wrote in their records.
+ * @param {number[]} pids @param {boolean} utc @returns {Map<number, string>}
  */
-function startsOf(pids) {
+function psStarts(pids, utc) {
   /** @type {Map<number, string>} */
   const out = new Map();
   /** @type {[number, string | null][]} */
   const need = [];
   for (const pid of pids) {
     const key = startTick(pid);
-    const c = startCache.get(pid);
+    const c = startCache.get(`${utc ? 'u' : 'l'}${pid}`);
     const valid =
       !!c &&
-      (key !== null && c.start !== null
-        ? c.key === key
-        : performance.now() - c.at < START_CACHE_MS && c.key === key);
+      c.key === key &&
+      ((key !== null && c.start !== null) || performance.now() - c.at < START_CACHE_MS);
     if (valid && c) {
       if (c.start) out.set(pid, c.start);
     } else need.push([pid, key]);
   }
   if (need.length) {
     probes.runs++;
-    const found = processStarts(need.map(([p]) => p));
+    const found = processStarts(
+      need.map(([p]) => p),
+      { utc },
+    );
     for (const [pid, key] of need) {
       const start = found.get(pid) ?? null;
-      startCache.set(pid, { key, start, at: performance.now() });
+      startCache.set(`${utc ? 'u' : 'l'}${pid}`, { key, start, at: performance.now() });
       if (start) out.set(pid, start);
     }
   }
-  if (startCache.size > 512) startCache.clear();
+  if (startCache.size > 1024) startCache.clear();
   return out;
 }
 
 /**
- * The processes the records and tickets name: whether each is alive, and the start time of those
- * staleReason and ticketGone will ask for (cached).
+ * Processes' identities as records and tickets carry them (`start`), read the same by every
+ * caller: on Linux the start tick (`tick:<n>`, no process started), elsewhere the start time in
+ * UTC (`utc:<text>`). A process whose identity cannot be read is missing from the map.
+ * @param {number[]} pids @returns {Map<number, string>}
+ */
+function identities(pids) {
+  /** @type {Map<number, string>} */
+  const out = new Map();
+  /** @type {number[]} */
+  const rest = [];
+  for (const pid of pids) {
+    const tick = startTick(pid);
+    if (tick !== null) out.set(pid, `tick:${tick}`);
+    else rest.push(pid);
+  }
+  if (rest.length) for (const [pid, s] of psStarts(rest, true)) out.set(pid, `utc:${s}`);
+  return out;
+}
+
+/**
+ * A process's identity as a record carries it, or null when it cannot be read.
+ * @param {number} pid @returns {string | null}
+ */
+export function processIdentity(pid) {
+  return identities([pid]).get(pid) ?? null;
+}
+
+/**
+ * The processes the records and tickets name: whether each is alive, and the identity (`start`)
+ * or, for an older copy's record, the caller's start time text (`legacy`) of those staleReason
+ * and ticketGone will ask for (null where the lookup failed).
  * @param {(LockRecord | null)[]} records @param {import('./lockcore.mjs').Ticket[]} queue
  * @param {number} now @param {string} host
  * @returns {import('./lockcore.mjs').Procs}
@@ -288,17 +321,23 @@ function procsFor(records, queue, now, host) {
   const procs = {};
   for (const r of records) if (r && r.host === host) procs[r.pid] = { alive: isAlive(r.pid) };
   for (const t of queue) procs[t.pid] ??= { alive: isAlive(t.pid) };
-  const wanted = startsWanted(records, now, host, queue).filter((p) => procs[p]?.alive);
-  if (wanted.length) {
-    const found = startsOf(wanted);
-    for (const p of wanted) procs[p].start = found.get(p) ?? null;
+  const wanted = startsWanted(records, now, host, queue);
+  const stable = wanted.stable.filter((p) => procs[p]?.alive);
+  if (stable.length) {
+    const found = identities(stable);
+    for (const p of stable) procs[p].start = found.get(p) ?? null;
+  }
+  const legacy = wanted.legacy.filter((p) => procs[p]?.alive);
+  if (legacy.length) {
+    const found = psStarts(legacy, false);
+    for (const p of legacy) procs[p].legacy = found.get(p) ?? null;
   }
   return procs;
 }
 
 /**
- * A ticket as its file names it and says: the waiter's name, start time, boot and format, where
- * its content has them (an older copy's has only the name and pid).
+ * A ticket as its file names it and says: the waiter's name, identity, boot and format, where its
+ * content has them (an older copy's has only the name and pid).
  * @param {string} dir @param {string} name @returns {import('./lockcore.mjs').Ticket}
  */
 function readTicket(dir, name) {
@@ -306,7 +345,7 @@ function readTicket(dir, name) {
   try {
     const c = JSON.parse(readFileSync(join(dir, name), 'utf8'));
     if (typeof c?.holder === 'string') t.holder = c.holder;
-    if (typeof c?.pid_start === 'string') t.pidStart = c.pid_start;
+    if (typeof c?.start === 'string') t.start = c.start;
     if (typeof c?.boot === 'string') t.boot = c.boot;
     if (Number.isInteger(c?.v)) t.v = c.v;
   } catch {
@@ -429,7 +468,7 @@ function apply(ctx, resource, effects, onEnqueue) {
           JSON.stringify({
             holder: e.ticket.holder ?? null,
             pid: e.ticket.pid,
-            pid_start: e.ticket.pidStart ?? null,
+            start: e.ticket.start ?? null,
             boot: e.ticket.boot ?? null,
             v: LOCK_FORMAT,
           }) + '\n',
@@ -504,6 +543,7 @@ function step(ctx, resource, event, onEnqueue) {
           holder: ev.holder,
           pid: ev.pid,
           pidStart: ev.pidStart,
+          start: ev.start,
           wait: ev.wait,
           ticket: ev.ticket,
         });
@@ -621,6 +661,8 @@ function waker(ctx, resource, signal) {
         const t = setTimeout(done, Math.max(0, ms));
         wake = done;
       }),
+    /** End the current sleep now. */
+    wake: poke,
     close() {
       signal?.removeEventListener('abort', poke);
       for (const w of watchers) w.close();
@@ -674,8 +716,10 @@ export async function acquireLock(ctx, request) {
     );
   }
   const pid = request.pid ?? process.pid;
+  // `pid_start` as `ps` prints it here, for older copies; `start`, the identity this copy compares.
   const pidStart = processStart(pid);
-  const selfStart = processStart(process.pid);
+  const start = processIdentity(pid);
+  const selfStart = processIdentity(process.pid);
   const ttlMs = (request.ttlSeconds ?? 300) * 1000;
   const pollMs = request.pollMs ?? 50;
   const maxPollMs = Math.max(pollMs, request.maxPollMs ?? 1000);
@@ -687,9 +731,17 @@ export async function acquireLock(ctx, request) {
   /** @type {string | null} */
   let ticket = null;
   let queued = false;
-  // A ticket goes on exit or a signal, as it does when the wait ends.
+  // A ticket goes on exit or a signal, as it does when the wait ends. A program with its own
+  // handler for the signal keeps running: the wait then ends too (as an abort), so it cannot
+  // write a new ticket that nothing would remove.
+  let ended = false;
+  /** @type {ReturnType<typeof waker> | null} */
+  let wake = null;
   const forget = atExit(() => {
+    ended = true;
     if (ticket !== null) leave(ctx, resource, ticket);
+    ticket = null;
+    wake?.wake();
   });
 
   /** @returns {LockEvent} */
@@ -698,6 +750,7 @@ export async function acquireLock(ctx, request) {
     holder,
     pid,
     pidStart,
+    start,
     self: process.pid,
     selfStart,
     weight,
@@ -744,12 +797,12 @@ export async function acquireLock(ctx, request) {
     capacity,
   });
 
-  const wake = wait ? waker(ctx, resource, signal) : null;
+  wake = wait ? waker(ctx, resource, signal) : null;
   let delay = pollMs;
   let head = false;
   try {
     for (;;) {
-      if (wait && signal?.aborted) {
+      if (ended || (wait && signal?.aborted)) {
         return notAcquired(currentHolder(ctx, resource), { aborted: true });
       }
       /** @type {Outcome} */
@@ -776,14 +829,15 @@ export async function acquireLock(ctx, request) {
       if (Date.now() >= deadline) {
         return notAcquired(currentHolder(ctx, resource), { timedOut: true });
       }
-      // Back off between looks, starting again from pollMs on reaching the head of the line. A
-      // release wakes the waiter through the watch; a holder killed outright is found at the next
-      // look, within maxPollMs.
+      // Back off between looks: pollMs first, and again on reaching the head of the line, then
+      // doubling with jitter up to maxPollMs. A release wakes the waiter through the watch; a
+      // holder killed outright is found at the next look, within maxPollMs.
       if (r.turn && !head) delay = pollMs;
       head = r.turn;
       const left = deadline - Date.now();
+      const pause = delay === pollMs ? pollMs : jitter(delay);
       await /** @type {NonNullable<typeof wake>} */ (wake).sleep(
-        Math.min(jitter(delay), maxPollMs, Math.max(1, left)),
+        Math.min(pause, maxPollMs, Math.max(1, left)),
       );
       delay = Math.min(maxPollMs, delay * 2);
     }
@@ -871,13 +925,18 @@ function makeHandle(ctx, resource, h) {
   let timer = null;
   let released = false;
   const renew = () => {
-    step(ctx, resource, {
+    const r = step(ctx, resource, {
       type: 'renew',
       holder: h.holder,
       token: h.token,
       ttlMs: h.ttlMs,
       weight: h.weight,
     });
+    // Its grant is gone (forced off, or taken over): nothing is left for the timer to renew.
+    if (r.kind === 'lost' && timer) {
+      clearInterval(timer);
+      timer = null;
+    }
   };
   const drop = () =>
     step(ctx, resource, { type: 'release', holder: h.holder, token: h.token }).kind === 'released';
@@ -933,11 +992,23 @@ export function releaseLock(ctx, request) {
   const holder = checkHolder(request.holder);
   /** @type {LockEvent} */
   let event;
-  if (request.token !== undefined) event = { type: 'release', holder, token: request.token };
-  else if (request.force) event = { type: 'release', holder, force: true };
+  const self = process.pid;
+  if (request.force && request.pid !== undefined) {
+    throw new Error("a forced release takes no pid: it removes the name's holds whoever has them");
+  }
+  if (request.token !== undefined) {
+    event = { type: 'release', holder, token: request.token, self };
+  } else if (request.force) event = { type: 'release', holder, force: true, self };
   else {
     const pid = request.pid ?? process.pid;
-    event = { type: 'release', holder, pid, pidStart: processStart(pid) };
+    event = {
+      type: 'release',
+      holder,
+      pid,
+      pidStart: processStart(pid),
+      start: processIdentity(pid),
+      self,
+    };
   }
   const r = step(ctx, resource, event);
   if (r.kind === 'released') return { released: true };
