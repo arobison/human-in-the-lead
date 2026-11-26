@@ -136,9 +136,19 @@ test('an executor asking again from its shell while others queue renews at once'
   assert.ok(again.waited_ms < 1000, `renewed at once, not after ${again.waited_ms} ms`);
   assert.deepEqual(gpu(ctx).waiting, ['D-B'], 'B stays queued');
   // The command line's unlock, from the same shell: the hold taken for it goes.
-  assert.deepEqual(releaseLock(ctx, { resource: 'gpu', holder: 'D-A', pid: shell.pid }), {
+  /** @type {Record<string, unknown>[]} */
+  const logged = [];
+  const logging = {
+    ...ctx,
+    log: (/** @type {string} */ kind, /** @type {object} */ data) => logged.push({ kind, ...data }),
+  };
+  assert.deepEqual(releaseLock(logging, { resource: 'gpu', holder: 'D-A', pid: shell.pid }), {
     released: true,
   });
+  // The audit names who released it and for which process it asked.
+  assert.deepEqual(logged, [
+    { kind: 'lock_released', resource: 'gpu', holder: 'D-A', by_pid: process.pid, pid: shell.pid },
+  ]);
   await until(join(dir, 'b-done'));
   writeFileSync(join(dir, 'b-exit'), '');
   assert.match((await b.exited()).out, /B granted/);
@@ -220,6 +230,8 @@ test("a stale handle's release, after a forced release, leaves the new holder in
   assert.deepEqual(forced, { released: true });
   assert.equal(logged[0]?.kind, 'lock_forced');
   assert.equal(/** @type {any} */ (logged[0]?.holders)[0].pid, old.pid);
+  assert.equal(logged[0]?.by_pid, process.pid, 'who forced it');
+  assert.equal(logged[0]?.pid, undefined, 'a forced release asks for no process');
   const next = child(
     dir,
     ctx,

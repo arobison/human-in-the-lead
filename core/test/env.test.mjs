@@ -2620,19 +2620,20 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   const noop = await hitld(['env', 'unlock', '--resource', 'gpu', '--dispatch', 'D-7']);
   assert.equal(noop.code, 0, noop.out);
   assert.deepEqual([noop.json.ok, noop.json.released, noop.json.held_by], [true, false, undefined]);
-  // Taken for the caller's parent (the default) and released for it (the default) too.
+  // Taken for the caller's parent (the default), and released with no --pid from a caller with
+  // that same parent; the same command run by a process with another parent is refused.
   const retake = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7']);
   assert.equal(retake.code, 0, retake.out);
-  const mine = await hitld([
-    'env',
-    'unlock',
-    '--resource',
-    'gpu',
-    '--dispatch',
-    'D-7',
-    '--pid',
-    String(holderPid),
-  ]);
+  const bin = fileURLToPath(new URL('../bin/hitld.mjs', import.meta.url));
+  const otherParent = spawnSync(
+    process.execPath,
+    [bin, 'env', 'unlock', '--resource', 'gpu', '--dispatch', 'D-7'],
+    { cwd: repoRoot, env, encoding: 'utf8' },
+  );
+  assert.equal(otherParent.status, 1, otherParent.stdout + otherParent.stderr);
+  assert.equal(JSON.parse(otherParent.stdout).error, 'lock-held-elsewhere');
+  assert.equal(JSON.parse(otherParent.stdout).pid, holderPid);
+  const mine = await hitld(['env', 'unlock', '--resource', 'gpu', '--dispatch', 'D-7']);
   assert.deepEqual([mine.code, mine.json.released], [0, true]);
   const relock = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7']);
   assert.equal(relock.code, 0, relock.out);

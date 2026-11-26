@@ -56,9 +56,9 @@ export const LOCK_FORMAT = 2;
  * @property {string} resource
  * @property {string} holder
  * @property {number} pid the process whose life the lock follows
- * @property {string | null} pid_start that process's start time as `ps` printed it for the caller:
- *   kept for older copies, which compare it; this copy compares it only in their records, since
- *   it depends on the caller's time zone and locale
+ * @property {string | null} pid_start in an older copy's record, that process's start time as `ps`
+ *   printed it for that caller, which depends on its time zone and locale: compared only there.
+ *   This copy writes null
  * @property {string | null} [start] that process's identity, read the same by every caller (on
  *   Linux its start tick, elsewhere its start time in UTC), with its kind as a prefix; null when
  *   it could not be read (HITLD-1052)
@@ -88,8 +88,10 @@ export const LOCK_FORMAT = 2;
  * @typedef {Record<number, { alive: boolean, start?: string | null, legacy?: string | null }>}
  *   Procs the processes the records and tickets name: alive; `start`, its identity as a record's
  *   `start`, and `legacy`, its start time as `ps` prints it for the caller, where staleReason and
- *   ticketGone will ask for them (startsWanted); null when the lookup failed. A pid missing from
- *   it is taken to be gone
+ *   ticketGone will ask for them (startsWanted). `start` null: the lookup ran and this process's
+ *   identity cannot be read (another user's, or one /proc hides): not verified. `start` absent:
+ *   not looked up, or the lookup itself failed (a tool missing or timed out): nothing known this
+ *   time. A pid missing from it is taken to be gone
  *
  * @typedef {object} LockState
  * @property {string} resource
@@ -233,11 +235,16 @@ export function staleReason(slot, s) {
   // Its process is alive: when it can be told to be the very one, the hold stands, expired or not.
   if (record.v !== undefined) {
     if (record.start) {
-      // Verified when it was taken: only a lookup that names another process ends it. One that
-      // failed this time, or read another kind of identity, leaves it standing.
-      return sameStart(record.start, proc.start) === false
-        ? `process ${record.pid} is no longer the holder's (its ID was reused)`
-        : null;
+      // Verified when it was taken. A lookup that failed this time tells nothing, and a passing
+      // fault cannot revoke it. One that names another process ends it. One that ran but cannot
+      // read this process's identity, or reads another kind of it, cannot vouch for it: a holder
+      // this copy wrote is readable by the same user in the same way, so that is most likely a
+      // reused pid, and the expiry is the limit (below), never a hold for good.
+      if (proc.start === undefined) return null;
+      const same = sameStart(record.start, proc.start);
+      if (same === true) return null;
+      if (same === false)
+        return `process ${record.pid} is no longer the holder's (its ID was reused)`;
     }
   } else if (record.pid_start && proc.legacy && proc.legacy === record.pid_start) {
     // An older copy's record: its start time is `ps`'s for that caller, which another time zone
@@ -251,21 +258,28 @@ export function staleReason(slot, s) {
 }
 
 /**
- * Whether a waiter's ticket is dead: its process gone, from another boot, or a later process
- * that reused its pid (when the ticket carries an identity and the process's reads otherwise).
+ * Whether a waiter's ticket is dead: its process gone, from another boot, or, when the ticket
+ * carries an identity, a process that is not the waiter: one whose identity reads otherwise, or
+ * cannot be read (a waiter this copy wrote is readable by the same user), or reads as another
+ * kind. A ticket has no expiry to fall back on, so an unverified one would hold the line for
+ * good. A lookup that failed this time drops nothing.
  * @param {Ticket} t @param {{ boot?: string | null, procs: Procs }} s
  */
 export function ticketGone(t, s) {
   const p = s.procs[t.pid];
   if (!p?.alive) return true;
   if (t.boot && s.boot && t.boot !== s.boot) return true;
-  return t.v !== undefined && sameStart(t.start, p.start) === false;
+  if (t.v === undefined || !t.start || p.start === undefined) return false;
+  return sameStart(t.start, p.start) !== true;
 }
 
 /**
  * Whether a record was written for the caller's process: the same pid on this host and boot, and
- * the same identity when both are known (a pid alone may have been reused). This copy's records
- * compare `start`; an older copy's, `pid_start`, as that copy does.
+ * the same identity (a pid alone may have been reused). This copy's records must show the same
+ * `start` on both sides: a record or a caller whose identity could not be read never claims a
+ * pid as its own, so a holder whose identity could not be read cannot renew by asking again (its
+ * handle renews by token) and is released by name only once stale or with --force. An older
+ * copy's record compares `pid_start`, as that copy does.
  * @param {LockRecord | null | undefined} record
  * @param {{ pid: number, pidStart?: string | null, start?: string | null }} who
  * @param {{ host: string, boot?: string | null }} s
@@ -273,7 +287,7 @@ export function ticketGone(t, s) {
 export function sameProcess(record, who, s) {
   if (!record || record.host !== s.host || record.pid !== who.pid) return false;
   if (record.boot && s.boot && record.boot !== s.boot) return false;
-  if (record.v !== undefined) return sameStart(record.start, who.start) !== false;
+  if (record.v !== undefined) return sameStart(record.start, who.start) === true;
   return !record.pid_start || !who.pidStart || who.pidStart === record.pid_start;
 }
 
@@ -289,7 +303,10 @@ export function newRecord(s, who, ttlMs, token, acquiredAt, weight) {
     resource: s.resource,
     holder: who.holder,
     pid: who.pid,
-    pid_start: who.pidStart,
+    // No `ps` text for an older copy to misread (it prints by time zone): the owner's call,
+    // 2026-11-25. An older copy then loses its own pid-reuse check on this record, and matches
+    // a release for a pid by the pid alone.
+    pid_start: null,
     start: who.start ?? null,
     host: s.host,
     acquired_at: acquiredAt ?? now,
@@ -409,9 +426,12 @@ function ask(s, e) {
   const turn = live.length === 0 || live[0].name === ticket;
   if (!turn) {
     // A caller that waits holds nothing: its own lapsed records go, so a clock that jumps back
-    // cannot make one live again while it waits behind waiters that would wait on it.
+    // cannot make one live again while it waits behind waiters that would wait on it. So do
+    // stale records under its name it cannot prove its own (written without a readable
+    // identity): stale, they hold nothing for anyone, and the name is the caller's.
     for (const sl of [s.single, ownWeighted]) {
-      if (sl && mine(sl)) effects.push({ op: 'remove', slot: sl.slot });
+      if (!sl?.record || sl.record.holder !== who.holder) continue;
+      if (mine(sl) || stale(sl)) effects.push({ op: 'remove', slot: sl.slot });
     }
     if (!e.wait) return { outcome: refused(currentHolder(s)), effects };
     return {

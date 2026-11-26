@@ -28,8 +28,9 @@
 // directory (fs.watch) wakes it early, as a hint only: every wake-up decides on the whole state
 // again. It takes a timeout and an abort signal, and its ticket goes however it ends, on exit and
 // on SIGINT or SIGTERM too (the signal is raised again once the ticket and this process's own
-// holds are gone). Process start times are cached (on Linux by the process's own start tick), so
-// a waiter does not start a `ps` on every look.
+// holds are gone). A process's identity is read the same in every time zone: on Linux its start
+// tick from /proc (no process started), elsewhere its start time from `ps` in UTC, cached, so a
+// waiter does not start a `ps` on every look.
 //
 // Every decision is made by `decide` in lockcore.mjs (HITLD-1051); this file is its shell. It
 // reads the resource's files and the processes they name into a state, and, inside the resource's
@@ -63,7 +64,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes } from 'node:crypto';
 import { checkHolder } from './config.mjs';
 import { withMutexSync } from './mutex.mjs';
-import { isAlive, processStart, processStarts } from './proc.mjs';
+import { isAlive, processStart, readStarts } from './proc.mjs';
 import {
   LOCK_FORMAT,
   SINGLE,
@@ -242,14 +243,20 @@ function startTick(pid) {
   }
 }
 
+/** Whether this machine shows processes' start ticks in /proc (Linux), judged once. */
+let procfs = /** @type {boolean | undefined} */ (undefined);
+const hasProcfs = () => (procfs ??= startTick(process.pid) !== null);
+
 /**
- * Start times read by `ps`, cached: on Linux for as long as the pid has the same start tick,
- * elsewhere for a moment. `utc`: read in UTC with the C locale, the same for every caller;
- * otherwise as the caller's `ps` prints it, the text older copies wrote in their records.
- * @param {number[]} pids @param {boolean} utc @returns {Map<number, string>}
+ * Start times read by `ps` (PowerShell on Windows), cached: on Linux for as long as the pid has
+ * the same start tick, elsewhere for a moment. `utc`: read in UTC with the C locale, the same for
+ * every caller; otherwise as the caller's `ps` prints it, the text older copies wrote in their
+ * records. A pid the lookup ran for but could not read maps to null; one it could not run for
+ * (the tool failed or timed out) is missing, and that is not cached.
+ * @param {number[]} pids @param {boolean} utc @returns {Map<number, string | null>}
  */
 function psStarts(pids, utc) {
-  /** @type {Map<number, string>} */
+  /** @type {Map<number, string | null>} */
   const out = new Map();
   /** @type {[number, string | null][]} */
   const need = [];
@@ -260,20 +267,21 @@ function psStarts(pids, utc) {
       !!c &&
       c.key === key &&
       ((key !== null && c.start !== null) || performance.now() - c.at < START_CACHE_MS);
-    if (valid && c) {
-      if (c.start) out.set(pid, c.start);
-    } else need.push([pid, key]);
+    if (valid && c) out.set(pid, c.start);
+    else need.push([pid, key]);
   }
   if (need.length) {
     probes.runs++;
-    const found = processStarts(
+    const found = readStarts(
       need.map(([p]) => p),
       { utc },
     );
-    for (const [pid, key] of need) {
-      const start = found.get(pid) ?? null;
-      startCache.set(`${utc ? 'u' : 'l'}${pid}`, { key, start, at: performance.now() });
-      if (start) out.set(pid, start);
+    if (found) {
+      for (const [pid, key] of need) {
+        const start = found.get(pid) ?? null;
+        startCache.set(`${utc ? 'u' : 'l'}${pid}`, { key, start, at: performance.now() });
+        out.set(pid, start);
+      }
     }
   }
   if (startCache.size > 1024) startCache.clear();
@@ -282,26 +290,29 @@ function psStarts(pids, utc) {
 
 /**
  * Processes' identities as records and tickets carry them (`start`), read the same by every
- * caller: on Linux the start tick (`tick:<n>`, no process started), elsewhere the start time in
- * UTC (`utc:<text>`). A process whose identity cannot be read is missing from the map.
- * @param {number[]} pids @returns {Map<number, string>}
+ * caller: where /proc shows start ticks (Linux), the tick (`tick:<n>`, no process started), and
+ * null for a process whose tick it does not show (another user's, under hidepid); elsewhere the
+ * start time in UTC (`utc:<text>`), null for one the lookup could not read. A pid is missing when
+ * the lookup itself failed: nothing is known of it this time.
+ * @param {number[]} pids @returns {Map<number, string | null>}
  */
 function identities(pids) {
-  /** @type {Map<number, string>} */
+  /** @type {Map<number, string | null>} */
   const out = new Map();
-  /** @type {number[]} */
-  const rest = [];
-  for (const pid of pids) {
-    const tick = startTick(pid);
-    if (tick !== null) out.set(pid, `tick:${tick}`);
-    else rest.push(pid);
+  if (hasProcfs()) {
+    for (const pid of pids) {
+      const tick = startTick(pid);
+      out.set(pid, tick === null ? null : `tick:${tick}`);
+    }
+    return out;
   }
-  if (rest.length) for (const [pid, s] of psStarts(rest, true)) out.set(pid, `utc:${s}`);
+  for (const [pid, s] of psStarts(pids, true)) out.set(pid, s === null ? null : `utc:${s}`);
   return out;
 }
 
 /**
- * A process's identity as a record carries it, or null when it cannot be read.
+ * A process's identity as a record carries it, or null when it cannot be read (or the lookup
+ * failed).
  * @param {number} pid @returns {string | null}
  */
 export function processIdentity(pid) {
@@ -311,7 +322,8 @@ export function processIdentity(pid) {
 /**
  * The processes the records and tickets name: whether each is alive, and the identity (`start`)
  * or, for an older copy's record, the caller's start time text (`legacy`) of those staleReason
- * and ticketGone will ask for (null where the lookup failed).
+ * and ticketGone will ask for: null where the lookup could not read it, absent where the lookup
+ * itself failed.
  * @param {(LockRecord | null)[]} records @param {import('./lockcore.mjs').Ticket[]} queue
  * @param {number} now @param {string} host
  * @returns {import('./lockcore.mjs').Procs}
@@ -325,12 +337,12 @@ function procsFor(records, queue, now, host) {
   const stable = wanted.stable.filter((p) => procs[p]?.alive);
   if (stable.length) {
     const found = identities(stable);
-    for (const p of stable) procs[p].start = found.get(p) ?? null;
+    for (const p of stable) if (found.has(p)) procs[p].start = found.get(p) ?? null;
   }
   const legacy = wanted.legacy.filter((p) => procs[p]?.alive);
   if (legacy.length) {
     const found = psStarts(legacy, false);
-    for (const p of legacy) procs[p].legacy = found.get(p) ?? null;
+    for (const p of legacy) if (found.has(p)) procs[p].legacy = found.get(p) ?? null;
   }
   return procs;
 }

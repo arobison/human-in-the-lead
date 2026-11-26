@@ -20,7 +20,9 @@ export const EPOCH = Date.parse('2026-01-01T00:00:00.000Z');
  * @typedef {import('../../lib/env/lockcore.mjs').Effect} Effect
  * @typedef {import('../../lib/env/lockcore.mjs').Outcome} Outcome
  *
- * @typedef {{ id: string, name: string, pid: number, weight: number, noStart?: boolean }} ActorSpec
+ * @typedef {{ id: string, name: string, pid: number, weight: number, noStart?: boolean,
+ *   reusedHidden?: boolean }} ActorSpec `reusedHidden`: the process that reuses its pid is one whose
+ *   identity cannot be read (another user's, or hidden by /proc)
  *   `noStart`: its process's start time cannot be read, so its liveness cannot be checked and its
  *   expiry is the limit
  * @typedef {{ r: string, mode: 'held' | 'waiting', ticket: string | null, weight: number | null,
@@ -179,7 +181,7 @@ export function runStep(m, w, s) {
     if (!st.crashed || st.reused) return null;
     const procs = {
       ...w.procs,
-      [a.pid]: { alive: true, start: a.noStart ? null : `reused-${a.id}` },
+      [a.pid]: { alive: true, start: a.noStart || a.reusedHidden ? null : `reused-${a.id}` },
     };
     return { world: setActor({ ...w, procs }, a.id, { ...st, reused: true }), result: 'ok' };
   }
@@ -295,7 +297,13 @@ export function live(w, sl) {
   // cannot be told holds until its expiry.
   // This copy's records (the model writes no other kind) compare `start`: a verified holder ends
   // only when its process reads as another one.
-  if (r.start) return !p.start || p.start === r.start;
+  if (r.start) {
+    // Nothing looked up this time: it stands. Read as itself, or as another: decided. Not
+    // readable: not verified, so its expiry is the limit.
+    if (p.start === undefined) return true;
+    if (p.start !== null) return p.start === r.start;
+    return !expired;
+  }
   return !expired;
 }
 
@@ -319,7 +327,8 @@ const liveTickets = (w, r) =>
   Object.values(w.files[r].queue)
     .filter((t) => {
       const p = w.procs[t.pid];
-      return !!p?.alive && !(t.start && p.start && p.start !== t.start);
+      // A ticket with an identity is its waiter's only while the process reads as that waiter.
+      return !!p?.alive && !(t.start && p.start !== undefined && p.start !== t.start);
     })
     .sort((a, b) => a.n - b.n || (a.name < b.name ? -1 : 1));
 
@@ -352,10 +361,7 @@ export function brokenInvariant(m, w) {
     const holders = new Set(
       slots
         .filter((sl) => sl.record && live(w, sl))
-        .map(
-          (sl) =>
-            actorOf(m, w, /** @type {LockRecord} */ (sl.record).pid, sl.record?.pid_start)?.id,
-        )
+        .map((sl) => actorOf(m, w, /** @type {LockRecord} */ (sl.record).pid, sl.record?.start)?.id)
         .filter((x) => x !== undefined),
     );
     const tickets = liveTickets(w, r);
@@ -460,7 +466,7 @@ export function brokenProgress(m, w) {
         !(
           sl.record?.holder === x.name &&
           sl.record?.pid === x.pid &&
-          sl.record?.pid_start === startOf(x)
+          sl.record?.start === startOf(x)
         ),
     );
     if (gone.length) return `${r}: ${x.id}'s release removed another holder's record`;
@@ -640,7 +646,7 @@ export function runTraceInModel(t) {
     if (s.expect !== undefined) results.push(next.result);
   }
   const single = w.files.gpu.single?.record;
-  const holder = single ? (actorOf(m, w, single.pid, single.pid_start)?.id ?? null) : null;
+  const holder = single ? (actorOf(m, w, single.pid, single.start)?.id ?? null) : null;
   return { results, holder };
 }
 

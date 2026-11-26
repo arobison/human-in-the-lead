@@ -47,6 +47,17 @@ export function isAlive(pid) {
  * @returns {Map<number, string>}
  */
 export function processStarts(pids, o = {}) {
+  return readStarts(pids, o) ?? new Map();
+}
+
+/**
+ * As processStarts, but null when the lookup itself failed (the tool missing, failing or timing
+ * out), so a caller can tell that from a process whose start time the tool could not read, which
+ * is missing from the map.
+ * @param {number[]} pids @param {{ utc?: boolean }} [o]
+ * @returns {Map<number, string> | null}
+ */
+export function readStarts(pids, o = {}) {
   /** @type {Map<number, string>} */
   const out = new Map();
   const live = [...new Set(pids)].filter((p) => isAlive(p));
@@ -88,6 +99,7 @@ export function processStarts(pids, o = {}) {
     }
   } catch {
     // the tool is missing or failed: nothing is known
+    return null;
   }
   return out;
 }

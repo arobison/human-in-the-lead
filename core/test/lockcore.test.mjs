@@ -14,6 +14,7 @@ import {
   decide,
   nextTicket,
   parseTicket,
+  sameProcess,
   sameStart,
   staleReason,
   ticketGone,
@@ -38,14 +39,16 @@ import {
 /**
  * Three actors: a and b share a holder name from two processes (as the merge queue's callers
  * did before HITLD-1052), c is heavier, and its start time cannot be read, so its liveness cannot
- * be checked and its expiry is the limit (a and b, whose can, are never revoked by the clock). r0 is taken whole (the single lock); r1 has a capacity of 2. Each actor
+ * be checked and its expiry is the limit (a and b, whose can, are never revoked by the clock).
+ * A process that reuses b's pid is one whose identity cannot be read: b's record then stands
+ * only until its expiry, never for good. r0 is taken whole (the single lock); r1 has a capacity of 2. Each actor
  * works on one resource at a time: ordering several resources is left to rc.3 (acquireAll).
  * @type {Model}
  */
 const MODEL = {
   actors: [
     { id: 'a', name: 'D-X', pid: 101, weight: 1 },
-    { id: 'b', name: 'D-X', pid: 102, weight: 1 },
+    { id: 'b', name: 'D-X', pid: 102, weight: 1, reusedHidden: true },
     { id: 'c', name: 'D-Y', pid: 103, weight: 2, noStart: true },
   ],
   capacity: { r0: 1, r1: 2 },
@@ -125,7 +128,7 @@ function keyOf(w) {
               s.slot,
               s.record.holder,
               s.record.pid,
-              s.record.pid_start,
+              s.record.start,
               s.record.weight ?? 0,
               rel(s.record.renewed_at),
             ]
@@ -329,8 +332,16 @@ test('identity: this copy compares start, an older copy pid_start only to keep a
   const ours = { ...base, pid_start: 'Mon 09:00', start: 'tick:100', boot: 'b', v: 2 };
   assert.equal(judge(ours, { start: 'tick:100' }), null, 'the very one: kept past its expiry');
   assert.match(String(judge(ours, { start: 'tick:200' })), /reused/, 'another process');
-  assert.equal(judge(ours, { start: null }), null, 'a lookup that failed this time ends nothing');
-  assert.equal(judge(ours, { start: 'utc:Mon 14:00' }), null, 'another kind of identity: unknown');
+  // The lookup itself failed this time (no `start` at all): a passing fault revokes nothing.
+  assert.equal(judge(ours, {}), null, 'a failed lookup keeps a verified live holder');
+  // A reused pid whose identity cannot be read (another user's, hidden by /proc): not verified,
+  // so the expiry applies, and before it the hold stands; never a hold for good.
+  assert.match(String(judge(ours, { start: null })), /liveness cannot be checked/);
+  const unexpired = { ...ours, expires_at: iso(now + 60_000) };
+  assert.equal(judge(unexpired, { start: null }), null, 'held until its expiry');
+  // Another kind of identity (a `tick:` record, a `utc:` reading): not verified either.
+  assert.match(String(judge(ours, { start: 'utc:Mon 14:00' })), /liveness cannot be checked/);
+  assert.equal(judge(unexpired, { start: 'utc:Mon 14:00' }), null);
   // A pid_start that differs (another caller's time zone) never ends this copy's record.
   assert.equal(judge(ours, { start: 'tick:100', legacy: 'Mon 04:00' }), null);
   const older = { ...base, pid_start: 'Mon 09:00' };
@@ -352,8 +363,24 @@ test('identity: this copy compares start, an older copy pid_start only to keep a
   // Tickets: this copy's by start; an older copy's by its pid alone.
   const procs = { 9: { alive: true, start: 'tick:5' } };
   const t = { name: 'x', n: 1, pid: 9 };
-  assert.equal(ticketGone({ ...t, start: 'tick:6', v: 2 }, { procs }), true);
-  assert.equal(ticketGone({ ...t, start: 'tick:5', v: 2 }, { procs }), false);
-  assert.equal(ticketGone({ ...t, start: 'utc:y', v: 2 }, { procs }), false);
-  assert.equal(ticketGone(t, { procs }), false);
+  assert.equal(ticketGone({ ...t, start: 'tick:6', v: 2 }, { procs }), true, 'reads as another');
+  assert.equal(ticketGone({ ...t, start: 'tick:5', v: 2 }, { procs }), false, 'its waiter');
+  // A ticket has no expiry: one whose waiter cannot be verified would hold the line for good.
+  assert.equal(ticketGone({ ...t, start: 'utc:y', v: 2 }, { procs }), true, 'another kind');
+  const hidden = { 9: { alive: true, start: null } };
+  assert.equal(ticketGone({ ...t, start: 'tick:5', v: 2 }, { procs: hidden }), true, 'unreadable');
+  const failed = { 9: { alive: true } };
+  assert.equal(
+    ticketGone({ ...t, start: 'tick:5', v: 2 }, { procs: failed }),
+    false,
+    'lookup failed',
+  );
+  assert.equal(ticketGone(t, { procs }), false, "an older copy's ticket, by its pid");
+  // sameProcess: a record or caller with no readable identity never claims a pid as its own.
+  const host = { host: 'h', boot: 'b' };
+  assert.equal(sameProcess(ours, { pid: 7, start: 'tick:100' }, host), true);
+  assert.equal(sameProcess(ours, { pid: 7, start: 'tick:200' }, host), false);
+  assert.equal(sameProcess(ours, { pid: 7, start: null }, host), false);
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7, start: 'tick:100' }, host), false);
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7, start: null }, host), false);
 });
