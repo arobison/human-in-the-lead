@@ -292,7 +292,6 @@ test("a waiter's first ask writes its ticket before its attempt, in one decision
     type: 'ask',
     holder: 'D-2',
     pid: 2,
-    pidStart: 's2',
     self: 2,
     weight: 1,
     wait: true,
@@ -376,11 +375,111 @@ test('identity: this copy compares start, an older copy pid_start only to keep a
     'lookup failed',
   );
   assert.equal(ticketGone(t, { procs }), false, "an older copy's ticket, by its pid");
-  // sameProcess: a record or caller with no readable identity never claims a pid as its own.
+  // sameProcess: only a readable identity on both sides that differs says another process; when
+  // either side's is unreadable or absent, host, pid and boot decide.
   const host = { host: 'h', boot: 'b' };
   assert.equal(sameProcess(ours, { pid: 7, start: 'tick:100' }, host), true);
-  assert.equal(sameProcess(ours, { pid: 7, start: 'tick:200' }, host), false);
-  assert.equal(sameProcess(ours, { pid: 7, start: null }, host), false);
-  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7, start: 'tick:100' }, host), false);
-  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7, start: null }, host), false);
+  assert.equal(sameProcess(ours, { pid: 7, start: 'tick:200' }, host), false, 'another process');
+  assert.equal(sameProcess(ours, { pid: 7, start: 'utc:x' }, host), false, 'another kind');
+  assert.equal(sameProcess(ours, { pid: 7, start: null }, host), true, 'the caller unreadable');
+  assert.equal(sameProcess(ours, { pid: 7 }, host), true, "the caller's absent");
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7, start: 'tick:100' }, host), true);
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7, start: null }, host), true);
+  assert.equal(sameProcess(older, { pid: 7, start: 'tick:100' }, host), true, 'an older record');
+  // Host, pid and boot still decide.
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 8, start: null }, host), false);
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7 }, { host: 'g', boot: 'b' }), false);
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7 }, { host: 'h', boot: 'c' }), false);
+});
+
+test('a caller whose identity cannot be read re-locks and releases by name; a readable other is refused', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  const iso = (/** @type {number} */ t) => new Date(t).toISOString();
+  /** @param {string | null} start @returns {any} */
+  const rec = (start) => ({
+    resource: 'gpu',
+    holder: 'D-1',
+    pid: 7,
+    pid_start: null,
+    start,
+    host: 'h',
+    acquired_at: iso(now - 1_000),
+    renewed_at: iso(now - 1_000),
+    expires_at: iso(now + 60_000),
+    token: 'tok',
+    boot: 'b',
+    v: 2,
+  });
+  /** @param {any} record @param {string | null | undefined} live the pid's identity now */
+  const state = (record, live) => ({
+    resource: 'gpu',
+    capacity: 1,
+    now,
+    host: 'h',
+    boot: 'b',
+    procs: { 7: { alive: true, ...(live === undefined ? {} : { start: live }) } },
+    single: { slot: 'single', record, mtime: now },
+    holders: [],
+    queue: [],
+  });
+  /** @param {string | null} start */
+  const ask = (start) =>
+    /** @type {const} */ ({
+      type: 'ask',
+      holder: 'D-1',
+      pid: 7,
+      start,
+      self: 7,
+      selfStart: start,
+      weight: 1,
+      wait: false,
+      ticket: null,
+      ttlMs: 60_000,
+      nonce: 'n',
+      token: 'new',
+    });
+  /** @param {string | null} start */
+  const release = (start) =>
+    /** @type {const} */ ({ type: 'release', holder: 'D-1', pid: 7, start, self: 9 });
+  /** @param {any} d */
+  const shape = (d) => [d.outcome.kind, d.outcome.renewed ?? null];
+
+  // Written by a caller whose identity could not be read, asked again by it: renewed, token kept.
+  const hidden = decide(state(rec(null), null), ask(null));
+  assert.deepEqual(shape(hidden), ['granted', true]);
+  assert.equal(hidden.outcome.kind === 'granted' && hidden.outcome.record.token, 'tok');
+  assert.equal(hidden.outcome.kind === 'granted' && hidden.outcome.record.start, null);
+  // Either side unreadable is enough.
+  assert.deepEqual(shape(decide(state(rec(null), 'tick:1'), ask('tick:1'))), ['granted', true]);
+  assert.deepEqual(shape(decide(state(rec('tick:1'), 'tick:1'), ask(null))), ['granted', true]);
+  // Released by name for that pid, either side unreadable.
+  for (const [r, c] of /** @type {const} */ ([
+    [null, null],
+    [null, 'tick:1'],
+    ['tick:1', null],
+  ])) {
+    const d = decide(state(rec(r), c), release(c));
+    assert.equal(d.outcome.kind, 'released', `record ${r}, caller ${c}`);
+    assert.deepEqual(
+      d.effects.map((e) => e.op),
+      ['remove', 'log'],
+    );
+  }
+  // A readable identity on both sides that differs: refused, and the hold stays. Another kind
+  // (`utc:` against `tick:`) is not verified as the holder either, so the expiry is its limit.
+  const other = decide(state(rec('utc:x'), 'utc:x'), ask('tick:2'));
+  assert.deepEqual(
+    [other.outcome.kind, other.outcome.kind === 'refused' && other.outcome.conflict],
+    ['refused', true],
+  );
+  const kept = decide(state(rec('utc:x'), 'utc:x'), release('tick:2'));
+  assert.equal(kept.outcome.kind, 'kept');
+  assert.equal(kept.outcome.kind === 'kept' && kept.outcome.by?.pid, 7);
+  // Fresh, that is still refused; renewed long ago, the same kind that differs is a reused pid:
+  // stale, so the caller takes the name over, as a new grant.
+  assert.equal(decide(state(rec('tick:1'), 'tick:2'), ask('tick:2')).outcome.kind, 'refused');
+  const old = { ...rec('tick:1'), renewed_at: iso(now - 600_000) };
+  const reused = decide(state(old, 'tick:2'), ask('tick:2'));
+  assert.deepEqual(shape(reused), ['granted', false]);
+  assert.equal(reused.outcome.kind === 'granted' && reused.outcome.record.token, 'new');
 });

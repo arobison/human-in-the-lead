@@ -2635,8 +2635,66 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   assert.equal(JSON.parse(otherParent.stdout).pid, holderPid);
   const mine = await hitld(['env', 'unlock', '--resource', 'gpu', '--dispatch', 'D-7']);
   assert.deepEqual([mine.code, mine.json.released], [0, true]);
+  // A caller whose identity cannot be read (as /proc hides another user's process): the CLI,
+  // run with its parent's /proc entry hidden, takes the lock with no identity, takes it again as
+  // a renewal rather than a conflict, and releases it by name. Linux only (the start tick).
+  if (existsSync(`/proc/${process.pid}/stat`)) {
+    const preload = fileURLToPath(new URL('./helpers/hide-identity.mjs', import.meta.url));
+    /** @param {string[]} argv */
+    const hiddenCli = (argv) => {
+      const r = spawnSync(process.execPath, ['--import', preload, bin, ...argv], {
+        cwd: repoRoot,
+        env: { ...env, HIDE_IDENTITY_PIDS: String(process.pid) },
+        encoding: 'utf8',
+      });
+      return { code: r.status, out: r.stdout + r.stderr, json: JSON.parse(r.stdout) };
+    };
+    const gpuLock = ['--resource', 'gpu', '--dispatch', 'D-7'];
+    const hiddenLock = hiddenCli(['env', 'lock', ...gpuLock]);
+    assert.equal(hiddenLock.code, 0, hiddenLock.out);
+    assert.equal(hiddenLock.json.renewed, false);
+    const unread = (await hitld(['env', 'status'])).json.locks.find(
+      (/** @type {any} */ l) => l.resource === 'gpu',
+    ).record;
+    assert.deepEqual([unread.pid, unread.start], [process.pid, null], 'held with no identity');
+    const hiddenAgain = hiddenCli(['env', 'lock', ...gpuLock]);
+    assert.equal(hiddenAgain.code, 0, hiddenAgain.out);
+    assert.equal(hiddenAgain.json.renewed, true);
+    const hiddenUnlock = hiddenCli(['env', 'unlock', ...gpuLock]);
+    assert.deepEqual([hiddenUnlock.code, hiddenUnlock.json.released], [0, true], hiddenUnlock.out);
+    assert.equal(
+      (await hitld(['env', 'status'])).json.locks.find(
+        (/** @type {any} */ l) => l.resource === 'gpu',
+      ).held_by,
+      null,
+    );
+  }
   const relock = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7']);
   assert.equal(relock.code, 0, relock.out);
+  // Held for the very pid the release asks for, under another kind of identity (not verified, so
+  // live until its expiry): kept, and the message never suggests the --pid already given.
+  const gpuFile = readdirSync(xdg, { recursive: true, encoding: 'utf8' })
+    .map((f) => join(xdg, f))
+    .find((f) => f.endsWith('.lock') && JSON.parse(readFileSync(f, 'utf8')).resource === 'gpu');
+  assert.ok(gpuFile);
+  const held = JSON.parse(readFileSync(gpuFile, 'utf8'));
+  writeFileSync(gpuFile, JSON.stringify({ ...held, start: 'utc:another kind' }) + '\n');
+  const sameAsked = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--pid',
+    String(held.pid),
+  ]);
+  assert.equal(sameAsked.code, 1, sameAsked.out);
+  assert.equal(sameAsked.json.error, 'lock-held-elsewhere');
+  assert.equal(sameAsked.json.pid, held.pid);
+  assert.doesNotMatch(sameAsked.json.message, /pass --pid/);
+  assert.match(sameAsked.json.message, /another process identity .* --force \(logged\)/);
+  writeFileSync(gpuFile, JSON.stringify(held) + '\n');
 
   // the executor's dispatch may run the declared task
   const exec = await asExecutor(['env', 'exec', 'publish'], 'D-7');

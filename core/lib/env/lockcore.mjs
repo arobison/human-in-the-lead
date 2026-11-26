@@ -104,17 +104,16 @@ export const LOCK_FORMAT = 2;
  * @property {Ticket[]} queue
  * @property {Procs} procs
  *
- * @typedef {{ holder: string, pid: number, pidStart: string | null, start?: string | null }} Who
+ * @typedef {{ holder: string, pid: number, start?: string | null }} Who
  *
- * @typedef {{ type: 'ask', holder: string, pid: number, pidStart: string | null,
- *     start?: string | null, self: number, selfStart?: string | null, weight: number,
- *     wait: boolean, ticket: string | null,
+ * @typedef {{ type: 'ask', holder: string, pid: number, start?: string | null, self: number,
+ *     selfStart?: string | null, weight: number, wait: boolean, ticket: string | null,
  *     ttlMs: number, nonce: string, token: string }
- *   | { type: 'confirm', holder: string, pid: number, pidStart: string | null,
- *     start?: string | null, wait: boolean, ticket: string | null }
+ *   | { type: 'confirm', holder: string, pid: number, start?: string | null, wait: boolean,
+ *     ticket: string | null }
  *   | { type: 'renew', holder: string, token: string, ttlMs: number, weight: number | null }
  *   | { type: 'release', holder: string, token?: string, pid?: number,
- *     pidStart?: string | null, start?: string | null, force?: boolean, self?: number }
+ *     start?: string | null, force?: boolean, self?: number }
  *   | { type: 'leave', ticket: string }} LockEvent
  *
  * @typedef {{ op: 'create', slot: string, record: LockRecord }
@@ -275,20 +274,20 @@ export function ticketGone(t, s) {
 
 /**
  * Whether a record was written for the caller's process: the same pid on this host and boot, and
- * the same identity (a pid alone may have been reused). This copy's records must show the same
- * `start` on both sides: a record or a caller whose identity could not be read never claims a
- * pid as its own, so a holder whose identity could not be read cannot renew by asking again (its
- * handle renews by token) and is released by name only once stale or with --force. An older
- * copy's record compares `pid_start`, as that copy does.
+ * no sign of another process. Only a readable identity on both sides that differs (another value,
+ * or another kind) says the pid now names another process. When either side's identity could not
+ * be read, or is absent (an older copy's record keeps none), host, pid and boot decide: a caller
+ * whose identity cannot be read renews by asking again and releases by name, as before identities.
+ * That is safe for the name's holder: a record whose pid is the caller's, alive, is the caller's
+ * or its process is gone.
  * @param {LockRecord | null | undefined} record
- * @param {{ pid: number, pidStart?: string | null, start?: string | null }} who
+ * @param {{ pid: number, start?: string | null }} who
  * @param {{ host: string, boot?: string | null }} s
  */
 export function sameProcess(record, who, s) {
   if (!record || record.host !== s.host || record.pid !== who.pid) return false;
   if (record.boot && s.boot && record.boot !== s.boot) return false;
-  if (record.v !== undefined) return sameStart(record.start, who.start) === true;
-  return !record.pid_start || !who.pidStart || who.pidStart === record.pid_start;
+  return !record.start || !who.start || record.start === who.start;
 }
 
 /**
@@ -364,7 +363,7 @@ export function decide(s, e) {
  */
 function ask(s, e) {
   /** @type {Who} */
-  const who = { holder: e.holder, pid: e.pid, pidStart: e.pidStart, start: e.start ?? null };
+  const who = { holder: e.holder, pid: e.pid, start: e.start ?? null };
   /** @type {Effect[]} */
   const effects = [];
   const mine = (/** @type {Slot | null | undefined} */ sl) =>
@@ -425,13 +424,12 @@ function ask(s, e) {
   // 3. Only the first in line may try.
   const turn = live.length === 0 || live[0].name === ticket;
   if (!turn) {
-    // A caller that waits holds nothing: its own lapsed records go, so a clock that jumps back
-    // cannot make one live again while it waits behind waiters that would wait on it. So do
-    // stale records under its name it cannot prove its own (written without a readable
-    // identity): stale, they hold nothing for anyone, and the name is the caller's.
+    // A caller that waits holds nothing: the records under its name are stale here (a live one
+    // was renewed or refused above), and they go, so a clock that jumps back cannot make one live
+    // again while it waits behind waiters that would wait on it.
     for (const sl of [s.single, ownWeighted]) {
-      if (!sl?.record || sl.record.holder !== who.holder) continue;
-      if (mine(sl) || stale(sl)) effects.push({ op: 'remove', slot: sl.slot });
+      if (sl?.record && sl.record.holder === who.holder)
+        effects.push({ op: 'remove', slot: sl.slot });
     }
     if (!e.wait) return { outcome: refused(currentHolder(s)), effects };
     return {
@@ -572,7 +570,7 @@ function attemptWeighted(s, e, who, mine, stale) {
  * @param {LockState} s @param {Extract<LockEvent, { type: 'confirm' }>} e @returns {Decision}
  */
 function confirm(s, e) {
-  const who = { holder: e.holder, pid: e.pid, pidStart: e.pidStart, start: e.start ?? null };
+  const who = { holder: e.holder, pid: e.pid, start: e.start ?? null };
   const slot = s.holders.find((h) => h.slot === holderSlot(e.holder));
   const ticketed = e.ticket !== null && s.queue.some((t) => t.name === e.ticket);
   const single = s.single;
@@ -617,7 +615,7 @@ function renew(s, e) {
   if (!slot || !cur || cur.holder !== e.holder || cur.token !== e.token) {
     return { outcome: { kind: 'lost' }, effects: [] };
   }
-  const who = { holder: cur.holder, pid: cur.pid, pidStart: cur.pid_start, start: cur.start };
+  const who = { holder: cur.holder, pid: cur.pid, start: cur.start };
   const record = newRecord(s, who, e.ttlMs, e.token, cur.acquired_at, e.weight ?? undefined);
   return {
     outcome: { kind: 'renewed', record },
@@ -645,7 +643,6 @@ function release(s, e) {
   else {
     const who = {
       pid: /** @type {number} */ (e.pid),
-      pidStart: e.pidStart ?? null,
       start: e.start ?? null,
     };
     gone = named.filter(

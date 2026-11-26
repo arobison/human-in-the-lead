@@ -617,19 +617,21 @@ export const commands = [
             "--force takes no --pid: it removes the dispatch's hold whatever process has it (logged as lock_forced)",
         };
       }
+      const asked = pid ?? process.ppid;
       const r = env.releaseLock({
         resource,
         holder,
-        ...(input.force === true ? { force: true } : { pid: pid ?? process.ppid }),
+        ...(input.force === true ? { force: true } : { pid: asked }),
       });
       // Nothing under the name is held: releasing again, or for nothing, is not a failure.
       if (r.released || r.pid === undefined) return { ok: true, ...r };
-      return {
-        ok: false,
-        ...r,
-        error: 'lock-held-elsewhere',
-        message: `${resource} is held by ${holder} for another live process (pid ${r.pid}); if that process is yours, pass --pid ${r.pid}; to end someone else's hold use --force (logged)`,
-      };
+      // Never suggest the pid the caller already asked for (or its own): the hold is for that
+      // pid under another identity, a process that reused it, and --pid cannot help.
+      const message =
+        r.pid === asked || r.pid === process.pid
+          ? `${resource} is held by ${holder} for pid ${r.pid} under another process identity than that pid has now (its ID may have been reused); it ends at its expiry, or end it now with --force (logged)`
+          : `${resource} is held by ${holder} for another live process (pid ${r.pid}); if that process is yours, pass --pid ${r.pid}; to end someone else's hold use --force (logged)`;
+      return { ok: false, ...r, error: 'lock-held-elsewhere', message };
     }),
   },
   {

@@ -64,7 +64,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes } from 'node:crypto';
 import { checkHolder } from './config.mjs';
 import { withMutexSync } from './mutex.mjs';
-import { isAlive, processStart, readStarts } from './proc.mjs';
+import { isAlive, readStarts } from './proc.mjs';
 import {
   LOCK_FORMAT,
   SINGLE,
@@ -554,7 +554,6 @@ function step(ctx, resource, event, onEnqueue) {
           type: 'confirm',
           holder: ev.holder,
           pid: ev.pid,
-          pidStart: ev.pidStart,
           start: ev.start,
           wait: ev.wait,
           ticket: ev.ticket,
@@ -728,8 +727,8 @@ export async function acquireLock(ctx, request) {
     );
   }
   const pid = request.pid ?? process.pid;
-  // `pid_start` as `ps` prints it here, for older copies; `start`, the identity this copy compares.
-  const pidStart = processStart(pid);
+  // The identity records carry and sameProcess compares; null when it cannot be read, and then
+  // host, pid and boot decide.
   const start = processIdentity(pid);
   const selfStart = processIdentity(process.pid);
   const ttlMs = (request.ttlSeconds ?? 300) * 1000;
@@ -761,7 +760,6 @@ export async function acquireLock(ctx, request) {
     type: 'ask',
     holder,
     pid,
-    pidStart,
     start,
     self: process.pid,
     selfStart,
@@ -1017,7 +1015,6 @@ export function releaseLock(ctx, request) {
       type: 'release',
       holder,
       pid,
-      pidStart: processStart(pid),
       start: processIdentity(pid),
       self,
     };
