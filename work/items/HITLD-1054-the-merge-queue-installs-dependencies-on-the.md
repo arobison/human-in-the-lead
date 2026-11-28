@@ -2,7 +2,7 @@
 id: HITLD-1054
 title: The merge queue installs dependencies on the branch under test, not on main, and says when a branch changes them
 kind: work
-state: in-progress
+state: done
 created: 2026-11-25
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
