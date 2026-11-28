@@ -25,7 +25,15 @@ test('the chief-of-staff skill asks every question with the question tool, not o
   ]) {
     assert.ok(bullet.includes(kind), kind);
   }
-  assert.match(bullet, /one question per call, or several in one call/);
+  assert.match(
+    bullet,
+    /one question per call, or several in one call \(a design's questions one per call, as the `design` skill says\), each with the recommendation first/,
+  );
+  assert.match(
+    bullet,
+    /A digest's or a merge batch's questions go the same way, each in the tool beside the text/,
+  );
+  assert.doesNotMatch(bullet, /send the text as usual/, 'the fallback is said once');
   assert.match(bullet, /recommendation first/);
   assert.match(
     bullet,
@@ -40,4 +48,8 @@ test('the orchestrate skill repeats the rule where it talks to the owner itself'
   assert.match(text, /every other question you put to the owner yourself, of any kind/);
   assert.match(text, /never ends in an open question, an "if you want X, tell me"/);
   assert.match(text, /A reply that only informs asks nothing/);
+  assert.match(
+    text,
+    /A digest's or a merge batch's questions go the same way, each in the tool beside the text/,
+  );
 });
