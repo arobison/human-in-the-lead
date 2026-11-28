@@ -375,12 +375,12 @@ function measure(ctx, p, warnings) {
       .filter((r) => r.package === p.name)
       .flatMap((r) => (Array.isArray(r.data?.items) ? r.data.items.map(String) : [])),
   );
-  const issues = items
-    .flatMap((id) => {
+  const issues = onePerIssue(
+    items.flatMap((id) => {
       const n = Number(g.get(id)?.data.source_issue);
       return Number.isInteger(n) && n > 0 && !shippedBefore.has(id) ? [{ issue: n, item: id }] : [];
-    })
-    .sort((a, b) => a.issue - b.issue);
+    }),
+  );
   const since = ctx.files(base?.tag ?? null);
   const missing = p.surface
     ? items
@@ -427,10 +427,32 @@ function measure(ctx, p, warnings) {
  * @returns {ShippedIssue[]}
  */
 function issuesOf(releases) {
+  return onePerIssue(releases.flatMap((r) => r.issues));
+}
+
+/**
+ * Item IDs in their natural order: by key, then by number (W-9 before W-10).
+ * @param {string} a @param {string} b
+ */
+const byItemId = (a, b) => {
+  const [ka, na] = [a.replace(/\d+$/, ''), Number(a.match(/\d+$/)?.[0] ?? 0)];
+  const [kb, nb] = [b.replace(/\d+$/, ''), Number(b.match(/\d+$/)?.[0] ?? 0)];
+  return ka === kb ? na - nb || a.localeCompare(b) : ka.localeCompare(kb);
+};
+
+/**
+ * One entry per issue, in issue order. When several items name one issue, the first by item ID
+ * stands for it: the ship step closes the issue once, whichever item it names (HITLD-1015).
+ * @param {ShippedIssue[]} list
+ * @returns {ShippedIssue[]}
+ */
+function onePerIssue(list) {
   /** @type {Map<number, ShippedIssue>} */
   const out = new Map();
-  for (const x of releases.flatMap((r) => r.issues)) if (!out.has(x.issue)) out.set(x.issue, x);
-  return [...out.values()].sort((a, b) => a.issue - b.issue);
+  for (const x of [...list].sort((a, b) => a.issue - b.issue || byItemId(a.item, b.item))) {
+    if (!out.has(x.issue)) out.set(x.issue, x);
+  }
+  return [...out.values()];
 }
 
 /**

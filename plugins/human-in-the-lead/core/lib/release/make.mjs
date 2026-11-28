@@ -437,5 +437,36 @@ function pullRequest(p, { r, path, notes }) {
     '',
     `Squash-merge this pull request with your \`Signed-off-by:\` line in the commit message. The release workflow then checks the record, waits for your approval in the \`release\` environment, tags ${tag} on the squash commit, builds, attests provenance and drafts the GitHub release${pre ? ' as a pre-release' : ''}. Publish the draft when it looks right.`,
   ].join('\n');
-  return { title: `Release ${tag}`, body };
+  return { title: `Release ${tag}`, body: withoutClosingReferences(body) };
+}
+
+/** A forge's closing keywords: close, fix and resolve, in each of their forms. */
+const CLOSING_KEYWORD = String.raw`\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)`;
+/** An issue reference a closing keyword acts on: #12, owner/repo#12 or an issue or pull URL. */
+const ISSUE_REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+|https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+`;
+const CLOSING = new RegExp(
+  `${CLOSING_KEYWORD}([ \\t]*:?[ \\t]*)((?:${ISSUE_REF})(?:[ \\t]*,[ \\t]*(?:and[ \\t]+)?(?:${ISSUE_REF}))*)`,
+  'gi',
+);
+
+/**
+ * Text with every closing keyword's issue reference rewritten so that it closes nothing when the
+ * pull request merges: "Fixes #12" becomes "Fixes issue 12", "Closes owner/repo#3" becomes
+ * "Closes owner/repo issue 3", and an issue URL after a keyword moves into parentheses. Release
+ * notes are free text copied from items, and an issue closes when its release ships, not when
+ * the release pull request merges (HITLD-1015). Only the pull request text is rewritten; the
+ * items and the record keep their words.
+ * @param {string} text
+ * @returns {string}
+ */
+export function withoutClosingReferences(text) {
+  return text.replace(CLOSING, (_, keyword, gap, refs) => {
+    const plain = String(refs).replace(new RegExp(ISSUE_REF, 'gi'), (ref) => {
+      const url = ref.match(/^https?:\/\/.*\/(\d+)$/);
+      if (url) return `issue ${url[1]} (${ref})`;
+      const [repo, n] = ref.split('#');
+      return repo ? `${repo} issue ${n}` : `issue ${n}`;
+    });
+    return `${keyword}${gap.includes(':') ? ':' : ''} ${plain}`;
+  });
 }
