@@ -2,7 +2,7 @@
 id: HITLD-1047
 title: The queue holds back a ready item whose files overlap an open decision's files, so work is not started on a design that a decision will change
 kind: work
-state: in-progress
+state: done
 created: 2026-11-25
 project: HITLD-15
 needs: [HITLD-995]
