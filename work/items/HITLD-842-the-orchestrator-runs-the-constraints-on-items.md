@@ -2,7 +2,7 @@
 id: HITLD-842
 title: The orchestrator runs the constraints-on-items migration on main once the HITLD-767 pull request has merged
 kind: work
-state: in-progress
+state: done
 created: 2026-11-22
 project: HITLD-15
 needs: [HITLD-767]
