@@ -629,7 +629,9 @@ export function readyQueue(p, ctx) {
     ...(ctx.now ? { now: nowOf(ctx) } : {}),
   });
   // The merge backlog (HITLD-1046): what each finished branch waits on, read by the plan's two
-  // flow-control rules.
+  // flow-control rules. The plan's awaiting set also holds queued branches that still close their
+  // item after an abandoned dispatch (awaitingOf), which needs the tracker; run status reads the
+  // ledger's waiting branches alone, without the tracker, so its count can be lower by those.
   const backlog = mergeBacklog(awaitingReady, {
     policy: p.policy,
     pulls: readPullState(p.store),
@@ -2026,6 +2028,14 @@ const table = [
           ...q.releases,
           in_flight: q.inFlight.map((d) => ({ dispatch: d.dispatch, item: d.item })),
           awaiting_merge: q.awaiting,
+          merge_backlog: backlogJson(q.backlog),
+          // This list is the release-chain order alone; the owner-queue reorder needs each item's
+          // touches, which only the plan derives (HITLD-1046).
+          ...(q.backlog.owner_queue_full
+            ? {
+                owner_queue_note: `${q.backlog.owner.count} finished branches wait on the owner (dispatch.owner_queue_max ${q.backlog.owner_queue_max}): hitld dispatch plan offers work that does not route to the owner first in each tier, so its order may differ from this one`,
+              }
+            : {}),
         };
       }),
   },

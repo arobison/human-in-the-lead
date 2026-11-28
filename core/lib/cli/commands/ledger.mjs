@@ -939,7 +939,9 @@ const table = [
           now: (ctx.now ? ctx.now() : new Date()).getTime(),
         });
         // The merge backlog (HITLD-1046): the branches the ledger has waiting to merge, split by
-        // what each waits on, with the oldest of each; the plan reads the same split.
+        // what each waits on, with the oldest of each; the plan reads the same split. Status reads
+        // no tracker, so a queued branch that still closes its item after its dispatch was
+        // abandoned, which the plan also counts (orchestrator awaitingOf), is not counted here.
         const backlog = backlogJson(
           mergeBacklog(awaitingMerge(events), {
             policy: s.policy,
