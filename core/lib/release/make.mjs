@@ -442,8 +442,11 @@ function pullRequest(p, { r, path, notes }) {
 
 /** A forge's closing keywords: close, fix and resolve, in each of their forms. */
 const CLOSING_KEYWORD = String.raw`\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)`;
-/** An issue reference a closing keyword acts on: #12, owner/repo#12 or an issue or pull URL. */
-const ISSUE_REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+|https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+`;
+/**
+ * An issue reference a closing keyword acts on: #12, owner/repo#12, GH-12 (any case) or an issue
+ * or pull URL.
+ */
+const ISSUE_REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+|\bGH-\d+\b|https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+`;
 const CLOSING = new RegExp(
   `${CLOSING_KEYWORD}([ \\t]*:?[ \\t]*)((?:${ISSUE_REF})(?:[ \\t]*,[ \\t]*(?:and[ \\t]+)?(?:${ISSUE_REF}))*)`,
   'gi',
@@ -451,7 +454,7 @@ const CLOSING = new RegExp(
 
 /**
  * Text with every closing keyword's issue reference rewritten so that it closes nothing when the
- * pull request merges: "Fixes #12" becomes "Fixes issue 12", "Closes owner/repo#3" becomes
+ * pull request merges: "Fixes #12" and "Fixes GH-12" become "Fixes issue 12", "Closes owner/repo#3" becomes
  * "Closes owner/repo issue 3", and an issue URL after a keyword moves into parentheses. Release
  * notes are free text copied from items, and an issue closes when its release ships, not when
  * the release pull request merges (HITLD-1015). Only the pull request text is rewritten; the
@@ -464,6 +467,8 @@ export function withoutClosingReferences(text) {
     const plain = String(refs).replace(new RegExp(ISSUE_REF, 'gi'), (ref) => {
       const url = ref.match(/^https?:\/\/.*\/(\d+)$/);
       if (url) return `issue ${url[1]} (${ref})`;
+      const gh = ref.match(/^GH-(\d+)$/i);
+      if (gh) return `issue ${gh[1]}`;
       const [repo, n] = ref.split('#');
       return repo ? `${repo} issue ${n}` : `issue ${n}`;
     });

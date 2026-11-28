@@ -596,7 +596,7 @@ test('two items that name one issue list it once, for the first item by ID; work
 
 /** A closing keyword followed by an issue reference, as the forge reads one. */
 const CLOSES_SOMETHING =
-  /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[ \t]*:?[ \t]*(([\w.-]+\/[\w.-]+)?#\d+|https?:\/\/\S+\/(issues|pull)\/\d+)/i;
+  /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[ \t]*:?[ \t]*(([\w.-]+\/[\w.-]+)?#\d+|GH-\d+|https?:\/\/\S+\/(issues|pull)\/\d+)/i;
 
 test('closing keywords in the release pull request body close nothing; the items keep their words', async () => {
   const forms = [
@@ -609,6 +609,9 @@ test('closing keywords in the release pull request body close nothing; the items
     'Fix #18, #19',
     'close https://github.com/owner/repo/issues/20',
     'Fixed #21 and fixes #22',
+    'resolved GH-23',
+    'Fix GH-24, gh-25',
+    'Closes: GH-26',
   ];
   for (const form of forms) {
     const out = withoutClosingReferences(`- The fix. ${form} (W-9)`);
@@ -618,6 +621,9 @@ test('closing keywords in the release pull request body close nothing; the items
   assert.equal(withoutClosingReferences('Fixes #12'), 'Fixes issue 12');
   assert.equal(withoutClosingReferences('fixes: owner/repo#3'), 'fixes: owner/repo issue 3');
   assert.equal(withoutClosingReferences('Fix #18, #19'), 'Fix issue 18, issue 19');
+  assert.equal(withoutClosingReferences('Fixes GH-12'), 'Fixes issue 12');
+  assert.equal(withoutClosingReferences('Fix GH-24, gh-25'), 'Fix issue 24, issue 25');
+  assert.equal(withoutClosingReferences('See GH-12; it stays.'), 'See GH-12; it stays.');
   assert.equal(
     withoutClosingReferences('See #12; the prefix fix stays.'),
     'See #12; the prefix fix stays.',
@@ -658,6 +664,9 @@ test('closing keywords in the release pull request body close nothing; the items
   assert.equal(made.code, 0, JSON.stringify(made.json));
   for (const line of made.json.pr.body.split('\n')) assert.doesNotMatch(line, CLOSES_SOMETHING);
   assert.match(made.json.pr.body, /Something changed\. Fixes issue 12 \(W-30\)/);
+  assert.match(made.json.pr.body, /Something changed\. resolved issue 23 \(W-39\)/);
+  assert.match(made.json.pr.body, /Something changed\. Fix issue 24, issue 25 \(W-40\)/);
+  assert.doesNotMatch(made.json.pr.body, /GH-\d/i);
   // The record on the branch keeps the item's own words.
   assert.match(git(root, 'show', 'release:work/releases/main/0.1.0-rc.1.md'), /Fixes #12/);
 });
