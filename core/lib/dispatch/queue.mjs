@@ -269,6 +269,40 @@ export function releaseChain(items, weight) {
 }
 
 /**
+ * Who needs each entry, among open entries, through item `needs` and a milestone's constraints.
+ * @param {Item[]} items @returns {Map<string, string[]>}
+ */
+const dependentsOf = (items) => {
+  /** @type {Map<string, string[]>} */
+  const dependents = new Map();
+  for (const i of items) {
+    if (!isOpen(i)) continue;
+    for (const n of needsOf(i)) {
+      if (!dependents.has(n)) dependents.set(n, []);
+      dependents.get(n)?.push(String(i.id));
+    }
+  }
+  return dependents;
+};
+
+/**
+ * Every open entry that needs `id`, directly or through others.
+ * @param {Map<string, string[]>} dependents @param {string} id @returns {Set<string>}
+ */
+const descendantsOf = (dependents, id) => {
+  /** @type {Set<string>} */
+  const seen = new Set();
+  const stack = [...(dependents.get(id) ?? [])];
+  while (stack.length) {
+    const d = /** @type {string} */ (stack.pop());
+    if (seen.has(d) || d === id) continue;
+    seen.add(d);
+    stack.push(...(dependents.get(d) ?? []));
+  }
+  return seen;
+};
+
+/**
  * The ready queue in release-chain order, with each item's sort key, the open releases nearest
  * first, and the critical path the quota gate reads.
  * @param {{
@@ -287,28 +321,8 @@ export function rankQueue(r) {
   const byId = new Map(r.items.map((i) => [String(i.id), i]));
   const estimate = (/** @type {string} */ id) => r.sizes.get(id)?.estimate_tokens ?? 0;
 
-  /** @type {Map<string, string[]>} who needs me, among open entries */
-  const dependents = new Map();
-  for (const i of r.items) {
-    if (!isOpen(i)) continue;
-    for (const n of needsOf(i)) {
-      if (!dependents.has(n)) dependents.set(n, []);
-      dependents.get(n)?.push(String(i.id));
-    }
-  }
-  /** Every open entry that needs `id`, directly or through others. @param {string} id */
-  const descendants = (id) => {
-    /** @type {Set<string>} */
-    const seen = new Set();
-    const stack = [...(dependents.get(id) ?? [])];
-    while (stack.length) {
-      const d = /** @type {string} */ (stack.pop());
-      if (seen.has(d) || d === id) continue;
-      seen.add(d);
-      stack.push(...(dependents.get(d) ?? []));
-    }
-    return seen;
-  };
+  const dependents = dependentsOf(r.items);
+  const descendants = (/** @type {string} */ id) => descendantsOf(dependents, id);
   /**
    * The heaviest chain of open work from `id` down through what needs it, inside `within` when
    * given. Each call has its own memo; a cycle counts nothing past where it closes.
@@ -476,4 +490,64 @@ export function releaseSummary(ranking, items, o) {
     ...(note ? { note } : {}),
     outside_releases: outside,
   };
+}
+
+/**
+ * @typedef {object} DecisionOverlap an open decision whose touches overlap a ready item's
+ * @property {string} decision the decision's ID
+ * @property {string} title
+ * @property {string[]} paths the item's touches that overlap the decision's
+ */
+
+/**
+ * The open decisions in each ready item's tier whose touches overlap the item's (HITLD-1047): work
+ * started before a decision on the same files is settled often changes after the answer. A
+ * decision's tier is the nearest open release whose closure holds it, as an item's is; outside
+ * every release both are outside, and that counts as the same tier. A decision the item feeds (one
+ * among what needs it, directly or through others) is left out: the item informs it, and holding
+ * the item would hold the answer. An item with no touches overlaps nothing. Items with no overlap
+ * are left out of the map.
+ * @param {{
+ *   items: Item[],
+ *   ready: Item[],
+ *   ranking: Pick<Ranking, 'keys' | 'releases'>,
+ *   touches: (item: Item) => string[],
+ *   overlap: (a: string, b: string) => boolean,
+ * }} r items: every entry the tracker holds; touches: an entry's own, else derived (touches.mjs);
+ *   overlap: whether two globs overlap (item.mjs globsOverlap)
+ * @returns {Map<string, DecisionOverlap[]>}
+ */
+export function decisionOverlaps(r) {
+  /** @type {Map<string, DecisionOverlap[]>} */
+  const out = new Map();
+  const open = r.items.filter((i) => i.kind === 'decision' && isOpen(i));
+  if (!open.length) return out;
+  /** @param {string} id */
+  const tierOf = (id) => r.ranking.releases.find((rel) => rel.closure.has(id))?.id ?? null;
+  const decisions = open
+    .map((d) => ({
+      id: String(d.id),
+      title: String(d.title ?? ''),
+      tier: tierOf(String(d.id)),
+      touches: r.touches(d),
+    }))
+    .filter((d) => d.touches.length);
+  if (!decisions.length) return out;
+  const dependents = dependentsOf(r.items);
+  for (const item of r.ready) {
+    const id = String(item.id);
+    const own = r.touches(item);
+    if (!own.length) continue;
+    const tier = r.ranking.keys.get(id)?.release ?? tierOf(id);
+    const feeds = descendantsOf(dependents, id);
+    /** @type {DecisionOverlap[]} */
+    const hits = [];
+    for (const d of decisions) {
+      if (d.tier !== tier || feeds.has(d.id)) continue;
+      const paths = own.filter((t) => d.touches.some((x) => r.overlap(t, x)));
+      if (paths.length) hits.push({ decision: d.id, title: d.title, paths });
+    }
+    if (hits.length) out.set(id, hits);
+  }
+  return out;
 }

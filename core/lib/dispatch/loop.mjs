@@ -9,11 +9,11 @@
 
 import { dispatchExecutor, reportedEvent } from '../run/protocol.mjs';
 import { nextDispatchId, readLedger } from '../ledger/ledger.mjs';
-import { deriveReady, rankQueue, weightsOf } from './queue.mjs';
+import { decisionOverlaps, deriveReady, rankQueue, weightsOf } from './queue.mjs';
 import { sizeItem } from './sizing.mjs';
 import { planDispatch } from './plan.mjs';
 import { renderBrief } from './brief.mjs';
-import { slugify } from './item.mjs';
+import { globsOverlap, slugify } from './item.mjs';
 import { parseReport } from '../contract/report.mjs';
 
 /**
@@ -88,6 +88,14 @@ export async function runDispatchLoop(r) {
       sizes,
       weight: weightsOf(r.items, r.policy, [], { sizes }),
     });
+    const onDecisions = decisionOverlaps({
+      items: r.items,
+      ready: readyItems,
+      ranking,
+      // Own touches only, as this loop's overlap rule uses: it has no repository to derive from.
+      touches: (i) => /** @type {string[]} */ (i.touches ?? []),
+      overlap: globsOverlap,
+    });
     const plan = planDispatch({
       queue: ranking.queue,
       sizes,
@@ -97,6 +105,7 @@ export async function runDispatchLoop(r) {
       gate,
       overlapSerialize: r.policy.dispatch?.serialize_overlap_share,
       critical: ranking.critical,
+      decisions: (i) => onDecisions.get(String(i.id)) ?? [],
     });
 
     for (const p of plan.inline) {

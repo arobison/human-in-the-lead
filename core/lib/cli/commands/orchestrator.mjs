@@ -84,7 +84,13 @@ import {
   historyFromLedger,
   sizeItem,
 } from '../../dispatch/sizing.mjs';
-import { rankQueue, releaseSummary, unblockCounts, weightsOf } from '../../dispatch/queue.mjs';
+import {
+  decisionOverlaps,
+  rankQueue,
+  releaseSummary,
+  unblockCounts,
+  weightsOf,
+} from '../../dispatch/queue.mjs';
 import { awaitingMerge, planDispatch, queuedBranches } from '../../dispatch/plan.mjs';
 import {
   backlogHoldText,
@@ -110,7 +116,7 @@ import {
   reportBlock,
   reportsByMessage,
 } from '../../dispatch/brief.mjs';
-import { inlineGlobs, slugify } from '../../dispatch/item.mjs';
+import { globsOverlap, inlineGlobs, slugify } from '../../dispatch/item.mjs';
 import { parentKey, recordParent } from '../../dispatch/parent.mjs';
 import {
   mergedSincePlanned,
@@ -648,6 +654,7 @@ export function readyQueue(p, ctx) {
     critical,
     keys,
     releases,
+    chain: ranking.releases,
     inFlight,
     awaiting: awaitingReady,
     backlog,
@@ -802,6 +809,15 @@ export function plan(p, ctx, byHand, only, mergeFix = false) {
     storeRoot: p.store.root,
     policy: p.policy,
   });
+  // An open decision in the same tier on the same files holds a ready item, softly (HITLD-1047).
+  // Planned alone, the item is offered past the hold only when no other ready item is free of one.
+  const onDecisions = decisionOverlaps({
+    items: q.work.items,
+    ready: q.queue,
+    ranking: { keys: q.keys, releases: q.chain },
+    touches: (item) => touchesFor(item).touches,
+    overlap: globsOverlap,
+  });
   // With the owner's queue full, work that does not route to the owner goes first in each tier
   // (HITLD-1046); the plan says when it applied the rule and why.
   const owned = ownerQueueOrder(
@@ -845,6 +861,10 @@ export function plan(p, ctx, byHand, only, mergeFix = false) {
     touches: (item) => touchesFor(item),
     executorModes: () => refusals,
     mergeFix: only !== undefined && mergeFix,
+    decisions: (item) => onDecisions.get(String(item.id)) ?? [],
+    decisionFallback:
+      only === undefined ||
+      !q.queue.some((i) => String(i.id) !== only && !onDecisions.has(String(i.id))),
     backlog: { hold: q.backlog.hold, why: backlogHoldText(q.backlog) },
   });
   if (owned.note && only === undefined) result.notes.push(owned.note);

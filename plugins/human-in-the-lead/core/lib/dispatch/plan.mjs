@@ -69,6 +69,8 @@ export const BACKLOG_REASON = 'merge-backlog';
  *   touches?: (item: Item) => import('./touches.mjs').Touches,
  *   executorModes?: (item: Item) => ModeAbility,
  *   mergeFix?: boolean,
+ *   decisions?: (item: Item) => import('./queue.mjs').DecisionOverlap[],
+ *   decisionFallback?: boolean,
  *   backlog?: { hold: boolean, why: string },
  * }} r
  *   setup: until the first-run setup is done (design part 13.4), every item waits (reason
@@ -84,6 +86,12 @@ export const BACKLOG_REASON = 'merge-backlog';
  *   quota gate's economize mode, a setup not done) cannot deadlock behind branches waiting to
  *   merge. One past only: a second fix waits for a slot as any item does. A harness that runs one
  *   executor at a time gives no slot past it
+ *   decisions: the open decisions in the item's tier whose touches overlap its own
+ *   (queue.mjs decisionOverlaps). Such an item is held for a later plan (reason `decision`),
+ *   softly: when the plan would offer nothing else, it is offered with a note, so a run never
+ *   stalls behind an open decision (HITLD-1047). A merge fix (mergeFix) is never held
+ *   decisionFallback: whether that soft offer may be made; false when the caller plans one item
+ *   alone and other ready work is free of every open decision. Default true
  *   backlog: the merge backlog's hold (backlog.mjs): with one full batch of finished branches
  *   waiting on the merge queue, every dispatched start is held (reason merge-backlog), except the
  *   one item that fixes a stuck merge; tier-0 work, done inline, is not a start and goes on
@@ -119,6 +127,8 @@ export function planDispatch(r) {
   const held = [];
   /** @type {{ item: string, with: string[], why: string }[]} proposals that overlap one before them */
   const notTogether = [];
+  /** @type {{ planned: Planned, overlaps: import('./queue.mjs').DecisionOverlap[] }[]} */
+  const deferred = [];
   // What running dispatches hold: an item they block is held. What the start list proposes holds
   // nothing: an item that would clash with a proposal waits behind it, and may start instead.
   const busy = new Set(r.running.flatMap((d) => d.serial_resources));
@@ -315,9 +325,48 @@ export function planDispatch(r) {
       if (mode) planned.mode = mode;
       if (modeNote) itemNotes.push(modeNote);
     }
+    // An open decision in the same tier names the same files (HITLD-1047): the item waits for a
+    // later plan unless the plan offers nothing else (below). A merge fix is never held by one:
+    // holding it would bring back the stall behind a stuck merge (HITLD-978).
+    const overlaps = r.mergeFix ? [] : (r.decisions?.(item) ?? []);
+    if (overlaps.length) {
+      deferred.push({ planned, overlaps });
+      continue;
+    }
     start.push(planned);
     for (const s of serial) proposedSerial.add(s);
     proposedTouches.push(...touches.touches);
+  }
+
+  // The hold is soft: with nothing else to offer, the held items are offered in queue order, each
+  // with a note, so a run never stalls behind an open decision.
+  const offerHeld = r.decisionFallback !== false && !start.length && !inline.length;
+  const pastCap = r.mergeFix && caps.parallel_subagents ? 1 : 0;
+  for (const { planned, overlaps } of deferred) {
+    const named = overlaps.map((o) => `${o.decision} (${o.paths.join(', ')})`).join('; ');
+    if (!offerHeld) {
+      held.push({
+        item: planned.item,
+        reason: 'decision',
+        why: `its touches overlap an open decision in its tier, ${named}: it waits for a later plan, as work started before the decision is settled often changes with the answer`,
+      });
+      continue;
+    }
+    if (
+      r.running.length + start.length >= cap + pastCap ||
+      planned.serial.some((s) => proposedSerial.has(s)) ||
+      (proposedTouches.length &&
+        overlapShare(planned.touches.touches, proposedTouches) >= (r.overlapSerialize ?? 0.5))
+    ) {
+      waiting++;
+      continue;
+    }
+    planned.notes.push(
+      `nothing else is ready, so it is offered though its touches overlap an open decision in its tier, ${named}: read the decision before starting, and expect to revisit the work once it is answered`,
+    );
+    start.push(planned);
+    for (const s of planned.serial) proposedSerial.add(s);
+    proposedTouches.push(...planned.touches.touches);
   }
 
   return {
