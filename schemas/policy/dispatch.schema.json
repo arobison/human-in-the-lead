@@ -82,6 +82,12 @@
       "maximum": 1,
       "default": 0.5
     },
+    "owner_queue_max": {
+      "description": "The most finished branches that may wait on the owner (in owner merge mode, those that change a path under merge.owner_paths or merge.owner_areas and have no approval yet). At or over it, the plan offers ready work whose touches do not route to the owner ahead of work that does, in the same tier of the ready queue, and says so. It holds nothing back: with only owner work ready, that work is still offered.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 4
+    },
     "tier3_mode": {
       "description": "How a tier-3 item runs by default: headless (a background claude -p run in its own worktree; its exit is the completion notice) or interactive (a session the owner starts and steers).",
       "enum": ["headless", "interactive"],

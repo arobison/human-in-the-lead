@@ -52,7 +52,8 @@ import { findTerms, matchMessage } from '../guard/private-terms.mjs';
 import { UNASSIGNED } from '../rights/trust.mjs';
 import { matchesAny } from '../precedent/glob.mjs';
 import { unverifiedAnswers } from './answers.mjs';
-import { areasOf, waitsForOwner } from './owner.mjs';
+import { dependencyChanges, dependencySetupMessage, worktreeSetup } from '../env/setup-gap.mjs';
+import { areasOf, dependencyFileNames, waitsForOwner } from './owner.mjs';
 import { QUARANTINE_PATH } from './quarantine.mjs';
 import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
 
@@ -70,7 +71,11 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  * @property {string[]} checks the checks a pull request waits for, by name
  * @property {number} checkTimeoutMinutes
  * @property {{ globs: string[], regenerate?: string }[]} generated rebuilt after main is merged in
- * @property {string[]} [setup] commands run once in the queue's fresh worktree (env.worktree_setup)
+ * @property {string[]} [setup] env.worktree_setup: run in the queue's worktree before it rebuilds
+ *   generated files, on the branch with main merged in, and again only on one whose dependency
+ *   files differ from those it last ran on (HITLD-1054); never when nothing is rebuilt
+ * @property {string[]} [dependencyFiles] the names of the dependency manifests and lockfiles
+ *   (dependencyFileNames, owner.mjs); main's policy's when not given
  * @property {import('../guard/classification.mjs').Rules} [classification]
  * @property {(dir: string) => string[]} [trackerCheck]
  * @property {(dir: string) => string[]} [kbCheck] the knowledge base's errors (`hitld kb check`)
@@ -120,7 +125,7 @@ import { dependencyOrder, kbMessage, shellExec, stageAll } from './queue.mjs';
  *   delegated_by: string | null, dispatch?: string }} PullMerged approval: the owner's, when they
  *   approved it; delegated_by: the decision it was merged under without asking, with the owner's sign-off
  * @typedef {{ item: string, branch: string, reason: 'conflict' | 'classification' | 'duplicate_id' | 'knowledge_base' | 'quarantine'
- *   | 'not_closed' | 'publish' | 'checks' | 'missing' | 'needs_rejected', files?: string[], checks?: Check[],
+ *   | 'not_closed' | 'publish' | 'setup' | 'checks' | 'missing' | 'needs_rejected', files?: string[], checks?: Check[],
  *   output?: string, message?: string, number?: number, url?: string, dispatch?: string }} PullRejected
  * @typedef {{ item: string, branch: string, number: number, url: string, head: string, checks: string[],
  *   waited_ms: number, dispatch?: string }} PullWaiting a pull request whose named checks have not all finished
@@ -487,6 +492,10 @@ export async function runPullRequestQueue(r) {
     /** After a merge: whether this clone's main was brought up to the fetched main (HITLD-839).
      * @type {ReturnType<typeof bringUpToMain> | undefined} */
     checkout: undefined,
+    /** Each run of env.worktree_setup, and how many updated branches reused the last run: setup
+     * runs on the branch it rebuilds, again only where the dependency files changed (HITLD-1054).
+     * @type {{ runs: import('../env/setup-gap.mjs').SetupRun[], reused: number }} */
+    setup: { runs: [], reused: 0 },
     /** @type {{ kind: 'fetch' | 'push' | 'update', message: string } | null} */
     incident: null,
     state,
@@ -551,10 +560,12 @@ export async function runPullRequestQueue(r) {
   const dir = mkdtempSync(join(tmpdir(), 'hitld-merge-pr-'));
   gitOk(r.repoRoot, ['worktree', 'add', '--detach', '--force', dir, main]);
   try {
-    for (const cmd of s.setup ?? []) {
-      const out = exec(cmd, dir, {});
-      if (!out.ok) throw new Error(`the queue worktree's setup failed at "${cmd}": ${out.output}`);
-    }
+    // Setup runs on the branch the queue rebuilds, never on main's tip alone: a branch that adds a
+    // package or changes the lockfile is rebuilt with its own dependencies (HITLD-1054).
+    const dependencyNames = new Set(s.dependencyFiles ?? dependencyFileNames(r.policy));
+    const setup = worktreeSetup({ dir, commands: s.setup ?? [], names: dependencyNames, exec });
+    result.setup = setup.record;
+    const rebuilds = s.generated.some((g) => g.regenerate);
     /** @param {string} sha */
     const checkout = (sha) => gitOk(dir, ['checkout', '--detach', '--force', '--quiet', sha]);
     const rejectedNow = new Set();
@@ -827,6 +838,33 @@ export async function runPullRequestQueue(r) {
         }
         const added = [gitOk(dir, ['rev-parse', 'HEAD'])];
         let rebuilt = false;
+        // Setup before the rebuild, on the branch with main merged in: again only when its
+        // dependency files differ from the last run's. A failure is the branch's when it changes
+        // them, and says so; otherwise nothing is the executor's to fix.
+        /** @type {import('../env/setup-gap.mjs').SetupOutcome} */
+        const ready = rebuilds ? setup.ensure(added[0], 'batch') : { ok: true, ran: false };
+        if (!ready.ok) {
+          const own = dependencyChanges(dir, main, added[0], dependencyNames);
+          if (!own.length) {
+            throw new Error(
+              `the queue worktree's setup failed at "${ready.command}" on ${e.branch}, which changes no dependency file: ${ready.output}`,
+            );
+          }
+          reject(e, {
+            reason: 'setup',
+            files: own,
+            output: ready.output,
+            number: pr.number,
+            url: pr.url,
+            message: dependencySetupMessage({
+              files: own,
+              command: ready.command,
+              where: `your branch with ${s.mainBranch} merged in`,
+              output: ready.output,
+            }),
+          });
+          continue;
+        }
         for (const g of s.generated) {
           if (!g.regenerate) continue;
           const out = exec(g.regenerate, dir, {});
