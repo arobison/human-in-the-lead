@@ -2,7 +2,7 @@
 id: HITLD-1046
 title: When the owner's awaiting-merge queue is full, the ready queue offers work that does not route to the owner first
 kind: work
-state: in-progress
+state: done
 created: 2026-11-25
 project: HITLD-15
 needs: [HITLD-995]
