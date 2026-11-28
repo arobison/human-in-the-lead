@@ -2,10 +2,11 @@
 id: HITLD-1013
 title: The quiet-machine test ignores background-priority load and reads the GPU separately
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M8G4D7CYTCVZFC
 ---
 
 ## Done when
