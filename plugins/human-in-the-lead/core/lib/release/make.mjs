@@ -206,6 +206,7 @@ export async function makeRelease(
       tagged: false,
       pushed: false,
       pr: pullRequest(p, { r: first.r, path: first.path, notes: first.notes }),
+      issues: p.issues,
       warnings: p.warnings,
       next: `Nothing was pushed or tagged. Push the branch (git push origin ${onto}) and open a pull request from it to ${layout.mainBranch} with pr.title and pr.body. Squash-merging it with the owner's Signed-off-by is the release: the release workflow tags ${first.r.tag} on the squash commit once the owner approves the run in the release environment.`,
     };
@@ -237,6 +238,7 @@ export async function makeRelease(
     commit,
     tagged: true,
     pushed: false,
+    issues: p.issues,
     warnings: p.warnings,
     next: `Nothing was pushed. When ready: git push origin ${layout.mainBranch} ${tags.join(' ')}`,
   };
@@ -420,6 +422,16 @@ function pullRequest(p, { r, path, notes }) {
     '',
     delta,
     '',
+    ...(p.issues.length
+      ? [
+          '## Issues to close when it ships',
+          '',
+          ...p.issues.map((x) => `- issue ${x.issue} (${x.item})`),
+          '',
+          'Each stays open until the release is published; then close each one still open, with a comment naming the release.',
+          '',
+        ]
+      : []),
     ...(p.warnings.length ? ['## Warnings', '', ...p.warnings.map((w) => `- ${w}`), ''] : []),
     '## Merging is the release',
     '',

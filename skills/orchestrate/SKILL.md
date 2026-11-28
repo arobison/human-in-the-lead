@@ -108,12 +108,12 @@ If the owner says to skip setup for now, do not write anything. Work the owner s
 2. Make that call exactly as printed:
    - `Agent` (tiers 1 and 2): every input field as given, including `name`, `isolation`, `model`, `effort` and `run_in_background`. Do not edit the prompt: the brief points to the item and plan on purpose.
    - `Bash` (headless): the command as given, in the foreground. It starts the run as a durable process (its own process group, its events, process ID and result in the store) and prints its `pid` at once. Nothing waits for it: you may end your turn.
-   - `session` (tier 3, interactive): with a chief of staff, put `start_session` in your message (in the cloud, add the brief's text: the chief of staff cannot read your files). When the brief asks the executor to open its own pull request (a session that cannot push `main`), it says the executor may push its own branch, and only that branch, to open it, and never pushes `main` or another branch. When you are both, start the session yourself, or ask the owner. Its brief ends with the communication block, which names your session: the executor sends its report there at the end of every turn. `dispatch start` writes it from your session ID, and refuses with `no-report-block` when it has none it could send to: pass `--session <your harness session ID>`.
+   - `session` (tier 3, interactive): with a chief of staff, put `start_session` in your message (in the cloud, add the brief's text: the chief of staff cannot read your files). When the brief asks the executor to open its own pull request (a session that cannot push `main`), it says the executor may push its own branch, and only that branch, to open it, and never pushes `main` or another branch. When the item has a `source_issue`, the brief also says the pull request body refers to the issue as `Refs #<N>`, never `Closes`, `Fixes` or `Resolves #<N>` (section "Triaging a forge issue"). When you are both, start the session yourself, or ask the owner. Its brief ends with the communication block, which names your session: the executor sends its report there at the end of every turn. `dispatch start` writes it from your session ID, and refuses with `no-report-block` when it has none it could send to: pass `--session <your harness session ID>`.
 3. `hitld dispatch handle --dispatch D-<n> --harness-ref <the agent ID, or the headless run's pid>`. When the agent that runs it changes (you started it again another way), handle it again with the new reference: the last one stands, so the watchdog reaches what runs.
 
 Make worktrees only through `hitld env` (`hitld dispatch start` does it for tier 3, `hitld env setup` otherwise), never with `git worktree add` or by hand: then each one is tracked, and goes when its branch merges or its dispatch ends.
 
-Then do useful work between notices: merge, answer questions, triage. Do not wait.
+Then do useful work between notices: merge, answer questions, triage (section "Triaging a forge issue"). Do not wait.
 
 **Starts under the owner's run scope.** When the owner has named a run scope (`hitld run scope show`), the chief of staff starts its items itself (`hitld dispatch start --scope`), without the lease and without a start line typed here, and its wake says `started <dispatch> (<item>) under the run scope`. `hitld dispatch plan`, `start`, `handle` and `complete` pull the store first when it has a remote, so they are in flight in your plan as any start, take slots in the same cap (a start and its cap check hold one lock on this machine), and report to you: complete and merge them as your own (step 4). Do not start a scope item yourself as well. Your hand-over holds your starts only, not the chief of staff's.
 
@@ -207,6 +207,14 @@ Private things are named by their role, never by name, in everything that may be
 1. **Before you post** a pull request's title or body, an issue or review comment, or release notes, write the text to a file and run `hitld publish check --file <file>` (several `--file`s for a title and a body, or `--text -` from standard input). Post only when it is `ok` and `list_found` is true; when the list was not checked (`list_found: false`, named in its warnings), do not post: report it to the owner.
 2. **When it is refused** (`error: private-term`), each `problems` line names the kind and the line, never the term. Write those lines again, naming the thing by its role, and check again. Never work around a refusal, never post the text without the check, and never ask for the term or run `hitld private list`.
 3. **A refused commit** is the same rule: the commit hooks and the merge refuse a file or commit message that holds a private term (rule `private-term`). Write it again by role.
+
+## Triaging a forge issue
+
+The chief of staff triages the project's forge issues and posts every reply on them, by the rule in its skill's section "Triaging a forge issue": what a duplicate, a filed item, a fix on main, a request for information and a decline each post, and when the issue closes. When you are both, follow that section yourself. Its parts that touch your steps:
+
+- An item filed from an issue records the issue's number in `source_issue`. Its pull request says `Refs #<N>`, never `Closes`, `Fixes` or `Resolves #<N>`, so the merge does not close the issue (step 3's brief says so).
+- At the merge the issue gets a comment, "fixed on main by <item>, ships in <release>", and stays open. It is closed when the release that carries the fix ships, from the `issues` that `hitld release propose` and `hitld release make` list.
+- A decline is posted and the issue closed only after the owner's own yes. The routine replies (a duplicate pointer, fixed on main, needs information, and the filed acknowledgment) need none, and are listed to the owner in the next message.
 
 ## Feedback about HITLd
 

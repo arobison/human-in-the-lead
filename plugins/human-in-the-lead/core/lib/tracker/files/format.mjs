@@ -267,6 +267,9 @@ export function fieldProblems(d, layout) {
   return problems;
 }
 
+/** Optional keys the item schema types as an integer, stored as text in the file. */
+const INTEGER_OPTIONAL_KEYS = ['estimate_tokens', 'tier_override', 'source_issue'];
+
 /** @param {unknown} v */
 const intOrSame = (v) => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v);
 
@@ -301,7 +304,7 @@ export function toEntity(d, layout) {
   e.classification = d.classification ?? layout.defaultClassification;
   for (const k of layout.optionalKeys) {
     if (k === 'classification' || k === 'owner' || d[k] === undefined) continue;
-    e[k] = k === 'estimate_tokens' || k === 'tier_override' ? intOrSame(d[k]) : d[k];
+    e[k] = INTEGER_OPTIONAL_KEYS.includes(k) ? intOrSame(d[k]) : d[k];
   }
   for (const def of layout.fields) {
     if (d[def.name] !== undefined) e[def.name] = fieldValue(def, d[def.name]);

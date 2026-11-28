@@ -516,6 +516,80 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
   );
 });
 
+// --- Issues an item comes from close when its release ships (HITLD-1015) ----------------------
+
+test('propose and make list the issues of the items a release ships first; an earlier pre-release keeps its own', async () => {
+  /** @param {string} id @param {string} state @param {Record<string, unknown>} more */
+  const item = (id, state, more = {}) => ({
+    [`work/items/${id}-from-issue.md`]: itemText({
+      id,
+      title: `From an issue ${id}`,
+      kind: 'work',
+      state,
+      project: 'W-2',
+      touches: ['src/**'],
+      ...more,
+    }),
+  });
+  const root = releaseRepo({
+    ...item('W-9', 'done', { source_issue: 604 }),
+    ...item('W-10', 'done', { source_issue: 603 }),
+    ...item('W-11', 'done'),
+    ...item('W-12', 'planned', { source_issue: 605 }),
+  });
+  // source_issue is always on: the fixture's tracker turns on no optional key.
+  assert.deepEqual(open(root).check().problems, []);
+
+  const p = await hitld(['release', 'propose', '--pre', 'rc'], root);
+  assert.equal(p.code, 0, JSON.stringify(p.json));
+  assert.deepEqual(p.json.issues, [
+    { issue: 603, item: 'W-10' },
+    { issue: 604, item: 'W-9' },
+  ]);
+  assert.deepEqual(p.json.releases[0].issues, p.json.issues);
+
+  const branch = await hitld(['release', 'make', '--pre', 'rc', '--branch', 'release'], root);
+  assert.equal(branch.code, 0, JSON.stringify(branch.json));
+  assert.deepEqual(branch.json.issues, p.json.issues);
+  assert.match(
+    branch.json.pr.body,
+    /## Issues to close when it ships\n\n- issue 603 \(W-10\)\n- issue 604 \(W-9\)\n\nEach stays open until the release is published/,
+  );
+  assert.doesNotMatch(branch.json.pr.body, /\b(close[sd]?|fix(es|ed)?|resolve[sd]?) #\d/i);
+
+  const rc = await hitld(['release', 'make', '--pre', 'rc'], root);
+  assert.equal(rc.code, 0, JSON.stringify(rc.json));
+  assert.deepEqual(rc.json.issues, p.json.issues);
+
+  // W-12 ships in rc.2; the issues rc.1 shipped are not listed again.
+  put(root, item('W-12', 'done', { source_issue: 605 }));
+  commitAll(root, 'W-12 is done');
+  const next = await hitld(['release', 'propose', '--pre', 'rc'], root);
+  assert.equal(next.json.version, '0.1.0-rc.2');
+  assert.deepEqual(next.json.items.sort(), ['W-10', 'W-11', 'W-12', 'W-3', 'W-9']);
+  assert.deepEqual(next.json.issues, [{ issue: 605, item: 'W-12' }]);
+});
+
+test('work check refuses a source_issue that is not a whole number above zero', async () => {
+  for (const bad of ['abc', '0', '-3', '1.5']) {
+    const root = releaseRepo({
+      'work/items/W-9-bad.md': itemText({
+        id: 'W-9',
+        title: 'Bad issue',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        source_issue: bad,
+      }),
+    });
+    const problems = open(root).check().problems;
+    assert.ok(
+      problems.some((x) => /W-9/.test(JSON.stringify(x)) && /source_issue/.test(JSON.stringify(x))),
+      `${bad}: ${JSON.stringify(problems)}`,
+    );
+  }
+});
+
 // --- Release items carry their version, and a release waits for what they need (HITLD-129) -----
 
 /** A work item file in the fixture tracker. @param {string} id @param {Record<string, unknown>} more */

@@ -79,6 +79,11 @@
       "type": "string",
       "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
     },
+    "source_issue": {
+      "description": "The number of the forge issue the item comes from, when triage filed it from one. The release that first ships the item lists the issue, so the ship step closes it with a comment naming the release; a pull request for the item refers to it and never closes it.",
+      "type": "integer",
+      "minimum": 1
+    },
     "credit": {
       "type": "array",
       "items": {

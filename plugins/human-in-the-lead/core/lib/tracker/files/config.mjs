@@ -54,9 +54,10 @@ const LEGACY_SETTINGS = /** @type {Record<string, string>} */ ({ lists_readme: '
  * Optional keys that are always on, whatever optional_keys lists: the executor contract, the
  * sizer, the overlap rule and the merge evidence read `touches`, and the sizer honors
  * `tier_override` as the owner's override, so a fresh project must be able to write them
- * (HITLD-286). Listing them changes nothing.
+ * (HITLD-286). Triage records the issue an item comes from in `source_issue`, and the release
+ * step lists those issues to close, in any project (HITLD-1015). Listing them changes nothing.
  */
-export const ALWAYS_ON_OPTIONAL_KEYS = ['touches', 'tier_override'];
+export const ALWAYS_ON_OPTIONAL_KEYS = ['touches', 'tier_override', 'source_issue'];
 
 /**
  * The names tracker.json optional_keys may turn on, from schemas/tracker.schema.json.
