@@ -2,11 +2,13 @@
 id: HITLD-1052
 title: "A live lock holder is never revoked by the clock: owner identity, liveness, release by token, backoff and signal handlers; the merge queue's holder name is unique per run"
 kind: work
-state: planned
+state: done
 created: 2026-11-25
 project: HITLD-15
 needs: [HITLD-1051]
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M8AF3VD9RNKH04
+release_note: "Machine locks: a holder is its name plus its process ID, start time and boot, and each grant carries a token. A holder whose process is alive and is the very one is never taken over when `env.lock_expiry_seconds` passes; the expiry now applies only when liveness cannot be checked (another host, or no start time). End a hung holder with `hitld env unlock --force`, logged as `lock_forced`; without it, `env unlock` releases only the hold taken for `--pid` (default the caller's parent) or a stale one. `env lock` reports `renewed`; waiters back off from 50 ms to 1 s and leave the queue on SIGINT and SIGTERM; `env status` shows each holder's identity, age and last renewal, and flags records written by an older copy, naming it on PATH. Upgrade every copy of hitld on the machine: an older copy still takes over a live holder at its expiry, and, since these records keep no `pid_start`, loses its own pid-reuse check on them and matches a release for a pid by the pid alone."
 ---
 
 ## Done when
@@ -17,7 +19,7 @@ constraint_of: [HITLD-67 c?]
 - Waiters poll with backoff from 50 ms to 1 s with jitter, with `fs.watch` on the locks directory as a hint only; every wake-up re-checks the full state. A waiter takes a timeout and an abort signal, and ending either way removes its ticket. The `ps` liveness probe is cached so a CLI lock does not make the head waiter spawn it about 20 times a second.
 - `env status` shows each holder's identity, age, last renewal and any wait, and flags records and tickets written by an rc.1 copy (no version marker) and names the outdated copy on PATH.
 - The orchestrator's merge queue holds its lock under a name unique to the run, takes it inside the `try` that releases it, and releases it on every exit.
-- Multi-process tests, synchronised with barrier files and not sleeps, assert: an executor asking again while others queue renews at once; two processes with one name are refused; kill -9 of a holder admits the next waiter; a stale handle's release leaves the new holder in place; N processes hammering a capacity-4 resource never record weights above 4 (read from an append-only grant and release log); an rc.1-format record and ticket are respected.
+- Multi-process tests, synchronized with barrier files and not sleeps, assert: an executor asking again while others queue renews at once; two processes with one name are refused; kill -9 of a holder admits the next waiter; a stale handle's release leaves the new holder in place; N processes hammering a capacity-4 resource never record weights above 4 (read from an append-only grant and release log); an rc.1-format record and ticket are respected.
 - `npm run check`, the offline eval gate and `hitld work check` pass.
 
 ## Why
@@ -26,6 +28,6 @@ GitHub issue 656 (a holder that asks again stalls every waiter until the lock's 
 
 ## Notes
 
-Third of three lock items (HITLD-1050, HITLD-1051, this). Needs HITLD-1051 merged. OWNER-HELD: it changes what `lock_expiry_seconds` means (policy and public-schema wording), the CLI's interface, the merge path's lock use, and probably a skill line. Known risks, from the design review: a hung but live holder now holds until forced (if hangs prove commoner than crashes, add fencing tokens and a lease the holder must keep renewing); mixed rc.1 and rc.2 copies keep rc.1's failures, so the release notes should say to upgrade every copy on PATH; liveness is still a judgement (`ps` start time has one-second resolution), and if the model checker shows the mutex double-break at `core/lib/env/mutex.mjs` can admit two holders, move liveness to a listening Unix-socket beacon. Left out on purpose: ordered multi-resource acquire (`acquireAll`, `withLock`) for GitHub issues 635 and 637, merge-gate priority over executors' heavy jobs (issue 604), and the benchmark gate (HITLD-559); all are rc.3. The quiet-machine predicate (HITLD-1013) composes with this: the head waiter evaluates it after reserving the machine, with its own bounded wait that releases the reservation.
+Third of three lock items (HITLD-1050, HITLD-1051, this). Needs HITLD-1051 merged. OWNER-HELD: it changes what `lock_expiry_seconds` means (policy and public-schema wording), the CLI's interface, the merge path's lock use, and probably a skill line. Known risks, from the design review: a hung but live holder now holds until forced (if hangs prove commoner than crashes, add fencing tokens and a lease the holder must keep renewing); mixed rc.1 and rc.2 copies keep rc.1's failures, so the release notes should say to upgrade every copy on PATH; liveness is still a judgment (`ps` start time has one-second resolution), and if the model checker shows the mutex double-break at `core/lib/env/mutex.mjs` can admit two holders, move liveness to a listening Unix-socket beacon. Left out on purpose: ordered multi-resource acquire (`acquireAll`, `withLock`) for GitHub issues 635 and 637, merge-gate priority over executors' heavy jobs (issue 604), and the benchmark gate (HITLD-559); all are rc.3. The quiet-machine predicate (HITLD-1013) composes with this: the head waiter evaluates it after reserving the machine, with its own bounded wait that releases the reservation.
 
 The HITLD-1051 reviews add two things for this item: two callers in one process under one holder name are renewed, not refused, so one handle's release removes the other's hold (decide whether a name is unique per process or per handle); and the `env lock` JSON should carry a `renewed` field (owner's answer, 2026-11-25: not in rc.2's 1050, with this item). The ghost-ticket case (a dead waiter's pid reused, so it holds the head of the queue) is in this item's scope: tickets need a start time.

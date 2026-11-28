@@ -118,7 +118,7 @@ export function openEnv(options) {
       checkSerial(r.resource);
       return await acquireLock(locks, { ttlSeconds: settings.lockExpirySeconds, ...r });
     },
-    /** @param {Parameters<typeof releaseLock>[1]} r */
+    /** @param {Parameters<typeof releaseLock>[1]} r by name: for a process, by token, or forced */
     releaseLock(r) {
       checkSerial(r.resource);
       return releaseLock(locks, r);
@@ -147,7 +147,9 @@ export function openEnv(options) {
 
     /**
      * Release everything a holder has: its worktree, its port (stopping only a server the
-     * manager started), and any locks it holds.
+     * manager started), and any locks it holds. The locks go forced, whatever process holds them
+     * (a hung one too), and each forced removal of a live hold is logged as lock_forced: this is
+     * how the watchdog and the merge end a finished dispatch's holds.
      * @param {{ holder: string, result: 'merged' | 'abandoned' | 'failed', removeAdopted?: boolean }} r
      */
     async releaseHolder(r) {
@@ -156,7 +158,7 @@ export function openEnv(options) {
       const released = lockStatus(locks, settings.serialResources)
         .filter((l) => l.holders.some((h) => h.holder === r.holder))
         .map((l) => {
-          releaseLock(locks, { resource: l.resource, holder: r.holder });
+          releaseLock(locks, { resource: l.resource, holder: r.holder, force: true });
           return l.resource;
         });
       return { worktree, port, locks: released };

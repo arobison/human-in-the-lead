@@ -6,6 +6,8 @@
 import { SINGLE, decide, holderSlot } from '../../lib/env/lockcore.mjs';
 
 export const HOST = 'model-host';
+/** The model machine's boot: every process in it belongs to this one. */
+export const BOOT = 'model-boot';
 /** The model's clock starts here: a real date, so the records' times are real ISO strings. */
 export const EPOCH = Date.parse('2026-01-01T00:00:00.000Z');
 
@@ -18,17 +20,27 @@ export const EPOCH = Date.parse('2026-01-01T00:00:00.000Z');
  * @typedef {import('../../lib/env/lockcore.mjs').Effect} Effect
  * @typedef {import('../../lib/env/lockcore.mjs').Outcome} Outcome
  *
- * @typedef {{ id: string, name: string, pid: number, weight: number }} ActorSpec
- * @typedef {{ r: string, mode: 'held' | 'waiting', ticket: string | null, weight: number | null }} At
+ * @typedef {{ id: string, name: string, pid: number, weight: number, noStart?: boolean,
+ *   reusedHidden?: boolean }} ActorSpec `reusedHidden`: the process that reuses its pid is one whose
+ *   identity cannot be read (another user's, or hidden by /proc)
+ *   `noStart`: its process's start time cannot be read, so its liveness cannot be checked and its
+ *   expiry is the limit
+ * @typedef {{ r: string, mode: 'held' | 'waiting', ticket: string | null, weight: number | null,
+ *   token: string | null }} At
  * @typedef {{ crashed: boolean, reused: boolean, at: At | null }} ActorState
  * @typedef {{ single: Slot | null, holders: Record<string, Slot>, queue: Record<string, Ticket> }} Files
- * @typedef {{ now: number, procs: Record<number, { alive: boolean, start: string }>,
+ * @typedef {{ now: number, procs: Record<number, { alive: boolean, start: string | null }>,
  *   files: Record<string, Files>, actors: Record<string, ActorState> }} World
  * @typedef {{ actors: ActorSpec[], capacity: Record<string, number>, ttlMs: number }} Model
  */
 
-/** The start time an actor's own process has; a process that reuses its pid has another. */
-export const startOf = (/** @type {ActorSpec} */ a) => `start-${a.id}`;
+/**
+ * The start time an actor's own process has, null when it cannot be read; a process that reuses
+ * its pid has another.
+ */
+export const startOf = (/** @type {ActorSpec} */ a) => (a.noStart ? null : `start-${a.id}`);
+/** The token an actor's grants carry: one actor holds one grant at a time. */
+export const tokenOf = (/** @type {ActorSpec} */ a) => `tok-${a.id}`;
 
 /** @param {Model} m @returns {World} */
 export function initialWorld(m) {
@@ -53,6 +65,7 @@ export function stateOf(m, w, r) {
     capacity: m.capacity[r],
     now: w.now,
     host: HOST,
+    boot: BOOT,
     single: f.single,
     holders: Object.values(f.holders),
     queue: Object.values(f.queue),
@@ -94,13 +107,15 @@ export const askEvent = (m, a, r, wait, ticket) => ({
   type: 'ask',
   holder: a.name,
   pid: a.pid,
-  pidStart: startOf(a),
+  start: startOf(a),
   self: a.pid,
+  selfStart: startOf(a),
   weight: m.capacity[r] > 1 ? a.weight : 1,
   wait,
   ticket,
   ttlMs: m.ttlMs,
   nonce: a.id,
+  token: tokenOf(a),
 });
 
 /**
@@ -119,7 +134,7 @@ export function runAsk(m, w, r, ev) {
       type: 'confirm',
       holder: ev.holder,
       pid: ev.pid,
-      pidStart: ev.pidStart,
+      start: ev.start,
       wait: ev.wait,
       ticket,
     });
@@ -162,7 +177,10 @@ export function runStep(m, w, s) {
   const st = w.actors[a.id];
   if (s.do === 'reuse') {
     if (!st.crashed || st.reused) return null;
-    const procs = { ...w.procs, [a.pid]: { alive: true, start: `reused-${a.id}` } };
+    const procs = {
+      ...w.procs,
+      [a.pid]: { alive: true, start: a.noStart || a.reusedHidden ? null : `reused-${a.id}` },
+    };
     return { world: setActor({ ...w, procs }, a.id, { ...st, reused: true }), result: 'ok' };
   }
   if (st.crashed) return null;
@@ -191,9 +209,15 @@ export function runStep(m, w, s) {
     /** @type {At | null} */
     let at = null;
     if (outcome.kind === 'granted') {
-      at = { r, mode: 'held', ticket: null, weight: outcome.record.weight ?? null };
+      at = {
+        r,
+        mode: 'held',
+        ticket: null,
+        weight: outcome.record.weight ?? null,
+        token: outcome.record.token ?? null,
+      };
     } else if (outcome.kind === 'queued') {
-      at = { r, mode: 'waiting', ticket: outcome.ticket, weight: null };
+      at = { r, mode: 'waiting', ticket: outcome.ticket, weight: null, token: null };
     }
     return { world: setActor(world, a.id, { ...st, at }), result: resultOf(outcome) };
   }
@@ -202,8 +226,7 @@ export function runStep(m, w, s) {
     const d = decide(stateOf(m, w, st.at.r), {
       type: 'renew',
       holder: a.name,
-      pid: a.pid,
-      pidStart: startOf(a),
+      token: /** @type {string} */ (st.at.token),
       ttlMs: m.ttlMs,
       weight: st.at.weight,
     });
@@ -212,19 +235,17 @@ export function runStep(m, w, s) {
   if (s.do === 'release' || s.do === 'releaseByName') {
     const r = s.do === 'release' ? st.at?.r : s.r;
     if (!r || (s.do === 'release' && st.at?.mode !== 'held')) return null;
-    // By name, as the command line releases for a holder: not while that holder's process is
-    // blocked waiting in an ask, which it would not leave.
-    if (s.do === 'releaseByName' && st.at?.mode === 'waiting') return null;
     /** @type {LockEvent} */
     const ev =
       s.do === 'release'
-        ? { type: 'release', holder: a.name, pid: a.pid, pidStart: startOf(a) }
-        : { type: 'release', holder: a.name };
+        ? { type: 'release', holder: a.name, token: /** @type {string} */ (st.at?.token) }
+        : { type: 'release', holder: a.name, force: true };
     const d = decide(stateOf(m, w, r), ev);
     const world = applyEffects(w, r, d.effects);
-    const keep = s.do === 'releaseByName' && st.at?.r !== r;
+    // A forced release by name (the command line's --force, the watchdog) is done to the holder,
+    // which still has its handle: a stale one now, whose release must remove nothing.
     return {
-      world: keep ? world : setActor(world, a.id, { ...st, at: null }),
+      world: s.do === 'releaseByName' ? world : setActor(world, a.id, { ...st, at: null }),
       result: resultOf(d.outcome),
     };
   }
@@ -268,10 +289,20 @@ export function live(w, sl) {
   if (!r) return Math.abs(w.now - sl.mtime) <= GRACE_MS;
   const p = w.procs[r.pid];
   if (!p?.alive) return false;
-  if (r.pid_start && w.now - Date.parse(r.renewed_at) > PID_CHECK_MS && p.start !== r.pid_start) {
-    return false;
+  const expired = Date.parse(r.expires_at) < w.now;
+  if (!expired && w.now - Date.parse(r.renewed_at) <= PID_CHECK_MS) return true;
+  // Past that, a process that can be told to be the very one holds, expired or not; one that
+  // cannot be told holds until its expiry.
+  // This copy's records (the model writes no other kind) compare `start`: a verified holder ends
+  // only when its process reads as another one.
+  if (r.start) {
+    // Nothing looked up this time: it stands. Read as itself, or as another: decided. Not
+    // readable: not verified, so its expiry is the limit.
+    if (p.start === undefined) return true;
+    if (p.start !== null) return p.start === r.start;
+    return !expired;
   }
-  return Date.parse(r.expires_at) >= w.now;
+  return !expired;
 }
 
 /**
@@ -285,10 +316,18 @@ function actorOf(m, w, pid, start) {
   return a;
 }
 
-/** @param {World} w @param {string} r @returns {Ticket[]} */
+/**
+ * The tickets whose waiter lives: its process alive, and the very one when both start times are
+ * known (a process that reused a dead waiter's pid does not wait).
+ * @param {World} w @param {string} r @returns {Ticket[]}
+ */
 const liveTickets = (w, r) =>
   Object.values(w.files[r].queue)
-    .filter((t) => w.procs[t.pid]?.alive)
+    .filter((t) => {
+      const p = w.procs[t.pid];
+      // A ticket with an identity is its waiter's only while the process reads as that waiter.
+      return !!p?.alive && !(t.start && p.start !== undefined && p.start !== t.start);
+    })
     .sort((a, b) => a.n - b.n || (a.name < b.name ? -1 : 1));
 
 /**
@@ -320,13 +359,17 @@ export function brokenInvariant(m, w) {
     const holders = new Set(
       slots
         .filter((sl) => sl.record && live(w, sl))
-        .map(
-          (sl) =>
-            actorOf(m, w, /** @type {LockRecord} */ (sl.record).pid, sl.record?.pid_start)?.id,
-        )
+        .map((sl) => actorOf(m, w, /** @type {LockRecord} */ (sl.record).pid, sl.record?.start)?.id)
         .filter((x) => x !== undefined),
     );
     const tickets = liveTickets(w, r);
+    // No ghost in line: a live ticket whose waiter's start time is known is that waiter's, and
+    // it is waiting on it.
+    for (const t of tickets) {
+      if (!t.start) continue;
+      const a = actorOf(m, w, t.pid, t.start);
+      if (!a || w.actors[a.id].at?.ticket !== t.name) return `${r}: ghost ticket ${t.name}`;
+    }
     const waiters = tickets.map((t) => actorOf(m, w, t.pid, undefined)?.id ?? null);
     // No waiter waits on a holder that is itself waiting: no live holder has a ticket too.
     for (const id of waiters) if (id && holders.has(id)) return `${r}: ${id} holds and waits`;
@@ -421,7 +464,7 @@ export function brokenProgress(m, w) {
         !(
           sl.record?.holder === x.name &&
           sl.record?.pid === x.pid &&
-          sl.record?.pid_start === startOf(x)
+          sl.record?.start === startOf(x)
         ),
     );
     if (gone.length) return `${r}: ${x.id}'s release removed another holder's record`;
@@ -443,7 +486,9 @@ export function brokenProgress(m, w) {
 /**
  * @typedef {Step & { expect?: string, during?: boolean }} TraceStep
  * @typedef {{ name: string, actors: ActorSpec[], ttlMs: number, steps: TraceStep[],
- *   holder?: string | null }} Trace
+ *   holder?: string | null, modelOnly?: boolean }} Trace `modelOnly`: a fault the file-system
+ *   run cannot make (a start time that cannot be read, a waiter's pid reused); lock-traces covers
+ *   each in a test of its own
  */
 
 const A = { id: 'a', name: 'D-A', pid: 9001, weight: 1 };
@@ -451,6 +496,7 @@ const B = { id: 'b', name: 'D-B', pid: 9002, weight: 1 };
 const C = { id: 'c', name: 'D-C', pid: 9003, weight: 1 };
 const X1 = { id: 'a', name: 'D-X', pid: 9001, weight: 1 };
 const X2 = { id: 'b', name: 'D-X', pid: 9002, weight: 1 };
+const N = { id: 'a', name: 'D-N', pid: 9001, weight: 1, noStart: true };
 
 /** @type {Trace[]} */
 export const TRACES = [
@@ -482,17 +528,60 @@ export const TRACES = [
     holder: 'b',
   },
   {
-    name: "a lapsed handle's release leaves the new holder's record under the same name",
+    name: "a forced-off handle's release leaves the new holder's record under the same name",
     actors: [X1, X2],
-    ttlMs: 1_000,
+    ttlMs: 300_000,
     steps: [
       { do: 'ask', actor: 'a', r: 'gpu', expect: 'granted' },
-      { do: 'clock', ms: 2_000 },
+      { do: 'releaseByName', actor: 'a', r: 'gpu', expect: 'released' },
       { do: 'ask', actor: 'b', r: 'gpu', expect: 'granted' },
       { do: 'release', actor: 'a', expect: 'kept' },
       { do: 'ask', actor: 'b', r: 'gpu', expect: 'renewed' },
     ],
     holder: 'b',
+  },
+  {
+    name: 'a live holder past its expiry keeps the lock: the clock never revokes it',
+    actors: [A, B],
+    ttlMs: 1_000,
+    steps: [
+      { do: 'ask', actor: 'a', r: 'gpu', expect: 'granted' },
+      { do: 'clock', ms: 2_000 },
+      { do: 'ask', actor: 'b', r: 'gpu', expect: 'refused' },
+      { do: 'clock', ms: 20_000 },
+      { do: 'ask', actor: 'b', r: 'gpu', expect: 'refused' },
+      { do: 'ask', actor: 'a', r: 'gpu', expect: 'renewed' },
+    ],
+    holder: 'a',
+  },
+  {
+    name: 'a holder whose liveness cannot be checked is taken over once it expires',
+    actors: [N, B],
+    ttlMs: 1_000,
+    modelOnly: true,
+    steps: [
+      { do: 'ask', actor: 'a', r: 'gpu', expect: 'granted' },
+      { do: 'ask', actor: 'b', r: 'gpu', expect: 'refused' },
+      { do: 'clock', ms: 2_000 },
+      { do: 'ask', actor: 'b', r: 'gpu', expect: 'granted' },
+    ],
+    holder: 'b',
+  },
+  {
+    name: 'a dead waiter whose pid was reused does not hold the head of the queue',
+    actors: [A, B, C],
+    ttlMs: 300_000,
+    modelOnly: true,
+    steps: [
+      { do: 'ask', actor: 'a', r: 'gpu', expect: 'granted' },
+      { do: 'ask', actor: 'b', r: 'gpu', wait: true, expect: 'queued' },
+      { do: 'ask', actor: 'c', r: 'gpu', wait: true, expect: 'queued' },
+      { do: 'crash', actor: 'b' },
+      { do: 'reuse', actor: 'b' },
+      { do: 'release', actor: 'a', expect: 'released' },
+      { do: 'poll', actor: 'c', expect: 'granted' },
+    ],
+    holder: 'c',
   },
   {
     name: 'a lock file being written is held, not taken over, until it has stayed unreadable',
@@ -555,7 +644,7 @@ export function runTraceInModel(t) {
     if (s.expect !== undefined) results.push(next.result);
   }
   const single = w.files.gpu.single?.record;
-  const holder = single ? (actorOf(m, w, single.pid, single.pid_start)?.id ?? null) : null;
+  const holder = single ? (actorOf(m, w, single.pid, single.start)?.id ?? null) : null;
   return { results, holder };
 }
 

@@ -10,7 +10,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, nextTicket, parseTicket, ticketName } from '../lib/env/lockcore.mjs';
+import {
+  decide,
+  nextTicket,
+  parseTicket,
+  sameProcess,
+  sameStart,
+  staleReason,
+  ticketGone,
+  ticketName,
+} from '../lib/env/lockcore.mjs';
 import {
   TRACES,
   brokenInvariant,
@@ -29,15 +38,18 @@ import {
 
 /**
  * Three actors: a and b share a holder name from two processes (as the merge queue's callers
- * do), c is heavier. r0 is taken whole (the single lock); r1 has a capacity of 2. Each actor
+ * did before HITLD-1052), c is heavier, and its start time cannot be read, so its liveness cannot
+ * be checked and its expiry is the limit (a and b, whose can, are never revoked by the clock).
+ * A process that reuses b's pid is one whose identity cannot be read: b's record then stands
+ * only until its expiry, never for good. r0 is taken whole (the single lock); r1 has a capacity of 2. Each actor
  * works on one resource at a time: ordering several resources is left to rc.3 (acquireAll).
  * @type {Model}
  */
 const MODEL = {
   actors: [
     { id: 'a', name: 'D-X', pid: 101, weight: 1 },
-    { id: 'b', name: 'D-X', pid: 102, weight: 1 },
-    { id: 'c', name: 'D-Y', pid: 103, weight: 2 },
+    { id: 'b', name: 'D-X', pid: 102, weight: 1, reusedHidden: true },
+    { id: 'c', name: 'D-Y', pid: 103, weight: 2, noStart: true },
   ],
   capacity: { r0: 1, r1: 2 },
   ttlMs: 12_000,
@@ -116,7 +128,7 @@ function keyOf(w) {
               s.slot,
               s.record.holder,
               s.record.pid,
-              s.record.pid_start,
+              s.record.start,
               s.record.weight ?? 0,
               rel(s.record.renewed_at),
             ]
@@ -280,13 +292,13 @@ test("a waiter's first ask writes its ticket before its attempt, in one decision
     type: 'ask',
     holder: 'D-2',
     pid: 2,
-    pidStart: 's2',
     self: 2,
     weight: 1,
     wait: true,
     ticket: null,
     ttlMs: 60_000,
     nonce: 'n',
+    token: 't',
   });
   assert.equal(d.outcome.kind, 'queued');
   assert.deepEqual(
@@ -295,4 +307,179 @@ test("a waiter's first ask writes its ticket before its attempt, in one decision
   );
   // The state given is unchanged.
   assert.equal(state.queue.length, 0);
+});
+
+test('identity: this copy compares start, an older copy pid_start only to keep a hold, never to end it', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  const iso = (/** @type {number} */ t) => new Date(t).toISOString();
+  // Expired and renewed long ago, so the identity is what decides.
+  const base = {
+    resource: 'gpu',
+    holder: 'D-1',
+    pid: 7,
+    host: 'h',
+    acquired_at: iso(now - 60_000),
+    renewed_at: iso(now - 60_000),
+    expires_at: iso(now - 1_000),
+  };
+  /** @param {object} record @param {object} proc */
+  const judge = (record, proc) =>
+    staleReason(
+      { slot: 'single', record: /** @type {any} */ (record), mtime: now },
+      { now, host: 'h', boot: 'b', procs: { 7: { alive: true, ...proc } } },
+    );
+  const ours = { ...base, pid_start: 'Mon 09:00', start: 'tick:100', boot: 'b', v: 2 };
+  assert.equal(judge(ours, { start: 'tick:100' }), null, 'the very one: kept past its expiry');
+  assert.match(String(judge(ours, { start: 'tick:200' })), /reused/, 'another process');
+  // The lookup itself failed this time (no `start` at all): a passing fault revokes nothing.
+  assert.equal(judge(ours, {}), null, 'a failed lookup keeps a verified live holder');
+  // A reused pid whose identity cannot be read (another user's, hidden by /proc): not verified,
+  // so the expiry applies, and before it the hold stands; never a hold for good.
+  assert.match(String(judge(ours, { start: null })), /liveness cannot be checked/);
+  const unexpired = { ...ours, expires_at: iso(now + 60_000) };
+  assert.equal(judge(unexpired, { start: null }), null, 'held until its expiry');
+  // Another kind of identity (a `tick:` record, a `utc:` reading): not verified either.
+  assert.match(String(judge(ours, { start: 'utc:Mon 14:00' })), /liveness cannot be checked/);
+  assert.equal(judge(unexpired, { start: 'utc:Mon 14:00' }), null);
+  // A pid_start that differs (another caller's time zone) never ends this copy's record.
+  assert.equal(judge(ours, { start: 'tick:100', legacy: 'Mon 04:00' }), null);
+  const older = { ...base, pid_start: 'Mon 09:00' };
+  assert.equal(judge(older, { legacy: 'Mon 09:00' }), null, "an older copy's record, matching");
+  assert.match(
+    String(judge(older, { legacy: 'Mon 04:00' })),
+    /liveness cannot be checked/,
+    'a mismatch falls to the expiry, never "reused"',
+  );
+  assert.equal(
+    judge({ ...older, expires_at: iso(now + 60_000) }, { legacy: 'Mon 04:00' }),
+    null,
+    'and before its expiry it holds',
+  );
+  assert.equal(sameStart('tick:1', 'tick:1'), true);
+  assert.equal(sameStart('tick:1', 'tick:2'), false);
+  assert.equal(sameStart('tick:1', 'utc:x'), null);
+  assert.equal(sameStart(null, 'tick:1'), null);
+  // Tickets: this copy's by start; an older copy's by its pid alone.
+  const procs = { 9: { alive: true, start: 'tick:5' } };
+  const t = { name: 'x', n: 1, pid: 9 };
+  assert.equal(ticketGone({ ...t, start: 'tick:6', v: 2 }, { procs }), true, 'reads as another');
+  assert.equal(ticketGone({ ...t, start: 'tick:5', v: 2 }, { procs }), false, 'its waiter');
+  // A ticket has no expiry: one whose waiter cannot be verified would hold the line for good.
+  assert.equal(ticketGone({ ...t, start: 'utc:y', v: 2 }, { procs }), true, 'another kind');
+  const hidden = { 9: { alive: true, start: null } };
+  assert.equal(ticketGone({ ...t, start: 'tick:5', v: 2 }, { procs: hidden }), true, 'unreadable');
+  const failed = { 9: { alive: true } };
+  assert.equal(
+    ticketGone({ ...t, start: 'tick:5', v: 2 }, { procs: failed }),
+    false,
+    'lookup failed',
+  );
+  assert.equal(ticketGone(t, { procs }), false, "an older copy's ticket, by its pid");
+  // sameProcess: only a readable identity on both sides that differs says another process; when
+  // either side's is unreadable or absent, host, pid and boot decide.
+  const host = { host: 'h', boot: 'b' };
+  assert.equal(sameProcess(ours, { pid: 7, start: 'tick:100' }, host), true);
+  assert.equal(sameProcess(ours, { pid: 7, start: 'tick:200' }, host), false, 'another process');
+  assert.equal(sameProcess(ours, { pid: 7, start: 'utc:x' }, host), false, 'another kind');
+  assert.equal(sameProcess(ours, { pid: 7, start: null }, host), true, 'the caller unreadable');
+  assert.equal(sameProcess(ours, { pid: 7 }, host), true, "the caller's absent");
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7, start: 'tick:100' }, host), true);
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7, start: null }, host), true);
+  assert.equal(sameProcess(older, { pid: 7, start: 'tick:100' }, host), true, 'an older record');
+  // Host, pid and boot still decide.
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 8, start: null }, host), false);
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7 }, { host: 'g', boot: 'b' }), false);
+  assert.equal(sameProcess({ ...ours, start: null }, { pid: 7 }, { host: 'h', boot: 'c' }), false);
+});
+
+test('a caller whose identity cannot be read re-locks and releases by name; a readable other is refused', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  const iso = (/** @type {number} */ t) => new Date(t).toISOString();
+  /** @param {string | null} start @returns {any} */
+  const rec = (start) => ({
+    resource: 'gpu',
+    holder: 'D-1',
+    pid: 7,
+    pid_start: null,
+    start,
+    host: 'h',
+    acquired_at: iso(now - 1_000),
+    renewed_at: iso(now - 1_000),
+    expires_at: iso(now + 60_000),
+    token: 'tok',
+    boot: 'b',
+    v: 2,
+  });
+  /** @param {any} record @param {string | null | undefined} live the pid's identity now */
+  const state = (record, live) => ({
+    resource: 'gpu',
+    capacity: 1,
+    now,
+    host: 'h',
+    boot: 'b',
+    procs: { 7: { alive: true, ...(live === undefined ? {} : { start: live }) } },
+    single: { slot: 'single', record, mtime: now },
+    holders: [],
+    queue: [],
+  });
+  /** @param {string | null} start */
+  const ask = (start) =>
+    /** @type {const} */ ({
+      type: 'ask',
+      holder: 'D-1',
+      pid: 7,
+      start,
+      self: 7,
+      selfStart: start,
+      weight: 1,
+      wait: false,
+      ticket: null,
+      ttlMs: 60_000,
+      nonce: 'n',
+      token: 'new',
+    });
+  /** @param {string | null} start */
+  const release = (start) =>
+    /** @type {const} */ ({ type: 'release', holder: 'D-1', pid: 7, start, self: 9 });
+  /** @param {any} d */
+  const shape = (d) => [d.outcome.kind, d.outcome.renewed ?? null];
+
+  // Written by a caller whose identity could not be read, asked again by it: renewed, token kept.
+  const hidden = decide(state(rec(null), null), ask(null));
+  assert.deepEqual(shape(hidden), ['granted', true]);
+  assert.equal(hidden.outcome.kind === 'granted' && hidden.outcome.record.token, 'tok');
+  assert.equal(hidden.outcome.kind === 'granted' && hidden.outcome.record.start, null);
+  // Either side unreadable is enough.
+  assert.deepEqual(shape(decide(state(rec(null), 'tick:1'), ask('tick:1'))), ['granted', true]);
+  assert.deepEqual(shape(decide(state(rec('tick:1'), 'tick:1'), ask(null))), ['granted', true]);
+  // Released by name for that pid, either side unreadable.
+  for (const [r, c] of /** @type {const} */ ([
+    [null, null],
+    [null, 'tick:1'],
+    ['tick:1', null],
+  ])) {
+    const d = decide(state(rec(r), c), release(c));
+    assert.equal(d.outcome.kind, 'released', `record ${r}, caller ${c}`);
+    assert.deepEqual(
+      d.effects.map((e) => e.op),
+      ['remove', 'log'],
+    );
+  }
+  // A readable identity on both sides that differs: refused, and the hold stays. Another kind
+  // (`utc:` against `tick:`) is not verified as the holder either, so the expiry is its limit.
+  const other = decide(state(rec('utc:x'), 'utc:x'), ask('tick:2'));
+  assert.deepEqual(
+    [other.outcome.kind, other.outcome.kind === 'refused' && other.outcome.conflict],
+    ['refused', true],
+  );
+  const kept = decide(state(rec('utc:x'), 'utc:x'), release('tick:2'));
+  assert.equal(kept.outcome.kind, 'kept');
+  assert.equal(kept.outcome.kind === 'kept' && kept.outcome.by?.pid, 7);
+  // Fresh, that is still refused; renewed long ago, the same kind that differs is a reused pid:
+  // stale, so the caller takes the name over, as a new grant.
+  assert.equal(decide(state(rec('tick:1'), 'tick:2'), ask('tick:2')).outcome.kind, 'refused');
+  const old = { ...rec('tick:1'), renewed_at: iso(now - 600_000) };
+  const reused = decide(state(old, 'tick:2'), ask('tick:2'));
+  assert.deepEqual(shape(reused), ['granted', false]);
+  assert.equal(reused.outcome.kind === 'granted' && reused.outcome.record.token, 'new');
 });

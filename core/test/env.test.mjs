@@ -1195,10 +1195,8 @@ test('a lock that is held fails at once without wait, and a wait can time out', 
   });
   assert.equal(t.acquired, false);
   assert.equal(!t.acquired && t.timed_out, true);
-  assert.deepEqual(env.releaseLock({ resource: 'gpu', holder: 'D-2' }), {
-    released: false,
-    held_by: 'D-1',
-  });
+  // D-2 holds nothing: nothing goes, and D-1's hold is not this release's to name.
+  assert.deepEqual(env.releaseLock({ resource: 'gpu', holder: 'D-2' }), { released: false });
   assert.ok(a.handle.release());
   assert.ok((await env.acquireLock({ resource: 'gpu', holder: 'D-2' })).acquired);
   env.releaseLock({ resource: 'gpu', holder: 'D-2' });
@@ -1251,9 +1249,29 @@ test('a lock whose holder process is gone is taken over; a live holder is not', 
   env.releaseLock({ resource: 'gpu', holder: 'D-NEW' });
 });
 
-test('a lock past its expiry without renewal is stale; renewing keeps it', async (t) => {
+/**
+ * Make the lock records under a machine directory ones whose holder's liveness cannot be checked:
+ * no start time, as a copy that could not read it writes them. Their expiry is then the limit.
+ * @param {string} machineRoot
+ */
+function withoutStartTimes(machineRoot) {
+  const locks = join(machineRoot, 'locks');
+  const files = readdirSync(locks).flatMap((n) =>
+    n.endsWith('.lock')
+      ? [join(locks, n)]
+      : n.endsWith('.holders')
+        ? readdirSync(join(locks, n)).map((h) => join(locks, n, h))
+        : [],
+  );
+  for (const f of files) {
+    const r = JSON.parse(readFileSync(f, 'utf8'));
+    writeFileSync(f, JSON.stringify({ ...r, pid_start: null, start: null }) + '\n');
+  }
+}
+
+test('a live holder past its expiry keeps its lock; one whose liveness cannot be checked is stale past it', async (t) => {
   const repoRoot = makeRepo();
-  const { env } = await makeEnv({ repoRoot });
+  const { env, machineRoot } = await makeEnv({ repoRoot });
   // Only Date is mocked: the lock reads the clock, and its expiry passes without a real wait.
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const a = await env.acquireLock({
@@ -1264,6 +1282,15 @@ test('a lock past its expiry without renewal is stale; renewing keeps it', async
   });
   assert.ok(a.acquired);
   t.mock.timers.tick(1200);
+  // Its process is this one, alive, and its start time says it is the very one: the clock never
+  // revokes it (HITLD-1052), and another caller is refused, past the pid-reuse window too.
+  assert.equal(env.lockStatus().find((l) => l.resource === 'benchmark')?.stale, null);
+  t.mock.timers.tick(20_000);
+  assert.equal(env.lockStatus().find((l) => l.resource === 'benchmark')?.stale, null);
+  const other = await env.acquireLock({ resource: 'benchmark', holder: 'D-2', autoRenew: false });
+  assert.equal(other.acquired, false);
+  // Without a start time to compare, the expiry is the limit.
+  withoutStartTimes(machineRoot);
   assert.match(String(env.lockStatus().find((l) => l.resource === 'benchmark')?.stale), /expired/);
   // the same holder asking again renews, so it is no longer stale
   const again = await env.acquireLock({ resource: 'benchmark', holder: 'D-1', ttlSeconds: 60 });
@@ -1402,6 +1429,8 @@ test('a weighted holder whose process is gone, or that expired, is taken over', 
   });
   assert.ok(a.acquired);
   t.mock.timers.tick(1200);
+  assert.equal(env.lockStatus().find((l) => l.resource === 'gpu')?.stale, null, 'a live holder');
+  withoutStartTimes(machineRoot);
   assert.match(String(env.lockStatus().find((l) => l.resource === 'gpu')?.stale), /expired/);
   const again = await env.acquireLock({ resource: 'gpu', holder: 'D-1', ttlSeconds: 60 });
   assert.ok(again.acquired, 'asking again as the holder renews');
@@ -1490,7 +1519,13 @@ async function askAgainWhileOthersWait(o) {
     .events()
     .findLast((e) => e.kind === 'lock_acquired' && e.holder === 'D-A');
   assert.equal(renewedEvent?.renewed, true);
-  a.handle.release();
+  // The two requests share one grant (HITLD-1052): one handle's release leaves the other's hold.
+  assert.equal(again.acquired && again.handle.token, a.handle.token, 'the same grant');
+  assert.ok(a.handle.release());
+  assert.equal(a.handle.release(), false, 'a second release of one handle gives up nothing');
+  assert.equal(gpu()?.held_by, 'D-A', "the other handle's hold stays");
+  assert.deepEqual(gpu()?.waiting, ['D-B']);
+  assert.ok(again.acquired && again.handle.release());
   const got = await b;
   assert.ok(got.acquired, 'B takes it once A releases');
   assert.equal(got.acquired && got.renewed, false);
@@ -1649,7 +1684,15 @@ test('the process a lock follows is its identity: the same pid renews, another i
   const other = await env.acquireLock({ resource: 'benchmark', holder: 'D-1', autoRenew: false });
   assert.equal(other.acquired, false);
   assert.equal(!other.acquired && other.held_by?.pid, process.ppid);
-  assert.deepEqual(env.releaseLock({ resource: 'benchmark', holder: 'D-1' }), { released: true });
+  // Released by name for another process: left alone, and that process named; for its own, gone.
+  assert.deepEqual(env.releaseLock({ resource: 'benchmark', holder: 'D-1' }), {
+    released: false,
+    held_by: 'D-1',
+    pid: process.ppid,
+  });
+  assert.deepEqual(env.releaseLock({ resource: 'benchmark', holder: 'D-1', pid: process.ppid }), {
+    released: true,
+  });
 });
 
 test('holders whose names differ only by case keep separate records', async () => {
@@ -1667,10 +1710,12 @@ test('holders whose names differ only by case keep separate records', async () =
 
 test('status names a live holder when the oldest weighted one is stale, so the planner waits', async (t) => {
   const repoRoot = makeRepo();
-  const { env } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
+  const { env, machineRoot } = await makeEnv({ repoRoot, capacity: { gpu: 4 } });
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const old = { resource: 'gpu', holder: 'D-1', ttlSeconds: 1, autoRenew: false };
   assert.ok((await env.acquireLock(old)).acquired);
+  // D-1's liveness cannot be checked, so its expiry is its limit.
+  withoutStartTimes(machineRoot);
   t.mock.timers.tick(10);
   const live = { resource: 'gpu', holder: 'D-2', ttlSeconds: 60, autoRenew: false };
   assert.ok((await env.acquireLock(live)).acquired);
@@ -2495,6 +2540,8 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   const renewal = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7', '--wait']);
   assert.equal(renewal.code, 0, renewal.out);
   assert.equal(renewal.json.holder, 'D-7');
+  assert.equal(renewal.json.renewed, true);
+  assert.equal(lock.json.renewed, false);
   const pid = String(process.pid);
   const elsewhere = await hitld([
     'env',
@@ -2517,6 +2564,137 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
     status.json.locks.find((/** @type {any} */ l) => l.resource === 'gpu').held_by,
     'D-7',
   );
+
+  // Unlock (HITLD-1052): for another process the hold stays, named, and the message says how to
+  // go on without inviting a borrowed --pid; --force takes no --pid; --force ends it, logged; and
+  // unlocking a name that holds nothing is not a failure.
+  const holderPid = status.json.locks.find((/** @type {any} */ l) => l.resource === 'gpu').record
+    .pid;
+  const notMine = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--pid',
+    pid,
+  ]);
+  assert.equal(notMine.code, 1, notMine.out);
+  assert.equal(notMine.json.error, 'lock-held-elsewhere');
+  assert.equal(notMine.json.pid, holderPid);
+  assert.match(
+    notMine.json.message,
+    /if that process is yours, pass --pid \d+; to end someone else's hold use --force \(logged\)/,
+  );
+  const both = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--force',
+    '--pid',
+    String(holderPid),
+  ]);
+  assert.notEqual(both.code, 0);
+  assert.equal(both.json.error, 'usage');
+  assert.match(both.json.message, /--force takes no --pid/);
+  const stillHeld = await hitld(['env', 'status']);
+  assert.equal(
+    stillHeld.json.locks.find((/** @type {any} */ l) => l.resource === 'gpu').held_by,
+    'D-7',
+  );
+  const forced = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--force',
+  ]);
+  assert.equal(forced.code, 0, forced.out);
+  assert.deepEqual([forced.json.ok, forced.json.released], [true, true]);
+  const noop = await hitld(['env', 'unlock', '--resource', 'gpu', '--dispatch', 'D-7']);
+  assert.equal(noop.code, 0, noop.out);
+  assert.deepEqual([noop.json.ok, noop.json.released, noop.json.held_by], [true, false, undefined]);
+  // Taken for the caller's parent (the default), and released with no --pid from a caller with
+  // that same parent; the same command run by a process with another parent is refused.
+  const retake = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7']);
+  assert.equal(retake.code, 0, retake.out);
+  const bin = fileURLToPath(new URL('../bin/hitld.mjs', import.meta.url));
+  const otherParent = spawnSync(
+    process.execPath,
+    [bin, 'env', 'unlock', '--resource', 'gpu', '--dispatch', 'D-7'],
+    { cwd: repoRoot, env, encoding: 'utf8' },
+  );
+  assert.equal(otherParent.status, 1, otherParent.stdout + otherParent.stderr);
+  assert.equal(JSON.parse(otherParent.stdout).error, 'lock-held-elsewhere');
+  assert.equal(JSON.parse(otherParent.stdout).pid, holderPid);
+  const mine = await hitld(['env', 'unlock', '--resource', 'gpu', '--dispatch', 'D-7']);
+  assert.deepEqual([mine.code, mine.json.released], [0, true]);
+  // A caller whose identity cannot be read (as /proc hides another user's process): the CLI,
+  // run with its parent's /proc entry hidden, takes the lock with no identity, takes it again as
+  // a renewal rather than a conflict, and releases it by name. Linux only (the start tick).
+  if (existsSync(`/proc/${process.pid}/stat`)) {
+    const preload = fileURLToPath(new URL('./helpers/hide-identity.mjs', import.meta.url));
+    /** @param {string[]} argv */
+    const hiddenCli = (argv) => {
+      const r = spawnSync(process.execPath, ['--import', preload, bin, ...argv], {
+        cwd: repoRoot,
+        env: { ...env, HIDE_IDENTITY_PIDS: String(process.pid) },
+        encoding: 'utf8',
+      });
+      return { code: r.status, out: r.stdout + r.stderr, json: JSON.parse(r.stdout) };
+    };
+    const gpuLock = ['--resource', 'gpu', '--dispatch', 'D-7'];
+    const hiddenLock = hiddenCli(['env', 'lock', ...gpuLock]);
+    assert.equal(hiddenLock.code, 0, hiddenLock.out);
+    assert.equal(hiddenLock.json.renewed, false);
+    const unread = (await hitld(['env', 'status'])).json.locks.find(
+      (/** @type {any} */ l) => l.resource === 'gpu',
+    ).record;
+    assert.deepEqual([unread.pid, unread.start], [process.pid, null], 'held with no identity');
+    const hiddenAgain = hiddenCli(['env', 'lock', ...gpuLock]);
+    assert.equal(hiddenAgain.code, 0, hiddenAgain.out);
+    assert.equal(hiddenAgain.json.renewed, true);
+    const hiddenUnlock = hiddenCli(['env', 'unlock', ...gpuLock]);
+    assert.deepEqual([hiddenUnlock.code, hiddenUnlock.json.released], [0, true], hiddenUnlock.out);
+    assert.equal(
+      (await hitld(['env', 'status'])).json.locks.find(
+        (/** @type {any} */ l) => l.resource === 'gpu',
+      ).held_by,
+      null,
+    );
+  }
+  const relock = await hitld(['env', 'lock', '--resource', 'gpu', '--dispatch', 'D-7']);
+  assert.equal(relock.code, 0, relock.out);
+  // Held for the very pid the release asks for, under another kind of identity (not verified, so
+  // live until its expiry): kept, and the message never suggests the --pid already given.
+  const gpuFile = readdirSync(xdg, { recursive: true, encoding: 'utf8' })
+    .map((f) => join(xdg, f))
+    .find((f) => f.endsWith('.lock') && JSON.parse(readFileSync(f, 'utf8')).resource === 'gpu');
+  assert.ok(gpuFile);
+  const held = JSON.parse(readFileSync(gpuFile, 'utf8'));
+  writeFileSync(gpuFile, JSON.stringify({ ...held, start: 'utc:another kind' }) + '\n');
+  const sameAsked = await hitld([
+    'env',
+    'unlock',
+    '--resource',
+    'gpu',
+    '--dispatch',
+    'D-7',
+    '--pid',
+    String(held.pid),
+  ]);
+  assert.equal(sameAsked.code, 1, sameAsked.out);
+  assert.equal(sameAsked.json.error, 'lock-held-elsewhere');
+  assert.equal(sameAsked.json.pid, held.pid);
+  assert.doesNotMatch(sameAsked.json.message, /pass --pid/);
+  assert.match(sameAsked.json.message, /--pid cannot release it; .* --force \(logged\)/);
+  writeFileSync(gpuFile, JSON.stringify(held) + '\n');
 
   // the executor's dispatch may run the declared task
   const exec = await asExecutor(['env', 'exec', 'publish'], 'D-7');

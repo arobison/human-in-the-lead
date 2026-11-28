@@ -58,6 +58,8 @@ export const ERROR_CODES = Object.freeze({
     'This session holds the run lease, but on another host than the call gives; the lease is not lost.',
   'lease-released': 'This session released the run lease, so it can no longer record.',
   'lock-held': 'A named resource lock is held by someone else.',
+  'lock-held-elsewhere':
+    "The holder name holds the lock for another live process: if that process is yours, pass its --pid; to end someone else's hold use --force (logged).",
   'lock-timeout': 'A named resource lock was not free before the wait ended.',
 
   // Quotas
