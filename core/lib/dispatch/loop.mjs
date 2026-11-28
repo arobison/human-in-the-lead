@@ -92,6 +92,7 @@ export async function runDispatchLoop(r) {
       items: r.items,
       ready: readyItems,
       ranking,
+      // Own touches only, as this loop's overlap rule uses: it has no repository to derive from.
       touches: (i) => /** @type {string[]} */ (i.touches ?? []),
       overlap: globsOverlap,
     });

@@ -85,7 +85,7 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   decisions: the open decisions in the item's tier whose touches overlap its own
  *   (queue.mjs decisionOverlaps). Such an item is held for a later plan (reason `decision`),
  *   softly: when the plan would offer nothing else, it is offered with a note, so a run never
- *   stalls behind an open decision (HITLD-1047)
+ *   stalls behind an open decision (HITLD-1047). A merge fix (mergeFix) is never held
  *   decisionFallback: whether that soft offer may be made; false when the caller plans one item
  *   alone and other ready work is free of every open decision. Default true
  */
@@ -313,8 +313,9 @@ export function planDispatch(r) {
       if (modeNote) itemNotes.push(modeNote);
     }
     // An open decision in the same tier names the same files (HITLD-1047): the item waits for a
-    // later plan unless the plan offers nothing else (below).
-    const overlaps = r.decisions?.(item) ?? [];
+    // later plan unless the plan offers nothing else (below). A merge fix is never held by one:
+    // holding it would bring back the stall behind a stuck merge (HITLD-978).
+    const overlaps = r.mergeFix ? [] : (r.decisions?.(item) ?? []);
     if (overlaps.length) {
       deferred.push({ planned, overlaps });
       continue;

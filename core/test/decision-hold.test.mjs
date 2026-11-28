@@ -35,7 +35,8 @@ const FILES = ['core/lib/dispatch/plan.mjs', 'core/lib/dispatch/queue.mjs', 'doc
 /**
  * Rank the ready work in `items`, find its decision overlaps with touches derived from the text,
  * and plan it at `cap`.
- * @param {Record<string, any>[]} items @param {{ cap?: number, only?: string }} [o]
+ * @param {Record<string, any>[]} items
+ * @param {{ cap?: number, only?: string, running?: any[], mergeFix?: boolean }} [o]
  */
 function planOf(items, o = {}) {
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -66,8 +67,9 @@ function planOf(items, o = {}) {
   const plan = planDispatch({
     queue,
     sizes,
-    running: [],
+    running: o.running ?? [],
     cap: o.cap ?? 2,
+    mergeFix: o.mergeFix ?? false,
     capabilities: FAKE_PROFILES.full,
     gate: always,
     touches: (i) => ({ touches: touches(i), source: 'derived' }),
@@ -162,4 +164,21 @@ test('a decision in another tier, a decision the item feeds and a closed decisio
     unfed.overlaps.get('W-2')?.map((o) => o.decision),
     ['D-6'],
   );
+});
+
+test('a merge fix is never held by an open decision: with the cap full and other free work, it starts', () => {
+  const items = [
+    decision('D-1', { body: 'Should core/lib/dispatch/plan.mjs hold work for decisions?' }),
+    work('W-2', { body: 'Change core/lib/dispatch/plan.mjs to unstick the merge.' }),
+    work('W-3', { body: 'Reword docs/design.md part 2.' }),
+  ];
+  const running = [{ dispatch: 'D-9', item: 'W-9', serial_resources: [], touches: [] }];
+  // Without --fixes-merge, W-2 planned alone waits for a slot.
+  const plain = planOf(items, { only: 'W-2', cap: 1, running });
+  assert.deepEqual(plain.start, []);
+  assert.equal(plain.plan.waiting, 1);
+  // As a merge fix it takes the slot past the cap, and the open decision holds nothing.
+  const fix = planOf(items, { only: 'W-2', cap: 1, running, mergeFix: true });
+  assert.deepEqual(fix.start, ['W-2']);
+  assert.deepEqual(fix.plan.held, []);
 });
