@@ -77,7 +77,7 @@ function cpuTimes() {
  * @returns {number}
  */
 export function machineLoadPerCore(platform = process.platform) {
-  if (platform !== 'win32') return loadavg()[0] / Math.max(1, availableParallelism());
+  if (platform !== 'win32') return loadavg()[0] / coreCount(availableParallelism());
   const a = cpuTimes();
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, CPU_SAMPLE_MS);
   const b = cpuTimes();
@@ -112,25 +112,40 @@ function runProgram(file, args) {
 
 /**
  * The CPU that processes use, in cores, split by whether they are at background priority, from
- * `ps -A -o pri=,%cpu=` (macOS). Null when nothing parses.
+ * `ps -A -o pri=,%cpu=` (macOS); a comma decimal (some locales) reads as a point. Lines that do
+ * not parse are counted, not dropped unseen: when more than a tenth of them fail, or none parse,
+ * the split is not trusted and this returns null, so the test falls back to the full load average.
  * @param {string | null} text
- * @returns {{ foreground: number, background: number } | null}
+ * @returns {{ foreground: number, background: number, unparsed: number } | null}
  */
 export function parsePriorityCpu(text) {
   if (!text) return null;
   let foreground = 0;
   let background = 0;
   let rows = 0;
+  let unparsed = 0;
   for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
     const m = /^\s*(\d+)\s+(\d+(?:[.,]\d+)?)\s*$/.exec(line);
-    if (!m) continue;
+    const cores = m ? Number(m[2].replace(',', '.')) / 100 : NaN;
+    if (!m || !Number.isFinite(cores)) {
+      unparsed += 1;
+      continue;
+    }
     rows += 1;
-    const cores = Number(m[2].replace(',', '.')) / 100;
     if (Number(m[1]) === BACKGROUND_PRIORITY) background += cores;
     else foreground += cores;
   }
-  return rows ? { foreground, background } : null;
+  if (!rows || unparsed * 10 > rows + unparsed) return null;
+  return { foreground, background, unparsed };
 }
+
+/**
+ * A core count to divide by: a whole number of at least 1. Anything else (0, NaN, a negative)
+ * divides by 1, which reads the load per core high, the safe side.
+ * @param {unknown} n @returns {number}
+ */
+const coreCount = (n) => (typeof n === 'number' && Number.isFinite(n) && n >= 1 ? n : 1);
 
 /**
  * The GPU's busy share, 0 to 1, from `ioreg -r -d 1 -w 0 -c IOAccelerator` (macOS): the highest
@@ -139,9 +154,9 @@ export function parsePriorityCpu(text) {
  */
 export function parseGpuBusy(text) {
   if (!text) return null;
-  const all = [...text.matchAll(/"Device Utilization %"\s*=\s*(\d+(?:\.\d+)?)/g)].map((m) =>
-    Number(m[1]),
-  );
+  const all = [...text.matchAll(/"Device Utilization %"\s*=\s*(\d+(?:\.\d+)?)/g)]
+    .map((m) => Number(m[1]))
+    .filter(Number.isFinite);
   return all.length ? Math.min(1, Math.max(0, Math.max(...all) / 100)) : null;
 }
 
@@ -155,7 +170,7 @@ export function parseGpuBusy(text) {
 export function sampleLoad(options = {}) {
   const platform = options.platform ?? process.platform;
   const run = options.run ?? runProgram;
-  const cores = Math.max(1, options.cores ?? availableParallelism());
+  const cores = coreCount(options.cores ?? availableParallelism());
   /** @type {LoadSample} */
   const sample = { load_per_core: options.loadPerCore ?? machineLoadPerCore(platform) };
   if (platform !== 'darwin') return sample;
@@ -178,8 +193,11 @@ export const ignoresBackground = (machine) => machine?.load?.ignore_background =
  */
 export function gpuIdleThreshold(machine) {
   const set = machine?.load?.idle_gpu_busy;
-  return typeof set === 'number' ? set : DEFAULT_IDLE_GPU_BUSY;
+  return finite(set) ? set : DEFAULT_IDLE_GPU_BUSY;
 }
+
+/** @param {unknown} n @returns {n is number} */
+const finite = (n) => typeof n === 'number' && Number.isFinite(n);
 
 /**
  * The idle threshold: the machine file's `load.idle_per_core`, but never above its `load.max_per_core`
@@ -189,8 +207,8 @@ export function gpuIdleThreshold(machine) {
 export function idleThreshold(machine) {
   const idle = machine?.load?.idle_per_core;
   const max = machine?.load?.max_per_core;
-  const base = typeof idle === 'number' ? idle : DEFAULT_IDLE_LOAD_PER_CORE;
-  return typeof max === 'number' ? Math.min(base, max) : base;
+  const base = finite(idle) ? idle : DEFAULT_IDLE_LOAD_PER_CORE;
+  return finite(max) ? Math.min(base, max) : base;
 }
 
 /**
@@ -209,9 +227,11 @@ export function readIdle(options) {
   const live_executors = options.liveCount ?? liveExecutors(options.machineRoot).length;
   const idle_below = idleThreshold(options.machine);
   const ignore_background = ignoresBackground(options.machine);
+  // A figure that is not a number never compares as idle: NaN fails every comparison, so each is
+  // checked before it is compared.
   const competing =
-    ignore_background && sample.foreground_per_core !== undefined
-      ? Math.min(load_per_core, sample.foreground_per_core)
+    ignore_background && finite(sample.foreground_per_core) && finite(load_per_core)
+      ? Math.min(load_per_core, /** @type {number} */ (sample.foreground_per_core))
       : null;
   /** @type {string[]} */
   const reasons = [];
@@ -220,7 +240,9 @@ export function readIdle(options) {
       `${live_executors} executor${live_executors === 1 ? '' : 's'} running on this machine`,
     );
   }
-  if (competing !== null) {
+  if (!finite(load_per_core)) {
+    reasons.push('the load per core could not be read as a number, so the machine is not idle');
+  } else if (competing !== null) {
     if (competing >= idle_below) {
       reasons.push(
         `competing load ${round(competing)} per core (background priority left out) is not below the idle threshold ${round(idle_below)}`,
@@ -232,10 +254,14 @@ export function readIdle(options) {
     );
   }
   const gpu_idle_below = gpuIdleThreshold(options.machine);
-  if (sample.gpu_busy !== undefined && sample.gpu_busy >= gpu_idle_below) {
-    reasons.push(
-      `GPU busy ${round(sample.gpu_busy)} is not below the GPU idle threshold ${round(gpu_idle_below)}`,
-    );
+  if (sample.gpu_busy !== undefined) {
+    if (!finite(sample.gpu_busy)) {
+      reasons.push('the GPU busy share could not be read as a number, so the machine is not idle');
+    } else if (sample.gpu_busy >= gpu_idle_below) {
+      reasons.push(
+        `GPU busy ${round(sample.gpu_busy)} is not below the GPU idle threshold ${round(gpu_idle_below)}`,
+      );
+    }
   }
   return {
     idle: reasons.length === 0,

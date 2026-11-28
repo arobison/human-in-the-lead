@@ -23,10 +23,13 @@ import {
   sampleLoad,
 } from '../lib/cadence/idle.mjs';
 import {
+  MAX_RUNS,
+  cpuMemoryWorkload,
   noiseVerdict,
   quietTestStatus,
   readNoiseResult,
   runNoiseTest,
+  runsRefusal,
   writeNoiseResult,
 } from '../lib/machine/noise.mjs';
 import { markJobDone, readCadenceState } from '../lib/cadence/state.mjs';
@@ -466,7 +469,27 @@ test('an idle CPU and a busy GPU: not idle, the GPU against its own bar', () => 
   );
 });
 
-test('the noise test speaks only with background work running, and env status shows it with the setting', () => {
+/**
+ * A fake workload: each run resolves at once (or never, with `hang`), and counts how it was used.
+ * @param {{ hang?: boolean, fail?: boolean }} [how]
+ */
+function fakeWorkload(how = {}) {
+  const used = { runs: 0, stopped: 0 };
+  const make = () => ({
+    threads: 4,
+    run: () => {
+      used.runs += 1;
+      if (how.fail) return Promise.reject(new Error('worker failed'));
+      return how.hang ? new Promise(() => {}) : Promise.resolve();
+    },
+    stop: async () => {
+      used.stopped += 1;
+    },
+  });
+  return { used, make };
+}
+
+test('the noise test speaks only with background work running, and env status shows it with the setting', async () => {
   const quietLoad = { load_per_core: 0.4, background_per_core: 0.12, foreground_per_core: 0.05 };
   const close = [100, 101, 99, 100, 102, 100, 98, 101, 100, 100];
   assert.equal(noiseVerdict(close, quietLoad).verdict, 'quiet');
@@ -477,16 +500,36 @@ test('the noise test speaks only with background work running, and env status sh
     'inconclusive',
   );
   assert.equal(noiseVerdict(close, { load_per_core: 0.1 }).verdict, 'unknown');
-  // The run: warm-ups, then the timed runs on the clock given, the load sampled around them.
+  // A median of zero, too few runs, or a timing that is not a number settle nothing.
+  const zero = noiseVerdict([0, 0, 0, 0, 0], quietLoad);
+  assert.equal(zero.verdict, 'inconclusive');
+  assert.match(zero.why, /read zero/);
+  assert.equal(noiseVerdict([100, 100], quietLoad).verdict, 'inconclusive');
+  assert.equal(noiseVerdict([100, NaN, 100, 100], quietLoad).verdict, 'inconclusive');
+  assert.equal(
+    noiseVerdict(close, { load_per_core: 0.1, background_per_core: NaN }).verdict,
+    'unknown',
+  );
+  // The run: a warm-up, then the timed runs on the clock given, the load sampled after each run
+  // (so during the test, not only around it), the medians kept and the workload stopped.
   let t = 0;
-  const result = runNoiseTest({
+  const fake = fakeWorkload();
+  const backgrounds = [0.3, 0.1, 0.12, 0.14, 0.12, 0.13];
+  let s = 0;
+  const result = await runNoiseTest({
     runs: 5,
     clock: () => (t += 50),
-    unit: () => {},
-    sample: () => quietLoad,
+    workload: fake.make,
+    sample: () => ({ ...quietLoad, background_per_core: backgrounds[s++] }),
     now: () => new Date(T0),
   });
   assert.equal(result.runs, 5);
+  assert.equal(result.samples, 6);
+  assert.equal(result.threads, 4);
+  assert.equal(result.background_per_core, 0.13);
+  assert.equal(result.background_min_per_core, 0.1);
+  assert.equal(fake.used.runs, 6);
+  assert.equal(fake.used.stopped, 1);
   assert.equal(result.median_ms, 50);
   assert.equal(result.verdict, 'quiet');
   const dir = tempDir('hitld-noise-');
@@ -507,6 +550,111 @@ test('the noise test speaks only with background work running, and env status sh
   assert.deepEqual(backed.warnings, []);
   writeNoiseResult(dir, { ...result, verdict: 'noisy', why: 'spread' });
   assert.match(quietTestStatus(machine, dir).warnings[0], /reported noisy/);
+});
+
+test('the noise test is bounded: a runs cap, a hard time cap, and its workers always stopped', async () => {
+  assert.equal(runsRefusal(undefined), null);
+  assert.equal(runsRefusal(3), null);
+  assert.equal(runsRefusal(MAX_RUNS), null);
+  assert.match(String(runsRefusal(2)), /from 3 to 100 \(asked for 2\)/);
+  assert.match(String(runsRefusal(MAX_RUNS + 1)), /from 3 to 100 \(asked for 101\)/);
+  assert.match(String(runsRefusal(2.5)), /whole number/);
+  await assert.rejects(runNoiseTest({ runs: 1000, workload: fakeWorkload().make }), /--runs/);
+  // The command refuses the same, before any work starts.
+  const command = findCommand(['machine', 'noise'])?.command;
+  assert.ok(command?.run);
+  const refused = await command.run({ runs: 1000 }, /** @type {any} */ ({ env: {}, cwd: '/' }));
+  assert.equal(refused.ok, false);
+  assert.equal(refused.error, 'usage');
+  // A run that never ends stops at the cap; the workload is stopped all the same.
+  const hung = fakeWorkload({ hang: true });
+  const capped = await runNoiseTest({
+    runs: 5,
+    capMs: 20,
+    workload: hung.make,
+    sample: () => ({ load_per_core: 0.2, background_per_core: 0.1 }),
+  });
+  assert.equal(capped.capped, true);
+  assert.equal(capped.runs, 0);
+  assert.equal(capped.verdict, 'inconclusive');
+  assert.match(capped.why, /cap/);
+  assert.equal(hung.used.stopped, 1);
+  // A failing worker fails the test, and the workload is still stopped.
+  const failing = fakeWorkload({ fail: true });
+  await assert.rejects(
+    runNoiseTest({ workload: failing.make, sample: () => ({ load_per_core: 0 }) }),
+    /worker failed/,
+  );
+  assert.equal(failing.used.stopped, 1);
+});
+
+test('the real noise workload runs on worker threads over a shared buffer and leaves none behind', async () => {
+  const workload = cpuMemoryWorkload({ threads: 2, bytes: 4 * 1024 * 1024 });
+  assert.equal(workload.threads, 2);
+  await workload.run();
+  await workload.run();
+  await workload.stop();
+});
+
+test('the idle test never reads a figure that is not a number as idle, and reads ps and ioreg with care', () => {
+  // Malformed and mixed ps lines: a few stray lines are counted, too many and the split is not
+  // trusted, so the full load average applies.
+  const mixed = ['  4  10.0', ' 31  20.0', 'PRI %CPU', ' 31   5,5', ''].join('\n');
+  const read = parsePriorityCpu(mixed);
+  assert.equal(read, null, 'one bad line in four is more than a tenth');
+  const many = [...Array.from({ length: 19 }, () => ' 31   1.0'), 'garbage line', '  4  50,0'];
+  const tolerated = parsePriorityCpu(many.join('\n'));
+  assert.ok(tolerated);
+  assert.equal(tolerated.unparsed, 1);
+  assert.equal(Math.round(tolerated.foreground * 100), 19);
+  assert.equal(tolerated.background, 0.5, 'a comma decimal reads as a point');
+  const fallback = sampleLoad({
+    platform: 'darwin',
+    cores: 8,
+    loadPerCore: 0.47,
+    run: (file) => (file === 'ps' ? mixed : null),
+  });
+  assert.equal(fallback.foreground_per_core, undefined);
+  const r = readIdle({
+    machineRoot: '/none',
+    liveCount: 0,
+    sample: fallback,
+    machine: { load: { ignore_background: true } },
+  });
+  assert.equal(r.idle, false);
+  assert.match(r.reasons[0], /^load 0.47 per core/);
+  // Several GPUs: the busiest one counts.
+  const gpus = [
+    '"PerformanceStatistics" = {"Device Utilization %"=12}',
+    '"PerformanceStatistics" = {"Device Utilization %"=71}',
+    '"PerformanceStatistics" = {"Device Utilization %"=3}',
+  ].join('\n');
+  assert.equal(parseGpuBusy(gpus), 0.71);
+  // Cores of 0 or NaN divide by 1: the load per core reads high, never NaN.
+  for (const cores of [0, NaN, -2]) {
+    const s = sampleLoad({ platform: 'darwin', cores, loadPerCore: 0.1, run: () => ' 31  50.0\n' });
+    assert.equal(s.foreground_per_core, 0.5, String(cores));
+  }
+  // A figure that is not a number holds the machine.
+  const nanLoad = readIdle({ machineRoot: '/none', liveCount: 0, sample: { load_per_core: NaN } });
+  assert.equal(nanLoad.idle, false);
+  assert.match(nanLoad.reasons[0], /not a number|could not be read/);
+  const nanForeground = readIdle({
+    machineRoot: '/none',
+    liveCount: 0,
+    sample: { load_per_core: 0.6, foreground_per_core: NaN },
+    machine: { load: { ignore_background: true } },
+  });
+  assert.equal(nanForeground.idle, false);
+  assert.equal(nanForeground.competing_per_core, undefined);
+  const nanGpu = readIdle({
+    machineRoot: '/none',
+    liveCount: 0,
+    sample: { load_per_core: 0.01, gpu_busy: NaN },
+  });
+  assert.equal(nanGpu.idle, false);
+  assert.match(nanGpu.reasons[0], /GPU busy share could not be read/);
+  assert.equal(idleThreshold({ load: { idle_per_core: NaN } }), 0.25);
 });
 
 test('the cadence state round-trips through the private store and refuses a damaged file', () => {

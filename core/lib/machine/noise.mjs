@@ -8,8 +8,15 @@
 //
 // It checks the spread, not a slowdown that stays the same from run to run: a steady slowdown
 // moves every timing alike and leaves the comparison between two measurements alone.
+//
+// The workload is what background work would disturb: one worker thread per core, each hashing a
+// shared buffer larger than the processor's caches, so a run needs every core and memory
+// bandwidth. The load is sampled after every timed run, so the background reading covers the runs
+// and not only the moments around them. It is bounded: the workers end when the test ends,
+// whatever happened, and a hard time cap stops it.
 
-import { createHash } from 'node:crypto';
+import { availableParallelism } from 'node:os';
+import { Worker } from 'node:worker_threads';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sampleLoad } from '../cadence/idle.mjs';
@@ -26,10 +33,28 @@ export const BACKGROUND_PRESENT_MIN = 0.02;
 /** How many timed runs, when the caller asks for none. */
 export const DEFAULT_RUNS = 15;
 
+/** The fewest and the most timed runs a caller may ask for. */
+export const MIN_RUNS = 3;
+export const MAX_RUNS = 100;
+
+/** The hard cap on the whole test, warm-up included, in milliseconds. */
+export const TIME_CAP_MS = 120_000;
+
+/** The shared buffer each worker hashes: larger than the caches of the machines hitld runs on. */
+export const BUFFER_BYTES = 256 * 1024 * 1024;
+
 /**
  * @typedef {'quiet' | 'noisy' | 'inconclusive' | 'unknown'} Verdict
  * quiet: background work ran and the timings stayed close; noisy: they spread; inconclusive: no
- * background work ran; unknown: background priority is not readable here (only on macOS)
+ * background work ran, or the timings settle nothing; unknown: background priority is not
+ * readable here (only on macOS)
+ */
+
+/**
+ * @typedef {object} Workload what one timed run does; replaceable, for tests
+ * @property {() => Promise<void>} run one run, resolved when every part of it is done
+ * @property {() => Promise<void>} stop end it, whatever state it is in
+ * @property {number} threads how many threads a run uses
  */
 
 /**
@@ -37,22 +62,77 @@ export const DEFAULT_RUNS = 15;
  * @property {string} at
  * @property {Verdict} verdict
  * @property {string} why
- * @property {number} runs
+ * @property {number} runs the timed runs that finished
+ * @property {number} threads the worker threads each run used
+ * @property {number} samples how many load samples the figures below come from
+ * @property {boolean} [capped] the time cap stopped the test before every run finished
  * @property {number} median_ms
  * @property {number} spread the 10th to 90th percentile range over the median
  * @property {number} spread_max
- * @property {number} load_per_core
+ * @property {number} load_per_core the median over the samples, as are the figures below
  * @property {number} [background_per_core]
+ * @property {number} [background_min_per_core] the lowest background reading of any sample
  * @property {number} [foreground_per_core]
  * @property {number} [gpu_busy]
  */
 
-/** One fixed unit of CPU-bound work: hash a 1 MiB buffer 32 times. */
-function work() {
-  const buffer = Buffer.alloc(1024 * 1024, 7);
-  let h = createHash('sha256');
-  for (let i = 0; i < 32; i += 1) h = createHash('sha256').update(buffer).update(h.digest());
-  return h.digest('hex');
+/** What each worker runs: on every message, hash the whole shared buffer from its own offset. */
+const WORKER_SOURCE = `
+const { parentPort, workerData } = require('node:worker_threads');
+const { createHash } = require('node:crypto');
+const view = new Uint8Array(workerData.buffer);
+const at = workerData.offset;
+parentPort.on('message', () => {
+  const h = createHash('sha256').update(view.subarray(at)).update(view.subarray(0, at));
+  parentPort.postMessage(h.digest().length);
+});
+`;
+
+/**
+ * The real workload: one worker per core over one shared buffer larger than the caches. Each
+ * worker starts at its own offset, so they do not read the same lines at once.
+ * @param {{ threads?: number, bytes?: number }} [options]
+ * @returns {Workload}
+ */
+export function cpuMemoryWorkload(options = {}) {
+  const threads = Math.max(1, options.threads ?? availableParallelism());
+  const bytes = options.bytes ?? BUFFER_BYTES;
+  const buffer = new SharedArrayBuffer(bytes);
+  const view = new Uint8Array(buffer);
+  for (let i = 0; i < bytes; i += 4096) view[i] = (i >>> 12) & 0xff;
+  const workers = Array.from(
+    { length: threads },
+    (_, i) =>
+      new Worker(WORKER_SOURCE, {
+        eval: true,
+        workerData: { buffer, offset: Math.floor((bytes / threads) * i) },
+      }),
+  );
+  /** @param {Worker} w @returns {Promise<void>} */
+  const one = (w) =>
+    new Promise((resolve, reject) => {
+      /** @param {Error} e */
+      const failed = (e) => {
+        w.off('message', done);
+        reject(e);
+      };
+      const done = () => {
+        w.off('error', failed);
+        resolve();
+      };
+      w.once('message', done);
+      w.once('error', failed);
+      w.postMessage('run');
+    });
+  return {
+    threads,
+    run: async () => {
+      await Promise.all(workers.map(one));
+    },
+    stop: async () => {
+      await Promise.all(workers.map((w) => w.terminate()));
+    },
+  };
 }
 
 /** @param {number[]} sorted @param {number} q */
@@ -69,83 +149,150 @@ const round = (n, places = 3) => Math.round(n * 10 ** places) / 10 ** places;
  * @returns {{ verdict: Verdict, why: string, median_ms: number, spread: number }}
  */
 export function noiseVerdict(timings, load) {
-  const sorted = [...timings].sort((a, b) => a - b);
+  const usable = timings.every((t) => Number.isFinite(t) && t >= 0);
+  const sorted = usable ? [...timings].sort((a, b) => a - b) : [];
   const median = sorted.length ? quantile(sorted, 0.5) : 0;
   const spread = median > 0 ? (quantile(sorted, 0.9) - quantile(sorted, 0.1)) / median : 0;
   const shown = `spread ${round(spread)} against ${NOISE_SPREAD_MAX}`;
+  const background = load.background_per_core;
   /** @type {{ verdict: Verdict, why: string }} */
   let v;
-  if (load.background_per_core === undefined) {
+  if (!usable || sorted.length < MIN_RUNS || !(median > 0)) {
+    // A spread over a median of zero, or over too few runs, says nothing about noise.
+    v = {
+      verdict: 'inconclusive',
+      why: !usable
+        ? 'a timing is not a number; run it again'
+        : sorted.length < MIN_RUNS
+          ? `only ${sorted.length} timed run${sorted.length === 1 ? '' : 's'} finished, fewer than ${MIN_RUNS}; run it again`
+          : 'the timings read zero, so their spread means nothing; run it again',
+    };
+  } else if (background === undefined || !Number.isFinite(background)) {
     v = {
       verdict: 'unknown',
       why: 'background priority is not readable on this machine (ps priorities are read on macOS only)',
     };
-  } else if (load.background_per_core < BACKGROUND_PRESENT_MIN) {
+  } else if (background < BACKGROUND_PRESENT_MIN) {
     v = {
       verdict: 'inconclusive',
-      why: `no background work ran (${round(load.background_per_core, 2)} per core); run it again while the system indexes or analyzes media`,
+      why: `no background work ran (${round(background, 2)} per core); run it again while the system indexes or analyzes media`,
     };
   } else if (spread <= NOISE_SPREAD_MAX) {
     v = {
       verdict: 'quiet',
-      why: `background work (${round(load.background_per_core, 2)} per core) left the timings alone: ${shown}`,
+      why: `background work (${round(background, 2)} per core) left the timings alone: ${shown}`,
     };
   } else {
     v = {
       verdict: 'noisy',
-      why: `the timings spread with background work running (${round(load.background_per_core, 2)} per core): ${shown}; leave load.ignore_background off`,
+      why: `the timings spread with background work running (${round(background, 2)} per core): ${shown}; leave load.ignore_background off`,
     };
   }
   return { ...v, median_ms: round(median), spread: round(spread) };
 }
 
+/** @param {number[]} values @returns {number | undefined} */
+const medianOf = (values) => {
+  const finite = values.filter(Number.isFinite).sort((a, b) => a - b);
+  return finite.length ? quantile(finite, 0.5) : undefined;
+};
+
 /**
- * Run the noise test: two warm-up runs, then `runs` timed runs of the fixed workload, with the
- * load sampled before and after (the higher background reading is kept, the lower is not trusted
- * to show what ran).
- * @param {{ runs?: number, now?: () => Date, clock?: () => number, unit?: () => unknown,
- *   sample?: () => import('../cadence/idle.mjs').LoadSample }} [options] replaceable, for tests
- * @returns {NoiseResult}
+ * Whether a number of runs may be asked for; the refusal says why, or null when it may.
+ * @param {unknown} runs @returns {string | null}
  */
-export function runNoiseTest(options = {}) {
-  const runs = Math.max(3, options.runs ?? DEFAULT_RUNS);
+export function runsRefusal(runs) {
+  if (runs === undefined) return null;
+  if (typeof runs !== 'number' || !Number.isInteger(runs)) return '--runs is a whole number';
+  if (runs < MIN_RUNS || runs > MAX_RUNS) {
+    return `--runs is from ${MIN_RUNS} to ${MAX_RUNS} (asked for ${runs}): fewer settle nothing, more only lengthen the test, which stops at ${TIME_CAP_MS / 1000} seconds anyway`;
+  }
+  return null;
+}
+
+/**
+ * Run the noise test: one warm-up run, then `runs` timed runs of the workload, the load sampled
+ * before the first and after each one, between runs so a sample never lands inside a timing. The
+ * figures are the medians over the samples. The workload is stopped at the end, whatever happened,
+ * and the whole test stops at the time cap: the runs that finished are judged, and fewer than three
+ * settle nothing.
+ * @param {{ runs?: number, now?: () => Date, clock?: () => number, workload?: () => Workload,
+ *   sample?: () => import('../cadence/idle.mjs').LoadSample, capMs?: number }} [options]
+ *   replaceable, for tests
+ * @returns {Promise<NoiseResult>}
+ */
+export async function runNoiseTest(options = {}) {
+  const refusal = runsRefusal(options.runs);
+  if (refusal) throw new Error(refusal);
+  const runs = options.runs ?? DEFAULT_RUNS;
   const clock = options.clock ?? (() => performance.now());
-  const unit = options.unit ?? work;
   const sample = options.sample ?? (() => sampleLoad());
-  const before = sample();
-  unit();
-  unit();
+  const capMs = options.capMs ?? TIME_CAP_MS;
+  const began = clock();
+  /** @type {import('../cadence/idle.mjs').LoadSample[]} */
+  const samples = [sample()];
   /** @type {number[]} */
   const timings = [];
-  for (let i = 0; i < runs; i += 1) {
-    const start = clock();
-    unit();
-    timings.push(clock() - start);
+  let capped = false;
+  const workload = (options.workload ?? (() => cpuMemoryWorkload()))();
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  const deadline = new Promise((resolve) => {
+    // Not unref'd: a hung run must still reach the cap. It is cleared once the test ends.
+    timer = setTimeout(() => resolve('cap'), capMs);
+  });
+  try {
+    /** @returns {Promise<boolean>} whether the run finished inside the cap */
+    const timed = async () => {
+      const running = workload.run();
+      // A run that fails after the cap won the race is not left unhandled; one that fails first
+      // still rejects the race.
+      running.catch(() => {});
+      return (await Promise.race([running, deadline])) !== 'cap';
+    };
+    if (await timed()) {
+      for (let i = 0; i < runs; i += 1) {
+        if (clock() - began >= capMs) {
+          capped = true;
+          break;
+        }
+        const start = clock();
+        if (!(await timed())) {
+          capped = true;
+          break;
+        }
+        timings.push(clock() - start);
+        samples.push(sample());
+      }
+    } else {
+      capped = true;
+    }
+  } finally {
+    clearTimeout(timer);
+    await workload.stop();
   }
-  const after = sample();
-  const pick = /** @param {keyof import('../cadence/idle.mjs').LoadSample} k */ (k) => {
-    const a = before[k];
-    const b = after[k];
-    if (a === undefined) return b;
-    if (b === undefined) return a;
-    return Math.max(a, b);
-  };
   /** @type {import('../cadence/idle.mjs').LoadSample} */
-  const load = { load_per_core: pick('load_per_core') ?? 0 };
+  const load = { load_per_core: medianOf(samples.map((s) => s.load_per_core)) ?? 0 };
   for (const k of /** @type {const} */ ([
     'background_per_core',
     'foreground_per_core',
     'gpu_busy',
   ])) {
-    const v = pick(k);
+    const v = medianOf(samples.flatMap((s) => (s[k] === undefined ? [] : [s[k]])));
     if (v !== undefined) load[k] = v;
   }
+  const backgrounds = samples.flatMap((s) =>
+    Number.isFinite(s.background_per_core) ? [/** @type {number} */ (s.background_per_core)] : [],
+  );
   const v = noiseVerdict(timings, load);
   return {
     at: (options.now ?? (() => new Date()))().toISOString(),
     verdict: v.verdict,
-    why: v.why,
-    runs,
+    why: capped ? `stopped at the ${capMs / 1000} second cap; ${v.why}` : v.why,
+    runs: timings.length,
+    threads: workload.threads,
+    samples: samples.length,
+    ...(capped ? { capped: true } : {}),
     median_ms: v.median_ms,
     spread: v.spread,
     spread_max: NOISE_SPREAD_MAX,
@@ -153,6 +300,7 @@ export function runNoiseTest(options = {}) {
     ...(load.background_per_core !== undefined
       ? { background_per_core: round(load.background_per_core, 2) }
       : {}),
+    ...(backgrounds.length ? { background_min_per_core: round(Math.min(...backgrounds), 2) } : {}),
     ...(load.foreground_per_core !== undefined
       ? { foreground_per_core: round(load.foreground_per_core, 2) }
       : {}),
