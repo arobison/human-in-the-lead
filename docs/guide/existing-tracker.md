@@ -72,7 +72,7 @@ Install nothing yet. Describe your tracker to `hitld` in a scratch directory out
      }
      ```
 
-     A declared field is kept when `hitld` rewrites a file, and `hitld work query --field effort_points=3` can match it. A key from the format's own list (for example `area` or `estimate_tokens`) goes in `optional_keys` instead; the check says so (`turn it on in .human-in-the-lead/tracker.json optional_keys`). `touches` and `tier_override` are always on.
+     A declared field is kept when `hitld` rewrites a file, and `hitld work query --field effort_points=3` can match it. A key from the format's own list (for example `area` or `estimate_tokens`) goes in `optional_keys` instead; the check says so (`turn it on in .human-in-the-lead/tracker.json optional_keys`). `touches`, `tier_override` and `source_issue` are always on.
    - Files in an older layout: `hitld work migrate --dry-run --config "$cfg"` lists the registered format migrations and the diff each would make. Nothing is written with `--dry-run`.
    - `0 files` when you have items: `work_dir` or `folders` is wrong.
    - Anything else that differs, with data that is plainly valid, is a bug in the backend. Report it (see [Giving feedback](../../README.md#giving-feedback)) and keep working with your scripts until it is fixed.

@@ -70,6 +70,7 @@ const PROPOSAL_FIELDS = [
   'items',
   'notes',
   'missing_release_note',
+  'issues',
   'release_item',
   'gates',
   'milestones',

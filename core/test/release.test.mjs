@@ -25,6 +25,7 @@ import {
 } from '../lib/release/semver.mjs';
 import { proposeRelease } from '../lib/release/propose.mjs';
 import { checkReleaseCommit } from '../lib/release/check.mjs';
+import { withoutClosingReferences } from '../lib/release/make.mjs';
 import { openTracker } from '../lib/tracker/files/tracker.mjs';
 import { loadPolicy } from '../lib/policy/policy.mjs';
 import { commitAll, git, itemText, makeRepo, put } from './tracker-fixture.mjs';
@@ -514,6 +515,180 @@ test('propose lists unmet gates, missing release_note lines and drafts notes; ma
     refused.json.message,
     /the release waits for its gates: W-7 Ready \(planned, check due\)/,
   );
+});
+
+// --- Issues an item comes from close when its release ships (HITLD-1015) ----------------------
+
+test('propose and make list the issues of the items a release ships first; an earlier pre-release keeps its own', async () => {
+  /** @param {string} id @param {string} state @param {Record<string, unknown>} more */
+  const item = (id, state, more = {}) => ({
+    [`work/items/${id}-from-issue.md`]: itemText({
+      id,
+      title: `From an issue ${id}`,
+      kind: 'work',
+      state,
+      project: 'W-2',
+      touches: ['src/**'],
+      ...more,
+    }),
+  });
+  const root = releaseRepo({
+    ...item('W-9', 'done', { source_issue: 604 }),
+    ...item('W-10', 'done', { source_issue: 603 }),
+    ...item('W-11', 'done'),
+    ...item('W-12', 'planned', { source_issue: 605 }),
+  });
+  // source_issue is always on: the fixture's tracker turns on no optional key.
+  assert.deepEqual(open(root).check().problems, []);
+
+  const p = await hitld(['release', 'propose', '--pre', 'rc'], root);
+  assert.equal(p.code, 0, JSON.stringify(p.json));
+  assert.deepEqual(p.json.issues, [
+    { issue: 603, item: 'W-10' },
+    { issue: 604, item: 'W-9' },
+  ]);
+  assert.deepEqual(p.json.releases[0].issues, p.json.issues);
+
+  const branch = await hitld(['release', 'make', '--pre', 'rc', '--branch', 'release'], root);
+  assert.equal(branch.code, 0, JSON.stringify(branch.json));
+  assert.deepEqual(branch.json.issues, p.json.issues);
+  assert.match(
+    branch.json.pr.body,
+    /## Issues to close when it ships\n\n- issue 603 \(W-10\)\n- issue 604 \(W-9\)\n\nEach stays open until the release is published/,
+  );
+  assert.doesNotMatch(branch.json.pr.body, /\b(close[sd]?|fix(es|ed)?|resolve[sd]?) #\d/i);
+
+  const rc = await hitld(['release', 'make', '--pre', 'rc'], root);
+  assert.equal(rc.code, 0, JSON.stringify(rc.json));
+  assert.deepEqual(rc.json.issues, p.json.issues);
+
+  // W-12 ships in rc.2; the issues rc.1 shipped are not listed again.
+  put(root, item('W-12', 'done', { source_issue: 605 }));
+  commitAll(root, 'W-12 is done');
+  const next = await hitld(['release', 'propose', '--pre', 'rc'], root);
+  assert.equal(next.json.version, '0.1.0-rc.2');
+  assert.deepEqual(next.json.items.sort(), ['W-10', 'W-11', 'W-12', 'W-3', 'W-9']);
+  assert.deepEqual(next.json.issues, [{ issue: 605, item: 'W-12' }]);
+});
+
+test('two items that name one issue list it once, for the first item by ID; work check says nothing of it', async () => {
+  /** @param {string} id */
+  const item = (id) => ({
+    [`work/items/${id}-same-issue.md`]: itemText({
+      id,
+      title: `Same issue ${id}`,
+      kind: 'work',
+      state: 'done',
+      project: 'W-2',
+      touches: ['src/**'],
+      source_issue: '700',
+    }),
+  });
+  const root = releaseRepo({ ...item('W-10'), ...item('W-9'), ...item('W-11') });
+  const checked = open(root).check();
+  assert.deepEqual(checked.problems, []);
+  assert.doesNotMatch(JSON.stringify(checked.warnings ?? []), /source_issue|700/);
+  const p = await hitld(['release', 'propose', '--pre', 'rc'], root);
+  assert.equal(p.code, 0, JSON.stringify(p.json));
+  assert.deepEqual(p.json.issues, [{ issue: 700, item: 'W-9' }]);
+  assert.deepEqual(p.json.releases[0].issues, [{ issue: 700, item: 'W-9' }]);
+});
+
+/** A closing keyword followed by an issue reference, as the forge reads one. */
+const CLOSES_SOMETHING =
+  /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[ \t]*:?[ \t]*(([\w.-]+\/[\w.-]+)?#\d+|GH-\d+|https?:\/\/\S+\/(issues|pull)\/\d+)/i;
+
+test('closing keywords in the release pull request body close nothing; the items keep their words', async () => {
+  const forms = [
+    'Fixes #12',
+    'fixes: #13',
+    'CLOSES #14',
+    'closed #15',
+    'Resolves owner/repo#16',
+    'resolved: owner/repo#17',
+    'Fix #18, #19',
+    'close https://github.com/owner/repo/issues/20',
+    'Fixed #21 and fixes #22',
+    'resolved GH-23',
+    'Fix GH-24, gh-25',
+    'Closes: GH-26',
+  ];
+  for (const form of forms) {
+    const out = withoutClosingReferences(`- The fix. ${form} (W-9)`);
+    assert.doesNotMatch(out, CLOSES_SOMETHING, `${form} -> ${out}`);
+    assert.match(out, /issue \d+/, `${form} -> ${out}`);
+  }
+  assert.equal(withoutClosingReferences('Fixes #12'), 'Fixes issue 12');
+  assert.equal(withoutClosingReferences('fixes: owner/repo#3'), 'fixes: owner/repo issue 3');
+  assert.equal(withoutClosingReferences('Fix #18, #19'), 'Fix issue 18, issue 19');
+  assert.equal(withoutClosingReferences('Fixes GH-12'), 'Fixes issue 12');
+  assert.equal(withoutClosingReferences('Fix GH-24, gh-25'), 'Fix issue 24, issue 25');
+  assert.equal(withoutClosingReferences('See GH-12; it stays.'), 'See GH-12; it stays.');
+  assert.equal(
+    withoutClosingReferences('See #12; the prefix fix stays.'),
+    'See #12; the prefix fix stays.',
+  );
+
+  const notes = forms.map((form, i) => ({
+    [`work/items/W-${30 + i}-note.md`]: itemText({
+      id: `W-${30 + i}`,
+      title: `Note ${i}`,
+      kind: 'work',
+      state: 'done',
+      project: 'W-2',
+      touches: ['src/**'],
+      release_note: `Something changed. ${form}`,
+    }),
+  }));
+  const root = makeRepo({
+    files: {
+      ...Object.assign({}, ...notes),
+      '.human-in-the-lead/policy.json': JSON.stringify({
+        schema_version: 1,
+        project: { id: 'fixture', key: 'W' },
+        release: { packages: [MAIN] },
+      }),
+      '.human-in-the-lead/tracker.json': JSON.stringify({
+        schema_version: 1,
+        optional_keys: ['release_note'],
+      }),
+      'surface.txt': SURFACE,
+      'package.json': '{ "version": "0.0.0" }\n',
+    },
+    commit: false,
+  });
+  for (const f of ['policy.json', 'tracker.json'])
+    chmodSync(join(root, '.human-in-the-lead', f), 0o644);
+  commitAll(root, 'fixture');
+  const made = await hitld(['release', 'make', '--pre', 'rc', '--branch', 'release'], root);
+  assert.equal(made.code, 0, JSON.stringify(made.json));
+  for (const line of made.json.pr.body.split('\n')) assert.doesNotMatch(line, CLOSES_SOMETHING);
+  assert.match(made.json.pr.body, /Something changed\. Fixes issue 12 \(W-30\)/);
+  assert.match(made.json.pr.body, /Something changed\. resolved issue 23 \(W-39\)/);
+  assert.match(made.json.pr.body, /Something changed\. Fix issue 24, issue 25 \(W-40\)/);
+  assert.doesNotMatch(made.json.pr.body, /GH-\d/i);
+  // The record on the branch keeps the item's own words.
+  assert.match(git(root, 'show', 'release:work/releases/main/0.1.0-rc.1.md'), /Fixes #12/);
+});
+
+test('work check refuses a source_issue that is not a whole number above zero', async () => {
+  for (const bad of ['abc', '0', '-3', '1.5']) {
+    const root = releaseRepo({
+      'work/items/W-9-bad.md': itemText({
+        id: 'W-9',
+        title: 'Bad issue',
+        kind: 'work',
+        state: 'planned',
+        project: 'W-2',
+        source_issue: bad,
+      }),
+    });
+    const problems = open(root).check().problems;
+    assert.ok(
+      problems.some((x) => /W-9/.test(JSON.stringify(x)) && /source_issue/.test(JSON.stringify(x))),
+      `${bad}: ${JSON.stringify(problems)}`,
+    );
+  }
 });
 
 // --- Release items carry their version, and a release waits for what they need (HITLD-129) -----

@@ -124,6 +124,7 @@ The work tree. Projects group items toward an outcome; items are the unit of dis
 | `tier_override` | Optional override from the owner or the shaper. It becomes a profile override (a mode, a starting rung of the cascade or a budget) when tiers give way to execution profiles ([5.1](05-execution.md#51-execution-profiles), HITLD-581, not built) |
 | `release_note` | One line for release notes, if the item changes public surface |
 | `credit` | Contributor IDs to credit |
+| `source_issue` | The number of the forge issue the item comes from, when triage filed it from one. The release that first ships the item lists the issue, and the ship step closes it with a comment naming the release; a pull request for the item refers to the issue and never closes it (HITLD-1015) |
 | `release` | On a release item only: the version it makes, such as `0.1.0-rc.1` ([Release](#release)) |
 | `claimed_by` | Set by the claim commit, on work items only: the dispatch, session or person holding it; the branch and time come from git |
 
@@ -644,7 +645,7 @@ A decision's question, context, options, recommendation, precedent offer, rule b
 
 A milestone is `done` only when its latest pass or fail in `check_results` is a pass by a role that wrote none of its items (the roles in its items' commits' `Agent-Role` trailers, and always `executor`); a learning milestone (its check is a study), when `answered` is recorded by such a role. The check and the tracker refuse anything else.
 
-Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#project-and-item) (`area`, `category`, `classification`, `opened_from`, `serial`, `estimate_tokens`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them, and the check's refusal of one names `optional_keys`. `owner` is always allowed: a record without it is the owner's. `touches` and `tier_override` are always allowed too (HITLD-286): the executor contract, the sizer, the overlap rule and the merge evidence read `touches`, and the sizer honors `tier_override`, so a fresh project writes them without turning them on. An item with no `classification` key takes `default_classification`. *Decided, not built (HITLD-626):* unlabeled data takes its container's label, and with no container the strictest.
+Project-specific fields are declared in `tracker.json` `fields` ([Who owns the format](#who-owns-the-format)). The other fields of [3.2](#project-and-item) (`area`, `category`, `classification`, `opened_from`, `serial`, `estimate_tokens`, `release_note`, `credit`) are off until `optional_keys` in `tracker.json` lists them, and the check's refusal of one names `optional_keys`. `owner` is always allowed: a record without it is the owner's. `touches`, `tier_override` and `source_issue` are always allowed too (HITLD-286, HITLD-1015): the executor contract, the sizer, the overlap rule and the merge evidence read `touches`, the sizer honors `tier_override`, and the release step reads `source_issue`, so a fresh project writes them without turning them on. An item with no `classification` key takes `default_classification`. *Decided, not built (HITLD-626):* unlabeled data takes its container's label, and with no container the strictest.
 
 ```markdown
 ---
