@@ -144,6 +144,7 @@ import {
   approvePresented,
   changedOnBranch,
   chooseNamed,
+  dependencyFileNames,
   presentToOwner,
   presentationCurrent,
   queueProposals,
@@ -3086,6 +3087,8 @@ const table = [
             environments: p.policy.flake.environments,
           },
           setup: p.policy.env.worktree_setup,
+          // Setup runs again on a commit under test only where these changed (HITLD-1054).
+          dependencyFiles: [...dependencyFileNames(p.policy)],
           // Main's tracker layout, read in the rebased tree: two items with one ID refuse it.
           trackerCheck: (dir) => {
             if (!existsSync(join(dir, layout.workDir))) return [];

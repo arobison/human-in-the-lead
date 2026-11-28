@@ -155,6 +155,7 @@ function setup(o = {}) {
         ...(x.answers ? { answers: x.answers } : {}),
         ...(x.conditionalChecks ? { conditionalChecks: x.conditionalChecks } : {}),
         ...(x.kbCheck ? { kbCheck: x.kbCheck } : {}),
+        ...(x.setup ? { setup: x.setup } : {}),
       },
       policy: { merge: { mode: x.mode ?? 'queue', ...(x.merge ?? {}) } },
       github,
@@ -302,6 +303,129 @@ test('after a merge the next branch is brought up to date by a merge, rebuilt, p
     const message = git(t.remote, 'log', '-1', '--format=%B', 'main');
     assert.match(message, /Work-Item: W-3/);
     assert.doesNotMatch(message, /W-1/);
+  } finally {
+    t.done();
+  }
+});
+
+// HITLD-1054 (GitHub issue 667): setup ran on main's tip, so the rebuild of a branch that adds a
+// package failed. The lockfile lists the packages, one a line; the install makes a folder for
+// each and refuses "unpublished", or any install where break.flag exists (a failure no dependency
+// file explains); the rebuild needs a folder for each.
+const PACKAGES = {
+  '.gitignore': 'node_modules/\n',
+  'package-lock.json': 'is-even\n',
+  'install.sh': [
+    'if [ -e break.flag ]; then echo "the install is broken here" >&2; exit 1; fi',
+    'rm -rf node_modules && mkdir node_modules',
+    'while read -r p; do',
+    '  [ -n "$p" ] || continue',
+    '  if [ "$p" = unpublished ]; then echo "404: $p is not in the registry" >&2; exit 1; fi',
+    '  mkdir "node_modules/$p"',
+    'done < package-lock.json',
+    '',
+  ].join('\n'),
+  'build.sh': [
+    'while read -r p; do',
+    '  [ -n "$p" ] || continue',
+    '  test -d "node_modules/$p" || { echo "cannot find module $p" >&2; exit 1; }',
+    'done < package-lock.json',
+    'ls *.txt | sort > built.txt',
+    '',
+  ].join('\n'),
+};
+
+/** A pull-request queue whose main has the packages above. */
+function withPackages() {
+  const t = setup();
+  put(t.root, PACKAGES);
+  git(t.root, 'add', '-A');
+  git(t.root, 'commit', '-q', '-m', 'packages');
+  git(t.root, 'push', '-q', 'origin', 'main');
+  return t;
+}
+const REBUILD = [{ globs: ['built.txt'], regenerate: 'sh build.sh' }];
+
+test('a branch that adds a package is rebuilt with its own dependencies: setup runs on the branch with main merged in', async () => {
+  const t = withPackages();
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'package-lock.json': 'is-even\nleft-pad\n', 'b.txt': 'b\n' });
+    const r = await t.pass([a, b], { generated: REBUILD, setup: ['sh install.sh'] });
+    assert.equal(r.incident, null);
+    assert.deepEqual(
+      r.merged.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.deepEqual(r.rejected, []);
+    assert.deepEqual(
+      r.updated.map((x) => [x.item, x.rebuilt]),
+      [['W-2', true]],
+    );
+    assert.match(git(t.remote, 'show', `${t.remoteTip('hitld/W-2')}:built.txt`), /b\.txt/);
+    // One run, on W-2 with main merged in (the first of the queue's commits on it), not on main.
+    assert.deepEqual(
+      r.setup.runs.map((x) => x.kind),
+      ['batch'],
+    );
+    assert.equal(r.setup.runs[0].commit, git(t.remote, 'rev-parse', `${r.updated[0].commit}^`));
+    assert.notEqual(r.setup.runs[0].commit, r.main.after);
+  } finally {
+    t.done();
+  }
+});
+
+test('with nothing to rebuild the pull-request queue runs no setup, and one that cannot install a branch says it changes dependencies', async () => {
+  const unpublished = { 'package-lock.json': 'is-even\nunpublished\n' };
+  const quiet = withPackages();
+  try {
+    const a = quiet.branch('W-1', { 'a.txt': 'a\n' });
+    const b = quiet.branch('W-2', unpublished);
+    const r = await quiet.pass([a, b], { setup: ['sh install.sh'] });
+    assert.deepEqual(
+      r.updated.map((x) => [x.item, x.rebuilt]),
+      [['W-2', false]],
+    );
+    assert.deepEqual(r.setup.runs, [], 'nothing rebuilt, so nothing installed');
+  } finally {
+    quiet.done();
+  }
+  const t = withPackages();
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', unpublished);
+    const r = await t.pass([a, b], { generated: REBUILD, setup: ['sh install.sh'] });
+    assert.equal(r.incident, null);
+    assert.deepEqual(
+      r.merged.map((x) => x.item),
+      ['W-1'],
+    );
+    assert.deepEqual(
+      r.rejected.map((x) => [x.item, x.reason, x.files]),
+      [['W-2', 'setup', ['package-lock.json']]],
+    );
+    assert.match(String(r.rejected[0].message), /changes dependencies \(package-lock\.json\)/);
+    assert.match(String(r.rejected[0].message), /not a failing build/);
+    assert.match(String(r.rejected[0].output), /unpublished is not in the registry/);
+    // The follow-up carries the message, not the output: the install's own words reach the executor.
+    assert.match(
+      String(r.rejected[0].message),
+      /Its output ended: 404: unpublished is not in the registry/,
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('a setup failure on a branch that changes no dependency file is an error in the pull-request queue, not a refusal', async () => {
+  const t = withPackages();
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'break.flag': 'x\n' });
+    await assert.rejects(
+      t.pass([a, b], { generated: REBUILD, setup: ['sh install.sh'] }),
+      /setup failed at "sh install\.sh" on hitld\/W-2, which changes no dependency file: the install is broken here/,
+    );
   } finally {
     t.done();
   }
