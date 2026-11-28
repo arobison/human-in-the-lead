@@ -206,6 +206,7 @@ export async function makeRelease(
       tagged: false,
       pushed: false,
       pr: pullRequest(p, { r: first.r, path: first.path, notes: first.notes }),
+      issues: p.issues,
       warnings: p.warnings,
       next: `Nothing was pushed or tagged. Push the branch (git push origin ${onto}) and open a pull request from it to ${layout.mainBranch} with pr.title and pr.body. Squash-merging it with the owner's Signed-off-by is the release: the release workflow tags ${first.r.tag} on the squash commit once the owner approves the run in the release environment.`,
     };
@@ -237,6 +238,7 @@ export async function makeRelease(
     commit,
     tagged: true,
     pushed: false,
+    issues: p.issues,
     warnings: p.warnings,
     next: `Nothing was pushed. When ready: git push origin ${layout.mainBranch} ${tags.join(' ')}`,
   };
@@ -420,10 +422,56 @@ function pullRequest(p, { r, path, notes }) {
     '',
     delta,
     '',
+    ...(p.issues.length
+      ? [
+          '## Issues to close when it ships',
+          '',
+          ...p.issues.map((x) => `- issue ${x.issue} (${x.item})`),
+          '',
+          'Each stays open until the release is published; then close each one still open, with a comment naming the release.',
+          '',
+        ]
+      : []),
     ...(p.warnings.length ? ['## Warnings', '', ...p.warnings.map((w) => `- ${w}`), ''] : []),
     '## Merging is the release',
     '',
     `Squash-merge this pull request with your \`Signed-off-by:\` line in the commit message. The release workflow then checks the record, waits for your approval in the \`release\` environment, tags ${tag} on the squash commit, builds, attests provenance and drafts the GitHub release${pre ? ' as a pre-release' : ''}. Publish the draft when it looks right.`,
   ].join('\n');
-  return { title: `Release ${tag}`, body };
+  return { title: `Release ${tag}`, body: withoutClosingReferences(body) };
+}
+
+/** A forge's closing keywords: close, fix and resolve, in each of their forms. */
+const CLOSING_KEYWORD = String.raw`\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)`;
+/**
+ * An issue reference a closing keyword acts on: #12, owner/repo#12, GH-12 (any case) or an issue
+ * or pull URL.
+ */
+const ISSUE_REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+|\bGH-\d+\b|https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+`;
+const CLOSING = new RegExp(
+  `${CLOSING_KEYWORD}([ \\t]*:?[ \\t]*)((?:${ISSUE_REF})(?:[ \\t]*,[ \\t]*(?:and[ \\t]+)?(?:${ISSUE_REF}))*)`,
+  'gi',
+);
+
+/**
+ * Text with every closing keyword's issue reference rewritten so that it closes nothing when the
+ * pull request merges: "Fixes #12" and "Fixes GH-12" become "Fixes issue 12", "Closes owner/repo#3" becomes
+ * "Closes owner/repo issue 3", and an issue URL after a keyword moves into parentheses. Release
+ * notes are free text copied from items, and an issue closes when its release ships, not when
+ * the release pull request merges (HITLD-1015). Only the pull request text is rewritten; the
+ * items and the record keep their words.
+ * @param {string} text
+ * @returns {string}
+ */
+export function withoutClosingReferences(text) {
+  return text.replace(CLOSING, (_, keyword, gap, refs) => {
+    const plain = String(refs).replace(new RegExp(ISSUE_REF, 'gi'), (ref) => {
+      const url = ref.match(/^https?:\/\/.*\/(\d+)$/);
+      if (url) return `issue ${url[1]} (${ref})`;
+      const gh = ref.match(/^GH-(\d+)$/i);
+      if (gh) return `issue ${gh[1]}`;
+      const [repo, n] = ref.split('#');
+      return repo ? `${repo} issue ${n}` : `issue ${n}`;
+    });
+    return `${keyword}${gap.includes(':') ? ':' : ''} ${plain}`;
+  });
 }

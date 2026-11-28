@@ -15,6 +15,8 @@
 // that depends on one with a breaking change, and lists unmet gates: every item and milestone the
 // release item needs that is not done or dropped. The release item is the work item whose
 // `release` key is the version and whose `package` is the package; `item` names one instead.
+// It also lists the forge issues the items it ships first come from (`source_issue`), so the
+// ship step closes them once the release ships, never at the merge (HITLD-1015).
 //
 // Pre-releases. A version may carry a pre-release part under one of the package's channels
 // (0.1.0-rc.1). A pre-release tag is never the base: the delta, the bump and the items are
@@ -61,6 +63,9 @@ import {
  *   version: the version this release is built against: the one made in the same release, else
  *   the package's latest tag reachable from HEAD; null when it has none
  * @typedef {{ package: string, depends_on: string, range: string, in_range: boolean }} Dependent
+ * @typedef {{ issue: number, item: string }} ShippedIssue a forge issue an item comes from
+ *   (its `source_issue`), shipped by this release: the ship step closes each one still open, with
+ *   a comment naming the release (HITLD-1015)
  *
  * @typedef {object} PackageRelease one record `release make` writes
  * @property {string} package
@@ -77,6 +82,7 @@ import {
  * @property {string[]} items work items closed since the base that belong to the package
  * @property {string[]} notes
  * @property {{ item: string, files: string[] }[]} missing_release_note
+ * @property {ShippedIssue[]} issues the issues of the items this release ships first
  * @property {string[]} milestones
  * @property {string | null} release_item
  * @property {Gate[]} gates
@@ -107,6 +113,7 @@ import {
  * @property {string[]} items
  * @property {string[]} notes
  * @property {{ item: string, files: string[] }[]} missing_release_note
+ * @property {ShippedIssue[]} issues the issues of the items this release ships first, by issue
  * @property {string | null} release_item
  * @property {Gate[]} gates
  * @property {string[]} milestones
@@ -361,6 +368,19 @@ function measure(ctx, p, warnings) {
       Array.isArray(d.credit) && d.credit.length ? `, thanks ${d.credit.join(', ')}` : '';
     return [`${d.release_note} (${id}${credit})`];
   });
+  // The issues the items come from, for the ship step to close. An item an earlier pre-release
+  // of the package already listed shipped there, so its issue is not listed again.
+  const shippedBefore = new Set(
+    records
+      .filter((r) => r.package === p.name)
+      .flatMap((r) => (Array.isArray(r.data?.items) ? r.data.items.map(String) : [])),
+  );
+  const issues = onePerIssue(
+    items.flatMap((id) => {
+      const n = Number(g.get(id)?.data.source_issue);
+      return Number.isInteger(n) && n > 0 && !shippedBefore.has(id) ? [{ issue: n, item: id }] : [];
+    }),
+  );
   const since = ctx.files(base?.tag ?? null);
   const missing = p.surface
     ? items
@@ -393,12 +413,47 @@ function measure(ctx, p, warnings) {
     items,
     notes,
     missing,
+    issues,
     milestones,
     unreleased,
   };
 }
 
 /** @typedef {ReturnType<typeof measure>} Measured */
+
+/**
+ * The issues of several releases, once each, in issue order.
+ * @param {PackageRelease[]} releases
+ * @returns {ShippedIssue[]}
+ */
+function issuesOf(releases) {
+  return onePerIssue(releases.flatMap((r) => r.issues));
+}
+
+/**
+ * Item IDs in their natural order: by key, then by number (W-9 before W-10).
+ * @param {string} a @param {string} b
+ */
+const byItemId = (a, b) => {
+  const [ka, na] = [a.replace(/\d+$/, ''), Number(a.match(/\d+$/)?.[0] ?? 0)];
+  const [kb, nb] = [b.replace(/\d+$/, ''), Number(b.match(/\d+$/)?.[0] ?? 0)];
+  return ka === kb ? na - nb || a.localeCompare(b) : ka.localeCompare(kb);
+};
+
+/**
+ * One entry per issue, in issue order. When several items name one issue, the first by item ID
+ * stands for it: the ship step closes the issue once, whichever item it names (HITLD-1015).
+ * @param {ShippedIssue[]} list
+ * @returns {ShippedIssue[]}
+ */
+function onePerIssue(list) {
+  /** @type {Map<number, ShippedIssue>} */
+  const out = new Map();
+  for (const x of [...list].sort((a, b) => a.issue - b.issue || byItemId(a.item, b.item))) {
+    if (!out.has(x.issue)) out.set(x.issue, x);
+  }
+  return [...out.values()];
+}
 
 /**
  * The pins for a package's dependencies.
@@ -497,6 +552,7 @@ function releasesOf(ctx, parts, version, { named, item, making = new Map(), warn
       items: m.items,
       notes: m.notes,
       missing_release_note: m.missing,
+      issues: m.issues,
       milestones: m.milestones,
       release_item: chosen ? String(chosen.data.id) : null,
       gates: chosen ? gatesOf(ctx, [chosen]) : [],
@@ -607,6 +663,7 @@ export async function proposeRelease(t, { package: name, pre, item, version: mak
     items: [...new Set(releases.flatMap((r) => r.items))],
     notes: [...new Set(releases.flatMap((r) => r.notes))],
     missing_release_note: releases.flatMap((r) => r.missing_release_note),
+    issues: issuesOf(releases),
     release_item: own.release_item ?? chosen[0]?.release_item ?? null,
     gates,
     milestones: [...new Set(releases.flatMap((r) => r.milestones))],
@@ -721,6 +778,7 @@ function proposeTrain(ctx, id, warnings) {
     items: [...new Set(releases.flatMap((r) => r.items))],
     notes: [...new Set(releases.flatMap((r) => r.notes))],
     missing_release_note: releases.flatMap((r) => r.missing_release_note),
+    issues: issuesOf(releases),
     release_item: id,
     gates,
     milestones: [...new Set(releases.flatMap((r) => r.milestones))],

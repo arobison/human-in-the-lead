@@ -2,10 +2,12 @@
 id: HITLD-1015
 title: Triaging a GitHub issue ends in a reply on the issue, and the issue closes when the fix ships, not when it merges
 kind: work
-state: planned
+state: done
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+release_note: An item can record the forge issue it comes from (`source_issue`, always allowed), and `hitld release propose` and `release make` list under `issues` the issues of the items a release ships first, so the issue is closed when the release ships, not at the merge.
+claimed_by: D-01M8G53AZ30HFH6K
 ---
 
 ## Done when
