@@ -13,6 +13,8 @@ import { loadEffectivePolicy } from '../../settings/layers.mjs';
 import { readPrimaryCheckout } from '../../env/primary.mjs';
 import { machineRootFor, openEnv } from '../../env/manager.mjs';
 import { outdatedCopies } from '../../env/locks.mjs';
+import { quietTestStatus } from '../../machine/noise.mjs';
+import { machineDir } from '../../settings/files.mjs';
 import {
   credentialLine,
   setupSteps,
@@ -31,7 +33,8 @@ import {
 /**
  * Open the manager for the project at the working directory.
  * @param {import('../table.mjs').CommandContext} ctx
- * @returns {{ env: ReturnType<typeof openEnv>, cwd: string, storeRoot: string } | { error: import('../table.mjs').CommandResult }}
+ * @returns {{ env: ReturnType<typeof openEnv>, cwd: string, storeRoot: string,
+ *   machine: Record<string, any> | null } | { error: import('../table.mjs').CommandResult }}
  */
 function open(ctx) {
   // Policy, tasks and scripts come from the primary checkout, which the owner controls, never from
@@ -72,6 +75,7 @@ function open(ctx) {
     }),
     cwd: repoRoot,
     storeRoot: store.root,
+    machine: loaded.layers?.machine ?? null,
   };
 }
 
@@ -651,7 +655,12 @@ export const commands = [
         ctx.env,
         (ctx.now ?? (() => new Date()))().getTime(),
       );
-      const warnings = [...(credential.warnings ?? []), ...(locks.warnings ?? [])];
+      const quiet = quietTestStatus(opened.machine, machineDir({ env: ctx.env }));
+      const warnings = [
+        ...(credential.warnings ?? []),
+        ...(locks.warnings ?? []),
+        ...quiet.warnings,
+      ];
       return {
         ok: true,
         worktrees: Object.values(registry.worktrees),
@@ -659,6 +668,7 @@ export const commands = [
         locks: locks.locks,
         ...(locks.outdated_copies ? { outdated_copies: locks.outdated_copies } : {}),
         lock_waits: env.lockWaits(),
+        quiet_test: quiet.quiet_test,
         ...credential,
         ...(warnings.length ? { warnings } : {}),
       };

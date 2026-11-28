@@ -1,10 +1,20 @@
 // The machine profile (design part 13.4): detect what this machine has and propose a profile.
 
 import { localSources, probeMachine, proposeProfile } from '../../machine/detect.mjs';
+import {
+  DEFAULT_RUNS,
+  MAX_RUNS,
+  MIN_RUNS,
+  TIME_CAP_MS,
+  runNoiseTest,
+  runsRefusal,
+  writeNoiseResult,
+} from '../../machine/noise.mjs';
 import { findRepoRoot, loadPolicy } from '../../policy/policy.mjs';
 import { projectStore, readStoreSettings } from '../../settings/store-copy.mjs';
 import {
   loadSettingsFile,
+  machineDir,
   settingsLocation,
   writeSettingsFile,
   writerRefusal,
@@ -83,6 +93,37 @@ export const commands = [
       }
       const written = writeSettingsFile('machine', p.profile, { env: ctx.env, cwd: ctx.cwd });
       return { ok: true, ...base, written: true, path: written.path };
+    },
+  },
+  {
+    name: 'machine noise',
+    summary:
+      'Check whether the background-priority work running now leaves a measurement alone: time a fixed workload on every core over a buffer larger than the caches several times, sampling the load right after each run (between runs, so a sample never lands inside a timing), report how far the timings spread and how much background work ran (macOS reads priorities), and keep the result for env status. The evidence for load.ignore_background in the machine file. Stops at a hard time cap',
+    built_by: 'settings-hold',
+    args: [
+      {
+        name: 'runs',
+        type: 'integer',
+        description: `Timed runs, from ${MIN_RUNS} to ${MAX_RUNS}; default ${DEFAULT_RUNS}. The test stops at ${TIME_CAP_MS / 1000} seconds whatever the count`,
+      },
+    ],
+    run: async (input, ctx) => {
+      const refusal = runsRefusal(input.runs);
+      if (refusal) return { ok: false, error: 'usage', message: refusal };
+      const runs = typeof input.runs === 'number' ? input.runs : undefined;
+      const result = await runNoiseTest({ ...(runs !== undefined ? { runs } : {}) });
+      const path = writeNoiseResult(machineDir({ env: ctx.env }), result);
+      return {
+        ok: true,
+        ...result,
+        path,
+        next:
+          result.verdict === 'quiet'
+            ? 'background work left the timings alone; load.ignore_background in the machine file may be turned on (hitld config write machine)'
+            : result.verdict === 'noisy'
+              ? 'leave load.ignore_background off: background work moved the timings'
+              : 'this run settles nothing; run it again while background work runs, on macOS',
+      };
     },
   },
 ];
