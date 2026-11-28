@@ -2,10 +2,11 @@
 id: HITLD-1029
 title: The chief-of-staff and orchestrate skills say how to record an owner's approval of a pull request the queue has not presented
 kind: work
-state: planned
+state: in-progress
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M8HECVV7W001QM
 ---
 
 ## Done when
