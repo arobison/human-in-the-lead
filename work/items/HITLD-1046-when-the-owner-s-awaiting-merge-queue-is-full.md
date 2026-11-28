@@ -8,6 +8,7 @@ project: HITLD-15
 needs: [HITLD-995]
 constraint_of: [HITLD-67 c?]
 claimed_by: D-01M8G8P5TFF9RWTX
+release_note: "With dispatch.owner_queue_max (default 4) branches waiting on the owner, the plan offers work that does not route to the owner first; starts hold while one batch (merge.batch_max) waits on the merge queue; the plan and run status show the merge backlog by what it waits on and its oldest age."
 ---
 
 ## Done when

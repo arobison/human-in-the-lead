@@ -45,6 +45,9 @@ import { decisionsAt } from '../../friction/friction.mjs';
 import { activePause } from '../../quota/pause.mjs';
 import { declaredFigureAsks } from '../../quota/inputs.mjs';
 import { diskCheck, diskWarning } from '../../machine/disk.mjs';
+import { awaitingMerge } from '../../dispatch/plan.mjs';
+import { backlogJson, branchChanges, mergeBacklog } from '../../dispatch/backlog.mjs';
+import { readPullState } from '../../merge/pull-request.mjs';
 import { readTrustEvents, recordTrustEvent } from '../../rights/trust.mjs';
 import { VersionDriftError, runVersionCheck } from '../../install/drift.mjs';
 import { CodedError } from '../errors.mjs';
@@ -918,11 +921,12 @@ const table = [
           .map((/** @type {any} */ d) => d.dispatch);
         const live = sessions.length ? sessions.join(',') : 'none';
         // Free disk, shown only when it nears the floor (machine/disk.mjs).
+        const repoRoot = findRepoRoot(s.cwd);
         const disk = diskWarning(
           diskCheck({
             env: ctx.env,
             ...(ctx.machine ? { sources: ctx.machine } : {}),
-            repoRoot: findRepoRoot(s.cwd) ?? s.cwd,
+            repoRoot: repoRoot ?? s.cwd,
             storeRoot: s.store.root,
             policy: s.policy,
           }),
@@ -934,6 +938,16 @@ const table = [
           env: ctx.env,
           now: (ctx.now ? ctx.now() : new Date()).getTime(),
         });
+        // The merge backlog (HITLD-1046): the branches the ledger has waiting to merge, split by
+        // what each waits on, with the oldest of each; the plan reads the same split.
+        const backlog = backlogJson(
+          mergeBacklog(awaitingMerge(events), {
+            policy: s.policy,
+            pulls: readPullState(s.store),
+            ...(repoRoot ? { changed: branchChanges(repoRoot, s.policy) } : {}),
+            now: (ctx.now ? ctx.now() : new Date()).getTime(),
+          }),
+        );
         return {
           ok: true,
           run: state.run,
@@ -943,6 +957,7 @@ const table = [
           own_sessions: sessions,
           decisions_open: state.decisions_open.length,
           waiting_to_merge: state.merge_queue.waiting.length,
+          merge_backlog: backlog,
           paused,
           wake_at: paused?.resets_at ?? null,
           handover,
