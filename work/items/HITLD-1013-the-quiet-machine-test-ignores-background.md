@@ -7,6 +7,7 @@ created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
 claimed_by: D-01M8G4D7CYTCVZFC
+release_note: "On macOS the idle test can leave out background-priority processes (`load.ignore_background` in the machine file, off by default) and reads the GPU's busy share against its own bar (`load.idle_gpu_busy`, 0.25 when unset). `hitld machine noise` checks whether background work leaves timings alone, and `hitld env status` shows the setting with the last noise test."
 ---
 
 ## Done when

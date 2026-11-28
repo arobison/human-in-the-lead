@@ -53,6 +53,16 @@
           "description": "Below this load average per core, with no executor running, the machine counts as idle: the moment for nightly baselines, evals and reports (design part 13.3). The lower of this and max_per_core applies; without it, 0.25.",
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "ignore_background": {
+          "description": "macOS: the idle test leaves out processes at background priority (priority 4 in ps), such as the system's indexing and media analysis, and compares the CPU the other processes use per core (never more than the load average per core) with idle_per_core. Off unless true: whether background work leaves a measurement alone is checked with hitld machine noise, not assumed, and env status shows the setting and the last noise test (HITLD-1013).",
+          "type": "boolean"
+        },
+        "idle_gpu_busy": {
+          "description": "macOS: at or above this GPU busy share (0 to 1, IOAccelerator's Device Utilization), the machine does not count as idle, whatever the CPU load. Without it, 0.25.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": false

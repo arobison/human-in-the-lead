@@ -14,7 +14,21 @@ import { EXIT, main } from '../lib/cli/main.mjs';
 import { COMMANDS, findCommand } from '../lib/cli/table.mjs';
 import { inputSchema } from '../lib/cli/args.mjs';
 import { countChanges, dueJobs, eventsSince, outcomesByPerson } from '../lib/cadence/due.mjs';
-import { idleThreshold, machineLoadPerCore, readIdle } from '../lib/cadence/idle.mjs';
+import {
+  idleThreshold,
+  machineLoadPerCore,
+  parseGpuBusy,
+  parsePriorityCpu,
+  readIdle,
+  sampleLoad,
+} from '../lib/cadence/idle.mjs';
+import {
+  noiseVerdict,
+  quietTestStatus,
+  readNoiseResult,
+  runNoiseTest,
+  writeNoiseResult,
+} from '../lib/machine/noise.mjs';
 import { markJobDone, readCadenceState } from '../lib/cadence/state.mjs';
 import { makeProject } from './helpers/project.mjs';
 import { tempDir } from './helpers/tmp.mjs';
@@ -363,6 +377,136 @@ test('the machine is idle only with no executor running and low load', () => {
     }).idle,
     true,
   );
+});
+
+/** A macOS sample: `ps -A -o pri=,%cpu=` and ioreg's IOAccelerator text, on 8 cores. */
+function macSample({ ps = '', gpu = '' } = {}, loadPerCore = 0.47) {
+  return sampleLoad({
+    platform: 'darwin',
+    cores: 8,
+    loadPerCore,
+    run: (file) => (file === 'ps' ? ps : file === 'ioreg' ? gpu : null),
+  });
+}
+
+test('high load average from background-priority work alone: idle once the filter is on', () => {
+  // The report's sample: about 1 core of background work (priority 4) and 0.8 of everything else
+  // on 8 cores; the load average reads 0.47 per core against a 0.3 bar.
+  const ps = ['  4  60.0', '  4  40.0', ' 31  50.0', ' 46  30.0', ' 20   0.0', ''].join('\n');
+  const gpu = '| | "PerformanceStatistics" = {"Device Utilization %"=0,"Renderer Utilization %"=0}';
+  const sample = macSample({ ps, gpu });
+  assert.equal(sample.background_per_core, 1 / 8);
+  assert.equal(sample.foreground_per_core, 0.8 / 8);
+  const machine = { load: { idle_per_core: 0.3 } };
+  // Off by default: every priority counts, as before.
+  const off = readIdle({ machineRoot: '/none', liveCount: 0, sample, machine });
+  assert.equal(off.idle, false);
+  assert.equal(off.ignore_background, false);
+  assert.match(off.reasons[0], /load 0.47 per core is not below the idle threshold 0.3/);
+  const on = readIdle({
+    machineRoot: '/none',
+    liveCount: 0,
+    sample,
+    machine: { load: { idle_per_core: 0.3, ignore_background: true } },
+  });
+  assert.equal(on.idle, true, on.reasons.join('; '));
+  assert.equal(on.competing_per_core, 0.1);
+  assert.equal(on.background_per_core, 0.13);
+  assert.equal(on.load_per_core, 0.47);
+  // Competing work over the bar still holds it, and the figure never reads above the load average.
+  const busy = macSample({ ps: ' 31 400.0\n  4 100.0\n' }, 0.4);
+  const held = readIdle({
+    machineRoot: '/none',
+    liveCount: 0,
+    sample: busy,
+    machine: { load: { ignore_background: true } },
+  });
+  assert.equal(held.idle, false);
+  assert.equal(held.competing_per_core, 0.4);
+  assert.match(held.reasons[0], /competing load 0.4 per core \(background priority left out\)/);
+});
+
+test('an idle CPU and a busy GPU: not idle, the GPU against its own bar', () => {
+  const gpu = [
+    '+-o AGXAcceleratorG13X  <class AGXAcceleratorG13X>',
+    '    "PerformanceStatistics" = {"In use system memory"=123,"Device Utilization %"=62,"Tiler Utilization %"=40}',
+  ].join('\n');
+  const sample = macSample({ ps: ' 31   2.0\n', gpu }, 0.02);
+  assert.equal(sample.gpu_busy, 0.62);
+  const r = readIdle({ machineRoot: '/none', liveCount: 0, sample });
+  assert.equal(r.idle, false);
+  assert.deepEqual(r.reasons, ['GPU busy 0.62 is not below the GPU idle threshold 0.25']);
+  assert.equal(r.gpu_idle_below, 0.25);
+  // The machine file sets the GPU bar; the report's 18% passes the default.
+  assert.equal(
+    readIdle({
+      machineRoot: '/none',
+      liveCount: 0,
+      sample,
+      machine: { load: { idle_gpu_busy: 0.7 } },
+    }).idle,
+    true,
+  );
+  assert.equal(parseGpuBusy('"Device Utilization %"=18'), 0.18);
+  // Unreadable: nothing is guessed, and only macOS is read.
+  assert.equal(parseGpuBusy(null), null);
+  assert.equal(parsePriorityCpu('garbage'), null);
+  const linux = sampleLoad({ platform: 'linux', loadPerCore: 0.1, run: () => assert.fail('read') });
+  assert.deepEqual(linux, { load_per_core: 0.1 });
+  const unreadable = macSample({}, 0.1);
+  assert.deepEqual(unreadable, { load_per_core: 0.1 });
+  assert.equal(
+    readIdle({
+      machineRoot: '/none',
+      liveCount: 0,
+      sample: unreadable,
+      machine: { load: { ignore_background: true } },
+    }).competing_per_core,
+    undefined,
+  );
+});
+
+test('the noise test speaks only with background work running, and env status shows it with the setting', () => {
+  const quietLoad = { load_per_core: 0.4, background_per_core: 0.12, foreground_per_core: 0.05 };
+  const close = [100, 101, 99, 100, 102, 100, 98, 101, 100, 100];
+  assert.equal(noiseVerdict(close, quietLoad).verdict, 'quiet');
+  const wide = [100, 140, 90, 100, 160, 100, 95, 130, 100, 100];
+  assert.equal(noiseVerdict(wide, quietLoad).verdict, 'noisy');
+  assert.equal(
+    noiseVerdict(close, { load_per_core: 0.1, background_per_core: 0 }).verdict,
+    'inconclusive',
+  );
+  assert.equal(noiseVerdict(close, { load_per_core: 0.1 }).verdict, 'unknown');
+  // The run: warm-ups, then the timed runs on the clock given, the load sampled around them.
+  let t = 0;
+  const result = runNoiseTest({
+    runs: 5,
+    clock: () => (t += 50),
+    unit: () => {},
+    sample: () => quietLoad,
+    now: () => new Date(T0),
+  });
+  assert.equal(result.runs, 5);
+  assert.equal(result.median_ms, 50);
+  assert.equal(result.verdict, 'quiet');
+  const dir = tempDir('hitld-noise-');
+  // env status: the setting says what it does, and is flagged until a noise test backs it.
+  const off = quietTestStatus(null, dir);
+  assert.equal(off.quiet_test.ignore_background, false);
+  assert.match(off.quiet_test.says, /off/);
+  assert.equal(off.quiet_test.noise_test, null);
+  assert.deepEqual(off.warnings, []);
+  const machine = { load: { ignore_background: true } };
+  const unbacked = quietTestStatus(machine, dir);
+  assert.match(unbacked.quiet_test.says, /on in the machine file/);
+  assert.match(unbacked.warnings[0], /no noise test backs it/);
+  writeNoiseResult(dir, result);
+  assert.equal(readNoiseResult(dir)?.verdict, 'quiet');
+  const backed = quietTestStatus(machine, dir);
+  assert.equal(backed.quiet_test.noise_test.verdict, 'quiet');
+  assert.deepEqual(backed.warnings, []);
+  writeNoiseResult(dir, { ...result, verdict: 'noisy', why: 'spread' });
+  assert.match(quietTestStatus(machine, dir).warnings[0], /reported noisy/);
 });
 
 test('the cadence state round-trips through the private store and refuses a damaged file', () => {
