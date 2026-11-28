@@ -625,11 +625,12 @@ export const commands = [
       });
       // Nothing under the name is held: releasing again, or for nothing, is not a failure.
       if (r.released || r.pid === undefined) return { ok: true, ...r };
-      // Never suggest the pid the caller already asked for (or its own): the hold is for that
-      // pid under another identity, a process that reused it, and --pid cannot help.
+      // Never suggest the pid the caller already asked for, or this command's own: the hold
+      // names that pid but was not matched to it here (another identity, host or boot), so
+      // --pid cannot release it.
       const message =
         r.pid === asked || r.pid === process.pid
-          ? `${resource} is held by ${holder} for pid ${r.pid} under another process identity than that pid has now (its ID may have been reused); it ends at its expiry, or end it now with --force (logged)`
+          ? `${resource} is held by ${holder} under pid ${r.pid}, but that hold is not matched to the process with that pid here, so --pid cannot release it; it goes once stale, or end it now with --force (logged)`
           : `${resource} is held by ${holder} for another live process (pid ${r.pid}); if that process is yours, pass --pid ${r.pid}; to end someone else's hold use --force (logged)`;
       return { ok: false, ...r, error: 'lock-held-elsewhere', message };
     }),

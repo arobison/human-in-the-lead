@@ -278,8 +278,9 @@ export function ticketGone(t, s) {
  * or another kind) says the pid now names another process. When either side's identity could not
  * be read, or is absent (an older copy's record keeps none), host, pid and boot decide: a caller
  * whose identity cannot be read renews by asking again and releases by name, as before identities.
- * That is safe for the name's holder: a record whose pid is the caller's, alive, is the caller's
- * or its process is gone.
+ * That match checks no grant token: host, pid, boot and the holder name bound it. It is safe for
+ * the name's holder: a record whose pid is the process asked for (the caller's own, or the one
+ * `--pid` names), alive on this host and boot, was written for that process or its process is gone.
  * @param {LockRecord | null | undefined} record
  * @param {{ pid: number, start?: string | null }} who
  * @param {{ host: string, boot?: string | null }} s

@@ -2693,7 +2693,7 @@ test('hitld env: setup, port, lock, exec and cleanup through the command line', 
   assert.equal(sameAsked.json.error, 'lock-held-elsewhere');
   assert.equal(sameAsked.json.pid, held.pid);
   assert.doesNotMatch(sameAsked.json.message, /pass --pid/);
-  assert.match(sameAsked.json.message, /another process identity .* --force \(logged\)/);
+  assert.match(sameAsked.json.message, /--pid cannot release it; .* --force \(logged\)/);
   writeFileSync(gpuFile, JSON.stringify(held) + '\n');
 
   // the executor's dispatch may run the declared task
