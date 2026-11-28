@@ -2,7 +2,7 @@
 id: HITLD-1020
 title: Every question the chief of staff puts to the owner goes through the question tool, never left open at the end of a reply
 kind: work
-state: in-progress
+state: done
 created: 2026-11-24
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
