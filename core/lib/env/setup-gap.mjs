@@ -156,14 +156,22 @@ export function worktreeSetup(o) {
   };
 }
 
+/** How much of a failed install's output the message carries, from its end. */
+const SETUP_TAIL = 800;
+
 /**
  * What a branch is told when env.worktree_setup fails on it and it changes dependencies: the
  * install failed, not a check, so the branch is not mistaken for one with a failing build.
- * @param {{ files: string[], command: string, where: string }} o where: the commit, as the
- *   branch's executor knows it ("your branch rebased onto main")
+ * The tail of the install's output goes in the message, since the follow-up carries the message
+ * and not the output.
+ * @param {{ files: string[], command: string, where: string, output: string }} o where: the
+ *   commit, as the branch's executor knows it ("your branch rebased onto main")
  */
-export const dependencySetupMessage = (o) =>
-  `Your branch changes dependencies (${o.files.join(', ')}), and the merge queue's worktree setup "${o.command}" (env.worktree_setup) failed on ${o.where}, so no check ran: this is not a failing build. Make the install pass on your branch (the lockfile matches the manifests, and every package it names can be fetched), then run "${o.command}" in a fresh worktree of your branch to see the same.`;
+export const dependencySetupMessage = (o) => {
+  const out = o.output.trim();
+  const tail = out.length > SETUP_TAIL ? `...${out.slice(-SETUP_TAIL)}` : out;
+  return `Your branch changes dependencies (${o.files.join(', ')}), and the merge queue's worktree setup "${o.command}" (env.worktree_setup) failed on ${o.where}, so no check ran: this is not a failing build.${tail ? ` Its output ended: ${tail}` : ''} Make the install pass on your branch (the lockfile matches the manifests, and every package it names can be fetched), then run "${o.command}" in a fresh worktree of your branch to see the same.`;
+};
 
 // What hitld install proposes for a fresh worktree and the merge queue (HITLD-976): the lockfile's
 // install as env.worktree_setup, and the check scripts the project's packages declare as

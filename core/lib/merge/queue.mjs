@@ -653,6 +653,7 @@ export async function runMergeQueue(r) {
               files: own,
               command: ready.command,
               where: `your branch rebased onto ${s.mainBranch}`,
+              output: ready.output,
             }),
             dispatch: e.dispatch,
           });

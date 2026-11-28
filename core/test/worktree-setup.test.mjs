@@ -184,8 +184,10 @@ test('with a setup that installs, the same branch merges', async () => {
 // HITLD-1054 (GitHub issue 667): the queue ran env.worktree_setup on main's tip and only then
 // checked out the branch under test, so a branch that adds a package failed in the queue's
 // worktree. The lockfile here lists the packages, one a line; the install makes a folder for each,
-// and refuses one named "unpublished"; the check needs a folder for each.
+// and refuses one named "unpublished", or any install where break.flag exists (a failure no
+// dependency file explains); the check needs a folder for each.
 const INSTALL = [
+  'if [ -e break.flag ]; then echo "the install is broken here" >&2; exit 1; fi',
   'rm -rf node_modules && mkdir node_modules',
   'while read -r p; do',
   '  [ -n "$p" ] || continue',
@@ -304,5 +306,24 @@ test('a branch whose dependencies cannot be installed is sent back saying it cha
   assert.match(message, /changes dependencies \(package-lock\.json\)/);
   assert.match(message, /not a failing build/);
   assert.match(String(result.rejected[0].output), /unpublished is not in the registry/);
+  // The follow-up carries the message, not the output: the install's own words reach the executor.
+  assert.match(message, /Its output ended: 404: unpublished is not in the registry/);
+  assert.equal(git(root, 'rev-parse', 'main'), before, 'main did not move');
+});
+
+test('a setup failure on a branch that changes no dependency file is an error, not a refusal of the branch', async () => {
+  // W-1's failed install leaves nothing installed, so setup runs again on W-2, which changes no
+  // dependency file and still cannot install: nothing on W-2 explains it.
+  const root = withPackages([['W-1', { 'package-lock.json': 'is-even\nunpublished\n' }]]);
+  git(root, 'switch', '-q', '-c', 'hitld/W-2', 'main');
+  writeFileSync(join(root, 'break.flag'), 'x\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'W-2: a change');
+  git(root, 'switch', '-q', 'main');
+  const before = git(root, 'rev-parse', 'main');
+  await assert.rejects(
+    queue(root, ['W-1', 'W-2']),
+    /setup failed at "sh install\.sh" on hitld\/W-2, which changes no dependency file: the install is broken here/,
+  );
   assert.equal(git(root, 'rev-parse', 'main'), before, 'main did not move');
 });

@@ -860,6 +860,7 @@ export async function runPullRequestQueue(r) {
               files: own,
               command: ready.command,
               where: `your branch with ${s.mainBranch} merged in`,
+              output: ready.output,
             }),
           });
           continue;

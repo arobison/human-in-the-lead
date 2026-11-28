@@ -310,11 +310,13 @@ test('after a merge the next branch is brought up to date by a merge, rebuilt, p
 
 // HITLD-1054 (GitHub issue 667): setup ran on main's tip, so the rebuild of a branch that adds a
 // package failed. The lockfile lists the packages, one a line; the install makes a folder for
-// each and refuses "unpublished"; the rebuild needs a folder for each.
+// each and refuses "unpublished", or any install where break.flag exists (a failure no dependency
+// file explains); the rebuild needs a folder for each.
 const PACKAGES = {
   '.gitignore': 'node_modules/\n',
   'package-lock.json': 'is-even\n',
   'install.sh': [
+    'if [ -e break.flag ]; then echo "the install is broken here" >&2; exit 1; fi',
     'rm -rf node_modules && mkdir node_modules',
     'while read -r p; do',
     '  [ -n "$p" ] || continue',
@@ -405,6 +407,25 @@ test('with nothing to rebuild the pull-request queue runs no setup, and one that
     assert.match(String(r.rejected[0].message), /changes dependencies \(package-lock\.json\)/);
     assert.match(String(r.rejected[0].message), /not a failing build/);
     assert.match(String(r.rejected[0].output), /unpublished is not in the registry/);
+    // The follow-up carries the message, not the output: the install's own words reach the executor.
+    assert.match(
+      String(r.rejected[0].message),
+      /Its output ended: 404: unpublished is not in the registry/,
+    );
+  } finally {
+    t.done();
+  }
+});
+
+test('a setup failure on a branch that changes no dependency file is an error in the pull-request queue, not a refusal', async () => {
+  const t = withPackages();
+  try {
+    const a = t.branch('W-1', { 'a.txt': 'a\n' });
+    const b = t.branch('W-2', { 'break.flag': 'x\n' });
+    await assert.rejects(
+      t.pass([a, b], { generated: REBUILD, setup: ['sh install.sh'] }),
+      /setup failed at "sh install\.sh" on hitld\/W-2, which changes no dependency file: the install is broken here/,
+    );
   } finally {
     t.done();
   }
