@@ -36,7 +36,7 @@ const FILES = ['core/lib/dispatch/plan.mjs', 'core/lib/dispatch/queue.mjs', 'doc
  * Rank the ready work in `items`, find its decision overlaps with touches derived from the text,
  * and plan it at `cap`.
  * @param {Record<string, any>[]} items
- * @param {{ cap?: number, only?: string, running?: any[], mergeFix?: boolean }} [o]
+ * @param {{ cap?: number, only?: string, running?: any[], mergeFix?: boolean, backlog?: { hold: boolean, why: string } }} [o]
  */
 function planOf(items, o = {}) {
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -70,6 +70,7 @@ function planOf(items, o = {}) {
     running: o.running ?? [],
     cap: o.cap ?? 2,
     mergeFix: o.mergeFix ?? false,
+    ...(o.backlog ? { backlog: o.backlog } : {}),
     capabilities: FAKE_PROFILES.full,
     gate: always,
     touches: (i) => ({ touches: touches(i), source: 'derived' }),
@@ -179,6 +180,26 @@ test('a merge fix is never held by an open decision: with the cap full and other
   assert.equal(plain.plan.waiting, 1);
   // As a merge fix it takes the slot past the cap, and the open decision holds nothing.
   const fix = planOf(items, { only: 'W-2', cap: 1, running, mergeFix: true });
+  assert.deepEqual(fix.start, ['W-2']);
+  assert.deepEqual(fix.plan.held, []);
+});
+
+test('the merge backlog holds before the decision hold: reason merge-backlog, no soft offer, and a merge fix still starts', () => {
+  const items = [
+    decision('D-1', { body: 'Should core/lib/dispatch/plan.mjs hold work for decisions?' }),
+    work('W-2', { body: 'Change core/lib/dispatch/plan.mjs to unstick the merge.' }),
+  ];
+  const backlog = { hold: true, why: 'a full batch of finished branches waits on the merge queue' };
+  // W-2 is the only ready work, so the decision hold alone would offer it with a note; the
+  // backlog holds it first, with its own reason, and nothing is offered.
+  const held = planOf(items, { backlog });
+  assert.deepEqual(held.start, []);
+  assert.deepEqual(
+    held.plan.held.map((h) => [h.item, h.reason]),
+    [['W-2', 'merge-backlog']],
+  );
+  // As a merge fix it passes both holds and starts.
+  const fix = planOf(items, { only: 'W-2', backlog, mergeFix: true });
   assert.deepEqual(fix.start, ['W-2']);
   assert.deepEqual(fix.plan.held, []);
 });
