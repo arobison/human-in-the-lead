@@ -180,3 +180,129 @@ test('with a setup that installs, the same branch merges', async () => {
     ['W-1'],
   );
 });
+
+// HITLD-1054 (GitHub issue 667): the queue ran env.worktree_setup on main's tip and only then
+// checked out the branch under test, so a branch that adds a package failed in the queue's
+// worktree. The lockfile here lists the packages, one a line; the install makes a folder for each,
+// and refuses one named "unpublished"; the check needs a folder for each.
+const INSTALL = [
+  'rm -rf node_modules && mkdir node_modules',
+  'while read -r p; do',
+  '  [ -n "$p" ] || continue',
+  '  if [ "$p" = unpublished ]; then echo "404: $p is not in the registry" >&2; exit 1; fi',
+  '  mkdir "node_modules/$p"',
+  'done < package-lock.json',
+  '',
+].join('\n');
+const NEEDS = [
+  'while read -r p; do',
+  '  [ -n "$p" ] || continue',
+  '  test -d "node_modules/$p" || { echo "cannot find module $p" >&2; exit 1; }',
+  'done < package-lock.json',
+  '',
+].join('\n');
+
+/**
+ * Main with one package installed by setup, and branches stacked on it, each with its files.
+ * @param {[string, Record<string, string>][]} branches
+ */
+function withPackages(branches) {
+  const root = repo(
+    {},
+    {
+      '.gitignore': 'node_modules/\n',
+      'package-lock.json': 'is-even\n',
+      'install.sh': INSTALL,
+      'check.sh': NEEDS,
+    },
+  );
+  let from = 'main';
+  for (const [id, files] of branches) {
+    git(root, 'switch', '-q', '-c', `hitld/${id}`, from);
+    for (const [path, text] of Object.entries(files)) writeFileSync(join(root, path), text);
+    git(root, 'add', '-A');
+    git(root, 'commit', '-q', '-m', `${id}: a change`);
+    from = `hitld/${id}`;
+  }
+  git(root, 'switch', '-q', 'main');
+  return root;
+}
+
+/** @param {string} root @param {string[]} ids */
+const queue = (root, ids) =>
+  runMergeQueue({
+    repoRoot: root,
+    entries: ids.map((id, i) => ({ item: id, branch: `hitld/${id}`, dispatch: `D-${i + 1}` })),
+    settings: queueSettings(['sh install.sh']),
+  });
+
+test('a branch that adds a package passes its checks in the queue: setup runs again on the branch, recorded as the batch', async () => {
+  const root = withPackages([['W-1', { 'package-lock.json': 'is-even\nleft-pad\n' }]]);
+  const result = await queue(root, ['W-1']);
+  assert.equal(result.incident, null);
+  assert.deepEqual(result.rejected, []);
+  assert.deepEqual(
+    result.merged.map((/** @type {any} */ m) => m.item),
+    ['W-1'],
+  );
+  assert.deepEqual(
+    result.setup.runs.map((x) => [x.kind, x.files]),
+    [
+      ['base', []],
+      ['batch', ['package-lock.json']],
+    ],
+  );
+  assert.equal(result.setup.runs[0].commit, result.main.before);
+  assert.equal(result.setup.runs[1].commit, result.merged[0].commit);
+});
+
+test('setup is reused on a commit that changes no dependency file, and runs again only where one changes', async () => {
+  const none = withPackages([['W-1', { 'a.txt': 'a\n' }]]);
+  const plain = await queue(none, ['W-1']);
+  assert.deepEqual(
+    plain.merged.map((/** @type {any} */ m) => m.item),
+    ['W-1'],
+  );
+  assert.deepEqual(
+    plain.setup.runs.map((x) => x.kind),
+    ['base'],
+  );
+  assert.ok(plain.setup.reused >= 1, 'the branch reused the base run');
+
+  const mixed = withPackages([
+    ['W-1', { 'a.txt': 'a\n' }],
+    ['W-2', { 'package-lock.json': 'is-even\nleft-pad\n' }],
+    ['W-3', { 'b.txt': 'b\n' }],
+  ]);
+  const r = await queue(mixed, ['W-1', 'W-2', 'W-3']);
+  assert.equal(r.incident, null);
+  assert.deepEqual(
+    r.merged.map((/** @type {any} */ m) => m.item),
+    ['W-1', 'W-2', 'W-3'],
+  );
+  assert.deepEqual(
+    r.setup.runs.map((x) => [x.kind, x.files]),
+    [
+      ['base', []],
+      ['batch', ['package-lock.json']],
+    ],
+    'one run for the base, one for the branch that changes the lockfile',
+  );
+});
+
+test('a branch whose dependencies cannot be installed is sent back saying it changes them, not as a failing build', async () => {
+  const root = withPackages([['W-1', { 'package-lock.json': 'is-even\nunpublished\n' }]]);
+  const before = git(root, 'rev-parse', 'main');
+  const result = await queue(root, ['W-1']);
+  assert.equal(result.incident, null, 'not an incident: the branch is the cause');
+  assert.deepEqual(result.merged, []);
+  assert.deepEqual(
+    result.rejected.map((x) => [x.item, x.reason, x.files, x.command]),
+    [['W-1', 'setup', ['package-lock.json'], 'sh install.sh']],
+  );
+  const message = String(result.rejected[0].message);
+  assert.match(message, /changes dependencies \(package-lock\.json\)/);
+  assert.match(message, /not a failing build/);
+  assert.match(String(result.rejected[0].output), /unpublished is not in the registry/);
+  assert.equal(git(root, 'rev-parse', 'main'), before, 'main did not move');
+});

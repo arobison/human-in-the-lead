@@ -7,6 +7,7 @@ created: 2026-11-25
 project: HITLD-15
 constraint_of: [HITLD-67 c?]
 claimed_by: D-01M8G82CSMK9GV0F
+release_note: "The merge queue runs `env.worktree_setup` on the commit it checks, not only on main's tip: a branch that adds a package or changes a lockfile is checked with its own dependencies installed. Setup runs again only where a dependency manifest or lockfile changed, each run is recorded as the base's or the batch's, and a branch whose dependencies cannot be installed is sent back with reason `setup`, saying it changes them. With pull requests, setup runs only before generated files are rebuilt."
 ---
 
 ## Done when

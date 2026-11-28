@@ -5,8 +5,9 @@
 // time (check policy, config explain, install) warn about it; the queue stops on it before it
 // checks a branch, when a lockfile shows what the worktree lacks.
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { globMatch } from '../precedent/glob.mjs';
 
 /**
@@ -84,6 +85,85 @@ export function emptyWorktree(dir, setup) {
     `(${propose(lock)}), ${ALSO}, then run hitld merge again`
   );
 }
+
+// Setup on the commit under test (HITLD-1054). The queue ran env.worktree_setup once, on main's
+// tip, and only then checked out the branches it tests, so a branch that adds a package or changes
+// the lockfile built in its executor's worktree and failed in the queue's. Setup runs on the commit
+// checked out instead, and again only when the dependency manifests or lockfiles differ from those
+// of the commit it last ran on: otherwise what it installed is reused.
+
+/**
+ * The dependency files (by name, in any folder) that differ between two commits, as their paths.
+ * @param {string} dir a worktree of the repository @param {string} from @param {string} to
+ * @param {Set<string>} names dependencyFileNames (merge/owner.mjs)
+ * @returns {string[]}
+ */
+export function dependencyChanges(dir, from, to, names) {
+  if (from === to) return [];
+  const r = spawnSync('git', ['diff', '--name-only', '--no-renames', '-z', from, to], {
+    cwd: dir,
+    encoding: 'utf8',
+  });
+  // An unreadable diff counts as a change: setup runs again rather than reuse a stale install.
+  if (r.status !== 0) return ['(unknown)'];
+  return (r.stdout ?? '').split('\0').filter((f) => f && names.has(basename(f)));
+}
+
+/**
+ * @typedef {{ kind: 'base' | 'batch', commit: string, files: string[] }} SetupRun one run of
+ *   env.worktree_setup: on the batch's base (main, or a held batch the next is built on) or on a
+ *   commit of the batch under test; files: the dependency files that differed from the commit it
+ *   last ran on, none on the first run
+ * @typedef {{ ok: true, ran: boolean } | { ok: false, command: string, output: string, files: string[] }} SetupOutcome
+ */
+
+/**
+ * env.worktree_setup for the queue's worktree, run on whatever commit the caller has checked out.
+ * `ensure` runs it when it has not run yet, when the last run failed, or when the dependency
+ * files differ from those of the commit it last ran on; otherwise it reuses that run.
+ * @param {{ dir: string, commands: string[], names: Set<string>,
+ *   exec: (command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string } }} o
+ */
+export function worktreeSetup(o) {
+  /** @type {string | null} the commit setup last ran on, successfully */
+  let installed = null;
+  /** What ran: each run, and the times a commit under test reused the last one. */
+  /** @type {{ runs: SetupRun[], reused: number }} */
+  const record = { runs: [], reused: 0 };
+  return {
+    record,
+    /**
+     * Setup for `commit`, which the worktree has checked out.
+     * @param {string} commit @param {'base' | 'batch'} kind
+     * @returns {SetupOutcome}
+     */
+    ensure(commit, kind) {
+      if (!o.commands.length) return { ok: true, ran: false };
+      const files = installed === null ? [] : dependencyChanges(o.dir, installed, commit, o.names);
+      if (installed !== null && !files.length) {
+        if (installed !== commit) record.reused++;
+        return { ok: true, ran: false };
+      }
+      installed = null;
+      record.runs.push({ kind, commit, files });
+      for (const command of o.commands) {
+        const out = o.exec(command, o.dir, {});
+        if (!out.ok) return { ok: false, command, output: out.output, files };
+      }
+      installed = commit;
+      return { ok: true, ran: true };
+    },
+  };
+}
+
+/**
+ * What a branch is told when env.worktree_setup fails on it and it changes dependencies: the
+ * install failed, not a check, so the branch is not mistaken for one with a failing build.
+ * @param {{ files: string[], command: string, where: string }} o where: the commit, as the
+ *   branch's executor knows it ("your branch rebased onto main")
+ */
+export const dependencySetupMessage = (o) =>
+  `Your branch changes dependencies (${o.files.join(', ')}), and the merge queue's worktree setup "${o.command}" (env.worktree_setup) failed on ${o.where}, so no check ran: this is not a failing build. Make the install pass on your branch (the lockfile matches the manifests, and every package it names can be fetched), then run "${o.command}" in a fresh worktree of your branch to see the same.`;
 
 // What hitld install proposes for a fresh worktree and the merge queue (HITLD-976): the lockfile's
 // install as env.worktree_setup, and the check scripts the project's packages declare as

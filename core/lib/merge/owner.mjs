@@ -526,6 +526,8 @@ export async function approvePresented(o) {
           failures: [],
           excused: [],
           burn_ins: [],
+          // Advancing to a held batch runs nothing: it was tested, and set up, when it was held.
+          setup: { runs: [], reused: 0 },
           suite_runs: 0,
           bisection_runs: 0,
           batches: 0,

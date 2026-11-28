@@ -40,7 +40,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { matchesAny } from '../precedent/glob.mjs';
 import { runShell } from './shell.mjs';
-import { emptyWorktree } from '../env/setup-gap.mjs';
+import {
+  dependencyChanges,
+  dependencySetupMessage,
+  emptyWorktree,
+  worktreeSetup,
+} from '../env/setup-gap.mjs';
+import { dependencyFileNames } from './owner.mjs';
 import { STRICT, checkCommits, problemLines } from '../guard/classification.mjs';
 import {
   QUARANTINE_PATH,
@@ -68,7 +74,11 @@ import {
  *   on any branch, as the claim and close commits edit them; the tracker's default when not given
  * @property {number} flakeReruns
  * @property {FlakeSettings} [flake] policy flake; the defaults when not given
- * @property {string[]} [setup] commands run once in the queue's fresh worktree (env.worktree_setup)
+ * @property {string[]} [setup] env.worktree_setup: run in the queue's worktree on the commit under
+ *   test, first on the batch's base, and again only on a commit whose dependency files differ from
+ *   those it last ran on (HITLD-1054)
+ * @property {string[]} [dependencyFiles] the names of the dependency manifests and lockfiles
+ *   (dependencyFileNames, owner.mjs, from main's policy); the built-in profiles' when not given
  * @property {import('../guard/classification.mjs').Rules} [classification] the commit guard's
  *   rules, from main's policy and tracker.json, with the private terms from the private store; the
  *   strictest (ceiling public, no terms) when not given
@@ -95,7 +105,7 @@ import {
  *
  * @typedef {(command: string, cwd: string, env: Record<string, string>) => { ok: boolean, output: string }} Exec
  *
- * @typedef {{ item: string, branch: string, reason: 'conflict' | 'closes' | 'classification' | 'duplicate_id' | 'knowledge_base' | 'quarantine' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
+ * @typedef {{ item: string, branch: string, reason: 'conflict' | 'closes' | 'classification' | 'duplicate_id' | 'knowledge_base' | 'quarantine' | 'setup' | 'fast_check' | 'burn_in' | 'security' | 'suite' | 'missing' | 'needs_rejected',
  *   files?: string[], conflict_class?: 'semantic', command?: string, output?: string, dispatch?: string,
  *   message?: string, findings?: import('./security.mjs').SentBack[] }} Rejected
  * @typedef {{ runs: number, failures: number }} SideRuns
@@ -288,6 +298,11 @@ export async function runMergeQueue(r) {
     excused: [],
     /** @type {BurnIn[]} */
     burn_ins: [],
+    /** Each run of env.worktree_setup, on the batch's base or on the batch under test, and how
+     * many commits under test reused the last run: setup runs again only where the dependency
+     * files changed (HITLD-1054).
+     * @type {{ runs: import('../env/setup-gap.mjs').SetupRun[], reused: number }} */
+    setup: { runs: [], reused: 0 },
     suite_runs: 0,
     bisection_runs: 0,
     batches: 0,
@@ -338,12 +353,26 @@ export async function runMergeQueue(r) {
       result.incident = { kind: 'setup', message: empty };
       return result;
     }
-    for (const cmd of s.setup ?? []) {
-      const out = exec(cmd, dir, {});
-      if (!out.ok) throw new Error(`the queue worktree's setup failed at "${cmd}": ${out.output}`);
-    }
     /** @param {string} sha */
     const checkout = (sha) => gitOk(dir, ['checkout', '--detach', '--force', '--quiet', sha]);
+    // Setup runs on the commit checked out, never only on main's tip: a branch that adds a package
+    // or changes the lockfile is checked with its own dependencies installed (HITLD-1054).
+    const dependencyNames = new Set(s.dependencyFiles ?? dependencyFileNames({}));
+    const setup = worktreeSetup({ dir, commands: s.setup ?? [], names: dependencyNames, exec });
+    result.setup = setup.record;
+    /**
+     * Setup on a commit the worktree has checked out; throws when it fails on a commit no branch
+     * is to blame for. @param {string} sha @param {'base' | 'batch'} kind
+     */
+    const setupOrThrow = (sha, kind) => {
+      const out = setup.ensure(sha, kind);
+      if (!out.ok) {
+        throw new Error(
+          `the queue worktree's setup failed at "${out.command}" on ${sha.slice(0, 12)}: ${out.output}`,
+        );
+      }
+    };
+    setupOrThrow(result.main.before, 'base');
 
     let reports = 0;
     /** The files the batch under test adds or changes: a quarantined test defined in one of them is the branch's to fix.
@@ -361,6 +390,15 @@ export async function runMergeQueue(r) {
      */
     const suite = (sha, onBase = false) => {
       checkout(sha);
+      const ready = setup.ensure(sha, onBase ? 'base' : 'batch');
+      if (!ready.ok) {
+        return {
+          ok: false,
+          command: ready.command,
+          output: `env.worktree_setup failed on ${sha.slice(0, 12)}${ready.files.length ? `, which changes ${ready.files.join(', ')}` : ''}, so the full suite did not run: ${ready.output}`,
+          failed: null,
+        };
+      }
       for (const cmd of s.fullSuite) {
         const report = join(reportDir, `report-${++reports}.json`);
         const out = exec(cmd, dir, { HITLD_MERGE_COMMIT: sha, HITLD_TEST_REPORT: report });
@@ -594,6 +632,33 @@ export async function runMergeQueue(r) {
           rejectedNow.add(e.item);
           continue;
         }
+        // Setup on the branch as rebased, before any check runs there: again only when it changes
+        // the dependency files. A failure is the branch's when it changes them, and says so.
+        const ready = setup.ensure(head, 'batch');
+        if (!ready.ok) {
+          const own = dependencyChanges(dir, tip, head, dependencyNames);
+          if (!own.length) {
+            throw new Error(
+              `the queue worktree's setup failed at "${ready.command}" on ${e.branch}, which changes no dependency file: ${ready.output}`,
+            );
+          }
+          result.rejected.push({
+            item: e.item,
+            branch: e.branch,
+            reason: 'setup',
+            files: own,
+            command: ready.command,
+            output: ready.output,
+            message: dependencySetupMessage({
+              files: own,
+              command: ready.command,
+              where: `your branch rebased onto ${s.mainBranch}`,
+            }),
+            dispatch: e.dispatch,
+          });
+          rejectedNow.add(e.item);
+          continue;
+        }
         /** @type {{ cmd: string, output: string } | null} */
         let failed = null;
         for (const cmd of s.fastChecks) {
@@ -690,6 +755,7 @@ export async function runMergeQueue(r) {
 
       // Regenerate generated files and views on top, so the tested commit includes them.
       checkout(tip);
+      setupOrThrow(tip, 'batch');
       for (const g of s.generated) {
         if (!g.regenerate) continue;
         const out = exec(g.regenerate, dir, {});
