@@ -26,6 +26,11 @@ test('the chief-of-staff skill records an approval before a presentation with --
     /It applies when the queue presents that head, or that head followed only by clean merges of main, whether the queue or the executor pushed them; it is dropped if the branch is sent back or the head changes by anything else/,
   );
   assert.match(bullet, /`no-pull-request`/);
+  assert.match(bullet, /refused as `stale`/);
+  assert.match(
+    bullet,
+    /Wake the orchestrator with `merge approved` when the result says `presented: true`/,
+  );
 });
 
 test('the orchestrate skill says an approval can arrive before a presentation and plain hitld merge applies it', () => {
@@ -37,5 +42,10 @@ test('the orchestrate skill says an approval can arrive before a presentation an
   assert.match(
     text,
     /An approval can also arrive before the queue presents a pull request, recorded for its head \(`--head`\); plain `hitld merge` applies it/,
+  );
+  assert.match(text, /`approved_ahead` says whether it was applied, dropped or expired/);
+  assert.match(
+    text,
+    /Once applied, an approval, early or not, holds across the queue's own updates/,
   );
 });
