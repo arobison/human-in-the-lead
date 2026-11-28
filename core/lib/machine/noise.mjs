@@ -11,9 +11,9 @@
 //
 // The workload is what background work would disturb: one worker thread per core, each hashing a
 // shared buffer larger than the processor's caches, so a run needs every core and memory
-// bandwidth. The load is sampled after every timed run, so the background reading covers the runs
-// and not only the moments around them. It is bounded: the workers end when the test ends,
-// whatever happened, and a hard time cap stops it.
+// bandwidth. The load is sampled before the first timed run and right after each one, between
+// runs, so a sample never lands inside a timing. It is bounded: the workers end when the test
+// ends, whatever happened, and a hard time cap stops it.
 
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
@@ -90,38 +90,70 @@ parentPort.on('message', () => {
 
 /**
  * The real workload: one worker per core over one shared buffer larger than the caches. Each
- * worker starts at its own offset, so they do not read the same lines at once.
- * @param {{ threads?: number, bytes?: number }} [options]
+ * worker starts at its own offset, so they do not read the same lines at once. When a worker cannot
+ * be started, the ones already started are terminated before the error is thrown. A worker that
+ * exits without answering fails its run at once, not at the time cap.
+ * @param {{ threads?: number, bytes?: number,
+ *   spawn?: (source: string, options: import('node:worker_threads').WorkerOptions) => Worker }} [options]
+ *   spawn replaces starting a worker, for tests
  * @returns {Workload}
  */
 export function cpuMemoryWorkload(options = {}) {
   const threads = Math.max(1, options.threads ?? availableParallelism());
   const bytes = options.bytes ?? BUFFER_BYTES;
+  const spawn = options.spawn ?? ((source, o) => new Worker(source, o));
   const buffer = new SharedArrayBuffer(bytes);
   const view = new Uint8Array(buffer);
   for (let i = 0; i < bytes; i += 4096) view[i] = (i >>> 12) & 0xff;
-  const workers = Array.from(
-    { length: threads },
-    (_, i) =>
-      new Worker(WORKER_SOURCE, {
+  /** @type {Worker[]} */
+  const workers = [];
+  /** @type {Map<Worker, number>} the exit code of each worker that has exited */
+  const exited = new Map();
+  try {
+    for (let i = 0; i < threads; i += 1) {
+      const w = spawn(WORKER_SOURCE, {
         eval: true,
         workerData: { buffer, offset: Math.floor((bytes / threads) * i) },
-      }),
-  );
+      });
+      workers.push(w);
+      w.once('exit', (code) => exited.set(w, code));
+    }
+  } catch (e) {
+    for (const w of workers) w.terminate().catch(() => {});
+    throw e;
+  }
+  /** @param {number} code */
+  const exitError = (code) =>
+    new Error(`a noise worker exited (code ${code}) before it finished its run`);
   /** @param {Worker} w @returns {Promise<void>} */
   const one = (w) =>
     new Promise((resolve, reject) => {
+      if (exited.has(w)) {
+        reject(exitError(/** @type {number} */ (exited.get(w))));
+        return;
+      }
+      const off = () => {
+        w.off('message', done);
+        w.off('error', failed);
+        w.off('exit', gone);
+      };
       /** @param {Error} e */
       const failed = (e) => {
-        w.off('message', done);
+        off();
         reject(e);
       };
+      /** @param {number} code */
+      const gone = (code) => {
+        off();
+        reject(exitError(code));
+      };
       const done = () => {
-        w.off('error', failed);
+        off();
         resolve();
       };
       w.once('message', done);
       w.once('error', failed);
+      w.once('exit', gone);
       w.postMessage('run');
     });
   return {
@@ -143,7 +175,7 @@ const quantile = (sorted, q) =>
 const round = (n, places = 3) => Math.round(n * 10 ** places) / 10 ** places;
 
 /**
- * The verdict from timings and the load during them; pure, for tests.
+ * The verdict from timings and the load sampled between them; pure, for tests.
  * @param {number[]} timings milliseconds per run
  * @param {import('../cadence/idle.mjs').LoadSample} load
  * @returns {{ verdict: Verdict, why: string, median_ms: number, spread: number }}
@@ -234,7 +266,8 @@ export async function runNoiseTest(options = {}) {
   /** @type {number[]} */
   const timings = [];
   let capped = false;
-  const workload = (options.workload ?? (() => cpuMemoryWorkload()))();
+  /** @type {Workload | undefined} */
+  let workload;
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let timer;
   const deadline = new Promise((resolve) => {
@@ -242,9 +275,13 @@ export async function runNoiseTest(options = {}) {
     timer = setTimeout(() => resolve('cap'), capMs);
   });
   try {
+    // Built inside the try, so a workload that fails to start still clears the timer; one that
+    // fails part way has terminated what it started (cpuMemoryWorkload) and leaves nothing to stop.
+    const started = (options.workload ?? (() => cpuMemoryWorkload()))();
+    workload = started;
     /** @returns {Promise<boolean>} whether the run finished inside the cap */
     const timed = async () => {
-      const running = workload.run();
+      const running = started.run();
       // A run that fails after the cap won the race is not left unhandled; one that fails first
       // still rejects the race.
       running.catch(() => {});
@@ -269,7 +306,7 @@ export async function runNoiseTest(options = {}) {
     }
   } finally {
     clearTimeout(timer);
-    await workload.stop();
+    if (workload) await workload.stop();
   }
   /** @type {import('../cadence/idle.mjs').LoadSample} */
   const load = { load_per_core: medianOf(samples.map((s) => s.load_per_core)) ?? 0 };
@@ -290,7 +327,7 @@ export async function runNoiseTest(options = {}) {
     verdict: v.verdict,
     why: capped ? `stopped at the ${capMs / 1000} second cap; ${v.why}` : v.why,
     runs: timings.length,
-    threads: workload.threads,
+    threads: workload?.threads ?? 0,
     samples: samples.length,
     ...(capped ? { capped: true } : {}),
     median_ms: v.median_ms,

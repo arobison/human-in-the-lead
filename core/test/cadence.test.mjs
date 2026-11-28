@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { resolvePolicy } from '../lib/policy/policy.mjs';
 import { schemas } from '../lib/schema/registry.mjs';
 import { appendEvent } from '../lib/ledger/ledger.mjs';
@@ -510,8 +511,8 @@ test('the noise test speaks only with background work running, and env status sh
     noiseVerdict(close, { load_per_core: 0.1, background_per_core: NaN }).verdict,
     'unknown',
   );
-  // The run: a warm-up, then the timed runs on the clock given, the load sampled after each run
-  // (so during the test, not only around it), the medians kept and the workload stopped.
+  // The run: a warm-up, then the timed runs on the clock given, the load sampled before the first
+  // and right after each run, between runs, the medians kept and the workload stopped.
   let t = 0;
   const fake = fakeWorkload();
   const backgrounds = [0.3, 0.1, 0.12, 0.14, 0.12, 0.13];
@@ -594,6 +595,72 @@ test('the real noise workload runs on worker threads over a shared buffer and le
   await workload.run();
   await workload.run();
   await workload.stop();
+});
+
+test('a noise worker that exits without answering fails its run at once, not at the cap', async () => {
+  // Each worker exits as soon as it is asked to run, posting nothing and raising no error.
+  const silent = `require('node:worker_threads').parentPort.on('message', () => process.exit(3));`;
+  const workload = cpuMemoryWorkload({
+    threads: 2,
+    bytes: 1024 * 1024,
+    spawn: (_source, o) => new Worker(silent, { ...o, eval: true }),
+  });
+  const started = Date.now();
+  await assert.rejects(
+    workload.run(),
+    /a noise worker exited \(code 3\) before it finished its run/,
+  );
+  // Asked again, the workers that are gone fail the run at once too.
+  await assert.rejects(workload.run(), /exited \(code 3\)/);
+  assert.ok(Date.now() - started < 10_000);
+  await workload.stop();
+  // Through the test: it rejects at once, the cap far away.
+  const viaTest = runNoiseTest({
+    capMs: 60_000,
+    sample: () => ({ load_per_core: 0 }),
+    workload: () =>
+      cpuMemoryWorkload({
+        threads: 1,
+        bytes: 1024 * 1024,
+        spawn: (_source, o) => new Worker(silent, { ...o, eval: true }),
+      }),
+  });
+  await assert.rejects(viaTest, /exited/);
+});
+
+test('a worker that cannot start terminates the ones already started, and the test still ends', async () => {
+  /** @type {{ terminated: number }[]} */
+  const made = [];
+  const spawn = () => {
+    if (made.length === 1) throw new Error('cannot start a worker');
+    const fake = {
+      terminated: 0,
+      once: () => fake,
+      terminate: async () => {
+        fake.terminated += 1;
+        return 0;
+      },
+    };
+    made.push(fake);
+    return /** @type {any} */ (fake);
+  };
+  assert.throws(
+    () => cpuMemoryWorkload({ threads: 3, bytes: 4096, spawn }),
+    /cannot start a worker/,
+  );
+  assert.equal(made.length, 1);
+  assert.equal(made[0].terminated, 1);
+  // The same failure inside the test: it rejects, clears its timer and stops nothing twice.
+  made.length = 0;
+  await assert.rejects(
+    runNoiseTest({
+      capMs: 60_000,
+      sample: () => ({ load_per_core: 0 }),
+      workload: () => cpuMemoryWorkload({ threads: 3, bytes: 4096, spawn }),
+    }),
+    /cannot start a worker/,
+  );
+  assert.equal(made[0].terminated, 1);
 });
 
 test('the idle test never reads a figure that is not a number as idle, and reads ps and ioreg with care', () => {

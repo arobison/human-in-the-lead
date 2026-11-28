@@ -98,7 +98,7 @@ export const commands = [
   {
     name: 'machine noise',
     summary:
-      'Check whether the background-priority work running now leaves a measurement alone: time a fixed workload on every core over a buffer larger than the caches several times, sampling the load between runs, report how far the timings spread and how much background work ran (macOS reads priorities), and keep the result for env status. The evidence for load.ignore_background in the machine file. Stops at a hard time cap',
+      'Check whether the background-priority work running now leaves a measurement alone: time a fixed workload on every core over a buffer larger than the caches several times, sampling the load right after each run (between runs, so a sample never lands inside a timing), report how far the timings spread and how much background work ran (macOS reads priorities), and keep the result for env status. The evidence for load.ignore_background in the machine file. Stops at a hard time cap',
     built_by: 'settings-hold',
     args: [
       {
