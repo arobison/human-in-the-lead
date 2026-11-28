@@ -1080,6 +1080,19 @@ test('dispatch start takes any ready item a free slot allows; finished work awai
     refill.awaiting_merge.map((/** @type {any} */ a) => [a.item, a.dispatch, a.branch]),
     [['W-4', d1, branch]],
   );
+  // The plan and the run's status show the merge backlog, split by what each branch waits on
+  // (HITLD-1046): one below a batch holds nothing.
+  const backlog = refill.merge_backlog;
+  assert.equal(backlog.total, 1);
+  assert.deepEqual(backlog.merge_queue.items, ['W-4']);
+  assert.equal(backlog.merge_queue.oldest, 'W-4');
+  assert.equal(typeof backlog.merge_queue.oldest_waited, 'string');
+  assert.deepEqual([backlog.owner.count, backlog.checks.count], [0, 0]);
+  assert.deepEqual([backlog.batch_max, backlog.hold], [4, false]);
+  assert.deepEqual(refill.owner_queue, { waiting: 0, max: 4, full: false, deferred: [] });
+  const status = (await c.hitld(['run', 'status'])).result.merge_backlog;
+  assert.deepEqual(status.merge_queue.items, ['W-4']);
+  assert.equal(status.merge_queue.oldest_since, backlog.merge_queue.oldest_since);
   const ready = await c.hitld(['ready']);
   assert.ok(!ready.result.queue.some((/** @type {any} */ q) => q.id === 'W-4'));
   const again = await c.hitld(['dispatch', 'start', 'W-4']);

@@ -47,6 +47,9 @@ import { CONTRACT_COMMANDS, PERMISSIONS_REASON } from './permissions.mjs';
 
 const LEVELS = ['public', 'internal', 'confidential', 'secret'];
 
+/** The reason a start the merge backlog holds carries (dispatch/backlog.mjs). */
+export const BACKLOG_REASON = 'merge-backlog';
+
 /**
  * `queue` holds the ready items in priority order; `cap` is the run's concurrency cap;
  * `heldElsewhere` names the holder of a machine lock another holder has, or null.
@@ -66,6 +69,7 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   touches?: (item: Item) => import('./touches.mjs').Touches,
  *   executorModes?: (item: Item) => ModeAbility,
  *   mergeFix?: boolean,
+ *   backlog?: { hold: boolean, why: string },
  * }} r
  *   setup: until the first-run setup is done (design part 13.4), every item waits (reason
  *   `setup`) and the cap is one, except `byHand`, the one item the person started by hand
@@ -80,6 +84,9 @@ const LEVELS = ['public', 'internal', 'confidential', 'secret'];
  *   quota gate's economize mode, a setup not done) cannot deadlock behind branches waiting to
  *   merge. One past only: a second fix waits for a slot as any item does. A harness that runs one
  *   executor at a time gives no slot past it
+ *   backlog: the merge backlog's hold (backlog.mjs): with one full batch of finished branches
+ *   waiting on the merge queue, every dispatched start is held (reason merge-backlog), except the
+ *   one item that fixes a stuck merge; tier-0 work, done inline, is not a start and goes on
  */
 export function planDispatch(r) {
   const caps = r.capabilities;
@@ -93,6 +100,8 @@ export function planDispatch(r) {
   const setupWait = r.setup && !r.setup.done ? r.setup : null;
   // Below the machine's disk floor nothing new starts, inline work included (machine/disk.mjs).
   const diskFull = r.disk?.state === 'below' ? r.disk : null;
+  const backlogHold = r.backlog?.hold && !r.mergeFix ? r.backlog : null;
+  if (backlogHold) notes.push(`starts hold for the merge backlog: ${backlogHold.why}`);
   if (setupWait) {
     cap = Math.min(cap, 1);
     notes.push('setup not done: conservative defaults apply (one executor, the default reserve)');
@@ -155,6 +164,10 @@ export function planDispatch(r) {
         touches: touchesOf(item),
         notes: ['the orchestrator does it inline, through the merge queue as a tier-0 branch'],
       });
+      continue;
+    }
+    if (backlogHold) {
+      held.push({ item: id, reason: BACKLOG_REASON, why: backlogHold.why });
       continue;
     }
     const level = LEVELS.indexOf(String(item.classification ?? 'internal'));

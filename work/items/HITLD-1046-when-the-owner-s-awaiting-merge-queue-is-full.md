@@ -2,11 +2,13 @@
 id: HITLD-1046
 title: When the owner's awaiting-merge queue is full, the ready queue offers work that does not route to the owner first
 kind: work
-state: planned
+state: done
 created: 2026-11-25
 project: HITLD-15
 needs: [HITLD-995]
 constraint_of: [HITLD-67 c?]
+claimed_by: D-01M8G8P5TFF9RWTX
+release_note: "With dispatch.owner_queue_max (default 4) branches waiting on the owner, the plan offers work that does not route to the owner first; starts hold while one batch (merge.batch_max) waits on the merge queue; the plan and run status show the merge backlog by what it waits on and its oldest age."
 ---
 
 ## Done when
@@ -23,4 +25,4 @@ The owner's attention is the scarce resource. Starting more owner-held work when
 
 ## Notes
 
-rc.2, the owner's word (2026-11-25). Widened the same day, at the owner's word, with GitHub issue 677 (the refill keeps starting work while finished branches pile up): the design already lists the owner's awaiting-merge queue and merge risk as limits on executor count (parts 2.5 and 13.4) and the code does not. The hold is derived from `merge.batch_max`, not a new count the owner sets; waiting on the owner is a different backlog from waiting on the merge queue and is not stopped by the queue-held count. Not here: merge-gate priority over executors' heavy jobs (HITLD-1011, HITLD-559, rc.3) and the cost of every merge sending other waiting branches back for another round (the proposed item filed with this change). Follows HITLD-995. A new settings key is a policy surface: the owner's own yes at merge. The advisor found no code for the limit of four (it is HITLD-865's by-hand rule), so this item moves it into a setting.
+rc.2, the owner's word (2026-11-25). Widened the same day, at the owner's word, with GitHub issue 677 (the refill keeps starting work while finished branches pile up): the design already lists the owner's awaiting-merge queue and merge risk as limits on executor count (parts 2.5 and 13.4) and the code does not. The hold is derived from `merge.batch_max`, not a new count the owner sets; waiting on the owner is a different backlog from waiting on the merge queue and is not stopped by the queue-held count. Not here: merge-gate priority over executors' heavy jobs (HITLD-1011, HITLD-559, rc.3) and the cost of every merge sending other waiting branches back for another round (the proposed item filed with this change). Follows HITLD-995. A new settings key is a policy surface: the owner's own yes at merge. As built, the merge-backlog hold also holds `--by-hand` starts; follow-ups to a sent-back branch and `--fixes-merge` starts still go. The advisor found no code for the limit of four (it is HITLD-865's by-hand rule), so this item moves it into a setting.
